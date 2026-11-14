@@ -1626,6 +1626,7 @@ export function seedOrchestrator(deps: {
   insert: SeedOrchestratorDependencies['insert'];
   describeCreateableFields: NonNullable<SeedOrchestratorDependencies['describeCreateableFields']>;
   describeVisibleFields?: SeedOrchestratorDependencies['describeVisibleFields'];
+  describeComputedFields?: SeedOrchestratorDependencies['describeComputedFields'];
   readExistingParentIds: NonNullable<SeedOrchestratorDependencies['readExistingParentIds']>;
   readPresentParentIds?: SeedOrchestratorDependencies['readPresentParentIds'];
   describeKeyPrefix?: SeedOrchestratorDependencies['describeKeyPrefix'];
@@ -1655,6 +1656,7 @@ export function seedOrchestrator(deps: {
     ...(deps.describeKeyPrefix ? { describeKeyPrefix: deps.describeKeyPrefix } : {}),
     describeCreateableFields: deps.describeCreateableFields,
     ...(deps.describeVisibleFields ? { describeVisibleFields: deps.describeVisibleFields } : {}),
+    ...(deps.describeComputedFields ? { describeComputedFields: deps.describeComputedFields } : {}),
     ...(deps.describePicklistValues ? { describePicklistValues: deps.describePicklistValues } : {}),
     ...(deps.describeFieldLengths ? { describeFieldLengths: deps.describeFieldLengths } : {}),
     ...(deps.describeRequiredFields ? { describeRequiredFields: deps.describeRequiredFields } : {}),
@@ -2133,7 +2135,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
       log(
         closed
-          ? `  ${spec.objectApiName}: the user this seed runs as may not create its records: skipped`
+          ? `  ${spec.objectApiName}: the user this seed runs as may not create its records: ` +
+              'skipped (give that user Create on it in a permission set)'
           : `  ${spec.objectApiName}: ${rules.map((r) => r.fieldApiName).join(', ') || '(none)'}`,
       );
       objects.push({
@@ -2361,7 +2364,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         code: SEED_FIT_STORAGE_UNREAD,
         message:
           `The seed was refused before it wrote anything: it cannot be fitted to ${args.target}, ` +
-          `whose data storage left could not be read (${budget.unread}). Nothing was written.`,
+          `whose data storage left could not be read (${budget.unread}): give --fit-within ` +
+          '<MB>, the most it may take, to fit it to that. Nothing was written.',
       });
     } else {
       const fitted = fitSeedTemplate({
@@ -2613,6 +2617,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     describeKeyPrefix: described.keyPrefix,
     describeCreateableFields: described.createable,
     describeVisibleFields: described.visible,
+    describeComputedFields: described.computed,
     describePicklistValues: described.picklistValues,
     describeFieldLengths: described.lengths,
     // What the org requires less what the kind of account written does not

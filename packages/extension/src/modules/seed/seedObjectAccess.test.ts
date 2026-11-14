@@ -117,7 +117,8 @@ describe('seedObjectAccess', () => {
     const access = seedObjectAccess(org());
     expect(await access('Knowledge__kav')).toEqual({
       access: 'absent',
-      reason: 'Salesforce Knowledge is not turned on in it',
+      reason:
+        'Salesforce Knowledge is not turned on in it: tick Knowledge User on your user (Setup > Users), then enable it in Setup > Knowledge Settings',
     });
     expect(await access('Missing__c')).toEqual({ access: 'absent' });
   });

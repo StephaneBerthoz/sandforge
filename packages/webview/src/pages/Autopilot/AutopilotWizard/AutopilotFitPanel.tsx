@@ -285,8 +285,8 @@ export const AutopilotFitReportView = React.forwardRef<
       bound = t('autopilot.fit.boundStorage', {
         fits,
         near: shareRoundedDown(budget.share),
-        remaining: formatNumber(budget.remainingMB),
-        max: formatNumber(budget.maxMB),
+        remaining: formatNumber(budget.remainingMB ?? 0),
+        max: formatNumber(budget.maxMB ?? 0),
         rounding: formatNumber(budget.roundingMB),
         org,
       });

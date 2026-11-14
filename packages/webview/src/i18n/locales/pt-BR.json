@@ -66,7 +66,7 @@
       "autopilotNotReady": "O Autopilot ainda não foi carregado nesta janela, e nada foi alterado na org. Aguarde alguns segundos e tente novamente; se continuar assim, recarregue a janela (Developer: Reload Window).",
       "autopilotStorageExceeded": "A execução do Autopilot foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta na org de destino. Reduza a seleção ou libere armazenamento de dados na org de destino.",
       "autopilotWriteDeclined": "Você cancelou a execução do Autopilot antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino.",
-      "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
+      "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la. Execute-a de novo pela página do Autopilot no VS Code, onde a pergunta é feita.",
       "transformNoField_one": "A regra {{rules}} não nomeia nenhum campo: abra a configuração e escolha o campo dela. Sem campo, ela alteraria cada campo de cada registro, incluindo tipos de registro e campos de pesquisa. Nada foi lido nem gravado.",
       "transformNoField_other": "As regras {{rules}} não nomeiam nenhum campo: abra a configuração e escolha os campos delas. Sem campo, cada uma alteraria cada campo de cada registro, incluindo tipos de registro e campos de pesquisa. Nada foi lido nem gravado.",
       "transformRuleOn": "{{rule}} em {{object}}",
@@ -74,17 +74,20 @@
       "transformBadPattern_other": "As regras {{rules}} têm padrões que não são expressões regulares: abra a configuração e corrija-os, ou remova as regras. Ao ser executada, cada uma pararia a sincronização em seu objeto antes de gravar qualquer um de seus registros. Nada foi lido nem gravado.",
       "transformPatternOn": "{{rule}} em {{object}}, \"{{pattern}}\" ({{reason}})",
       "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}.",
+      "csvStorageExceeded_one": "A importação foi recusada antes de gravar qualquer coisa: sua {{rows}} linha ocupa cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Libere armazenamento de dados em {{org}} e importe-a de novo.",
+      "csvStorageExceeded_other": "A importação foi recusada antes de gravar qualquer coisa: suas {{rows}} linhas ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}, espaço para cerca de {{fitting}} delas. Divida o arquivo e importe uma parte por vez, liberando armazenamento de dados em {{org}} entre elas se preciso.",
       "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou marque Silenciar as automações do destino nesta execução: só durante a execução, ela atribui a você as exceções que eles testam.",
+      "seedEmailsExceededScenario": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Volte e reduza customers.count com Editar como JSON, desative {{senders}} ou marque Silenciar as automações do destino nesta execução: só durante a execução, ela atribui a você as exceções que eles testam.",
       "seedWriteDeclined": "O seed foi cancelado antes de gravar qualquer coisa. Nada foi gravado na org de destino.",
       "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar.",
       "autopilotRunning": "Uma execução do Autopilot ainda está gravando nesta org de destino, e nada mais foi iniciado: as Operações ao vivo do Monitor mostram em que ponto ela está. Inicie outra quando ela terminar.",
       "muteProduction": "As automações do destino nunca são silenciadas em uma org de produção, nem em uma que não se possa distinguir de uma: nada foi atribuído nem gravado. Execute sem silenciar.",
-      "muteNoRight": "Não é possível silenciar as automações do destino: o usuário com o qual a execução grava não pode atribuir conjuntos de permissões (é preciso Atribuir conjuntos de permissões ou Gerenciar usuários), ou a org não quis dizer. Nada foi atribuído nem gravado.",
+      "muteNoRight": "Não é possível silenciar as automações do destino: o usuário com o qual a execução grava não pode atribuir conjuntos de permissões (é preciso Atribuir conjuntos de permissões ou Gerenciar usuários), ou a org não quis dizer. Nada foi atribuído nem gravado. Desmarque Silenciar as automações do destino nesta execução e execute de novo, ou peça a um administrador que dê a esse usuário Atribuir conjuntos de permissões.",
       "muteFailed": "Não foi possível silenciar as automações do destino, então nada foi gravado: {{reason}}",
       "muteCheckpoint": "Não foi possível silenciar as automações da org, então nada foi gravado: {{reason}}",
       "autopilotStorageExceededFigures": "A execução do Autopilot foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Ajuste o plano ao armazenamento, reduza a seleção ou libere armazenamento de dados em {{org}}.",
-      "autopilotFitStorageUnread": "O plano não foi ajustado: a org de destino não informou quanto armazenamento de dados lhe resta ({{reason}}). O plano em revisão não mudou.",
-      "autopilotFitReadRefused": "O plano não foi ajustado: a org de origem recusou uma leitura dos seus registros ({{reason}}). Nada foi escolhido do que não foi lido, e o plano em revisão não mudou.",
+      "autopilotFitStorageUnread": "O plano não foi ajustado: a org de destino não informou quanto armazenamento de dados lhe resta ({{reason}}). O plano em revisão não mudou. Informe em “Não usar mais de (MB)” o máximo que ele pode ocupar e ajuste-o a isso.",
+      "autopilotFitReadRefused": "O plano não foi ajustado: a org de origem recusou uma leitura dos seus registros ({{reason}}). Nada foi escolhido do que não foi lido, e o plano em revisão não mudou. Ajuste-o de novo; se a origem recusar outra vez, reduza a seleção ou execute o plano sem ajuste onde ele couber no destino.",
       "autopilotFitStale": "O plano mudou enquanto era ajustado: ajuste-o de novo.",
       "autopilotNoPlan": "Não há mais plano a ajustar nesta janela: volte aos objetos e planeje de novo."
     },
@@ -823,7 +826,7 @@
         "title": "Arraste e solte seu arquivo CSV aqui",
         "subtitle": "ou clique no botão para procurar",
         "browse": "Procurar arquivos",
-        "maxSize": "Arquivo excede o tamanho máximo de {{max}} MB"
+        "maxSize": "Este arquivo ocupa {{size}} MB, mais que os {{max}} MB que o upload de CSV lê de uma vez: divida-o em arquivos menores, ou salve-o sem as colunas que você não importa, e envie cada parte."
       },
       "mapper": {
         "title": "Mapear colunas CSV para campos do Salesforce",
@@ -1044,11 +1047,15 @@
         "PRODUCTION_GUARD_BLOCKED": "A proteção de produção bloqueou esta clonagem antes de gravar qualquer registro.",
         "CLONE_FAILED": "A clonagem parou antes de terminar.",
         "CLONE_EMAILS_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Restrinja os filtros de {{objects}} ou retire-os, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
+        "CLONE_STORAGE_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Os mais pesados: {{heaviest}}. Restrinja o filtro deles ou retire-os e gere a prévia de novo, ou copie com o Forge uma amostra da origem que caiba: Profundidade ALL, Registros por objeto “Uma amostra que caiba no destino”.",
+        "heavyObject_one": "{{object}} ({{formatted}} registro, {{mb}} MB)",
+        "heavyObject_other": "{{object}} ({{formatted}} registros, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino.",
         "INVALID_PAYLOAD": "O SandForge recusou esta solicitação antes de ler qualquer uma das orgs. Uma clonagem precisa de uma org de origem, de uma org de destino e de 1 a 100 objetos, e um filtro só pode selecionar registros: sem LIMIT, ORDER BY, subconsulta, ponto e vírgula ou comentário. O canal de saída do SandForge indica qual parte foi recusada.",
         "PREVIEWED_FOR_OTHER_ORGS": "O SandForge recusou esta execução antes de gravar qualquer coisa: ela não era para as orgs para as quais sua pré-visualização foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "NOT_PREVIEWED": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: ela não indicava nenhuma pré-visualização, e uma clonagem só é executada a partir da pré-visualização para a qual foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "PREVIEW_NOT_HELD": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: a pré-visualização indicada não é mais mantida — o SandForge guarda as 50 últimas pré-visualizações e as esquece quando a extensão reinicia. Refaça a pré-visualização e depois execute a clonagem.",
+        "OBJECT_NOT_IN_TARGET": "{{object}} não existe em {{org}}, ou o usuário com que o SandForge se conecta lá não o vê, e nada foi gravado: desmarque-o para clonar os outros, ou implante-o primeiro em {{org}} com o Comparação (Implantar a partir do diff) e dê acesso a esse usuário.",
         "generic": "Não foi possível concluir a clonagem.",
         "detail": "Detalhes: {{detail}}",
         "SEED_WRITE_DECLINED": "Você cancelou a clonagem antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino."
@@ -1086,7 +1093,7 @@
       "created_one": "{{formatted}} registro criado em {{org}}",
       "created_other": "{{formatted}} registros criados em {{org}}",
       "removeDescription": "Exclui de {{org}} os registros que este seed inseriu, primeiro o último objeto gravado, os filhos antes dos pais; eles vão para a lixeira. Um registro do qual dependem registros que ficam em {{org}} é mantido, assim como um registro alterado desde o seed, ou do qual dependem registros adicionados desde então, a menos que você o inclua abaixo.",
-      "notKept": "O que este seed criou não é mais guardado — foi descartado para dar lugar a seeds mais recentes, ou rodou antes de os seeds serem guardados em disco — e não pode ser removido daqui.",
+      "notKept": "O que este seed criou não é mais guardado — foi descartado para dar lugar a seeds mais recentes, ou rodou antes de os seeds serem guardados em disco — e não pode ser removido daqui. Para desfazer seus registros: volte a org a um ponto de verificação tirado antes dele, em Pontos de verificação; ou esvazie seus objetos em DataOps → Limpeza → Esvaziar objetos, que exclui todos os registros deles, não só os deste seed.",
       "historyTitle": "Seeds anteriores",
       "historyNote": "Os seeds que esta extensão guardou, os mais recentes primeiro: aqueles cujos registros ainda estão na org podem ser removidos, também depois de recarregar a janela. Um seed cujos registros ainda estão na org permanece na lista até ser removido; dos seeds removidos, os 20 mais recentes são listados.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro criado",
@@ -1148,6 +1155,8 @@
       "emailsUnread": "{{limit}} que estes registros fazem {{org}} enviar: cerca de {{emails}}. Não foi possível ler o que resta hoje ({{reason}}): o seed não é interrompido.",
       "refused": "O seed seria recusado antes de gravar qualquer coisa. {{limit}} que estes registros fazem {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Passado esse limite, um Flow que envia ao salvar recusa seu registro, e os próprios e-mails da org param pelo resto do dia.",
       "waysOut": "Para executá-lo, reduza o número de registros, defina {{objects}} como 0 ou desative {{senders}}.",
+      "waysOutScenario": "Para executá-lo, volte (Voltar) e reduza customers.count com Editar como JSON, sem ficar abaixo do número de seus tópicos, ou desative {{senders}}.",
+      "wayMute": "Ou marque abaixo “Silenciar as automações do destino nesta execução”: só durante a execução, ela atribui a você esses conjuntos de permissões.",
       "wayBypass": "Ou atribua a si mesmo o conjunto de permissões {{set}}: sua {{permission}} silencia {{senders}}.",
       "wayBypassNoSet": "Ou atribua a si mesmo um conjunto de permissões que contenha {{permission}}, que silencia {{senders}}."
     },
@@ -1272,7 +1281,7 @@
         "variantHint": "Use outro número para gravar este cenário uma segunda vez na mesma org: o mesmo número grava os mesmos nomes."
       },
       "knowledge": {
-        "absent": "Esta org não tem Knowledge: os artigos são ignorados. Os testes que respondem a partir do Knowledge são escritos, e o agente não terá artigo para citar.",
+        "absent": "Esta org não tem Knowledge: os artigos são ignorados. Os testes que respondem a partir do Knowledge são escritos, e o agente não terá artigo para citar. Para semear os artigos, ative o Knowledge: marque Usuário do Knowledge no seu usuário (Configuração > Usuários) e depois ative-o em Configuração > Configurações do Knowledge; o Salesforce não permite desativá-lo depois.",
         "bodyField": "Campo do corpo do artigo",
         "body": "O corpo dos artigos é escrito em {{field}}.",
         "bodySummary": "O Knowledge desta org não oferece outro campo para o corpo de um artigo: cada corpo vai para Summary, dentro dos seus {{length}} caracteres, com cada fato mantido.",
@@ -1282,8 +1291,8 @@
       },
       "results": {
         "openCases": "Foram escritos {{written}} dos {{total}} casos abertos de que tratam os testes.",
-        "noCase": "Nenhum caso aberto foi escrito: nenhum arquivo de teste pode ser escrito a partir desta execução.",
-        "companionFailed": "Não foi possível guardar os Ids dos casos da execução ({{message}}): nenhum arquivo de teste pode ser escrito a partir desta execução.",
+        "noCase": "Nenhum caso aberto foi escrito: nenhum arquivo de teste pode ser escrito a partir desta execução. Remova este seed e depois semeie o cenário de novo.",
+        "companionFailed": "Não foi possível guardar os Ids dos casos da execução ({{message}}): nenhum arquivo de teste pode ser escrito a partir desta execução. Remova este seed e depois semeie o cenário de novo.",
         "knowledge": {
           "title": "Artigos do Knowledge",
           "published": "Artigos publicados: {{done}} de {{total}}",
@@ -1296,8 +1305,8 @@
         "title": "Arquivo de teste do Agentforce",
         "noPromise": "O SandForge escreve os dados e o que o agente deve fazer. Um veredito depende do agente e de um modelo que varia: um teste que falha pode vir do agente, não dos dados.",
         "reading": "Lendo os agentes da org…",
-        "noAgent": "Esta org não tem nenhum agente do Agentforce: crie um e depois escreva o arquivo de teste a partir desta execução.",
-        "noAgentforce": "Esta org não tem Agentforce: o arquivo de teste precisa de uma org com um agente.",
+        "noAgent": "Esta org não tem nenhum agente do Agentforce: os registros que esta execução gravou ficam e podem ser usados como estão. Crie um agente em Configuração > Agentes do Agentforce e depois escreva o arquivo de teste a partir desta execução.",
+        "noAgentforce": "Esta org não tem Agentforce, que exige uma licença do Salesforce: o arquivo de teste precisa de uma org com um agente. Os registros que esta execução gravou ficam e podem ser usados como estão.",
         "unreadable": "Não foi possível ler os agentes da org: {{message}}",
         "readAgain": "Ler de novo",
         "agent": "Agente",
@@ -5274,8 +5283,8 @@
       "searchPlaceholder": "Buscar objetos...",
       "noResults": "Nenhum objeto corresponde à sua busca.",
       "selectedCount": "{{count}} de {{total}} objetos selecionados",
-      "notInTarget": "Não existe na org de destino",
-      "notCreateableInTarget": "O usuário com que o SandForge grava não pode criá-los na org de destino",
+      "notInTarget": "Não existe na org de destino, ou o usuário dela não o vê: implante-o lá (Comparação) ou conceda Ler e Criar nele em um conjunto de permissões",
+      "notCreateableInTarget": "O usuário com que o SandForge grava não pode criá-los na org de destino: conceda lá Criar nele em um conjunto de permissões",
       "countShown": "Contar os registros dos objetos exibidos ({{objects}})"
     },
     "step3": {
@@ -5321,8 +5330,8 @@
         "standardNeeded": "{{object}} é levado embora objetos padrão não tenham sido pedidos: {{field}} não pode ficar vazio.",
         "followedByDefault": "{{object}} é seguido embora objetos padrão não tenham sido pedidos, como é por padrão: {{fields}} fazem referência a ele.",
         "currencies": "Moedas que a org de destino não tem ativas: {{currencies}}. Um registro em uma delas é gravado em {{writtenIn}}, sua moeda corporativa, com seus valores convertidos pelas taxas da org de origem ({{objects}}).",
-        "cutShort": "{{object}}: são copiados os primeiros {{copied}} dos seus {{total}} registros por Id, com os registros pai que eles referenciam — uma execução não copia mais de um objeto selecionado.",
-        "cutShortUncounted": "{{object}}: são copiados os primeiros {{copied}} dos seus registros por Id, com os registros pai que eles referenciam — uma execução não copia mais de um objeto selecionado."
+        "cutShort": "{{object}}: são copiados os primeiros {{copied}} dos seus {{total}} registros por Id, com os registros pai que eles referenciam. Para copiar mais, aumente sandforge.forge.maxRecordsPerObject nas configurações, até 1.000.000; ou copie com o Forge uma amostra da org inteira que caiba no destino: Profundidade ALL.",
+        "cutShortUncounted": "{{object}}: são copiados os primeiros {{copied}} dos seus registros por Id, com os registros pai que eles referenciam. Para copiar mais, aumente sandforge.forge.maxRecordsPerObject nas configurações, até 1.000.000; ou copie com o Forge uma amostra da org inteira que caiba no destino: Profundidade ALL."
       },
       "notCovered": "{{object}}: nenhuma regra de anonimização para {{missing}}. Esses dados seriam copiados como a origem os contém.",
       "personal": {
@@ -5877,7 +5886,7 @@
       "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até lá aparece na lista; o resto fica na org, e uma remoção posterior o retoma.",
       "cancelRefused": "Não foi possível parar a remoção",
       "cancelRefusedDetail": "A remoção não está mais em andamento, ou não foi iniciada a partir desta janela.",
-      "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui, nem substituídos por uma recarga, que excluiria o que alguém alterou desde então.",
+      "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui, nem substituídos por uma recarga, que excluiria o que alguém alterou desde então. Atualize a sandbox para recomeçar da cópia dela, ou encontre os registros que o usuário da carga criou naquele dia e exclua-os você mesmo.",
       "orgGone": "A org em que esta carga gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "nothingCreated": "Esta carga não criou nenhum registro: não há nada a remover.",
       "keptByThePlatform": "Mantidos em {{org}} por qualquer remoção — a plataforma não exclui estes registros criados pela carga: {{objects}}"
@@ -5964,7 +5973,7 @@
       },
       "notRecorded": {
         "explanation": "Esta carga foi registrada antes de as cargas guardarem o que criam: seus registros não se distinguem dos que ela vinculou.",
-        "action": "Ela não pode ser removida daqui, nem substituída por uma recarga, que excluiria o que alguém alterou desde então."
+        "action": "Ela não pode ser removida daqui, nem substituída por uma recarga, que excluiria o que alguém alterou desde então: atualize a sandbox para recomeçar da cópia dela, ou encontre os registros que o usuário da carga criou naquele dia e exclua-os você mesmo."
       },
       "loadChanged": {
         "explanation": "Outra carga foi registrada desde que esta foi mostrada, e nada foi removido.",
@@ -6065,6 +6074,19 @@
       "apiBudgetExceeded": {
         "explanation": "A carga usaria cerca de {{estimate}} solicitações de API de {{org}}, à qual restam {{remaining}} de suas {{max}} diárias: ela pararia no meio do caminho, e nada foi gravado.",
         "action": "Carregue quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas —, ou numa org com mais restantes hoje."
+      },
+      "storageExceeded": {
+        "explanation": "Os registros do conjunto de dados ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}: a carga pararia no meio do caminho, e nada foi gravado.",
+        "explanationReload": "Os registros do conjunto de dados ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}, mais cerca de {{freed}} MB que a limpeza da recarga libera antes: a carga pararia no meio do caminho, e nada foi gravado.",
+        "action": "Carregue primeiro um piloto, uma pasta raiz do conjunto; ou extraia um conjunto de dados menor: reduza o orçamento na configuração e execute de novo a seleção e a extração; ou libere armazenamento de dados em {{org}}."
+      },
+      "extractTimeout": {
+        "explanation": "A extração esgotou seus {{minutes}} minutos e parou, e nada foi gravado: ela lê todos os registros das raízes que a seleção manteve, então executada de novo pararia outra vez.",
+        "action": "Mantenha menos raízes: reduza o orçamento na configuração ou restrinja os eixos, e execute de novo a seleção e a extração."
+      },
+      "staging": {
+        "explanation": "{{org}} é uma sandbox marcada como Staging: ela contém dados reais, e uma carga nunca vai para uma delas. Nada foi gravado.",
+        "action": "Escolha outra sandbox ou, se esta não contém dados reais, desmarque Staging na janela de edição dela, na página Organizações."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} executa automações quando a carga grava seus registros ({{named}}), e nada foi gravado.",

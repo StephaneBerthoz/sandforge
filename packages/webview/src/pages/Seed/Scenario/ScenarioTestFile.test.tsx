@@ -90,7 +90,8 @@ describe('ScenarioTestFile', () => {
     });
 
     expect(screen.getByTestId('scenario-tests-no-agent').textContent).toContain(
-      'This org has no Agentforce agent: create one, then write the test file from this run.',
+      'This org has no Agentforce agent: the records this run wrote stay, usable as they are. ' +
+        'Create an agent in Setup > Agentforce Agents, then write the test file from this run.',
     );
     expect(screen.queryByTestId('btn-scenario-tests-write')).toBeNull();
   });
@@ -189,6 +190,32 @@ describe('ScenarioTestFile', () => {
     expect(sent('seed:scenario:test-file').pop()?.payload).toMatchObject({ overwrite: true });
     // Outside a DX project the file is written, and the page says the CLI needs one.
     expect(screen.getAllByText(/is not a Salesforce DX project/).length).toBeGreaterThan(0);
+  });
+
+  it('says a file refused for an org without Agentforce as one, not as an org without an agent', () => {
+    // Told to create an agent, the user of an org without Agentforce had
+    // nothing to create it in: Agentforce takes a license.
+    renderSection();
+    answer('seed:scenario:agents', 'seed:scenario:agents:response', {
+      orgId: 'org-dev',
+      agents: { kind: 'agents', agents: [AGENT] },
+      project: { kind: 'dx', dir: '/ws' },
+    });
+    for (const topic of TOPICS) {
+      fireEvent.change(screen.getByTestId(`scenario-tests-map-${topic.key}`), {
+        target: { value: 'Order_Issues' },
+      });
+    }
+    fireEvent.click(screen.getByTestId('btn-scenario-tests-write'));
+    answer('seed:scenario:test-file', 'seed:scenario:test-file:response', {
+      runId: 'run-1',
+      outcome: { kind: 'no-agent', reason: 'no-agentforce', message: 'none' },
+    });
+
+    expect(screen.getByTestId('scenario-tests-outcome-no-agent').textContent).toBe(
+      'This org has no Agentforce, which takes a Salesforce license: the test file needs an org ' +
+        'with an agent. The records this run wrote stay, usable as they are.',
+    );
   });
 
   it('says of a removed run that its file names cases that are gone', () => {

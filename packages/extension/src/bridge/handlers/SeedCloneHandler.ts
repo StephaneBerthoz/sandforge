@@ -181,7 +181,86 @@ const CLONE_FAILURE_CODES = {
   emailsExceeded: 'CLONE_EMAILS_EXCEEDED',
   // Every module's code for a run past the target's daily API requests.
   apiBudgetExceeded: 'API_BUDGET_EXCEEDED',
+  storageExceeded: 'CLONE_STORAGE_EXCEEDED',
 } as const;
+
+/** The objects a storage refusal of the clone names, the heaviest first. */
+const HEAVIEST_NAMED = 3;
+
+/**
+ * What a clone refused for its data storage says, beside its code: what its
+ * records take, what the target has left of what, and the heaviest objects,
+ * each with its records and the MB they take.
+ */
+interface CloneStorageRefusal {
+  estimateMB: number;
+  remainingMB: number;
+  maxMB: number;
+  heaviest: Array<{ objectApiName: string; rows: number; mb: number }>;
+}
+
+/**
+ * The refusal of a clone whose records take more data storage than the
+ * target has left, by the documented sizes its question uses; nothing when
+ * they fit or the target would not say.
+ *
+ * @param counted - The records the clone sends, per object, as its preview counted them.
+ */
+function cloneStorageRefusal(
+  counted: ReadonlyArray<{ objectApiName: string; recordCount: number }>,
+  limits: DataStorage | { unread: string },
+): CloneStorageRefusal | undefined {
+  const objects = counted
+    .filter((o) => o.recordCount > 0)
+    .map((o) => ({
+      objectApiName: o.objectApiName,
+      rows: o.recordCount,
+      bytes: countedStorageBytes(o.objectApiName, { rows: o.recordCount }),
+    }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const check = storageCheckOf(
+    { storageBytes: objects.reduce((sum, o) => sum + o.bytes, 0) },
+    limits,
+  );
+  if (check.verdict !== 'exceeds') return undefined;
+  return {
+    estimateMB: check.estimateMB,
+    remainingMB: check.remainingMB,
+    maxMB: check.maxMB,
+    heaviest: objects.slice(0, HEAVIEST_NAMED).map(({ objectApiName, rows, bytes }) => ({
+      objectApiName,
+      rows,
+      mb: bytes / (1024 * 1024),
+    })),
+  };
+}
+
+/** MB as the refusal says them: rounded up, two decimals under 10. */
+function megabytesWords(mb: number): string {
+  const factor = mb < 10 ? 100 : 10;
+  return String(mb <= 0 ? 0 : Math.ceil(mb * factor - 1e-9) / factor);
+}
+
+/**
+ * The clone's storage refusal in the words of the log and of the page's
+ * fallback, with the ways out its wizard has: a narrower filter on the
+ * heaviest objects, leaving them out, and the sample of the whole source that
+ * Forge draws to fit the target. A LIMIT would not do: the records it leaves
+ * out would be named by those it keeps, and refused.
+ */
+function cloneStorageMessage(refusal: CloneStorageRefusal, target: string): string {
+  const heaviest = refusal.heaviest
+    .map((o) => `${o.objectApiName} (${o.rows} records, ${megabytesWords(o.mb)} MB)`)
+    .join(', ');
+  return (
+    `The clone was refused before it wrote anything: its records take about ` +
+    `${megabytesWords(refusal.estimateMB)} MB of data storage, and ${target} has ` +
+    `${refusal.remainingMB} MB left of ${refusal.maxMB} MB. The heaviest: ${heaviest}. Narrow ` +
+    'their filter or leave them out, then preview again; or copy a sample of the source that ' +
+    'fits with Forge (Depth ALL, Records per object: A sample that fits the target). Nothing ' +
+    'was written.'
+  );
+}
 
 /** How long the read of what the target runs as the records are created may take. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
@@ -718,7 +797,26 @@ export class SeedCloneHandler implements DomainHandler {
         new Set(linker.lookupsFilledAfter(insertOrder, edges).map((edge) => edge.to)),
       );
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err);
+      // An object the target does not show is named, with the org, under its
+      // own code: the page says to untick it, or to deploy it first. Said
+      // with the platform's NOT_FOUND alone, the preview of every object
+      // failed with no way on.
+      const absent = err instanceof ObjectNotInTargetError ? err : undefined;
+      sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err, {
+        ...(absent
+          ? {
+              code: OBJECT_NOT_IN_TARGET,
+              retryable: false,
+              extraPayload: {
+                objectApiName: absent.objectApiName,
+                org: orgDisplayName(
+                  this.deps.orgManager.getOrg(parsed.targetOrgId),
+                  parsed.targetOrgId,
+                ),
+              },
+            }
+          : {}),
+      });
     }
   }
 
@@ -1050,23 +1148,48 @@ export class SeedCloneHandler implements DomainHandler {
         return;
       }
 
-      // The records the preview counted against the daily API requests the
-      // target has left, before anything is written. An org that would not
-      // say is said in the log, and holds nothing back. With a checkpoint
-      // asked, its requests among them, and the storage read from the same
-      // answer, for its question to say.
-      const limits: DataStorage | { unread: string } | undefined =
-        checkpoint || emailsAsked
-          ? await readDataStorage(targetConn).catch((err: unknown) => ({
-              unread: extractErrorMessage(err),
-            }))
-          : undefined;
-      const budget: ApiBudget | { unread: string } | undefined =
-        limits !== undefined && !('unread' in limits)
-          ? limits.dailyApiRequests
-          : await readApiBudget(targetConn).catch((err: unknown) => ({
-              unread: extractErrorMessage(err),
-            }));
+      // The records the preview counted against the data storage and the
+      // daily API requests the target has left, both read from one answer,
+      // before anything is written. An org that would not say is said in the
+      // log, and holds nothing back. With a checkpoint asked, its requests
+      // among them, and the storage for its question to say.
+      const limits: DataStorage | { unread: string } = await readDataStorage(targetConn).catch(
+        (err: unknown) => ({ unread: extractErrorMessage(err) }),
+      );
+      const budget: ApiBudget | { unread: string } | undefined = !('unread' in limits)
+        ? limits.dailyApiRequests
+        : await readApiBudget(targetConn).catch((err: unknown) => ({
+            unread: extractErrorMessage(err),
+          }));
+      // Past the storage the target has left, the clone is refused before
+      // the first write. Copied from a production org into a Developer
+      // Edition or a Developer sandbox under a wide filter, a clone wrote
+      // until the target answered STORAGE_LIMIT_EXCEEDED, its children
+      // refused under parents that went in: the storage was read for the
+      // question alone, and no question is put to a clone that asks nothing
+      // else. An upsert may update what the target holds, which takes no
+      // room: its question says the storage, and nothing refuses it.
+      const overStorage = parsed.upsert ? undefined : cloneStorageRefusal(counted, limits);
+      if (overStorage) {
+        const message = cloneStorageMessage(overStorage, targetName);
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CLONE_FAILURE_CODES.storageExceeded,
+        });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+          extraPayload: {
+            code: CLONE_FAILURE_CODES.storageExceeded,
+            org: targetName,
+            ...overStorage,
+          },
+        });
+        settle(new Error(message));
+        return;
+      }
       // The records priced as the writer sends them, as an import's: past
       // the Bulk API threshold one job an object, and what a duplicate rule
       // refused in it again by REST, as the automation read above found the
@@ -1139,7 +1262,7 @@ export class SeedCloneHandler implements DomainHandler {
                   0,
                 ),
               },
-              limits ?? { unread: 'not read' },
+              limits,
             ),
           ),
           counted: true,
@@ -2314,10 +2437,46 @@ async function describedIn<T>(
   try {
     return await describe();
   } catch (err: unknown) {
-    throw new Error(
-      `${objectApiName} could not be described in the ${org} org: ${extractErrorMessage(err)}`,
-    );
+    const why = extractErrorMessage(err);
+    if (org === 'target' && isNotFound(err, why))
+      throw new ObjectNotInTargetError(objectApiName, why);
+    throw new Error(`${objectApiName} could not be described in the ${org} org: ${why}`);
   }
+}
+
+/**
+ * The code `seed:clone:error` carries for a preview of an object the target
+ * does not show: it has no such object, or the user SandForge connects as
+ * there may not see it.
+ */
+const OBJECT_NOT_IN_TARGET = 'OBJECT_NOT_IN_TARGET';
+
+/** A preview's object the target's describe answered NOT_FOUND for. */
+class ObjectNotInTargetError extends Error {
+  constructor(
+    readonly objectApiName: string,
+    why: string,
+  ) {
+    super(
+      `${objectApiName} is not in the target org, or the user SandForge connects as there may ` +
+        `not see it (${why}): untick it to clone the others, or deploy it to the target first ` +
+        '(Compare, Deploy from Diff) and give that user access to it.',
+    );
+    this.name = 'ObjectNotInTargetError';
+  }
+}
+
+/**
+ * Whether a describe failed because the org shows no such object: the REST
+ * API's NOT_FOUND, "The requested resource does not exist", for an object the
+ * org lacks and for one the user may not see alike.
+ */
+function isNotFound(err: unknown, message: string): boolean {
+  const code = (err as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === 'NOT_FOUND' ||
+    /\bNOT_FOUND\b|requested resource does not exist|INVALID_TYPE/.test(message)
+  );
 }
 
 /**

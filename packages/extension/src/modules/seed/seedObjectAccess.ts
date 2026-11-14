@@ -28,7 +28,9 @@ const CAMPAIGN = 'Campaign';
 /** What the org lacks when it has no such object, for the objects a feature brings. */
 function featureOf(objectApiName: string): string | undefined {
   return ARTICLE_OBJECT.test(objectApiName)
-    ? 'Salesforce Knowledge is not turned on in it'
+    ? // Said with how to turn it on: the reason alone left the user to find it.
+      'Salesforce Knowledge is not turned on in it: tick Knowledge User on your user (Setup > ' +
+        'Users), then enable it in Setup > Knowledge Settings'
     : undefined;
 }
 

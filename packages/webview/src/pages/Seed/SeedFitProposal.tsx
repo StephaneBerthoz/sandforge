@@ -46,9 +46,10 @@ export function isSeedFitProposal(value: unknown): value is SeedFitProposal {
     isNumber(value.estimateMB) &&
     isOptional(value.cannotFit, isString) &&
     isOptional(value.automationUnread, isString) &&
-    ['budgetMB', 'remainingMB', 'maxMB', 'share', 'roundingMB', 'automationMB'].every((key) =>
-      isNumber(budget[key]),
-    ) &&
+    ['budgetMB', 'share', 'roundingMB', 'automationMB'].every((key) => isNumber(budget[key])) &&
+    // Absent of a fit held to the MB asked alone, the org not saying its storage.
+    isOptional(budget.remainingMB, isNumber) &&
+    isOptional(budget.maxMB, isNumber) &&
     isOptional(budget.withinMB, isNumber) &&
     isString(budget.limitedBy) &&
     LIMITED_BY.includes(budget.limitedBy) &&
@@ -190,8 +191,8 @@ export const SeedFitProposalCard: React.FC<SeedFitProposalCardProps> = ({
     bound = t('seed.fit.boundStorage', {
       fits,
       near: shareRoundedDown(budget.share),
-      remaining: formatNumber(budget.remainingMB),
-      max: formatNumber(budget.maxMB),
+      remaining: formatNumber(budget.remainingMB ?? 0),
+      max: formatNumber(budget.maxMB ?? 0),
       rounding: formatNumber(budget.roundingMB),
       org,
     });

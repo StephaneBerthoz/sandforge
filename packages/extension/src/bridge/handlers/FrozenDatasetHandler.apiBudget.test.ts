@@ -367,6 +367,73 @@ describe('frozen:load, the daily API requests its target has left', () => {
     ]);
   });
 
+  /** The target, its `/limits` saying it has `remainingMB` of its 5 MB of data storage left. */
+  function targetWithStorage(remainingMB: number) {
+    const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.connection,
+      request: async ({ url }: { url: string }) => {
+        if (url !== '/limits') throw new Error(`not answered: ${url}`);
+        return {
+          DataStorageMB: { Max: 5, Remaining: remainingMB },
+          DailyApiRequests: { Max: MAX, Remaining: MAX },
+        };
+      },
+    } as never);
+    return org;
+  }
+
+  it('refuses a load past the data storage the target has left before its first write, naming the pilot and a smaller dataset', async () => {
+    // A load read no storage: into a Developer Edition, one ran until the
+    // target answered STORAGE_LIMIT_EXCEEDED, its children refused under
+    // parents that went in.
+    const port = checkpointsAnswering();
+    targetWithStorage(0);
+
+    await load({ checkpointFirst: {} });
+
+    expect(port.take).not.toHaveBeenCalled();
+    expect(loaderLoad).not.toHaveBeenCalled();
+    const [error] = posted('frozen:load:error');
+    expect(error?.payload).toMatchObject({
+      code: 'FROZEN_STORAGE_EXCEEDED',
+      orgId: 'org-2',
+      written: 0,
+      storage: { estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 0, maxMB: 5 },
+    });
+    expect(String(error?.payload.message)).toBe(
+      "The load was refused before it wrote anything: the dataset's records take about 0.01 MB " +
+        'of data storage, and DEV has 0 MB left of 5 MB. Load a pilot first, one root folder of ' +
+        'it; or extract a smaller dataset, with a lower budget in the configuration, a new ' +
+        'selection and a new extraction; or free data storage in DEV. Nothing was written.',
+    );
+    expect(loads()).toEqual([
+      expect.objectContaining({
+        outcome: 'stopped',
+        details: expect.objectContaining({ code: 'FROZEN_STORAGE_EXCEEDED' }),
+      }),
+    ]);
+  });
+
+  it('lets a pilot through its gate on the storage: one root folder is the way the refusal names', async () => {
+    targetWithStorage(0);
+
+    await load({ pilot: true });
+
+    expect(posted('frozen:load:error').map((e) => e.payload.code)).not.toContain(
+      'FROZEN_STORAGE_EXCEEDED',
+    );
+  });
+
+  it('loads a dataset that fits the storage the target has left', async () => {
+    targetWithStorage(5);
+
+    await load();
+
+    expect(posted('frozen:load:error')).toEqual([]);
+    expect(loaderLoad).toHaveBeenCalledTimes(1);
+  });
+
   it('counts the lease of its mute: a load that fits without it is refused with it', async () => {
     target(RUN + 5);
 

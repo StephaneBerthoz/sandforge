@@ -300,7 +300,12 @@ describe('useCsvImport', () => {
     expect(result.current.checkpointFirst).toBe(false);
   });
 
-  it.each(['CHECKPOINT_REFUSED', 'API_BUDGET_EXCEEDED', 'SEED_CONFIRMATION_UNAVAILABLE'])(
+  it.each([
+    'CHECKPOINT_REFUSED',
+    'API_BUDGET_EXCEEDED',
+    'CSV_STORAGE_EXCEEDED',
+    'SEED_CONFIRMATION_UNAVAILABLE',
+  ])(
     'can run again after a refusal that wrote nothing (%s): its Execute comes back, the box left as it was',
     (errorCode) => {
       const { result, rerender } = renderHook(() => useCsvImport(tMock));

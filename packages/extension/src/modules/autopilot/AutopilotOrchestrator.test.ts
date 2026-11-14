@@ -351,6 +351,22 @@ describe('AutopilotOrchestrator', () => {
       );
     });
 
+    it('hands the scanner the records per object asked, and none for the 0 of a config that asks none', async () => {
+      const conn = mockConnection();
+      const scanWith = (maxRecordsPerObject: number) =>
+        orchestrator.scanSchemas(
+          conn as unknown as Parameters<typeof orchestrator.scanSchemas>[0],
+          conn as unknown as Parameters<typeof orchestrator.scanSchemas>[1],
+          { ...mockConfig(), maxRecordsPerObject },
+        );
+
+      await scanWith(200_000);
+      await scanWith(0);
+
+      const options = vi.mocked(deps.schemaScanner.scan).mock.calls.map((call) => call[4]);
+      expect(options).toEqual([{ maxRecordsPerObject: 200_000 }, {}]);
+    });
+
     it('hands the scanner the bounds of the walk and who hears of its progress', async () => {
       const conn = mockConnection();
       const onProgress = vi.fn();

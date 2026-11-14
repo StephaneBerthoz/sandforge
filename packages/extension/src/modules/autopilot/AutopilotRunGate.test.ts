@@ -131,6 +131,10 @@ describe('gateAutopilotWrite', () => {
     expect(await run('unavailable')).toMatchObject({
       go: false,
       code: 'CONFIRMATION_UNAVAILABLE',
+      // Stopped with no word of how to go on: the page asks the question.
+      message: expect.stringMatching(
+        /Nothing was written: run it again from the Autopilot page, where the question is asked\.$/,
+      ),
     });
   });
 

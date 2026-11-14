@@ -374,6 +374,12 @@ describe('Step4_Review', () => {
       }),
       i18n.t('autopilot.step4.scope.cutShortUncounted', { object: 'Case', copied: fmt(50_000) }),
     ]);
+    // "A run copies no more" named no way to more: the setting raises the
+    // bound, and Forge copies a sample of the whole org that fits.
+    for (const line of lines) {
+      expect(line).toContain('raise sandforge.forge.maxRecordsPerObject in Settings');
+      expect(line).toContain('with Forge: Depth ALL');
+    }
     expect(screen.getByTestId('step4-scope').textContent).toContain(
       i18n.t('autopilot.step4.scope.selected', { objects: 'Lead' }),
     );

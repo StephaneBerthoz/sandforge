@@ -264,6 +264,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                   orgName={runOrgName}
                   records={records}
                   mute={{ checked: scenario.muteAutomation, onChange: scenario.setMuteAutomation }}
+                  countsFrom="scenario"
                 />
               )}
               {/* The run's question says its cost, before anything is taken. */}

@@ -73,6 +73,19 @@ export function datasetRecordCount(dataset: FrozenDataset): number {
 export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
   // 1. Development orgs only: a sandbox, a scratch org, or a Developer
   //    Edition org, which the caller takes for the development org it is.
+  // A sandbox marked Staging is one: it holds real data, which is why a load
+  // never goes there. Said "no sandbox", it sent the user looking for an
+  // org type it had all along.
+  if (input.orgTier === 'staging') {
+    throw new LoadGuardError(
+      'non-sandbox',
+      `Refusing frozen-dataset load on ${input.orgId}: it is a sandbox marked Staging, which ` +
+        'holds real data, and a load never goes into one. Remediation: pick another sandbox, ' +
+        'or, if this one holds no real data, untick Staging in its Edit dialog on the ' +
+        'Organizations page.',
+      { orgId: input.orgId, tier: input.orgTier },
+    );
+  }
   if (input.orgTier !== 'development' && input.orgTier !== 'scratch') {
     throw new LoadGuardError(
       'non-sandbox',

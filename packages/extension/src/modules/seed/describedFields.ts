@@ -13,6 +13,10 @@ export interface SeedDescribeField {
   name: string;
   type?: string;
   createable?: boolean;
+  /** A formula field: the org computes it, and no user sets it. */
+  calculated?: boolean;
+  /** An auto-number field: the org numbers it, and no user sets it. */
+  autoNumber?: boolean;
   nillable?: boolean;
   defaultedOnCreate?: boolean;
   length?: number;
@@ -43,6 +47,11 @@ export interface DescribedFields {
    * security hides from that user.
    */
   visible(objectApiName: string): Promise<ReadonlySet<string>>;
+  /**
+   * The fields the org fills itself, a formula's or an auto-number's: no
+   * user sets them, whatever their field-level security says.
+   */
+  computed(objectApiName: string): Promise<ReadonlySet<string>>;
   /** The active values of each picklist that has any, by field. */
   picklistValues(objectApiName: string): Promise<ReadonlyMap<string, readonly string[]>>;
   /**
@@ -92,6 +101,12 @@ export function describedFieldsOf(
     async visible(objectApiName) {
       const { fields } = await describeOnce(objectApiName);
       return new Set(fields.map((f) => f.name));
+    },
+    async computed(objectApiName) {
+      const { fields } = await describeOnce(objectApiName);
+      return new Set(
+        fields.filter((f) => f.calculated === true || f.autoNumber === true).map((f) => f.name),
+      );
     },
     async picklistValues(objectApiName) {
       const { fields } = await describeOnce(objectApiName);

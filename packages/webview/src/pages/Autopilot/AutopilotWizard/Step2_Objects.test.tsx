@@ -131,6 +131,12 @@ describe('Step2_Objects', () => {
     expect(screen.getByTestId('object-Ghost__c-missing').textContent).toBe(
       i18n.t('autopilot.step2.notInTarget'),
     );
+    // A global describe leaves out an object the user may not read: "not in
+    // the target" was half of it, and named no way to copy it.
+    expect(screen.getByTestId('object-Ghost__c-missing').textContent).toBe(
+      'Not in the target org, or its user may not see it: deploy it there (Compare), or grant ' +
+        'Read and Create on it in a permission set',
+    );
     fireEvent.click(row);
     expect(onToggleObject).not.toHaveBeenCalled();
   });
@@ -152,7 +158,8 @@ describe('Step2_Objects', () => {
     const row = screen.getByTestId('object-Case');
     expect(row.querySelector('input')?.disabled).toBe(true);
     expect(screen.getByTestId('object-Case-not-createable').textContent).toBe(
-      'The user SandForge writes as may not create these in the target org',
+      'The user SandForge writes as may not create these in the target org: grant Create on it ' +
+        'in a permission set there',
     );
     fireEvent.click(row);
     expect(onToggleObject).not.toHaveBeenCalled();

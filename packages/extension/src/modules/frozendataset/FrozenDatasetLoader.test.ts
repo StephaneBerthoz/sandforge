@@ -379,7 +379,11 @@ describe('FrozenDatasetLoader — fresh load', () => {
         {
           objectApiName: 'Contact',
           referenceId: 'Contact-000001',
-          errors: ['Not present in target org: sObject Contact not found'],
+          errors: [
+            'Not present in target org: sObject Contact not found. Deploy it to the target, or ' +
+              'give the loading user Read on it, then load again; or leave it out of the ' +
+              'configuration (excludedObjects) and extract again',
+          ],
         },
       ],
     });
@@ -420,7 +424,10 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(report.alignment.excludedObjects).toEqual([
       {
         objectApiName: 'RevenueTransactionErrorLog',
-        reason: 'Not createable in target org: 1 record of the dataset not loaded',
+        reason:
+          'Not createable in target org: 1 record of the dataset not loaded. Give the loading ' +
+          'user Create on it in a permission set, where the platform lets a user create it; ' +
+          'otherwise leave it out of the configuration (excludedObjects) and extract again',
       },
     ]);
     expect(report.status).toBe('completed-with-errors');
@@ -483,7 +490,10 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(report.alignment.excludedObjects).toEqual([
       {
         objectApiName: 'Pricebook2',
-        reason: 'Not createable in target org: 1 record of the dataset not loaded',
+        reason:
+          'Not createable in target org: 1 record of the dataset not loaded. Give the loading ' +
+          'user Create on it in a permission set, where the platform lets a user create it; ' +
+          'otherwise leave it out of the configuration (excludedObjects) and extract again',
       },
     ]);
     expect(report.perObject).toEqual([

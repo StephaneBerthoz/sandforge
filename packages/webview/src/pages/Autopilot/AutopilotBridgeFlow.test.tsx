@@ -1085,7 +1085,7 @@ describe('Autopilot bridge flow, the fit to storage', () => {
     );
 
     expect(screen.getByTestId('step4-fit-error').textContent).toBe(
-      'The plan was not fitted: the source org refused a read of its records (REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.). Nothing was chosen from what was not read, and the plan under review is unchanged.',
+      'The plan was not fitted: the source org refused a read of its records (REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.). Nothing was chosen from what was not read, and the plan under review is unchanged. Fit it again; if the source refuses again, narrow the selection, or run the plan unfitted where it fits the target.',
     );
     expect(useAutopilotStore.getState().plan).toBe(PLAN);
   });

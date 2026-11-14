@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import { cn } from '../../theme';
+import { formatNumber, roundedUpMegabytes } from '../../utils/formatters';
 import { Button } from './Button';
 import { ErrorBanner } from './ErrorBanner';
 
@@ -43,8 +44,15 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
   const processFile = useCallback(
     (file: File) => {
       setSizeError(null);
+      // Said with the file's size and what brings it under: a split, or the
+      // columns it need not carry. The size alone named no way through.
       if (file.size > maxSizeBytes) {
-        setSizeError(t('seed.csv.dropzone.maxSize', { max: maxSizeMB }));
+        setSizeError(
+          t('seed.csv.dropzone.maxSize', {
+            max: formatNumber(maxSizeMB),
+            size: roundedUpMegabytes(file.size / (1024 * 1024)),
+          }),
+        );
         return;
       }
       onFileSelected(file);

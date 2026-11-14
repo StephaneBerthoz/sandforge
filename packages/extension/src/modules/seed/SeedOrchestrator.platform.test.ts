@@ -289,6 +289,18 @@ describe('the built-in templates on a new Developer Edition', () => {
     expect(result.status).toBe('partial');
   });
 
+  it('names the permission that lets the user create the records of an object it may not, where no reason names one', async () => {
+    // "May not create Lead records" and no more: the way through is Create
+    // given to that user.
+    const org = newOrg({ access: { Lead: { access: 'readOnly' } } });
+    const result = await orchestrator(org).execute(LEADS_ACTIVITIES_STARTER, 'org-1');
+    const said = result.objectResults.find((r) => r.objectApiName === 'Lead')?.errors ?? [];
+    expect(said[0]).toBe(
+      'Skipped: the user this seed runs as may not create Lead records: give that user Create on ' +
+        'Lead in a permission set.',
+    );
+  });
+
   it('skips the campaigns of a user who may not create one, and what hangs on them, saying why', async () => {
     const org = newOrg({
       access: {
@@ -316,7 +328,9 @@ describe('the built-in templates on a new Developer Edition', () => {
     const said = (name: string): string[] =>
       result.objectResults.find((r) => r.objectApiName === name)?.errors ?? [];
     expect(said('PricebookEntry')[0]).toBe(
-      "Skipped: PricebookEntry points at the org's standard price book, and the org shows none to this user.",
+      "Skipped: PricebookEntry points at the org's standard price book, and the org shows this " +
+        'user no standard price book (Pricebook2): give that user Read on Price Books in a ' +
+        'permission set.',
     );
     expect(said('OpportunityLineItem')[0]).toMatch(/^Skipped: PricebookEntry/);
     expect(org.insert.mock.calls.some(([, name]) => name === 'PricebookEntry')).toBe(false);

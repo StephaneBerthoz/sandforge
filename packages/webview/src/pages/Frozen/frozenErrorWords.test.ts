@@ -96,6 +96,65 @@ describe('frozenErrorWords', () => {
     );
   });
 
+  it('says a sandbox marked Staging is refused for the mark, and how to go on', () => {
+    // Said "UAT is no sandbox", it sent the user looking for an org type the
+    // sandbox had all along.
+    expect(
+      frozenErrorWords(
+        { code: 'GUARD_REFUSED', guard: 'non-sandbox', orgId: 'org-uat', tier: 'staging' },
+        t,
+        aliasOf,
+      ),
+    ).toBe(
+      'UAT is a sandbox marked Staging: it holds real data, and a load never goes into one. ' +
+        'Nothing was written. Pick another sandbox, or, if this one holds no real data, untick ' +
+        'Staging in its Edit dialog on the Organizations page.',
+    );
+  });
+
+  it('says an extraction out of its time would be again, and to keep fewer roots', () => {
+    // "Try it again" sent the same extraction of the same roots to the same end.
+    expect(frozenErrorWords({ code: 'EXTRACT_TIMEOUT', minutes: 15 }, t, aliasOf)).toBe(
+      'The extraction ran out of its 15 minutes and stopped, and nothing was written: it reads ' +
+        'every record of the roots the selection kept, so run again it would stop again. Keep ' +
+        'fewer roots: lower the budget in the configuration, or narrow the axes, then run the ' +
+        'selection and the extraction again.',
+    );
+  });
+
+  it('says a load refused for the data storage the target has left, with the pilot and a smaller dataset', () => {
+    expect(
+      frozenErrorWords(
+        {
+          code: 'FROZEN_STORAGE_EXCEEDED',
+          orgId: 'org-uat',
+          storage: { estimateMB: 7.301, remainingMB: 5, maxMB: 5 },
+        },
+        t,
+        aliasOf,
+      ),
+    ).toBe(
+      "The dataset's records take about 7.31 MB of data storage, and UAT has 5 MB left of 5 MB: " +
+        'the load would stop part way through, and nothing was written. Load a pilot first, one ' +
+        'root folder of it; or extract a smaller dataset: lower the budget in the configuration, ' +
+        'then run the selection and the extraction again; or free data storage in UAT.',
+    );
+    expect(
+      frozenErrorWords(
+        {
+          code: 'FROZEN_STORAGE_EXCEEDED',
+          orgId: 'org-uat',
+          storage: { estimateMB: 7.3, remainingMB: 5, maxMB: 5, freedMB: 1 },
+        },
+        t,
+        aliasOf,
+      ),
+    ).toContain("with about 1 MB the reload's purge frees first");
+    expect(
+      frozenErrorWords({ code: 'FROZEN_STORAGE_EXCEEDED', orgId: 'org-uat' }, t, aliasOf),
+    ).toBeUndefined();
+  });
+
   it('says every refusal of its own by its code, what to do among it', () => {
     const said = (code: string): string | undefined => frozenErrorWords({ code }, t, aliasOf);
 
@@ -109,6 +168,8 @@ describe('frozenErrorWords', () => {
     expect(said('SAS_PATH_REFUSED')).toContain('outside any repository');
     expect(said('NO_LOAD')).toContain('No load into this org');
     expect(said('NOT_RECORDED')).toContain('cannot be told from the ones it linked');
+    // Refused by remove and by a reload alike, it names what is left to do.
+    expect(said('NOT_RECORDED')).toContain('refresh the sandbox to start again from its copy');
     expect(said('LOAD_CHANGED')).toContain('nothing was removed');
     expect(said('TARGET_REFRESHED')).toContain('went with the refresh');
     expect(said('LOAD_STOPPED')).toContain('no counting contract');

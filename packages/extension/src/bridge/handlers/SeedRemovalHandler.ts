@@ -782,7 +782,9 @@ export class SeedRemovalHandler implements DomainHandler {
       this.refuse(
         msg,
         'Nothing this run created is kept: it created nothing, or was dropped to make room ' +
-          'for newer seeds.',
+          'for newer seeds. To take its records back, rewind the org to a checkpoint taken ' +
+          'before it, or empty its objects (DataOps, Cleanup, Empty objects), which deletes all ' +
+          'their records.',
         'NOT_KEPT',
       );
       return;

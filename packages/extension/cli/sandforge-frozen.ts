@@ -217,10 +217,14 @@ Options:
                          records changed since, kept for records that stay under them
                          (a contact made by hand since under one of their accounts,
                          which the org would delete along), of an object the user may
-                         not delete, out of the user's sight or unread — or when one
-                         of them was recorded before loads kept what they created: take
-                         the load back with remove first (--include-changed takes what
-                         changed since, and what was added under them since). Refused
+                         not delete, out of the user's sight or unread: take the load
+                         back with remove first (--include-changed takes what changed
+                         since, and what was added under them since). Refused as well
+                         when one of them was recorded before loads kept what they
+                         created, which no removal takes: refresh the sandbox, or find
+                         what your user created that day with
+                         ${commandOf('cleanup')}, its dry run
+                         first, then delete it. Refused
                          the same way when the purge would have the org delete along a
                          record the reload finds again by its keys — a quote under the
                          opportunity an earlier load wrote: give that parent identity
@@ -408,8 +412,10 @@ Exit codes: 0 the step finished — a removal with nothing to take included, and
 removal's preview once said, its refusals included —, and verify's verdict is
 PASSED; 1 it failed or could not start, verify's verdict is FAILED, a dry run says
 the load would be refused, a load was refused before it wrote for what the target
-runs as it writes (AUTOMATION_NOT_ACCEPTED without --accept-automation) or for its
-emails (EMAILS_NOT_ACCEPTED without --accept-emails, FROZEN_EMAILS_EXCEEDED), or a removal
+runs as it writes (AUTOMATION_NOT_ACCEPTED without --accept-automation), for its
+emails (EMAILS_NOT_ACCEPTED without --accept-emails, FROZEN_EMAILS_EXCEEDED) or for
+the data storage its records take past what the target has left
+(FROZEN_STORAGE_EXCEEDED: --pilot, or a smaller dataset), or a removal
 stopped before its first delete at what the target runs, without
 --accept-automation; 2 a bad command line, or a question with
 no terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
@@ -1127,6 +1133,7 @@ const REFUSED_FIRST_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
       'EMAILS_NOT_ACCEPTED',
       'FROZEN_EMAILS_EXCEEDED',
       API_BUDGET_EXCEEDED,
+      'FROZEN_STORAGE_EXCEEDED',
       'AUTOMATION_NOT_ACCEPTED',
       PRODUCTION_GUARD_MISSING.code,
       ...MUTE_REFUSED_CODES,
@@ -3203,6 +3210,8 @@ const LOAD_REFUSED_BEFORE_WRITING: ReadonlySet<string> = new Set([
   'AUTOMATION_NOT_ACCEPTED',
   // Its gate on the API requests, before anything is taken for it.
   API_BUDGET_EXCEEDED,
+  // Its gate on the data storage, read from the same limits.
+  'FROZEN_STORAGE_EXCEEDED',
 ]);
 
 /**

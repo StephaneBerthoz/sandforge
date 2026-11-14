@@ -193,6 +193,13 @@ export interface SeedOrchestratorDependencies {
    */
   describeVisibleFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
+   * The fields the org fills itself, a formula's or an auto-number's. A
+   * dropped rule's field among them is one no user sets; the others a user
+   * may be given. Said alike, the result sent the user to field-level
+   * security for a formula. Optional: without it, the result names both.
+   */
+  describeComputedFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
    * Whether the org has an object and lets the user the seed runs as create
    * its records. An object it has not — `Knowledge__kav` where Knowledge is
    * off — or one the user may not create — a campaign without the Marketing
@@ -806,9 +813,11 @@ export class SeedOrchestrator {
     }
     if (found.access === 'createable') return undefined;
     const why = found.reason ? ` (${found.reason})` : '';
+    // The way through when the reason names none: Create given in a permission set.
     return found.access === 'absent'
       ? `Skipped: this org has no ${objectApiName} object${why}.`
-      : `Skipped: the user this seed runs as may not create ${objectApiName} records${why}.`;
+      : `Skipped: the user this seed runs as may not create ${objectApiName} records${why}` +
+          (found.reason ? '.' : `: give that user Create on ${objectApiName} in a permission set.`);
   }
 
   /**
@@ -865,7 +874,13 @@ export class SeedOrchestrator {
     } catch (err: unknown) {
       return `Skipped: ${of}, and reading it failed (${extractErrorMessage(err)}).`;
     }
-    if (ids.length === 0) return `Skipped: ${of}, and the org shows none to this user.`;
+    // The org always holds one: shown none, the user may not read price books.
+    if (ids.length === 0) {
+      return (
+        `Skipped: ${of}, and the org shows this user no standard price book (Pricebook2): give ` +
+        'that user Read on Price Books in a permission set.'
+      );
+    }
     run.existingIds.set(PRICEBOOK_OBJECT, ids);
     return undefined;
   }
@@ -898,7 +913,18 @@ export class SeedOrchestrator {
     } catch {
       // Cannot tell: every field is said with both of its possible causes.
     }
-    const notSettable = dropped.filter((field) => visible.has(field));
+    let computed: ReadonlySet<string> | undefined;
+    try {
+      if (this.deps.describeComputedFields) {
+        computed = await this.deps.describeComputedFields(objectApiName);
+      }
+    } catch {
+      // Cannot tell: each field it exists of is said with both of its causes.
+    }
+    const filled = dropped.filter((field) => visible.has(field) && computed?.has(field) === true);
+    const notSettable = dropped.filter(
+      (field) => visible.has(field) && computed?.has(field) !== true,
+    );
     const unseen = dropped.filter((field) => !visible.has(field));
     const one = (fields: readonly string[], single: string, plural: string): string =>
       fields.length === 1 ? single : plural;
@@ -909,10 +935,23 @@ export class SeedOrchestrator {
               `or field-level security hides ${one(unseen, 'it', 'them')} from the user SandForge connects as`,
           ]
         : []),
+      ...(filled.length > 0
+        ? [
+            `${filled.join(', ')}: ${one(filled, 'a formula or auto-number field', 'formula or auto-number fields')}, ` +
+              `which the org fills itself and no user sets: take ${one(filled, 'its rule', 'their rules')} ` +
+              'out of the template',
+          ]
+        : []),
       ...(notSettable.length > 0
         ? [
             `${notSettable.join(', ')}: ${one(notSettable, 'it exists', 'they exist')}, but the user ` +
-              `SandForge connects as may not set ${one(notSettable, 'it', 'them')}`,
+              `SandForge connects as may not set ${one(notSettable, 'it', 'them')}` +
+              (computed !== undefined
+                ? `: give that user Edit on ${one(notSettable, 'it', 'them')} (field-level ` +
+                  'security, in a permission set)'
+                : `: give that user Edit on ${one(notSettable, 'it', 'them')} (field-level ` +
+                  'security, in a permission set), unless it is a formula or auto-number field, ' +
+                  'whose rule comes out of the template'),
           ]
         : []),
     ];

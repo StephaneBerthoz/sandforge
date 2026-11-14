@@ -49,6 +49,17 @@ describe('describedFieldsOf', () => {
     ]);
   });
 
+  it('reads the fields the org fills itself, a formula or an auto-number, apart from those a user may be given', async () => {
+    const fields = describedFieldsOf(async () => ({
+      fields: [
+        { name: 'Name', type: 'string', createable: false },
+        { name: 'Score__c', type: 'double', createable: false, calculated: true },
+        { name: 'Ref__c', type: 'string', createable: false, autoNumber: true },
+      ],
+    }));
+    expect([...(await fields.computed('Account'))]).toEqual(['Score__c', 'Ref__c']);
+  });
+
   it('reads the fields the org refuses a record without, lookups and defaulted fields apart', async () => {
     const fields = describedFieldsOf(async () => ({
       fields: [

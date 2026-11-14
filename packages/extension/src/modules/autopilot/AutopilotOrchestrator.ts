@@ -252,7 +252,8 @@ export class AutopilotOrchestrator {
     config: Pick<
       AutopilotConfig,
       'selectedObjects' | 'includeStandardObjects' | 'maxDepth' | 'maxObjects'
-    >,
+    > &
+      Pick<ScanOptions, 'maxRecordsPerObject'>,
     onProgress?: ScanOptions['onProgress'],
   ): Promise<SchemaScanResult> {
     this.emitEvent({ type: 'scan-started', timestamp: new Date().toISOString() });
@@ -264,6 +265,10 @@ export class AutopilotOrchestrator {
       {
         ...(config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {}),
         ...(config.maxObjects !== undefined ? { maxObjects: config.maxObjects } : {}),
+        // A config's 0 says none was asked: the scanner's own bound holds.
+        ...(config.maxRecordsPerObject !== undefined && config.maxRecordsPerObject > 0
+          ? { maxRecordsPerObject: config.maxRecordsPerObject }
+          : {}),
         ...(onProgress ? { onProgress } : {}),
       },
     );

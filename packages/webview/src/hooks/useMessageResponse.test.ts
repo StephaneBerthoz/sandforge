@@ -849,6 +849,92 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it('says how to fit an Autopilot plan the target would not say the storage of, and what to do when the source refused its read', () => {
+      // Each said the plan was not fitted, and nothing of what to do next.
+      const said = (code: string): string => {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse(
+            'org:error',
+            { message: 'The plan could not be fitted.', code, reason: 'INSUFFICIENT_ACCESS' },
+            'req-1',
+          );
+        });
+        return String(result.current.error);
+      };
+      expect(said('AUTOPILOT_FIT_STORAGE_UNREAD')).toContain(
+        'Fill in “Use no more than (MB)” with the most it may take, then fit it to that.',
+      );
+      expect(said('AUTOPILOT_FIT_READ_REFUSED')).toContain(
+        'Fit it again; if the source refuses again, narrow the selection, or run the plan ' +
+          'unfitted where it fits the target.',
+      );
+    });
+
+    it('says a scenario its emails stopped by the counts of its pack, not an object set to 0', () => {
+      // A scenario's page has no count to set to 0: its counts are its pack's.
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: 'The seed was refused before it wrote anything.',
+            code: 'SEED_EMAILS_EXCEEDED',
+            org: 'my-dev-org',
+            limit: 'SingleEmail',
+            emails: 40,
+            remaining: 15,
+            max: 15,
+            objects: ['Contact'],
+            senders: ['Welcome Email'],
+            scenario: true,
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toContain('Go Back and lower customers.count with Edit as JSON');
+      expect(result.current.error).not.toContain('to 0');
+    });
+
+    it('says a CSV import its data storage stopped with how many rows fit, and to split the file', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: 'The import was refused before it wrote anything: the English of the host.',
+            code: 'CSV_STORAGE_EXCEEDED',
+            org: 'my-dev-org',
+            rows: 3000,
+            fitting: 2560,
+            estimateMB: 5.859,
+            remainingMB: 5,
+            maxMB: 5,
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.errorCode).toBe('CSV_STORAGE_EXCEEDED');
+      expect(result.current.error).toBe(
+        'The import was refused before it wrote anything: its 3,000 rows take about 5.86 MB of ' +
+          'data storage, and my-dev-org has 5 MB left of 5 MB, room for about 2,560 of them. ' +
+          'Split the file and import one part at a time, freeing data storage in my-dev-org in ' +
+          'between as needed.',
+      );
+    });
+
     it('says a masking run refused for a field the org hides in the interface language, the field named and what to do', () => {
       const said = 'The template "People" masks Contact.Birthdate: the English of the host.';
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));

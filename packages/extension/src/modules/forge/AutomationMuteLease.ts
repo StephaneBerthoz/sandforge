@@ -922,7 +922,9 @@ export async function prepareMute(
     return {
       refused: {
         code: 'MUTE_NO_RIGHT',
-        message: `The target's automation cannot be muted: ${noRight}. Nothing was assigned.`,
+        message:
+          `The target's automation cannot be muted: ${noRight}. Nothing was assigned: run it ` +
+          "without muting the target's automation, or have that user given Assign Permission Sets.",
       },
     };
   }

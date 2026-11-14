@@ -372,6 +372,49 @@ describe('the graph a step keeps in the sas for the next, on an org shaped like 
     expect(kept.step).toBe('extract');
   });
 
+  it('says an extraction out of its time would be again, with the way through, and stops reading the source', async () => {
+    // Out of time, it said "try it again": it reads the same roots, and ran
+    // out of time again; and it went on reading the source for a step
+    // already answered.
+    const org = largeOrg({ cases: 12 });
+    const schema = { changedAt: 0, checks: 0 };
+    const select = await selected(org, schema);
+    const step = withSchemaClock(org, schema);
+    let timedOut = false;
+    let readAfter = 0;
+    let first = true;
+    const conn = {
+      ...step.conn,
+      query: (soql: string) => {
+        if (timedOut) readAfter++;
+        if (first && !/COUNT\(\)/.test(soql)) {
+          // The first read of the extraction answers past its time.
+          first = false;
+          return new Promise((resolve) => {
+            setTimeout(() => resolve(step.conn.query(soql)), 16 * 60_000);
+          });
+        }
+        return step.conn.query(soql);
+      },
+    };
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    const deps = depsWith(select.config);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    const done = new FrozenDatasetHandler(deps).handle(extractMsg());
+    // Its files read first, the extraction then sends its first read.
+    await vi.waitFor(() => expect(first).toBe(false));
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    await done;
+    timedOut = true;
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+    const [error] = posted<Record<string, unknown>>(deps, 'frozen:extract:error');
+    expect(error).toMatchObject({ code: 'EXTRACT_TIMEOUT', minutes: 15, retryable: false });
+    expect(String(error?.message)).toContain('Keep fewer roots: lower the budget');
+    expect(readAfter).toBe(0);
+  });
+
   it('discovers again a graph kept at another cap, and says so', async () => {
     const org = largeOrg({ cases: 12 });
     const schema = { changedAt: 0, checks: 0 };

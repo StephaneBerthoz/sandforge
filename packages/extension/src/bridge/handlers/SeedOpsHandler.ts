@@ -1153,7 +1153,8 @@ export class SeedOpsHandler implements DomainHandler {
           reason: 'run-unknown',
           message: !run
             ? 'Nothing of this run is kept any more.'
-            : 'The org this run wrote to is no longer connected to SandForge.',
+            : 'The org this run wrote to is no longer connected to SandForge: reconnect it on ' +
+              'the Organizations page, then write the test file again.',
         });
         return;
       }
@@ -1959,7 +1960,12 @@ export class SeedOpsHandler implements DomainHandler {
         refusal: {
           code: SEED_EMAILS_EXCEEDED,
           message: emails.refusal,
-          extraPayload: emails.figures ? { ...emails.figures } : {},
+          // A scenario's counts are its pack's, set under Edit as JSON: the
+          // page says that, not to set an object to 0, which it has no field for.
+          extraPayload: {
+            ...(emails.figures ? { ...emails.figures } : {}),
+            ...(publishes ? { scenario: true } : {}),
+          },
           failed: { authored: true },
         },
       };
@@ -2487,6 +2493,7 @@ export class SeedOpsHandler implements DomainHandler {
         validator,
         describeCreateableFields: describedFields.createable,
         describeVisibleFields: describedFields.visible,
+        describeComputedFields: describedFields.computed,
         describePicklistValues: describedFields.picklistValues,
         describeFieldLengths: describedFields.lengths,
         // What the org requires and the template names no rule for, less what

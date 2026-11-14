@@ -281,9 +281,12 @@ export interface StorageRoomNotCounted {
 export interface StorageFitBudget {
   /** The MB the fitted run may write, the room its automation needs taken off. */
   budgetMB: number;
-  /** What the org's `/limits` say it has left, and its whole, in MB. */
-  remainingMB: number;
-  maxMB: number;
+  /**
+   * What the org's `/limits` say it has left, and its whole, in MB: absent
+   * when it would not say, and the fit held to `withinMB` alone.
+   */
+  remainingMB?: number;
+  maxMB?: number;
   /** The share of what is left, past the rounding, the run may take: a fitted run passes the gate without the question "near". */
   share: number;
   /** MB kept for the rounding of `/limits`, which answers in whole MB. */

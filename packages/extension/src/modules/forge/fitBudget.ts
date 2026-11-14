@@ -100,10 +100,23 @@ export interface FitBudget {
  * room of the target's automation to come off it as the records are chosen
  * ({@link roomBytesOf}), and the run's own API requests that leave a tenth of
  * the day once the other parts are counted. A target that would not say its
- * storage leaves nothing to fit to.
+ * storage is fitted to the MB asked (`withinMB`), and leaves nothing to fit to
+ * when none are.
  */
 export function fitBudgetOf(input: FitBudgetInput): FitBudget | { unread: string } {
-  if ('unread' in input.storage) return { unread: input.storage.unread };
+  // A target that would not say its storage — a Standard User's `/limits`
+  // leave it out — is fitted to the MB asked of the fit, as a sample of the
+  // whole org is: refused whatever was asked, a user who could not read the
+  // org's storage had no fit at all.
+  if ('unread' in input.storage) {
+    if (input.withinMB === undefined) return { unread: input.storage.unread };
+    return withRequests(input, Math.floor(Math.max(0, input.withinMB) * BYTES_PER_MB), {
+      share: STORAGE_NEAR_SHARE,
+      roundingMB: STORAGE_ROUNDING_MARGIN_MB,
+      withinMB: input.withinMB,
+      limitedBy: 'within',
+    });
+  }
   const { remainingMB, maxMB } = input.storage;
   const storageBytes =
     STORAGE_NEAR_SHARE * Math.max(0, remainingMB - STORAGE_ROUNDING_MARGIN_MB) * BYTES_PER_MB;
@@ -119,6 +132,11 @@ export function fitBudgetOf(input: FitBudgetInput): FitBudget | { unread: string
     limitedBy,
   };
   const bytes = Math.floor(Math.min(storageBytes, withinBytes));
+  return withRequests(input, bytes, terms);
+}
+
+/** A fit's budget of `bytes` and `terms`, with the run's own API requests the target's leave it. */
+function withRequests(input: FitBudgetInput, bytes: number, terms: FitBudget['terms']): FitBudget {
   if (!input.api) return { bytes, terms };
   if ('unread' in input.api) return { bytes, terms, requestsUnread: input.api.unread };
   const others = Object.values(input.otherRequests ?? {}).reduce<number>(

@@ -217,6 +217,18 @@ describe('prepareMute', () => {
     expect(answer).toMatchObject({ refused: { code: 'MUTE_NO_RIGHT' } });
   });
 
+  it('names the ways through a refusal for the right to assign: no mute, or the right given', async () => {
+    // It said the run could not be muted, and nothing of how to go on.
+    for (const canAssign of [false, 'unreadable'] as const) {
+      const org = orgWith({ canAssign, canManageUsers: false });
+      const answer = await prepareMute(muteOrgOf(org.connection), automation, asProcess(100));
+      if (!('refused' in answer)) throw new Error('not refused');
+      expect(answer.refused.message).toMatch(
+        /Nothing was assigned: run it without muting the target's automation, or have that user given Assign Permission Sets\.$/,
+      );
+    }
+  });
+
   it('takes a user with Manage Users as one who may assign', async () => {
     const org = orgWith({ canAssign: false, canManageUsers: true });
     await expect(prepared(org, asProcess(100))).resolves.toBeDefined();

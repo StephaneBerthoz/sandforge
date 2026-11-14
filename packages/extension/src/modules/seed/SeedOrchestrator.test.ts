@@ -712,7 +712,40 @@ describe('SeedOrchestrator — a field the org does not have', () => {
     expect(result.objectResults[0].errors).toEqual([
       'Written without AnnualRevenue: this org does not have that field, or field-level ' +
         'security hides it from the user SandForge connects as.',
-      'Written without Rating: it exists, but the user SandForge connects as may not set it.',
+      'Written without Rating: it exists, but the user SandForge connects as may not set it: ' +
+        'give that user Edit on it (field-level security, in a permission set), unless it is a ' +
+        'formula or auto-number field, whose rule comes out of the template.',
+    ]);
+  });
+
+  it('tells a formula the org fills itself from a field field-level security keeps from the user, each with its way through', async () => {
+    // Both read "may not set it": a formula sent the user to field-level
+    // security, which no grant there lets set.
+    const mapFields = vi.fn().mockResolvedValue([{ Name: 'Acme' }, { Name: 'Globex' }]);
+    const orchestrator = new SeedOrchestrator(
+      partitionedDeps({
+        ...createMockDeps(),
+        fieldMapper: { mapFields } as never,
+        describeCreateableFields: async () => new Set(['Name']),
+        describeVisibleFields: async () => new Set(['Name', 'Rating', 'Score__c']),
+        describeComputedFields: async () => new Set(['Score__c']),
+      }),
+    );
+
+    const result = await orchestrator.execute(
+      oneObject([
+        nameRule,
+        { ...missingRule, fieldApiName: 'Rating' },
+        { ...missingRule, fieldApiName: 'Score__c' },
+      ]) as never,
+      'org',
+    );
+
+    expect(result.objectResults[0].errors).toEqual([
+      'Written without Score__c: a formula or auto-number field, which the org fills itself and ' +
+        'no user sets: take its rule out of the template.',
+      'Written without Rating: it exists, but the user SandForge connects as may not set it: ' +
+        'give that user Edit on it (field-level security, in a permission set).',
     ]);
   });
 });

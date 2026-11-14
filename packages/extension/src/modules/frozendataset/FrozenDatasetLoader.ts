@@ -1957,7 +1957,12 @@ export class FrozenDatasetLoader {
       try {
         describe = await this.deps.orgAccess.describe(orgId, objectApiName);
       } catch (err) {
-        const reason = `Not present in target org: ${err instanceof Error ? err.message : String(err)}`;
+        // Said with the way on: the object deployed, or seen by the user
+        // the load writes as. The org's words alone named none.
+        const reason =
+          `Not present in target org: ${err instanceof Error ? err.message : String(err)}. ` +
+          'Deploy it to the target, or give the loading user Read on it, then load again; or ' +
+          'leave it out of the configuration (excludedObjects) and extract again';
         leaveOut(reason, reason);
         continue;
       }
@@ -1971,7 +1976,9 @@ export class FrozenDatasetLoader {
       if (describe.createable === false && toWrite.length > 0) {
         leaveOut(
           `Not createable in target org: ${toWrite.length} record${toWrite.length === 1 ? '' : 's'} ` +
-            'of the dataset not loaded',
+            'of the dataset not loaded. Give the loading user Create on it in a permission set, ' +
+            'where the platform lets a user create it; otherwise leave it out of the ' +
+            'configuration (excludedObjects) and extract again',
           'Not createable in target org: the running user may not insert it',
         );
         continue;

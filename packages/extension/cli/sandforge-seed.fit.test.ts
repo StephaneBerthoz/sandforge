@@ -534,6 +534,21 @@ describe('a seed fitted from the command line', () => {
     );
   });
 
+  it('fits a target that does not say its storage to the MB --fit-within gives, instead of refusing it', async () => {
+    // A Standard User's /limits leave the storage out: refused whatever was
+    // asked, such a user had no fit at all.
+    const conn = fakeOrg();
+    conn.request = async () => {
+      steps.push('limits read');
+      throw new Error('the limits are not served');
+    };
+
+    await main(argv(10, '--fit', 'share', '--fit-within', '5', '--dry-run', '--json'));
+
+    expect(stdout.join('')).not.toContain('SEED_FIT_STORAGE_UNREAD');
+    expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+  });
+
   it('refuses a fit to a target that does not say its storage under its code, and writes nothing', async () => {
     const conn = fakeOrg();
     conn.request = async () => {
@@ -542,7 +557,7 @@ describe('a seed fitted from the command line', () => {
     };
 
     await expect(main(argv(10, '--fit', 'share', '--json'))).rejects.toThrow(
-      /^refused \(SEED_FIT_STORAGE_UNREAD\): The seed was refused before it wrote anything: it cannot be fitted to TGT, whose data storage left could not be read/,
+      /^refused \(SEED_FIT_STORAGE_UNREAD\): The seed was refused before it wrote anything: it cannot be fitted to TGT, whose data storage left could not be read \(.*\): give --fit-within <MB>, the most it may take, to fit it to that\./,
     );
     expect(JSON.parse(stdout.join(''))).toMatchObject({
       refused: { code: 'SEED_FIT_STORAGE_UNREAD' },

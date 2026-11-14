@@ -12,7 +12,7 @@ import type {
   SeedAutomationPreview,
   SeedTemplate,
 } from '@sandforge/shared';
-import { CRM_STARTER } from '@sandforge/shared';
+import { CRM_STARTER, RETAIL_ORDERS_PACK } from '@sandforge/shared';
 
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -299,6 +299,32 @@ describe('SeedOpsHandler — the org automation and the emails', () => {
       silenced: [{ objectApiName: 'Knowledge__kav', name: 'Article Update' }],
       stillRuns: [{ objectApiName: 'Knowledge__kav', name: 'Article Insert', why: 'noBypass' }],
     });
+  });
+
+  it("says a scenario refused for its emails is a scenario's, whose counts its pack sets, and a template's is not", async () => {
+    // The page told a scenario to set Contact to 0, which no field of its
+    // flow sets: a scenario's counts are its pack's.
+    developerEdition();
+    await handler.handle(
+      inboundRequest({
+        id: 'scenario-run',
+        type: 'seed:scenario:execute',
+        timestamp: Date.now(),
+        payload: {
+          orgId: 'org-1',
+          pack: RETAIL_ORDERS_PACK,
+          options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+        },
+      }),
+    );
+    await execute(CRM_STARTER);
+
+    const refused = posted('seed:error').map((m) => m.payload);
+    expect(refused).toEqual([
+      expect.objectContaining({ code: 'SEED_EMAILS_EXCEEDED', scenario: true }),
+      expect.objectContaining({ code: 'SEED_EMAILS_EXCEEDED' }),
+    ]);
+    expect(refused[1]).not.toHaveProperty('scenario');
   });
 
   it('refuses the CRM starter past the single emails the org has left, before the guard or any write', async () => {

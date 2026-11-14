@@ -295,7 +295,8 @@ describe('SeedOpsHandler — a scenario pack seeded, and its test file', () => {
     });
     expect(answer.payload.preparation.knowledge).toEqual({
       available: false,
-      reason: 'Salesforce Knowledge is not turned on in it',
+      reason:
+        'Salesforce Knowledge is not turned on in it: tick Knowledge User on your user (Setup > Users), then enable it in Setup > Knowledge Settings',
     });
     expect(answer.payload.preparation.objects.map((o) => o.objectApiName)).toEqual([
       'Account',
@@ -392,7 +393,8 @@ describe('SeedOpsHandler — a scenario pack seeded, and its test file', () => {
       kind: 'no-agent',
       reason: 'none',
       message:
-        'This org has no Agentforce agent: create one, then write the test file from this run.',
+        'This org has no Agentforce agent: the records this run wrote stay, usable as they ' +
+        'are. Create an agent in Setup > Agentforce Agents, then write the test file from this run.',
     });
     expect(existsSync(join(workspace, 'specs'))).toBe(false);
   });
@@ -431,6 +433,26 @@ describe('SeedOpsHandler — a scenario pack seeded, and its test file', () => {
       ...BUILT_IN_SCENARIO_PACKS.map(() => 'built-in'),
       'workspace',
     ]);
+  });
+
+  it('says the org of a run kept is no longer connected, and to reconnect it on the Organizations page', async () => {
+    // It said the org was no longer connected, and nothing of how to write
+    // the file all the same.
+    const result = await seedRetail();
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue(undefined);
+
+    await handler.handle(msg('seed:scenario:test-file', { runId: result.operationId, choice }));
+
+    const [answer] = posted<{ outcome: SeedScenarioTestFileOutcome }>(
+      'seed:scenario:test-file:response',
+    );
+    expect(answer.payload.outcome).toEqual({
+      kind: 'unavailable',
+      reason: 'run-unknown',
+      message:
+        'The org this run wrote to is no longer connected to SandForge: reconnect it on the ' +
+        'Organizations page, then write the test file again.',
+    });
   });
 
   it('says a run unknown to the store has no test file to write', async () => {

@@ -10,6 +10,7 @@ import {
   type BaseMessage,
 } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
+import { formatNumber } from '../utils/formatters';
 import { listWords } from '../utils/listWords';
 import { maskingRefusalWords } from '../utils/maskingRefusal';
 import { muteRefusalWords } from '../utils/muteRefusal';
@@ -140,6 +141,27 @@ function guardRefusal(
         })
       : undefined;
   }
+  // A CSV import its rows' data storage stopped before the first write, with
+  // how many of them the storage left holds: the ways out are the file's.
+  if (code === 'CSV_STORAGE_EXCEEDED') {
+    const { rows, fitting, estimateMB, remainingMB, maxMB, org } = payload;
+    return typeof rows === 'number' &&
+      typeof fitting === 'number' &&
+      typeof estimateMB === 'number' &&
+      typeof remainingMB === 'number' &&
+      typeof maxMB === 'number' &&
+      typeof org === 'string'
+      ? i18n.t('common.refusal.csvStorageExceeded', {
+          count: rows,
+          rows: formatNumber(rows),
+          fitting: formatNumber(fitting),
+          estimate: megabytes(estimateMB),
+          remaining: formatNumber(remainingMB),
+          max: formatNumber(maxMB),
+          org,
+        })
+      : undefined;
+  }
   // A seed its records' emails stopped before the first write, past what the
   // org has left today, with the figures and the ways out the host found.
   if (code === 'SEED_EMAILS_EXCEEDED') {
@@ -160,7 +182,13 @@ function guardRefusal(
       return undefined;
     }
     const list = (items: readonly string[]): string => listWords(items, (key) => i18n.t(key));
-    return i18n.t('common.refusal.seedEmailsExceeded', {
+    // A scenario's counts are its pack's, set under Edit as JSON: told to set
+    // an object to 0, its page had no field for it.
+    const key =
+      payload.scenario === true
+        ? 'common.refusal.seedEmailsExceededScenario'
+        : 'common.refusal.seedEmailsExceeded';
+    return i18n.t(key, {
       org,
       limit: i18n.t(
         limit === 'SingleEmail' ? 'common.emailLimit.single' : 'common.emailLimit.workflow',

@@ -66,7 +66,7 @@
       "autopilotNotReady": "Autopilot ist in diesem Fenster noch nicht geladen, und in der Org wurde nichts geändert. Warten Sie einige Sekunden und versuchen Sie es dann erneut; bleibt es so, laden Sie das Fenster neu (Developer: Reload Window).",
       "autopilotStorageExceeded": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist. Grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
-      "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
+      "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden. Starten Sie ihn erneut über die Autopilot-Seite in VS Code, wo die Frage gestellt wird.",
       "transformNoField_one": "Die Regel {{rules}} nennt kein Feld: Öffnen Sie die Konfiguration und wählen Sie ihr Feld. Ohne Feld würde sie jedes Feld jedes Datensatzes ändern, Datensatztypen und Nachschlagefelder eingeschlossen. Es wurde nichts gelesen oder geschrieben.",
       "transformNoField_other": "Die Regeln {{rules}} nennen kein Feld: Öffnen Sie die Konfiguration und wählen Sie ihre Felder. Ohne Feld würde jede davon jedes Feld jedes Datensatzes ändern, Datensatztypen und Nachschlagefelder eingeschlossen. Es wurde nichts gelesen oder geschrieben.",
       "transformRuleOn": "{{rule}} auf {{object}}",
@@ -74,17 +74,20 @@
       "transformBadPattern_other": "Die Regeln {{rules}} haben Muster, die keine regulären Ausdrücke sind: Öffnen Sie die Konfiguration und korrigieren Sie sie, oder entfernen Sie die Regeln. Im Lauf würde jede davon die Synchronisierung bei ihrem Objekt anhalten, bevor einer seiner Datensätze geschrieben wird. Es wurde nichts gelesen oder geschrieben.",
       "transformPatternOn": "{{rule}} auf {{object}}, „{{pattern}}“ ({{reason}})",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
+      "csvStorageExceeded_one": "Der Import wurde abgelehnt, bevor er etwas geschrieben hat: Seine {{rows}} Zeile braucht rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Geben Sie Datenspeicher in {{org}} frei und importieren Sie sie erneut.",
+      "csvStorageExceeded_other": "Der Import wurde abgelehnt, bevor er etwas geschrieben hat: Seine {{rows}} Zeilen brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei, Platz für etwa {{fitting}} davon. Teilen Sie die Datei und importieren Sie einen Teil nach dem anderen; geben Sie dazwischen bei Bedarf Datenspeicher in {{org}} frei.",
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder aktivieren Sie Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten: Nur für den Lauf erhalten Sie damit die Umgehungen, die sie prüfen.",
+      "seedEmailsExceededScenario": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Gehen Sie zurück und verringern Sie customers.count mit Als JSON bearbeiten, schalten Sie {{senders}} ab oder aktivieren Sie Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten: Nur für den Lauf erhalten Sie damit die Umgehungen, die sie prüfen.",
       "seedWriteDeclined": "Der Seed wurde abgebrochen, bevor er etwas schrieb. In die Ziel-Org wurde nichts geschrieben.",
       "backupBusy": "Eine Sicherung oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Sicherungen, sobald der Vorgang beendet ist.",
       "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist.",
       "muteProduction": "Die Automatisierungen der Ziel-Org werden in einer Produktions-Org nie stummgeschaltet, auch nicht in einer, die sich von einer solchen nicht unterscheiden lässt: Nichts wurde zugewiesen und nichts geschrieben. Führen Sie den Durchlauf ohne Stummschalten aus.",
-      "muteNoRight": "Die Automatisierungen der Ziel-Org können nicht stummgeschaltet werden: Der Benutzer, als der der Durchlauf schreibt, darf keine Berechtigungssätze zuweisen (dafür braucht es „Berechtigungssätze zuweisen“ oder „Benutzer verwalten“), oder die Org hat es nicht verraten. Nichts wurde zugewiesen und nichts geschrieben.",
+      "muteNoRight": "Die Automatisierungen der Ziel-Org können nicht stummgeschaltet werden: Der Benutzer, als der der Durchlauf schreibt, darf keine Berechtigungssätze zuweisen (dafür braucht es „Berechtigungssätze zuweisen“ oder „Benutzer verwalten“), oder die Org hat es nicht verraten. Nichts wurde zugewiesen und nichts geschrieben. Entfernen Sie das Häkchen bei Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten und starten Sie erneut, oder lassen Sie diesem Benutzer von einem Administrator „Berechtigungssätze zuweisen“ geben.",
       "muteFailed": "Die Automatisierungen der Ziel-Org konnten nicht stummgeschaltet werden, daher wurde nichts geschrieben: {{reason}}",
       "muteCheckpoint": "Die Automatisierungen der Org konnten nicht stummgeschaltet werden, daher wurde nichts geschrieben: {{reason}}",
       "autopilotStorageExceededFigures": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Passen Sie den Plan an den Speicher an, grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in {{org}} frei.",
-      "autopilotFitStorageUnread": "Der Plan wurde nicht angepasst: Die Ziel-Org hat nicht angegeben, wie viel Datenspeicher sie noch frei hat ({{reason}}). Der Plan in der Überprüfung ist unverändert.",
-      "autopilotFitReadRefused": "Der Plan wurde nicht angepasst: Die Quell-Org hat ein Lesen ihrer Datensätze abgelehnt ({{reason}}). Aus nicht Gelesenem wurde nichts gewählt, und der Plan in der Überprüfung ist unverändert.",
+      "autopilotFitStorageUnread": "Der Plan wurde nicht angepasst: Die Ziel-Org hat nicht angegeben, wie viel Datenspeicher sie noch frei hat ({{reason}}). Der Plan in der Überprüfung ist unverändert. Tragen Sie unter „Höchstens verwenden (MB)“ ein, wie viel er höchstens belegen darf, und passen Sie ihn daran an.",
+      "autopilotFitReadRefused": "Der Plan wurde nicht angepasst: Die Quell-Org hat ein Lesen ihrer Datensätze abgelehnt ({{reason}}). Aus nicht Gelesenem wurde nichts gewählt, und der Plan in der Überprüfung ist unverändert. Passen Sie ihn erneut an; lehnt die Quelle wieder ab, verkleinern Sie die Auswahl oder führen Sie den Plan unangepasst aus, wo er in das Ziel passt.",
       "autopilotFitStale": "Der Plan hat sich während der Anpassung geändert: Passen Sie ihn erneut an.",
       "autopilotNoPlan": "In diesem Fenster gibt es keinen Plan mehr zum Anpassen: Gehen Sie zurück zu den Objekten und planen Sie neu."
     },
@@ -823,7 +826,7 @@
         "title": "CSV-Datei hier ablegen",
         "subtitle": "oder klicken Sie auf die Schaltfläche zum Durchsuchen",
         "browse": "Dateien durchsuchen",
-        "maxSize": "Datei überschreitet die maximale Größe von {{max}} MB"
+        "maxSize": "Diese Datei ist {{size}} MB groß, mehr als die {{max}} MB, die der CSV-Upload auf einmal liest: Teilen Sie sie in kleinere Dateien auf oder speichern Sie sie ohne die Spalten, die Sie nicht importieren, und laden Sie dann jeden Teil hoch."
       },
       "mapper": {
         "title": "CSV-Spalten zu Salesforce-Feldern zuordnen",
@@ -1044,11 +1047,15 @@
         "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
         "CLONE_EMAILS_EXCEEDED": "Der Klonvorgang wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Schränken Sie die Filter von {{objects}} ein oder lassen Sie sie weg, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
+        "CLONE_STORAGE_EXCEEDED": "Der Klonvorgang wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Die größten: {{heaviest}}. Schränken Sie ihren Filter ein oder lassen Sie sie weg und erstellen Sie die Vorschau erneut, oder kopieren Sie mit Forge eine Stichprobe der Quelle, die passt: Tiefe ALL, Datensätze pro Objekt „Eine Stichprobe, die in das Ziel passt“.",
+        "heavyObject_one": "{{object}} ({{formatted}} Datensatz, {{mb}} MB)",
+        "heavyObject_other": "{{object}} ({{formatted}} Datensätze, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "Der Klon wurde abgelehnt, bevor er etwas schrieb: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat.",
         "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge hat diesen Lauf abgelehnt, bevor etwas geschrieben wurde: Er galt nicht den Orgs, für die seine Vorschau erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "NOT_PREVIEWED": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Er nannte keine Vorschau, und ein Klonvorgang läuft nur aus der Vorschau, für die er erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "PREVIEW_NOT_HELD": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Die genannte Vorschau wird nicht mehr gehalten — SandForge behält die letzten 50 Vorschauen und vergisst sie beim Neustart der Erweiterung. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
+        "OBJECT_NOT_IN_TARGET": "{{object}} gibt es in {{org}} nicht, oder der Benutzer, mit dem SandForge sich dort verbindet, sieht es nicht, und nichts wurde geschrieben: Entfernen Sie das Häkchen, um die anderen zu klonen, oder stellen Sie es zuerst mit Vergleich (Aus Diff bereitstellen) in {{org}} bereit und geben Sie diesem Benutzer Zugriff darauf.",
         "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
         "detail": "Einzelheiten: {{detail}}",
         "SEED_WRITE_DECLINED": "Sie haben den Klon abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben."
@@ -1086,7 +1093,7 @@
       "created_one": "{{formatted}} Datensatz in {{org}} erstellt",
       "created_other": "{{formatted}} Datensätze in {{org}} erstellt",
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Seed eingefügt hat, das zuletzt geschriebene Objekt zuerst, die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Seed geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
-      "notKept": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt — er wurde für neuere Seeds verworfen oder lief, bevor Seeds auf dem Datenträger aufbewahrt wurden — und kann von hier aus nicht entfernt werden.",
+      "notKept": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt — er wurde für neuere Seeds verworfen oder lief, bevor Seeds auf dem Datenträger aufbewahrt wurden — und kann von hier aus nicht entfernt werden. Um seine Datensätze zurückzunehmen: Setzen Sie die Org unter Prüfpunkte auf einen Prüfpunkt von davor zurück, oder leeren Sie seine Objekte unter DataOps → Bereinigung → Objekte leeren, was alle ihre Datensätze löscht, nicht nur die dieses Seeds.",
       "historyTitle": "Frühere Seeds",
       "historyNote": "Die Seeds, die diese Erweiterung aufbewahrt hat, die neuesten zuerst: Seeds, deren Datensätze noch in ihrer Org sind, können entfernt werden, auch nachdem das Fenster neu geladen wurde. Ein Seed, dessen Datensätze noch in seiner Org sind, bleibt aufgeführt, bis er entfernt wird; von den entfernten Seeds werden die 20 neuesten aufgeführt.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} Datensatz erstellt",
@@ -1148,6 +1155,8 @@
       "emailsUnread": "{{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}. Was heute noch übrig ist, konnte nicht gelesen werden ({{reason}}): Der Seed wird nicht aufgehalten.",
       "refused": "Der Seed würde abgelehnt, bevor er etwas schreibt. {{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Sind sie aufgebraucht, lehnt ein Flow, der beim Speichern sendet, seinen Datensatz ab, und die eigenen E-Mails der Org stehen für den Rest des Tages still.",
       "waysOut": "Um ihn auszuführen, verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0 oder schalten Sie {{senders}} ab.",
+      "waysOutScenario": "Um ihn auszuführen, gehen Sie zurück (Zurück) und verringern Sie customers.count mit Als JSON bearbeiten, nicht unter die Zahl seiner Themen, oder schalten Sie {{senders}} ab.",
+      "wayMute": "Oder aktivieren Sie unten „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“: Nur für den Lauf erhalten Sie damit diese Berechtigungssätze.",
       "wayBypass": "Oder weisen Sie sich den Berechtigungssatz {{set}} zu: Seine {{permission}} hält {{senders}} still.",
       "wayBypassNoSet": "Oder weisen Sie sich einen Berechtigungssatz zu, der {{permission}} enthält und {{senders}} still hält."
     },
@@ -1272,7 +1281,7 @@
         "variantHint": "Nehmen Sie eine andere Zahl, um dieses Szenario ein zweites Mal in dieselbe Org zu schreiben: Dieselbe Zahl schreibt dieselben Namen."
       },
       "knowledge": {
-        "absent": "Diese Org hat kein Knowledge: Die Artikel werden übersprungen. Die Tests, die aus Knowledge antworten, werden geschrieben, und der Agent hat keinen Artikel zum Zitieren.",
+        "absent": "Diese Org hat kein Knowledge: Die Artikel werden übersprungen. Die Tests, die aus Knowledge antworten, werden geschrieben, und der Agent hat keinen Artikel zum Zitieren. Um die Artikel zu seeden, schalten Sie Knowledge ein: Aktivieren Sie Knowledge-Benutzer bei Ihrem Benutzer (Setup > Benutzer) und dann Knowledge unter Setup > Knowledge-Einstellungen; Salesforce lässt es danach nicht mehr ausschalten.",
         "bodyField": "Feld für den Artikeltext",
         "body": "Der Artikeltext wird in {{field}} geschrieben.",
         "bodySummary": "Das Knowledge dieser Org bietet kein anderes Feld für einen Artikeltext: Jeder Text kommt in Summary, in dessen {{length}} Zeichen, jede Tatsache erhalten.",
@@ -1282,8 +1291,8 @@
       },
       "results": {
         "openCases": "{{written}} der {{total}} offenen Kundenvorgänge, um die es in den Tests geht, wurden geschrieben.",
-        "noCase": "Kein offener Kundenvorgang wurde geschrieben: Aus diesem Lauf kann keine Testdatei geschrieben werden.",
-        "companionFailed": "Die IDs der Kundenvorgänge des Laufs konnten nicht gespeichert werden ({{message}}): Aus diesem Lauf kann keine Testdatei geschrieben werden.",
+        "noCase": "Kein offener Kundenvorgang wurde geschrieben: Aus diesem Lauf kann keine Testdatei geschrieben werden. Entfernen Sie diesen Seed und seeden Sie das Szenario dann erneut.",
+        "companionFailed": "Die IDs der Kundenvorgänge des Laufs konnten nicht gespeichert werden ({{message}}): Aus diesem Lauf kann keine Testdatei geschrieben werden. Entfernen Sie diesen Seed und seeden Sie das Szenario dann erneut.",
         "knowledge": {
           "title": "Knowledge-Artikel",
           "published": "Veröffentlichte Artikel: {{done}} von {{total}}",
@@ -1296,8 +1305,8 @@
         "title": "Agentforce-Testdatei",
         "noPromise": "SandForge schreibt die Daten und was der Agent tun soll. Ein Ergebnis hängt vom Agenten und von einem Modell ab, das variiert: Ein fehlgeschlagener Test kann vom Agenten kommen, nicht von den Daten.",
         "reading": "Die Agenten der Org werden gelesen…",
-        "noAgent": "Diese Org hat keinen Agentforce-Agenten: Erstellen Sie einen und schreiben Sie dann die Testdatei aus diesem Lauf.",
-        "noAgentforce": "Diese Org hat kein Agentforce: Die Testdatei braucht eine Org mit einem Agenten.",
+        "noAgent": "Diese Org hat keinen Agentforce-Agenten: Die Datensätze, die dieser Lauf geschrieben hat, bleiben und sind so nutzbar. Erstellen Sie einen Agenten unter Setup > Agentforce-Agenten und schreiben Sie dann die Testdatei aus diesem Lauf.",
+        "noAgentforce": "Diese Org hat kein Agentforce, das eine Salesforce-Lizenz voraussetzt: Die Testdatei braucht eine Org mit einem Agenten. Die Datensätze, die dieser Lauf geschrieben hat, bleiben und sind so nutzbar.",
         "unreadable": "Die Agenten der Org konnten nicht gelesen werden: {{message}}",
         "readAgain": "Erneut lesen",
         "agent": "Agent",
@@ -5274,8 +5283,8 @@
       "searchPlaceholder": "Objekte suchen...",
       "noResults": "Keine Objekte entsprechen Ihrer Suche.",
       "selectedCount": "{{count}} von {{total}} Objekten ausgewählt",
-      "notInTarget": "Nicht in der Ziel-Org",
-      "notCreateableInTarget": "Der Benutzer, mit dem SandForge schreibt, darf diese in der Ziel-Org nicht erstellen",
+      "notInTarget": "Nicht in der Ziel-Org, oder ihr Benutzer sieht es nicht: Stellen Sie es dort bereit (Vergleich) oder gewähren Sie Lesen und Erstellen in einem Berechtigungssatz",
+      "notCreateableInTarget": "Der Benutzer, mit dem SandForge schreibt, darf diese in der Ziel-Org nicht erstellen: Gewähren Sie dort Erstellen in einem Berechtigungssatz",
       "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})"
     },
     "step3": {
@@ -5321,8 +5330,8 @@
         "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben.",
         "followedByDefault": "{{object}} wird verfolgt, obwohl keine Standardobjekte angefordert wurden, wie standardmäßig: {{fields}} verweisen darauf.",
         "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}}).",
-        "cutShort": "{{object}}: Die ersten {{copied}} seiner {{total}} Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lauf kopiert von einem ausgewählten Objekt nicht mehr.",
-        "cutShortUncounted": "{{object}}: Die ersten {{copied}} seiner Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lauf kopiert von einem ausgewählten Objekt nicht mehr."
+        "cutShort": "{{object}}: Die ersten {{copied}} seiner {{total}} Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen. Um mehr zu kopieren, erhöhen Sie sandforge.forge.maxRecordsPerObject in den Einstellungen, bis 1.000.000; oder kopieren Sie mit Forge eine Stichprobe der ganzen Org, die in das Ziel passt: Tiefe ALL.",
+        "cutShortUncounted": "{{object}}: Die ersten {{copied}} seiner Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen. Um mehr zu kopieren, erhöhen Sie sandforge.forge.maxRecordsPerObject in den Einstellungen, bis 1.000.000; oder kopieren Sie mit Forge eine Stichprobe der ganzen Org, die in das Ziel passt: Tiefe ALL."
       },
       "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",
       "personal": {
@@ -5877,7 +5886,7 @@
       "stopping": "Wird angehalten: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, ist aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
       "cancelRefused": "Das Entfernen konnte nicht angehalten werden",
       "cancelRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
-      "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier weder entfernen noch durch ein Neuladen ersetzen, das löschen würde, was seitdem jemand geändert hat.",
+      "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier weder entfernen noch durch ein Neuladen ersetzen, das löschen würde, was seitdem jemand geändert hat. Aktualisieren Sie die Sandbox, um von ihrer Kopie neu zu beginnen, oder suchen Sie die Datensätze, die der ladende Benutzer an diesem Tag erstellt hat, und löschen Sie sie selbst.",
       "orgGone": "Die Org, in die dieser Ladevorgang geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "nothingCreated": "Dieser Ladevorgang hat keinen Datensatz erstellt: Es gibt nichts zu entfernen.",
       "keptByThePlatform": "In {{org}} von jeder Entfernung behalten — die Plattform löscht diese vom Ladevorgang erstellten Datensätze nicht: {{objects}}"
@@ -5964,7 +5973,7 @@
       },
       "notRecorded": {
         "explanation": "Dieser Ladevorgang wurde verzeichnet, bevor Ladevorgänge festhielten, was sie erstellen: Seine Datensätze lassen sich nicht von den verknüpften unterscheiden.",
-        "action": "Er lässt sich weder von hier entfernen noch durch ein Neuladen ersetzen, das löschen würde, was jemand seitdem geändert hat."
+        "action": "Er lässt sich weder von hier entfernen noch durch ein Neuladen ersetzen, das löschen würde, was jemand seitdem geändert hat: Aktualisieren Sie die Sandbox, um von ihrer Kopie neu zu beginnen, oder suchen Sie die Datensätze, die der ladende Benutzer an diesem Tag erstellt hat, und löschen Sie sie selbst."
       },
       "loadChanged": {
         "explanation": "Seit der Anzeige dieses Ladevorgangs wurde ein anderer verzeichnet, und nichts wurde entfernt.",
@@ -6065,6 +6074,19 @@
       "apiBudgetExceeded": {
         "explanation": "Der Ladevorgang bräuchte etwa {{estimate}} API-Anfragen von {{org}}, der von ihren {{max}} pro Tag noch {{remaining}} bleiben: Er bliebe mittendrin stehen, und nichts wurde geschrieben.",
         "action": "Laden Sie, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder in eine Org, der heute mehr bleiben."
+      },
+      "storageExceeded": {
+        "explanation": "Die Datensätze des Datasets brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei: Der Ladevorgang würde mittendrin abbrechen, und nichts wurde geschrieben.",
+        "explanationReload": "Die Datensätze des Datasets brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei, dazu rund {{freed}} MB, die die Bereinigung des Neuladens zuerst freigibt: Der Ladevorgang würde mittendrin abbrechen, und nichts wurde geschrieben.",
+        "action": "Laden Sie zuerst einen Pilot, einen Stammordner davon; oder extrahieren Sie ein kleineres Dataset: Senken Sie das Budget in der Konfiguration und führen Sie Auswahl und Extraktion erneut aus; oder geben Sie Datenspeicher in {{org}} frei."
+      },
+      "extractTimeout": {
+        "explanation": "Die Extraktion hat ihre {{minutes}} Minuten aufgebraucht und wurde beendet, und nichts wurde geschrieben: Sie liest jeden Datensatz der Stammdatensätze, die die Auswahl behalten hat, und würde erneut gestartet wieder abbrechen.",
+        "action": "Behalten Sie weniger Stammdatensätze: Senken Sie das Budget in der Konfiguration oder schränken Sie die Achsen ein, und führen Sie Auswahl und Extraktion erneut aus."
+      },
+      "staging": {
+        "explanation": "{{org}} ist eine als Staging markierte Sandbox: Sie enthält echte Daten, und ein Ladevorgang geht nie in eine solche. Nichts wurde geschrieben.",
+        "action": "Wählen Sie eine andere Sandbox oder entfernen Sie, falls diese keine echten Daten enthält, das Häkchen bei Staging in ihrem Bearbeitungsdialog auf der Seite Organisationen."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} führt Automatisierungen aus, wenn der Ladevorgang seine Datensätze schreibt ({{named}}), und nichts wurde geschrieben.",

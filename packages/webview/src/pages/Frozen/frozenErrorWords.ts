@@ -40,6 +40,12 @@ export interface FrozenErrorPayload {
   automation?: unknown;
   /** What a load's gate counted of the API requests, with `API_BUDGET_EXCEEDED`. */
   apiRequests?: unknown;
+  /** What a load's gate measured of the data storage, with `FROZEN_STORAGE_EXCEEDED`. */
+  storage?: unknown;
+  /** The minutes an extraction was given, with `EXTRACT_TIMEOUT`. */
+  minutes?: unknown;
+  /** The tier of the org an entry guard refused, with `GUARD_REFUSED`. */
+  tier?: unknown;
 }
 
 /** Whether a value is a list of words the host sent. */
@@ -132,6 +138,13 @@ export function frozenErrorWords(
         : recordTypesWords(payload.recordTypesUntold, t);
     case 'TIMEOUT':
       return `${t('frozen.refusal.timeout.explanation')} ${t('frozen.refusal.timeout.action')}`;
+    // Out of time, an extraction would be again: it reads the same roots.
+    case 'EXTRACT_TIMEOUT':
+      return typeof payload.minutes === 'number'
+        ? `${t('frozen.refusal.extractTimeout.explanation', { minutes: payload.minutes })} ${t(
+            'frozen.refusal.extractTimeout.action',
+          )}`
+        : undefined;
     case 'LOAD_CANCELLED':
       return loadCancelledWords(payload, t);
     case 'SAS_CHANGED':
@@ -149,9 +162,55 @@ export function frozenErrorWords(
       return automationWords(payload, t, aliasOf);
     case 'API_BUDGET_EXCEEDED':
       return apiBudgetWords(payload, t, aliasOf);
+    case 'FROZEN_STORAGE_EXCEEDED':
+      return storageWords(payload, t, aliasOf);
     default:
       return undefined;
   }
+}
+
+/** MB as the host says them: rounded up, two decimals under 10 MB. */
+function megabytes(value: number): number {
+  const factor = value < 10 ? 100 : 10;
+  return value <= 0 ? 0 : Math.ceil(value * factor - 1e-9) / factor;
+}
+
+/**
+ * A load its gate refused for the data storage its records take past what
+ * the target has left, nothing written, with the figures it measured and the
+ * ways out of a dataset loaded whole: a pilot, a smaller dataset.
+ */
+function storageWords(
+  payload: FrozenErrorPayload,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  aliasOf: (orgId: string) => string,
+): string | undefined {
+  if (typeof payload.orgId !== 'string') return undefined;
+  const storage = payload.storage as Record<string, unknown> | undefined;
+  if (
+    typeof storage !== 'object' ||
+    storage === null ||
+    typeof storage.estimateMB !== 'number' ||
+    typeof storage.remainingMB !== 'number' ||
+    typeof storage.maxMB !== 'number'
+  ) {
+    return undefined;
+  }
+  const org = aliasOf(payload.orgId);
+  const figures = {
+    org,
+    estimate: megabytes(storage.estimateMB),
+    remaining: storage.remainingMB,
+    max: storage.maxMB,
+  };
+  const explanation =
+    typeof storage.freedMB === 'number'
+      ? t('frozen.refusal.storageExceeded.explanationReload', {
+          ...figures,
+          freed: megabytes(storage.freedMB),
+        })
+      : t('frozen.refusal.storageExceeded.explanation', figures);
+  return `${explanation} ${t('frozen.refusal.storageExceeded.action', { org })}`;
 }
 
 /**
@@ -350,9 +409,12 @@ function guardWords(
         'frozen.refusal.sourceIsTarget.action',
       )}`;
     case 'non-sandbox':
-      return `${t('frozen.refusal.nonSandbox.explanation', { org })} ${t(
-        'frozen.refusal.nonSandbox.action',
-      )}`;
+      // A sandbox marked Staging is a sandbox: what refuses it is the mark.
+      return payload.tier === 'staging'
+        ? `${t('frozen.refusal.staging.explanation', { org })} ${t('frozen.refusal.staging.action')}`
+        : `${t('frozen.refusal.nonSandbox.explanation', { org })} ${t(
+            'frozen.refusal.nonSandbox.action',
+          )}`;
     case 'protected-environment':
       return `${t('frozen.refusal.protectedEnvironment.explanation', { org })} ${t(
         'frozen.refusal.protectedEnvironment.action',

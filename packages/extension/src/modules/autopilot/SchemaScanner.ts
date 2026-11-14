@@ -4,7 +4,8 @@
  * discovers the selected objects and the parents their records reference, as
  * far as the bounds go, verifies target org compatibility, and counts the
  * records a run copies: every record of a selected object, to the first
- * {@link FORGE_QUERY_MAX_RECORDS} by Id of a larger one, and of every other
+ * `maxRecordsPerObject` by Id of a larger one ({@link FORGE_QUERY_MAX_RECORDS}
+ * unless said), and of every other
  * object only those the selection references.
  */
 
@@ -178,6 +179,14 @@ export interface ScanOptions {
    * one, to twice it.
    */
   maxObjects?: number;
+  /**
+   * Records of a selected object a run copies at most, the first by Id:
+   * {@link FORGE_QUERY_MAX_RECORDS} unless said — `sandforge.forge.maxRecordsPerObject`
+   * in the panel, `--max-records-per-object` on the command line. Fixed at
+   * 50 000, a table of millions was copied to its first 50 000 with no way to
+   * take more.
+   */
+  maxRecordsPerObject?: number;
   /** Told what the scan is doing, for whoever waits on it. */
   onProgress?: (line: string) => void;
 }
@@ -367,7 +376,7 @@ export class SchemaScanner {
    *
    * 1. Walk from the selected objects' records to the records they
    *    reference, as far as `options` lets it: a selected object's table is
-   *    copied, to its first {@link FORGE_QUERY_MAX_RECORDS} records by Id, and
+   *    copied, to its first `maxRecordsPerObject` records by Id, and
    *    of every other object the records the selection references, read by
    *    id.
    * 2. Verify objects exist on target org.
@@ -391,6 +400,7 @@ export class SchemaScanner {
   ): Promise<SchemaScanResult> {
     const maxDepth = wholeOr(options.maxDepth, DEFAULT_SCAN_DEPTH);
     const maxObjects = wholeOr(options.maxObjects, DEFAULT_SCAN_OBJECTS);
+    const maxRecords = wholeOr(options.maxRecordsPerObject, FORGE_QUERY_MAX_RECORDS);
     const say = options.onProgress ?? ((): void => {});
 
     // With nothing selected, the scan described every object of the org and
@@ -457,6 +467,7 @@ export class SchemaScanner {
       keyPrefixes,
       maxDepth,
       maxObjects,
+      maxRecords,
       say,
     });
 
@@ -766,6 +777,8 @@ export class SchemaScanner {
       keyPrefixes: ReadonlyMap<string, ApiName>;
       maxDepth: number;
       maxObjects: number;
+      /** Records of a selected object read at most; {@link FORGE_QUERY_MAX_RECORDS} unless said. */
+      maxRecords?: number;
       say: (line: string) => void;
     },
     given?: ReadonlyMap<ApiName, readonly FitRow[]>,
@@ -786,6 +799,7 @@ export class SchemaScanner {
   }> {
     const planned = new Set<ApiName>(selected);
     const unreadable = new Set<ApiName>();
+    const most = bounds.maxRecords ?? FORGE_QUERY_MAX_RECORDS;
     let budget = bounds.maxObjects;
     const ceiling = bounds.maxObjects * REQUIRED_PARENT_CEILING_FACTOR;
     const leftEmpty = new Map<string, AutopilotLookupLeftEmpty>();
@@ -930,6 +944,7 @@ export class SchemaScanner {
         const { records: rows, truncated } = await this.readAll(
           conn,
           `SELECT ${fields} FROM ${assertSoqlIdentifier(name)} ORDER BY Id`,
+          most,
         );
         recordCounts.set(name, rows.length);
         if (truncated) {
@@ -958,9 +973,9 @@ export class SchemaScanner {
     // selection decided whether two million rows went in whole or their
     // first 50 000, and every record a run copies holds an id in its map.
     for (const [name, count] of await this.countRecords(conn, counted)) {
-      if (count > FORGE_QUERY_MAX_RECORDS) {
-        recordCounts.set(name, FORGE_QUERY_MAX_RECORDS);
-        cutShort.push({ objectApiName: name, copied: FORGE_QUERY_MAX_RECORDS, total: count });
+      if (count > most) {
+        recordCounts.set(name, most);
+        cutShort.push({ objectApiName: name, copied: most, total: count });
       } else {
         recordCounts.set(name, count);
       }
@@ -1165,6 +1180,7 @@ export class SchemaScanner {
   private async readAll(
     conn: AutopilotConnection,
     soql: string,
+    max: number = FORGE_QUERY_MAX_RECORDS,
   ): Promise<{ records: Record<string, unknown>[]; truncated: boolean }> {
     const { queryMore } = conn;
     if (!queryMore) {
@@ -1174,6 +1190,7 @@ export class SchemaScanner {
     const pages = await queryAllPages<Record<string, unknown>>(
       { query: (q) => conn.query(q), queryMore: (url) => queryMore.call(conn, url) },
       soql,
+      max,
     );
     if (pages.truncated) {
       logger.warn('Autopilot read the lookups of a selected object to its bound only', {

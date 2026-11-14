@@ -189,6 +189,11 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     expect(screen.getByTestId('scenario-knowledge-absent').textContent).toContain(
       'the agent will have no article to cite',
     );
+    // How to turn it on, which it did not say.
+    expect(screen.getByTestId('scenario-knowledge-absent').textContent).toContain(
+      'tick Knowledge User on your user (Setup > Users), then enable it in Setup > Knowledge ' +
+        'Settings; Salesforce does not let it be turned off again.',
+    );
     expect(sent('seed:scenario:execute')).toEqual([]);
 
     fireEvent.click(screen.getByTestId('btn-scenario-start'));
@@ -389,7 +394,8 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     answer('seed:scenario:execute', 'seed:execute:response', result({ kind: 'none' }));
 
     expect(screen.getByTestId('scenario-results-no-file').textContent).toBe(
-      'No open case was written: no test file can be written from this run.',
+      'No open case was written: no test file can be written from this run. Remove this seed, ' +
+        'then seed the scenario again.',
     );
     expect(sent('seed:scenario:agents')).toEqual([]);
   });

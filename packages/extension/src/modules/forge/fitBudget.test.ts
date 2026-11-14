@@ -123,6 +123,22 @@ describe('fitBudgetOf', () => {
     });
   });
 
+  it('fits a target that would not say its storage to the MB asked, its requests bounded all the same', () => {
+    // Refused whatever was asked, a Standard User, whose `/limits` leave the
+    // storage out, had no fit at all; a sample of the whole org takes the MB
+    // asked in its place.
+    const budget = fitBudgetOf({
+      storage: { unread: 'the org does not tell this user its data storage' },
+      withinMB: 3,
+      api: { max: 15_000, remaining: 2_000 },
+    });
+    expect(budget).toEqual({
+      bytes: 3 * 1024 * 1024,
+      terms: { share: 0.8, roundingMB: 0.5, withinMB: 3, limitedBy: 'within' },
+      runRequests: 2_000 - 1_500,
+    });
+  });
+
   it('bounds the run’s own requests to what passes its gate without asking, the checkpoint taken first counted', () => {
     const api = { max: 15_000, remaining: 2_000 };
     const budget = fitBudgetOf({

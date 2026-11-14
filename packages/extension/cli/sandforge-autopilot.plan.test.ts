@@ -125,6 +125,43 @@ describe('sandforge-autopilot — what a plan copies', () => {
     ).toMatchObject({ maxDepth: 2, maxObjects: 8, maxTotal: 40 });
   });
 
+  it('takes the records of a selected object it copies at most, 50 000 unless said, a million at most', () => {
+    // Fixed at 50 000 by Id, a table of millions had no way to more.
+    expect(parseArgs(argv('--object', 'Lead')).maxRecordsPerObject).toBe(50_000);
+    expect(
+      parseArgs(argv('--object', 'Lead', '--max-records-per-object', '250000')).maxRecordsPerObject,
+    ).toBe(250_000);
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    expect(() =>
+      parseArgs(argv('--object', 'Lead', '--max-records-per-object', '1000001')),
+    ).toThrow('exit');
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(String(err.mock.calls[0]?.[0])).toBe(
+      '--max-records-per-object takes a whole number of records, 1 to 1000000.\n',
+    );
+  });
+
+  it('says in --help that a selected object is copied to its first records by Id past the bound, not whole', () => {
+    // "A selected object is copied whole": false past 50 000 records.
+    let help = '';
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      help += chunk;
+      return true;
+    }) as never);
+    expect(() => parseArgs(argv('--help'))).toThrow('exit');
+    expect(help.replace(/\s+/g, ' ')).toContain(
+      'A selected object is copied whole up to --max-records-per-object records, its first by ' +
+        'Id past them, unless the plan is fitted.',
+    );
+    expect(help).not.toMatch(/A selected object is copied whole, unless/);
+  });
+
   it('plans two objects of a large org as a bounded set, the parents counted by what they reference', async () => {
     // Run for real, the same request planned 601 objects and 2.6 million
     // records: every table the walk reached, whole.

@@ -651,6 +651,11 @@ describe('SeedRemovalHandler', () => {
       await remove();
 
       expect(errors().map((e) => e.payload.code)).toEqual(['NOT_KEPT', 'ORG_GONE']);
+      // It said nothing was kept, and nothing of how to take the records back.
+      expect(String(errors()[0].payload.message)).toContain(
+        'To take its records back, rewind the org to a checkpoint taken before it, or empty its ' +
+          'objects (DataOps, Cleanup, Empty objects), which deletes all their records.',
+      );
       expect(org.deletes).toEqual([]);
     });
 

@@ -66,7 +66,7 @@
       "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window).",
       "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
       "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
-      "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked. Run it again from the Autopilot page in VS Code, where the question is asked.",
       "transformNoField_one": "The rule {{rules}} names no field: open the configuration and pick its field. Without one it would change every field of every record, record types and lookups among them. Nothing was read or written.",
       "transformNoField_other": "The rules {{rules}} name no field: open the configuration and pick their fields. Without one each would change every field of every record, record types and lookups among them. Nothing was read or written.",
       "transformRuleOn": "{{rule}} on {{object}}",
@@ -74,17 +74,20 @@
       "transformBadPattern_other": "The rules {{rules}} have patterns that are no regular expressions: open the configuration and correct them, or remove the rules. Run, each would stop the run at its object before any of its records is written. Nothing was read or written.",
       "transformPatternOn": "{{rule}} on {{object}}, \"{{pattern}}\" ({{reason}})",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
+      "csvStorageExceeded_one": "The import was refused before it wrote anything: its {{rows}} row takes about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Free data storage in {{org}}, then import it again.",
+      "csvStorageExceeded_other": "The import was refused before it wrote anything: its {{rows}} rows take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB, room for about {{fitting}} of them. Split the file and import one part at a time, freeing data storage in {{org}} in between as needed.",
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or tick Mute the target's automation for this run: for the run alone, it gives you the bypasses they test.",
+      "seedEmailsExceededScenario": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Go Back and lower customers.count with Edit as JSON, turn off {{senders}}, or tick Mute the target's automation for this run: for the run alone, it gives you the bypasses they test.",
       "seedWriteDeclined": "The seed was cancelled before it wrote anything. Nothing was written to the target org.",
       "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended.",
       "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended.",
       "muteProduction": "The target's automation is never muted on a production org, nor on one that can't be told from one: nothing was assigned and nothing written. Run it without muting.",
-      "muteNoRight": "The target's automation can't be muted: the user the run writes as can't assign permission sets (that takes Assign Permission Sets or Manage Users), or the org wouldn't say. Nothing was assigned and nothing written.",
+      "muteNoRight": "The target's automation can't be muted: the user the run writes as can't assign permission sets (that takes Assign Permission Sets or Manage Users), or the org wouldn't say. Nothing was assigned and nothing written. Untick Mute the target's automation for this run and run it again, or have an admin give that user Assign Permission Sets.",
       "muteFailed": "The target's automation couldn't be muted, so nothing was written: {{reason}}",
       "muteCheckpoint": "The org's automation couldn't be muted, so nothing was written: {{reason}}",
       "autopilotStorageExceededFigures": "The Autopilot run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Fit the plan to storage, narrow the selection, or free data storage in {{org}}.",
-      "autopilotFitStorageUnread": "The plan was not fitted: the target org did not say what data storage it has left ({{reason}}). The plan under review is unchanged.",
-      "autopilotFitReadRefused": "The plan was not fitted: the source org refused a read of its records ({{reason}}). Nothing was chosen from what was not read, and the plan under review is unchanged.",
+      "autopilotFitStorageUnread": "The plan was not fitted: the target org did not say what data storage it has left ({{reason}}). The plan under review is unchanged. Fill in “Use no more than (MB)” with the most it may take, then fit it to that.",
+      "autopilotFitReadRefused": "The plan was not fitted: the source org refused a read of its records ({{reason}}). Nothing was chosen from what was not read, and the plan under review is unchanged. Fit it again; if the source refuses again, narrow the selection, or run the plan unfitted where it fits the target.",
       "autopilotFitStale": "The plan changed while it was being fitted: fit it again.",
       "autopilotNoPlan": "There is no plan to fit in this window any more: go back to the objects and plan again."
     },
@@ -823,7 +826,7 @@
         "title": "Drag & drop your CSV file here",
         "subtitle": "or click the button below to browse",
         "browse": "Browse Files",
-        "maxSize": "File exceeds maximum size of {{max}} MB"
+        "maxSize": "This file takes {{size}} MB, more than the {{max}} MB CSV Upload reads at once: split it into smaller files, or save it without the columns you do not import, then upload each part."
       },
       "mapper": {
         "title": "Map CSV Columns to Salesforce Fields",
@@ -1044,11 +1047,15 @@
         "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
         "CLONE_FAILED": "The clone stopped before it finished.",
         "CLONE_EMAILS_EXCEEDED": "The clone was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Narrow the filters of {{objects}} or leave them out, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
+        "CLONE_STORAGE_EXCEEDED": "The clone was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. The heaviest: {{heaviest}}. Narrow their filter or leave them out, then preview again; or copy a sample of the source that fits with Forge: Depth ALL, Records per object “A sample that fits the target”.",
+        "heavyObject_one": "{{object}} ({{formatted}} record, {{mb}} MB)",
+        "heavyObject_other": "{{object}} ({{formatted}} records, {{mb}} MB)",
         "API_BUDGET_EXCEEDED": "The clone was refused before it wrote anything: it takes more API requests than the target org has left today.",
         "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge refused this run before writing anything: it was not for the orgs its preview was made for. Preview again, then run the clone.",
         "NOT_PREVIEWED": "SandForge refused this run before reading either org: it named no preview, and a clone runs only from the preview it was made from. Preview again, then run the clone.",
         "PREVIEW_NOT_HELD": "SandForge refused this run before reading either org: the preview it named is no longer held — SandForge keeps the last 50 previews and forgets them when the extension restarts. Preview again, then run the clone.",
+        "OBJECT_NOT_IN_TARGET": "{{object}} is not in {{org}}, or the user SandForge connects as there may not see it, and nothing was written: untick it to clone the others, or deploy it to {{org}} first with Compare (Deploy from Diff) and give that user access to it.",
         "generic": "The clone could not be completed.",
         "detail": "Details: {{detail}}",
         "SEED_WRITE_DECLINED": "You cancelled the clone before it wrote anything. Nothing was written to the target org."
@@ -1086,7 +1093,7 @@
       "created_one": "{{formatted}} record created in {{org}}",
       "created_other": "{{formatted}} records created in {{org}}",
       "removeDescription": "Deletes from {{org}} the records this seed inserted, the last object written first, children before their parents; they go to its recycle bin. A record that records staying in {{org}} depend on is kept, and so is a record changed since the seed, or one that records added since depend on, unless you include it below.",
-      "notKept": "What this seed created is no longer kept — it was dropped to make room for newer seeds, or ran before seeds were kept on disk — and cannot be removed from here.",
+      "notKept": "What this seed created is no longer kept — it was dropped to make room for newer seeds, or ran before seeds were kept on disk — and cannot be removed from here. To take its records back: rewind the org to a checkpoint taken before it, on Checkpoints; or empty its objects in DataOps → Cleanup → Empty objects, which deletes all their records, not this seed's alone.",
       "historyTitle": "Earlier seeds",
       "historyNote": "The seeds this extension kept, newest first: those whose records are still in their org can be removed, also after the window was reloaded. A seed whose records are still in its org stays listed until it is removed; of the seeds removed, the 20 latest are listed.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} record created",
@@ -1148,6 +1155,8 @@
       "emailsUnread": "{{limit}} these records make {{org}} send: about {{emails}}. What it has left today could not be read ({{reason}}): the seed is not held back.",
       "refused": "The seed would be refused before it writes anything. {{limit}} these records make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Past them, a flow that sends in the save refuses its record, and the org's own emails stop for the rest of the day.",
       "waysOut": "To seed it, lower the record counts, set {{objects}} to 0, or turn off {{senders}}.",
+      "waysOutScenario": "To seed it, go Back and lower customers.count with Edit as JSON, no fewer than its topics, or turn off {{senders}}.",
+      "wayMute": "Or tick “Mute the target's automation for this run” below: for the run alone, it gives you those permission sets.",
       "wayBypass": "Or give yourself the permission set {{set}}: its {{permission}} keeps {{senders}} quiet.",
       "wayBypassNoSet": "Or give yourself a permission set that holds {{permission}}, which keeps {{senders}} quiet."
     },
@@ -1272,7 +1281,7 @@
         "variantHint": "Use another number to seed this scenario a second time in the same org: the same number writes the same names."
       },
       "knowledge": {
-        "absent": "This org has no Knowledge: the articles are skipped. The tests that answer from Knowledge are written, and the agent will have no article to cite.",
+        "absent": "This org has no Knowledge: the articles are skipped. The tests that answer from Knowledge are written, and the agent will have no article to cite. To seed the articles, turn Knowledge on: tick Knowledge User on your user (Setup > Users), then enable it in Setup > Knowledge Settings; Salesforce does not let it be turned off again.",
         "bodyField": "Field for the article body",
         "body": "The article body is written to {{field}}.",
         "bodySummary": "This org's Knowledge has no other field for an article body: each body goes to Summary, within its {{length}} characters, every fact kept.",
@@ -1282,8 +1291,8 @@
       },
       "results": {
         "openCases": "{{written}} of the {{total}} open cases the tests are about were written.",
-        "noCase": "No open case was written: no test file can be written from this run.",
-        "companionFailed": "The ids of the run's cases could not be kept ({{message}}): no test file can be written from this run.",
+        "noCase": "No open case was written: no test file can be written from this run. Remove this seed, then seed the scenario again.",
+        "companionFailed": "The ids of the run's cases could not be kept ({{message}}): no test file can be written from this run. Remove this seed, then seed the scenario again.",
         "knowledge": {
           "title": "Knowledge articles",
           "published": "Articles published: {{done}} of {{total}}",
@@ -1296,8 +1305,8 @@
         "title": "Agentforce test file",
         "noPromise": "SandForge writes the data and what the agent is expected to do. A verdict depends on the agent and on a model that varies: a test that fails can come from the agent, not the data.",
         "reading": "Reading the org's agents…",
-        "noAgent": "This org has no Agentforce agent: create one, then write the test file from this run.",
-        "noAgentforce": "This org has no Agentforce: the test file needs an org with an agent.",
+        "noAgent": "This org has no Agentforce agent: the records this run wrote stay, usable as they are. Create an agent in Setup > Agentforce Agents, then write the test file from this run.",
+        "noAgentforce": "This org has no Agentforce, which takes a Salesforce license: the test file needs an org with an agent. The records this run wrote stay, usable as they are.",
         "unreadable": "The org's agents could not be read: {{message}}",
         "readAgain": "Read again",
         "agent": "Agent",
@@ -5274,8 +5283,8 @@
       "searchPlaceholder": "Search objects...",
       "noResults": "No objects match your search.",
       "selectedCount": "{{count}} of {{total}} objects selected",
-      "notInTarget": "Not in the target org",
-      "notCreateableInTarget": "The user SandForge writes as may not create these in the target org",
+      "notInTarget": "Not in the target org, or its user may not see it: deploy it there (Compare), or grant Read and Create on it in a permission set",
+      "notCreateableInTarget": "The user SandForge writes as may not create these in the target org: grant Create on it in a permission set there",
       "countShown": "Count the records of the objects shown ({{objects}})"
     },
     "step3": {
@@ -5321,8 +5330,8 @@
         "standardNeeded": "{{object}} is taken although standard objects were not asked for: {{field}} cannot be left empty.",
         "followedByDefault": "{{object}} is followed although standard objects were not asked for, as it is by default: {{fields}} reference it.",
         "currencies": "Currencies the target org does not hold active: {{currencies}}. A record in one of them is written in {{writtenIn}}, its corporate currency, its amounts converted at the source org's rates ({{objects}}).",
-        "cutShort": "{{object}}: the first {{copied}} of its {{total}} records by Id are copied, with the parents they name — a run copies no more of a selected object.",
-        "cutShortUncounted": "{{object}}: the first {{copied}} of its records by Id are copied, with the parents they name — a run copies no more of a selected object."
+        "cutShort": "{{object}}: the first {{copied}} of its {{total}} records by Id are copied, with the parents they name. To copy more, raise sandforge.forge.maxRecordsPerObject in Settings, up to 1,000,000; or copy a sample of the whole org that fits the target with Forge: Depth ALL.",
+        "cutShortUncounted": "{{object}}: the first {{copied}} of its records by Id are copied, with the parents they name. To copy more, raise sandforge.forge.maxRecordsPerObject in Settings, up to 1,000,000; or copy a sample of the whole org that fits the target with Forge: Depth ALL."
       },
       "notCovered": "{{object}}: no anonymization rule for its {{missing}}. They would be copied as the source holds them.",
       "personal": {
@@ -5877,7 +5886,7 @@
       "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
       "cancelRefused": "Could not stop the removal",
       "cancelRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
-      "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here, nor replaced by a reload, which would delete what someone changed since.",
+      "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here, nor replaced by a reload, which would delete what someone changed since. Refresh the sandbox to start again from its copy, or find the records the loading user created that day and delete them yourself.",
       "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
       "nothingCreated": "This load created no record: there is nothing to remove.",
       "keptByThePlatform": "Kept in {{org}} by any removal — the platform does not delete these records the load created: {{objects}}"
@@ -5964,7 +5973,7 @@
       },
       "notRecorded": {
         "explanation": "This load was recorded before loads kept what they created: its records cannot be told from the ones it linked.",
-        "action": "It cannot be removed from here, nor replaced by a reload, which would delete what someone changed since."
+        "action": "It cannot be removed from here, nor replaced by a reload, which would delete what someone changed since: refresh the sandbox to start again from its copy, or find the records the loading user created that day and delete them yourself."
       },
       "loadChanged": {
         "explanation": "Another load was recorded since this one was shown, and nothing was removed.",
@@ -6065,6 +6074,19 @@
       "apiBudgetExceeded": {
         "explanation": "The load would take about {{estimate}} API requests of {{org}}, which has {{remaining}} of its {{max}} daily requests left: it would stop part way through, and nothing was written.",
         "action": "Load once the org has requests to spare — the daily limit is counted over the last 24 hours —, or into an org with more left today."
+      },
+      "storageExceeded": {
+        "explanation": "The dataset's records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB: the load would stop part way through, and nothing was written.",
+        "explanationReload": "The dataset's records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB, with about {{freed}} MB the reload's purge frees first: the load would stop part way through, and nothing was written.",
+        "action": "Load a pilot first, one root folder of it; or extract a smaller dataset: lower the budget in the configuration, then run the selection and the extraction again; or free data storage in {{org}}."
+      },
+      "extractTimeout": {
+        "explanation": "The extraction ran out of its {{minutes}} minutes and stopped, and nothing was written: it reads every record of the roots the selection kept, so run again it would stop again.",
+        "action": "Keep fewer roots: lower the budget in the configuration, or narrow the axes, then run the selection and the extraction again."
+      },
+      "staging": {
+        "explanation": "{{org}} is a sandbox marked Staging: it holds real data, and a load never goes into one. Nothing was written.",
+        "action": "Pick another sandbox, or, if this one holds no real data, untick Staging in its Edit dialog on the Organizations page."
       },
       "automationNotAccepted": {
         "explanation": "{{org}} runs automation as the load writes its records ({{named}}), and nothing was written.",

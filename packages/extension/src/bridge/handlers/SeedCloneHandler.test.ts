@@ -2569,6 +2569,113 @@ describe('SeedCloneHandler', () => {
     });
   });
 
+  describe('the data storage its records take', () => {
+    /** A Developer Edition target with `remainingMB` of its 5 MB of data storage left. */
+    function targetWithStorage(remainingMB: number): void {
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn(async () => ({ keyPrefix: '003', fields: [], recordTypeInfos: [] })),
+        request: vi.fn(async () => ({
+          DataStorageMB: { Max: 5, Remaining: remainingMB },
+          DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        alias: 'my-dev-org',
+        orgType: 'Developer',
+      } as never);
+    }
+
+    /** Preview the objects again, each counted as given: the run follows that preview. */
+    async function previewCounted(counts: Record<string, number>): Promise<void> {
+      fetcher.countRecords.mockImplementation(
+        async (_conn: unknown, name: string) => counts[name] ?? 0,
+      );
+      fetcher.fetchSample.mockResolvedValue([]);
+      linker.resolveInsertOrder.mockReturnValue(Object.keys(counts));
+      await handler.handle(
+        buildMsg(
+          'seed:clone:preview',
+          clonePayload({
+            objects: Object.keys(counts).map((objectApiName) => ({ objectApiName })),
+          }),
+        ),
+      );
+      vi.mocked(deps.broker.postToWebview).mockClear();
+    }
+
+    it('refuses a clone past the storage the target has left before the first write, naming the heaviest objects and the sample Forge draws', async () => {
+      // Read for the question alone, the storage held nothing back: a clone
+      // of a production org's contacts and tasks into a Developer Edition
+      // wrote until the target answered STORAGE_LIMIT_EXCEEDED.
+      targetWithStorage(5);
+      await previewCounted({ Contact: 3000, Task: 400 });
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Contact' }, { objectApiName: 'Task' }] }),
+        ),
+      );
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(posted(deps, 'operation:started')).toEqual([]);
+      expect(posted(deps, 'operation:failed')).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            code: 'CLONE_STORAGE_EXCEEDED',
+            org: 'my-dev-org',
+            remainingMB: 5,
+            maxMB: 5,
+            heaviest: [
+              { objectApiName: 'Contact', rows: 3000, mb: (3000 * 2048) / (1024 * 1024) },
+              { objectApiName: 'Task', rows: 400, mb: (400 * 2048) / (1024 * 1024) },
+            ],
+            error:
+              'The clone was refused before it wrote anything: its records take about 6.65 MB ' +
+              'of data storage, and my-dev-org has 5 MB left of 5 MB. The heaviest: Contact ' +
+              '(3000 records, 5.86 MB), Task (400 records, 0.79 MB). Narrow their filter or ' +
+              'leave them out, then preview again; or copy a sample of the source that fits ' +
+              'with Forge (Depth ALL, Records per object: A sample that fits the target). ' +
+              'Nothing was written.',
+          }),
+        }),
+      ]);
+    });
+
+    it('writes a clone whose records fit the storage the target has left', async () => {
+      targetWithStorage(5);
+      await previewCounted({ Contact: 1000 });
+
+      await handler.handle(
+        buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+      );
+
+      expect(posted(deps, 'operation:failed')).toEqual([]);
+      expect(writer.insert).toHaveBeenCalled();
+    });
+
+    it('leaves an upsert to its question: what it updates takes no room', async () => {
+      targetWithStorage(5);
+      await previewCounted({ Contact: 3000 });
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Contact' }], upsert: true }),
+        ),
+      );
+
+      expect(posted(deps, 'operation:failed')).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            payload: expect.objectContaining({ code: 'CLONE_STORAGE_EXCEEDED' }),
+          }),
+        ]),
+      );
+    });
+  });
+
   describe('in Live Operations', () => {
     /** The id the clone runs under: its request's. */
     const OPERATION_ID = 'msg-seed:clone:execute';

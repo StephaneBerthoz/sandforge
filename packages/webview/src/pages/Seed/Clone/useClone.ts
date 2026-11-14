@@ -10,6 +10,7 @@ import type {
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useMessageListener } from '../../../hooks/useMessageBus';
+import { formatNumber, roundedUpMegabytes } from '../../../utils/formatters';
 import { listWords } from '../../../utils/listWords';
 import { panelRefusalWords, runCheckpointOf } from '../../../utils/runCheckpoint';
 
@@ -33,7 +34,9 @@ type OperationFailedMessage = BaseMessage & {
 };
 
 /** `seed:clone:error` as the extension posts it; read defensively. */
-type CloneErrorMessage = BaseMessage & { payload?: { code?: unknown } };
+type CloneErrorMessage = BaseMessage & {
+  payload?: { code?: unknown; objectApiName?: unknown; org?: unknown };
+};
 
 /**
  * The failure codes SeedCloneHandler attaches to `operation:failed`.
@@ -85,6 +88,55 @@ function emailsRefusal(
     max,
     objects: list(objectNames),
     senders: list(senderNames.map((name) => t('common.quoted', { name }))),
+  });
+}
+
+/**
+ * A clone refused for the data storage its records take, in the interface
+ * language, from the figures the host measured: what they take, what the
+ * target has left, and the heaviest objects with the ways out of each.
+ * `undefined` when they are not all there.
+ */
+function storageRefusal(
+  payload: Record<string, unknown>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  const { org, estimateMB, remainingMB, maxMB, heaviest } = payload;
+  const objects = Array.isArray(heaviest)
+    ? heaviest.filter(
+        (o): o is { objectApiName: string; rows: number; mb: number } =>
+          typeof o === 'object' &&
+          o !== null &&
+          typeof (o as Record<string, unknown>).objectApiName === 'string' &&
+          typeof (o as Record<string, unknown>).rows === 'number' &&
+          typeof (o as Record<string, unknown>).mb === 'number',
+      )
+    : [];
+  if (
+    typeof org !== 'string' ||
+    typeof estimateMB !== 'number' ||
+    typeof remainingMB !== 'number' ||
+    typeof maxMB !== 'number' ||
+    objects.length === 0
+  ) {
+    return undefined;
+  }
+  return t('seed.clone.error.CLONE_STORAGE_EXCEEDED', {
+    org,
+    estimate: roundedUpMegabytes(estimateMB),
+    remaining: formatNumber(remainingMB),
+    max: formatNumber(maxMB),
+    heaviest: listWords(
+      objects.map((o) =>
+        t('seed.clone.error.heavyObject', {
+          object: o.objectApiName,
+          count: o.rows,
+          formatted: formatNumber(o.rows),
+          mb: roundedUpMegabytes(o.mb),
+        }),
+      ),
+      (key) => t(key),
+    ),
   });
 }
 
@@ -298,6 +350,15 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       setError(emailsRefusal(failed, t) ?? t('seed.clone.error.generic'));
       return;
     }
+    // Refused for its storage, the clone says what its records take against
+    // what the target has left, its heaviest objects, and the ways out.
+    if (code === 'CLONE_STORAGE_EXCEEDED') {
+      setError(
+        storageRefusal(failed, t) ??
+          (typeof failed.error === 'string' ? failed.error : t('seed.clone.error.generic')),
+      );
+      return;
+    }
     const known = CLONE_ERROR_CODES.includes(code);
     const headline = known ? t(`seed.clone.error.${code}`) : t('seed.clone.error.generic');
     // The host text is written in English for the logs. It is worth reading
@@ -346,6 +407,20 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   const previewRequestId = previewMutation.requestId;
   useMessageListener<CloneErrorMessage>('seed:clone:error', (message) => {
     const code = message.payload?.code;
+    // An object the target does not show, named with the org: the objects
+    // step it goes back to is where it is unticked. Said with the platform's
+    // NOT_FOUND, the preview failed with no way on.
+    if (
+      code === 'OBJECT_NOT_IN_TARGET' &&
+      executionStatus === 'previewing' &&
+      message.correlationId === previewRequestId
+    ) {
+      const { objectApiName, org } = message.payload ?? {};
+      if (typeof objectApiName === 'string' && typeof org === 'string') {
+        setError(t('seed.clone.error.OBJECT_NOT_IN_TARGET', { object: objectApiName, org }));
+      }
+      return;
+    }
     if (typeof code !== 'string' || !REFUSAL_CODES.includes(code)) return;
     const refused =
       (executionStatus === 'previewing' && message.correlationId === previewRequestId) ||

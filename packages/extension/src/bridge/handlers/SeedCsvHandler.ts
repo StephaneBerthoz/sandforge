@@ -91,6 +91,24 @@ const IMPORT_CANCELLED = 'IMPORT_CANCELLED';
 /** How long the read of what the target runs on the object imported may take, as a seed's may. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
 
+/** The code of an import refused for the data storage its rows take. */
+const CSV_STORAGE_EXCEEDED = 'CSV_STORAGE_EXCEEDED';
+
+/** MB as a refusal says them: rounded up, two decimals under 10. */
+function megabytesWords(mb: number): string {
+  const factor = mb < 10 ? 100 : 10;
+  return String(mb <= 0 ? 0 : Math.ceil(mb * factor - 1e-9) / factor);
+}
+
+/**
+ * How many of an import's rows the storage left holds, by the size its gate
+ * gives them: what one part of a split file may hold.
+ */
+function rowsThatFit(objectApiName: string, rows: number, remainingMB: number): number {
+  const perRow = rows > 0 ? countedStorageBytes(objectApiName, { rows }) / rows : 0;
+  return perRow > 0 ? Math.max(0, Math.floor((remainingMB * 1024 * 1024) / perRow)) : 0;
+}
+
 /** Shape of the `seed:csv:execute:response` payload (see useCsvImport.CsvExecutionResult). */
 interface CsvExecutionResultPayload {
   insertedCount: number;
@@ -575,18 +593,64 @@ export class SeedCsvHandler implements DomainHandler {
       // With a checkpoint asked, its requests among them, and the storage
       // read from the same answer, for its question to say; so for the
       // question about the emails.
-      const limits: DataStorage | { unread: string } | undefined =
-        checkpoint || emailsAsked
-          ? await readDataStorage(conn).catch((err: unknown) => ({
-              unread: extractErrorMessage(err),
-            }))
-          : undefined;
-      const budget: ApiBudget | { unread: string } | undefined =
-        limits !== undefined && !('unread' in limits)
-          ? limits.dailyApiRequests
-          : await readApiBudget(conn).catch((err: unknown) => ({
-              unread: extractErrorMessage(err),
-            }));
+      const limits: DataStorage | { unread: string } = await readDataStorage(conn).catch(
+        (err: unknown) => ({ unread: extractErrorMessage(err) }),
+      );
+      const budget: ApiBudget | { unread: string } | undefined = !('unread' in limits)
+        ? limits.dailyApiRequests
+        : await readApiBudget(conn).catch((err: unknown) => ({
+            unread: extractErrorMessage(err),
+          }));
+      // The file's rows against the data storage the org has left, before
+      // anything is written: read for the question alone, the storage held
+      // back no import, and a file of a few thousand rows into a Developer
+      // Edition ran until the org answered STORAGE_LIMIT_EXCEEDED, part of it
+      // in. An upsert may update what the org holds, which takes no room: its
+      // question says the storage, and nothing refuses it.
+      const storage = storageCheckOf(
+        {
+          storageBytes: countedStorageBytes(parsed.objectApiName, {
+            rows: parsed.records.length,
+          }),
+        },
+        limits,
+      );
+      if (!parsed.externalIdField && storage.verdict === 'exceeds') {
+        const rows = parsed.records.length;
+        const fitting = rowsThatFit(parsed.objectApiName, rows, storage.remainingMB);
+        const message =
+          `The import was refused before it wrote anything: its ${rows} rows take about ` +
+          `${megabytesWords(storage.estimateMB)} MB of data storage, and ${targetName} has ` +
+          `${storage.remainingMB} MB left of ${storage.maxMB} MB, room for about ${fitting} of ` +
+          'them: split the file and import one part at a time, freeing data storage in between ' +
+          'as needed. Nothing was written.';
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CSV_STORAGE_EXCEEDED,
+        });
+        const figures = {
+          org: targetName,
+          rows,
+          fitting,
+          estimateMB: storage.estimateMB,
+          remainingMB: storage.remainingMB,
+          maxMB: storage.maxMB,
+        };
+        sendHandlerError(this.deps, 'seed:csv:execute', 'seed:csv:error', msg, new Error(message), {
+          code: CSV_STORAGE_EXCEEDED,
+          retryable: false,
+          extraPayload: figures,
+        });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code: CSV_STORAGE_EXCEEDED, ...figures },
+        });
+        settle(new Error(message));
+        return;
+      }
       // The rows priced as the writer sends them: past the Bulk API
       // threshold one job, and every row again by REST when a duplicate rule
       // watches the object, or may — the writer sends what a rule refused in
@@ -658,7 +722,7 @@ export class SeedCsvHandler implements DomainHandler {
           storage: confirmationStorageOf(
             storageCheckOf(
               { storageBytes: countedStorageBytes(parsed.objectApiName, { rows }) },
-              limits ?? { unread: 'not read' },
+              limits,
             ),
           ),
           ...confirmationApiOf(api),

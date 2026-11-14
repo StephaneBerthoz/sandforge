@@ -12,7 +12,7 @@ import type {
   AutopilotAnonymizationRule,
   AutopilotStopLeftover,
 } from '@sandforge/shared';
-import { guardTierOf, orgDisplayName } from '@sandforge/shared';
+import { FORGE_MAX_RECORDS_PER_OBJECT_BOUND, guardTierOf, orgDisplayName } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -59,6 +59,7 @@ import {
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
 import { fitBudgetOf } from '../../modules/forge/fitBudget.js';
+import { FORGE_QUERY_MAX_RECORDS } from '../../modules/forge/queryAllPages.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { autopilotAuditFitOf, planWriteGateOf } from '../../modules/autopilot/autopilotPlanGate.js';
 import { autopilotRunStatus } from '../../modules/autopilot/autopilotRunStatus.js';
@@ -547,6 +548,7 @@ export class AutopilotHandler implements DomainHandler {
         includeStandardObjects: payload.includeStandardObjects,
         ...(payload.maxDepth !== undefined ? { maxDepth: payload.maxDepth } : {}),
         ...(payload.maxObjects !== undefined ? { maxObjects: payload.maxObjects } : {}),
+        maxRecordsPerObject: this.maxRecordsPerObject(),
       });
       operation.scanResult = scanResult;
       const graph = this.orchestrator.buildGraph(scanResult);
@@ -801,7 +803,8 @@ export class AutopilotHandler implements DomainHandler {
         this.refuseFit(
           msg,
           AUTOPILOT_FIT_CODES.STORAGE_UNREAD,
-          `The plan cannot be fitted: the target's data storage left could not be read (${budget.unread}).`,
+          `The plan cannot be fitted: the target's data storage left could not be read (${budget.unread}). ` +
+            'Give the most MB it may use to fit it to that.',
           { reason: budget.unread },
         );
         return;
@@ -1666,6 +1669,22 @@ export class AutopilotHandler implements DomainHandler {
     } finally {
       this.executingOperations.delete(operation.id);
     }
+  }
+
+  /**
+   * `sandforge.forge.maxRecordsPerObject`, Forge's: the records of a selected
+   * object a run copies at most, the first by Id, no more than
+   * {@link FORGE_MAX_RECORDS_PER_OBJECT_BOUND}. The plan was cut at 50 000
+   * whatever the setting said.
+   */
+  private maxRecordsPerObject(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'forge.maxRecordsPerObject',
+      FORGE_QUERY_MAX_RECORDS,
+    );
+    return typeof value === 'number' && Number.isFinite(value) && value >= 1
+      ? Math.min(Math.floor(value), FORGE_MAX_RECORDS_PER_OBJECT_BOUND)
+      : FORGE_QUERY_MAX_RECORDS;
   }
 
   /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks before it writes; 0 never asks. */

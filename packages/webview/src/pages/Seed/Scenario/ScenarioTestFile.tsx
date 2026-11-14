@@ -351,8 +351,16 @@ export const ScenarioTestFile: React.FC<ScenarioTestFileProps> = ({
               </ul>
             </div>
           )}
+          {/* An org without Agentforce is said as one: told to create an agent, its
+              user had no Agentforce to create it in. */}
           {outcome.kind === 'no-agent' && (
-            <p className="text-status-warning">{t('seed.scenario.tests.noAgent')}</p>
+            <p className="text-status-warning" data-testid="scenario-tests-outcome-no-agent">
+              {t(
+                outcome.reason === 'no-agentforce'
+                  ? 'seed.scenario.tests.noAgentforce'
+                  : 'seed.scenario.tests.noAgent',
+              )}
+            </p>
           )}
           {outcome.kind === 'unavailable' && (
             <p className="text-status-warning">

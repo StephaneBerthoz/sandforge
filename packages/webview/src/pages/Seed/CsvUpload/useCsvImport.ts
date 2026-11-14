@@ -27,6 +27,7 @@ export type CsvExecutionStatus = 'idle' | 'validating' | 'executing' | 'complete
 const REFUSED_BEFORE_WRITING: readonly (string | null)[] = [
   'CHECKPOINT_REFUSED',
   'API_BUDGET_EXCEEDED',
+  'CSV_STORAGE_EXCEEDED',
   'SEED_WRITE_DECLINED',
   'SEED_CONFIRMATION_UNAVAILABLE',
 ];

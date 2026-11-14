@@ -37,7 +37,11 @@ import type {
   RunCheckpointTaken,
   StorageRoomNotCounted,
 } from '@sandforge/shared';
-import { recordWriteHeaders, stillRunningOf } from '@sandforge/shared';
+import {
+  FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
+  recordWriteHeaders,
+  stillRunningOf,
+} from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { isProductionTarget, refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
@@ -77,7 +81,7 @@ import {
   type RecordTypeAvailability,
 } from '../src/core/metadata/recordTypeAvailability.js';
 import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
-import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
+import { FORGE_QUERY_MAX_RECORDS, queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
 import { currencyFieldsOf, describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
 import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
@@ -172,6 +176,9 @@ Options:
                          each parent a record needs raises it, to twice
                                                                    (default: 50)
   --max-total <n>        most records the run may write in all    (default: 10000)
+  --max-records-per-object <n>
+                         records of a selected object copied at most, the
+                         first by Id, 1 to 1000000               (default: 50000)
   --compliance <name>    none | gdpr | ccpa | hipaa | pci_dss      (default: none)
   --keep-contact-points  write emails and phone numbers as read. Without it,
                          as in the panel, every address is written under
@@ -245,7 +252,8 @@ ${checkpointFirstHelp({
                          status refused                           (default: off)
   --help                 this text
 
-A selected object is copied whole, unless the plan is fitted. Of any other
+A selected object is copied whole up to --max-records-per-object records, its
+first by Id past them, unless the plan is fitted. Of any other
 object, only the records the selection references are read, by id; a lookup
 past the bounds is left empty, and the plan says which. Before it writes, the
 run is held to --max-total, to the data storage and the daily API requests the
@@ -293,6 +301,8 @@ interface CliArgs {
   maxDepth: number;
   maxObjects: number;
   maxTotal: number;
+  /** Records of a selected object the run copies at most, the first by Id. */
+  maxRecordsPerObject: number;
   planOnly: boolean;
   /** Write emails and phone numbers as read rather than neutralized. */
   keepContactPoints: boolean;
@@ -349,6 +359,7 @@ const FLAGS: CommandFlags = {
     '--max-depth',
     '--max-objects',
     '--max-total',
+    '--max-records-per-object',
     '--compliance',
     '--batch-size',
     '--fit',
@@ -417,6 +428,16 @@ export function parseArgs(argv: string[]): CliArgs {
   const maxDepth = whole('--max-depth', DEFAULT_SCAN_DEPTH);
   const maxObjects = whole('--max-objects', DEFAULT_SCAN_OBJECTS);
   const maxTotal = whole('--max-total', DEFAULT_MAX_TOTAL);
+  // Forge's bound and setting, a million at most: fixed at 50 000, a table of
+  // millions had no way to more.
+  const maxRecordsPerObject = whole('--max-records-per-object', FORGE_QUERY_MAX_RECORDS);
+  if (maxRecordsPerObject > FORGE_MAX_RECORDS_PER_OBJECT_BOUND) {
+    process.stderr.write(
+      `--max-records-per-object takes a whole number of records, 1 to ` +
+        `${FORGE_MAX_RECORDS_PER_OBJECT_BOUND}.\n`,
+    );
+    process.exit(2);
+  }
   // A checkpoint of what the run writes, taken before its first write; with
   // --plan-only, what it would hold and cost.
   const checkpointFirst = checkpointFirstArgs(args);
@@ -442,6 +463,7 @@ export function parseArgs(argv: string[]): CliArgs {
     maxDepth,
     maxObjects,
     maxTotal,
+    maxRecordsPerObject,
     planOnly: args.includes('--plan-only'),
     keepContactPoints: args.includes('--keep-contact-points'),
     json: args.includes('--json'),
@@ -678,6 +700,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       includeStandardObjects: args.includeStandardObjects,
       maxDepth: args.maxDepth,
       maxObjects: args.maxObjects,
+      maxRecordsPerObject: args.maxRecordsPerObject,
     },
     (line) => log(`  ${line}`),
   );
@@ -830,7 +853,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         code: AUTOPILOT_FIT_CODES.STORAGE_UNREAD,
         message:
           `The plan cannot be fitted to ${args.target}, whose data storage left could not be ` +
-          `read (${fitBudget.unread}).`,
+          `read (${fitBudget.unread}): give --fit-within <MB>, the most it may take, to fit it ` +
+          'to that.',
       };
     } else {
       try {
@@ -863,7 +887,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           code: AUTOPILOT_FIT_CODES.READ_REFUSED,
           message:
             'The plan could not be fitted: the source refused a read of it ' +
-            `(${extractErrorMessage(err)}).`,
+            `(${extractErrorMessage(err)}). Run it again; if the source refuses again, narrow ` +
+            'the selection (--object, --max-depth), or run it without --fit where it fits.',
         };
       }
     }
@@ -1406,8 +1431,9 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
   for (const cut of scope.cutShort ?? []) {
     const of = cut.total !== undefined ? ` of ${cut.total}` : '';
     lines.push(
-      `  ${cut.objectApiName}: ${cut.copied}${of} record(s) copied, the first by Id -- a run ` +
-        'copies no more of a selected object',
+      `  ${cut.objectApiName}: ${cut.copied}${of} record(s) copied, the first by Id -- ` +
+        '--max-records-per-object copies more, up to 1000000; a sample of the whole org that ' +
+        `fits the target: ${commandOf('clone')} --depth all --fit share`,
     );
   }
   if (scope.parents.length > 0) {

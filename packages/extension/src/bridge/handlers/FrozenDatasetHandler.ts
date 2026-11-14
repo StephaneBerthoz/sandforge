@@ -103,11 +103,14 @@ import {
   automationReadRequests,
   checkpointPartOf,
   checkpointScopeStop,
+  countedStorageBytes,
   deliverabilityPartOf,
   readApiBudget,
+  readDataStorage,
   takeCheckpointFirst,
   readEmailLimits,
   type ApiBudgetCheck,
+  type DataStorage,
   type LimitsTransport,
 } from '../../modules/forge/ForgeRunGate.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
@@ -415,6 +418,89 @@ class LoadBudgetStop extends Error {
   }
 }
 
+/** The code a load is refused under when its records take more data storage than the target has left. */
+const FROZEN_STORAGE_EXCEEDED = 'FROZEN_STORAGE_EXCEEDED';
+
+/** What a load's gate on the data storage measured, for the panel to say it. */
+interface FrozenLoadStorage {
+  estimateMB: number;
+  remainingMB: number;
+  maxMB: number;
+  /** MB a reload's purge frees first, counted with what is left; absent for a first load. */
+  freedMB?: number;
+}
+
+/**
+ * A load its gate on the data storage stopped before anything was taken for
+ * it: its records take more than the target has left, with the figures.
+ */
+class LoadStorageStop extends Error {
+  readonly code = FROZEN_STORAGE_EXCEEDED;
+  constructor(
+    message: string,
+    readonly storage: FrozenLoadStorage,
+    /** The org the load was refused into, by its registered id. */
+    readonly orgId: string,
+  ) {
+    super(message);
+    this.name = 'LoadStorageStop';
+  }
+}
+
+/** MB as a refusal says them: rounded up, two decimals under 10. */
+function megabytesWords(mb: number): string {
+  const factor = mb < 10 ? 100 : 10;
+  return String(mb <= 0 ? 0 : Math.ceil(mb * factor - 1e-9) / factor);
+}
+
+/**
+ * The refusal of a load whose records take more data storage than the
+ * target has left, or nothing: the dataset's records at most, by the
+ * documented sizes, against what is left and, on a reload, what its purge
+ * deletes first. A target that would not say holds nothing back, nor does a
+ * pilot, which loads one root folder of the dataset and is the way out the
+ * refusal names.
+ */
+function loadStorageRefusal(input: {
+  dataset: FrozenDataset;
+  storage: DataStorage | { unread: string };
+  purged?: LoadRequestsInput['purged'];
+  target: string;
+}): { message: string; storage: FrozenLoadStorage } | undefined {
+  if ('unread' in input.storage) return undefined;
+  const bytes = input.dataset.objects.reduce(
+    (sum, object) =>
+      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
+    0,
+  );
+  const freedBytes = (input.purged ?? [])
+    .filter((step) => step.deletes)
+    .reduce((sum, step) => sum + countedStorageBytes(step.objectApiName, { rows: step.rows }), 0);
+  const MB = 1024 * 1024;
+  const { remainingMB, maxMB } = input.storage;
+  if (bytes <= remainingMB * MB + freedBytes) return undefined;
+  const storage: FrozenLoadStorage = {
+    estimateMB: bytes / MB,
+    remainingMB,
+    maxMB,
+    ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
+  };
+  const freed =
+    freedBytes > 0
+      ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB ?? 0)} MB first`
+      : '';
+  return {
+    storage,
+    message:
+      `The load was refused before it wrote anything: the dataset's records take about ` +
+      `${megabytesWords(storage.estimateMB)} MB of data storage, and ${input.target} has ` +
+      `${remainingMB} MB left of ${maxMB} MB${freed}. Load a pilot first, one root folder of ` +
+      'it; or extract a smaller dataset, with a lower budget in the configuration, a new ' +
+      `selection and a new extraction; or free data storage in ${input.target}. Nothing was ` +
+      'written.',
+  };
+}
+
 /** The checkpoint a load scoped before its gate on the API requests, to be taken after it. */
 interface ScopedLoadCheckpoint {
   checkpoints: BeforeRunCheckpoints;
@@ -585,6 +671,9 @@ const DEFAULT_DATASET_VERSION = '0.1.0';
 /** Selection / extraction timeouts (long, but bounded — probes + full pull). */
 const SELECT_TIMEOUT_MS = 10 * 60_000;
 const EXTRACT_TIMEOUT_MS = 15 * 60_000;
+
+/** The code an extraction out of its time is answered with: run again, it reads the same roots. */
+const EXTRACT_TIMEOUT = 'EXTRACT_TIMEOUT';
 
 /**
  * How long the describes of a graph kept in the sas are held once reused:
@@ -840,7 +929,7 @@ function removalRefusalOf(
   if (!load.created) {
     return {
       message:
-        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here, nor replaced by a reload, which would delete what someone changed since.',
+        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here, nor replaced by a reload, which would delete what someone changed since. Refresh the sandbox to start again from its copy, or find the records the loading user created that day and delete them yourself.',
       code: 'NOT_RECORDED',
     };
   }
@@ -2087,6 +2176,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       return { automation: err.automation, orgId: err.orgId };
     }
     if (err instanceof LoadBudgetStop) return { apiRequests: err.apiRequests, orgId: err.orgId };
+    if (err instanceof LoadStorageStop) return { storage: err.storage, orgId: err.orgId };
     return undefined;
   }
 
@@ -2526,8 +2616,16 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       const graph = withoutExcluded(found.graph, config.excludedObjects);
       const described = new Set<string>();
+      // Its time out, the extraction stops at its next read: left to run,
+      // it went on reading the source for a step already answered.
+      let extractSignal: AbortSignal | undefined;
       const extractor = new FrozenDatasetExtractor({
-        query: (soql) => queryAll(conn, soql),
+        query: (soql) => {
+          if (extractSignal?.aborted) {
+            return Promise.reject(new Error('The extraction ran out of time and stopped.'));
+          }
+          return queryAll(conn, soql);
+        },
         describeFields: (objectApiName) => {
           described.add(objectApiName);
           return this.describeScopableFields(parsed.sourceOrgId, objectApiName);
@@ -2539,44 +2637,48 @@ export class FrozenDatasetHandler implements DomainHandler {
       const datasetVersion = config.datasetVersion ?? DEFAULT_DATASET_VERSION;
 
       const { extracted, frozen, report, requiredLeftEmpty, keptUnruled } =
-        await new TimeoutManager(EXTRACT_TIMEOUT_MS).withTimeout('frozen:extract', async () => {
-          const extracted = await extractor.extract({
-            graph,
-            rootObject: config.rootObject,
-            rootRecordIds,
-            asOf: new Date().toISOString(),
-            sasDir,
-            excludedFields: config.excludedFields,
-            excludedObjects: config.excludedObjects,
-            tokens,
-            guard,
-          });
-          // The rules with what the source's describes tell them: a
-          // restricted picklist's value is a word of the schema, kept — but
-          // for one the personal data detector names, a gender or a religion.
-          const schema = await this.ruleSchemaOf(parsed.sourceOrgId, extracted.objects);
-          const effective = withSchemaDefaults(
-            rules,
-            schema,
-            this.deps.infraServices?.piiDetector ?? new PIIDetector(),
-          );
-          const frozen = new FrozenDatasetAnonymizer().anonymize({
-            extracted,
-            rules: effective,
-            pseudonymizer,
-            datasetVersion,
-          });
-          const report = new NonReidentificationControl().run(extracted, frozen, effective, {
-            author,
-          });
-          return {
-            extracted,
-            frozen,
-            report,
-            requiredLeftEmpty: requiredFieldsLeftEmpty(extracted, effective, schema),
-            keptUnruled: keptWithoutARule(extracted, effective),
-          };
-        });
+        await new TimeoutManager(EXTRACT_TIMEOUT_MS).withTimeout(
+          'frozen:extract',
+          async (signal) => {
+            extractSignal = signal;
+            const extracted = await extractor.extract({
+              graph,
+              rootObject: config.rootObject,
+              rootRecordIds,
+              asOf: new Date().toISOString(),
+              sasDir,
+              excludedFields: config.excludedFields,
+              excludedObjects: config.excludedObjects,
+              tokens,
+              guard,
+            });
+            // The rules with what the source's describes tell them: a
+            // restricted picklist's value is a word of the schema, kept — but
+            // for one the personal data detector names, a gender or a religion.
+            const schema = await this.ruleSchemaOf(parsed.sourceOrgId, extracted.objects);
+            const effective = withSchemaDefaults(
+              rules,
+              schema,
+              this.deps.infraServices?.piiDetector ?? new PIIDetector(),
+            );
+            const frozen = new FrozenDatasetAnonymizer().anonymize({
+              extracted,
+              rules: effective,
+              pseudonymizer,
+              datasetVersion,
+            });
+            const report = new NonReidentificationControl().run(extracted, frozen, effective, {
+              author,
+            });
+            return {
+              extracted,
+              frozen,
+              report,
+              requiredLeftEmpty: requiredFieldsLeftEmpty(extracted, effective, schema),
+              keptUnruled: keptWithoutARule(extracted, effective),
+            };
+          },
+        );
       if (requiredLeftEmpty.length > 0) {
         this.deps.log(
           `[WARN] frozen: the rules leave ${requiredLeftEmpty.length} required field(s) empty, ` +
@@ -2681,10 +2783,23 @@ export class FrozenDatasetHandler implements DomainHandler {
         version: manifest.version,
       });
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'frozen:extract', 'frozen:extract:error', msg, err, {
-        code: this.errorCodeFor(err, 'EXTRACT_ERROR'),
-        retryable: err instanceof TimeoutError,
-        extraPayload: this.errorDetailOf(err),
+      // Out of time, the extraction would run out of time again: it reads
+      // every record of the roots the selection kept, the same ones. Said
+      // "try it again", it was tried again, to the same end. Its code says
+      // the way through, a smaller selection, and how long it was given.
+      const timedOut = err instanceof TimeoutError;
+      const said = timedOut
+        ? new Error(
+            `The extraction ran out of its ${EXTRACT_TIMEOUT_MS / 60_000} minutes and stopped, and ` +
+              'nothing was written: it reads every record of the roots the selection kept, so run ' +
+              'again it would stop again. Keep fewer roots: lower the budget in the ' +
+              'configuration, or narrow the axes, then run the selection and the extraction again.',
+          )
+        : err;
+      sendHandlerError(this.deps, 'frozen:extract', 'frozen:extract:error', msg, said, {
+        code: timedOut ? EXTRACT_TIMEOUT : this.errorCodeFor(err, 'EXTRACT_ERROR'),
+        retryable: false,
+        extraPayload: timedOut ? { minutes: EXTRACT_TIMEOUT_MS / 60_000 } : this.errorDetailOf(err),
       });
     }
   }
@@ -3213,10 +3328,36 @@ export class FrozenDatasetHandler implements DomainHandler {
       // taken for it: past them, the load is refused, nothing written and
       // nothing assigned, as a seed, a sync or a clone is. A load read no
       // limit of them, and the lease of its mute was counted nowhere.
+      // The data storage the dataset's records take against what the target
+      // has left, read from the same `/limits` as its requests: a load read
+      // no storage, and one into a Developer Edition ran until the target
+      // answered STORAGE_LIMIT_EXCEEDED, its children refused under parents
+      // that went in.
+      const purged = purge ? await this.purgedOf(mappingStore, config) : undefined;
+      // One answer of `/limits` for both gates, whichever the org leaves out.
+      const limitsAnswer: Promise<unknown> = Promise.resolve().then(() =>
+        conn.request({ method: 'GET', url: '/limits' }),
+      );
+      limitsAnswer.catch(() => {});
+      const limitsOnce: LimitsTransport = { request: () => limitsAnswer };
+      const limits = await readDataStorage(limitsOnce).catch((err: unknown) => ({
+        unread: extractErrorMessage(err),
+      }));
+      const overStorage = parsed.pilot
+        ? undefined
+        : loadStorageRefusal({
+            dataset,
+            storage: limits,
+            ...(purged ? { purged } : {}),
+            target: this.orgNameOf(parsed.targetOrgId),
+          });
+      if (overStorage) {
+        throw new LoadStorageStop(overStorage.message, overStorage.storage, parsed.targetOrgId);
+      }
       apiJudged = await this.loadApiCheck({
-        conn,
+        conn: limitsOnce,
         dataset,
-        ...(purge ? { purged: await this.purgedOf(mappingStore, config) } : {}),
+        ...(purged ? { purged } : {}),
         read,
         ...(scoped ? { checkpoint: scoped.estimate } : {}),
         ...(mute?.plan ? { plan: mute.plan } : {}),
@@ -3481,7 +3622,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         err instanceof RemovalStopped ||
         err instanceof LoadEmailsStop ||
         err instanceof LoadAutomationStop ||
-        err instanceof LoadBudgetStop
+        err instanceof LoadBudgetStop ||
+        err instanceof LoadStorageStop
           ? err
           : undefined;
       const stopped =
@@ -4731,7 +4873,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       if (loads.length === 0 || (await store.isStale())) return undefined;
       if (loads.some((load) => !load.created)) {
         refusal =
-          'A load recorded before loads kept what they created is in this sas: which of its records it created cannot be told, and a reload leaves in place those it may have linked, so it would not replace that load whole. Nothing was written.';
+          'A load recorded before loads kept what they created is in this sas: which of its records it created cannot be told, and a reload leaves in place those it may have linked, so it would not replace that load whole, and no removal takes it. Refresh the sandbox to start again from its copy, or find the records the loading user created that day and delete them yourself, then load without reloading. Nothing was written.';
       } else {
         const conn = await getJsforceConnection(
           request.targetOrgId,

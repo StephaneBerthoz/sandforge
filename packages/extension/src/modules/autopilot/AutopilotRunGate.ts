@@ -461,7 +461,8 @@ export async function gateAutopilotWrite(
         code: 'CONFIRMATION_UNAVAILABLE',
         message:
           'The Autopilot run needed a confirmation before it wrote, and there was no one to ' +
-          'ask. Nothing was written.',
+          'ask. Nothing was written: run it again from the Autopilot page, where the question ' +
+          'is asked.',
         check,
         ...unsent,
       };

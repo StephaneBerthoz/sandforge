@@ -427,7 +427,8 @@ describe('sandforge-autopilot --fit', () => {
 
       await expect(main(argv('--fit', 'share'))).rejects.toThrow(
         'refused (AUTOPILOT_FIT_READ_REFUSED): The plan could not be fitted: the source refused ' +
-          'a read of it (QUERY_TIMEOUT).',
+          'a read of it (QUERY_TIMEOUT). Run it again; if the source refuses again, narrow the ' +
+          'selection (--object, --max-depth), or run it without --fit where it fits.',
       );
       expect(created).toEqual([]);
     });
@@ -462,7 +463,7 @@ describe('sandforge-autopilot --fit', () => {
       });
 
       await expect(main(argv('--fit', 'share'))).rejects.toThrow(
-        /^refused \(AUTOPILOT_FIT_STORAGE_UNREAD\): The plan cannot be fitted to TGT, whose data storage left could not be read/m,
+        /^refused \(AUTOPILOT_FIT_STORAGE_UNREAD\): The plan cannot be fitted to TGT, whose data storage left could not be read \(.*\): give --fit-within <MB>, the most it may take, to fit it to that\./m,
       );
       expect(created).toEqual([]);
     });

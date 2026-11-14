@@ -697,10 +697,17 @@ describe('SeedCloneHandler — the second pass', () => {
         }),
       );
 
+      // Said with the platform's NOT_FOUND alone, the preview of every object
+      // failed with no way on: the page now says to untick it, or to deploy it.
       expect(posted(deps, 'seed:clone:preview:response')).toEqual([]);
       expect(posted(deps, 'seed:clone:error')[0].payload as unknown).toMatchObject({
+        code: 'OBJECT_NOT_IN_TARGET',
+        objectApiName: 'Invoice__c',
         message:
-          'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist',
+          'Invoice__c is not in the target org, or the user SandForge connects as there may not ' +
+          'see it (NOT_FOUND: The requested resource does not exist): untick it to clone the ' +
+          'others, or deploy it to the target first (Compare, Deploy from Diff) and give that ' +
+          'user access to it.',
       });
     });
 
@@ -803,7 +810,10 @@ describe('SeedCloneHandler — the second pass', () => {
       expect(writer.insert).not.toHaveBeenCalled();
       expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
         error:
-          'Invoice__c could not be described in the target org: NOT_FOUND: The requested resource does not exist',
+          'Invoice__c is not in the target org, or the user SandForge connects as there may not ' +
+          'see it (NOT_FOUND: The requested resource does not exist): untick it to clone the ' +
+          'others, or deploy it to the target first (Compare, Deploy from Diff) and give that ' +
+          'user access to it.',
         code: 'CLONE_FAILED',
       });
     });

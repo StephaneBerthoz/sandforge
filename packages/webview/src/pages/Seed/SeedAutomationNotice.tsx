@@ -13,6 +13,7 @@ import { formatNumber, uiLocale } from '../../utils/formatters';
 import { listWords } from '../../utils/listWords';
 import { emailsCountedFor, seedMutePlanOf, type SeedAutomationState } from './useSeedAutomation';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
+import { muteOffered } from '../../utils/muteOffer';
 
 /** What runs, by kind. */
 const KIND_KEYS: Readonly<Record<SeedAutomationEntry['kind'], string>> = {
@@ -49,6 +50,12 @@ export interface SeedAutomationNoticeProps {
    * it. Absent, no box.
    */
   mute?: { checked: boolean; onChange: (mute: boolean) => void };
+  /**
+   * Where the counts of the records are set, when not beside the notice: a
+   * scenario's are its pack's, under Edit as JSON, and no object of it can be
+   * set to 0.
+   */
+  countsFrom?: 'scenario';
 }
 
 /** The ways out of an estimate past what is left: the bypasses that quiet its senders, and which. */
@@ -89,6 +96,7 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
   orgName,
   records,
   mute,
+  countsFrom,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -135,6 +143,8 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
   } else if (automation.preview) {
     // With the mute ticked, the emails of what still runs: what Start is held back by.
     const preview = emailsCountedFor(automation.preview, mute?.checked === true);
+    /** Whether the box below offers a mute: the way out a refusal names besides the sets. */
+    const muteOffer = mute !== undefined && muteOffered(seedMutePlanOf(automation.preview));
     const written = preview.objects.filter((o) => (records[o.objectApiName] ?? 0) > 0);
     const estimates = seedEmailEstimates(preview, records);
     // Told by the single emails they are among: a flow's single emails count
@@ -267,10 +277,12 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
                 <div className="flex flex-col gap-1">
                   <p>{t('seed.automation.refused', figures(estimate))}</p>
                   <p>
-                    {t('seed.automation.waysOut', {
-                      objects: list(estimate.objects.map((o) => o.objectApiName)),
-                      senders: list(senders.map(quoted)),
-                    })}
+                    {countsFrom === 'scenario'
+                      ? t('seed.automation.waysOutScenario', { senders: list(senders.map(quoted)) })
+                      : t('seed.automation.waysOut', {
+                          objects: list(estimate.objects.map((o) => o.objectApiName)),
+                          senders: list(senders.map(quoted)),
+                        })}
                   </p>
                   {ways.map((way) => (
                     <p key={way.permission}>
@@ -286,6 +298,12 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
                           })}
                     </p>
                   ))}
+                  {/* The box below does it for the run alone: named where it is offered. */}
+                  {muteOffer && ways.length > 0 && (
+                    <p data-testid={`seed-automation-way-mute-${estimate.limit}`}>
+                      {t('seed.automation.wayMute')}
+                    </p>
+                  )}
                 </div>
               </div>
             );

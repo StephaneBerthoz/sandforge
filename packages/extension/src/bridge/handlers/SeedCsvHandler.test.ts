@@ -224,6 +224,61 @@ describe('SeedCsvHandler', () => {
       expect(new LineageStore(store).get()?.nodes[0]).toMatchObject({ origin: 'csv' });
     });
 
+    it('refuses an import past the data storage the org has left before its first write, naming how many rows fit', async () => {
+      // Read for the question alone, the storage held back no import: a file
+      // of a few thousand rows into a Developer Edition ran until the org
+      // answered STORAGE_LIMIT_EXCEEDED, part of it in.
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
+        request: vi.fn(async () => ({
+          DataStorageMB: { Max: 5, Remaining: 5 },
+          DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({ alias: 'my-dev-org' } as never);
+      const records = Array.from({ length: 3000 }, (_, i) => ({ name: `Acme ${i}` }));
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload({ records })));
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      const [error] = posted(deps, 'seed:csv:error');
+      expect(error.payload as unknown).toMatchObject({
+        code: 'CSV_STORAGE_EXCEEDED',
+        org: 'my-dev-org',
+        rows: 3000,
+        fitting: 2560,
+        remainingMB: 5,
+        maxMB: 5,
+        message:
+          'The import was refused before it wrote anything: its 3000 rows take about 5.86 MB of ' +
+          'data storage, and my-dev-org has 5 MB left of 5 MB, room for about 2560 of them: split ' +
+          'the file and import one part at a time, freeing data storage in between as needed. ' +
+          'Nothing was written.',
+      });
+      expect(posted(deps, 'operation:started')).toEqual([]);
+    });
+
+    it('lets an upsert past the storage left through to its question: what it updates takes no room', async () => {
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
+        request: vi.fn(async () => ({
+          DataStorageMB: { Max: 5, Remaining: 5 },
+          DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      const records = Array.from({ length: 3000 }, (_, i) => ({ name: `Acme ${i}` }));
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ records, externalIdField: 'Name' })),
+      );
+
+      expect(
+        posted(deps, 'seed:csv:error').map((e) => (e.payload as { code?: string }).code),
+      ).not.toContain('CSV_STORAGE_EXCEEDED');
+    });
+
     it('refuses an import past the API requests the org has left today, writing nothing', async () => {
       // Nothing compared them: an import into an org whose integrations had
       // used the day's requests stopped part way through.

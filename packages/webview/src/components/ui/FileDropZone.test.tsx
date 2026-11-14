@@ -37,6 +37,20 @@ describe('FileDropZone', () => {
     expect(screen.getByTestId('size-error')).toBeDefined();
   });
 
+  it('says how large the file is past the most it reads, and how to bring it under: split it, or leave out columns', () => {
+    // "File exceeds maximum size of 50 MB" named no way through.
+    render(<FileDropZone onFileSelected={onFileSelected} maxSizeMB={1} />);
+    const input = screen.getByTestId('file-input') as HTMLInputElement;
+    const file = new File(['x'.repeat(Math.ceil(1.5 * 1024 * 1024))], 'large.csv', {
+      type: 'text/csv',
+    });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(screen.getByTestId('size-error').textContent).toContain(
+      'This file takes 1.5 MB, more than the 1 MB CSV Upload reads at once: split it into ' +
+        'smaller files, or save it without the columns you do not import, then upload each part.',
+    );
+  });
+
   it('should set hover state on drag over', () => {
     render(<FileDropZone onFileSelected={onFileSelected} />);
     const dropArea = screen.getByTestId('drop-area');

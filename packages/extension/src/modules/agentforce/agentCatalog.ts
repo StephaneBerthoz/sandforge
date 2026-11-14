@@ -102,11 +102,14 @@ export type AgentCatalogRead =
 
 /** What the page says of an org with Agentforce and no agent. */
 export const NO_AGENT_MESSAGE =
-  'This org has no Agentforce agent: create one, then write the test file from this run.';
+  'This org has no Agentforce agent: the records this run wrote stay, usable as they are. ' +
+  'Create an agent in Setup > Agentforce Agents, then write the test file from this run.';
 
 /** What the page says of an org without Agentforce. */
 export const NO_AGENTFORCE_MESSAGE =
-  'This org has no Agentforce: it has no GenAiPlannerDefinition, the object that lists its agents.';
+  'This org has no Agentforce, which takes a Salesforce license: it has no ' +
+  'GenAiPlannerDefinition, the object that lists its agents. The records this run wrote stay, ' +
+  'usable as they are.';
 
 /** A text field the org may leave empty. */
 const optionalText = z

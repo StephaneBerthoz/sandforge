@@ -317,11 +317,15 @@ describe('a seed from the command line', () => {
       expect.objectContaining({
         objectApiName: 'Product2',
         recordsCreated: 0,
-        errors: ['Skipped: the user this seed runs as may not create Product2 records.'],
+        errors: [
+          'Skipped: the user this seed runs as may not create Product2 records: give that user ' +
+            'Create on Product2 in a permission set.',
+        ],
       }),
     ]);
     expect(stderr.join('')).toContain(
-      '  Product2: the user this seed runs as may not create its records: skipped',
+      '  Product2: the user this seed runs as may not create its records: skipped (give that ' +
+        'user Create on it in a permission set)',
     );
   });
 

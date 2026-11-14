@@ -334,6 +334,35 @@ describe('SeedAutomationNotice', () => {
     );
   });
 
+  it("says a scenario's way out under its pack's counts, never an object set to 0, and the Mute box offered below", () => {
+    // A scenario's flow has no count to set: told to set Contact to 0, the
+    // user had no field for it; and the box below that lifts the senders for
+    // the run was not named.
+    render(
+      <SeedAutomationNotice
+        automation={read(trapPreview())}
+        orgName="my-dev-org"
+        records={CRM}
+        mute={{ checked: false, onChange: vi.fn() }}
+        countsFrom="scenario"
+      />,
+    );
+
+    const refused = screen.getByRole('alert');
+    const lines = within(refused)
+      .getAllByText(/./, { selector: 'p' })
+      .map((p) => p.textContent);
+    expect(lines).toContain(
+      'To seed it, go Back and lower customers.count with Edit as JSON, no fewer than its ' +
+        'topics, or turn off “Contact_Welcome” and “Welcome Email”.',
+    );
+    expect(lines.some((line) => line?.includes('to 0'))).toBe(false);
+    expect(screen.getByTestId('seed-automation-way-mute-SingleEmail').textContent).toBe(
+      "Or tick “Mute the target's automation for this run” below: for the run alone, it gives " +
+        'you those permission sets.',
+    );
+  });
+
   it('counts with the mute ticked only the emails of what still runs, and holds nothing back for the senders it silences', () => {
     // Both senders are silenced by the mute: no email goes out while it holds.
     const muting = trapPreview({ emailsPerRecordMuted: [] });

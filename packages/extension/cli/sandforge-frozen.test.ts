@@ -48,6 +48,32 @@ function refuse(...args: string[]): { code: number | undefined; message: string 
 }
 
 describe('parseArgs', () => {
+  it('names, for a reload refused for a load recorded before loads kept what they created, a way that removal does not refuse', () => {
+    // The help sent that reload to `remove` first, which refuses such a load
+    // (NOT_RECORDED): a way out that led to a second refusal.
+    let out = '';
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      out += chunk;
+      return true;
+    }) as never);
+    try {
+      parseArgs(argv('--help'));
+    } catch {
+      // `process.exit` is stubbed to throw so the parse stops where it would.
+    }
+    const help = out.replace(/\s+/g, ' ');
+    expect(help).toContain(
+      'Refused as well when one of them was recorded before loads kept what they created, ' +
+        'which no removal takes: refresh the sandbox, or find what your user created that day ' +
+        'with pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts, its dry run first, then ' +
+        'delete it.',
+    );
+    expect(help).not.toMatch(/recorded before loads kept what they created: take the load back/);
+  });
+
   it('reads a step, its configuration and the org it works on', () => {
     const args = parseArgs(argv('extract', '--config', 'frozen.json', '--source', 'SRC'));
     expect(args).toMatchObject({ step: 'extract', configPath: 'frozen.json', source: 'SRC' });

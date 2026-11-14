@@ -584,6 +584,11 @@ describe('sandforge-autopilot — the plan', () => {
     );
   });
 
+  /** What a cut line says of the way to more records. */
+  const MORE =
+    '--max-records-per-object copies more, up to 1000000; a sample of the whole org that fits ' +
+    'the target: pnpm exec tsx packages/extension/cli/sandforge-clone.ts --depth all --fit share';
+
   it('says a selected table larger than one read takes is copied from its first records by Id, of how many', () => {
     // Said in the log alone, the plan showed 50 000 beside a count of millions.
     const lines = scopeLines({
@@ -599,13 +604,12 @@ describe('sandforge-autopilot — the plan', () => {
       ],
     });
 
+    // "A run copies no more" named no way to more: the bound is a flag now,
+    // and Forge copies a sample of the whole org that fits.
     expect(lines).toContain(
-      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- a run copies no more of ' +
-        'a selected object',
+      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- ' + MORE,
     );
-    expect(lines).toContain(
-      '  Case: 50000 record(s) copied, the first by Id -- a run copies no more of a selected object',
-    );
+    expect(lines).toContain('  Case: 50000 record(s) copied, the first by Id -- ' + MORE);
   });
 
   it('lists a selected table cut to its first records by Id on its cut line alone, never among those copied whole', () => {
@@ -623,8 +627,7 @@ describe('sandforge-autopilot — the plan', () => {
 
     expect(lines).toContain('  copied whole, as selected: Contact');
     expect(lines.filter((line) => line.includes('Account'))).toEqual([
-      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- a run copies no more of ' +
-        'a selected object',
+      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- ' + MORE,
     ]);
 
     const allCut = scopeLines({

@@ -42,15 +42,34 @@ describe('assertLoadGuards', () => {
     await expect(assertLoadGuards(makeInput({ orgTier: 'scratch' }))).resolves.toBeUndefined();
   });
 
-  it('refuses a non-sandbox org (production and staging tiers)', async () => {
-    for (const orgTier of ['production', 'staging'] as const) {
-      const error = await assertLoadGuards(makeInput({ orgTier })).catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(LoadGuardError);
-      expect((error as LoadGuardError).code).toBe('non-sandbox');
-      // Remediation is a config deployment on the target — never DML on the source.
-      expect((error as Error).message).toMatch(/sandboxes and Developer Edition orgs only/);
-      expect((error as Error).message).toMatch(/never run DML against a shared or source org/i);
-    }
+  it('refuses a production org', async () => {
+    const error = await assertLoadGuards(makeInput({ orgTier: 'production' })).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect((error as LoadGuardError).code).toBe('non-sandbox');
+    // Remediation is a config deployment on the target — never DML on the source.
+    expect((error as Error).message).toMatch(/sandboxes and Developer Edition orgs only/);
+    expect((error as Error).message).toMatch(/never run DML against a shared or source org/i);
+  });
+
+  it('refuses a sandbox marked Staging as one, naming another sandbox or the box that marks it', async () => {
+    // Said "loads go into sandboxes … only", it sent the user looking for an
+    // org type the sandbox had all along: what refuses it is the mark.
+    const error = await assertLoadGuards(makeInput({ orgTier: 'staging' })).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect((error as LoadGuardError).code).toBe('non-sandbox');
+    expect((error as LoadGuardError).params).toMatchObject({ tier: 'staging' });
+    expect((error as Error).message).toContain(
+      'it is a sandbox marked Staging, which holds real data',
+    );
+    expect((error as Error).message).toContain(
+      'pick another sandbox, or, if this one holds no real data, untick Staging in its Edit ' +
+        'dialog on the Organizations page.',
+    );
+    expect((error as Error).message).not.toMatch(/sandboxes and Developer Edition orgs only/);
   });
 
   it('refuses a configured protected environment', async () => {

@@ -2008,10 +2008,49 @@ describe('AutopilotHandler', () => {
         includeStandardObjects: true,
         maxDepth: 2,
         maxObjects: 12,
+        maxRecordsPerObject: 50_000,
       });
-      expect(configs[1]).toEqual({ selectedObjects: ['Lead'], includeStandardObjects: true });
+      expect(configs[1]).toEqual({
+        selectedObjects: ['Lead'],
+        includeStandardObjects: true,
+        maxRecordsPerObject: 50_000,
+      });
       // Past Forge's own limit, refused before any scan.
       expect(configs).toHaveLength(2);
+    });
+
+    it("copies a selected object to Forge's records per object setting, held to a million", async () => {
+      // Fixed at 50 000 by Id, a table of millions had no way to more: the
+      // records per object the plan request sent were never read.
+      const orchestrator = createMockOrchestrator();
+      handler.setOrchestrator(orchestrator);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
+      let setting = 200_000;
+      deps.services = {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          (key === 'forge.maxRecordsPerObject' ? setting : fallback) as T,
+      } as unknown as HandlerDeps['services'];
+      const scan = (id: string) =>
+        handler.handle(
+          inboundRequest({
+            id,
+            type: 'autopilot:scan-schema',
+            timestamp: Date.now(),
+            payload: {
+              sourceOrgId: 'src',
+              targetOrgId: 'tgt',
+              selectedObjects: ['Lead'],
+              includeStandardObjects: true,
+            },
+          } as BaseMessage),
+        );
+
+      await scan('scan-raised');
+      setting = 5_000_000;
+      await scan('scan-past-the-bound');
+
+      const configs = (orchestrator.scanSchemas as Mock).mock.calls.map((call) => call[2]);
+      expect(configs.map((config) => config.maxRecordsPerObject)).toEqual([200_000, 1_000_000]);
     });
   });
 

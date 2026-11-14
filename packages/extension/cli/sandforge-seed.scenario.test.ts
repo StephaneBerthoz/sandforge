@@ -462,7 +462,8 @@ describe('sandforge-seed --scenario', () => {
 
       expect(process.exitCode).toBe(1);
       expect(stderr.join('')).toContain(
-        'This org has no Agentforce agent: create one, then write the test file from this run.',
+        'This org has no Agentforce agent: the records this run wrote stay, usable as they ' +
+          'are. Create an agent in Setup > Agentforce Agents, then write the test file from this run.',
       );
       expect(existsSync(join(project, 'specs'))).toBe(false);
     });

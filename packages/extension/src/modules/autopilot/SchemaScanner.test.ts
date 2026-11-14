@@ -920,6 +920,39 @@ describe('a selected table larger than one read takes', () => {
     ]);
   });
 
+  it('copies a selected object to the bound the run asks, both a table it reads and one it counts', async () => {
+    // Fixed at 50 000 by Id, a table of millions had no way to more, and the
+    // records per object sent with the plan were never read.
+    const target = mockConn({
+      globalSObjects: [
+        mockGlobalSObject('Big__c'),
+        mockGlobalSObject('Ref__c'),
+        mockGlobalSObject('Flat__c'),
+      ],
+    });
+    const source = bigSource();
+    const counting = mockConn({
+      globalSObjects: [mockGlobalSObject('Flat__c')],
+      counts: { Flat__c: 2_000_000 },
+    });
+
+    const read = await new SchemaScanner().scan(source, target, ['Big__c'], false, {
+      maxRecordsPerObject: 120_000,
+    });
+    const counted = await new SchemaScanner().scan(counting, target, ['Flat__c'], false, {
+      maxRecordsPerObject: 1_000,
+    });
+
+    expect(read.recordCounts.get('Big__c')).toBe(120_000);
+    expect(read.scope.cutShort).toEqual([
+      { objectApiName: 'Big__c', copied: 120_000, total: 2_000_000 },
+    ]);
+    expect(counted.recordCounts.get('Flat__c')).toBe(1_000);
+    expect(counted.scope.cutShort).toEqual([
+      { objectApiName: 'Flat__c', copied: 1_000, total: 2_000_000 },
+    ]);
+  });
+
   it('says nothing of an object read to its end', async () => {
     const { result } = await (async () => {
       const org = largeOrg();

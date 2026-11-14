@@ -361,7 +361,9 @@ describe('seedKnowledge', () => {
     expect(result.status).toBe('success');
     expect(result.knowledge).toEqual({
       skipped:
-        'Skipped: this org has no Knowledge__kav object (Salesforce Knowledge is not turned on in it).',
+        'Skipped: this org has no Knowledge__kav object (Salesforce Knowledge is not turned on in ' +
+        'it: tick Knowledge User on your user (Setup > Users), then enable it in Setup > ' +
+        'Knowledge Settings).',
     });
     expect(request).not.toHaveBeenCalled();
     expect(org.all('Case')).toHaveLength(30);

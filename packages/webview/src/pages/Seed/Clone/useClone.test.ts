@@ -402,6 +402,41 @@ describe('useClone', () => {
       expect(result.current.error).toBe(failed);
     });
 
+    it('says which object the target does not show, and how to go on: untick it, or deploy it first', () => {
+      const { result, rerender } = previewSent();
+      const failed = 'Invoice__c is not in the target org, or …';
+
+      act(() => {
+        mockPreviewState = { ...mockPreviewState, loading: false, error: failed };
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'host-error',
+              type: 'seed:clone:error',
+              timestamp: Date.now(),
+              correlationId: 'wv-preview',
+              payload: {
+                message: failed,
+                code: 'OBJECT_NOT_IN_TARGET',
+                retryable: false,
+                objectApiName: 'Invoice__c',
+                org: 'my-dev-org',
+              },
+            },
+          }),
+        );
+      });
+      rerender();
+
+      expect(result.current.error).toBe(
+        'Invoice__c is not in my-dev-org, or the user SandForge connects as there may not see it, ' +
+          'and nothing was written: untick it to clone the others, or deploy it to my-dev-org ' +
+          'first with Compare (Deploy from Diff) and give that user access to it.',
+      );
+      expect(result.current.step).toBe('objects');
+      expect(result.current.selectedObjects).toEqual([{ objectApiName: 'Account' }]);
+    });
+
     it('is not taken for a refusal of another request', () => {
       const { result } = previewSent();
 
@@ -1097,6 +1132,40 @@ describe('useClone', () => {
     expect(result.current.error).toContain('40');
     expect(result.current.error).toContain('Welcome Email');
     expect(result.current.error).not.toContain('The clone was refused');
+  });
+
+  it('says, from its figures, why a clone was refused for its storage, with its heaviest objects and the sample Forge draws', () => {
+    const { result, rerender } = previewed();
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'The clone was refused before it wrote anything: …',
+      'CLONE_STORAGE_EXCEEDED',
+      {
+        org: 'my-dev-org',
+        estimateMB: 6.64,
+        remainingMB: 5,
+        maxMB: 5,
+        heaviest: [
+          { objectApiName: 'Contact', rows: 3000, mb: 5.859 },
+          { objectApiName: 'Task', rows: 1, mb: 0.002 },
+        ],
+      },
+    );
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe(
+      'The clone was refused before it wrote anything: its records take about 6.64 MB of data ' +
+        'storage, and my-dev-org has 5 MB left of 5 MB. The heaviest: Contact (3,000 records, ' +
+        '5.86 MB) and Task (1 record, 0.01 MB). Narrow their filter or leave them out, then ' +
+        'preview again; or copy a sample of the source that fits with Forge: Depth ALL, Records ' +
+        'per object “A sample that fits the target”.',
+    );
   });
 
   it('says in French a clone refused for the API requests the target has left, with the figures the host gave', async () => {
