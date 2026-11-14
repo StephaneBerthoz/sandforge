@@ -638,4 +638,19 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     '`Email != null`; every record of the object without it. Select them by a field its ' +
     'rules leave as it is: once masked, records selected by a field the rules write over ' +
     `read as gone. ${CONDITION_RULES}`,
+  'resources.<name>{mask}.slices':
+    '`true` masks in slices of `maxRecords` records, consecutive by Id, each backed up just ' +
+    'before it is masked and masked from that backup, as `sandforge dataops anonymize ' +
+    '--slices` does: an object past what one snapshot holds is masked with a way back. ' +
+    'Without it, a run whose object holds more records than a snapshot does is refused, and ' +
+    'the plan blocks the resource. Turning it on or off replaces nothing applied: the ' +
+    'masking writes the same fields either way.',
+  'resources.<name>{mask}.maxRecords':
+    'The most records of an object a snapshot holds, a slice’s with `slices`, {minimum} to ' +
+    '{maximum}: `--max-records`. `50,000` by default.',
+  'resources.<name>{mask}.maxRequests':
+    'With `slices: true`: the most requests a run sends, 1 to {maximum}, `--max-requests`. ' +
+    'It stops between two slices before the next would send more, the resource left ' +
+    'partial; the set stays open in the resource’s store, and the next apply is refused ' +
+    'until `sandforge dataops anonymize --resume` or `--abandon`, with that store, ends it.',
 };

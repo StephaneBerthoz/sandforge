@@ -33,11 +33,23 @@ import {
   expiredLine,
   maxAgeDaysOf,
   openBackupStore,
+  restoredSliceLines,
+  restoreTargetOf,
+  setExpiresAt,
+  setLine,
+  setsOfStore,
   settingsOf,
+  slicesNamed,
+  valuesOf,
 } from './backupStore.js';
 import { join } from 'node:path';
-import type { DataOpsAutomationAnswer, DataOpsWriteAccord } from '@sandforge/shared';
-import { orgTypeOf } from '@sandforge/shared';
+import type {
+  BackupSetSummary,
+  DataOpsAutomationAnswer,
+  DataOpsWriteAccord,
+  SliceSetResult,
+} from '@sandforge/shared';
+import { BACKUP_MAX_RECORDS_PER_OBJECT, orgTypeOf } from '@sandforge/shared';
 import {
   accordOf,
   dataOpsAutomationHelp,
@@ -48,6 +60,10 @@ import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
+import { backupMaxAgeDays } from '../src/modules/dataops/backupRetention.js';
+import { backupSetSummaryOf, type BackupSet } from '../src/modules/dataops/slices/backupSet.js';
+import { fileRunKeys } from '../src/modules/dataops/slices/runKeyStore.js';
+import { isSafeSoqlWhere, SOQL_WHERE_RULE } from '../src/core/common/soqlValidator.js';
 import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
 import { journalDirOf } from './sandforge-clone.js';
 import { commandLineGuard } from './commandLineGuard.js';
@@ -74,20 +90,44 @@ One of:
   --list                 name the snapshots kept in the store, each with the
                          org it was taken of, then stop: the org's with --org
                          (those taken under its alias, and the others of the
-                         same Organization Id), every org's without it. It
-                         reads the store alone and contacts no org
-  --restore <id>         upsert a snapshot back into the org by record Id
+                         same Organization Id), every org's without it; a set
+                         of slices in one line, whatever its slices, with when
+                         the retention removes it. It reads the store alone and
+                         contacts no org
+  --restore <id>         upsert a snapshot back into the org by record Id: a
+                         snapshot's id, or a set of slices', every slice not
+                         put back yet, in their order; stopped part way, the
+                         same line puts back the rest
+  --delete <id>          delete a snapshot, or a set of slices with every slice
+                         and the key it holds, from the store; repeat for more.
+                         A slice is deleted with its set. It contacts no org
 
 Options:
+  --where <Object>:<clause>
+                         with --object: snapshot only the records of that object
+                         the SOQL condition selects, written without WHERE, as
+                         --where "Contact:CreatedDate >= 2025-01-01T00:00:00Z";
+                         read up to its first colon, the object's name. One per
+                         object; the snapshot holds the records under it, not
+                         the object, and says so
+  --slices               with --object: back each object up in slices of
+                         --max-records records, consecutive by Id, each a
+                         snapshot of its own, listed and restored as one set:
+                         an object past what one snapshot holds is backed up
+                         whole
   --store <dir>          where snapshots live, a folder of your own
                          (default: ~/.sandforge/backups, under the folder
                          SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of each object a snapshot reads, as
-                         sandforge.backup.maxRecordsPerObject sets it
-                         (default: 50000; 100 to 1000000)
+                         sandforge.backup.maxRecordsPerObject sets it; with
+                         --slices, the records of a slice (default: 50000; 100
+                         to 1000000)
+  --slice <k[,k]>        with --restore of a set of slices: only these slices, by
+                         their number, put back again if they were already
   --rewrite-all          with --restore: write every row of the snapshot back,
                          the ones the org already holds as the snapshot does
-                         included
+                         included; of a set, every slice, those put back
+                         already too
   --include-changed      with --restore of the snapshot a Sync run kept: put
                          back the records changed or deleted since the run too
 ${dataOpsAutomationHelp('written back')}  --max-age-days <n>     the retention, as sandforge.backup.maxAgeDays sets it:
@@ -123,16 +163,20 @@ the emails that sends against what the org has left today, and whether the
 org delivers them.
 
 A snapshot says its id, which --restore takes, and what it holds short of the
-org: an object stopped at --max-records, or never reached.
+org: an object stopped at --max-records, or never reached. A set of slices
+says its id and its slices; a slice the org would not read whole, even read in
+smaller parts, stops it there, and the set is listed as partial.
 
 Exit codes: 0 the run finished: the snapshot holds every record of its objects,
-or the restore put back every value; 1 it could not start, or the snapshot or
+or the restore put back every value, or the snapshots were deleted; 1 it could
+not start, or the snapshot or
 the restore failed or was refused — what the org runs as it writes, without
 --accept-automation (AUTOMATION_NOT_ACCEPTED), emails it delivers, without
 --accept-emails (EMAILS_NOT_ACCEPTED), more emails than it has left today
 (EMAILS_EXCEEDED), or a mute refused among the reasons; 2 a bad command line, or a question with no
 terminal to answer it (give --yes); 3 the snapshot holds part of an object's
-records, or the restore left values as they are (rows the org refused, a
+records — a set of slices stopped short among them —, or the restore left
+values as they are (rows the org refused, a
 snapshot that holds part of the records, or records of a Sync run's snapshot
 changed since the run, held back without --include-changed).
 `;
@@ -146,7 +190,15 @@ type CliArgs = CommonArgs & ({ list: true; org?: string } | { list: false; org: 
 /** What the command line settles whatever it asks. */
 interface CommonArgs {
   objects: string[];
+  /** Per object, the records its snapshot keeps; every record of an object it names none for. */
+  wheres?: Record<string, string>;
+  /** Back each object up in slices of `maxRecords` records, a snapshot each. */
+  slices: boolean;
   restoreId?: string;
+  /** Of a restore of a set of slices, the slices to put back, by their number. */
+  restoreSlices?: number[];
+  /** The snapshots and sets to delete from the store. */
+  deleteIds?: string[];
   storeDir: string;
   /** The cap of records per object a snapshot reads, when the line sets one. */
   maxRecords?: number;
@@ -169,14 +221,72 @@ const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const FLAGS: CommandFlags = {
   switches: [
     '--list',
+    '--slices',
     '--rewrite-all',
     '--include-changed',
     '--yes',
     '--json',
     ...DATAOPS_AUTOMATION_SWITCHES,
   ],
-  values: ['--org', '--object', '--restore', '--store', '--max-records', '--max-age-days'],
+  values: [
+    '--org',
+    '--object',
+    '--where',
+    '--restore',
+    '--slice',
+    '--delete',
+    '--store',
+    '--max-records',
+    '--max-age-days',
+  ],
 };
+
+/** Say why the line cannot be read, and stop. */
+function refuseLine(message: string): never {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+}
+
+/**
+ * The filters `--where <Object>:<clause>` give, by object: read up to the
+ * first colon, since a date and time in the clause holds two
+ * (`Contact:CreatedDate >= 2025-01-01T08:00:00Z`). Each names an object the
+ * line backs up, once, and holds a condition a filter may be. Stops the
+ * command, exit 2, on one that does not. Exported so it can be tested.
+ *
+ * @param objects - The objects the line backs up.
+ */
+export function wheresOf(
+  values: readonly string[],
+  objects: readonly string[],
+): Record<string, string> {
+  const wheres: Record<string, string> = {};
+  for (const value of values) {
+    const colon = value.indexOf(':');
+    const named = colon > 0 ? value.slice(0, colon).trim() : '';
+    const clause = colon > 0 ? value.slice(colon + 1).trim() : '';
+    if (!API_NAME_RE.test(named) || clause === '') {
+      refuseLine(
+        `Not a filter --where can take: "${value}". Give the object, a colon and the ` +
+          'condition, as --where "Contact:CreatedDate >= 2025-01-01T00:00:00Z".',
+      );
+    }
+    const object = objects.find((o) => o.toLowerCase() === named.toLowerCase());
+    if (object === undefined) {
+      refuseLine(
+        `--where names ${named}, which the line does not back up: give it with --object ${named}.`,
+      );
+    }
+    if (wheres[object] !== undefined) {
+      refuseLine(`Give one --where per object: ${object} is given two.`);
+    }
+    if (!isSafeSoqlWhere(clause)) {
+      refuseLine(`Not a filter --where can take: "${clause}". ${SOQL_WHERE_RULE}`);
+    }
+    wheres[object] = clause;
+  }
+  return wheres;
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -208,15 +318,18 @@ export function parseArgs(argv: string[]): CliArgs {
   }
   const objects = collect('--object');
   const restoreId = get('--restore');
+  const deleteIds = collect('--delete');
 
-  const asked = [objects.length > 0, list, restoreId !== undefined].filter(Boolean).length;
+  const asked = [objects.length > 0, list, restoreId !== undefined, deleteIds.length > 0].filter(
+    Boolean,
+  ).length;
   if (asked === 0) {
-    process.stderr.write('Nothing to do: give --object, --list or --restore.\n');
+    process.stderr.write('Nothing to do: give --object, --list, --restore or --delete.\n');
     process.exit(2);
   }
   if (asked > 1) {
-    // Three answers to "what should this run do" is two too many.
-    process.stderr.write('Give one of --object, --list or --restore.\n');
+    // Several answers to "what should this run do" is one too many.
+    process.stderr.write('Give one of --object, --list, --restore or --delete.\n');
     process.exit(2);
   }
   for (const name of objects) {
@@ -224,6 +337,27 @@ export function parseArgs(argv: string[]): CliArgs {
       process.stderr.write(`Not an SObject API name: "${name}"\n`);
       process.exit(2);
     }
+  }
+  for (const id of deleteIds) {
+    // An id as a snapshot or a set is named: no colon, which the keys of a
+    // snapshot's records add after it, and nothing a path would read.
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) refuseLine(`Not a snapshot's id: "${id}"`);
+  }
+  const whereValues = valuesOf(args, '--where');
+  const slices = args.includes('--slices');
+  if ((whereValues.length > 0 || slices) && objects.length === 0) {
+    refuseLine(
+      `${whereValues.length > 0 ? '--where' : '--slices'} goes with --object: it says how the ` +
+        'objects a snapshot reads are read.',
+    );
+  }
+  const wheres = wheresOf(whereValues, objects);
+  const sliceValues = valuesOf(args, '--slice');
+  if (sliceValues.length > 0 && restoreId === undefined) {
+    refuseLine(
+      '--slice goes with --restore: it names the slices of a set to put back. A backup in ' +
+        'slices is --slices.',
+    );
   }
   const cap = get('--max-records');
   if (cap !== undefined && !/^[1-9]\d*$/.test(cap)) {
@@ -252,7 +386,11 @@ export function parseArgs(argv: string[]): CliArgs {
 
   const common: CommonArgs = {
     objects,
+    ...(Object.keys(wheres).length > 0 ? { wheres } : {}),
+    slices,
     restoreId,
+    ...(sliceValues.length > 0 ? { restoreSlices: slicesNamed(sliceValues) } : {}),
+    ...(deleteIds.length > 0 ? { deleteIds } : {}),
     storeDir: get('--store', defaultBackupStoreOf()) ?? '',
     ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
     rewriteAll,
@@ -290,17 +428,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (args.list) {
     // The store alone, before any org is reached: a listing asked for the
     // org's session first, then named every org's snapshots all the same.
+    // A slice is listed with its set, one line whatever its slices.
     const kept = configStore
       .getKeysByPrefix('backup:')
-      .map((key) => configStore.get(key) as ListedSnapshot);
+      .filter((key) => !key.slice('backup:'.length).includes(':'))
+      .map((key) => configStore.get(key) as ListedSnapshot)
+      .filter((meta) => meta.origin !== 'slice');
     const snapshots = args.org !== undefined ? snapshotsOf(kept, args.org) : kept;
+    const allSets = setsOfStore(configStore);
+    const sets = args.org !== undefined ? snapshotsOf(allSets, args.org) : allSets;
+    const days = backupMaxAgeDays({ getSandforgeSetting: settingsOf(args) });
     // Printed before the JSON did: `--list --json` printed nothing at all, and
     // a pipeline could not read which snapshot to restore.
     if (args.json) {
-      process.stdout.write(`${JSON.stringify(snapshotListing(snapshots), null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(snapshotListing(snapshots, sets, days), null, 2)}\n`);
       return;
     }
-    if (snapshots.length === 0) {
+    if (snapshots.length === 0 && sets.length === 0) {
       log(
         args.org !== undefined
           ? `No snapshot of ${args.org} in this store.`
@@ -308,8 +452,48 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
     }
     for (const line of snapshots.map(snapshotLine)) log(line);
+    if (sets.length > 0) log('sets of slices, each restored and deleted whole:');
+    for (const set of sets) log(`  ${setLine(set, days)}`);
     return;
   }
+
+  // What the panel would have received, printed instead of posted.
+  const posted: Array<Record<string, unknown>> = [];
+
+  if (args.deleteIds) {
+    // From the store alone: an org deleted since, or a sandbox refreshed,
+    // leaves backups no session reaches, and they are the first to go.
+    const handler = await handlerOf(args, configStore, log, posted);
+    const id = `cli-delete-${Date.now()}`;
+    await handler.handle({
+      id,
+      type: 'backup:delete',
+      payload: { orgId: args.org, operationIds: args.deleteIds },
+    } as never);
+    const answer = posted.find((message) => message.correlationId === id);
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+    }
+    if (answer?.type !== 'backup:delete:result') {
+      process.exitCode = 1;
+      return;
+    }
+    const deleted = ((answer.payload as { deleted?: string[] } | undefined)?.deleted ?? []).filter(
+      (each) => args.deleteIds?.includes(each),
+    );
+    for (const each of deleted) log(`deleted ${each}`);
+    const missing = args.deleteIds.filter((each) => !deleted.includes(each));
+    if (missing.length > 0) {
+      process.stderr.write(
+        `No snapshot or set ${missing.join(', ')} of ${args.org} in ${args.storeDir}: nothing ` +
+          `deleted for ${missing.length === 1 ? 'it' : 'them'}. "${commandOf('backup')} --list ` +
+          `--org ${args.org} --store ${args.storeDir}" names those it keeps.\n`,
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const org = await loadOrg(args.org);
 
   // Typed as the extension types an org it connects (`orgTypeOf`): its
@@ -323,9 +507,148 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     orgType: orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType }),
     metadata: { apiVersion: '66.0', edition: identity.orgType },
   };
+  const handler = await handlerOf(args, configStore, log, posted, { typed, session: org });
 
-  // What the panel would have received, printed instead of posted.
-  const posted: Array<Record<string, unknown>> = [];
+  /** The answer the handler posted for a request, by its id. */
+  const answerTo = (id: string): Record<string, unknown> | undefined =>
+    posted.find((message) => message.correlationId === id);
+
+  if (args.restoreId) {
+    // A snapshot, or a set of slices, the slices it puts back counted as the
+    // restore chooses them.
+    const target = restoreTargetOf(configStore, args.restoreId, {
+      ...(args.restoreSlices ? { slices: args.restoreSlices } : {}),
+      rewriteAll: args.rewriteAll,
+    });
+    if (!target) {
+      // Said with where it looked alone, the store a CI job's cache restores
+      // under another name read as a snapshot lost.
+      process.stderr.write(
+        `No snapshot "${args.restoreId}" in ${args.storeDir}. "${commandOf('backup')} --list ` +
+          `--org ${args.org} --store ${args.storeDir}" names those it keeps; a snapshot taken ` +
+          'with another --store, or with SANDFORGE_JOURNAL_DIR set otherwise, is restored with ' +
+          'that --store. Nothing was written.\n',
+      );
+      process.exit(1);
+    }
+    // What the org runs as the restore brings records back from the recycle
+    // bin and writes the snapshot's values over them, said before the
+    // question, and refused before it unless accepted: a restore fired the
+    // org's update flows on every record it put back, unasked.
+    const readId = `cli-restore-automation-${Date.now()}`;
+    await handler.handle({
+      id: readId,
+      type: 'dataops:automation',
+      payload: {
+        orgId: args.org,
+        act: 'restore',
+        objects: target.objects,
+        ...args.accord,
+      },
+    } as never);
+    const read = answerTo(readId);
+    if (read?.type !== 'dataops:automation:response') {
+      process.exitCode = 1;
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+      }
+      return;
+    }
+    const automation = read.payload as DataOpsAutomationAnswer;
+    for (const line of automation.lines) log(line);
+    if (automation.refusals.length > 0) {
+      for (const refusal of automation.refusals) process.stderr.write(`${refusedLine(refusal)}\n`);
+      process.exitCode = 1;
+      if (args.json) {
+        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+      }
+      return;
+    }
+    if (!args.yes) {
+      const ok = await confirm(
+        `Upsert ${target.words} back into ${args.org}? ${target.totalRecords} record(s) with ` +
+          'these Ids will have their fields overwritten.',
+      );
+      if (!ok) {
+        log('Nothing written.');
+        return;
+      }
+    }
+    log(
+      `restoring ${args.restoreId} into ${args.org}` +
+        `${args.rewriteAll ? ', every row written back' : ''}…`,
+    );
+    await handler.handle({
+      id: `cli-restore-${Date.now()}`,
+      type: 'dataops:rollback',
+      payload: {
+        orgId: args.org,
+        operationId: args.restoreId,
+        ...(args.rewriteAll ? { rewriteAll: true } : {}),
+        ...(args.includeChanged ? { includeChanged: true } : {}),
+        ...(args.restoreSlices ? { slices: args.restoreSlices } : {}),
+        ...args.accord,
+      },
+    } as never);
+    // What the restore wrote, refused and found unchanged, as the panel hears it.
+    const answer = posted.find((message) => message.type === 'dataops:rollback:response');
+    const payload = (answer?.payload ?? {}) as Record<string, unknown>;
+    if (typeof payload.message === 'string') log(payload.message);
+    for (const line of restoredSliceLines(payload)) log(line);
+    // Rows the org refused, or a snapshot holding part of the records, left
+    // values as they are: the restore exited 0 as one that put them all back.
+    if (answer) endWith(restoreExitCode(payload));
+  } else {
+    log(
+      `snapshot ${args.org}: ${args.objects
+        .map((o) => `${o}${args.wheres?.[o] !== undefined ? ` (where ${args.wheres[o]})` : ''}`)
+        .join(', ')}${args.slices ? ', in slices' : ''}`,
+    );
+    await handler.handle({
+      id: `cli-backup-${Date.now()}`,
+      type: 'backup:execute',
+      payload: {
+        orgId: args.org,
+        objects: args.objects,
+        ...(args.wheres ? { wheres: args.wheres } : {}),
+        ...(args.slices ? { slices: true } : {}),
+      },
+    } as never);
+    // The snapshot's id, which --restore takes, and what it holds short of
+    // the org: a snapshot cut at --max-records said only the type of the last
+    // message, and exited 0.
+    const answer = posted.find((message) => message.type === 'dataops:backup:response');
+    if (answer) {
+      const taken = snapshotTaken((answer.payload ?? {}) as TakenSnapshot);
+      log(taken.line);
+      endWith(taken.exitCode);
+    }
+  }
+
+  if (args.json) {
+    process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
+    return;
+  }
+  const last = posted[posted.length - 1];
+  if (last) log(`\nlast message: ${String(last.type)}`);
+}
+
+/**
+ * The real handler, stood up for the line: the org it reaches, when the
+ * command reaches one — a deletion reaches none —, the store's snapshots,
+ * the keys of its sets and the Sync runs kept here, its retention run to its
+ * end before anything else.
+ */
+async function handlerOf(
+  args: CliArgs,
+  configStore: ReturnType<typeof fileConfigStore>,
+  log: (line: string) => void,
+  posted: Array<Record<string, unknown>>,
+  reached?: {
+    typed: { alias: string; orgType: unknown; metadata: unknown };
+    session: { accessToken: string; instanceUrl: string };
+  },
+): Promise<DataOpsHandler> {
   const handler = new DataOpsHandler({
     log: (message: string) => log(`  ${message}`),
     broker: {
@@ -340,12 +663,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         }
       },
     },
-    orgManager: { getOrg: () => typed },
+    orgManager: { getOrg: () => reached?.typed },
     orgRegistry: {
-      getCredentials: async () => ({
-        accessToken: org.accessToken,
-        instanceUrl: org.instanceUrl,
-      }),
+      getCredentials: async () => {
+        if (!reached) throw new Error('This command reaches no org.');
+        return {
+          accessToken: reached.session.accessToken,
+          instanceUrl: reached.session.instanceUrl,
+        };
+      },
     },
     configStore,
     // The settings a snapshot and the retention read, as the line sets
@@ -353,7 +679,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     services: { getSandforgeSetting: settingsOf(args) },
     infraServices: {
       // A restore refuses to write without the guard, as in the extension.
-      productionGuard: commandLineGuard(log, args.org),
+      productionGuard: commandLineGuard(log, args.org ?? ''),
       // A snapshot of the org an alias reached before a refresh goes into the
       // org it reaches now only on a yes typed here: `--yes` answers the
       // question asked before the restore, not this one, and counts as no.
@@ -379,6 +705,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // run kept named: a nightly snapshot removed the values a run had written
   // over, which its removal then could not put back, with one log line.
   handler.setExpiryListener((expired) => process.stderr.write(`${expiredLine(expired)}\n`));
+  // The keys of the masking runs in slices `sandforge dataops` left in this
+  // store go with their sets, deleted or removed by the retention.
+  handler.setRunKeyStore(fileRunKeys(args.storeDir));
   // The store takes its own file operations; here, as in the extension, they
   // are Node's, under the directory given. Its retention runs first, to its end.
   handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
@@ -386,118 +715,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The Sync runs the command line kept: a restore of a run's snapshot reads
   // when the run last wrote, and leaves what changed since as it is.
   handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
-
-  /** The answer the handler posted for a request, by its id. */
-  const answerTo = (id: string): Record<string, unknown> | undefined =>
-    posted.find((message) => message.correlationId === id);
-
-  if (args.restoreId) {
-    const meta = configStore.get<{
-      objects?: Array<{ objectApiName: string; recordCount?: number }>;
-    }>(`backup:${args.restoreId}`);
-    if (!meta) {
-      // Said with where it looked alone, the store a CI job's cache restores
-      // under another name read as a snapshot lost.
-      process.stderr.write(
-        `No snapshot "${args.restoreId}" in ${args.storeDir}. "${commandOf('backup')} --list ` +
-          `--org ${args.org} --store ${args.storeDir}" names those it keeps; a snapshot taken ` +
-          'with another --store, or with SANDFORGE_JOURNAL_DIR set otherwise, is restored with ' +
-          'that --store. Nothing was written.\n',
-      );
-      process.exit(1);
-    }
-    // What the org runs as the restore brings records back from the recycle
-    // bin and writes the snapshot's values over them, said before the
-    // question, and refused before it unless accepted: a restore fired the
-    // org's update flows on every record it put back, unasked.
-    const readId = `cli-restore-automation-${Date.now()}`;
-    await handler.handle({
-      id: readId,
-      type: 'dataops:automation',
-      payload: {
-        orgId: args.org,
-        act: 'restore',
-        objects: (meta.objects ?? []).map((o) => ({
-          objectApiName: o.objectApiName,
-          records: o.recordCount ?? 0,
-        })),
-        ...args.accord,
-      },
-    } as never);
-    const read = answerTo(readId);
-    if (read?.type !== 'dataops:automation:response') {
-      process.exitCode = 1;
-      if (args.json) {
-        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
-      }
-      return;
-    }
-    const automation = read.payload as DataOpsAutomationAnswer;
-    for (const line of automation.lines) log(line);
-    if (automation.refusals.length > 0) {
-      for (const refusal of automation.refusals) process.stderr.write(`${refusedLine(refusal)}\n`);
-      process.exitCode = 1;
-      if (args.json) {
-        process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
-      }
-      return;
-    }
-    if (!args.yes) {
-      const ok = await confirm(
-        `Upsert snapshot ${args.restoreId} back into ${args.org}? Records with these Ids ` +
-          'will have their fields overwritten.',
-      );
-      if (!ok) {
-        log('Nothing written.');
-        return;
-      }
-    }
-    log(
-      `restoring ${args.restoreId} into ${args.org}` +
-        `${args.rewriteAll ? ', every row written back' : ''}…`,
-    );
-    await handler.handle({
-      id: `cli-restore-${Date.now()}`,
-      type: 'dataops:rollback',
-      payload: {
-        orgId: args.org,
-        operationId: args.restoreId,
-        ...(args.rewriteAll ? { rewriteAll: true } : {}),
-        ...(args.includeChanged ? { includeChanged: true } : {}),
-        ...args.accord,
-      },
-    } as never);
-    // What the restore wrote, refused and found unchanged, as the panel hears it.
-    const answer = posted.find((message) => message.type === 'dataops:rollback:response');
-    const payload = (answer?.payload ?? {}) as Record<string, unknown>;
-    if (typeof payload.message === 'string') log(payload.message);
-    // Rows the org refused, or a snapshot holding part of the records, left
-    // values as they are: the restore exited 0 as one that put them all back.
-    if (answer) endWith(restoreExitCode(payload));
-  } else {
-    log(`snapshot ${args.org}: ${args.objects.join(', ')}`);
-    await handler.handle({
-      id: `cli-backup-${Date.now()}`,
-      type: 'backup:execute',
-      payload: { orgId: args.org, objects: args.objects },
-    } as never);
-    // The snapshot's id, which --restore takes, and what it holds short of
-    // the org: a snapshot cut at --max-records said only the type of the last
-    // message, and exited 0.
-    const answer = posted.find((message) => message.type === 'dataops:backup:response');
-    if (answer) {
-      const taken = snapshotTaken((answer.payload ?? {}) as TakenSnapshot);
-      log(taken.line);
-      endWith(taken.exitCode);
-    }
-  }
-
-  if (args.json) {
-    process.stdout.write(`${JSON.stringify({ tool: 'sandforge-backup', posted }, null, 2)}\n`);
-    return;
-  }
-  const last = posted[posted.length - 1];
-  if (last) log(`\nlast message: ${String(last.type)}`);
+  return handler;
 }
 
 /** A snapshot as the store lists it. */
@@ -510,11 +728,15 @@ interface ListedSnapshot {
   organizationId?: string;
   totalRecords: number;
   status?: string;
+  /** `slice` for a slice of a set, listed with its set. */
+  origin?: string;
   objects: Array<{
     objectApiName: string;
     recordCount: number;
     orgCount?: number;
     stoppedAt?: string;
+    /** The filter the snapshot held the object's records to. */
+    where?: string;
   }>;
 }
 
@@ -527,9 +749,12 @@ function sameOrganization(a: string | undefined, b: string | undefined): boolean
  * The snapshots of the org `org` names, read from the store alone: those
  * taken under that alias, and every other one of the Organization Id one of
  * them was taken of — the org under another alias — as `sandforge-checkpoint
- * list` reads an org's checkpoints.
+ * list` reads an org's checkpoints. A set of slices is read the same way.
  */
-function snapshotsOf(snapshots: readonly ListedSnapshot[], org: string): ListedSnapshot[] {
+function snapshotsOf<T extends { orgId?: string; organizationId?: string }>(
+  snapshots: readonly T[],
+  org: string,
+): T[] {
   const ids = snapshots.flatMap((meta) =>
     meta.orgId === org && meta.organizationId !== undefined ? [meta.organizationId] : [],
   );
@@ -543,7 +768,8 @@ function snapshotLine(meta: ListedSnapshot): string {
   const held = meta.objects.map(
     (o) =>
       `${o.objectApiName}:${o.recordCount}` +
-      (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : ''),
+      (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : '') +
+      (o.where !== undefined ? `(where ${o.where})` : ''),
   );
   return (
     `${meta.operationId}  ${meta.timestamp}  ${meta.orgId ?? '?'}  ${meta.totalRecords} record(s)` +
@@ -551,7 +777,6 @@ function snapshotLine(meta: ListedSnapshot): string {
   );
 }
 
-/** The listing as `--list --json` prints it. Exported so it can be tested. */
 /**
  * What a restore given `--yes` is told when the org its alias reaches is no
  * longer the org the snapshot was taken of — a sandbox refreshed since:
@@ -568,12 +793,36 @@ export function replacedOrgYesWords(question: ReplacedOrgRestoreQuestion): strin
   );
 }
 
-export function snapshotListing(snapshots: readonly ListedSnapshot[]): {
+/**
+ * The listing as `--list --json` prints it: the snapshots, and the sets of
+ * slices, each with its slices and when the retention removes it, when the
+ * store keeps any. Exported so it can be tested.
+ *
+ * @param days - The retention, in days; 0 keeps every backup.
+ */
+export function snapshotListing(
+  snapshots: readonly ListedSnapshot[],
+  sets: readonly BackupSet[] = [],
+  days = 0,
+): {
   tool: 'sandforge-backup';
   snapshots: ListedSnapshot[];
+  sets?: Array<BackupSetSummary & { expiresOn?: string }>;
 } {
   return {
     tool: 'sandforge-backup',
+    ...(sets.length > 0
+      ? {
+          sets: sets.map((set) => {
+            const expiresOn = setExpiresAt(set, days);
+            return {
+              ...backupSetSummaryOf(set),
+              ...(set.organizationId !== undefined ? { organizationId: set.organizationId } : {}),
+              ...(expiresOn !== undefined ? { expiresOn } : {}),
+            };
+          }),
+        }
+      : {}),
     snapshots: snapshots.map((meta) => ({
       operationId: meta.operationId,
       timestamp: meta.timestamp,
@@ -592,6 +841,8 @@ interface TakenSnapshot {
   operationId?: unknown;
   totalRecords?: unknown;
   partial?: unknown;
+  /** Of a backup in slices, its set. */
+  slices?: SliceSetResult;
   objects?: Array<{
     objectApiName: string;
     recordCount: number;
@@ -610,6 +861,7 @@ interface TakenSnapshot {
 export function snapshotTaken(payload: TakenSnapshot): { line: string; exitCode: number } {
   const id = String(payload.operationId ?? '?');
   const short = (payload.objects ?? []).filter((o) => o.truncated === true);
+  if (payload.slices !== undefined) return setTaken(payload.slices, short);
   const head = `snapshot ${id}: ${String(payload.totalRecords ?? 0)} record(s)`;
   if (payload.partial !== true && short.length === 0) {
     return { line: `${head} (--restore ${id} puts them back)`, exitCode: 0 };
@@ -627,33 +879,56 @@ export function snapshotTaken(payload: TakenSnapshot): { line: string; exitCode:
   };
 }
 
-/** The most records of one object a snapshot reads, whatever `--max-records` asks. */
-const SNAPSHOT_OBJECT_MOST = 1_000_000;
+/**
+ * What a backup in slices says once taken: its set, its slices and records,
+ * and the restore that takes it; stopped short — a slice the org would not
+ * read whole, a Ctrl-C —, the objects it did not read to their end, exit 3.
+ */
+function setTaken(
+  set: SliceSetResult,
+  short: NonNullable<TakenSnapshot['objects']>,
+): { line: string; exitCode: number } {
+  const slices = set.objects.flatMap((o) => o.slices);
+  const records = slices.reduce((sum, s) => sum + s.rows, 0);
+  const head =
+    `set ${set.setId}: ${records} record(s) in ${slices.length} slice(s) of up to ${set.size}` +
+    (slices.length > 0 ? ` (--restore ${set.setId} puts them back)` : '');
+  if (set.state === 'done' && short.length === 0) return { line: head, exitCode: 0 };
+  return {
+    line:
+      `${head}, partial: ${short.map((o) => o.objectApiName).join(', ') || 'an object'} not ` +
+      'read to its end, its reason above. The same line takes a new set of every record',
+    exitCode: PARTIAL_EXIT,
+  };
+}
 
 /**
  * What takes the rest of each object a snapshot holds part of: `--max-records`
- * as high as the org's count, up to what a snapshot reads of one object;
- * past it, nothing does, said so with where a copy is kept; and a run again
- * for an object a stopped or failed run never reached. It said "partial" and
- * nothing more.
+ * as high as the org's count, up to what a snapshot reads of one object, or
+ * `--slices`; past it, `--slices`, a set of snapshots of one object each; and
+ * a run again for an object a stopped or failed run never reached. It said
+ * "partial" and nothing more, then sent the user out of SandForge, to Data
+ * Export or the Bulk API.
  */
 function partialWords(short: NonNullable<TakenSnapshot['objects']>): string {
   const capped = short.filter((o) => o.stoppedAt === 'cap' && o.orgCount !== undefined);
-  const raisable = capped.filter((o) => (o.orgCount ?? 0) <= SNAPSHOT_OBJECT_MOST);
-  const past = capped.filter((o) => (o.orgCount ?? 0) > SNAPSHOT_OBJECT_MOST);
+  const raisable = capped.filter((o) => (o.orgCount ?? 0) <= BACKUP_MAX_RECORDS_PER_OBJECT);
+  const past = capped.filter((o) => (o.orgCount ?? 0) > BACKUP_MAX_RECORDS_PER_OBJECT);
   const words: string[] = [];
   if (raisable.length > 0) {
     const most = Math.max(...raisable.map((o) => o.orgCount ?? 0));
     words.push(
-      `--max-records ${most} takes ${raisable.map((o) => o.objectApiName).join(', ')} whole`,
+      `--max-records ${most} takes ${raisable.map((o) => o.objectApiName).join(', ')} whole, ` +
+        'or --slices takes it in slices of --max-records records, listed and restored as one set',
     );
   }
   if (past.length > 0) {
     const names = past.map((o) => o.objectApiName).join(', ');
     words.push(
-      `No snapshot holds more than ${SNAPSHOT_OBJECT_MOST} records of one object: ${names} ` +
-        `${past.length === 1 ? 'is' : 'are'} not whole, and a restore puts back only what it ` +
-        'holds; Data Export, in Setup, or a Bulk API query keeps a copy of it',
+      `No snapshot holds more than ${BACKUP_MAX_RECORDS_PER_OBJECT} records of one object: ` +
+        `${names} ${past.length === 1 ? 'is' : 'are'} not whole, and a restore puts back only ` +
+        'what it holds. --slices takes it whole, in slices of --max-records records, each a ' +
+        'snapshot of its own, listed and restored as one set',
     );
   }
   if (short.some((o) => o.stoppedAt === 'not_reached' || o.stoppedAt === 'failure')) {

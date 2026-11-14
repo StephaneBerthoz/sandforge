@@ -1,5 +1,8 @@
 import * as z from 'zod';
-import { SEED_MAX_RECORDS_PER_OBJECT } from '../constants/defaults.js';
+import {
+  BACKUP_MAX_RECORDS_PER_OBJECT,
+  SEED_MAX_RECORDS_PER_OBJECT,
+} from '../constants/defaults.js';
 import { SEED_RELATION_LIMITS } from '../utils/seed-relations.js';
 import {
   checkpointIdSchema,
@@ -901,6 +904,16 @@ const maskingSetFileSchema = strictObject('a rule set', {
     .max(TEMPLATE_MAX_RULES),
 });
 
+/**
+ * The fewest records a mask resource's `maxRecords` gives a snapshot: the
+ * least `sandforge.backup.maxRecordsPerObject` takes, which the script
+ * raises a smaller `--max-records` to.
+ */
+const MASK_MIN_RECORDS = 100;
+
+/** The most requests a mask resource's `maxRequests` gives, as `--max-requests` takes them. */
+const MASK_MAX_REQUESTS = 1_000_000_000;
+
 /** A DataOps template that ships, by its id. */
 const maskTemplateFileSchema = strictObject('a template that ships', {
   template: z.string().regex(/^tpl-[a-z0-9-]{1,60}$/, {
@@ -927,12 +940,41 @@ export const envMaskResourceSchema = strictObject('a mask resource', {
   object: apiNameSchema.optional(),
   /** With `object`: the records it masks, a SOQL condition without WHERE. */
   where: whereClauseSchema.optional(),
+  /** Mask in slices of `maxRecords` records, each backed up just before it is masked: `--slices`. */
+  slices: z.boolean().optional(),
+  /**
+   * The most records of an object its snapshot holds, a slice's with
+   * `slices`: `--max-records`, held within what `sandforge.backup.maxRecordsPerObject`
+   * takes.
+   */
+  maxRecords: z
+    .number()
+    .int({ error: 'maxRecords is a whole number of records' })
+    .min(MASK_MIN_RECORDS)
+    .max(BACKUP_MAX_RECORDS_PER_OBJECT)
+    .optional(),
+  /** With `slices`: the most requests a run sends, `--max-requests`. */
+  maxRequests: z
+    .number()
+    .int({ error: 'maxRequests is a whole number of requests' })
+    .positive()
+    .max(MASK_MAX_REQUESTS)
+    .optional(),
 }).superRefine((resource, ctx) => {
   if (resource.where !== undefined && resource.object === undefined) {
     ctx.addIssue({
       code: 'custom',
       path: ['where'],
       message: 'where filters the records of one object: give it with object',
+    });
+  }
+  // A bound on requests stops a run between two slices: a run of the whole
+  // object has none to stop between, and the script refuses it.
+  if (resource.maxRequests !== undefined && resource.slices !== true) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['maxRequests'],
+      message: 'maxRequests bounds a masking in slices: give it with slices: true',
     });
   }
 });

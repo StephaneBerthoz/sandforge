@@ -34,7 +34,11 @@ import {
   expiredLine,
   maxAgeDaysOf,
   openBackupStore,
+  restoredSliceLines,
+  restoreTargetOf,
   settingsOf,
+  slicesNamed,
+  valuesOf,
 } from './backupStore.js';
 import { basename, join } from 'node:path';
 import { loadOrg } from './sfSession.js';
@@ -43,13 +47,12 @@ import { confirm } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { fileConfigStore } from './fileConfigStore.js';
-import {
-  BACKUP_CAP_MAX,
-  backupCapOf,
-  DataOpsHandler,
-} from '../src/bridge/handlers/DataOpsHandler.js';
+import { BACKUP_CAP_MAX, DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
+import { BackupSetStore } from '../src/modules/dataops/slices/backupSet.js';
+import { fileRunKeys } from '../src/modules/dataops/slices/runKeyStore.js';
+import { bytesWords, diskNeeded } from '../src/modules/dataops/slices/slicePlan.js';
 import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
 import { journalDirOf } from './sandforge-clone.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
@@ -65,8 +68,12 @@ import type {
   DataOpsAutomationAnswer,
   DataOpsAutomationObject,
   DataOpsWriteAccord,
+  SlicePlan,
+  SlicePlanObject,
+  SliceSetOpen,
+  SliceSetResult,
 } from '@sandforge/shared';
-import { orgTypeOf } from '@sandforge/shared';
+import { formatDurationSec, MAX_SLICES_PER_SET, orgTypeOf } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 import {
   accordOf,
@@ -84,8 +91,11 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
     --org <alias> [--object <ApiName>] (--template <id> | --rules <file>) [options]
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
-    --org <alias> --restore <snapshot> [--rewrite-all] [--include-changed] [--store <dir>] [--yes]
-  Either takes [--accept-automation] [--accept-emails] [--mute-automation].
+    --org <alias> --restore <snapshot or set> [--slice <k[,k]>] [--rewrite-all]
+    [--include-changed] [--store <dir>] [--yes]
+  pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
+    --org <alias> (--template <id> | --rules <file>) --abandon [--store <dir>] [--yes]
+  A run and a restore take [--accept-automation] [--accept-emails] [--mute-automation].
 
 Required:
   anonymize              the command
@@ -106,15 +116,40 @@ Options:
   --dry-run              say what a run would mask — the fields, the records, the
                          first records masked as a run masks them — and write
                          nothing
+  --slices               mask in slices of --max-records records each, consecutive
+                         by Id, each backed up just before it is masked and masked
+                         from that backup: an object past what one snapshot holds
+                         is masked with a way back. With --dry-run, their plan: the
+                         slices, the requests against what the org has left today,
+                         the disk and the time. A slice that cannot be backed up
+                         whole stops the run there, and the slices before it stay
+                         masked with their backups
+  --max-requests <n>     with --slices: the most requests the run sends. It stops
+                         between two slices before the next would send more, exit
+                         3, and --resume masks the rest
   --resume               mask only what the last run of the same template, object
-                         and filter left, from where it stopped
-  --restore <snapshot>   put back the values a snapshot holds, by Id: the id a run
-                         printed. It reads the org's values first and writes only
-                         the rows where one of them differs from the snapshot, and
-                         says how many it found unchanged
+                         and filter left, from where it stopped; of a run in
+                         slices, the rest of its set, with the key it was masked
+                         with
+  --abandon              give up the set of slices of the template left open on the
+                         org: nothing more is masked, and no resume carries it on.
+                         Its slices stay masked, each with its snapshot, which
+                         --restore puts back until the retention removes them; the
+                         records no slice reached keep their values. It writes
+                         nothing to the org
+  --restore <id>         put back the values a snapshot holds, by Id: the id a run
+                         printed, a snapshot's or a set of slices'. Of a set, every
+                         slice not put back yet, in their order: stopped part way,
+                         the same line puts back the rest. It reads the org's
+                         values first and writes only the rows where one of them
+                         differs from the snapshot, and says how many it found
+                         unchanged
+  --slice <k[,k]>        with --restore of a set of slices: only these slices, by
+                         their number, put back again if they were already
   --rewrite-all          with --restore: write every row of the snapshot back,
                          the ones the org already holds as the snapshot does
-                         included
+                         included; of a set, every slice, those put back already
+                         too
   --include-changed      with --restore of the snapshot a Sync run kept of what
                          it wrote over: put back the records changed or deleted
                          since the run too, which a restore of it otherwise
@@ -126,14 +161,16 @@ Options:
                          that run then no longer puts back; 0 keeps them all
                          (default: 30)
   --store <dir>          where snapshots, saved templates and checkpoints live, a
-                         folder of your own; the one sandforge backup reads and
-                         lists (default: ~/.sandforge/backups, under the folder
+                         folder of your own, and the key of each run in slices
+                         until its set ends, in keys/, read by its owner alone;
+                         the one sandforge backup reads and lists (default:
+                         ~/.sandforge/backups, under the folder
                          SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
-                         more writes nothing, and a dry run says so (default:
-                         50000; 100 to 1000000: past that, mask in slices with
-                         --where, each run taking its own snapshot)
+                         more writes nothing, and a dry run says so — past it,
+                         --slices masks in slices of this size (default: 50000;
+                         100 to 1000000)
 ${dataOpsAutomationHelp('written over', '--dry-run')}  --yes                  do not ask before writing. Without it, a command with no
                          terminal to answer the question — a CI step — stops
                          there, exit 2, and writes nothing. It answers no to a
@@ -147,6 +184,16 @@ A run takes a snapshot of the records it masks, their masked fields as they are,
 before its first write, and writes nothing unless the snapshot holds every one of
 them. A production org is refused.
 
+With --slices, each slice is backed up just before it is masked, and masked from
+that backup, so a record created since is never masked without one: a run says
+at its end the records created during it in a range a slice masked, which
+--resume masks with a slice of their own. The key the run hashes and draws its
+people with is kept in the store's keys/ until its set is done or given up, so a
+resume, in another process too, masks the same values the same way. While the
+set is open, a new run of the template is refused: --resume masks the rest, and
+--abandon gives the set up. The run writes over REST, 200 records a call, and
+sends no Bulk API batch.
+
 Before it writes, a run and a --restore say what the org runs as the records are
 written over — its record-triggered flows, Apex triggers, processes and workflow
 rules on update, and on undelete for what a restore brings back from the recycle
@@ -156,10 +203,10 @@ refused for (with --json, the dataops:automation:response it carries).
 
 Ctrl-C stops a run as the panel's Cancel does: before its next page, what it
 masked recorded in the audit trail of the store, and --resume masks only what it
-left. It stops a --restore before its next batch, what it put back recorded the
-same way, and the same --restore puts back the rest. Ctrl-C again ends the
-process at once. A SIGTERM — a CI job cancelled or timed out — or a SIGHUP
-stops it the same way.
+left — of a run in slices, from where the slice it was in stopped. It stops a
+--restore before its next batch, what it put back recorded the same way, and the
+same --restore puts back the rest. Ctrl-C again ends the process at once. A
+SIGTERM — a CI job cancelled or timed out — or a SIGHUP stops it the same way.
 
 Exit codes: 0 the run masked every record it counted, or the restore put back
 every value; 1 it could not start, was refused or failed — what the org runs as
@@ -169,14 +216,16 @@ has left today (EMAILS_EXCEEDED), or a mute refused among the reasons —, or a
 --dry-run saw that a run would be refused; 2 a bad command line,
 or a question with no terminal to answer it (give --yes); 3 the run left
 records unmasked, their personal data still in the org (--resume masks what
-it left), or the restore left values as they are (rows the org refused, a
+it left) — of a run in slices, slices it did not reach, stopped by
+--max-requests or the org's day, or records created during it in a range a
+slice masked —, or the restore left values as they are (rows the org refused, a
 snapshot that holds part of the records, or records of a Sync run's snapshot
 changed since the run, held back without --include-changed); 130 Ctrl-C
 stopped the run, 143 a SIGTERM, 129 a SIGHUP.
 `;
 
 /** What the run does. */
-type Mode = 'run' | 'dry-run' | 'resume' | 'restore';
+type Mode = 'run' | 'dry-run' | 'resume' | 'restore' | 'abandon';
 
 /** A rule as a rules file gives it, checked by the schema the panel's save goes through. */
 interface FileRules {
@@ -202,11 +251,20 @@ interface CliArgs {
   storeDir: string;
   /** The cap of records per object a snapshot reads, when the line sets one. */
   maxRecords?: number;
+  /** Mask in slices of `maxRecords` records, each backed up just before it is masked. */
+  slices: boolean;
+  /** Of a run in slices, the most requests it sends. */
+  maxRequests?: number;
+  /** Of a restore of a set of slices, the slices to put back, by their number. */
+  restoreSlices?: number[];
   yes: boolean;
   json: boolean;
   /** What the line accepts of what the org runs as it writes, and the mute it asks for. */
   accord: DataOpsWriteAccord;
 }
+
+/** The most requests `--max-requests` takes: what the run's payload holds it to. */
+const MAX_REQUESTS_MOST = 1_000_000_000;
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
@@ -217,6 +275,8 @@ const FLAGS: CommandFlags = {
   switches: [
     '--dry-run',
     '--resume',
+    '--slices',
+    '--abandon',
     '--rewrite-all',
     '--include-changed',
     '--yes',
@@ -230,8 +290,10 @@ const FLAGS: CommandFlags = {
     '--rules',
     '--where',
     '--restore',
+    '--slice',
     '--store',
     '--max-records',
+    '--max-requests',
     '--max-age-days',
   ],
 };
@@ -303,9 +365,30 @@ export function parseArgs(argv: string[]): CliArgs {
   const restoreId = get('--restore');
   const dryRun = args.includes('--dry-run');
   const resume = args.includes('--resume');
+  const slices = args.includes('--slices');
+  const abandon = args.includes('--abandon');
   const maxRecords = get('--max-records');
   if (maxRecords !== undefined && !/^[1-9]\d*$/.test(maxRecords)) {
     refuseLine(`Not a number of records: "${maxRecords}"`);
+  }
+  const maxRequests = get('--max-requests');
+  if (
+    maxRequests !== undefined &&
+    (!/^[1-9]\d{0,9}$/.test(maxRequests) || Number(maxRequests) > MAX_REQUESTS_MOST)
+  ) {
+    refuseLine(`Not a number of requests, 1 to ${MAX_REQUESTS_MOST}: "${maxRequests}"`);
+  }
+  // A bound on requests stops a run between two slices: a run of the whole
+  // object has none to stop between.
+  if (maxRequests !== undefined && !slices && restoreId === undefined && !abandon) {
+    refuseLine('--max-requests bounds a run in slices: give it with --slices.');
+  }
+  const sliceValues = valuesOf(args, '--slice');
+  if (sliceValues.length > 0 && restoreId === undefined) {
+    refuseLine(
+      '--slice goes with --restore: it names the slices of a set to put back. A run in slices ' +
+        'is --slices.',
+    );
   }
   const rewriteAll = args.includes('--rewrite-all');
   if (rewriteAll && restoreId === undefined) refuseLine('--rewrite-all goes with --restore.');
@@ -321,6 +404,8 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(maxAgeDays !== undefined ? { maxAgeDays } : {}),
     storeDir: get('--store') ?? defaultBackupStoreOf(),
     ...(maxRecords !== undefined ? { maxRecords: Number(maxRecords) } : {}),
+    slices,
+    ...(maxRequests !== undefined ? { maxRequests: Number(maxRequests) } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
     accord: accordOf(args),
@@ -328,13 +413,34 @@ export function parseArgs(argv: string[]): CliArgs {
 
   if (restoreId !== undefined) {
     // A restore puts back what a snapshot holds, whatever the run it came from.
-    const extra = ['--object', '--template', '--rules', '--where', '--dry-run', '--resume'].filter(
-      (flag) => args.includes(flag),
-    );
+    const extra = [
+      '--object',
+      '--template',
+      '--rules',
+      '--where',
+      '--dry-run',
+      '--resume',
+      '--slices',
+      '--max-requests',
+      '--abandon',
+    ].filter((flag) => args.includes(flag));
     if (extra.length > 0) {
       refuseLine(`--restore puts a snapshot back as it is: drop ${extra.join(', ')}.`);
     }
-    return { ...common, mode: 'restore', restoreId };
+    return {
+      ...common,
+      mode: 'restore',
+      restoreId,
+      ...(sliceValues.length > 0 ? { restoreSlices: slicesNamed(sliceValues) } : {}),
+    };
+  }
+  if (abandon) {
+    // Giving a set up masks nothing: what a run would be bounded or rehearsed
+    // by means nothing to it. `--slices` is the line's that left it open.
+    const extra = ['--dry-run', '--resume', '--max-requests'].filter((flag) => args.includes(flag));
+    if (extra.length > 0) {
+      refuseLine(`--abandon gives a set of slices up and masks nothing: drop ${extra.join(', ')}.`);
+    }
   }
 
   if (count('--object') > 1) {
@@ -365,7 +471,7 @@ export function parseArgs(argv: string[]): CliArgs {
 
   return {
     ...common,
-    mode: dryRun ? 'dry-run' : resume ? 'resume' : 'run',
+    mode: abandon ? 'abandon' : dryRun ? 'dry-run' : resume ? 'resume' : 'run',
     ...(object !== undefined ? { object } : {}),
     ...(templateId !== undefined ? { templateId } : {}),
     ...(rulesFile !== undefined ? { rules: readRulesFile(rulesFile) } : {}),
@@ -466,6 +572,43 @@ export function resultLines(
       `  ${restoreLine(snapshot.operationId)}`,
     );
   }
+  const set = payload.slices as SliceSetResult | undefined;
+  if (set) lines.push(...sliceSetLines(set, restoreLine));
+  return lines;
+}
+
+/**
+ * What a run in slices says of its set once it ends: its id, a line per
+ * slice — its snapshot, what it masked, what the org refused, what was
+ * deleted since its snapshot —, and the line that puts their values back,
+ * the set named. Exported so it can be tested.
+ */
+export function sliceSetLines(set: SliceSetResult, restoreLine: (id: string) => string): string[] {
+  const slices = set.objects.flatMap((o) => o.slices).sort((a, b) => a.index - b.index);
+  const done = slices.filter((s) => s.state === 'masked').length;
+  const lines = [
+    `set ${set.setId} (${set.state}): ${done} of ${slices.length} slice(s) masked, up to ` +
+      `${set.size} records a slice, ${set.requestsSpent} request(s) sent by this run`,
+    ...slices.map(
+      (s) =>
+        `  slice ${s.index}  ${s.objectApiName.padEnd(20)} ${s.state.padEnd(8)} ` +
+        `${s.rows} record(s)  masked ${s.masked}  refused ${s.refused}  deleted since ` +
+        `${s.deletedSince}${s.late ? '  created during the run' : ''}` +
+        `${s.sizeUsed !== undefined ? `  read ${s.sizeUsed} at a time` : ''}  snapshot ${s.snapshotId}`,
+    ),
+  ];
+  if (set.lateRecords > 0) {
+    lines.push(
+      `  ${set.lateRecords} record(s) created during the run in a range a slice masked, or past ` +
+        'its last: no snapshot holds them, and they keep their values',
+    );
+  }
+  if (slices.some((s) => s.state !== 'pending')) {
+    lines.push(
+      'To put back the values its slices hold, every slice in one line:',
+      `  ${restoreLine(set.setId)}`,
+    );
+  }
   return lines;
 }
 
@@ -504,57 +647,139 @@ export function notWritableLine(objectApiName: string, fieldApiName?: string): s
  * field left; what the user may not edit there; or an object the org would
  * not count or read, at which the run stops before it writes, as the
  * environments' plan reads it. A step that rehearses before it runs stops
- * here, not at the run. Exported so it can be tested.
+ * here, not at the run. A run in slices plans an object the org would not
+ * count on its own figure of it, and goes. Exported so it can be tested.
  *
  * @param coverage - The coverage's answer: the records it counted per object.
+ * @param slices - Whether the run is asked in slices.
  */
 export function runWouldBeRefused(
   preview: Record<string, unknown>,
   coverage: Record<string, unknown> = {},
+  slices = false,
 ): boolean {
   const missing = (preview.fieldsNotFound as unknown[] | undefined) ?? [];
   const objects =
     (preview.objects as
       Array<{ notCovered?: true; error?: string; writeDenied?: unknown }> | undefined) ?? [];
-  const counted = (coverage.objects as Array<{ count: number | null }> | undefined) ?? [];
+  const counted = (coverage.objects as CoveredObject[] | undefined) ?? [];
   return (
     missing.length > 0 ||
     objects.some(
       (o) => o.notCovered === true || o.error !== undefined || o.writeDenied !== undefined,
     ) ||
-    counted.some((o) => o.count === null)
+    counted.some((o) => o.count === null && !(slices && o.slicePlan !== undefined))
+  );
+}
+
+/** One object of a coverage's answer, as a dry run and a run read it. */
+interface CoveredObject {
+  objectApiName: string;
+  count: number | null;
+  /** How a run in slices cuts it: planned when asked, or when it holds more than a snapshot does. */
+  slicePlan?: SlicePlanObject;
+}
+
+/**
+ * What a dry run says a run would be refused for that only a run in slices
+ * avoids, or that a run in slices meets, one line each, or none: an object of
+ * more records than a snapshot holds of one (`--max-records`), without
+ * `--slices`; more slices than a set holds; a disk short of what the slices'
+ * snapshots take; a set of the template left open. The run is refused for
+ * each before the guard is asked, in the handler's words; a dry run, which
+ * asks the handler for no run, says it here. Exported so it can be tested.
+ *
+ * @param coverage - The coverage's answer: the records counted, the plan in
+ *   slices, the set left open.
+ * @param slices - Whether the line asks for slices.
+ */
+export function sliceRefusedLines(coverage: Record<string, unknown>, slices: boolean): string[] {
+  const lines: string[] = [];
+  const counted = (coverage.objects as CoveredObject[] | undefined) ?? [];
+  for (const { objectApiName, count, slicePlan } of counted) {
+    if (slicePlan === undefined) continue;
+    if (!slices && count !== null && count > slicePlan.size) {
+      lines.push(
+        `${objectApiName} holds ${count} record(s), more than the ${slicePlan.size} a snapshot ` +
+          `holds of one object: --slices masks it in ${slicePlan.slices} slices, each backed up ` +
+          'just before it is masked (the same line with --slices shows their plan), or narrow ' +
+          'the run with --where',
+      );
+    }
+    if (slices && slicePlan.slices > MAX_SLICES_PER_SET) {
+      lines.push(
+        `${objectApiName} would take ${slicePlan.slices} slices of ${slicePlan.size} records, ` +
+          `more than the ${MAX_SLICES_PER_SET} a set holds: give --max-records up to ` +
+          `${BACKUP_CAP_MAX}, or narrow the run with --where`,
+      );
+    }
+  }
+  const plan = coverage.plan as SlicePlan | undefined;
+  if (slices && plan?.diskFree !== undefined && diskNeeded(plan.diskBytes) > plan.diskFree) {
+    lines.push(
+      `the slices' snapshots take about ${bytesWords(diskNeeded(plan.diskBytes))}, and the store ` +
+        `has ${bytesWords(plan.diskFree)} free: give --store a folder on another disk, delete the ` +
+        'backups no longer needed, or keep backups fewer days (--max-age-days)',
+    );
+  }
+  const open = coverage.sliceSet as SliceSetOpen | undefined;
+  if (open?.state === 'open') {
+    lines.push(
+      `set ${open.setId} of this template is still open on the org (${open.done} of ` +
+        `${open.total} slice(s) masked, last moved ${open.savedAt}), and a new run would mask its ` +
+        'rows again: the same line with --resume masks the rest, and --abandon gives it up',
+    );
+  }
+  return lines;
+}
+
+/** How a plan's requests sit against what the org has left today, in words. */
+function budgetWords(plan: SlicePlan, slices: number): string {
+  const budget = plan.apiBudget;
+  if (budget.verdict === 'unread') {
+    return (
+      `the org's requests left today were not read (${budget.unread ?? 'no answer'}): the run ` +
+      "stops between two slices if the org's day runs short, and --resume masks the rest"
+    );
+  }
+  const left = `of ${budget.remaining ?? '?'} the org has left today`;
+  if (budget.verdict === 'fits') return `${left}: fits`;
+  if (budget.verdict === 'near') {
+    return (
+      `${left}: near it — the run stops between two slices before the org's integrations ` +
+      'run short, and --resume masks the rest'
+    );
+  }
+  // About as many slices as the day's requests take, the rest left to --resume.
+  const perSlice = plan.requests / Math.max(1, slices);
+  const today = Math.max(0, Math.floor((budget.remaining ?? 0) / Math.max(1, perSlice)));
+  return (
+    `${left}: more than that — about ${Math.min(today, slices)} of the ${slices} slices go ` +
+    'today, the run stops between two of them, and --resume masks the rest'
   );
 }
 
 /**
- * Why a run's snapshot could not hold every record it would mask, one line
- * per object that holds more of them than a snapshot holds of one object
- * (`--max-records`), or none. A run writes nothing then, since a restore
- * could not put back the rest; past 1000000 records, nothing raises it, and
- * the object is masked in slices, each a run with its own snapshot. The run
- * found it out once the guard had let it go and the snapshot had read up to
- * its cap, and named a VS Code setting. Exported so it can be tested.
+ * The plan of a run in slices, as a dry run says it under its objects: the
+ * requests it sends against what the org has left today, the Bulk API
+ * batches — none —, the disk its snapshots take where they go, and how long
+ * it takes. Exported so it can be tested.
  *
- * @param counted - Per object, the records a run would mask; `null` where
- *   the org did not count them.
- * @param cap - The most records of one object a snapshot holds.
+ * @param plan - The coverage's plan.
+ * @param slices - The slices of every object.
+ * @param store - Where the snapshots go.
  */
-export function snapshotTooSmallLines(
-  counted: ReadonlyArray<{ objectApiName: string; count: number | null }>,
-  cap: number,
-): string[] {
-  return counted.flatMap(({ objectApiName, count }) => {
-    if (count === null || count <= cap) return [];
-    const head = `${objectApiName} holds ${count} record(s) a run would mask, more than`;
-    return [
-      count > BACKUP_CAP_MAX
-        ? `${head} a snapshot holds of one object, ${BACKUP_CAP_MAX} at most, and nothing ` +
-          `raises that: mask it in slices, each a run of its own with --object ${objectApiName} ` +
-          'and a --where that selects fewer (a range of CreatedDate, say), each taking its own snapshot'
-        : `${head} the ${cap} a snapshot holds of one object: give --max-records up to ` +
-          `${BACKUP_CAP_MAX}, or narrow the run with --object and --where`,
-    ];
-  });
+export function slicePlanLines(plan: SlicePlan, slices: number, store: string): string[] {
+  const { snapshots, updates, reads } = plan.parts;
+  return [
+    '  a run in slices:',
+    `    requests: about ${plan.requests} (snapshots ${snapshots}, updates ${updates}, reads ` +
+      `${reads}) ${budgetWords(plan, slices)}`,
+    '    Bulk API batches: none (the run writes over REST, 200 records a call)',
+    `    disk: about ${bytesWords(plan.diskBytes)} in ${store}` +
+      (plan.diskFree !== undefined ? ` (${bytesWords(plan.diskFree)} free)` : ''),
+    `    time: about ${formatDurationSec(plan.seconds)}`,
+  ];
 }
 
 /**
@@ -563,16 +788,19 @@ export function snapshotTooSmallLines(
  * the first records masked as a run masks them — their new values only. An
  * object of which a run could mask no field is said, as it refuses that run,
  * and so is what the user may not edit. A stopped run that a resume would
- * carry on is said. Exported so it can be tested.
+ * carry on is said. In slices, each object's slices, and the plan of the
+ * run. Exported so it can be tested.
+ *
+ * @param inSlices - Of a run asked in slices: where its snapshots go.
  */
 export function dryRunLines(
   template: Listed,
   coverage: Record<string, unknown>,
   preview: Record<string, unknown>,
+  inSlices?: { store: string },
 ): string[] {
   const lines = ['dry run — nothing is written'];
-  const counted =
-    (coverage.objects as Array<{ objectApiName: string; count: number | null }>) ?? [];
+  const counted = (coverage.objects as CoveredObject[] | undefined) ?? [];
   const previewed =
     (preview.objects as Array<{
       objectApiName: string;
@@ -588,8 +816,20 @@ export function dryRunLines(
   for (const o of counted) {
     const rows = o.count === null ? 'an unknown number of' : String(o.count);
     lines.push(`  ${o.objectApiName}: ${rows} record(s) to mask`);
+    const sliced = inSlices !== undefined ? o.slicePlan : undefined;
     if (o.count === null) {
-      lines.push('    not counted by the org: a run stops at its count and masks nothing');
+      lines.push(
+        sliced !== undefined
+          ? '    not counted by the org: its own figure of the records plans the slices, ' +
+              'approximate; the run reads the object a slice at a time by Id, whatever it holds'
+          : '    not counted by the org: a run stops at its count and masks nothing',
+      );
+    }
+    if (sliced !== undefined) {
+      lines.push(
+        `    slices: ${sliced.approximate ? 'about ' : ''}${sliced.slices} of up to ` +
+          `${sliced.size} records, each backed up just before it is masked`,
+      );
     }
     const shownObject = previewed.find((p) => p.objectApiName === o.objectApiName);
     if (shownObject?.error) {
@@ -642,7 +882,16 @@ export function dryRunLines(
     }
   }
   const total = counted.reduce((sum, o) => sum + (o.count ?? 0), 0);
-  if (total > 0) {
+  const plan = coverage.plan as SlicePlan | undefined;
+  if (inSlices !== undefined && plan !== undefined) {
+    const slices = counted.reduce((sum, o) => sum + (o.slicePlan?.slices ?? 0), 0);
+    lines.push(...slicePlanLines(plan, slices, inSlices.store));
+    lines.push(
+      '  a run backs each slice up just before it masks it, and masks it from that backup: a ' +
+        'slice that cannot be backed up whole stops the run there, and the slices before it ' +
+        'stay masked with their backups',
+    );
+  } else if (total > 0) {
     lines.push(
       `  a run takes a snapshot of these ${total} record(s) first, and writes nothing without it`,
     );
@@ -668,13 +917,18 @@ export function restoreInterruptedLine(again: string): string {
   );
 }
 
-/** What a masking run Ctrl-C stopped says last. Exported so it can be tested. */
-export function maskingInterruptedLine(): string {
-  return (
-    'interrupted: the masking stopped before it was through; what it masked is in the audit ' +
-    'trail, the snapshot puts their values back (--restore), and the same line with --resume ' +
-    'masks only what it left'
-  );
+/**
+ * What a masking run Ctrl-C stopped says last; of a run in slices, the set
+ * whose slices' snapshots put the values back. Exported so it can be tested.
+ */
+export function maskingInterruptedLine(setId?: string): string {
+  return setId !== undefined
+    ? 'interrupted: the masking stopped before it was through; what it masked is in the audit ' +
+        `trail, each slice it masked has its snapshot (--restore ${setId} puts their values ` +
+        'back), and the same line with --resume masks the rest, from where its slice stopped'
+    : 'interrupted: the masking stopped before it was through; what it masked is in the audit ' +
+        'trail, the snapshot puts their values back (--restore), and the same line with --resume ' +
+        'masks only what it left';
 }
 
 /** The posted messages, with a preview's original values left out (see --json). */
@@ -805,6 +1059,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Every snapshot the retention removes is said on stderr, the one a Sync
   // run kept named, and the retention runs to its end before anything else.
   handler.setExpiryListener((expired) => process.stderr.write(`${expiredLine(expired)}\n`));
+  // The key of a run in slices, kept in the store until its set ends, and
+  // gone with a set the retention removes as the store is opened: without
+  // it, a resume by another command was refused, its key lost with the
+  // process that drew it.
+  handler.setRunKeyStore(fileRunKeys(args.storeDir));
   handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
   await handler.swept();
   // The Sync runs the command line kept: a restore of a run's snapshot reads
@@ -864,7 +1123,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
-          { tool: 'sandforge-dataops', command, org: args.org, posted: withoutOriginals(posted) },
+          {
+            tool: 'sandforge-dataops',
+            command,
+            org: args.org,
+            // What the coverage's counts are read against: a run in slices
+            // masks an object past what one snapshot holds.
+            ...(args.slices ? { slices: true } : {}),
+            posted: withoutOriginals(posted),
+          },
           null,
           2,
         )}\n`,
@@ -874,25 +1141,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.mode === 'restore') {
     const restoreId = args.restoreId!;
-    const meta = configStore.get<{
-      totalRecords?: number;
-      objects?: Array<{ objectApiName: string }>;
-    }>(`backup:${restoreId}`);
-    if (!meta) {
-      fail(`No snapshot "${restoreId}" in ${args.storeDir}.`);
+    // A snapshot, or a set of slices, the slices it puts back counted as the
+    // restore chooses them.
+    const target = restoreTargetOf(configStore, restoreId, {
+      ...(args.restoreSlices ? { slices: args.restoreSlices } : {}),
+      rewriteAll: args.rewriteAll,
+    });
+    if (!target) {
+      fail(`No snapshot or set of slices "${restoreId}" in ${args.storeDir}.`);
       return;
     }
-    const objects = (meta.objects ?? []).map((o) => o.objectApiName).join(', ');
+    const objects = target.objects.map((o) => o.objectApiName).join(', ');
     // What the org runs as the restore brings records back from the recycle
     // bin and writes the snapshot's values over them, before it asks: a
     // restore fired the org's update flows on every record, unasked.
-    const restoreAutomation = await automationOf(
-      'restore',
-      (meta.objects ?? []).map((o) => ({
-        objectApiName: o.objectApiName,
-        records: (o as { recordCount?: number }).recordCount ?? 0,
-      })),
-    );
+    const restoreAutomation = await automationOf('restore', target.objects);
     if (!restoreAutomation) {
       emit('restore');
       return;
@@ -905,8 +1168,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (
       !args.yes &&
       !(await confirm(
-        `Put back into ${args.org} the values snapshot ${restoreId} holds? ` +
-          `${meta.totalRecords ?? '?'} record(s) of ${objects} will have those fields written over.`,
+        `Put back into ${args.org} the values ${target.words} holds? ` +
+          `${target.totalRecords} record(s) of ${objects} will have those fields written over.`,
       ))
     ) {
       log('Nothing written.');
@@ -937,6 +1200,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         operationId: restoreId,
         ...(args.rewriteAll ? { rewriteAll: true } : {}),
         ...(args.includeChanged ? { includeChanged: true } : {}),
+        ...(args.restoreSlices ? { slices: args.restoreSlices } : {}),
         ...args.accord,
       });
     } finally {
@@ -958,6 +1222,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return;
     }
     log(String(answer.payload?.message ?? ''));
+    for (const line of restoredSliceLines(answer.payload ?? {})) log(line);
     if (restoreInterrupted) {
       process.stderr.write(`${restoreInterruptedLine(restoreLine(restoreId))}\n`);
       process.exitCode = stopExitCode(restoreInterrupted);
@@ -1022,23 +1287,73 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(
     `template: ${template.name} (${template.id})  ` +
       (object !== undefined ? `object: ${object}` : 'objects: every object the template masks') +
-      (args.where !== undefined ? `  where: ${args.where}` : ''),
+      (args.where !== undefined ? `  where: ${args.where}` : '') +
+      (args.slices ? '  in slices' : ''),
   );
 
+  if (args.mode === 'abandon') {
+    // Read from the store alone, before the question: the set the handler
+    // gives up, whose slices stay to be restored.
+    const open = new BackupSetStore(configStore).openFor(args.org, template.id);
+    if (open && !args.yes) {
+      const masked = open.objects
+        .flatMap((o) => o.slices)
+        .filter((s) => s.state === 'masked').length;
+      const total = open.objects.reduce((sum, o) => sum + o.slices.length, 0);
+      if (
+        !(await confirm(
+          `Give up set ${open.setId} of ${template.name} on ${args.org}, ${masked} of ${total} ` +
+            `slice(s) masked, last moved ${open.lastActivityAt}? Nothing more is masked and no ` +
+            'resume carries it on; its slices stay masked, each with its snapshot, which ' +
+            `--restore ${open.setId} puts back until the retention removes them.`,
+        ))
+      ) {
+        log('Nothing given up.');
+        return;
+      }
+    }
+    // Refused by the handler when no set of the template is open: nothing to give up.
+    const answer = await send('dataops:anonymize', { ...scope, abandon: true });
+    emit('abandon');
+    for (const line of resultLines(answer.payload ?? {}, restoreLine)) log(line);
+    if (failed(answer)) process.exitCode = FAILED_EXIT;
+    return;
+  }
+
   // What a run would mask, as the panel shows it before Apply: the records
-  // under the filter, and the checkpoint a resume would carry on from.
-  const coverage = await send('dataops:anonymize:coverage', scope);
+  // under the filter, the checkpoint a resume would carry on from, the set of
+  // slices of the template left open, and, in slices, the plan of the run.
+  const coverage = await send('dataops:anonymize:coverage', {
+    ...scope,
+    ...(args.slices ? { slices: true } : {}),
+  });
   if (failed(coverage)) {
     fail(reason(coverage));
     return;
   }
-  const counted =
-    (coverage.payload?.objects as Array<{ objectApiName: string; count: number | null }>) ?? [];
+  const counted = (coverage.payload?.objects as CoveredObject[] | undefined) ?? [];
   const toMask = counted.reduce((sum, o) => sum + (o.count ?? 0), 0);
-  /** Objects of more records than the snapshot a run takes first holds of one. */
-  const tooSmall = snapshotTooSmallLines(counted, backupCapOf(args.maxRecords));
-  /** The records of each object a run would mask, as the read of what the org runs takes them. */
-  const masked = counted.map((o) => ({ objectApiName: o.objectApiName, records: o.count ?? 0 }));
+  /**
+   * In slices, the objects the org would not count, planned on its own
+   * figure of them: the run reads them a slice at a time by Id, and needs a
+   * count only to plan.
+   */
+  const approximated = args.slices
+    ? counted.filter((o) => o.count === null && o.slicePlan !== undefined)
+    : [];
+  /** The set of slices of the template left open on the org, if one is. */
+  const openSet = coverage.payload?.sliceSet as SliceSetOpen | undefined;
+  /**
+   * The records of each object a run would mask, as the read of what the org
+   * runs takes them: of an object planned on the org's figure, as many as its
+   * slices hold at most, which says no fewer emails than the run sends.
+   */
+  const masked = counted.map((o) => ({
+    objectApiName: o.objectApiName,
+    records:
+      o.count ??
+      (args.slices && o.slicePlan !== undefined ? o.slicePlan.slices * o.slicePlan.size : 0),
+  }));
 
   if (args.mode === 'dry-run') {
     const preview = await send('dataops:anonymize:preview', scope);
@@ -1047,7 +1362,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       fail(reason(preview));
       return;
     }
-    for (const line of dryRunLines(template, coverage.payload ?? {}, preview.payload ?? {})) {
+    for (const line of dryRunLines(
+      template,
+      coverage.payload ?? {},
+      preview.payload ?? {},
+      args.slices ? { store: args.storeDir } : undefined,
+    )) {
       log(line);
     }
     // What the org runs as a run would update them, its emails and the mute
@@ -1057,11 +1377,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     emit('dry-run');
     if (!automation) return;
     for (const line of wouldBeRefusedLines(automation)) log(line);
-    for (const line of tooSmall) log(`  a run would be refused: ${line}`);
+    const sliceRefused = sliceRefusedLines(coverage.payload ?? {}, args.slices);
+    for (const line of sliceRefused) log(`  a run would be refused: ${line}`);
     if (
-      tooSmall.length > 0 ||
+      sliceRefused.length > 0 ||
       automation.refusals.length > 0 ||
-      runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {})
+      runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {}, args.slices)
     ) {
       process.exitCode = FAILED_EXIT;
     }
@@ -1071,12 +1392,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const checkpoint = coverage.payload?.checkpoint as { id: string; savedAt: string } | undefined;
   if (args.mode === 'resume' && !checkpoint) {
     fail(
-      'There is nothing to resume: no run of this template, object and filter stopped short ' +
-        `in ${args.storeDir}.`,
+      openSet !== undefined
+        ? `There is nothing to resume for this object and filter: set ${openSet.setId} of this ` +
+            `template is open on ${args.org}, its run given another object or filter. Its own ` +
+            'line with --resume masks the rest, and --abandon gives it up.'
+        : 'There is nothing to resume: no run of this template, object and filter stopped short ' +
+            `in ${args.storeDir}.`,
     );
     return;
   }
-  if (args.mode === 'run' && toMask === 0) {
+  /** A resume of a set of slices: its slices left, each backed up just before it is masked. */
+  const resumesSet = args.mode === 'resume' && openSet !== undefined;
+  if (args.mode === 'run' && toMask === 0 && approximated.length === 0) {
     // A count the org refused is no zero: a filter on a field field-level
     // security hides was refused, taken for none, and the line exited 0
     // having read and written nothing.
@@ -1096,13 +1423,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     emit('run');
     return;
   }
-  if (args.mode === 'run' && tooSmall.length > 0) {
-    // Before the guard, the question and the snapshot's read of up to the
-    // cap, which the run would then refuse to write without.
-    emit('run');
-    for (const line of tooSmall) fail(`Nothing was masked: ${line}.`);
-    return;
-  }
+  // An object past what a snapshot holds, run without --slices, and a set
+  // of the template left open are refused by the handler before the guard,
+  // in its words: a refusal of the line's own said the same twice over.
+
   // What the org runs as the run updates them, said before the question, and
   // refused before it unless accepted: nothing is asked, nothing written.
   const automation = await automationOf('masking', masked);
@@ -1118,13 +1442,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (!args.yes) {
     /** What the run masks, in words: the object, or the objects the coverage counted. */
     const maskedWords = object ?? counted.map((o) => o.objectApiName).join(', ');
-    const question =
-      args.mode === 'resume'
-        ? `Resume the masking of ${maskedWords} in ${args.org} that stopped on ${checkpoint!.savedAt}? ` +
-          'What it left is written over; the snapshot the first run took holds their values.'
-        : `Mask ${toMask} record(s) of ${maskedWords} in ${args.org} with ${template.name}? ` +
-          'A snapshot of their values is taken first.';
-    if (!(await confirm(question))) {
+    if (!(await confirm(maskingQuestion(args, template.name, maskedWords, coverage, resumesSet)))) {
       log('Nothing written.');
       return;
     }
@@ -1146,11 +1464,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
   };
   const releaseStop = onStopSignal(interrupt);
+  /** In slices: a run asked so, or the resume of a set, which carries its slices on. */
+  const inSlices = args.slices || resumesSet;
   let answer: Posted;
   try {
     answer = await send('dataops:anonymize', {
       ...scope,
       ...(args.mode === 'resume' ? { resumeFrom: checkpoint!.id } : { snapshot: true }),
+      ...(inSlices ? { slices: true } : {}),
+      ...(inSlices && args.maxRequests !== undefined ? { maxRequests: args.maxRequests } : {}),
       ...args.accord,
     });
   } finally {
@@ -1158,8 +1480,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   emit(args.mode);
   for (const line of resultLines(answer.payload ?? {}, restoreLine)) log(line);
+  const set = answer.payload?.slices as SliceSetResult | undefined;
   if (interrupted) {
-    process.stderr.write(`${maskingInterruptedLine()}\n`);
+    process.stderr.write(`${maskingInterruptedLine(set?.setId)}\n`);
     process.exitCode = stopExitCode(interrupted);
     return;
   }
@@ -1168,15 +1491,80 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   const left = Number(answer.payload?.recordsNotMasked ?? 0);
-  if (left > 0) {
-    log(
-      'A resume masks only what this run left: the same line with --resume, in place of the ' +
-        'snapshot it does not take again.',
-    );
+  // A set left open holds slices not reached, or rows created in a range a
+  // slice masked: personal data the run did not mask, whatever it counted.
+  if (left > 0 || set?.state === 'open') {
+    // Of a set, the handler's own words say how the run goes on.
+    if (set === undefined) {
+      log(
+        'A resume masks only what this run left: the same line with --resume, in place of the ' +
+          'snapshot it does not take again.',
+      );
+    }
     // Personal data stays in the org: a pipeline that masks after a refresh
     // went on as if it had masked everything.
     process.exitCode = PARTIAL_EXIT;
   }
+}
+
+/**
+ * The question a run asks before it writes, without `--yes`: the records
+ * and the template; in slices, how many, what each slice's backup means if
+ * one cannot be taken, and, when the org's day is short, about how many go
+ * today; a resume, from where. Exported so it can be tested.
+ *
+ * @param coverage - The coverage's answer: the counts, the plan, the set left open.
+ * @param resumesSet - Whether the run resumes a set of slices.
+ */
+export function maskingQuestion(
+  args: Pick<CliArgs, 'mode' | 'org' | 'slices'>,
+  templateName: string,
+  maskedWords: string,
+  coverage: Posted,
+  resumesSet: boolean,
+): string {
+  const counted = (coverage.payload?.objects as CoveredObject[] | undefined) ?? [];
+  const openSet = coverage.payload?.sliceSet as SliceSetOpen | undefined;
+  const checkpoint = coverage.payload?.checkpoint as { savedAt: string } | undefined;
+  if (args.mode === 'resume') {
+    return resumesSet && openSet !== undefined
+      ? `Resume the masking of ${maskedWords} in ${args.org} in slices, set ${openSet.setId}: ` +
+          `${openSet.done} of ${openSet.total} slice(s) masked, last moved ${openSet.savedAt}? ` +
+          'Each slice left is backed up just before it is masked, with the key the set was ' +
+          'masked with.'
+      : `Resume the masking of ${maskedWords} in ${args.org} that stopped on ` +
+          `${checkpoint?.savedAt ?? '?'}? What it left is written over; the snapshot the first ` +
+          'run took holds their values.';
+  }
+  const toMask = counted.reduce((sum, o) => sum + (o.count ?? 0), 0);
+  const uncounted = counted.some((o) => o.count === null);
+  const records = uncounted
+    ? `the records of ${maskedWords}`
+    : `${toMask} record(s) of ${maskedWords}`;
+  if (!args.slices) {
+    return (
+      `Mask ${records} in ${args.org} with ${templateName}? A snapshot of their values is ` +
+      'taken first.'
+    );
+  }
+  const slices = counted.reduce((sum, o) => sum + (o.slicePlan?.slices ?? 0), 0);
+  const plan = coverage.payload?.plan as SlicePlan | undefined;
+  const budget = plan?.apiBudget;
+  const perSlice = plan !== undefined ? plan.requests / Math.max(1, slices) : 0;
+  const today =
+    budget?.remaining !== undefined && perSlice > 0
+      ? Math.min(slices, Math.floor(budget.remaining / perSlice))
+      : undefined;
+  return (
+    `Mask ${records} in ${args.org} with ${templateName}, in ${uncounted ? 'about ' : ''}` +
+    `${slices} slice(s)? Each slice is backed up just before it is masked; if one cannot be ` +
+    'backed up whole, the run stops there and the slices before it stay masked with their ' +
+    'backups.' +
+    (budget?.verdict === 'exceeds' && today !== undefined
+      ? ` The org has ${budget.remaining} requests left today, enough for about ${today} of ` +
+        'them: the run stops between two slices, and the same line with --resume masks the rest.'
+      : '')
+  );
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

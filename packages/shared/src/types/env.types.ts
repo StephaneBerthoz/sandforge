@@ -303,6 +303,12 @@ export interface EnvMaskResource {
   object?: string;
   /** With `object`: a SOQL condition, without the keyword. */
   where?: string;
+  /** Mask in slices, each backed up just before it is masked: `--slices`. */
+  slices?: boolean;
+  /** The most records of an object its snapshot holds, a slice's in slices: `--max-records`. */
+  maxRecords?: number;
+  /** With `slices`: the most requests a run sends, `--max-requests`. */
+  maxRequests?: number;
 }
 
 /** A resource of the file. Version 1 holds the `seed`, `forge`, `frozen` and `mask` kinds. */
@@ -339,6 +345,12 @@ export interface EnvMaskRun {
    * masking that fires something is refused before it writes.
    */
   acceptAutomation?: boolean;
+  /** In slices, each backed up just before it is masked: the script's `--slices`. */
+  slices?: boolean;
+  /** The records a snapshot, or a slice, holds: the script's `--max-records`. */
+  maxRecords?: number;
+  /** The most requests a run in slices sends: the script's `--max-requests`. */
+  maxRequests?: number;
 }
 
 /**

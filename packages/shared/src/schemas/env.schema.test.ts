@@ -295,6 +295,51 @@ describe('a mask resource, and the masking sets it names', () => {
     ]);
   });
 
+  it('reads a masking in slices, the records a slice holds and a bound on its requests', () => {
+    const sliced = envFileSchema.parse(
+      withMask({
+        rules: 'contact-points',
+        object: 'Contact',
+        slices: true,
+        maxRecords: 1000,
+        maxRequests: 40,
+      }),
+    );
+
+    expect(sliced.resources['customers']).toMatchObject({
+      slices: true,
+      maxRecords: 1000,
+      maxRequests: 40,
+    });
+  });
+
+  it('refuses a bound on requests that is not a whole number, or given without slices, as the script refuses --max-requests', () => {
+    expect(
+      refusalsOf(
+        withMask({ rules: 'contact-points', object: 'Contact', slices: true, maxRequests: 40.5 }),
+      ),
+    ).toEqual(['resources.customers.maxRequests: maxRequests is a whole number of requests']);
+    expect(
+      refusalsOf(withMask({ rules: 'contact-points', object: 'Contact', maxRequests: 40 })),
+    ).toEqual([
+      'resources.customers.maxRequests: maxRequests bounds a masking in slices: give it with slices: true',
+    ]);
+    expect(
+      refusalsOf(withMask({ rules: 'contact-points', object: 'Contact', slices: 'yes' })),
+    ).toEqual([expect.stringMatching(/^resources\.customers\.slices: /)]);
+  });
+
+  it('holds maxRecords within what a snapshot takes, 100 to 1000000', () => {
+    for (const maxRecords of [99, 1_000_001, 500.5]) {
+      expect(
+        refusalsOf(withMask({ rules: 'contact-points', object: 'Contact', maxRecords })),
+      ).toEqual([expect.stringMatching(/^resources\.customers\.maxRecords: /)]);
+    }
+    expect(
+      refusalsOf(withMask({ rules: 'contact-points', object: 'Contact', maxRecords: 100 })),
+    ).toEqual([]);
+  });
+
   it('refuses a set the file does not declare, naming the sets it does', () => {
     expect(refusalsOf(withMask({ rules: 'gdpr', object: 'Contact' }))).toEqual([
       'resources.customers.rules: "gdpr" is no rule set of the file: declare it under masking, as masking: { gdpr: { rules: [ … ] } } (its sets are contact-points)',

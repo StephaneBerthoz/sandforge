@@ -15,10 +15,14 @@
  *
  * The snapshot comes first. The script takes a snapshot of the records it
  * masks — their masked fields as they are — before its first write, and
- * writes nothing unless the snapshot holds every one of them. The state keeps
- * the snapshot's id. Each resource's store is its own folder of the state's,
- * `dataops/<resource>`: its snapshots, the template its rules were saved as,
- * the audit trail of its runs.
+ * writes nothing unless the snapshot holds every one of them. A resource
+ * given `slices: true` is masked in slices of `maxRecords` records, each
+ * backed up just before it is masked, as `--slices` masks them: an object
+ * past what one snapshot holds is masked with a way back. The state keeps
+ * the snapshot's id, or the set's. Each resource's store is its own folder
+ * of the state's, `dataops/<resource>`: its snapshots, the template its
+ * rules were saved as, the audit trail of its runs, the key of a run in
+ * slices until its set ends.
  *
  * Its steps are the script's: a dry run (`anonymize --dry-run --json`), which
  * counts the records each object's condition selects and reads the first of
@@ -44,6 +48,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  BACKUP_MAX_RECORDS_PER_OBJECT,
   isSavedTemplateMethod,
   type EnvDocumentPath,
   type EnvMaskResource,
@@ -217,6 +222,11 @@ export function maskRunOfResource(
       // What the org runs as the records are written over refuses the
       // masking unless the file accepts it, as it does a seed's and a clone's.
       ...(resource.accept?.automation === true ? { acceptAutomation: true } : {}),
+      // How the run reads and bounds what it masks, not what it writes:
+      // none of them is in what the masking's fingerprint is of.
+      ...(resource.slices === true ? { slices: true } : {}),
+      ...(resource.maxRecords !== undefined ? { maxRecords: resource.maxRecords } : {}),
+      ...(resource.maxRequests !== undefined ? { maxRequests: resource.maxRequests } : {}),
     },
     warnings,
   };
@@ -309,6 +319,9 @@ function maskSwitches(input: MaskLine): string[] {
     '--store',
     valueOf('--store', input.store),
     ...(run.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(run.slices === true ? ['--slices'] : []),
+    ...(run.maxRecords !== undefined ? ['--max-records', String(run.maxRecords)] : []),
+    ...(run.maxRequests !== undefined ? ['--max-requests', String(run.maxRequests)] : []),
   ];
 }
 
@@ -338,8 +351,15 @@ const answerBase = {
   posted: z.array(postedSchema),
 };
 
-/** What `sandforge-dataops anonymize --dry-run --json` prints. */
-export const maskDryRunAnswerSchema = z.object({ ...answerBase, command: z.literal('dry-run') });
+/**
+ * What `sandforge-dataops anonymize --dry-run --json` prints: `slices` when
+ * the line asked for them, which a plan reads the coverage's counts against.
+ */
+export const maskDryRunAnswerSchema = z.object({
+  ...answerBase,
+  command: z.literal('dry-run'),
+  slices: z.literal(true).optional(),
+});
 
 /** What `sandforge-dataops anonymize --yes --json` prints of a run. */
 export const maskRunAnswerSchema = z.object({ ...answerBase, command: z.literal('run') });
@@ -374,8 +394,30 @@ function postedError(posted: ReadonlyArray<z.infer<typeof postedSchema>>): strin
 
 const coverageSchema = z.object({
   objects: z.array(
-    z.object({ objectApiName: z.string().min(1), count: countSchema.nullable() }).loose(),
+    z
+      .object({
+        objectApiName: z.string().min(1),
+        count: countSchema.nullable(),
+        // How a run in slices cuts it: planned when asked, or when it holds
+        // more than a snapshot does.
+        slicePlan: z
+          .object({ size: z.number().int().positive(), slices: z.number().int().positive() })
+          .loose()
+          .optional(),
+      })
+      .loose(),
   ),
+  // A set of slices of its rules left open in its store, which a new run is refused for.
+  sliceSet: z
+    .object({
+      setId: z.string().min(1),
+      done: countSchema,
+      total: countSchema,
+      savedAt: z.string(),
+      state: z.string(),
+    })
+    .loose()
+    .optional(),
 });
 
 const previewSchema = z.object({
@@ -453,10 +495,30 @@ export function maskDryRead(answer: MaskDryRunAnswer): MaskDryRead {
     object: object.objectApiName,
     count: object.count,
   }));
-  for (const object of objects) {
-    if (object.count === null) {
-      refusals.push(`${object.object}: the org did not count the records it would mask`);
+  for (const object of coverage.data.objects) {
+    const plan = object.slicePlan;
+    // Planned in slices on the org's own figure, a run counts no more.
+    if (object.count === null && !(answer.slices === true && plan !== undefined)) {
+      refusals.push(`${object.objectApiName}: the org did not count the records it would mask`);
     }
+    // Refused before its first write, in the script's run: the plan said it would go.
+    if (answer.slices !== true && plan !== undefined && (object.count ?? 0) > plan.size) {
+      refusals.push(
+        `${object.objectApiName} holds ${object.count ?? 0} record(s), more than the ` +
+          `${plan.size} a snapshot holds of one object: a run is refused and masks nothing ` +
+          `(slices: true masks it in ${plan.slices} slices, each backed up just before it is ` +
+          `masked, or maxRecords takes up to ${BACKUP_MAX_RECORDS_PER_OBJECT})`,
+      );
+    }
+  }
+  const open = coverage.data.sliceSet;
+  if (open !== undefined && open.state === 'open') {
+    refusals.push(
+      `a masking in slices of its rules stopped part way and is still open in its store (set ` +
+        `${open.setId}, ${open.done} of ${open.total} slice(s) masked, last moved ` +
+        `${open.savedAt}): a run is refused until it is resumed or given up, with ` +
+        `${commandOf('dataops')} anonymize and the resource's store, --resume or --abandon`,
+    );
   }
   for (const object of preview.data.objects) {
     if (object.error !== undefined) {
@@ -542,6 +604,11 @@ const resultSchema = z
       .object({ operationId: z.string().min(1).max(200) })
       .loose()
       .optional(),
+    // Of a run in slices, its set, which --restore takes in place of a snapshot.
+    slices: z
+      .object({ setId: z.string().min(1).max(200) })
+      .loose()
+      .optional(),
     message: z.string().optional(),
     errors: z.array(z.object({ objectApiName: z.string(), message: z.string() })).optional(),
   })
@@ -550,7 +617,10 @@ const resultSchema = z
 /** What a masking run did, per object, and the snapshot it took first. */
 export interface MaskRunCount {
   objects: Array<{ object: string; masked: number; refused: number; notMasked: number }>;
-  /** The snapshot of their values before, taken before the first write. */
+  /**
+   * The snapshot of their values before, taken before the first write; of a
+   * run in slices, its set, whose slices were each taken before their own.
+   */
   snapshotId?: string;
   /** What refused or stopped it, in the handler's words. */
   refusal?: string;
@@ -585,9 +655,10 @@ export function maskRunCount(answer: MaskRunAnswer): MaskRunCount {
   const missing = (data.fieldsNotFound ?? []).map((m) =>
     missingFieldLine(m.objectApiName, m.fieldApiName),
   );
+  const snapshotId = data.snapshot?.operationId ?? data.slices?.setId;
   return {
     objects,
-    ...(data.snapshot !== undefined ? { snapshotId: data.snapshot.operationId } : {}),
+    ...(snapshotId !== undefined ? { snapshotId } : {}),
     ...(error !== undefined ? { refusal: error } : {}),
     ...(missing.length > 0 ? { short: missing.join('; ') } : {}),
   };

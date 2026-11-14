@@ -54,7 +54,7 @@ import {
   parseArgs,
   restoreInterruptedLine,
   resultLines,
-  snapshotTooSmallLines,
+  sliceRefusedLines,
 } from './sandforge-dataops';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
@@ -1125,9 +1125,10 @@ describe('sandforge-dataops', () => {
       expect(stdout).toContain('A resume masks only what this run left');
     });
 
-    it('says in a dry run that a run would be refused when an object holds more records than a snapshot holds, naming --max-records: exit 1', async () => {
+    it('says in a dry run that a run would be refused when an object holds more records than a snapshot holds, naming --slices: exit 1', async () => {
       // The refusal came after the guard and the snapshot's read, and named
-      // the editor's setting, which a command line has none of.
+      // the editor's setting, which a command line has none of; then it sent
+      // the user to cut the object by hand with --where, run after run.
       orgIs('Developer Edition');
       const rows = contactsOf(150, 150);
       const { update } = orgOf(rows);
@@ -1148,14 +1149,16 @@ describe('sandforge-dataops', () => {
       expect(code).toBe(1);
       expect(update).not.toHaveBeenCalled();
       expect(stdout).toContain(
-        '  a run would be refused: Contact holds 150 record(s) a run would mask, more than the ' +
-          '100 a snapshot holds of one object: give --max-records up to 1000000, or narrow the ' +
-          'run with --object and --where',
+        '  a run would be refused: Contact holds 150 record(s), more than the 100 a snapshot ' +
+          'holds of one object: --slices masks it in 2 slices, each backed up just before it is ' +
+          'masked (the same line with --slices shows their plan), or narrow the run with --where',
       );
       expect(stdout + stderr).not.toContain('sandforge.backup.maxRecordsPerObject');
     });
 
-    it('refuses a run whose snapshot could not hold every record before it asks or reads it: exit 1, nothing masked', async () => {
+    it('refuses a run whose snapshot could not hold every record before it reads it, in the words of the handler that refuses it, naming --slices: exit 1, nothing masked', async () => {
+      // The line refused it before the handler did, in words of its own that
+      // sent the user to cut the object by hand: two refusals of one thing.
       orgIs('Developer Edition');
       const rows = contactsOf(150, 150);
       const before = rows.map((r) => ({ ...r }));
@@ -1177,11 +1180,15 @@ describe('sandforge-dataops', () => {
       expect(code).toBe(1);
       expect(update).not.toHaveBeenCalled();
       expect(rows).toEqual(before);
-      expect(stderr).toContain(
-        'Nothing was masked: Contact holds 150 record(s) a run would mask, more than the 100 a ' +
-          'snapshot holds of one object: give --max-records up to 1000000',
+      expect(stdout + stderr).toContain(
+        'Nothing was masked: Contact holds 150 record(s), more than the 100 a snapshot holds of ' +
+          'one object. Give --slices to mask Contact in 2 slices, each with its own snapshot (the ' +
+          'same line with --dry-run shows the plan), --max-records up to 1000000 (this run held ' +
+          '100), or narrow the run with --where.',
       );
-      expect(stderr).not.toContain('sandforge.backup.maxRecordsPerObject');
+      // Said once: the handler's refusal, not the line's beside it.
+      expect((stdout + stderr).match(/Nothing was masked/g)).toHaveLength(1);
+      expect(stdout + stderr).not.toContain('sandforge.backup.maxRecordsPerObject');
       // The snapshot was never read: no page of the contacts' masked fields.
       expect(
         query.mock.calls.some(([soql]) => String(soql).startsWith('SELECT Id, FirstName')),
@@ -1622,25 +1629,28 @@ describe('sandforge-dataops', () => {
       expect(runWouldBeRefused({ objects: [{ notCovered: true }], fieldsNotFound: [] })).toBe(true);
     });
 
-    it('says past a million records that nothing raises a snapshot, and how to mask in slices', () => {
-      expect(
-        snapshotTooSmallLines(
-          [
-            { objectApiName: 'Contact', count: 1_250_000 },
-            { objectApiName: 'Lead', count: 40 },
-            { objectApiName: 'Case', count: null },
-          ],
-          1_000_000,
-        ),
-      ).toEqual([
-        'Contact holds 1250000 record(s) a run would mask, more than a snapshot holds of one ' +
-          'object, 1000000 at most, and nothing raises that: mask it in slices, each a run of ' +
-          'its own with --object Contact and a --where that selects fewer (a range of ' +
-          'CreatedDate, say), each taking its own snapshot',
+    it('says past a million records that --slices masks the object, where it sent the user to cut it by hand', () => {
+      const coverage = {
+        objects: [
+          {
+            objectApiName: 'Contact',
+            count: 1_250_000,
+            slicePlan: { objectApiName: 'Contact', size: 1_000_000, slices: 2 },
+          },
+          { objectApiName: 'Lead', count: 40 },
+          { objectApiName: 'Case', count: null },
+        ],
+      };
+      expect(sliceRefusedLines(coverage, false)).toEqual([
+        'Contact holds 1250000 record(s), more than the 1000000 a snapshot holds of one object: ' +
+          '--slices masks it in 2 slices, each backed up just before it is masked (the same line ' +
+          'with --slices shows their plan), or narrow the run with --where',
       ]);
-      expect(snapshotTooSmallLines([{ objectApiName: 'Contact', count: 50_000 }], 50_000)).toEqual(
-        [],
-      );
+      // Asked in slices, the object is planned, not refused.
+      expect(sliceRefusedLines(coverage, true)).toEqual([]);
+      expect(
+        sliceRefusedLines({ objects: [{ objectApiName: 'Contact', count: 50_000 }] }, false),
+      ).toEqual([]);
     });
 
     it('tells a dry run whose run is refused what the user may not edit', () => {

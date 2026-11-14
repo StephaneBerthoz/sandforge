@@ -204,6 +204,37 @@ describe('the lines of a mask resource', () => {
     expect(maskApplyLine(input).slice(-2)).toEqual(['--yes', '--json']);
     expect(() => maskApplyLine({ ...input, target: '-x' })).toThrow('reads as a flag');
   });
+
+  it('relays slices, maxRecords and maxRequests as the script’s --slices, --max-records and --max-requests, and fingerprints none of them', () => {
+    const sliced = runOf({ slices: true, maxRecords: 1000, maxRequests: 40 }).run;
+    expect(sliced).toMatchObject({ slices: true, maxRecords: 1000, maxRequests: 40 });
+    const input = { target: 'TGT', run: sliced, rulesFile: '/r.json', store: '/s' };
+
+    expect(maskApplyLine(input)).toEqual([
+      'anonymize',
+      '--org',
+      'TGT',
+      '--object',
+      'Contact',
+      '--where',
+      "LastName = 'Copied'",
+      '--rules',
+      '/r.json',
+      '--store',
+      '/s',
+      '--slices',
+      '--max-records',
+      '1000',
+      '--max-requests',
+      '40',
+      '--yes',
+      '--json',
+    ]);
+    expect(maskDryRunLine(input)).toContain('--slices');
+    // How a run reads its records is not what it writes: the same masking, kept.
+    expect(maskWritten(sliced)).toEqual(maskWritten(runOf().run));
+    expect(maskApplyLine({ ...input, run: runOf().run })).not.toContain('--slices');
+  });
 });
 
 describe('what the script answers', () => {
@@ -352,6 +383,85 @@ describe('what the script answers', () => {
     ).toEqual({ objects: [], snapshotId: 'x-snapshot', refusal: 'QUERY_TIMEOUT' });
     // Nothing under its condition: no result posted, nothing masked.
     expect(maskRunCount({ ...answer, posted: [] })).toEqual({ objects: [] });
+    // A run in slices names its set, which --restore takes as it takes a snapshot.
+    expect(
+      maskRunCount({
+        ...answer,
+        posted: [
+          {
+            type: 'dataops:anonymize:response',
+            payload: {
+              status: 'success',
+              objects: [],
+              slices: { setId: 'cli-dataops-anonymize-2-b', state: 'done', objects: [] },
+            },
+          },
+        ],
+      }).snapshotId,
+    ).toBe('cli-dataops-anonymize-2-b');
+  });
+
+  it('blocks an object past what a snapshot holds unless the resource masks it in slices, and a set its rules left open', () => {
+    const past = (over: Partial<MaskDryRunAnswer> = {}): MaskDryRunAnswer => {
+      const answer = dryAnswer({});
+      const [coverage, preview] = answer.posted;
+      return {
+        ...answer,
+        posted: [
+          {
+            ...coverage,
+            type: 'dataops:anonymize:coverage:response',
+            payload: {
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  count: 120_000,
+                  slicePlan: { objectApiName: 'Contact', size: 50_000, slices: 3 },
+                },
+              ],
+            },
+          },
+          ...(preview ? [preview] : []),
+        ],
+        ...over,
+      };
+    };
+
+    expect(maskDryRead(past()).refusals).toEqual([
+      'Contact holds 120000 record(s), more than the 50000 a snapshot holds of one object: a run ' +
+        'is refused and masks nothing (slices: true masks it in 3 slices, each backed up just ' +
+        'before it is masked, or maxRecords takes up to 1000000)',
+    ]);
+    // Asked in slices, the object is planned, not blocked.
+    expect(maskDryRead(past({ slices: true })).refusals).toEqual([]);
+
+    const open = dryAnswer({});
+    const [coverage, preview] = open.posted;
+    open.posted = [
+      {
+        ...coverage,
+        type: 'dataops:anonymize:coverage:response',
+        payload: {
+          objects: [{ objectApiName: 'Contact', count: 2 }],
+          sliceSet: {
+            setId: 'set-1',
+            done: 1,
+            total: 3,
+            savedAt: '2026-11-14T08:00:00.000Z',
+            state: 'open',
+            size: 1,
+          },
+        },
+      },
+      ...(preview ? [preview] : []),
+    ];
+    expect(maskDryRead(open).refusals).toEqual([
+      'a masking in slices of its rules stopped part way and is still open in its store (set ' +
+        'set-1, 1 of 3 slice(s) masked, last moved 2026-11-14T08:00:00.000Z): a run is refused ' +
+        'until it is resumed or given up, with pnpm exec tsx ' +
+        "packages/extension/cli/sandforge-dataops.ts anonymize and the resource's store, " +
+        '--resume or --abandon',
+    ]);
   });
 
   it('refuses to read what is not an answer of the script, naming it', () => {

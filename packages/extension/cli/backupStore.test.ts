@@ -5,9 +5,15 @@ import { join, resolve } from 'node:path';
 import {
   defaultBackupStoreOf,
   openBackupStore,
+  restoredSliceLines,
+  restoreTargetOf,
+  setLine,
   toolStoreOf,
+  valuesOf,
   type StoreFolderFs,
 } from './backupStore.js';
+import { fileConfigStore } from './fileConfigStore.js';
+import { BackupSetStore, type BackupSet } from '../src/modules/dataops/slices/backupSet.js';
 import { parseArgs as parseBackupArgs } from './sandforge-backup.js';
 import { parseArgs as parseDataOpsArgs } from './sandforge-dataops.js';
 
@@ -103,5 +109,116 @@ describe('openBackupStore', () => {
 
     expect(openBackupStore(file)).toMatch(/^The store .* (is not a folder\.|could not be made: )/);
     expect(openBackupStore(join(file, 'under'))).toMatch(/^The store .* could not be made: /);
+  });
+});
+
+describe('what a restore and a listing read of a set of slices, from the store alone', () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const scratch = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-store-sets-'));
+    made.push(dir);
+    return dir;
+  };
+
+  /** A masking set of three slices of contacts, the second put back already, the fourth never taken. */
+  function setIn(dir: string): BackupSet {
+    const slice = (index: number, rows: number, extra: Record<string, unknown> = {}) => ({
+      index,
+      rows,
+      snapshotId: `set-1-s000${index}`,
+      state: 'masked' as const,
+      masked: rows,
+      refused: 0,
+      deletedSince: 0,
+      nothingToMask: 0,
+      sizeUsed: 100,
+      ...extra,
+    });
+    const set: BackupSet = {
+      setId: 'set-1',
+      kind: 'masking',
+      orgId: 'ORG',
+      size: 100,
+      state: 'done',
+      startedAt: '2026-11-01T08:00:00.000Z',
+      lastActivityAt: '2026-11-02T08:00:00.000Z',
+      requestsSpent: 12,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          where: "LastName LIKE 'S%'",
+          done: true,
+          slices: [
+            slice(1, 100),
+            slice(2, 100, { state: 'restored', restoredAt: '2026-11-03T08:00:00.000Z' }),
+            slice(3, 40),
+            { ...slice(4, 0), state: 'pending' as const },
+          ],
+        },
+      ],
+    };
+    new BackupSetStore(fileConfigStore(join(dir, 'snapshots.json'))).save(set);
+    return set;
+  }
+
+  it('counts the slices a restore puts back as it chooses them: those not put back yet, every one, or those named', () => {
+    const dir = scratch();
+    setIn(dir);
+    const store = fileConfigStore(join(dir, 'snapshots.json'));
+
+    expect(restoreTargetOf(store, 'set-1')).toEqual({
+      words: 'set set-1 (the 2 slice(s) not put back yet, of 3)',
+      objects: [{ objectApiName: 'Contact', records: 140 }],
+      totalRecords: 140,
+    });
+    expect(restoreTargetOf(store, 'set-1', { rewriteAll: true })?.totalRecords).toBe(240);
+    expect(restoreTargetOf(store, 'set-1', { slices: [2] })).toMatchObject({
+      words: 'set set-1 (slice(s) 2, of 3)',
+      totalRecords: 100,
+    });
+    expect(restoreTargetOf(store, 'nothing')).toBeUndefined();
+  });
+
+  it('lists a set in one line, its filter, its slices and when the retention removes it', () => {
+    const set = setIn(scratch());
+
+    expect(setLine(set, 30)).toBe(
+      "set-1  2026-11-01T08:00:00.000Z  ORG  Contact (where LastName LIKE 'S%')  4 slice(s) of up " +
+        'to 100  240 record(s)  masking, done  expires 2026-12-02',
+    );
+    expect(setLine(set, 0)).toMatch(/kept \(--max-age-days 0\)$/);
+  });
+
+  it('says each slice a restore reached, and one it put back before', () => {
+    expect(
+      restoredSliceLines({
+        slices: [
+          { index: 1, objectApiName: 'Contact', restored: 3, failed: 1, unchanged: 96 },
+          {
+            index: 2,
+            objectApiName: 'Contact',
+            restored: 0,
+            failed: 0,
+            unchanged: 0,
+            skipped: true,
+          },
+        ],
+      }),
+    ).toEqual([
+      '  slice 1  Contact  put back 3  refused 1  unchanged 96',
+      '  slice 2  Contact  put back before, not read again (--slice or --rewrite-all puts it back again)',
+    ]);
+    expect(restoredSliceLines({ message: 'a snapshot' })).toEqual([]);
+  });
+
+  it('reads every value a flag is given, the flag given again', () => {
+    expect(valuesOf(['--slice', '1', '--org', 'O', '--slice', '2,3'], '--slice')).toEqual([
+      '1',
+      '2,3',
+    ]);
+    expect(valuesOf(['--slice'], '--slice')).toEqual([]);
   });
 });

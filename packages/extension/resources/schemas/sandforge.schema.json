@@ -1215,6 +1215,25 @@
                 "maxLength": 512,
                 "markdownDescription": "With `object`: a SOQL condition, without `WHERE`, selecting the records it masks, as `Email != null`; every record of the object without it. Select them by a field its rules leave as it is: once masked, records selected by a field the rules write over read as gone. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
                 "description": "With `object`: a SOQL condition, without `WHERE`, selecting the records it masks, as `Email != null`; every record of the object without it. Select them by a field its rules leave as it is: once masked, records selected by a field the rules write over read as gone. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+              },
+              "slices": {
+                "type": "boolean",
+                "markdownDescription": "`true` masks in slices of `maxRecords` records, consecutive by Id, each backed up just before it is masked and masked from that backup, as `sandforge dataops anonymize --slices` does: an object past what one snapshot holds is masked with a way back. Without it, a run whose object holds more records than a snapshot does is refused, and the plan blocks the resource. Turning it on or off replaces nothing applied: the masking writes the same fields either way.",
+                "description": "`true` masks in slices of `maxRecords` records, consecutive by Id, each backed up just before it is masked and masked from that backup, as `sandforge dataops anonymize --slices` does: an object past what one snapshot holds is masked with a way back. Without it, a run whose object holds more records than a snapshot does is refused, and the plan blocks the resource. Turning it on or off replaces nothing applied: the masking writes the same fields either way."
+              },
+              "maxRecords": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 1000000,
+                "markdownDescription": "The most records of an object a snapshot holds, a slice’s with `slices`, 100 to 1,000,000: `--max-records`. `50,000` by default.",
+                "description": "The most records of an object a snapshot holds, a slice’s with `slices`, 100 to 1,000,000: `--max-records`. `50,000` by default."
+              },
+              "maxRequests": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000000000,
+                "markdownDescription": "With `slices: true`: the most requests a run sends, 1 to 1,000,000,000, `--max-requests`. It stops between two slices before the next would send more, the resource left partial; the set stays open in the resource’s store, and the next apply is refused until `sandforge dataops anonymize --resume` or `--abandon`, with that store, ends it.",
+                "description": "With `slices: true`: the most requests a run sends, 1 to 1,000,000,000, `--max-requests`. It stops between two slices before the next would send more, the resource left partial; the set stays open in the resource’s store, and the next apply is refused until `sandforge dataops anonymize --resume` or `--abandon`, with that store, ends it."
               }
             },
             "required": ["kind", "rules"],

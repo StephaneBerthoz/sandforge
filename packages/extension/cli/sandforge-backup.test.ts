@@ -785,12 +785,13 @@ describe('what a snapshot taken says', () => {
     ).toEqual({
       line:
         'snapshot op-2: 100 record(s) (partial: Contact 100 of 150 (cap)). --max-records 150 ' +
-        'takes Contact whole',
+        'takes Contact whole, or --slices takes it in slices of --max-records records, listed ' +
+        'and restored as one set',
       exitCode: 3,
     });
   });
 
-  it('says frankly that no snapshot holds an object past a million records, and where a copy of it is kept', () => {
+  it('says that no snapshot holds an object past a million records, and that --slices takes it whole, where it sent the user out to Data Export', () => {
     expect(
       snapshotTaken({
         operationId: 'op-3',
@@ -815,8 +816,9 @@ describe('what a snapshot taken says', () => {
     ).toBe(
       'snapshot op-3: 1000000 record(s) (partial: EmailMessage 1000000 of 2400000 (cap), Case 0 of ? ' +
         '(not_reached)). No snapshot holds more than 1000000 records of one object: EmailMessage is not ' +
-        'whole, and a restore puts back only what it holds; Data Export, in Setup, or a Bulk API ' +
-        'query keeps a copy of it. Run it again for an object not reached',
+        'whole, and a restore puts back only what it holds. --slices takes it whole, in slices of ' +
+        '--max-records records, each a snapshot of its own, listed and restored as one set. Run it ' +
+        'again for an object not reached',
     );
   });
 
