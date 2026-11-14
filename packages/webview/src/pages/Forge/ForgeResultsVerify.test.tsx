@@ -334,8 +334,8 @@ describe('ForgeVerificationView', () => {
 
     expect(screen.getByTestId('forge-verification-verdict').textContent).toBe(
       'Verified: every record read back is there, and every lookup checked points where the run ' +
-        'set it or where the target put it: left empty by its lookup filter, or set by its ' +
-        'automation during the run.',
+        'set it, is left empty as the run said, or is where the target put it: left empty by its ' +
+        'lookup filter, or set by its automation during the run.',
     );
     const cases = screen.getByTestId('forge-verification-Case');
     expect(cases.textContent).toContain(
@@ -350,6 +350,77 @@ describe('ForgeVerificationView', () => {
       `${rid('500', 1)}: AssetId is empty: the target's lookup filter refused ${rid('02i', 1)}, and the run left it empty`,
       `${rid('500', 2)}: Cloned_Risk__c points at ${rid('02i', 7)}, which the target's automation created during the run; the run set it to ${rid('02i', 1)}`,
     ]);
+  });
+
+  it('says the lookups the run left empty as it said apart from those that hold, and the records the platform wrote with its own, under a verified verdict', () => {
+    // A clone of the whole org leaves the opportunity's synced quote empty and
+    // says so; the platform wrote a contact with each of its person accounts.
+    const there = {
+      deleted: 0,
+      notVisible: 0,
+      changed: 0,
+      changedRecords: [],
+      deletedIds: [],
+      notVisibleIds: [],
+      linksBroken: 0,
+      brokenLinks: [],
+    };
+    render(
+      <ForgeVerificationView
+        verification={{
+          verdict: 'verified',
+          verifiedAt: '2026-10-01T09:00:00.000Z',
+          attempts: 2,
+          objects: [
+            {
+              ...there,
+              objectApiName: 'Opportunity',
+              expected: 24,
+              present: 24,
+              linksChecked: 24,
+              linksLeftEmptyByFilter: 0,
+              linksSetByAutomation: 0,
+              linksLeftEmptyByTheRun: 1,
+              explainedLinks: [
+                {
+                  recordId: rid('006', 1),
+                  field: 'SyncedQuoteId',
+                  expected: rid('0Q0', 1),
+                  found: null,
+                  cause: 'run',
+                },
+              ],
+            },
+            {
+              ...there,
+              objectApiName: 'Contact',
+              expected: 22,
+              present: 22,
+              linksChecked: 0,
+              withTheirRecord: 10,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-verification-verdict').textContent).toContain(
+      'is left empty as the run said',
+    );
+    const opportunities = screen.getByTestId('forge-verification-Opportunity');
+    expect(opportunities.textContent).toContain(
+      'Opportunity: 24 of 24 there · 24 lookups checked, 23 hold · 1 left empty by the run, as it said',
+    );
+    expect(
+      within(opportunities)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      `${rid('006', 1)}: SyncedQuoteId is empty: left empty by the run, as it said, rather than set to ${rid('0Q0', 1)}`,
+    ]);
+    expect(screen.getByTestId('forge-verification-Contact').textContent).toBe(
+      'Contact: 22 of 22 there · plus 10 written by the platform with their record · no lookup the run set to check',
+    );
   });
 
   it('says an unstable verification as one to run again, and the lookups it could not check', () => {

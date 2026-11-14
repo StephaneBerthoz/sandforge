@@ -314,6 +314,12 @@ export interface ForgeRunJournalIds {
   createdByObject: Array<{ objectApiName: string; sourceIds: string[] }>;
   /** The source ids the part did not create: linked to, written over, or an earlier part's. */
   existing: string[];
+  /**
+   * Of the records the part linked to, those the platform wrote with one the
+   * run created, as the part marked them (`ForgeRunJournalRead.remap.withTheirRecord`).
+   * Absent when none was.
+   */
+  withTheirRecord?: string[];
 }
 
 /** How a part of a run ended; `interrupted` for one a closed window stopped, recorded once found. */
@@ -959,6 +965,7 @@ export class ForgeRunJournal {
       table: all.remap.table,
       createdByObject: mine.remap.createdByObject,
       existing: Object.keys(all.remap.table).filter((sourceId) => !created.has(sourceId)),
+      ...(mine.remap.withTheirRecord ? { withTheirRecord: mine.remap.withTheirRecord } : {}),
     };
   }
 

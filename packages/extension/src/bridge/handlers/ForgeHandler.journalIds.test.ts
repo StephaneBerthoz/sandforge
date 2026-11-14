@@ -713,6 +713,38 @@ describe('a run whose ids are in its journal', () => {
     expect(answerTo('wv-verify', 'forge:verify:response')).toBeDefined();
   });
 
+  it('verifies a run past the bound with the records the platform wrote with its own, read from its journal', async () => {
+    // The contact the platform wrote with a person account the run created,
+    // which the run links to: counted as one more created during the run, a
+    // clone of the whole org of ten such contacts was verified partial.
+    execute.mockImplementation(async (graph: ForgeGraph, _config: ForgeConfig, options) => {
+      const stream = (options as ExecuteOptions | undefined)?.stream;
+      const store = stream?.store;
+      writeTheRun(store);
+      if (!store) throw new Error('no store');
+      const contact = sourceOf('003', PAST_THE_BOUND);
+      store.setMapping('existing', contact, targetOf('003', PAST_THE_BOUND), 'Contact');
+      store.withTheirRecord(contact);
+      return forgeRunResult(summaryOf(store, stream?.summaryBound), graph, {
+        startedAt: Date.now(),
+        status: 'success',
+      });
+    });
+    const entry = await runPastTheBound();
+    expect(entry).toMatchObject({ remapInJournal: true });
+    expect(entry.idRemapWithTheirRecord).toBeUndefined();
+
+    await send('wv-verify', 'forge:verify:request', { forgeId: entry.forgeId });
+
+    const run = verified[0];
+    expect(run?.withTheirRecord).toEqual([sourceOf('003', PAST_THE_BOUND)]);
+    expect(run?.remapTable[sourceOf('003', PAST_THE_BOUND)]).toBe(targetOf('003', PAST_THE_BOUND));
+    // Never among the records the run created.
+    expect(run?.records.flatMap((object) => object.ids)).not.toContain(
+      targetOf('003', PAST_THE_BOUND),
+    );
+  });
+
   it('retries against what the journal says the run wrote', async () => {
     const entry = await runPastTheBound();
     execute.mockImplementation(async () => ({ ...entry, forgeId: 'forge-retry' }));

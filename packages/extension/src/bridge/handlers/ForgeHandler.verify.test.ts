@@ -305,6 +305,30 @@ describe('forge:verify:request', () => {
     expect(verifierCalls[0].run.leftEmptyByFilter).toEqual(leftEmpty);
   });
 
+  it('hands the verification what a clone of the whole org leaves empty, and what the platform wrote with its records', async () => {
+    const run = pastRun();
+    data.set('forge:history', [
+      pastRun({
+        config: { ...run.config, inputMode: 'org', depth: 'all' } as ForgeExecutionResult['config'],
+        idRemapTable: { ...run.idRemapTable, '003000000000002SRC': '003000000000102AAA' },
+        idRemapExisting: ['001000000000002SRC', '003000000000002SRC'],
+        idRemapWithTheirRecord: ['003000000000002SRC'],
+      }),
+    ]);
+
+    await handler.handle(request({ forgeId: 'forge-run' }));
+
+    const [{ run: verified }] = verifierCalls;
+    expect(verified.leftEmptyByTheRun).toEqual({ Opportunity: ['SyncedQuoteId'] });
+    expect(verified.withTheirRecord).toEqual(['003000000000002SRC']);
+  });
+
+  it('hands the verification no lookup left empty by a run of records', async () => {
+    await handler.handle(request({ forgeId: 'forge-run' }));
+    expect(verifierCalls[0].run.leftEmptyByTheRun).toEqual({});
+    expect(verifierCalls[0].run.withTheirRecord).toBeUndefined();
+  });
+
   it('dates a run the target did not date by when it was recorded', async () => {
     data.set('forge:history', [pastRun({ writtenBetween: undefined })]);
     await handler.handle(request({ forgeId: 'forge-run' }));
