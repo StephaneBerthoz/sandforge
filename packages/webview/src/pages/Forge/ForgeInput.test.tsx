@@ -1310,7 +1310,7 @@ describe('ForgeInput with ALL picked', () => {
     expect(screen.queryByTestId('forge-clear-carried')).toBeNull();
   });
 
-  it('greys out Objects and Records per object, each set to all of them, and says why', () => {
+  it('greys out Objects, set to every object, and says why', () => {
     renderAll();
 
     const objects = screen.getByTestId('forge-max-nodes') as HTMLSelectElement;
@@ -1320,9 +1320,19 @@ describe('ForgeInput with ALL picked', () => {
     expect(screen.getByTestId('forge-max-nodes-all').textContent).toBe(
       'ALL takes every object the target can create: there is no object cap.',
     );
+  });
+
+  // A whole org rarely fits a Developer sandbox: the choice of a sample that
+  // fits is offered where the records per object are set, never imposed.
+  it('offers every record or a sample that fits the target under Records per object, every record first', () => {
+    renderAll();
 
     const records = screen.getByTestId('forge-record-limit') as HTMLSelectElement;
-    expect(records.disabled).toBe(true);
+    expect(records.disabled).toBe(false);
+    expect([...records.options].map((option) => option.textContent)).toEqual([
+      'Every record',
+      'A sample that fits the target',
+    ]);
     expect(records.selectedOptions[0].textContent).toBe('Every record');
     expect(records.getAttribute('aria-describedby')).toContain('forge-record-limit-all');
     expect(screen.getByTestId('forge-record-limit-all').textContent).toBe(
@@ -1330,6 +1340,28 @@ describe('ForgeInput with ALL picked', () => {
     );
     // Smart announces at most 50,000 rows per object, which ALL reads past.
     expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
+
+    fireEvent.change(records, { target: { value: 'sample' } });
+
+    expect(records.selectedOptions[0].textContent).toBe('A sample that fits the target');
+    expect(screen.getByTestId('forge-record-limit-all').textContent).toBe(
+      'Records drawn from each object, with their children and the records they name, as many as the target has room for: none left without a record it needs. Review reads the room, and sets how they are drawn.',
+    );
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    const [discover] = sent<{ config: Record<string, unknown> }>('forge:discover');
+    expect(discover.config).toMatchObject({ inputMode: 'org', depth: 'all', sample: {} });
+    expect(discover.config.maxRecordsPerObject).toBeUndefined();
+  });
+
+  it('keeps the records per object set before for the next run walked from a root', () => {
+    renderAll();
+    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: 'sample' } });
+
+    fireEvent.click(screen.getByTestId('forge-depth-direct'));
+
+    const records = screen.getByTestId('forge-record-limit') as HTMLSelectElement;
+    expect(records.value).toBe('smart');
+    expect([...records.options].map((option) => option.value)).not.toContain('sample');
   });
 
   it('greys out Auto-fetch parents, every parent being in the run already', () => {

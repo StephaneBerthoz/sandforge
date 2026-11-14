@@ -1127,3 +1127,124 @@ describe('cloning directly', () => {
     expect(useForgeStore.getState().directDiscoveryId).toBeNull();
   });
 });
+
+describe('a sample of the whole org, chosen on the form', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.getState().reset();
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  /** The form between two orgs, on ALL. */
+  function wholeOrg(): { current: ReturnType<typeof useForgeForm> } {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+    });
+    act(() => result.current.setDepth('all'));
+    return result;
+  }
+
+  it('copies every record unless a sample is asked for: never imposed', () => {
+    const result = wholeOrg();
+    expect(result.current.sampled).toBe(false);
+
+    act(() => result.current.handleDiscover());
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config).toMatchObject({ inputMode: 'org', depth: 'all' });
+    expect(config).not.toHaveProperty('sample');
+  });
+
+  it('sends a sample at its defaults once A sample that fits is chosen', () => {
+    const result = wholeOrg();
+
+    act(() => result.current.setSampled(true));
+    act(() => result.current.handleDiscover());
+
+    expect(result.current.sampled).toBe(true);
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config.sample).toEqual({});
+  });
+
+  it('sends no sample with a depth that walks from a root, whatever was chosen under ALL', () => {
+    const result = wholeOrg();
+    act(() => result.current.setSampled(true));
+    act(() => result.current.setDepth('direct'));
+    act(() => result.current.handleRecordIdChange('001AB00000ABCDEFGH'));
+
+    act(() => result.current.handleDiscover());
+
+    expect(result.current.sampled).toBe(false);
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config).not.toHaveProperty('sample');
+  });
+
+  it('brings a past run’s sample back with its options, never a plan or a bound on its records', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+    });
+    act(() =>
+      result.current.applyHistoryConfig({
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+        sample: {
+          seed: 7,
+          draw: 'recent',
+          withinMB: 2,
+          maxTotal: 500,
+          plan: '/plans/abc',
+        },
+      }),
+    );
+    act(() => result.current.handleDiscover());
+
+    expect(result.current.sampled).toBe(true);
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    // Drawn again with the same options: the panel names no plan, and bounds
+    // a sample by the storage it takes, not by its records.
+    expect(config.sample).toEqual({ seed: 7, draw: 'recent', withinMB: 2 });
+  });
+
+  it('keeps the sample of the run the store holds as the form comes back to it', () => {
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+      sample: { seed: 3, parents: 'required' },
+    });
+    const { result } = renderHook(() => useForgeForm());
+
+    expect(result.current.wholeOrg).toBe(true);
+    expect(result.current.sampled).toBe(true);
+    // This machine lists no org here: they are picked again.
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+    });
+    act(() => result.current.handleDiscover());
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config.sample).toEqual({ seed: 3, parents: 'required' });
+  });
+
+  it('copies every record again once Every record is chosen', () => {
+    const result = wholeOrg();
+    act(() => result.current.setSampled(true));
+    act(() => result.current.setSampled(false));
+
+    act(() => result.current.handleDiscover());
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config).not.toHaveProperty('sample');
+  });
+});

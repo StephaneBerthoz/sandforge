@@ -109,6 +109,36 @@ describe('a Forge run stopped at its gate', () => {
     });
   });
 
+  it('keeps what a sample may take beside a refusal of every record for its storage, and nothing beside any other', () => {
+    const offer = { bytes: 3_774_873, remainingMB: 5, maxMB: 5, limitedBy: 'storage' };
+    const refused = stoppedAtTheGate({
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 412, remainingMB: 5 },
+    });
+    fromTheExtension({
+      ...refused,
+      payload: { ...(refused.payload as Record<string, unknown>), sampleOffer: offer },
+    });
+    expect(useForgeRunGateStore.getState().sampleOffer).toEqual(offer);
+
+    // The next stop keeps its own, and a stop of another kind none.
+    startForgeRun();
+    const declined = stoppedAtTheGate({ code: 'WRITE_DECLINED' });
+    fromTheExtension({
+      ...declined,
+      payload: { ...(declined.payload as Record<string, unknown>), sampleOffer: offer },
+    });
+    expect(useForgeRunGateStore.getState().sampleOffer).toBeUndefined();
+
+    // Nor one that does not read as one.
+    startForgeRun();
+    fromTheExtension({
+      ...refused,
+      payload: { ...(refused.payload as Record<string, unknown>), sampleOffer: { bytes: 'all' } },
+    });
+    expect(useForgeRunGateStore.getState().sampleOffer).toBeUndefined();
+  });
+
   it('leaves the error of a run that failed on the execution screen', () => {
     fromTheExtension({
       type: 'forge:execute:error',

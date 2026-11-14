@@ -126,6 +126,29 @@ describe('startForgeRun', () => {
     expect(executePayload()?.files).toEqual({ maxFileSizeMB: 4, acceptedAsIs: true });
   });
 
+  // The extension refuses a sample with files: which files it would copy is
+  // not drawn. A copy of the files left on, from a template, goes without.
+  it('sends no file with a sample of the whole org, however the copy was left', () => {
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+      sample: { draw: 'recent' },
+    });
+    useForgeStore.setState({
+      fileCopy: { enabled: true, maxFileSizeMB: 4, acceptedAsIs: true },
+    });
+
+    expect(startForgeRun()).toBe(true);
+
+    expect(executePayload()).not.toHaveProperty('files');
+    expect(executePayload()?.config).toMatchObject({ sample: { draw: 'recent' } });
+  });
+
   it('mutes the target’s automation only once Review’s box is ticked, and never for a simulation', () => {
     startForgeRun();
     expect(executePayload()).not.toHaveProperty('muteAutomation');

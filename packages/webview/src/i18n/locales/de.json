@@ -4104,7 +4104,8 @@
       "maxSize": "Größte kopierte Datei (MB)",
       "maxSizeHint": "Von 1 bis {{max}} MB, so viel trägt ein Aufruf an Salesforce. Eine größere Datei wird ausgelassen und aufgeführt, nie gekürzt. Bevor etwas geschrieben wird, werden alle Dateien zusammen mit dem Dateispeicher abgeglichen, der der Ziel-Org bleibt.",
       "asIsWarning": "Dieser Durchlauf anonymisiert seine Datensätze, und der Inhalt einer Datei lässt sich nicht anonymisieren.",
-      "asIsAccept": "Ich akzeptiere, dass die Dateien so kopiert werden, wie sie sind"
+      "asIsAccept": "Ich akzeptiere, dass die Dateien so kopiert werden, wie sie sind",
+      "sampleNone": "Eine Stichprobe der gesamten Org kopiert noch keine Dateien: Welche Dateien ihre Datensätze haben und was sie belegen würden, wird nicht gezogen."
     },
     "phaseName": {
       "input": "Was geklont wird",
@@ -4179,7 +4180,9 @@
     },
     "depthAllTooltip": "Jeder Datensatz jedes Objekts, das die Quell-Org Forge lesen und die Ziel-Org anlegen lässt",
     "depthAllHint": "ALL kopiert die gesamte Quell-Org: jedes Objekt, das das Ziel erstellen kann, jeden Datensatz davon, ohne Obergrenze. Objekte, die Salesforce nicht per API erstellen lässt, werden ausgelassen, und die Überprüfung nennt sie. Dateien werden nur kopiert, wenn Sie sie in der Überprüfung ankreuzen.",
-    "allPreviewRealData": "{{source}} enthält Daten echter Personen – eine Produktions-Org oder eine als Staging markierte Sandbox: Ein Klon der gesamten Org anonymisiert ihre personenbezogenen Felder, sofern Sie PII anonymisieren nicht abwählen."
+    "allPreviewRealData": "{{source}} enthält Daten echter Personen – eine Produktions-Org oder eine als Staging markierte Sandbox: Ein Klon der gesamten Org anonymisiert ihre personenbezogenen Felder, sofern Sie PII anonymisieren nicht abwählen.",
+    "recordLimitSample": "Eine Stichprobe, die in das Ziel passt",
+    "recordLimitSampleHint": "Aus jedem Objekt gezogene Datensätze, mit ihren untergeordneten Datensätzen und den Datensätzen, die sie nennen, so viele, wie das Ziel Platz hat: keiner ohne einen Datensatz, den er braucht. Die Überprüfung liest den Platz und legt fest, wie gezogen wird."
   },
   "forgeRun": {
     "rehearsal": {
@@ -4334,7 +4337,9 @@
       "sampleTargetMoved": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Stichprobe wurde auf {{fitted}} MB des Datenspeichers der Ziel-Org zugeschnitten, und was der Ziel-Org jetzt bleibt, fasst {{holds}} MB einer Stichprobe. Simulieren Sie erneut, um eine passende Stichprobe zu ziehen.",
       "sampleCannotFitNamed": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt. Die vollständig kopierten Objekte und der erste gezogene Datensatz jedes Objekts belegen allein mehr, als die Stichprobe belegen darf; die schwersten: {{heaviest}}. Lassen Sie in der Überprüfung Objekte weg oder kopieren Sie weniger vollständig, oder lassen Sie die Stichprobe mehr belegen.",
       "sampleTooLargeUnsized": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Ziehen der Stichprobe hat mehr Datensätze gelesen, als sie auf einmal hält. Lassen Sie die Stichprobe weniger belegen, oder lassen Sie in der Überprüfung Objekte weg oder lesen Sie sie über einen Filter.",
-      "samplePlanMismatchResume": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Lauf, den er fortsetzt, war anders eingestellt, eine Stichprobe, wo dieser jeden Datensatz kopiert, oder jeder Datensatz, wo dieser eine Stichprobe kopiert. Setzen Sie ihn so fort, wie er eingestellt war."
+      "samplePlanMismatchResume": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Lauf, den er fortsetzt, war anders eingestellt, eine Stichprobe, wo dieser jeden Datensatz kopiert, oder jeder Datensatz, wo dieser eine Stichprobe kopiert. Setzen Sie ihn so fort, wie er eingestellt war.",
+      "simulateAgain": "Erneut simulieren",
+      "sampleOffer": "Eine passende Stichprobe würde etwa {{mb}} MB davon belegen."
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -4637,7 +4642,9 @@
         "oneRecord_one": "Einen Datensatz und was er in {{count}} Objekt erreicht aus {{source}} nach {{target}} kopieren.",
         "oneRecord_other": "Einen Datensatz und was er in {{count}} Objekten erreicht aus {{source}} nach {{target}} kopieren.",
         "wholeOrg_one": "Die gesamte Org {{source}} nach {{target}} kopieren: {{formatted}} gezählter Datensatz in {{objects}} Objekten.",
-        "wholeOrg_other": "Die gesamte Org {{source}} nach {{target}} kopieren: {{formatted}} gezählte Datensätze in {{objects}} Objekten."
+        "wholeOrg_other": "Die gesamte Org {{source}} nach {{target}} kopieren: {{formatted}} gezählte Datensätze in {{objects}} Objekten.",
+        "sample_one": "Eine Stichprobe von {{source}}, die in {{target}} passt, kopieren, gezogen aus {{formatted}} gezählten Datensatz in {{objects}} Objekten.",
+        "sample_other": "Eine Stichprobe von {{source}}, die in {{target}} passt, kopieren, gezogen aus {{formatted}} gezählten Datensätzen in {{objects}} Objekten."
       },
       "left": {
         "none": "Es bleibt nichts zu entscheiden.",
@@ -4708,6 +4715,63 @@
         "aboutRecords_one": "etwa {{formatted}} Datensatz",
         "aboutRecords_other": "etwa {{formatted}} Datensätze",
         "emptyFirstAction": "Diese Objekte zuerst leeren"
+      },
+      "sample": {
+        "wholeOrg": {
+          "reading": "Es wird gelesen, wie viel Datenspeicher {{target}} noch frei hat…",
+          "failed": "Wie viel Datenspeicher {{target}} noch frei hat, konnte nicht gelesen werden: {{message}}",
+          "fits": "Alle Datensätze belegen etwa {{estimate}} MB des Datenspeichers von {{target}}, das noch {{remaining}} MB von {{max}} MB frei hat.",
+          "near": "Alle Datensätze belegen etwa {{estimate}} MB des Datenspeichers von {{target}}, das noch {{remaining}} MB von {{max}} MB frei hat: mehr als 80 % des Verbleibenden.",
+          "exceeds": "Alle Datensätze belegen etwa {{estimate}} MB des Datenspeichers von {{target}}, das noch {{remaining}} MB frei hat: Der Lauf würde abgelehnt.",
+          "unread": "Alle Datensätze belegen etwa {{estimate}} MB Datenspeicher; wie viel {{target}} noch frei hat, konnte nicht gelesen werden: {{reason}}",
+          "offer": "Eine passende Stichprobe würde etwa {{mb}} MB belegen."
+        },
+        "budget": {
+          "storage": "Die Stichprobe darf etwa {{mb}} MB belegen: {{share}} % der {{remaining}} MB, die {{target}} noch frei hat, abzüglich {{rounding}} MB für Rundungen.",
+          "within": "Die Stichprobe darf etwa {{mb}} MB belegen, die unter Einstellungen der Stichprobe angegebenen MB.",
+          "unread": "{{target}} hat nicht angegeben, wie viel Datenspeicher noch frei ist: Legen Sie unter Einstellungen der Stichprobe fest, wie viele MB die Stichprobe belegen darf, sonst wird der Lauf abgelehnt."
+        },
+        "draw": {
+          "label": "Ziehung",
+          "uniform": "Über die Org verteilt",
+          "recent": "Die neuesten zuerst",
+          "uniformHint": "Datensätze, die über jedes Objekt hinweg per Hash ihrer IDs mit Startwert gezogen werden: Die Ziehung liest die ID jedes Datensatzes, aus dem sie ziehen kann, und die Stichprobe steht für die gesamte Org.",
+          "recentHint": "Die zuletzt erstellten Datensätze, nach ihrem Erstellungsdatum: Die Ziehung liest nur die, die sie behält, und die Stichprobe neigt zu den neuesten Daten."
+        },
+        "cost": "Die Ziehung liest API-Anfragen von {{source}}: {{allowance}}. Sie dauert etwa {{duration}}.",
+        "costRefused": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Ziehen Sie die neuesten zuerst, oder lassen Sie die größten Objekte weg.",
+        "whole": "Von selbst vollständig kopiert: {{objects}}.",
+        "why": {
+          "referenceData": "nach Namen zugeordnete Referenzdaten, nie geschrieben",
+          "catalog": "der Preiskatalog, klein genug, um vollständig kopiert zu werden",
+          "smallParent": "ein Objekt mit wenigen Datensätzen, das gezogene Datensätze nennen",
+          "asked": "angefordert"
+        },
+        "settings": "Einstellungen der Stichprobe",
+        "within": {
+          "label": "Höchstens",
+          "hint": "Die meisten MB des Datenspeichers des Ziels, die die Stichprobe belegen darf. Leer: so viel, wie das Ziel Platz hat."
+        },
+        "seed": "Startwert {{seed}}",
+        "seedHint": "Derselbe Startwert zieht dieselben Datensätze; Neu ziehen zieht andere.",
+        "drawAgain": "Neu ziehen",
+        "parents": {
+          "label": "Ein Datensatz außerhalb der Stichprobe, den eine optionale Suche nennt",
+          "all": "Ihn kopieren, ohne untergeordnete Datensätze",
+          "required": "Die Suche leer lassen"
+        },
+        "children": {
+          "label": "Untergeordnete Datensätze pro Datensatz und Beziehung",
+          "all": "Alle",
+          "hint": "Die neuesten davon; ein Master-Datensatz kommt immer mit allen Details."
+        },
+        "wholeList": {
+          "toggle_one": "Vollständig kopieren: {{formatted}} Objekt",
+          "toggle_other": "Vollständig kopieren: {{formatted}} Objekte",
+          "legend": "Vollständig zu kopierende Objekte",
+          "hint": "Ein vollständig kopiertes Objekt bringt jeden seiner Datensätze mit, und keiner davon wird gezogen."
+        },
+        "offerAction": "Passende Stichprobe kopieren"
       }
     },
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
@@ -5057,7 +5121,106 @@
       "object": "Objekt",
       "recordsColumn": "Datensätze",
       "jobsColumn": "Bulk-API-Jobs",
-      "restColumn": "Per REST"
+      "restColumn": "Per REST",
+      "titleSample": "Simulation einer Stichprobe der gesamten Org",
+      "outsideFilter": "Außerhalb des Filters beiseitegelassen",
+      "outsideFilterRows_one": "{{formatted}} Datensatz von {{objects}}: Eine Suche, die er nicht leer lassen darf, nennt einen Datensatz außerhalb des Filters seines Objekts, daher schreibt der Lauf ihn nicht",
+      "outsideFilterRows_other": "{{formatted}} Datensätze von {{objects}}: Eine Suche, die sie nicht leer lassen dürfen, nennt einen Datensatz außerhalb des Filters seines Objekts, daher schreibt der Lauf sie nicht",
+      "sampleOffer": "Alle Datensätze belegen mehr Datenspeicher, als {{target}} noch frei hat. Eine passende Stichprobe würde etwa {{mb}} MB belegen.",
+      "sample": {
+        "title": "Die Stichprobe",
+        "kept": "{{kept}} der {{total}} Datensätze von {{source}}, aus {{objects}} Objekten: {{share}} % der Wurzeln jedes Objekts, Startwert {{seed}}, {{draw}}, mit den Datensätzen, die sie erreichen.",
+        "taken": "Etwa {{taken}} MB der {{mb}} MB, die die Stichprobe belegen darf ({{terms}}), begrenzt durch {{limit}}.",
+        "takenWhole": "Etwa {{taken}} MB der {{mb}} MB, die die Stichprobe belegen darf ({{terms}}). Alle Datensätze passen: Die gesamte Org zu kopieren ist der bessere Lauf.",
+        "terms": {
+          "storage": "{{share}} % der {{remaining}} freien MB, abzüglich {{rounding}} MB für Rundungen",
+          "within": "die angegebenen {{within}} MB",
+          "automation": "{{automation}} MB für das, was die Automatisierung des Ziels erstellt"
+        },
+        "limitedBy": {
+          "storage": "den Datenspeicher, den {{target}} noch frei hat",
+          "within": "die angegebenen MB",
+          "maxTotal": "die angegebenen Datensätze",
+          "targetRequests": "die täglichen API-Anfragen von {{target}}",
+          "bulkBatches": "die täglichen Bulk-API-Batches von {{target}}",
+          "sourceRequests": "die täglichen API-Anfragen von {{source}}",
+          "whole": "nichts: Alle Datensätze passen"
+        },
+        "draw": {
+          "uniform": "über die Org verteilt",
+          "recent": "die neuesten zuerst"
+        },
+        "byObject": "Was die Stichprobe behält, nach Objekt",
+        "column": {
+          "inSource": "In der Quelle",
+          "kept": "Behalten",
+          "drawn": "Gezogen",
+          "below": "Unter übergeordnetem Datensatz",
+          "asParents": "Als übergeordneter Datensatz"
+        },
+        "wholeCell": "vollständig",
+        "whole": "Vollständig kopiert: {{objects}}.",
+        "childrenCut": "Untergeordnete Datensätze über {{cap}} pro Datensatz und Beziehung hinaus, die neuesten behalten, weggelassen: {{objects}}.",
+        "noRecordDrawn": "Objekte von {{source}}, von denen die Stichprobe keinen Datensatz behält: {{objects}}.",
+        "inTheSource": "{{object}} ({{rows}} in der Quelle)",
+        "heavyRoots": "Beiseitegelegte Datensätze, von denen jeder mehr als ein Zehntel dessen mitgebracht hätte, was die Stichprobe belegen darf: {{records}}.",
+        "heavyRoot": "{{object}} {{id}} (etwa {{rows}} Datensätze über {{relation}})",
+        "dropped": "Datensätze, die die Ziehung erreicht hat und weglässt, nie gesendet: {{records}}.",
+        "droppedOf": "{{rows}} von {{object}}, {{reason}}",
+        "dropReason": {
+          "noParentInSource": "ein Datensatz, ohne den sie nicht geschrieben werden können, ist nicht in der Quelle",
+          "outsideFilter": "ein Datensatz, ohne den sie nicht geschrieben werden können, liegt außerhalb des Filters seines Objekts",
+          "excludedObject": "ein Datensatz, ohne den sie nicht geschrieben werden können, gehört zu einem weggelassenen Objekt",
+          "withoutParent": "ein Datensatz, ohne den sie nicht geschrieben werden können, wird selbst weggelassen",
+          "heldBack": "ihr Datensatztyp ist dem Benutzer verschlossen, als der der Lauf schreibt",
+          "recordTypeNotInTarget": "das Ziel hat ihren Datensatztyp nicht"
+        },
+        "leftEmpty": "Leer geschriebene Suchen, ihr Datensatz außerhalb der Stichprobe: {{fields}}.",
+        "newestByIds": "Die neuesten nach der Reihenfolge ihrer IDs, da es kein Erstellungsdatum gibt, nach dem die Org sortiert: {{objects}}.",
+        "requests": "Die Ziehung hat {{requests}} API-Anfragen an {{source}} gesendet.",
+        "plan": "Der Plan wird einen Tag lang auf diesem Rechner aufbewahrt: {{path}} (SHA-256 {{sha}}…). Forge ausführen übernimmt ihn, solange der Lauf gleich eingerichtet ist; sonst zieht der Lauf neu und sagt, warum."
+      }
+    },
+    "sampleResult": {
+      "title": "Die Stichprobe",
+      "drawn": "Gezogen mit Startwert {{seed}}, {{draw}}: {{share}} % der Wurzeln jedes Objekts. Plan SHA-256 {{sha}}…, gezogen am {{at}}.",
+      "verdict": {
+        "complete": "Jeder Datensatz der Stichprobe wurde geschrieben oder verknüpft.",
+        "completeGone": "Jeder Datensatz der Stichprobe, der noch in {{source}} ist, wurde geschrieben oder verknüpft.",
+        "changed_one": "{{formatted}} Datensatz der Stichprobe wurde zurückgehalten: Ein Datensatz, ohne den er nicht geschrieben werden kann, hat sich seit der Stichprobe geändert.",
+        "changed_other": "{{formatted}} Datensätze der Stichprobe wurden zurückgehalten: Ein Datensatz, ohne den sie nicht geschrieben werden können, hat sich seit der Stichprobe geändert.",
+        "short_one": "{{formatted}} Datensatz der Stichprobe wurde nicht geschrieben: Die Fehler unten nennen den Grund.",
+        "short_other": "{{formatted}} Datensätze der Stichprobe wurden nicht geschrieben: Die Fehler unten nennen den Grund.",
+        "gone_one": "{{formatted}} war seit der Stichprobe aus {{source}} verschwunden: kein Fehler.",
+        "gone_other": "{{formatted}} waren seit der Stichprobe aus {{source}} verschwunden: kein Fehler."
+      },
+      "byObject": "Was der Lauf von der Stichprobe geschrieben hat, nach Objekt",
+      "object": "{{object}}: {{written}} von {{kept}} in der Stichprobe geschrieben ({{how}}), von {{rows}} in {{source}}.",
+      "objectBare": "{{object}}: {{written}} von {{kept}} in der Stichprobe geschrieben, von {{rows}} in {{source}}.",
+      "how": {
+        "whole": "vollständig kopiert",
+        "drawn": "{{rows}} gezogen",
+        "below": "{{rows}} unter übergeordnetem Datensatz",
+        "asParents": "{{rows}} als übergeordnete Datensätze"
+      },
+      "gone_one": "{{formatted}} seit der Stichprobe aus {{source}} verschwunden: nicht geschrieben, und kein Fehler.",
+      "gone_other": "{{formatted}} seit der Stichprobe aus {{source}} verschwunden: nicht geschrieben, und kein Fehler.",
+      "changed_one": "{{formatted}} zurückgehalten: Ein Datensatz, ohne den er nicht geschrieben werden kann, hat sich seit der Stichprobe geändert.",
+      "changed_other": "{{formatted}} zurückgehalten: Ein Datensatz, ohne den sie nicht geschrieben werden können, hat sich seit der Stichprobe geändert."
+    },
+    "sampling": {
+      "at": "Die Stichprobe wird gezogen, bevor etwas geschrieben wird: {{step}}.",
+      "atObject": "Die Stichprobe wird gezogen, bevor etwas geschrieben wird: {{step}} — {{where}}.",
+      "object": "{{object}}, {{done}} von {{total}} Objekten",
+      "step": {
+        "counting": "Zählen der Datensätze, aus denen jedes Objekt ziehen kann",
+        "drawing": "Lesen der IDs der gezogenen Datensätze",
+        "closing": "Lesen der Datensätze, die sie erreichen und nennen",
+        "fitting": "Zuschneiden auf den Platz, den das Ziel hat",
+        "saving": "Aufbewahren des Plans auf diesem Rechner"
+      },
+      "counts": "{{rows}} Datensätze gelesen, {{requests}} API-Anfragen von {{source}}.",
+      "countsPriced": "{{rows}} Datensätze gelesen, {{requests}} API-Anfragen von {{source}} von etwa {{pricedAt}} veranschlagten."
     }
   },
   "autopilot": {

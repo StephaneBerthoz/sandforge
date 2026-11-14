@@ -1,4 +1,12 @@
-import type { ForgeGraph, ForgeGraphNode, ForgeWholeOrgDryRun } from '@sandforge/shared';
+import type {
+  ForgeGraph,
+  ForgeGraphNode,
+  ForgeSampleBudget,
+  ForgeWholeOrgDryRun,
+  WholeOrgSample,
+  WholeOrgSampleBudget,
+  WholeOrgSampleResult,
+} from '@sandforge/shared';
 
 /** A node of a clone of the whole org, as its discovery answers with it. */
 function node(
@@ -112,6 +120,136 @@ export function wholeOrgDryRun(over: Partial<ForgeWholeOrgDryRun> = {}): ForgeWh
         api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
       },
     ],
+    ...over,
+  };
+}
+
+/**
+ * What a sample of that org may take of a Developer Edition target, 5 MB of
+ * which 4.5 are left: 80 % of what is left past the 0.5 MB kept for rounding.
+ */
+export function sampleBudgetTerms(over: Partial<WholeOrgSampleBudget> = {}): WholeOrgSampleBudget {
+  return {
+    bytes: 3_355_443,
+    remainingMB: 4.5,
+    maxMB: 5,
+    share: 0.8,
+    roundingMB: 0.5,
+    limitedBy: 'storage',
+    ...over,
+  };
+}
+
+/**
+ * What Review reads of the target before a sample of that org is simulated
+ * (`forge:sample-budget:response`): every record takes about 412 MB, past
+ * the 4.5 MB left; a sample may take 3.2 MB; Opportunity goes whole; drawing
+ * it reads about 1,950 requests of the source in about 4 minutes.
+ */
+export function sampleBudget(over: Partial<ForgeSampleBudget> = {}): ForgeSampleBudget {
+  return {
+    wholeOrg: { verdict: 'exceeds', estimateMB: 412, maxMB: 5, remainingMB: 4.5 },
+    budget: sampleBudgetTerms(),
+    whole: [{ objectApiName: 'Opportunity', why: 'smallParent' }],
+    planReads: {
+      source: { verdict: 'fits', estimate: 1_950, max: 15_000, remaining: 14_000 },
+      seconds: 240,
+    },
+    ...over,
+  };
+}
+
+/**
+ * What the simulation of a sample of that org drew, as its dry run says it
+ * (`wholeOrgDryRun.sample`): 1,812 records of 9,400, seed 1, spread over the
+ * org, held by the target's storage.
+ */
+export function wholeOrgSample(over: Partial<WholeOrgSample> = {}): WholeOrgSample {
+  return {
+    seed: 1,
+    draw: 'uniform',
+    floor: 1,
+    parents: 'all',
+    children: 100,
+    share: 0.0041,
+    budget: sampleBudgetTerms({ automationMB: 0.1 }),
+    rows: 1_812,
+    storageBytes: 3_250_585,
+    objects: [
+      {
+        objectApiName: 'Opportunity',
+        sourceRows: 900,
+        kept: 900,
+        roots: 0,
+        below: 0,
+        asParents: 0,
+        whole: true,
+      },
+      {
+        objectApiName: 'Account',
+        sourceRows: 1_200,
+        kept: 712,
+        roots: 500,
+        below: 0,
+        asParents: 212,
+      },
+      {
+        objectApiName: 'Contact',
+        sourceRows: 4_800,
+        kept: 200,
+        roots: 12,
+        below: 180,
+        asParents: 8,
+        childrenCut: [{ field: 'AccountId', rows: 1_340 }],
+      },
+    ],
+    whole: [{ objectApiName: 'Opportunity', why: 'smallParent' }],
+    heavyRoots: [
+      {
+        objectApiName: 'Account',
+        id: '001000000000001AAA',
+        rows: 4_100,
+        relation: { objectApiName: 'Contact', field: 'AccountId' },
+      },
+    ],
+    dropped: [
+      { objectApiName: 'Contact', rows: 6, reason: 'noParentInSource' },
+      { objectApiName: 'Account', rows: 3, reason: 'recordTypeNotInTarget' },
+    ],
+    leftEmpty: [{ objectApiName: 'Contact', field: 'ReportsToId', rows: 14 }],
+    noRecordDrawn: [{ objectApiName: 'Lead', sourceRows: 2_500 }],
+    planRequests: { source: 61 },
+    plan: {
+      path: '/storage/forge-samples/3f9a/plan',
+      sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+      drawnAt: '2026-11-14T14:02:00.000Z',
+      drawnBy: 'run',
+    },
+    ...over,
+  };
+}
+
+/**
+ * What a run of that sample wrote, as its result says it (`result.sample`):
+ * every record of the plan but four Contacts gone from the source since,
+ * and two held back for a parent changed since.
+ */
+export function wholeOrgSampleResult(
+  over: Partial<WholeOrgSampleResult> = {},
+): WholeOrgSampleResult {
+  const [opportunity, account, contact] = wholeOrgSample().objects;
+  return {
+    seed: 1,
+    draw: 'uniform',
+    share: 0.0041,
+    sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+    drawnAt: '2026-11-14T14:02:00.000Z',
+    objects: [
+      { ...opportunity, written: 900, goneSinceTheSample: 0, changedSinceTheSample: 0 },
+      { ...account, written: 712, goneSinceTheSample: 0, changedSinceTheSample: 0 },
+      { ...contact, written: 194, goneSinceTheSample: 4, changedSinceTheSample: 2 },
+    ],
+    leftEmpty: [{ objectApiName: 'Contact', field: 'ReportsToId', rows: 14 }],
     ...over,
   };
 }

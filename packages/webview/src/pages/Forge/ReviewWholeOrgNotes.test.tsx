@@ -4,6 +4,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import '../../i18n';
 import { ReviewWholeOrgNotes, personalFieldsAsIs } from './ReviewWholeOrgNotes';
 import { useAppStore } from '../../stores/useAppStore';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { wholeOrgGraph } from './testing/wholeOrg';
 
@@ -179,5 +180,25 @@ describe('ReviewWholeOrgNotes', () => {
       'What uat already holds of these objects could not be read: INVALID_SESSION_ID',
     );
     expect(screen.queryByTestId('review-target-holds-none')).toBeNull();
+  });
+
+  // A whole org rarely fits a Developer sandbox: said first, with the choice
+  // of a sample that fits, before what the run copies as it is.
+  it('says first what the records per object are, every record or a sample, read against the target', () => {
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+    renderNotes();
+
+    const notes = screen.getByTestId('review-whole-org');
+    expect(notes.firstElementChild?.getAttribute('data-testid')).toBe('review-sample');
+    expect(sent('forge:sample-budget:request')).toHaveLength(1);
+    useForgeStore.getState().reset();
   });
 });

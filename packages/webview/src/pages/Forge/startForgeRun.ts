@@ -65,7 +65,8 @@ export function startForgeRun(options: StartForgeRunOptions = {}): boolean {
     graph,
     config: options.dryRun ? { ...realConfig, dryRun: true } : realConfig,
     anonymizationRules,
-    ...(fileCopy.enabled
+    // A sample copies no file, which the extension refuses with one.
+    ...(fileCopy.enabled && config.sample === undefined
       ? {
           files: {
             maxFileSizeMB: fileCopy.maxFileSizeMB,

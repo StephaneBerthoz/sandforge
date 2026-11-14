@@ -85,6 +85,23 @@ describe('the run of the whole org in a sentence', () => {
       }),
     ).toBe('Copy the whole of DevSandbox into QASandbox: 9,400 records counted in 4 objects.');
   });
+
+  // The heading of Review said "the whole of" a run set to copy a sample.
+  it('names a sample that fits the target when the run copies one, not the whole source', () => {
+    const graph = wholeOrgGraph();
+    expect(
+      runSentence(i18n.t as TFunction, {
+        graph,
+        buckets: forgeRunBuckets(graph),
+        config: { sample: { seed: 2 } },
+        oneRecord: false,
+        wholeOrg: true,
+        ...ORGS,
+      }),
+    ).toBe(
+      'Copy a sample of DevSandbox that fits QASandbox, drawn from 9,400 records counted in 4 objects.',
+    );
+  });
 });
 
 describe('the run in a sentence', () => {

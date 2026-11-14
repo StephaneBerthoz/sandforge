@@ -4104,7 +4104,8 @@
       "maxSize": "Largest file copied (MB)",
       "maxSizeHint": "From 1 to {{max}} MB, what one call to Salesforce carries. A larger file is left out and listed, never cut. Before anything is written, the files together are checked against the file storage the target org has left.",
       "asIsWarning": "This run anonymizes its records, and the content of a file cannot be anonymized.",
-      "asIsAccept": "I accept that files are copied as they are"
+      "asIsAccept": "I accept that files are copied as they are",
+      "sampleNone": "A sample of the whole org copies no file yet: which files its records have, and what they would take, is not drawn."
     },
     "phaseName": {
       "input": "What to clone",
@@ -4179,7 +4180,9 @@
     },
     "depthAllTooltip": "Every record of every object the source org lets Forge read and the target lets it create",
     "depthAllHint": "ALL copies the whole source org: every object the target can create, every record of each, with no cap. Objects Salesforce does not let an API create are left out, and Review names them. Files are copied only if you tick them on Review.",
-    "allPreviewRealData": "{{source}} holds real people’s data — a production org, or a sandbox marked Staging: a clone of the whole of it anonymizes their personal fields unless you untick Anonymize PII."
+    "allPreviewRealData": "{{source}} holds real people’s data — a production org, or a sandbox marked Staging: a clone of the whole of it anonymizes their personal fields unless you untick Anonymize PII.",
+    "recordLimitSample": "A sample that fits the target",
+    "recordLimitSampleHint": "Records drawn from each object, with their children and the records they name, as many as the target has room for: none left without a record it needs. Review reads the room, and sets how they are drawn."
   },
   "forgeRun": {
     "rehearsal": {
@@ -4334,7 +4337,9 @@
       "sampleTargetMoved": "The run was refused before it wrote anything: the sample was fitted to {{fitted}} MB of the target org’s data storage, and what the target has left now holds {{holds}} MB of a sample. Simulate again to draw a sample that fits.",
       "sampleCannotFitNamed": "The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take more than the sample may take; the heaviest: {{heaviest}}. Leave objects out, or copy fewer whole, on Review, or let the sample take more.",
       "sampleTooLargeUnsized": "The run was refused before it wrote anything: drawing the sample read more records than it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.",
-      "samplePlanMismatchResume": "The run was refused before it wrote anything: the run it resumes was set up otherwise, a sample where this one copies every record, or every record where this one copies a sample. Resume it as it was set up."
+      "samplePlanMismatchResume": "The run was refused before it wrote anything: the run it resumes was set up otherwise, a sample where this one copies every record, or every record where this one copies a sample. Resume it as it was set up.",
+      "simulateAgain": "Simulate again",
+      "sampleOffer": "A sample that fits would take about {{mb}} MB of it."
     },
     "executionTable": {
       "leftOut": "left out",
@@ -4637,7 +4642,9 @@
         "oneRecord_one": "Copy one record and what it reaches in {{count}} object, from {{source}} into {{target}}.",
         "oneRecord_other": "Copy one record and what it reaches in {{count}} objects, from {{source}} into {{target}}.",
         "wholeOrg_one": "Copy the whole of {{source}} into {{target}}: {{formatted}} record counted in {{objects}} objects.",
-        "wholeOrg_other": "Copy the whole of {{source}} into {{target}}: {{formatted}} records counted in {{objects}} objects."
+        "wholeOrg_other": "Copy the whole of {{source}} into {{target}}: {{formatted}} records counted in {{objects}} objects.",
+        "sample_one": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} record counted in {{objects}} objects.",
+        "sample_other": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} records counted in {{objects}} objects."
       },
       "left": {
         "none": "Nothing is left to decide.",
@@ -4708,6 +4715,63 @@
         "aboutRecords_one": "about {{formatted}} record",
         "aboutRecords_other": "about {{formatted}} records",
         "emptyFirstAction": "Empty these objects first"
+      },
+      "sample": {
+        "wholeOrg": {
+          "reading": "Reading what {{target}} has left of its data storage…",
+          "failed": "What {{target}} has left of its data storage could not be read: {{message}}",
+          "fits": "Every record takes about {{estimate}} MB of the data storage of {{target}}, which has {{remaining}} MB left out of {{max}} MB.",
+          "near": "Every record takes about {{estimate}} MB of the data storage of {{target}}, which has {{remaining}} MB left out of {{max}} MB: more than 80 % of what is left.",
+          "exceeds": "Every record takes about {{estimate}} MB of the data storage of {{target}}, which has {{remaining}} MB left: the run would be refused.",
+          "unread": "Every record takes about {{estimate}} MB of data storage; what {{target}} has left could not be read: {{reason}}",
+          "offer": "A sample that fits would take about {{mb}} MB."
+        },
+        "budget": {
+          "storage": "The sample may take about {{mb}} MB: {{share}} % of the {{remaining}} MB {{target}} has left, {{rounding}} MB kept off for rounding.",
+          "within": "The sample may take about {{mb}} MB, the MB asked under Sample settings.",
+          "unread": "{{target}} would not say what data storage it has left: set the MB the sample may take, under Sample settings, or the run is refused."
+        },
+        "draw": {
+          "label": "Draw",
+          "uniform": "Spread over the org",
+          "recent": "The newest first",
+          "uniformHint": "Records drawn across each object by a seeded hash of their ids: drawing reads the id of every record it may draw from, and the sample stands for the whole org.",
+          "recentHint": "The records made last, by their creation date: drawing reads only those it keeps, and the sample leans to the newest data."
+        },
+        "cost": "Drawing it reads API requests of {{source}}: {{allowance}}. It takes about {{duration}}.",
+        "costRefused": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Draw the newest first, or leave the largest objects out.",
+        "whole": "Copied whole of itself: {{objects}}.",
+        "why": {
+          "referenceData": "reference data matched by name, never written",
+          "catalog": "the price catalog, small enough to go whole",
+          "smallParent": "an object of few records that drawn records name",
+          "asked": "asked"
+        },
+        "settings": "Sample settings",
+        "within": {
+          "label": "Within",
+          "hint": "The most MB of the target’s data storage the sample may take. Empty: as much as the target has room for."
+        },
+        "seed": "Seed {{seed}}",
+        "seedHint": "The same seed draws the same records; Draw again draws others.",
+        "drawAgain": "Draw again",
+        "parents": {
+          "label": "A record outside the sample that an optional lookup names",
+          "all": "Copy it, without its children",
+          "required": "Leave the lookup empty"
+        },
+        "children": {
+          "label": "Children per record and relation",
+          "all": "Every one",
+          "hint": "The newest of them; a master record always comes with every detail."
+        },
+        "wholeList": {
+          "toggle_one": "Copy whole: {{formatted}} object",
+          "toggle_other": "Copy whole: {{formatted}} objects",
+          "legend": "Objects to copy whole",
+          "hint": "An object copied whole brings every record of it, and none of it is drawn."
+        },
+        "offerAction": "Copy a sample that fits"
       }
     },
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
@@ -5057,7 +5121,106 @@
       "object": "Object",
       "recordsColumn": "Records",
       "jobsColumn": "Bulk API jobs",
-      "restColumn": "By REST"
+      "restColumn": "By REST",
+      "titleSample": "Dry run of a sample of the whole org",
+      "outsideFilter": "Left aside outside the filter",
+      "outsideFilterRows_one": "{{formatted}} record of {{objects}}: a lookup it may not leave empty names a record outside its object’s filter, so the run does not write it",
+      "outsideFilterRows_other": "{{formatted}} records of {{objects}}: a lookup they may not leave empty names a record outside its object’s filter, so the run does not write them",
+      "sampleOffer": "Every record takes more data storage than {{target}} has left. A sample that fits would take about {{mb}} MB.",
+      "sample": {
+        "title": "The sample",
+        "kept": "{{kept}} of {{total}} records of {{source}}, from {{objects}} objects: {{share}} % of the roots of each object, seed {{seed}}, {{draw}}, with the records they reach.",
+        "taken": "About {{taken}} MB of the {{mb}} MB the sample may take ({{terms}}), held by {{limit}}.",
+        "takenWhole": "About {{taken}} MB of the {{mb}} MB the sample may take ({{terms}}). Every record fits: copying the whole org is the better run.",
+        "terms": {
+          "storage": "{{share}} % of the {{remaining}} MB left, {{rounding}} MB off for rounding",
+          "within": "the {{within}} MB asked",
+          "automation": "{{automation}} MB for what the target’s automation creates"
+        },
+        "limitedBy": {
+          "storage": "the data storage {{target}} has left",
+          "within": "the MB asked",
+          "maxTotal": "the records asked",
+          "targetRequests": "the daily API requests of {{target}}",
+          "bulkBatches": "the daily Bulk API batches of {{target}}",
+          "sourceRequests": "the daily API requests of {{source}}",
+          "whole": "nothing: every record fits"
+        },
+        "draw": {
+          "uniform": "spread over the org",
+          "recent": "the newest first"
+        },
+        "byObject": "What the sample keeps, by object",
+        "column": {
+          "inSource": "In the source",
+          "kept": "Kept",
+          "drawn": "Drawn",
+          "below": "Under a parent",
+          "asParents": "As a parent"
+        },
+        "wholeCell": "whole",
+        "whole": "Copied whole: {{objects}}.",
+        "childrenCut": "Children past {{cap}} per record and relation, the newest kept, left out: {{objects}}.",
+        "noRecordDrawn": "Objects of {{source}} none of whose records the sample keeps: {{objects}}.",
+        "inTheSource": "{{object}} ({{rows}} in the source)",
+        "heavyRoots": "Records set aside, each of which would have brought in more than a tenth of what the sample may take: {{records}}.",
+        "heavyRoot": "{{object}} {{id}} (about {{rows}} records through {{relation}})",
+        "dropped": "Records the draw reached and leaves out, never sent: {{records}}.",
+        "droppedOf": "{{rows}} of {{object}}, {{reason}}",
+        "dropReason": {
+          "noParentInSource": "a record they cannot be written without is not in the source",
+          "outsideFilter": "a record they cannot be written without is outside its object’s filter",
+          "excludedObject": "a record they cannot be written without is of an object left out",
+          "withoutParent": "a record they cannot be written without is left out itself",
+          "heldBack": "their record type is closed to the user the run writes as",
+          "recordTypeNotInTarget": "the target has none of their record type"
+        },
+        "leftEmpty": "Lookups written empty, their record outside the sample: {{fields}}.",
+        "newestByIds": "Newest by the order of their ids, having no creation date the org sorts by: {{objects}}.",
+        "requests": "Drawing it sent {{requests}} API requests to {{source}}.",
+        "plan": "The plan is kept on this machine for a day: {{path}} (SHA-256 {{sha}}…). Execute Forge takes it up while the run is set up the same; otherwise the run draws again, and says why."
+      }
+    },
+    "sampleResult": {
+      "title": "The sample",
+      "drawn": "Drawn with seed {{seed}}, {{draw}}: {{share}} % of the roots of each object. Plan SHA-256 {{sha}}…, drawn on {{at}}.",
+      "verdict": {
+        "complete": "Every record of the sample was written or linked.",
+        "completeGone": "Every record of the sample still in {{source}} was written or linked.",
+        "changed_one": "{{formatted}} record of the sample was held back: a record it cannot be written without changed since the sample.",
+        "changed_other": "{{formatted}} records of the sample were held back: a record they cannot be written without changed since the sample.",
+        "short_one": "{{formatted}} record of the sample was not written: the errors below say why.",
+        "short_other": "{{formatted}} records of the sample were not written: the errors below say why.",
+        "gone_one": "{{formatted}} was gone from {{source}} since the sample: no failure.",
+        "gone_other": "{{formatted}} were gone from {{source}} since the sample: no failure."
+      },
+      "byObject": "What the run wrote of the sample, by object",
+      "object": "{{object}}: {{written}} written of {{kept}} in the sample ({{how}}) of {{rows}} in {{source}}.",
+      "objectBare": "{{object}}: {{written}} written of {{kept}} in the sample, of {{rows}} in {{source}}.",
+      "how": {
+        "whole": "copied whole",
+        "drawn": "{{rows}} drawn",
+        "below": "{{rows}} under a parent",
+        "asParents": "{{rows}} as parents"
+      },
+      "gone_one": "{{formatted}} gone from {{source}} since the sample: not written, and no failure.",
+      "gone_other": "{{formatted}} gone from {{source}} since the sample: not written, and no failure.",
+      "changed_one": "{{formatted}} held back: a record it cannot be written without changed since the sample.",
+      "changed_other": "{{formatted}} held back: a record they cannot be written without changed since the sample."
+    },
+    "sampling": {
+      "at": "Drawing the sample, before anything is written: {{step}}.",
+      "atObject": "Drawing the sample, before anything is written: {{step}} — {{where}}.",
+      "object": "{{object}}, {{done}} of {{total}} objects",
+      "step": {
+        "counting": "counting the records each object may draw from",
+        "drawing": "reading the ids of the records drawn",
+        "closing": "reading the records they reach and name",
+        "fitting": "cutting it to what the target has room for",
+        "saving": "keeping its plan on this machine"
+      },
+      "counts": "{{rows}} records read, {{requests}} API requests of {{source}}.",
+      "countsPriced": "{{rows}} records read, {{requests}} API requests of {{source}} of about {{pricedAt}} priced."
     }
   },
   "autopilot": {

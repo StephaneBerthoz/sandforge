@@ -41,6 +41,10 @@ export const ReviewFilesOption: React.FC = () => {
   const fileCopy = useForgeStore((s) => s.fileCopy);
   const setFileCopy = useForgeStore((s) => s.setFileCopy);
   const anonymizes = useForgeStore((s) => s.config?.anonymizePII ?? false);
+  // A sample of the whole org copies no file: the extension refuses one with
+  // files, which files its records have not being drawn.
+  const sampled = useForgeStore((s) => s.config?.sample !== undefined);
+  const sampleId = useId();
   const descriptionId = useId();
   const sizeId = useId();
   const sizeHintId = useId();
@@ -65,13 +69,23 @@ export const ReviewFilesOption: React.FC = () => {
         <input
           type="checkbox"
           data-testid="forge-files-toggle"
-          checked={fileCopy.enabled}
+          checked={fileCopy.enabled && !sampled}
+          disabled={sampled}
           onChange={(e) => setFileCopy({ enabled: e.target.checked })}
-          aria-describedby={descriptionId}
-          className="mt-0.5"
+          aria-describedby={sampled ? `${descriptionId} ${sampleId}` : descriptionId}
+          className="mt-0.5 disabled:cursor-not-allowed"
         />
         <span>{t('forge.files.toggle')}</span>
       </label>
+      {sampled && (
+        <p
+          id={sampleId}
+          data-testid="forge-files-sample"
+          className="ml-5 text-[11px] text-text-secondary"
+        >
+          {t('forge.files.sampleNone')}
+        </p>
+      )}
       {/* What it copies behind a disclosure, as the boxes above it fold
           theirs: in the column of the run, its four lines held Controls under
           the column's fold at 800 pixels high. The box is described by a copy
@@ -87,7 +101,7 @@ export const ReviewFilesOption: React.FC = () => {
         {t('forge.files.description')}
       </span>
 
-      {fileCopy.enabled && (
+      {fileCopy.enabled && !sampled && (
         <>
           <div className="flex items-center gap-2">
             <label htmlFor={sizeId} className="text-xs text-text-primary">

@@ -34,6 +34,29 @@ describe('ReviewFilesOption', () => {
     expect(screen.queryByTestId('forge-files-as-is')).toBeNull();
   });
 
+  // The extension refuses a sample with files: which files it would copy,
+  // and what they would take, is not drawn. Greyed, and said why.
+  it('greys the copy out under a sample of the whole org, and says why', () => {
+    useForgeStore.getState().setConfig({
+      ...config(false),
+      inputMode: 'org',
+      depth: 'all',
+      recordId: undefined,
+      sample: {},
+    });
+    render(<ReviewFilesOption />);
+
+    const toggle = screen.getByTestId('forge-files-toggle') as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute('aria-describedby')).toContain(
+      screen.getByTestId('forge-files-sample').id,
+    );
+    expect(screen.getByTestId('forge-files-sample').textContent).toBe(
+      'A sample of the whole org copies no file yet: which files its records have, and what they would take, is not drawn.',
+    );
+  });
+
   it('folds what it copies under the box, and describes the box by it from outside the fold', () => {
     // Four lines in the column of the run held Controls under its fold.
     // Described by the paragraph inside the closed fold, the box was described

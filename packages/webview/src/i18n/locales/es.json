@@ -4104,7 +4104,8 @@
       "maxSize": "Archivo más grande copiado (MB)",
       "maxSizeHint": "De 1 a {{max}} MB, lo que lleva una llamada a Salesforce. Un archivo más grande se deja fuera y se lista, nunca se corta. Antes de escribir nada, los archivos en conjunto se comparan con el almacenamiento de archivos que le queda a la org de destino.",
       "asIsWarning": "Esta ejecución anonimiza sus registros, y el contenido de un archivo no se puede anonimizar.",
-      "asIsAccept": "Acepto que los archivos se copien tal como están"
+      "asIsAccept": "Acepto que los archivos se copien tal como están",
+      "sampleNone": "Una muestra de toda la org aún no copia ningún archivo: qué archivos tienen sus registros, y lo que ocuparían, no se extrae."
     },
     "phaseName": {
       "input": "Qué clonar",
@@ -4179,7 +4180,9 @@
     },
     "depthAllTooltip": "Cada registro de cada objeto que la org de origen deja leer a Forge y que el destino le deja crear",
     "depthAllHint": "ALL copia toda la org de origen: cada objeto que el destino puede crear, cada registro de cada uno, sin límite. Los objetos que Salesforce no deja crear por API quedan fuera, y la revisión los nombra. Los archivos solo se copian si los marca en la revisión.",
-    "allPreviewRealData": "{{source}} contiene datos de personas reales — una org de producción, o un sandbox marcado como Staging: un clon de toda ella anonimiza sus campos personales, salvo que desmarque Anonimizar PII."
+    "allPreviewRealData": "{{source}} contiene datos de personas reales — una org de producción, o un sandbox marcado como Staging: un clon de toda ella anonimiza sus campos personales, salvo que desmarque Anonimizar PII.",
+    "recordLimitSample": "Una muestra que quepa en el destino",
+    "recordLimitSampleHint": "Registros extraídos de cada objeto, con sus hijos y los registros que nombran, tantos como quepan en el destino: ninguno sin un registro que necesite. La revisión lee el espacio y fija cómo se extraen."
   },
   "forgeRun": {
     "rehearsal": {
@@ -4334,7 +4337,9 @@
       "sampleTargetMoved": "La ejecución se rechazó antes de escribir nada: la muestra se ajustó a {{fitted}} MB del almacenamiento de datos de la org de destino, y lo que le queda ahora admite {{holds}} MB de una muestra. Simule de nuevo para extraer una muestra que quepa.",
       "sampleCannotFitNamed": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe. Los objetos copiados enteros y el primer registro extraído de cada objeto ocupan por sí solos más de lo que puede ocupar la muestra; los más pesados: {{heaviest}}. Excluya objetos, o copie menos enteros, en la revisión, o deje que la muestra ocupe más.",
       "sampleTooLargeUnsized": "La ejecución se rechazó antes de escribir nada: extraer la muestra leyó más registros de los que guarda a la vez. Deje que la muestra ocupe menos, o excluya objetos o léalos a través de un filtro en la revisión.",
-      "samplePlanMismatchResume": "La ejecución se rechazó antes de escribir nada: la ejecución que retoma estaba configurada de otro modo, una muestra donde esta copia cada registro, o cada registro donde esta copia una muestra. Retómela tal como estaba configurada."
+      "samplePlanMismatchResume": "La ejecución se rechazó antes de escribir nada: la ejecución que retoma estaba configurada de otro modo, una muestra donde esta copia cada registro, o cada registro donde esta copia una muestra. Retómela tal como estaba configurada.",
+      "simulateAgain": "Simular de nuevo",
+      "sampleOffer": "Una muestra que quepa ocuparía unos {{mb}} MB de él."
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -4637,7 +4642,9 @@
         "oneRecord_one": "Copiar un registro y lo que alcanza en {{count}} objeto, de {{source}} a {{target}}.",
         "oneRecord_other": "Copiar un registro y lo que alcanza en {{count}} objetos, de {{source}} a {{target}}.",
         "wholeOrg_one": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registro contado en {{objects}} objetos.",
-        "wholeOrg_other": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registros contados en {{objects}} objetos."
+        "wholeOrg_other": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registros contados en {{objects}} objetos.",
+        "sample_one": "Copiar una muestra de {{source}} que quepa en {{target}}, extraída de {{formatted}} registro contado en {{objects}} objetos.",
+        "sample_other": "Copiar una muestra de {{source}} que quepa en {{target}}, extraída de {{formatted}} registros contados en {{objects}} objetos."
       },
       "left": {
         "none": "No queda nada por decidir.",
@@ -4708,6 +4715,63 @@
         "aboutRecords_one": "unos {{formatted}} registro",
         "aboutRecords_other": "unos {{formatted}} registros",
         "emptyFirstAction": "Vaciar primero estos objetos"
+      },
+      "sample": {
+        "wholeOrg": {
+          "reading": "Leyendo cuánto almacenamiento de datos le queda a {{target}}…",
+          "failed": "No se pudo leer cuánto almacenamiento de datos le queda a {{target}}: {{message}}",
+          "fits": "Todos los registros ocupan unos {{estimate}} MB del almacenamiento de datos de {{target}}, al que le quedan {{remaining}} MB de {{max}} MB.",
+          "near": "Todos los registros ocupan unos {{estimate}} MB del almacenamiento de datos de {{target}}, al que le quedan {{remaining}} MB de {{max}} MB: más del 80 % de lo que queda.",
+          "exceeds": "Todos los registros ocupan unos {{estimate}} MB del almacenamiento de datos de {{target}}, al que le quedan {{remaining}} MB: la ejecución se rechazaría.",
+          "unread": "Todos los registros ocupan unos {{estimate}} MB de almacenamiento de datos; no se pudo leer cuánto le queda a {{target}}: {{reason}}",
+          "offer": "Una muestra que quepa ocuparía unos {{mb}} MB."
+        },
+        "budget": {
+          "storage": "La muestra puede ocupar unos {{mb}} MB: el {{share}} % de los {{remaining}} MB que le quedan a {{target}}, con {{rounding}} MB reservados para el redondeo.",
+          "within": "La muestra puede ocupar unos {{mb}} MB, los MB pedidos en Ajustes de la muestra.",
+          "unread": "{{target}} no dijo cuánto almacenamiento de datos le queda: indique los MB que puede ocupar la muestra, en Ajustes de la muestra, o la ejecución se rechaza."
+        },
+        "draw": {
+          "label": "Extracción",
+          "uniform": "Repartida por la org",
+          "recent": "Los más recientes primero",
+          "uniformHint": "Registros extraídos de todo cada objeto mediante un hash de sus ids con semilla: la extracción lee el id de cada registro del que puede extraer, y la muestra representa toda la org.",
+          "recentHint": "Los registros creados al final, según su fecha de creación: la extracción solo lee los que conserva, y la muestra se inclina hacia los datos más recientes."
+        },
+        "cost": "Extraerla lee solicitudes de API de {{source}}: {{allowance}}. Tarda unos {{duration}}.",
+        "costRefused": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Extraiga los más recientes primero, o excluya los objetos más grandes.",
+        "whole": "Copiados enteros por sí solos: {{objects}}.",
+        "why": {
+          "referenceData": "datos de referencia emparejados por nombre, nunca escritos",
+          "catalog": "el catálogo de precios, lo bastante pequeño para copiarse entero",
+          "smallParent": "un objeto de pocos registros que nombran registros extraídos",
+          "asked": "pedido"
+        },
+        "settings": "Ajustes de la muestra",
+        "within": {
+          "label": "Como máximo",
+          "hint": "El máximo de MB del almacenamiento de datos del destino que puede ocupar la muestra. Vacío: tanto como quepa en el destino."
+        },
+        "seed": "Semilla {{seed}}",
+        "seedHint": "La misma semilla extrae los mismos registros; Extraer de nuevo extrae otros.",
+        "drawAgain": "Extraer de nuevo",
+        "parents": {
+          "label": "Un registro fuera de la muestra al que nombra una búsqueda opcional",
+          "all": "Copiarlo, sin sus hijos",
+          "required": "Dejar la búsqueda vacía"
+        },
+        "children": {
+          "label": "Hijos por registro y relación",
+          "all": "Todos",
+          "hint": "Los más recientes; un registro principal siempre viene con todos sus detalles."
+        },
+        "wholeList": {
+          "toggle_one": "Copiar enteros: {{formatted}} objeto",
+          "toggle_other": "Copiar enteros: {{formatted}} objetos",
+          "legend": "Objetos que copiar enteros",
+          "hint": "Un objeto copiado entero trae cada uno de sus registros, y ninguno se extrae."
+        },
+        "offerAction": "Copiar una muestra que quepa"
       }
     },
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
@@ -5057,7 +5121,106 @@
       "object": "Objeto",
       "recordsColumn": "Registros",
       "jobsColumn": "Trabajos de Bulk API",
-      "restColumn": "Por REST"
+      "restColumn": "Por REST",
+      "titleSample": "Simulación de una muestra de toda la org",
+      "outsideFilter": "Apartados fuera del filtro",
+      "outsideFilterRows_one": "{{formatted}} registro de {{objects}}: una búsqueda que no puede dejar vacía nombra un registro fuera del filtro de su objeto, así que la ejecución no lo escribe",
+      "outsideFilterRows_other": "{{formatted}} registros de {{objects}}: una búsqueda que no pueden dejar vacía nombra un registro fuera del filtro de su objeto, así que la ejecución no los escribe",
+      "sampleOffer": "Todos los registros ocupan más almacenamiento de datos del que le queda a {{target}}. Una muestra que quepa ocuparía unos {{mb}} MB.",
+      "sample": {
+        "title": "La muestra",
+        "kept": "{{kept}} de los {{total}} registros de {{source}}, de {{objects}} objetos: el {{share}} % de las raíces de cada objeto, semilla {{seed}}, {{draw}}, con los registros que alcanzan.",
+        "taken": "Unos {{taken}} MB de los {{mb}} MB que puede ocupar la muestra ({{terms}}), limitada por {{limit}}.",
+        "takenWhole": "Unos {{taken}} MB de los {{mb}} MB que puede ocupar la muestra ({{terms}}). Todos los registros caben: copiar toda la org es la mejor ejecución.",
+        "terms": {
+          "storage": "el {{share}} % de los {{remaining}} MB que quedan, menos {{rounding}} MB para el redondeo",
+          "within": "los {{within}} MB pedidos",
+          "automation": "{{automation}} MB para lo que crea la automatización del destino"
+        },
+        "limitedBy": {
+          "storage": "el almacenamiento de datos que le queda a {{target}}",
+          "within": "los MB pedidos",
+          "maxTotal": "los registros pedidos",
+          "targetRequests": "las solicitudes de API diarias de {{target}}",
+          "bulkBatches": "los lotes diarios de Bulk API de {{target}}",
+          "sourceRequests": "las solicitudes de API diarias de {{source}}",
+          "whole": "nada: todos los registros caben"
+        },
+        "draw": {
+          "uniform": "repartida por la org",
+          "recent": "los más recientes primero"
+        },
+        "byObject": "Lo que conserva la muestra, por objeto",
+        "column": {
+          "inSource": "En el origen",
+          "kept": "Conservados",
+          "drawn": "Extraídos",
+          "below": "Bajo un padre",
+          "asParents": "Como padre"
+        },
+        "wholeCell": "entero",
+        "whole": "Copiados enteros: {{objects}}.",
+        "childrenCut": "Hijos más allá de {{cap}} por registro y relación, conservados los más recientes, dejados fuera: {{objects}}.",
+        "noRecordDrawn": "Objetos de {{source}} de los que la muestra no conserva ningún registro: {{objects}}.",
+        "inTheSource": "{{object}} ({{rows}} en el origen)",
+        "heavyRoots": "Registros apartados, cada uno de los cuales habría traído más de una décima parte de lo que puede ocupar la muestra: {{records}}.",
+        "heavyRoot": "{{object}} {{id}} (unos {{rows}} registros a través de {{relation}})",
+        "dropped": "Registros que la extracción alcanzó y deja fuera, nunca enviados: {{records}}.",
+        "droppedOf": "{{rows}} de {{object}}, {{reason}}",
+        "dropReason": {
+          "noParentInSource": "un registro sin el que no pueden escribirse no está en el origen",
+          "outsideFilter": "un registro sin el que no pueden escribirse está fuera del filtro de su objeto",
+          "excludedObject": "un registro sin el que no pueden escribirse es de un objeto excluido",
+          "withoutParent": "un registro sin el que no pueden escribirse se deja fuera a su vez",
+          "heldBack": "su tipo de registro está cerrado al usuario con el que escribe la ejecución",
+          "recordTypeNotInTarget": "el destino no tiene su tipo de registro"
+        },
+        "leftEmpty": "Búsquedas escritas vacías, al estar su registro fuera de la muestra: {{fields}}.",
+        "newestByIds": "Los más recientes por el orden de sus ids, al no tener fecha de creación por la que ordene la org: {{objects}}.",
+        "requests": "La extracción envió {{requests}} solicitudes de API a {{source}}.",
+        "plan": "El plan se guarda en este equipo durante un día: {{path}} (SHA-256 {{sha}}…). Ejecutar Forge lo retoma mientras la ejecución esté configurada igual; si no, la ejecución extrae de nuevo y dice por qué."
+      }
+    },
+    "sampleResult": {
+      "title": "La muestra",
+      "drawn": "Extraída con la semilla {{seed}}, {{draw}}: el {{share}} % de las raíces de cada objeto. Plan SHA-256 {{sha}}…, extraído el {{at}}.",
+      "verdict": {
+        "complete": "Cada registro de la muestra se escribió o vinculó.",
+        "completeGone": "Cada registro de la muestra que sigue en {{source}} se escribió o vinculó.",
+        "changed_one": "{{formatted}} registro de la muestra se retuvo: un registro sin el que no puede escribirse cambió desde la muestra.",
+        "changed_other": "{{formatted}} registros de la muestra se retuvieron: un registro sin el que no pueden escribirse cambió desde la muestra.",
+        "short_one": "{{formatted}} registro de la muestra no se escribió: los errores de abajo dicen por qué.",
+        "short_other": "{{formatted}} registros de la muestra no se escribieron: los errores de abajo dicen por qué.",
+        "gone_one": "{{formatted}} había desaparecido de {{source}} desde la muestra: no es un fallo.",
+        "gone_other": "{{formatted}} habían desaparecido de {{source}} desde la muestra: no es un fallo."
+      },
+      "byObject": "Lo que la ejecución escribió de la muestra, por objeto",
+      "object": "{{object}}: {{written}} escritos de {{kept}} en la muestra ({{how}}) de {{rows}} en {{source}}.",
+      "objectBare": "{{object}}: {{written}} escritos de {{kept}} en la muestra, de {{rows}} en {{source}}.",
+      "how": {
+        "whole": "copiado entero",
+        "drawn": "{{rows}} extraídos",
+        "below": "{{rows}} bajo un padre",
+        "asParents": "{{rows}} como padres"
+      },
+      "gone_one": "{{formatted}} desaparecido de {{source}} desde la muestra: no escrito, y no es un fallo.",
+      "gone_other": "{{formatted}} desaparecidos de {{source}} desde la muestra: no escritos, y no es un fallo.",
+      "changed_one": "{{formatted}} retenido: un registro sin el que no puede escribirse cambió desde la muestra.",
+      "changed_other": "{{formatted}} retenidos: un registro sin el que no pueden escribirse cambió desde la muestra."
+    },
+    "sampling": {
+      "at": "Extrayendo la muestra, antes de escribir nada: {{step}}.",
+      "atObject": "Extrayendo la muestra, antes de escribir nada: {{step}} — {{where}}.",
+      "object": "{{object}}, {{done}} de {{total}} objetos",
+      "step": {
+        "counting": "contando los registros de los que cada objeto puede extraer",
+        "drawing": "leyendo los ids de los registros extraídos",
+        "closing": "leyendo los registros que alcanzan y nombran",
+        "fitting": "ajustándola al espacio que tiene el destino",
+        "saving": "guardando su plan en este equipo"
+      },
+      "counts": "{{rows}} registros leídos, {{requests}} solicitudes de API de {{source}}.",
+      "countsPriced": "{{rows}} registros leídos, {{requests}} solicitudes de API de {{source}} de unas {{pricedAt}} previstas."
     }
   },
   "autopilot": {

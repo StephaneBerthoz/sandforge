@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { forgeRunGateStopOf } from '@sandforge/shared';
-import type { ForgeRunGateStop, RunCheckpointInfo } from '@sandforge/shared';
-import { useForgeStore } from '../../stores/useForgeStore';
+import type { ForgeRunGateStop, RunCheckpointInfo, WholeOrgSampleBudget } from '@sandforge/shared';
+import { sampleBudgetOf, useForgeStore } from '../../stores/useForgeStore';
 import { runCheckpointOf } from '../../utils/runCheckpoint';
 
 /**
@@ -24,6 +24,12 @@ export interface ForgeRunGateState {
   /** What became of a checkpoint the run had taken when it stopped, when its error says. */
   checkpoint: RunCheckpointInfo | undefined;
   /**
+   * Of a clone of every record of the whole org refused for its data
+   * storage, what a sample of it may take of the same storage: the notice
+   * offers to copy a sample that fits instead. Undefined for any other stop.
+   */
+  sampleOffer: WholeOrgSampleBudget | undefined;
+  /**
    * Whether the notice has been brought into view and handed the keyboard
    * for this stop. Once per stop: the page drawn again with the same stop —
    * left and come back to — does not scroll to it again.
@@ -32,7 +38,11 @@ export interface ForgeRunGateState {
   /** Keep why a run stopped at its gate, yet to be brought into view. */
   setStop: (
     stop: ForgeRunGateStop,
-    run?: { checkpointAsked: boolean; checkpoint?: RunCheckpointInfo | undefined },
+    run?: {
+      checkpointAsked: boolean;
+      checkpoint?: RunCheckpointInfo | undefined;
+      sampleOffer?: WholeOrgSampleBudget | undefined;
+    },
   ) => void;
   /** Say the notice of this stop has been brought into view. */
   markRevealed: () => void;
@@ -45,12 +55,14 @@ export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
   stop: null,
   checkpointAsked: false,
   checkpoint: undefined,
+  sampleOffer: undefined,
   revealed: false,
   setStop(stop, run) {
     set({
       stop,
       checkpointAsked: run?.checkpointAsked ?? false,
       checkpoint: run?.checkpoint,
+      sampleOffer: stop.code === 'STORAGE_EXCEEDED' ? run?.sampleOffer : undefined,
       revealed: false,
     });
   },
@@ -58,7 +70,13 @@ export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
     set({ revealed: true });
   },
   clear() {
-    set({ stop: null, checkpointAsked: false, checkpoint: undefined, revealed: false });
+    set({
+      stop: null,
+      checkpointAsked: false,
+      checkpoint: undefined,
+      sampleOffer: undefined,
+      revealed: false,
+    });
   },
 }));
 
@@ -80,7 +98,8 @@ export function takeGateStop(event: MessageEvent): void {
   const data = event.data as
     { type?: unknown; correlationId?: unknown; payload?: unknown } | null | undefined;
   if (!data || typeof data !== 'object' || data.type !== 'forge:execute:error') return;
-  const payload = data.payload as { gate?: unknown; checkpoint?: unknown } | undefined;
+  const payload = data.payload as
+    { gate?: unknown; checkpoint?: unknown; sampleOffer?: unknown } | undefined;
   const stop = forgeRunGateStopOf(payload?.gate);
   if (!stop) return;
   const forge = useForgeStore.getState();
@@ -89,6 +108,7 @@ export function takeGateStop(event: MessageEvent): void {
     // As the run was sent: Review's option has not moved since, it is not on screen.
     checkpointAsked: forge.checkpointFirst,
     checkpoint: runCheckpointOf(payload?.checkpoint),
+    sampleOffer: sampleBudgetOf(payload?.sampleOffer),
   });
   if (forge.retrying && forge.result) forge.backToResults();
   else forge.reviewAgain();

@@ -4104,7 +4104,8 @@
       "maxSize": "Plus gros fichier copié (Mo)",
       "maxSizeHint": "De 1 à {{max}} Mo, ce qu'un appel à Salesforce transporte. Un fichier plus gros est laissé de côté et listé, jamais tronqué. Avant toute écriture, l'ensemble des fichiers est comparé au stockage de fichiers qui reste à l'org cible.",
       "asIsWarning": "Cette exécution anonymise ses enregistrements, et le contenu d'un fichier ne peut pas être anonymisé.",
-      "asIsAccept": "J'accepte que les fichiers soient copiés tels qu'ils sont"
+      "asIsAccept": "J'accepte que les fichiers soient copiés tels qu'ils sont",
+      "sampleNone": "Un échantillon de toute l'org ne copie encore aucun fichier : quels fichiers ont ses enregistrements, et ce qu'ils occuperaient, n'est pas tiré."
     },
     "phaseName": {
       "input": "Ce qu'il faut cloner",
@@ -4179,7 +4180,9 @@
     },
     "depthAllTooltip": "Chaque enregistrement de chaque objet que l'org source laisse lire à Forge et que la cible le laisse créer",
     "depthAllHint": "ALL copie toute l'org source : chaque objet que la cible peut créer, chaque enregistrement de chacun, sans plafond. Les objets que Salesforce ne laisse pas créer par l'API sont écartés, et la revue les nomme. Les fichiers ne sont copiés que si vous les cochez dans la revue.",
-    "allPreviewRealData": "{{source}} contient les données de vraies personnes — une org de production, ou une sandbox marquée Staging : un clonage de toute cette org anonymise leurs champs personnels, sauf si vous décochez Anonymiser les PII."
+    "allPreviewRealData": "{{source}} contient les données de vraies personnes — une org de production, ou une sandbox marquée Staging : un clonage de toute cette org anonymise leurs champs personnels, sauf si vous décochez Anonymiser les PII.",
+    "recordLimitSample": "Un échantillon qui tient dans la cible",
+    "recordLimitSampleHint": "Des enregistrements tirés de chaque objet, avec leurs enfants et les enregistrements qu'ils nomment, autant que la cible a de place : aucun sans un enregistrement dont il a besoin. La revue lit la place, et règle comment ils sont tirés."
   },
   "forgeRun": {
     "rehearsal": {
@@ -4334,7 +4337,9 @@
       "sampleTargetMoved": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'échantillon a été ajusté à {{fitted}} Mo du stockage de données de l'org cible, et ce qu'il lui reste maintenant en contient {{holds}} Mo. Simulez de nouveau pour tirer un échantillon qui tient.",
       "sampleCannotFitNamed": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient. Les objets copiés en entier et le premier enregistrement tiré de chaque objet occupent à eux seuls plus que ce que l'échantillon peut prendre ; les plus lourds : {{heaviest}}. Excluez des objets, ou copiez-en moins en entier, dans la revue, ou laissez l'échantillon prendre davantage.",
       "sampleTooLargeUnsized": "Le clonage a été refusé avant d'écrire quoi que ce soit : le tirage de l'échantillon a lu plus d'enregistrements qu'il n'en garde à la fois. Laissez l'échantillon prendre moins, ou excluez des objets ou lisez-les à travers un filtre dans la revue.",
-      "samplePlanMismatchResume": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'exécution qu'il reprend était réglée autrement, un échantillon là où celle-ci copie chaque enregistrement, ou chaque enregistrement là où celle-ci copie un échantillon. Reprenez-la telle qu'elle était réglée."
+      "samplePlanMismatchResume": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'exécution qu'il reprend était réglée autrement, un échantillon là où celle-ci copie chaque enregistrement, ou chaque enregistrement là où celle-ci copie un échantillon. Reprenez-la telle qu'elle était réglée.",
+      "simulateAgain": "Simuler de nouveau",
+      "sampleOffer": "Un échantillon qui tient en occuperait environ {{mb}} Mo."
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -4637,7 +4642,9 @@
         "oneRecord_one": "Copier un enregistrement et ce qu'il atteint dans {{count}} objet, de {{source}} vers {{target}}.",
         "oneRecord_other": "Copier un enregistrement et ce qu'il atteint dans {{count}} objets, de {{source}} vers {{target}}.",
         "wholeOrg_one": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrement compté dans {{objects}} objets.",
-        "wholeOrg_other": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrements comptés dans {{objects}} objets."
+        "wholeOrg_other": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrements comptés dans {{objects}} objets.",
+        "sample_one": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrement compté dans {{objects}} objets.",
+        "sample_other": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrements comptés dans {{objects}} objets."
       },
       "left": {
         "none": "Il ne reste rien à décider.",
@@ -4708,6 +4715,63 @@
         "aboutRecords_one": "environ {{formatted}} enregistrement",
         "aboutRecords_other": "environ {{formatted}} enregistrements",
         "emptyFirstAction": "Vider d'abord ces objets"
+      },
+      "sample": {
+        "wholeOrg": {
+          "reading": "Lecture de ce qu'il reste à {{target}} de son stockage de données…",
+          "failed": "Ce qu'il reste à {{target}} de son stockage de données n'a pas pu être lu : {{message}}",
+          "fits": "Tous les enregistrements occupent environ {{estimate}} Mo du stockage de données de {{target}}, à qui il reste {{remaining}} Mo sur {{max}} Mo.",
+          "near": "Tous les enregistrements occupent environ {{estimate}} Mo du stockage de données de {{target}}, à qui il reste {{remaining}} Mo sur {{max}} Mo : plus de 80 % de ce qui reste.",
+          "exceeds": "Tous les enregistrements occupent environ {{estimate}} Mo du stockage de données de {{target}}, à qui il reste {{remaining}} Mo : le clonage serait refusé.",
+          "unread": "Tous les enregistrements occupent environ {{estimate}} Mo de stockage de données ; ce qu'il reste à {{target}} n'a pas pu être lu : {{reason}}",
+          "offer": "Un échantillon qui tient occuperait environ {{mb}} Mo."
+        },
+        "budget": {
+          "storage": "L'échantillon peut prendre environ {{mb}} Mo : {{share}} % des {{remaining}} Mo qu'il reste à {{target}}, {{rounding}} Mo mis de côté pour les arrondis.",
+          "within": "L'échantillon peut prendre environ {{mb}} Mo, les Mo demandés dans Réglages de l'échantillon.",
+          "unread": "{{target}} n'a pas dit ce qu'il lui reste de stockage de données : indiquez les Mo que l'échantillon peut prendre, dans Réglages de l'échantillon, sinon le clonage est refusé."
+        },
+        "draw": {
+          "label": "Tirage",
+          "uniform": "Réparti sur l'org",
+          "recent": "Les plus récents d'abord",
+          "uniformHint": "Des enregistrements tirés dans tout chaque objet par un hachage de leurs ids, à graine : le tirage lit l'id de chaque enregistrement qu'il peut tirer, et l'échantillon représente toute l'org.",
+          "recentHint": "Les enregistrements créés en dernier, selon leur date de création : le tirage ne lit que ceux qu'il garde, et l'échantillon penche vers les données les plus récentes."
+        },
+        "cost": "Le tirer lit des requêtes API de {{source}} : {{allowance}}. Cela prend environ {{duration}}.",
+        "costRefused": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Tirez les plus récents d'abord, ou excluez les plus gros objets.",
+        "whole": "Copiés en entier d'office : {{objects}}.",
+        "why": {
+          "referenceData": "données de référence appariées par nom, jamais écrites",
+          "catalog": "le catalogue de prix, assez petit pour être copié en entier",
+          "smallParent": "un objet de peu d'enregistrements que des enregistrements tirés nomment",
+          "asked": "demandé"
+        },
+        "settings": "Réglages de l'échantillon",
+        "within": {
+          "label": "Au plus",
+          "hint": "Le plus de Mo du stockage de données de la cible que l'échantillon peut prendre. Vide : autant que la cible a de place."
+        },
+        "seed": "Graine {{seed}}",
+        "seedHint": "La même graine tire les mêmes enregistrements ; Tirer à nouveau en tire d’autres.",
+        "drawAgain": "Tirer à nouveau",
+        "parents": {
+          "label": "Un enregistrement hors de l'échantillon nommé par une recherche facultative",
+          "all": "Le copier, sans ses enfants",
+          "required": "Laisser la recherche vide"
+        },
+        "children": {
+          "label": "Enfants par enregistrement et par relation",
+          "all": "Tous",
+          "hint": "Les plus récents ; un enregistrement principal vient toujours avec tous ses détails."
+        },
+        "wholeList": {
+          "toggle_one": "Copier en entier : {{formatted}} objet",
+          "toggle_other": "Copier en entier : {{formatted}} objets",
+          "legend": "Objets à copier en entier",
+          "hint": "Un objet copié en entier apporte chacun de ses enregistrements, et aucun n'en est tiré."
+        },
+        "offerAction": "Copier un échantillon qui tient"
       }
     },
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
@@ -5057,7 +5121,106 @@
       "object": "Objet",
       "recordsColumn": "Enregistrements",
       "jobsColumn": "Tâches Bulk API",
-      "restColumn": "Par REST"
+      "restColumn": "Par REST",
+      "titleSample": "Simulation d'un échantillon de toute l'org",
+      "outsideFilter": "Mis de côté hors du filtre",
+      "outsideFilterRows_one": "{{formatted}} enregistrement de {{objects}} : une recherche qu'il ne peut laisser vide nomme un enregistrement hors du filtre de son objet, donc le clonage ne l'écrit pas",
+      "outsideFilterRows_other": "{{formatted}} enregistrements de {{objects}} : une recherche qu'ils ne peuvent laisser vide nomme un enregistrement hors du filtre de son objet, donc le clonage ne les écrit pas",
+      "sampleOffer": "Tous les enregistrements occupent plus de stockage de données qu'il n'en reste à {{target}}. Un échantillon qui tient occuperait environ {{mb}} Mo.",
+      "sample": {
+        "title": "L'échantillon",
+        "kept": "{{kept}} des {{total}} enregistrements de {{source}}, de {{objects}} objets : {{share}} % des racines de chaque objet, graine {{seed}}, {{draw}}, avec les enregistrements qu'elles atteignent.",
+        "taken": "Environ {{taken}} Mo des {{mb}} Mo que l'échantillon peut prendre ({{terms}}), limité par {{limit}}.",
+        "takenWhole": "Environ {{taken}} Mo des {{mb}} Mo que l'échantillon peut prendre ({{terms}}). Tous les enregistrements tiennent : copier toute l'org est le meilleur clonage.",
+        "terms": {
+          "storage": "{{share}} % des {{remaining}} Mo restants, {{rounding}} Mo ôtés pour les arrondis",
+          "within": "les {{within}} Mo demandés",
+          "automation": "{{automation}} Mo pour ce que crée l'automatisation de la cible"
+        },
+        "limitedBy": {
+          "storage": "le stockage de données qui reste à {{target}}",
+          "within": "les Mo demandés",
+          "maxTotal": "les enregistrements demandés",
+          "targetRequests": "les requêtes API quotidiennes de {{target}}",
+          "bulkBatches": "les lots Bulk API quotidiens de {{target}}",
+          "sourceRequests": "les requêtes API quotidiennes de {{source}}",
+          "whole": "rien : chaque enregistrement tient"
+        },
+        "draw": {
+          "uniform": "réparti sur l'org",
+          "recent": "les plus récents d'abord"
+        },
+        "byObject": "Ce que garde l'échantillon, par objet",
+        "column": {
+          "inSource": "Dans la source",
+          "kept": "Gardés",
+          "drawn": "Tirés",
+          "below": "Sous un parent",
+          "asParents": "Comme parent"
+        },
+        "wholeCell": "entier",
+        "whole": "Copiés en entier : {{objects}}.",
+        "childrenCut": "Enfants au-delà de {{cap}} par enregistrement et par relation, les plus récents gardés, laissés de côté : {{objects}}.",
+        "noRecordDrawn": "Objets de {{source}} dont l'échantillon ne garde aucun enregistrement : {{objects}}.",
+        "inTheSource": "{{object}} ({{rows}} dans la source)",
+        "heavyRoots": "Enregistrements mis de côté, chacun ayant amené plus d'un dixième de ce que l'échantillon peut prendre : {{records}}.",
+        "heavyRoot": "{{object}} {{id}} (environ {{rows}} enregistrements par {{relation}})",
+        "dropped": "Enregistrements que le tirage a atteints et laisse de côté, jamais envoyés : {{records}}.",
+        "droppedOf": "{{rows}} de {{object}}, {{reason}}",
+        "dropReason": {
+          "noParentInSource": "un enregistrement sans lequel ils ne peuvent être écrits n'est pas dans la source",
+          "outsideFilter": "un enregistrement sans lequel ils ne peuvent être écrits est hors du filtre de son objet",
+          "excludedObject": "un enregistrement sans lequel ils ne peuvent être écrits est d'un objet exclu",
+          "withoutParent": "un enregistrement sans lequel ils ne peuvent être écrits est lui-même laissé de côté",
+          "heldBack": "leur type d'enregistrement est fermé à l'utilisateur sous lequel le clonage écrit",
+          "recordTypeNotInTarget": "la cible n'a pas leur type d'enregistrement"
+        },
+        "leftEmpty": "Recherches écrites vides, leur enregistrement étant hors de l'échantillon : {{fields}}.",
+        "newestByIds": "Les plus récents dans l'ordre de leurs ids, faute de date de création selon laquelle l'org trie : {{objects}}.",
+        "requests": "Le tirage a envoyé {{requests}} requêtes API à {{source}}.",
+        "plan": "Le plan est gardé sur cette machine pendant un jour : {{path}} (SHA-256 {{sha}}…). Exécuter le Forge le reprend tant que le clonage est réglé de même ; sinon le clonage tire à nouveau, et dit pourquoi."
+      }
+    },
+    "sampleResult": {
+      "title": "L'échantillon",
+      "drawn": "Tiré avec la graine {{seed}}, {{draw}} : {{share}} % des racines de chaque objet. Plan SHA-256 {{sha}}…, tiré le {{at}}.",
+      "verdict": {
+        "complete": "Chaque enregistrement de l'échantillon a été écrit ou lié.",
+        "completeGone": "Chaque enregistrement de l'échantillon encore dans {{source}} a été écrit ou lié.",
+        "changed_one": "{{formatted}} enregistrement de l'échantillon a été retenu : un enregistrement sans lequel il ne peut être écrit a changé depuis l'échantillon.",
+        "changed_other": "{{formatted}} enregistrements de l'échantillon ont été retenus : un enregistrement sans lequel ils ne peuvent être écrits a changé depuis l'échantillon.",
+        "short_one": "{{formatted}} enregistrement de l'échantillon n'a pas été écrit : les erreurs ci-dessous disent pourquoi.",
+        "short_other": "{{formatted}} enregistrements de l'échantillon n'ont pas été écrits : les erreurs ci-dessous disent pourquoi.",
+        "gone_one": "{{formatted}} avait disparu de {{source}} depuis l'échantillon : aucun échec.",
+        "gone_other": "{{formatted}} avaient disparu de {{source}} depuis l'échantillon : aucun échec."
+      },
+      "byObject": "Ce que le clonage a écrit de l'échantillon, par objet",
+      "object": "{{object}} : {{written}} écrits sur {{kept}} dans l'échantillon ({{how}}) sur {{rows}} dans {{source}}.",
+      "objectBare": "{{object}} : {{written}} écrits sur {{kept}} dans l'échantillon, sur {{rows}} dans {{source}}.",
+      "how": {
+        "whole": "copié en entier",
+        "drawn": "{{rows}} tirés",
+        "below": "{{rows}} sous un parent",
+        "asParents": "{{rows}} comme parents"
+      },
+      "gone_one": "{{formatted}} disparu de {{source}} depuis l'échantillon : pas écrit, et aucun échec.",
+      "gone_other": "{{formatted}} disparus de {{source}} depuis l'échantillon : pas écrits, et aucun échec.",
+      "changed_one": "{{formatted}} retenu : un enregistrement sans lequel il ne peut être écrit a changé depuis l'échantillon.",
+      "changed_other": "{{formatted}} retenus : un enregistrement sans lequel ils ne peuvent être écrits a changé depuis l'échantillon."
+    },
+    "sampling": {
+      "at": "Tirage de l'échantillon, avant toute écriture : {{step}}.",
+      "atObject": "Tirage de l'échantillon, avant toute écriture : {{step}} — {{where}}.",
+      "object": "{{object}}, {{done}} objets sur {{total}}",
+      "step": {
+        "counting": "compte des enregistrements que chaque objet peut tirer",
+        "drawing": "lecture des ids des enregistrements tirés",
+        "closing": "lecture des enregistrements qu'ils atteignent et nomment",
+        "fitting": "ajustement à la place qu'a la cible",
+        "saving": "conservation de son plan sur cette machine"
+      },
+      "counts": "{{rows}} enregistrements lus, {{requests}} requêtes API de {{source}}.",
+      "countsPriced": "{{rows}} enregistrements lus, {{requests}} requêtes API de {{source}} sur environ {{pricedAt}} chiffrées."
     }
   },
   "autopilot": {

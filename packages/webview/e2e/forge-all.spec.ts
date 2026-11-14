@@ -155,7 +155,9 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('forge-tab-soql')).toBeDisabled();
       await expect(page.getByTestId('forge-input-all-note')).toBeVisible();
       await expect(page.getByTestId('forge-max-nodes')).toBeDisabled();
-      await expect(page.getByTestId('forge-record-limit')).toBeDisabled();
+      // Every record, or a sample that fits the target: a choice, never greyed.
+      await expect(page.getByTestId('forge-record-limit')).toBeEnabled();
+      await expect(page.getByTestId('forge-record-limit')).toHaveValue('every');
       await expect(page.getByTestId('forge-clone-directly-btn')).toBeDisabled();
       await expect(page.getByTestId('forge-discover-btn')).toBeEnabled();
       const results = await checkAccessibility(page);

@@ -8,10 +8,14 @@ import {
   type ForgeWholeOrgDryRun as WholeOrgDryRun,
   type ForgeWholeOrgRefusal,
   type ForgeWholeOrgStorageCheck,
+  type WholeOrgSampleBudget,
 } from '@sandforge/shared';
 import { formatEstimateSec, uiLocale } from '../../utils/formatters';
+import { Button } from '../../components/ui/Button';
 import { gateStopSentence } from './ForgeRunGateNotice';
 import { leftOutReasonLabel } from './forgeLeftOut';
+import { ForgeWholeOrgSample } from './ForgeWholeOrgSample';
+import { mbOf } from './sampleWords';
 
 /** Props for {@link ForgeWholeOrgDryRunResult}. */
 export interface ForgeWholeOrgDryRunResultProps {
@@ -21,6 +25,13 @@ export interface ForgeWholeOrgDryRunResultProps {
   target: string;
   /** The run was to take a checkpoint first, which its requests count. */
   checkpointAsked: boolean;
+  /**
+   * Of a dry run of every record past the data storage the target has left,
+   * what a sample of the whole org may take of it: offered instead.
+   */
+  sampleOffer?: WholeOrgSampleBudget | null;
+  /** Take the offer: back to Review, a sample that fits chosen. */
+  onCopySample?: () => void;
 }
 
 /** A number in the interface language. */
@@ -29,7 +40,7 @@ function n(value: number): string {
 }
 
 /** What an allowance of the day comes to: what the run takes against what is left, or why that is not known. */
-function allowanceWords(t: TFunction, check: ForgeWholeOrgAllowanceCheck): string {
+export function allowanceWords(t: TFunction, check: ForgeWholeOrgAllowanceCheck): string {
   if (check.verdict === 'unread') {
     return t('forgeRun.wholeOrgDryRun.allowanceUnread', {
       estimate: n(check.estimate),
@@ -71,6 +82,7 @@ function refusalWords(
     ...(refusal.storage ? { storage: refusal.storage } : {}),
     ...(refusal.api ? { api: refusal.api } : {}),
     ...(refusal.readBound ? { readBound: refusal.readBound } : {}),
+    ...(refusal.sample ? { sample: refusal.sample } : {}),
     ...(refusal.refusal ? { reason: refusal.refusal.code } : {}),
   });
   return stop ? gateStopSentence(t, stop, { checkpointAsked, wholeOrg: true }) : refusal.message;
@@ -90,6 +102,8 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
   source,
   target,
   checkpointAsked,
+  sampleOffer,
+  onCopySample,
 }) => {
   const { t } = useTranslation();
   const tableId = useId();
@@ -110,7 +124,7 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
   // none of or under a record held back, and what it leaves aside, its parent
   // not in the source: counted out as the run will not write them, and said.
   const rowsOf = (
-    kind: 'recordTypeNotInTarget' | 'withoutParent' | 'noParentInSource',
+    kind: 'recordTypeNotInTarget' | 'withoutParent' | 'noParentInSource' | 'outsideFilter',
     id: string,
     key: string,
     label: string,
@@ -211,6 +225,14 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
       'forgeRun.wholeOrgDryRun.leftAsideRows',
       'forgeRun.wholeOrgDryRun.leftAside',
     ),
+    // Of a sample, what a lookup it needs names outside its object's filter:
+    // dropped by the plan, never sent.
+    ...rowsOf(
+      'outsideFilter',
+      'outside-filter',
+      'forgeRun.wholeOrgDryRun.outsideFilterRows',
+      'forgeRun.wholeOrgDryRun.outsideFilter',
+    ),
     {
       id: 'personal',
       label: t('forgeRun.wholeOrgDryRun.personalAsIs'),
@@ -232,9 +254,32 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
       className="flex flex-col gap-3 rounded-md border border-subtle bg-surface-1 px-3 py-3 text-xs text-text-primary"
     >
       <h3 id={`${tableId}-title`} className="text-sm font-semibold">
-        {t('forgeRun.wholeOrgDryRun.title')}
+        {t(dry.sample ? 'forgeRun.wholeOrgDryRun.titleSample' : 'forgeRun.wholeOrgDryRun.title')}
       </h3>
       <p className="text-text-secondary">{t('forgeRun.wholeOrgDryRun.stopped')}</p>
+      {/* What the sample drew, said first: the counts below are its plan's. */}
+      {dry.sample && <ForgeWholeOrgSample sample={dry.sample} source={source} target={target} />}
+      {/* Every record past what the target has left: a sample that fits, offered. */}
+      {!dry.sample && sampleOffer && (
+        <div
+          data-testid="forge-whole-org-dry-run-sample-offer"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2"
+        >
+          <p className="flex-1">
+            {t('forgeRun.wholeOrgDryRun.sampleOffer', { target, mb: mbOf(sampleOffer.bytes) })}
+          </p>
+          {onCopySample && (
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-whole-org-dry-run-copy-sample"
+              onClick={onCopySample}
+            >
+              {t('forgeRun.review.sample.offerAction')}
+            </Button>
+          )}
+        </div>
+      )}
       <p data-testid="forge-whole-org-dry-run-records">
         {t('forgeRun.wholeOrgDryRun.records', {
           count: dry.totalRows,

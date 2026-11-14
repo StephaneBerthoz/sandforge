@@ -9,7 +9,10 @@ import type {
   ForgePlan,
   ForgePlanResponse,
   ForgeAnonymizationCategory,
+  ForgeSampleOptions,
+  ForgeSamplingProgress,
   ForgeWholeOrgDryRun,
+  WholeOrgSampleBudget,
 } from '@sandforge/shared';
 import type {
   AnonymizationMethod,
@@ -433,6 +436,8 @@ const INITIAL_STATE = {
   reviewSkipped: false,
   simulation: false,
   wholeOrgDryRun: null as ForgeWholeOrgDryRun | null,
+  sampleOffer: null as WholeOrgSampleBudget | null,
+  sampling: null as ForgeSamplingProgress | null,
   retrying: null as ForgeRetryOrigin | null,
   wholeOrgAgain: null as ForgeWholeOrgAgain | null,
 };
@@ -761,6 +766,33 @@ export interface ForgeState {
    * its run would meet. Null for every other run, and once a run starts.
    */
   wholeOrgDryRun: ForgeWholeOrgDryRun | null;
+  /**
+   * Of the dry run on screen of a clone of every record of the whole org
+   * whose records take more data storage than the target has left, what a
+   * sample of it may take: the offer to copy a sample that fits instead.
+   * Null otherwise, and once a run starts.
+   */
+  sampleOffer: WholeOrgSampleBudget | null;
+  /**
+   * Where the drawing of the sample of the run on screen stands, before its
+   * gate: it reads the source for minutes, and writes no object meanwhile.
+   * Null for any other run, and once the run reports on its first object or
+   * answers.
+   */
+  sampling: ForgeSamplingProgress | null;
+  /**
+   * Copy a sample of the whole org that fits the target, with `options`, or
+   * every record (`undefined`), as Review's choice says: the config keeps
+   * what Review has read, as `updateConfig` does. A sample copies no file:
+   * the copy of the files goes off with its acceptance. Only on a clone of
+   * the whole org: one walked from a root has no sample to copy.
+   */
+  setSample: (options: ForgeSampleOptions | undefined) => void;
+  /**
+   * The offer of a sample taken, from the results of a simulation of every
+   * record: back to Review, the run set to copy a sample at its defaults.
+   */
+  copySampleInstead: () => void;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -823,6 +855,7 @@ export interface ForgeState {
     requestId: unknown,
     result: ForgeExecutionResult | undefined,
     wholeOrgDryRun?: ForgeWholeOrgDryRun,
+    sampleOffer?: WholeOrgSampleBudget,
   ) => void;
   /** Replace the template list with the one the extension keeps. */
   setTemplates: (templates: ForgeTemplate[]) => void;
@@ -1039,6 +1072,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       reviewSkipped: false,
       simulation: false,
       wholeOrgDryRun: null,
+      sampleOffer: null,
+      sampling: null,
       retrying: null,
       runClock:
         executionRequestId === null
@@ -1106,6 +1141,8 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     // The extension flushes the last throttled event after the error: the
     // run has ended by then.
     if (!ofRunOnScreen(state, requestId) || state.runError) return;
+    // The drawing of a sample is over once the run reports on an object.
+    if (state.sampling) set({ sampling: null });
     const { objectName, status, progress } = update;
     state.updateNodeStatus(objectName, status, progress);
     // Counts ride the same event once the run has read the object: the
@@ -1155,6 +1192,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         // An abort asked for is answered here, with what the run wrote.
         stopRequestedAt: null,
         runClock: endedClock(state.runClock),
+        sampling: null,
       };
     });
   },
@@ -1232,6 +1270,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         runClock: null,
         simulation: false,
         wholeOrgDryRun: null,
+        sampleOffer: null,
         ...(state.graph ? { graph: { ...state.graph, nodes: idleNodes(state.graph.nodes) } } : {}),
         statusesBeyondGraph: {},
       };
@@ -1428,6 +1467,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     requestId: unknown,
     result: ForgeExecutionResult | undefined,
     wholeOrgDryRun?: ForgeWholeOrgDryRun,
+    sampleOffer?: WholeOrgSampleBudget,
   ): void {
     set((state) => {
       if (!ofRunOnScreen(state, requestId)) return state;
@@ -1446,6 +1486,9 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
           // Back on Review, the option says what this simulation found.
           checkpointEstimate: runCheckpointEstimateOf(result.checkpoint) ?? null,
           wholeOrgDryRun: wholeOrgDryRun ?? null,
+          // A sample is offered of a simulation of every record alone.
+          sampleOffer: wholeOrgDryRun && sampleOffer ? sampleOffer : null,
+          sampling: null,
         };
       }
       return {
@@ -1453,6 +1496,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         result: result ?? null,
         stopRequestedAt: null,
         runClock: endedClock(state.runClock),
+        sampling: null,
         // A retry that answered is the run on screen now: its results replace
         // the ones it was started from.
         retrying: null,
@@ -1530,6 +1574,30 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   updateConfig(change: (config: ForgeConfig) => ForgeConfig): void {
     set((state) => (state.config ? { config: change(state.config) } : state));
+  },
+
+  setSample(options: ForgeSampleOptions | undefined): void {
+    set((state) => {
+      const { config } = state;
+      if (!config || config.inputMode !== 'org' || config.depth !== 'all') return state;
+      if (options === undefined) {
+        const everyRecord = { ...config };
+        delete everyRecord.sample;
+        return { config: everyRecord };
+      }
+      return {
+        config: { ...config, sample: options },
+        // The extension refuses a sample with files: which files it would
+        // copy, and what they would take, is not drawn.
+        fileCopy: { ...state.fileCopy, enabled: false, acceptedAsIs: false },
+      };
+    });
+  },
+
+  copySampleInstead(): void {
+    if (get().phase !== 'results') return;
+    get().reviewSimulation();
+    get().setSample({});
   },
 
   setAnonymizationRule(category: ForgeAnonymizationCategory, method: AnonymizationMethod): void {
@@ -1665,6 +1733,58 @@ function wholeOrgDryRunOf(value: unknown): ForgeWholeOrgDryRun | undefined {
   return read ? (value as ForgeWholeOrgDryRun) : undefined;
 }
 
+/** The steps the drawing of a sample goes through, as `ForgeSamplingProgress` names them. */
+const SAMPLING_STEPS: ReadonlySet<string> = new Set([
+  'counting',
+  'drawing',
+  'closing',
+  'fitting',
+  'saving',
+]);
+
+/**
+ * Where the drawing of a sample stands, read as the untrusted payload of a
+ * message: undefined unless it names a step and counts what it read.
+ */
+function samplingProgressOf(value: unknown): ForgeSamplingProgress | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const event = value as Record<string, unknown>;
+  const count = (key: string): number | undefined =>
+    typeof event[key] === 'number' && Number.isFinite(event[key]) ? event[key] : undefined;
+  const rows = count('rows');
+  const requests = count('requests');
+  if (typeof event.step !== 'string' || !SAMPLING_STEPS.has(event.step)) return undefined;
+  if (rows === undefined || requests === undefined) return undefined;
+  const done = count('done');
+  const total = count('total');
+  const pricedAt = count('pricedAt');
+  return {
+    step: event.step as ForgeSamplingProgress['step'],
+    ...(typeof event.objectApiName === 'string' && event.objectApiName !== ''
+      ? { objectApiName: event.objectApiName }
+      : {}),
+    ...(done !== undefined ? { done } : {}),
+    ...(total !== undefined ? { total } : {}),
+    rows,
+    requests,
+    ...(pricedAt !== undefined ? { pricedAt } : {}),
+  };
+}
+
+/**
+ * What a sample of the whole org may take, read as the untrusted field of a
+ * message: undefined unless it holds the bytes and the bound that gives them.
+ */
+export function sampleBudgetOf(value: unknown): WholeOrgSampleBudget | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const budget = value as Record<string, unknown>;
+  return typeof budget.bytes === 'number' &&
+    Number.isFinite(budget.bytes) &&
+    typeof budget.limitedBy === 'string'
+    ? (value as WholeOrgSampleBudget)
+    : undefined;
+}
+
 /**
  * What the extension says of a run — its progress, its answer, its error —
  * taken here rather than by a screen.
@@ -1692,14 +1812,27 @@ function takeRunMessage(event: MessageEvent): void {
     if (update) store.takeProgress(data.correlationId, update);
     return;
   }
+  if (data.type === 'forge:sampling:progress') {
+    const sampling = samplingProgressOf(data.payload);
+    if (sampling && ofRunOnScreen(store, data.correlationId) && !store.runError) {
+      useForgeStore.setState({ sampling });
+    }
+    return;
+  }
   if (data.type !== 'forge:execute:response' && data.type !== 'forge:execute:error') return;
   // Whichever run it ends, this panel's or another's, the extension keeps it
   // in its history before it says so: the recent runs are read again.
   useForgeStore.setState((state) => ({ runsEnded: state.runsEnded + 1 }));
   if (data.type === 'forge:execute:response') {
     const payload = data.payload as
-      { result?: ForgeExecutionResult; wholeOrgDryRun?: unknown } | undefined;
-    store.finishRun(data.correlationId, payload?.result, wholeOrgDryRunOf(payload?.wholeOrgDryRun));
+      | { result?: ForgeExecutionResult; wholeOrgDryRun?: unknown; sampleOffer?: unknown }
+      | undefined;
+    store.finishRun(
+      data.correlationId,
+      payload?.result,
+      wholeOrgDryRunOf(payload?.wholeOrgDryRun),
+      sampleBudgetOf(payload?.sampleOffer),
+    );
   } else {
     const payload = (data.payload ?? {}) as {
       message?: unknown;

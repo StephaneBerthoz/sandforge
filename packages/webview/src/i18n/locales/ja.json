@@ -3901,7 +3901,8 @@
       "maxSize": "コピーする最大ファイルサイズ (MB)",
       "maxSizeHint": "1 〜 {{max}} MB。Salesforce への 1 回の呼び出しで運べる量です。これより大きいファイルは除外して一覧に示し、途中で切ることはありません。何かを書き込む前に、ファイルの合計をターゲット組織の残りのファイルストレージと照合します。",
       "asIsWarning": "この実行はレコードを匿名化しますが、ファイルの内容は匿名化できません。",
-      "asIsAccept": "ファイルがそのままの状態でコピーされることを承認します"
+      "asIsAccept": "ファイルがそのままの状態でコピーされることを承認します",
+      "sampleNone": "組織全体のサンプルはまだファイルをコピーしません。レコードが持つファイルとその使用量は抽出の対象外です。"
     },
     "phaseName": {
       "input": "クローンする対象",
@@ -3974,7 +3975,9 @@
     },
     "depthAllTooltip": "ソース組織が Forge に読み取りを許し、ターゲットが作成を許すすべてのオブジェクトのすべてのレコード",
     "depthAllHint": "ALL はソース組織全体をコピーします。ターゲットが作成できるすべてのオブジェクトの全レコードを、上限なしでコピーします。Salesforce が API での作成を許さないオブジェクトは除外され、確認画面にその名前が表示されます。ファイルは、確認画面でチェックした場合にのみコピーされます。",
-    "allPreviewRealData": "{{source}} には実在の人物のデータがあります (本番組織、または Staging とマークされた Sandbox)。この組織全体のクローンでは、「PII を匿名化」のチェックを外さない限り、個人情報の項目が匿名化されます。"
+    "allPreviewRealData": "{{source}} には実在の人物のデータがあります (本番組織、または Staging とマークされた Sandbox)。この組織全体のクローンでは、「PII を匿名化」のチェックを外さない限り、個人情報の項目が匿名化されます。",
+    "recordLimitSample": "ターゲットに収まるサンプル",
+    "recordLimitSampleHint": "各オブジェクトから抽出したレコードを、その子レコードと参照先のレコードとともに、ターゲットに入るだけコピーします。必要なレコードを欠いたものは残しません。確認画面で空き容量を読み取り、抽出方法を設定します。"
   },
   "forgeRun": {
     "rehearsal": {
@@ -4127,7 +4130,9 @@
       "sampleTargetMoved": "書き込みの前に実行は拒否されました: サンプルはターゲット組織のデータストレージ {{fitted}} MB に合わせて抽出されましたが、現在の残りではサンプルに {{holds}} MB しか使えません。もう一度シミュレーションして収まるサンプルを抽出してください。",
       "sampleCannotFitNamed": "書き込みの前に実行は拒否されました: 収まるサンプルがありません。全件コピーするオブジェクトと各オブジェクトで最初に抽出したレコードだけで、サンプルが使用できる量を超えます。最も重いもの: {{heaviest}}。確認画面でオブジェクトを除外するか全件コピーを減らすか、サンプルの使用量を増やしてください。",
       "sampleTooLargeUnsized": "書き込みの前に実行は拒否されました: サンプルの抽出で、一度に保持できる数を超えるレコードを読み取りました。サンプルの使用量を減らすか、確認画面でオブジェクトを除外するかフィルターを通して読み取ってください。",
-      "samplePlanMismatchResume": "書き込みの前に実行は拒否されました: 再開する実行の設定が異なります (この実行が全件をコピーするのにサンプルだった、またはこの実行がサンプルをコピーするのに全件だった)。設定どおりに再開してください。"
+      "samplePlanMismatchResume": "書き込みの前に実行は拒否されました: 再開する実行の設定が異なります (この実行が全件をコピーするのにサンプルだった、またはこの実行がサンプルをコピーするのに全件だった)。設定どおりに再開してください。",
+      "simulateAgain": "もう一度シミュレーション",
+      "sampleOffer": "収まるサンプルならそのうち約 {{mb}} MB です。"
     },
     "executionTable": {
       "leftOut": "除外",
@@ -4379,7 +4384,8 @@
         "atMost_other": "{{source}} から {{target}} へ最大 {{formatted}} 件のレコードをコピーします。",
         "notCounted_other": "{{source}} から {{target}} へ {{count}} 個のオブジェクトのレコードをコピーします。",
         "oneRecord_other": "{{source}} から {{target}} へ、1 件のレコードとそれが {{count}} 個のオブジェクトで参照するものをコピーします。",
-        "wholeOrg_other": "{{source}} 全体を {{target}} にコピーします: {{objects}} 個のオブジェクトで {{formatted}} 件のレコードを数えました。"
+        "wholeOrg_other": "{{source}} 全体を {{target}} にコピーします: {{objects}} 個のオブジェクトで {{formatted}} 件のレコードを数えました。",
+        "sample_other": "{{target}} に収まる {{source}} のサンプルをコピーします: {{objects}} 個のオブジェクトで数えた {{formatted}} 件のレコードから抽出します。"
       },
       "left": {
         "none": "決定が必要なものは残っていません。",
@@ -4439,6 +4445,62 @@
         "targetHoldsList": "すでにあるレコード (オブジェクト別)",
         "aboutRecords_other": "約 {{formatted}} 件",
         "emptyFirstAction": "先にこれらのオブジェクトを空にする"
+      },
+      "sample": {
+        "wholeOrg": {
+          "reading": "{{target}} のデータストレージの残りを読み取っています…",
+          "failed": "{{target}} のデータストレージの残りを読み取れませんでした: {{message}}",
+          "fits": "すべてのレコードで {{target}} のデータストレージを約 {{estimate}} MB 使用します。残りは {{max}} MB 中 {{remaining}} MB です。",
+          "near": "すべてのレコードで {{target}} のデータストレージを約 {{estimate}} MB 使用します。残りは {{max}} MB 中 {{remaining}} MB で、その 80 % を超えます。",
+          "exceeds": "すべてのレコードで {{target}} のデータストレージを約 {{estimate}} MB 使用しますが、残りは {{remaining}} MB です。実行は拒否されます。",
+          "unread": "すべてのレコードでデータストレージを約 {{estimate}} MB 使用します。{{target}} の残りは読み取れませんでした: {{reason}}",
+          "offer": "収まるサンプルなら約 {{mb}} MB です。"
+        },
+        "budget": {
+          "storage": "サンプルが使用できるのは約 {{mb}} MB です: {{target}} の残り {{remaining}} MB の {{share}} % で、丸めのために {{rounding}} MB を除いています。",
+          "within": "サンプルが使用できるのは約 {{mb}} MB で、サンプルの設定で指定した MB です。",
+          "unread": "{{target}} はデータストレージの残りを返しませんでした。サンプルの設定でサンプルが使用できる MB を指定してください。指定しない場合、実行は拒否されます。"
+        },
+        "draw": {
+          "label": "抽出方法",
+          "uniform": "組織全体に分散",
+          "recent": "新しいものから",
+          "uniformHint": "シード付きの ID ハッシュで各オブジェクト全体から抽出します。抽出対象となる全レコードの ID を読み取り、サンプルは組織全体を代表します。",
+          "recentHint": "作成日で最後に作られたレコードです。保持するレコードだけを読み取りますが、サンプルは最新のデータに偏ります。"
+        },
+        "cost": "抽出には {{source}} の API リクエストを使用します: {{allowance}}。所要時間は約 {{duration}} です。",
+        "costRefused": "これは {{source}} の本日の残りの 10 分の 1 を超えます。ID を読み取る前に抽出は拒否されます。新しいものから抽出するか、最も大きいオブジェクトを除外してください。",
+        "whole": "自動で全件コピー: {{objects}}。",
+        "why": {
+          "referenceData": "名前で対応付ける参照データ (書き込まない)",
+          "catalog": "全件コピーできる小さな価格カタログ",
+          "smallParent": "抽出したレコードが参照する、レコードの少ないオブジェクト",
+          "asked": "指定"
+        },
+        "settings": "サンプルの設定",
+        "within": {
+          "label": "上限",
+          "hint": "サンプルが使用できるターゲットのデータストレージの上限 (MB)。空欄の場合はターゲットの空き容量まで使います。"
+        },
+        "seed": "シード {{seed}}",
+        "seedHint": "同じシードなら同じレコードを抽出します。「再抽出」で別のレコードを抽出します。",
+        "drawAgain": "再抽出",
+        "parents": {
+          "label": "任意の参照項目が指すサンプル外のレコード",
+          "all": "子レコードなしでコピー",
+          "required": "参照項目を空にする"
+        },
+        "children": {
+          "label": "レコードとリレーションごとの子レコード数",
+          "all": "すべて",
+          "hint": "新しいものから。主レコードには常にすべての詳細レコードが付きます。"
+        },
+        "wholeList": {
+          "toggle_other": "全件コピー: {{formatted}} オブジェクト",
+          "legend": "全件コピーするオブジェクト",
+          "hint": "全件コピーするオブジェクトはすべてのレコードを含み、抽出は行いません。"
+        },
+        "offerAction": "収まるサンプルをコピー"
       }
     },
     "truncatedRead": "一部しか読み取れませんでした：{{objects}}。ソースにはクローンされた以上の行があります。残りをクローンするには、それぞれが上限を超えないフィルターで実行を分割してください。",
@@ -4768,7 +4830,100 @@
       "object": "オブジェクト",
       "recordsColumn": "レコード",
       "jobsColumn": "Bulk API ジョブ",
-      "restColumn": "REST で送信"
+      "restColumn": "REST で送信",
+      "titleSample": "組織全体のサンプルのシミュレーション",
+      "outsideFilter": "フィルター外で除外",
+      "outsideFilterRows_other": "{{objects}} の {{formatted}} 件のレコード: 空にできない参照項目がオブジェクトのフィルター外のレコードを指すため、書き込まれません",
+      "sampleOffer": "すべてのレコードは {{target}} のデータストレージの残りを超えます。収まるサンプルなら約 {{mb}} MB です。",
+      "sample": {
+        "title": "サンプル",
+        "kept": "{{source}} の {{total}} 件中 {{kept}} 件 ({{objects}} オブジェクト): 各オブジェクトのルートの {{share}} %、シード {{seed}}、{{draw}}、およびそれらがたどるレコード。",
+        "taken": "サンプルが使用できる {{mb}} MB ({{terms}}) のうち約 {{taken}} MB。上限は{{limit}}です。",
+        "takenWhole": "サンプルが使用できる {{mb}} MB ({{terms}}) のうち約 {{taken}} MB。すべてのレコードが収まるため、組織全体のコピーが適しています。",
+        "terms": {
+          "storage": "残り {{remaining}} MB の {{share}} %、丸め分 {{rounding}} MB を除く",
+          "within": "指定した {{within}} MB",
+          "automation": "ターゲットの自動化が作成する分 {{automation}} MB"
+        },
+        "limitedBy": {
+          "storage": "{{target}} のデータストレージの残り",
+          "within": "指定した MB",
+          "maxTotal": "指定したレコード数",
+          "targetRequests": "{{target}} の 1 日の API リクエスト",
+          "bulkBatches": "{{target}} の 1 日の Bulk API バッチ",
+          "sourceRequests": "{{source}} の 1 日の API リクエスト",
+          "whole": "なし (すべてのレコードが収まる)"
+        },
+        "draw": {
+          "uniform": "組織全体に分散",
+          "recent": "新しいものから"
+        },
+        "byObject": "オブジェクトごとにサンプルが保持するもの",
+        "column": {
+          "inSource": "ソース内",
+          "kept": "保持",
+          "drawn": "抽出",
+          "below": "親の下",
+          "asParents": "親として"
+        },
+        "wholeCell": "全件",
+        "whole": "全件コピー: {{objects}}。",
+        "childrenCut": "レコードとリレーションごとに {{cap}} 件を超える子レコード (新しいものを保持) は除外: {{objects}}。",
+        "noRecordDrawn": "サンプルがレコードを 1 件も保持しない {{source}} のオブジェクト: {{objects}}。",
+        "inTheSource": "{{object}} (ソース内 {{rows}} 件)",
+        "heavyRoots": "サンプルが使用できる量の 10 分の 1 を超えるレコードを取り込むため除外したレコード: {{records}}。",
+        "heavyRoot": "{{object}} {{id}} ({{relation}} 経由で約 {{rows}} 件)",
+        "dropped": "抽出でたどり着いたが除外するレコード (送信しない): {{records}}。",
+        "droppedOf": "{{object}} の {{rows}} 件 ({{reason}})",
+        "dropReason": {
+          "noParentInSource": "書き込みに必要なレコードがソースにない",
+          "outsideFilter": "書き込みに必要なレコードがそのオブジェクトのフィルター外",
+          "excludedObject": "書き込みに必要なレコードが除外したオブジェクトのもの",
+          "withoutParent": "書き込みに必要なレコード自体が除外される",
+          "heldBack": "実行が書き込むユーザーにはレコードタイプが閉じられている",
+          "recordTypeNotInTarget": "ターゲットにそのレコードタイプがない"
+        },
+        "leftEmpty": "参照先がサンプル外のため空で書き込む参照項目: {{fields}}。",
+        "newestByIds": "組織が並べ替えに使える作成日がないため、ID 順で新しいものとしたオブジェクト: {{objects}}。",
+        "requests": "抽出で {{source}} に API リクエストを {{requests}} 件送信しました。",
+        "plan": "プランはこのマシンに 1 日保持されます: {{path}} (SHA-256 {{sha}}…)。設定が同じであれば、「Forge を実行」がこのプランを使います。異なる場合は再抽出し、その理由を表示します。"
+      }
+    },
+    "sampleResult": {
+      "title": "サンプル",
+      "drawn": "シード {{seed}}、{{draw}} で抽出: 各オブジェクトのルートの {{share}} %。プラン SHA-256 {{sha}}…、{{at}} に抽出。",
+      "verdict": {
+        "complete": "サンプルのすべてのレコードを書き込むかリンクしました。",
+        "completeGone": "{{source}} に残っているサンプルのすべてのレコードを書き込むかリンクしました。",
+        "changed_other": "サンプルの {{formatted}} 件のレコードを保留しました: 書き込みに必要なレコードがサンプル後に変更されました。",
+        "short_other": "サンプルの {{formatted}} 件のレコードを書き込めませんでした。理由は下のエラーを参照してください。",
+        "gone_other": "{{formatted}} 件はサンプル後に {{source}} から削除されていました (失敗ではありません)。"
+      },
+      "byObject": "オブジェクトごとに書き込んだサンプル",
+      "object": "{{object}}: サンプル {{kept}} 件 ({{how}}) 中 {{written}} 件を書き込み ({{source}} には {{rows}} 件)。",
+      "objectBare": "{{object}}: サンプル {{kept}} 件中 {{written}} 件を書き込み ({{source}} には {{rows}} 件)。",
+      "how": {
+        "whole": "全件コピー",
+        "drawn": "抽出 {{rows}} 件",
+        "below": "親の下 {{rows}} 件",
+        "asParents": "親として {{rows}} 件"
+      },
+      "gone_other": "{{formatted}} 件はサンプル後に {{source}} から削除: 書き込まず、失敗ではありません。",
+      "changed_other": "{{formatted}} 件を保留: 書き込みに必要なレコードがサンプル後に変更されました。"
+    },
+    "sampling": {
+      "at": "書き込みの前にサンプルを抽出しています: {{step}}。",
+      "atObject": "書き込みの前にサンプルを抽出しています: {{step}} — {{where}}。",
+      "object": "{{object}} ({{total}} オブジェクト中 {{done}})",
+      "step": {
+        "counting": "各オブジェクトの抽出元レコードを数えています",
+        "drawing": "抽出したレコードの ID を読み取っています",
+        "closing": "たどるレコードと参照先のレコードを読み取っています",
+        "fitting": "ターゲットの空き容量に合わせています",
+        "saving": "プランをこのマシンに保存しています"
+      },
+      "counts": "読み取ったレコード {{rows}} 件、{{source}} の API リクエスト {{requests}} 件。",
+      "countsPriced": "読み取ったレコード {{rows}} 件、{{source}} の API リクエスト {{requests}} 件 (見積もり約 {{pricedAt}} 件)。"
     }
   },
   "autopilot": {

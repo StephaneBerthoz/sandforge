@@ -38,6 +38,7 @@ import { estimatedApiCallsOf } from './forgeApiCalls';
 import { translateError } from '@sandforge/shared';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { ForgeSamplingProgress } from './ForgeSamplingProgress';
 import { ForgeExecutionTable } from './ForgeExecutionTable';
 import { ForgeViewToggle } from './ForgeViewToggle';
 import { clonesWholeOrg } from './forgeRunConfig';
@@ -363,6 +364,10 @@ export const ForgeExecution: React.FC = () => {
           {t('forgeRun.simulation.running')}
         </p>
       )}
+
+      {/* Drawing a sample's plan reads the source for minutes before any
+          object is written: where it stands, until the first object reports. */}
+      <ForgeSamplingProgress />
 
       {/* ---- Top bar: progress, timer, status ---- */}
       <m.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">

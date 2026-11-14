@@ -95,6 +95,7 @@ import { CheckpointFirstEstimate } from '../../components/ui/CheckpointFirstOpti
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { runCheckpointEstimateOf, takenOrDeleted } from '../../utils/runCheckpoint';
 import { ForgeWholeOrgDryRunResult } from './ForgeWholeOrgDryRun';
+import { ForgeSampleResult } from './ForgeSampleResult';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -891,6 +892,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   );
   /** What the dry run of a clone of the whole org said at its gate, when this is one. */
   const wholeOrgDryRun = useForgeStore((s) => (simulation ? s.wholeOrgDryRun : null));
+  /** Of a simulation of every record past what the target has left, a sample that fits, offered. */
+  const sampleOffer = useForgeStore((s) => (simulation ? s.sampleOffer : null));
+  const copySampleInstead = useForgeStore((s) => s.copySampleInstead);
   const checkpointAsked = useForgeStore((s) => s.checkpointFirst);
 
   /** Soft reset: clear result but keep config. */
@@ -996,7 +1000,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           source={sourceOrgName ?? sourceOrgId ?? ''}
           target={targetOrgName ?? targetOrgId ?? ''}
           checkpointAsked={checkpointAsked}
+          sampleOffer={sampleOffer}
+          onCopySample={copySampleInstead}
         />
+      )}
+      {/* What a run of a sample wrote of each object, against what its plan
+          kept: its success says every record of the plan was written. */}
+      {result?.sample && !simulated && (
+        <ForgeSampleResult sample={result.sample} source={sourceOrgName ?? sourceOrgId ?? ''} />
       )}
       {/* What the run muted of the target's automation, when Review's box
           asked it to: the sets assigned for it, what they silenced and what

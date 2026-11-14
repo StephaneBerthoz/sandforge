@@ -5,7 +5,7 @@ import {
   buildSyntheticForgeGraph,
   getBuiltinTemplateObjects,
 } from '@sandforge/shared';
-import type { ForgeRemovalPlan, SalesforceOrg } from '@sandforge/shared';
+import type { ForgeRemovalPlan, ForgeSampleOptions, SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
@@ -197,6 +197,14 @@ export interface ForgeFormState {
   recordLimit: string;
   setRecordLimit: (v: string) => void;
   recordLimitValue: number | undefined;
+  /**
+   * Under ALL, the run copies a sample of the whole org that fits the target
+   * rather than every record: never unless asked. Its options are set on
+   * Review, where the target's room and the cost of the draw are read.
+   */
+  sampled: boolean;
+  /** Ask for a sample that fits the target, or for every record again. */
+  setSampled: (on: boolean) => void;
 
   /* Preview (composed hook) */
   preview: RecordPreviewState['preview'];
@@ -285,6 +293,19 @@ function wholeOrgOfTheRun(): (ForgeWholeOrgAgain & { run: ForgeConfig }) | null 
 }
 
 /**
+ * The options of a sample the panel sends: those of `sample` but the plan of
+ * a dry run named by its path and the bound on its records, which are the
+ * command line's (`--fit-plan`, `--max-total`) and which the extension
+ * refuses from the panel.
+ */
+export function panelSampleOf(sample: ForgeSampleOptions): ForgeSampleOptions {
+  const options = { ...sample };
+  delete options.plan;
+  delete options.maxTotal;
+  return options;
+}
+
+/**
  * Hook holding all local form state for the Forge input form, along with
  * the derived flags and the discover/quick-start/reuse actions. Composes
  * `useRecordPreview` for the record preview lifecycle.
@@ -336,6 +357,15 @@ export function useForgeForm(): ForgeFormState {
    * to the executor as `maxRecordsPerObject`.
    */
   const [recordLimit, setRecordLimit] = useState<string>('smart');
+  /**
+   * The options of a sample of the whole org, or undefined for every record:
+   * sent with a clone of the whole org alone. A past run's come back with it,
+   * to be drawn again with the same seed and draw.
+   */
+  const [sample, setSample] = useState<ForgeSampleOptions | undefined>(undefined);
+  const setSampled = useCallback((on: boolean): void => {
+    setSample((kept) => (on ? (kept ?? {}) : undefined));
+  }, []);
   /**
    * What the run carries that the form has no control for — the decisions
    * taken on the Gaps tab, the objects left out, field exclusions and
@@ -764,6 +794,7 @@ export function useForgeForm(): ForgeFormState {
           sourceOrgId,
           targetOrgId,
           batchSize: 'auto',
+          ...(wholeOrg && sample ? { sample } : {}),
         },
         carried,
       );
@@ -794,6 +825,7 @@ export function useForgeForm(): ForgeFormState {
       recordLimitValue,
       sourceOrgId,
       targetOrgId,
+      sample,
       carried,
       takeCarriedFiles,
       setConfig,
@@ -977,6 +1009,10 @@ export function useForgeForm(): ForgeFormState {
     // its replay is a new run, and goes as every new run does.
     setKeepContactPoints(config.keepContactPoints ?? false);
     if (!all) setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
+    // A sample comes back to be drawn again with its options: never with the
+    // plan or the bound on records of a run of the command line, which the
+    // panel does not send.
+    setSample(all && config.sample ? panelSampleOf(config.sample) : undefined);
   }, []);
 
   /**
@@ -1110,6 +1146,8 @@ export function useForgeForm(): ForgeFormState {
     recordLimit,
     setRecordLimit,
     recordLimitValue,
+    sampled: wholeOrg && sample !== undefined,
+    setSampled,
     preview,
     previewLoading,
     previewError,

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ForgeWholeOrgDryRunResult } from './ForgeWholeOrgDryRun';
-import { wholeOrgDryRun } from './testing/wholeOrg';
+import { sampleBudgetTerms, wholeOrgDryRun, wholeOrgSample } from './testing/wholeOrg';
 
 /** The result as the results screen draws it, the source `prod` into `uat`. */
 function renderDry(over: Parameters<typeof wholeOrgDryRun>[0] = {}): void {
@@ -195,5 +195,73 @@ describe('ForgeWholeOrgDryRunResult', () => {
       'Account1,20001,200',
       'Opportunity9000900',
     ]);
+  });
+
+  it('says the records it leaves aside, a lookup they need naming one outside its object’s filter', () => {
+    const dry = wholeOrgDryRun();
+    renderDry({
+      leftOut: {
+        ...dry.leftOut,
+        rows: {
+          writtenBefore: 0,
+          heldBack: [],
+          outsideFilter: [{ objectApiName: 'Contact', rows: 12 }],
+        },
+      },
+    });
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-outside-filter').textContent).toBe(
+      '12 records of Contact: a lookup they may not leave empty names a record outside its object’s filter, so the run does not write them',
+    );
+  });
+
+  it('says what a sample drew before the rest, whose counts are then the plan’s', () => {
+    renderDry({ sample: wholeOrgSample(), wouldBeRefused: [] });
+
+    const panel = screen.getByTestId('forge-whole-org-dry-run');
+    const sample = screen.getByTestId('forge-whole-org-sample');
+    const verdict = screen.getByTestId('forge-whole-org-dry-run-verdict');
+    // The sample comes first, before the verdict and the counts.
+    expect(sample.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel.textContent).toContain('Dry run of a sample of the whole org');
+    expect(screen.queryByTestId('forge-whole-org-dry-run-sample-offer')).toBeNull();
+  });
+
+  it('says a refusal of a sample in its own words, with what it needs and may take', () => {
+    renderDry({
+      sample: wholeOrgSample(),
+      wouldBeRefused: [
+        {
+          code: 'STORAGE_EXCEEDED',
+          message: 'The host says it in English.',
+          storage: { estimateMB: 3.1, remainingMB: 1 },
+          sample: { fittedMB: 3.2, holdsMB: 0.4 },
+        },
+      ],
+    });
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-refusals').textContent).toBe(
+      'The run was refused before it wrote anything: the sample was fitted to 3.2 MB of the target org’s data storage, and what the target has left now holds 0.4 MB of a sample. Simulate again to draw a sample that fits.',
+    );
+  });
+
+  it('offers a sample that fits when every record takes more than the target has left', () => {
+    const copy = vi.fn();
+    render(
+      <ForgeWholeOrgDryRunResult
+        dry={wholeOrgDryRun()}
+        source="prod"
+        target="uat"
+        checkpointAsked={false}
+        sampleOffer={sampleBudgetTerms()}
+        onCopySample={copy}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-sample-offer').textContent).toContain(
+      'Every record takes more data storage than uat has left. A sample that fits would take about 3.2 MB.',
+    );
+    fireEvent.click(screen.getByTestId('forge-whole-org-dry-run-copy-sample'));
+    expect(copy).toHaveBeenCalledTimes(1);
   });
 });

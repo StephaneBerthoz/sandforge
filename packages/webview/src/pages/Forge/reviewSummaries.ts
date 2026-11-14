@@ -106,7 +106,10 @@ function recordsAtMost(
 export interface RunSentenceInput {
   graph: ForgeGraph;
   buckets: ForgeRunBuckets;
-  config: Pick<ForgeConfig, 'maxRecordsPerObject' | 'objectSoqlFilters' | 'soqlQuery'> | null;
+  config: Pick<
+    ForgeConfig,
+    'maxRecordsPerObject' | 'objectSoqlFilters' | 'soqlQuery' | 'sample'
+  > | null;
   /** The run clones one record's graph (`clonesOneRecord`). */
   oneRecord: boolean;
   /** The two orgs, as the user knows them. */
@@ -130,12 +133,17 @@ export function runSentence(
   // The whole org: every record of every object it takes, which a count says
   // as far as the org gave one.
   if (wholeOrg) {
-    return t('forgeRun.review.sentence.wholeOrg', {
-      ...orgs,
-      count: buckets.cloneRecords,
-      formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
-      objects: objects.toLocaleString(uiLocale()),
-    });
+    // A sample is drawn from those records, never all of them: the heading
+    // says what the run copies.
+    return t(
+      config?.sample ? 'forgeRun.review.sentence.sample' : 'forgeRun.review.sentence.wholeOrg',
+      {
+        ...orgs,
+        count: buckets.cloneRecords,
+        formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
+        objects: objects.toLocaleString(uiLocale()),
+      },
+    );
   }
   if (buckets.cloneRecordsUnknown) {
     return t('forgeRun.review.sentence.notCounted', { ...orgs, count: objects });

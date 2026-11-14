@@ -579,9 +579,10 @@ export const ForgeInput: React.FC = () => {
                 — {t('forge.recordLimitHint')}
               </span>
             </div>
-            {/* ALL copies every record: the select shows so, greyed, in an
-                option of its own, as Objects does; the limit set before
-                stays for the next run. */}
+            {/* ALL copies every record, or a sample of the whole org that fits
+                the target, never unless asked: the two are the choice the
+                select offers, with what each copies said under it. The
+                limit set before stays for the next run walked from a root. */}
             <select
               id="forge-record-limit"
               aria-describedby={
@@ -590,9 +591,12 @@ export const ForgeInput: React.FC = () => {
                   : 'forge-record-limit-hint'
               }
               data-testid="forge-record-limit"
-              disabled={form.wholeOrg}
-              value={form.wholeOrg ? 'every' : form.recordLimit}
-              onChange={(e) => form.setRecordLimit(e.target.value)}
+              value={form.wholeOrg ? (form.sampled ? 'sample' : 'every') : form.recordLimit}
+              onChange={(e) =>
+                form.wholeOrg
+                  ? form.setSampled(e.target.value === 'sample')
+                  : form.setRecordLimit(e.target.value)
+              }
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs',
                 'bg-(--sf-bg-input)',
@@ -602,27 +606,35 @@ export const ForgeInput: React.FC = () => {
                 'disabled:opacity-40 disabled:cursor-not-allowed',
               )}
             >
-              {form.wholeOrg && <option value="every">{t('forge.recordLimitEvery')}</option>}
-              <option value="smart">{t('forge.recordLimitSmart')}</option>
-              <option value="10">{t('forge.recordLimitOpt10')}</option>
-              <option value="50">{t('forge.recordLimitOpt50')}</option>
-              <option value="100">{t('forge.recordLimitOpt100')}</option>
-              <option value="500">{t('forge.recordLimitOpt500')}</option>
-              <option value="1000">{t('forge.recordLimitOpt1000')}</option>
-              <option value="all">{t('forge.recordLimitAll')}</option>
+              {form.wholeOrg ? (
+                <>
+                  <option value="every">{t('forge.recordLimitEvery')}</option>
+                  <option value="sample">{t('forge.recordLimitSample')}</option>
+                </>
+              ) : (
+                <>
+                  <option value="smart">{t('forge.recordLimitSmart')}</option>
+                  <option value="10">{t('forge.recordLimitOpt10')}</option>
+                  <option value="50">{t('forge.recordLimitOpt50')}</option>
+                  <option value="100">{t('forge.recordLimitOpt100')}</option>
+                  <option value="500">{t('forge.recordLimitOpt500')}</option>
+                  <option value="1000">{t('forge.recordLimitOpt1000')}</option>
+                  <option value="all">{t('forge.recordLimitAll')}</option>
+                </>
+              )}
             </select>
             {/* What Smart applies to this run: no cap to one record's graph,
                 a cap to a run from a query. It named the root object's whole
                 table "the org" and sized the cap of a one-record clone by it. */}
             {/* In its place for ALL, which reads past the 50,000 rows per
-                object Smart announces for one record. */}
+                object Smart announces for one record: what the choice copies. */}
             {form.wholeOrg && (
               <p
                 id="forge-record-limit-all"
                 data-testid="forge-record-limit-all"
                 className="mt-1.5 text-[10px] text-text-secondary"
               >
-                {t('forge.recordLimitAllDisabled')}
+                {t(form.sampled ? 'forge.recordLimitSampleHint' : 'forge.recordLimitAllDisabled')}
               </p>
             )}
             {form.recordLimit === 'smart' && !form.wholeOrg && (

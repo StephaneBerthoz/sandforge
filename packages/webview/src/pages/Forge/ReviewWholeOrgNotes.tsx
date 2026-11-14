@@ -1,13 +1,16 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Database, UserRound } from 'lucide-react';
+import { orgDisplayName } from '@sandforge/shared';
 import type { ForgeGraph, ForgeTargetRecordsResponse } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Button } from '../../components/ui/Button';
 import { uiLocale } from '../../utils/formatters';
+import { ReviewWholeOrgSample } from './ReviewWholeOrgSample';
 
 /** The id of the line that says the personal fields copied as they are, which Execute is described by. */
 export const PERSONAL_AS_IS_ID = 'review-personal-as-is';
@@ -43,7 +46,9 @@ export interface ReviewWholeOrgNotesProps {
 
 /**
  * What Review says of a clone of the whole org before Execute, beside its
- * rows: the personal fields it copies as they are, not anonymized, by
+ * rows: first, what it copies of each object — every record, or a sample
+ * that fits the target, read against what the target has left
+ * (`ReviewWholeOrgSample`) —; the personal fields it copies as they are, not anonymized, by
  * object — said before the run, not only in the confirmation — and what the
  * target already holds of the objects it copies, read of the org's own
  * record counts, with where to empty them first: the run adds its records
@@ -82,6 +87,13 @@ export const ReviewWholeOrgNotes: React.FC<ReviewWholeOrgNotesProps> = ({
   const holds = (held.data?.objects ?? []).filter(({ objectApiName }) => copied.has(objectApiName));
   const heldRecords = holds.reduce((sum, { records }) => sum + records, 0);
   const selectOrg = useOrgStore((s) => s.selectOrg);
+  const sourceOrgId = useForgeStore((s) => s.config?.sourceOrgId);
+  const source = useOrgStore((s) =>
+    orgDisplayName(
+      s.orgs.find((o) => o.id === sourceOrgId),
+      sourceOrgId,
+    ),
+  );
   const navigate = useAppStore((s) => s.navigate);
   /**
    * Open DataOps → Cleanup on Empty objects with these objects picked, for
@@ -99,6 +111,7 @@ export const ReviewWholeOrgNotes: React.FC<ReviewWholeOrgNotesProps> = ({
 
   return (
     <div data-testid="review-whole-org" className="flex flex-col gap-2 text-sm">
+      <ReviewWholeOrgSample graph={graph} source={source} target={target} />
       <div
         className={`flex items-start gap-2 rounded-md border px-3 py-2 ${
           fieldCount > 0 ? 'border-status-warning/40 bg-status-warning/10' : 'border-subtle'

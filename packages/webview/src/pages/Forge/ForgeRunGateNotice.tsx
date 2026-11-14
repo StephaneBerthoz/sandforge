@@ -10,10 +10,13 @@ import {
 } from '@sandforge/shared';
 import { checkpointRefusalWords } from '../../utils/runCheckpoint';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
+import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { uiLocale } from '../../utils/formatters';
 import { useForgeRunGateStore } from './runGate';
 import { clonesWholeOrg } from './forgeRunConfig';
+import { startForgeRun } from './startForgeRun';
+import { mbOf } from './sampleWords';
 
 /**
  * The sentence each stop is said in, unless the run's checkpoint first has
@@ -97,6 +100,17 @@ function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: 
 }
 
 /**
+ * Whether a stop's words ask for the run to be simulated again: a sample
+ * fitted to more room than the target has left now, or a plan drawn for
+ * another org or setup. Of a resume set up otherwise, the words ask to
+ * resume it as it was set up.
+ */
+function asksToSimulateAgain(stop: ForgeRunGateStop): boolean {
+  if (stop.code === 'STORAGE_EXCEEDED') return stop.sample?.fittedMB !== undefined;
+  return stop.code === 'SAMPLE_PLAN_MISMATCH' && stop.sample?.plan !== undefined;
+}
+
+/**
  * What a stop of a run's gate is said in, in the interface language: the
  * notice on Review says it of the run that stopped, the dry run of a clone of
  * the whole org of each refusal its run would meet.
@@ -159,8 +173,14 @@ export const ForgeRunGateNotice: React.FC = () => {
   const clear = useForgeRunGateStore((s) => s.clear);
   const revealed = useForgeRunGateStore((s) => s.revealed);
   const markRevealed = useForgeRunGateStore((s) => s.markRevealed);
+  const sampleOffer = useForgeRunGateStore((s) => s.sampleOffer);
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
+  const sampled = useForgeStore((s) => s.config?.sample !== undefined);
+  // What the notice offers to do is done from Review alone: the results a
+  // retry stopped on are another run's.
+  const onReview = useForgeStore((s) => s.phase === 'review');
+  const setSample = useForgeStore((s) => s.setSample);
   const noticeRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
 
@@ -190,6 +210,8 @@ export const ForgeRunGateNotice: React.FC = () => {
 
   if (!stop) return null;
   const cancelled = CANCELLED.has(stop.code);
+  const simulateAgain = onReview && asksToSimulateAgain(stop);
+  const offer = onReview && wholeOrg && !sampled && sampleOffer;
   return (
     <div
       ref={noticeRef}
@@ -211,6 +233,36 @@ export const ForgeRunGateNotice: React.FC = () => {
         <p data-testid="forge-run-gate-reason">
           {gateStopSentence(t, stop, { checkpointAsked, wholeOrg })}
         </p>
+        {/* Every record past the storage: the sample that fits, offered. */}
+        {offer && (
+          <div className="flex flex-wrap items-center gap-2">
+            <p data-testid="forge-run-gate-sample-offer">
+              {t('forgeRun.gate.sampleOffer', { mb: mbOf(offer.bytes) })}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-run-gate-copy-sample"
+              onClick={() => {
+                setSample({});
+                clear();
+              }}
+            >
+              {t('forgeRun.review.sample.offerAction')}
+            </Button>
+          </div>
+        )}
+        {simulateAgain && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            data-testid="forge-run-gate-simulate-again"
+            onClick={() => startForgeRun({ dryRun: true })}
+          >
+            {t('forgeRun.gate.simulateAgain')}
+          </Button>
+        )}
         <RewindBeforeRun
           checkpoint={checkpoint}
           orgId={targetOrgId}
