@@ -222,16 +222,18 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 `sandforge checkpoint` takes, lists, previews, rewinds, undoes, deletes, exports and imports checkpoints without the editor, over the same store, from the `sandforge` npm package (`npx sandforge checkpoint …`) or from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
 
-| Command   | What it does                                                                                                                                                                                                                                                  |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones `--object` names; `--estimate` says the records, API requests, time and disk it would take, and stops                                                        |
-| `list`    | Names the checkpoints kept, newest first, with what a rewind and an undo can still reach; without `--org`, every org of the store. It never contacts the org                                                                                                  |
-| `preview` | Says what a rewind would delete, give back and bring back, who last changed it, and what it and an undo cannot take back; writes nothing. `--fail-on-change` exits `3` when the org differs from the checkpoint; `--object` previews a rewind of some objects |
-| `rewind`  | Shows the preview, asks you to type the org's alias exactly as `--org` gives it, then rewinds from that preview as it read the org; `--dry-run` stops after the preview; `--object` rewinds some objects alone                                                |
-| `undo`    | Takes back the org's last rewind, once you type the org's alias exactly as `--org` gives it; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                |
-| `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                                                               |
-| `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                                                                    |
-| `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`                                                            |
+| Command   | What it does                                                                                                                                                                                                                                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones `--object` names; `--estimate` says the records, API requests, time and disk it would take, and stops                                                                                                 |
+| `list`    | Names the checkpoints kept, newest first, with what a rewind and an undo can still reach; without `--org`, every org of the store. It never contacts the org                                                                                                                                           |
+| `preview` | Says what a rewind would delete, give back and bring back, who last changed it, and what it and an undo cannot take back; writes nothing. `--fail-on-change` exits `3` when the org differs from the checkpoint; `--object` previews a rewind of some objects                                          |
+| `rewind`  | Shows the preview, asks you to type the org's alias exactly as `--org` gives it, then rewinds from that preview as it read the org; `--dry-run` stops after the preview; `--object` rewinds some objects alone                                                                                         |
+| `undo`    | Takes back the org's last rewind, once you type the org's alias exactly as `--org` gives it; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                                                         |
+| `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                                                                                                        |
+| `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                                                                                                             |
+| `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`                                                                                                     |
+| `replay`  | Sets a checkpoint's records up again in another org, with new Ids, its own org never reached -- the sandbox it became once refreshed, a scratch org, a file a teammate sent with `--file`: its dry run first, then a question; `--dry-run` stops there, `--verify` checks it, `--remove` takes it back |
+| `replays` | Names the replays kept on this machine, and what each left in its org; `--target` names those into one org. It never contacts an org                                                                                                                                                                   |
 
 - **Which checkpoint**: `--checkpoint` takes an id, a name or `latest`, the default. `rewind --yes` and `undo --yes`, which do not ask, need it named by its id or its name: `latest` could be a checkpoint taken since by someone else. A name two checkpoints share is refused, exit `2`, with their ids.
 - **The acceptances**: `--accept-automation` for automation that runs as records are updated, deleted or brought back, `--accept-no-undo` for deletions Undo could not bring back, `--accept-recreate` for the records the recycle bin no longer gives back, made again with new Ids, `--accept-outside` for the records outside a checkpoint of picked objects, `--accept-unseen`, for a user without View All Data and Modify All Data, for the records of objects the user is not proven to see that the records it deletes take along. Without `--accept-outside`, the records they hang from stay; without any other, such a rewind writes nothing, exit `1`.
@@ -297,9 +299,16 @@ Commands:
             same org from another machine; the org is not contacted
   import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this
             machine, once the org answers that it is the file's, and its user sees all data
+  replay    set a checkpoint's records up again in another org, with new Ids — the sandbox its
+            org became once refreshed, another sandbox, a scratch org —, its own org never
+            reached: its dry run first, then a question; nothing the other org holds is changed
+            or deleted, and --remove takes it back
+  replays   name the replays kept on this machine, and what each left in its org; no org is
+            contacted
 
 Required:
-  --org <alias>                  sf CLI alias of the org (list: every org of the store without it)
+  --org <alias>                  sf CLI alias of the org (list: every org of the store without it;
+                                 replay names --target instead)
 
 take:
   --name <text>                  what it is called (default: the date and time)
@@ -400,9 +409,84 @@ import:
                                  stops, exit 2, having imported nothing
   --keep-days <n>                when it expires on this machine (default: 30; 0 keeps it until
                                  deleted)
+replay:
+  --checkpoint <id|name|latest>  which one: by its id, wherever it is kept (list names it); by its
+                                 name, or latest, with --from
+  --from <alias|username|00D…>   the org it was taken of, as list names it; refreshed or expired
+                                 since, it is not reached
+  --file <file>                  a .sfcheckpoint file a teammate sent, in place of --checkpoint:
+                                 replayed without its org, the key standing for the teammate's
+                                 consent; its checkpoint is kept on this machine apart from those
+                                 it rewinds. A file of a Partial Copy, a Full or a Staging sandbox
+                                 is refused unmasked before its key is read
+  --key-env <VAR>                with --file: the environment variable that holds its key; without
+                                 it the key is asked on the terminal, not echoed, and with no
+                                 terminal it stops, exit 2
+  --keep-days <n>                with --file: when its checkpoint expires here (default: 30; 0 keeps
+                                 it until deleted)
+  --target <alias>               the org the records go into: a sandbox, a scratch org or a
+                                 Developer Edition org; never a production org, a sandbox marked
+                                 Staging, nor the checkpoint's own org, which rewind brings back
+  --dry-run                      say what it would create, link, leave and refuse, and write
+                                 nothing
+  --objects <A,B>                replay these objects alone (default: every object it holds);
+                                 separate with commas, or repeat
+  --exclude-object <ApiName>     leave an object out; repeat for more
+  --owners same|me               same (default): a record keeps its owner where the other org has
+                                 that user active — by its Id, or by its username without a
+                                 sandbox's suffix —, and goes to the user who replays otherwise;
+                                 me: every record to the user who replays
+  --owner-map <file.json>        {"<user Id there>": "<user Id here>"}: who owns the records of
+                                 each user of the checkpoint's org, an active user of the other org
+  --link <Object=Field[,Field]>  link to the records of an object the other org holds with the
+                                 same values of these fields, rather than create them; repeat
+  --custom-settings              set up the custom settings the checkpoint holds too; a row the
+                                 other org has already is kept, never written over
+  --mask                         mask personal data, as Forge's anonymization does; required of a
+                                 checkpoint of a Partial Copy, a Full or a Staging sandbox, told by
+                                 its data storage and its mark; the free text it does not read is
+                                 named
+  --no-real-data                 declare that a sandbox's checkpoint taken before SandForge 1.81,
+                                 which does not say which sandbox, holds no real data: replayed
+                                 unmasked, the declaration kept in the audit trail
+  --keep-contact-points          keep emails and phone numbers as they are (default: made
+                                 unreachable, addresses in .invalid and numbers that ring nobody)
+  --replay-config <file.json>    the load's part of a Frozen project's configuration: required field
+                                 defaults, lookup placeholders, picklist rules, identity keys, …
+  --again                        replay over what the replays before created there, which goes
+                                 first; what they linked stays
+  --max-records <n>              the most records it may create (default: the count of the dry run
+                                 it reads first)
+  --mute-automation              mute what the other org runs as the replay writes, or as --remove
+                                 deletes, through its own bypass, for that run alone, as a Frozen
+                                 load does; what no bypass keeps quiet still needs
+                                 --accept-automation
+  --accept-automation            write, or delete, although the other org runs flows, Apex
+                                 triggers, processes or workflow rules as it does: named first,
+                                 and without it such a replay writes nothing, exit 1
+  --accept-emails                write although the other org delivers the emails what still runs
+                                 sends, or would not say: without it such a replay writes nothing,
+                                 exit 1
+  --checkpoint-first             take a checkpoint of what the replay writes in the other org
+                                 before its first write: a rewind to it takes the replay back, and
+                                 the work of anyone else on those objects since
+  --checkpoint-keep-days <n>     the days that checkpoint is kept on this machine (default: 7)
+  --checkpoint-exclude-object <ApiName>
+                                 leave an object out of that checkpoint; repeat for more
+  --yes                          do not ask before it writes, nor before --remove deletes; without
+                                 it and with no terminal, it stops at its question, exit 2
+  --verify                       verify the last replay into the other org: what it created there,
+                                 counted against what it said it created
+  --remove                       delete from the other org what the replays created there, children
+                                 first, the checkpoint kept or not; --preview says what it would
+                                 delete; --sweep takes too what the other org's automation made for
+                                 them; --include-changed takes too what was changed since
+replays:
+  --target <alias|00D…>          the replays into this org alone
 Options:
   --store <dir>                  where checkpoints live (default: ~/.sandforge/checkpoints, or
-                                 checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names)
+                                 checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names); the
+                                 replays of its checkpoints are kept in it too, in .replays
   --json                         the answer alone on stdout, every other line on stderr
   --help                         this text
 
@@ -430,6 +514,18 @@ View All Data and Modify All Data, a file a newer SandForge made, are each refus
 is asked. A wrong key, or a file changed since it was exported, is refused before anything is
 kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
 The lock against two rewinds at once is per machine: agree on who rewinds the org.
+replay never reaches the checkpoint's own org. It reads the other org, then creates copies of
+the checkpoint's records there, parents first, with new Ids, and changes or deletes nothing that
+org holds. A checkpoint keeps no file's content: files, attachments and documents are never
+replayed, each named. Owners, record types, currencies, person accounts and the standard price
+book are read from the other org, and every record that does not go across as it was is said,
+with why: a checkpoint taken before SandForge 1.81 keeps no record types, users or price book,
+and its records get the other org's. Its created and modified dates and users are the replay's.
+A replay runs its dry run first, asks, then creates no more than that dry run counted. What it
+wrote is kept on this machine apart from the checkpoint (replays/ beside checkpoints/, or .replays
+in the folder --store names), and --remove takes it back once the checkpoint is deleted. A
+checkpoint of a Partial Copy, a Full or a Staging sandbox replays masked only, but into that
+sandbox refreshed; delete names the replays a checkpoint leaves in place.
 rewind shows its preview and asks you to type the org's alias exactly as --org gives it before it
 writes, then rewinds from that preview as it read the org: a record someone changes after it read
 is left as they made it, and said. undo says what it takes back and asks the same before it
@@ -478,9 +574,11 @@ is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
-                       expiresSoon, binReachSince, lastRewind?, valid, why?, refreshedAt?}]
+                       expiresSoon, binReachSince, lastRewind?, valid, why?, refreshedAt?,
+                       replayWith?}]
                      (name, org, takenAt, records and bytes are null for a damaged checkpoint;
-                     expiresAt is null for one kept until deleted)
+                     expiresAt is null for one kept until deleted; replayWith, of one that no
+                     longer rewinds its org, the dry run of its replay)
   take               {checkpoint, requests?, estimate}: the checkpoint as kept (its
                      checkpoint.json; files?, {documents, links, anchored, readByIds?}, for one
                      that holds files); requests, {total, byPhase}, the API requests the take sent
@@ -570,7 +668,21 @@ JSON (--json), one value on stdout:
                      with carriedAlone?: [{object, count}], the records sent back to the
                      recycle bin on their own that had gone there with a record the rewind
                      brought back for a moment
-  delete             {deleted: [id], kept: [id]}
+  delete             {deleted: [id], kept: [id], replaysInPlace?}: replaysInPlace, as replays
+                     lists them, those of the checkpoints deleted that left records in their org
+  replay             {command, action, dryRun, checkpoint: {id, name, organizationId, takenAt,
+                      tier, annex}, target: {alias, organizationId}, choices?, file?, plan?,
+                      replay?: {records, owners, recordTypes, notReplayed, filesLeft,
+                      lookupsEmptied, refused, fieldsNotInTarget, customSettings?, currencies,
+                      standardPricebook?, masked, contactPoints, archivedActivities?,
+                      degraded, auditDates, storage?, requests}, result?, removal?, objects?,
+                      status?, verdict?, mapping?, refusals?, refusalCodes?, refused?,
+                      mutedAutomation?, mutePlan?, checkpointFirst?, removeWith, ended?, exit}:
+                     plan, result and removal as a Frozen load and its removal answer them;
+                     objects, status, verdict and refusals as a Frozen step gives them
+  replays            [{checkpointId, checkpointName?, sourceOrganizationId, takenAt?, target:
+                      {organizationId, name?}, choices?, replayedAt?, inPlace, inPlaceByObject,
+                      removed?, removeWith}]
   export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
                       keyShown}: keyShown, whether a new key was drawn and shown on stderr; never
                      the key itself
@@ -583,6 +695,10 @@ JSON (--json), one value on stdout:
                      also on a line of its own, refused (CODE): message
   A bad command line (exit 2) prints nothing on stdout.
 
+replay ends as a Frozen load ends: 0 its dry run said, or the replay done and verified; 1 refused
+before it wrote (REPLAY_SAME_ORG, REPLAY_REAL_DATA, REPLAY_COPY_UNKNOWN, REPLAY_TOO_MANY,
+REPLAY_NOTHING, a target refused, what it runs or sends unanswered) or failed; 2 a bad line or a
+question with no terminal; 3 done with records refused or left, or its verification PARTIAL.
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
 org matches among the objects and fields compared — with --object, among the objects named,
 whatever still differs in the others; preview, rewind --dry-run and list answered;

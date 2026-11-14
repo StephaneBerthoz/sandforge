@@ -15,6 +15,12 @@
  * is shown once on stderr, typed back without echo or read from a variable a
  * CI step sets, and never written to stdout, a file or the audit trail.
  *
+ * `replay` sets a checkpoint's records up again in another org, with new
+ * Ids, its own org never reached — a sandbox refreshed since, a scratch org
+ * expired, a teammate's org whose file and key it was sent: the Frozen
+ * Dataset handler's load, its dry run first (`checkpointReplay.ts`).
+ * `replays` lists them from this machine's files.
+ *
  * `list` and `delete` read this machine alone and never contact the org: an
  * org's checkpoints are told by the alias or username each was taken under,
  * and by the Organization Id they are filed under, so a scratch org that has
@@ -77,7 +83,7 @@ import {
   type RewindUndoCannotReason,
   type RunDeliverability,
   type SalesforceOrg,
-  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
+  CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type {
@@ -138,7 +144,20 @@ import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 import { SfSessionError } from './sfFailure.js';
-import { commandOf, nameOf } from './invocation.js';
+import { commandOf } from './invocation.js';
+import { CHECKPOINT_FIRST_FLAGS } from './beforeRunCheckpoint.js';
+import {
+  ReplayStop,
+  parseReplay,
+  parseReplays,
+  replayCommandOf,
+  replayFileCommandOf,
+  replaysLeftBy,
+  replayEntryJson,
+  runReplay,
+  runReplays,
+  type ReplayAsked,
+} from './checkpointReplay.js';
 
 // The counts the bounds of a rewind are read by (`rewindBounds.ts`), which
 // the lines of this command are made of too.
@@ -166,9 +185,16 @@ Commands:
             same org from another machine; the org is not contacted
   import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this
             machine, once the org answers that it is the file's, and its user sees all data
+  replay    set a checkpoint's records up again in another org, with new Ids — the sandbox its
+            org became once refreshed, another sandbox, a scratch org —, its own org never
+            reached: its dry run first, then a question; nothing the other org holds is changed
+            or deleted, and --remove takes it back
+  replays   name the replays kept on this machine, and what each left in its org; no org is
+            contacted
 
 Required:
-  --org <alias>                  sf CLI alias of the org (list: every org of the store without it)
+  --org <alias>                  sf CLI alias of the org (list: every org of the store without it;
+                                 replay names --target instead)
 
 take:
   --name <text>                  what it is called (default: the date and time)
@@ -269,9 +295,84 @@ import:
                                  stops, exit 2, having imported nothing
   --keep-days <n>                when it expires on this machine (default: ${DEFAULT_KEEP_DAYS}; 0 keeps it until
                                  deleted)
+replay:
+  --checkpoint <id|name|latest>  which one: by its id, wherever it is kept (list names it); by its
+                                 name, or latest, with --from
+  --from <alias|username|00D…>   the org it was taken of, as list names it; refreshed or expired
+                                 since, it is not reached
+  --file <file>                  a .sfcheckpoint file a teammate sent, in place of --checkpoint:
+                                 replayed without its org, the key standing for the teammate's
+                                 consent; its checkpoint is kept on this machine apart from those
+                                 it rewinds. A file of a Partial Copy, a Full or a Staging sandbox
+                                 is refused unmasked before its key is read
+  --key-env <VAR>                with --file: the environment variable that holds its key; without
+                                 it the key is asked on the terminal, not echoed, and with no
+                                 terminal it stops, exit 2
+  --keep-days <n>                with --file: when its checkpoint expires here (default: ${DEFAULT_KEEP_DAYS}; 0 keeps
+                                 it until deleted)
+  --target <alias>               the org the records go into: a sandbox, a scratch org or a
+                                 Developer Edition org; never a production org, a sandbox marked
+                                 Staging, nor the checkpoint's own org, which rewind brings back
+  --dry-run                      say what it would create, link, leave and refuse, and write
+                                 nothing
+  --objects <A,B>                replay these objects alone (default: every object it holds);
+                                 separate with commas, or repeat
+  --exclude-object <ApiName>     leave an object out; repeat for more
+  --owners same|me               same (default): a record keeps its owner where the other org has
+                                 that user active — by its Id, or by its username without a
+                                 sandbox's suffix —, and goes to the user who replays otherwise;
+                                 me: every record to the user who replays
+  --owner-map <file.json>        {"<user Id there>": "<user Id here>"}: who owns the records of
+                                 each user of the checkpoint's org, an active user of the other org
+  --link <Object=Field[,Field]>  link to the records of an object the other org holds with the
+                                 same values of these fields, rather than create them; repeat
+  --custom-settings              set up the custom settings the checkpoint holds too; a row the
+                                 other org has already is kept, never written over
+  --mask                         mask personal data, as Forge's anonymization does; required of a
+                                 checkpoint of a Partial Copy, a Full or a Staging sandbox, told by
+                                 its data storage and its mark; the free text it does not read is
+                                 named
+  --no-real-data                 declare that a sandbox's checkpoint taken before SandForge 1.81,
+                                 which does not say which sandbox, holds no real data: replayed
+                                 unmasked, the declaration kept in the audit trail
+  --keep-contact-points          keep emails and phone numbers as they are (default: made
+                                 unreachable, addresses in .invalid and numbers that ring nobody)
+  --replay-config <file.json>    the load's part of a Frozen project's configuration: required field
+                                 defaults, lookup placeholders, picklist rules, identity keys, …
+  --again                        replay over what the replays before created there, which goes
+                                 first; what they linked stays
+  --max-records <n>              the most records it may create (default: the count of the dry run
+                                 it reads first)
+  --mute-automation              mute what the other org runs as the replay writes, or as --remove
+                                 deletes, through its own bypass, for that run alone, as a Frozen
+                                 load does; what no bypass keeps quiet still needs
+                                 --accept-automation
+  --accept-automation            write, or delete, although the other org runs flows, Apex
+                                 triggers, processes or workflow rules as it does: named first,
+                                 and without it such a replay writes nothing, exit 1
+  --accept-emails                write although the other org delivers the emails what still runs
+                                 sends, or would not say: without it such a replay writes nothing,
+                                 exit 1
+  --checkpoint-first             take a checkpoint of what the replay writes in the other org
+                                 before its first write: a rewind to it takes the replay back, and
+                                 the work of anyone else on those objects since
+  --checkpoint-keep-days <n>     the days that checkpoint is kept on this machine (default: 7)
+  --checkpoint-exclude-object <ApiName>
+                                 leave an object out of that checkpoint; repeat for more
+  --yes                          do not ask before it writes, nor before --remove deletes; without
+                                 it and with no terminal, it stops at its question, exit 2
+  --verify                       verify the last replay into the other org: what it created there,
+                                 counted against what it said it created
+  --remove                       delete from the other org what the replays created there, children
+                                 first, the checkpoint kept or not; --preview says what it would
+                                 delete; --sweep takes too what the other org's automation made for
+                                 them; --include-changed takes too what was changed since
+replays:
+  --target <alias|00D…>          the replays into this org alone
 Options:
   --store <dir>                  where checkpoints live (default: ~/.sandforge/checkpoints, or
-                                 checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names)
+                                 checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names); the
+                                 replays of its checkpoints are kept in it too, in .replays
   --json                         the answer alone on stdout, every other line on stderr
   --help                         this text
 
@@ -299,6 +400,18 @@ View All Data and Modify All Data, a file a newer SandForge made, are each refus
 is asked. A wrong key, or a file changed since it was exported, is refused before anything is
 kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
 The lock against two rewinds at once is per machine: agree on who rewinds the org.
+replay never reaches the checkpoint's own org. It reads the other org, then creates copies of
+the checkpoint's records there, parents first, with new Ids, and changes or deletes nothing that
+org holds. A checkpoint keeps no file's content: files, attachments and documents are never
+replayed, each named. Owners, record types, currencies, person accounts and the standard price
+book are read from the other org, and every record that does not go across as it was is said,
+with why: a checkpoint taken before SandForge 1.81 keeps no record types, users or price book,
+and its records get the other org's. Its created and modified dates and users are the replay's.
+A replay runs its dry run first, asks, then creates no more than that dry run counted. What it
+wrote is kept on this machine apart from the checkpoint (replays/ beside checkpoints/, or .replays
+in the folder --store names), and --remove takes it back once the checkpoint is deleted. A
+checkpoint of a Partial Copy, a Full or a Staging sandbox replays masked only, but into that
+sandbox refreshed; delete names the replays a checkpoint leaves in place.
 rewind shows its preview and asks you to type the org's alias exactly as --org gives it before it
 writes, then rewinds from that preview as it read the org: a record someone changes after it read
 is left as they made it, and said. undo says what it takes back and asks the same before it
@@ -347,9 +460,11 @@ is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
-                       expiresSoon, binReachSince, lastRewind?, valid, why?, refreshedAt?}]
+                       expiresSoon, binReachSince, lastRewind?, valid, why?, refreshedAt?,
+                       replayWith?}]
                      (name, org, takenAt, records and bytes are null for a damaged checkpoint;
-                     expiresAt is null for one kept until deleted)
+                     expiresAt is null for one kept until deleted; replayWith, of one that no
+                     longer rewinds its org, the dry run of its replay)
   take               {checkpoint, requests?, estimate}: the checkpoint as kept (its
                      checkpoint.json; files?, {documents, links, anchored, readByIds?}, for one
                      that holds files); requests, {total, byPhase}, the API requests the take sent
@@ -439,7 +554,21 @@ JSON (--json), one value on stdout:
                      with carriedAlone?: [{object, count}], the records sent back to the
                      recycle bin on their own that had gone there with a record the rewind
                      brought back for a moment
-  delete             {deleted: [id], kept: [id]}
+  delete             {deleted: [id], kept: [id], replaysInPlace?}: replaysInPlace, as replays
+                     lists them, those of the checkpoints deleted that left records in their org
+  replay             {command, action, dryRun, checkpoint: {id, name, organizationId, takenAt,
+                      tier, annex}, target: {alias, organizationId}, choices?, file?, plan?,
+                      replay?: {records, owners, recordTypes, notReplayed, filesLeft,
+                      lookupsEmptied, refused, fieldsNotInTarget, customSettings?, currencies,
+                      standardPricebook?, masked, contactPoints, archivedActivities?,
+                      degraded, auditDates, storage?, requests}, result?, removal?, objects?,
+                      status?, verdict?, mapping?, refusals?, refusalCodes?, refused?,
+                      mutedAutomation?, mutePlan?, checkpointFirst?, removeWith, ended?, exit}:
+                     plan, result and removal as a Frozen load and its removal answer them;
+                     objects, status, verdict and refusals as a Frozen step gives them
+  replays            [{checkpointId, checkpointName?, sourceOrganizationId, takenAt?, target:
+                      {organizationId, name?}, choices?, replayedAt?, inPlace, inPlaceByObject,
+                      removed?, removeWith}]
   export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
                       keyShown}: keyShown, whether a new key was drawn and shown on stderr; never
                      the key itself
@@ -452,6 +581,10 @@ JSON (--json), one value on stdout:
                      also on a line of its own, refused (CODE): message
   A bad command line (exit 2) prints nothing on stdout.
 
+replay ends as a Frozen load ends: 0 its dry run said, or the replay done and verified; 1 refused
+before it wrote (REPLAY_SAME_ORG, REPLAY_REAL_DATA, REPLAY_COPY_UNKNOWN, REPLAY_TOO_MANY,
+REPLAY_NOTHING, a target refused, what it runs or sends unanswered) or failed; 2 a bad line or a
+question with no terminal; 3 done with records refused or left, or its verification PARTIAL.
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
 org matches among the objects and fields compared — with --object, among the objects named,
 whatever still differs in the others; preview, rewind --dry-run and list answered;
@@ -494,6 +627,8 @@ const COMMANDS = [
   'delete',
   'export',
   'import',
+  'replay',
+  'replays',
 ] as const;
 type Command = (typeof COMMANDS)[number];
 
@@ -570,6 +705,48 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
     switches: COMMON.switches,
     values: [...COMMON.values, '--file', '--key-env', '--keep-days'],
   },
+  // A replay reads its checkpoint, its file, the other org, its choices and
+  // the gates of the load it runs; `--org` is none of them: its org is not reached.
+  replay: {
+    words: 1,
+    switches: [
+      '--json',
+      '--dry-run',
+      '--verify',
+      '--remove',
+      '--preview',
+      '--sweep',
+      '--include-changed',
+      '--custom-settings',
+      '--mask',
+      '--keep-contact-points',
+      '--no-real-data',
+      '--again',
+      '--mute-automation',
+      '--accept-automation',
+      '--accept-emails',
+      '--yes',
+      ...CHECKPOINT_FIRST_FLAGS.switches,
+    ],
+    values: [
+      '--store',
+      '--checkpoint',
+      '--from',
+      '--file',
+      '--key-env',
+      '--keep-days',
+      '--target',
+      '--objects',
+      '--exclude-object',
+      '--owners',
+      '--owner-map',
+      '--link',
+      '--replay-config',
+      '--max-records',
+      ...CHECKPOINT_FIRST_FLAGS.values,
+    ],
+  },
+  replays: { words: 1, switches: ['--json'], values: ['--store', '--target'] },
 };
 
 /** The flag that gave each field of a take's request, as a refusal of it names it. */
@@ -598,6 +775,8 @@ export interface TakeAsked {
 interface CommonArgs {
   /** Where the checkpoints live, absolute. */
   storeRoot: string;
+  /** Set when --store named it: what the store keeps beside its checkpoints is kept in it too. */
+  storeNamed?: true;
   json: boolean;
 }
 
@@ -674,6 +853,12 @@ export type CliArgs =
       /** The variable that holds the key; it is asked on the terminal without it. */
       keyEnv?: string;
       keepDays: number;
+    })
+  | (CommonArgs & { command: 'replay'; replay: ReplayAsked })
+  | (CommonArgs & {
+      command: 'replays';
+      /** One org's replays: those into it, by its alias or its Organization Id. */
+      target?: string;
     });
 
 /** An object's API name, as `--object` takes one. */
@@ -706,14 +891,14 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
     return refuseLine(
-      'Name the command first: take, list, preview, rewind, undo, delete, export or import. Run ' +
-        'with --help.',
+      'Name the command first: take, list, preview, rewind, undo, delete, export, import, ' +
+        'replay or replays. Run with --help.',
     );
   }
   if (!isCommand(command)) {
     return refuseLine(
       `"${command}" is not a command of sandforge checkpoint: take, list, preview, rewind, undo, ` +
-        'delete, export or import. Nothing was run. Run with --help.',
+        'delete, export, import, replay or replays. Nothing was run. Run with --help.',
     );
   }
   // A misspelt flag, or `--org=ALIAS`, would be dropped without a word.
@@ -747,6 +932,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   const store = single('--store');
   const common: CommonArgs = {
     storeRoot: store !== undefined ? resolve(store) : defaultCheckpointStoreRoot(),
+    ...(store !== undefined ? { storeNamed: true as const } : {}),
     json: args.includes('--json'),
   };
   const org = single('--org');
@@ -782,6 +968,10 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   switch (command) {
     case 'list':
       return { ...common, command, ...(org !== undefined ? { org } : {}) };
+    case 'replay':
+      return { ...common, command, replay: parseReplay(args, refuseLine) };
+    case 'replays':
+      return { ...common, command, ...parseReplays(args, refuseLine) };
     case 'take': {
       const named = orgNamed();
       const objects = values('--object');
@@ -1061,15 +1251,15 @@ export function invalidRefusal(entry: CheckpointListEntry): CheckpointRefusalLik
         code: 'OTHER_ORG',
         message:
           `This sandbox was refreshed${entry.refreshedAt ? ` on ${entry.refreshedAt.slice(0, 10)}` : ''}: ` +
-          `it is another org now, and the checkpoint ${name} is of the org before it. It can only be deleted. ` +
-          FROZEN_WORDS,
+          `it is another org now, and the checkpoint ${name} is of the org before it. It no ` +
+          `longer rewinds. ${replayWords(entry)}`,
       };
     case 'scratchExpired':
       return {
         code: 'SCRATCH_EXPIRED',
         message:
-          `The scratch org of checkpoint ${name} has expired: its checkpoints can only be deleted. ` +
-          FROZEN_WORDS,
+          `The scratch org of checkpoint ${name} has expired: its checkpoints no longer rewind ` +
+          `it. ${replayWords(entry)}`,
       };
     default:
       return { code: 'INVALID', message: `The checkpoint ${name} cannot be previewed.` };
@@ -1077,12 +1267,27 @@ export function invalidRefusal(entry: CheckpointListEntry): CheckpointRefusalLik
 }
 
 /**
- * What keeps an org's data for another org, on this command line: a Frozen
- * Dataset, frozen while the org lives.
+ * The command that replays a checkpoint that no longer rewinds its org, as a
+ * line gives it: into the sandbox its org became once refreshed, by the alias
+ * it still answers to; into an org to name, of a scratch org expired. Its dry
+ * run first: it writes nothing.
  */
-const FROZEN_WORDS = `${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG.replace(/\.$/, '')} (${nameOf(
-  'sandforge-frozen',
-)} select, then extract).`;
+export function replayCommandFor(entry: CheckpointListEntry): string {
+  const org = entry.checkpoint?.org;
+  const target =
+    entry.why === 'refreshed' && org !== undefined ? (org.alias ?? org.username) : '<alias>';
+  return `${replayCommandOf(entry.checkpointId, target)} --dry-run`;
+}
+
+/** What sets a checkpoint that no longer rewinds its org up again in another, and the command. */
+function replayWords(entry: CheckpointListEntry): string {
+  return `${CHECKPOINT_REPLAY_FOR_ANOTHER_ORG.replace(/\.$/, '')}: ${replayCommandFor(entry)}`;
+}
+
+/** Whether a checkpoint listed no longer rewinds its org, and still replays into another. */
+function replaysOnly(entry: CheckpointListEntry): boolean {
+  return !entry.valid && (entry.why === 'refreshed' || entry.why === 'scratchExpired');
+}
 
 /** A refusal said by the command line, beside the ones the extension answers with. */
 export interface CheckpointRefusalLike {
@@ -1201,8 +1406,8 @@ const WHY_WORDS: Readonly<Record<string, string>> = {
   damaged: 'its file cannot be read: it can only be deleted',
   taking: 'being taken, or its take never ended: it can only be deleted unless it ends',
   failed: 'its take failed: it can only be deleted',
-  refreshed: 'of the org before its refresh: it can only be deleted',
-  scratchExpired: 'its scratch org has expired: it can only be deleted',
+  refreshed: 'of the org before its refresh: it no longer rewinds, and replays into another org',
+  scratchExpired: 'its scratch org has expired: it no longer rewinds, and replays into another org',
 };
 
 /** The lines `list` prints, newest first. */
@@ -1226,15 +1431,22 @@ export function listLines(entries: readonly CheckpointListEntry[], store: string
           ? `refreshed on ${entry.refreshedAt.slice(0, 10)}: `
           : '';
       lines.push(`  ${refreshed}${WHY_WORDS[entry.why ?? ''] ?? 'it cannot be previewed'}`);
-      if (entry.why === 'refreshed' || entry.why === 'scratchExpired')
-        lines.push(`  ${FROZEN_WORDS}`);
+      if (replaysOnly(entry)) {
+        lines.push(`  replay it: ${replayCommandFor(entry)}`);
+        // Deleted on its date as any checkpoint, its org no longer reached:
+        // what keeps it longer, where a replay of it is still wanted.
+        if (c.expiresAt !== null) {
+          lines.push(
+            `  deleted from this machine on ${when(c.expiresAt)}: to replay it after, Keep it in ` +
+              'the editor, or export it and replay the file',
+          );
+        }
+      }
     }
     if (entry.scratchExpiresSoon && c.org.scratchExpiresAt !== undefined) {
       lines.push(
         `  its scratch org expires on ${c.org.scratchExpiresAt.slice(0, 10)}: its checkpoints ` +
-          'then can only be deleted, whatever --keep-days said. To set up its data again in ' +
-          `another org, freeze it as a Frozen Dataset before (${nameOf('sandforge-frozen')} ` +
-          'select, then extract)',
+          'then no longer rewind it, whatever --keep-days said, and still replay into another org',
       );
     }
     if (entry.expiresSoon && c.expiresAt !== null) {
@@ -1276,6 +1488,7 @@ export function listEntryJson(entry: CheckpointListEntry): Record<string, unknow
     valid: entry.valid,
     ...(entry.why !== undefined ? { why: entry.why } : {}),
     ...(entry.refreshedAt !== undefined ? { refreshedAt: entry.refreshedAt } : {}),
+    ...(replaysOnly(entry) ? { replayWith: replayCommandFor(entry) } : {}),
   };
 }
 
@@ -3404,13 +3617,43 @@ export async function main(
       case 'import':
         await importFrom(args, { transfers: transfersOf(transfers), connect, say, answerJson });
         return;
+      case 'replay':
+        // The Frozen handler's load says it all, its answer with --json among it.
+        await runReplay(args.replay, {
+          storeRoot: args.storeRoot,
+          storeNamed: args.storeNamed === true,
+          store,
+          ...(deps.locksDir !== undefined ? { locksDir: deps.locksDir } : {}),
+          listAll,
+          checkpointsOf,
+          resolve: resolveCheckpoint,
+          say,
+          json: args.json,
+        });
+        return;
+      case 'replays':
+        await runReplays(args.target, {
+          storeRoot: args.storeRoot,
+          storeNamed: args.storeNamed === true,
+          say,
+          answerJson,
+        });
+        return;
     }
   } catch (err: unknown) {
     const stop =
       err instanceof Stop
         ? err
-        : new Stop({ code: 'FAILED', message: err instanceof Error ? err.message : String(err) });
-    process.stderr.write(`${stop.message}\n`);
+        : err instanceof ReplayStop
+          ? new Stop(err.refusal, err.code)
+          : new Stop({
+              code: 'FAILED',
+              message: err instanceof Error ? err.message : String(err),
+            });
+    // A replay's, with its code, as the refusals of the Frozen load it runs say theirs.
+    process.stderr.write(
+      `${err instanceof ReplayStop ? refusedLine(err.refusal) : stop.message}\n`,
+    );
     // Each other refusal on a line of its own, its code named, as a clone
     // refused for several says them.
     for (const each of stop.also) process.stderr.write(`${refusedLine(each)}\n`);
@@ -3565,7 +3808,20 @@ async function importFrom(
         `${megabytes(header.bytes)}, exported by SandForge ${header.sandforgeVersion}`,
     );
   }
-  if (!check.allowed) throw new Stop(check.refusal);
+  if (!check.allowed) {
+    // Another org's file goes into this one as a replay, which is named here
+    // as a command: the guard's words are the editor's too, which has none.
+    throw new Stop(
+      check.refusal.code === 'OTHER_ORG'
+        ? {
+            ...check.refusal,
+            message:
+              `${check.refusal.message} Its replay into ${args.org}: ` +
+              `${replayFileCommandOf(args.file, args.org)} --dry-run`,
+          }
+        : check.refusal,
+    );
+  }
   const key = fromEnvironment ?? (await typedKey());
   const answer = await context.transfers.importCheckpoint({
     orgId: org.id,
@@ -3738,9 +3994,25 @@ async function remove(
             targets.map(named),
             4,
           )})? ${args.org} can no longer be rewound to them`;
+    // What it replayed into other orgs stays there: said before it is asked.
+    const replayed = (
+      await replaysLeftBy(targets, {
+        storeRoot: args.storeRoot,
+        storeNamed: args.storeNamed === true,
+      })
+    ).entries;
     const question =
       `${what}${undone.length > 0 ? ', and its last rewind can no longer be undone' : ''}. ` +
-      'The org is not touched.';
+      'The org is not touched' +
+      (replayed.length > 0
+        ? `, nor the ${replayed.length === 1 ? 'org it was' : 'orgs they were'} replayed into ` +
+          `(${someOf(
+            replayed.map((entry) => entry.target.name ?? entry.target.organizationId),
+            4,
+          )}), ` +
+          'each replay still taken back with --remove'
+        : '') +
+      '.';
     if (!(await confirm(question))) {
       throw new Stop({ code: 'DECLINED', message: 'Nothing was deleted.' });
     }
@@ -3772,9 +4044,20 @@ async function remove(
         'it has ended',
     );
   }
+  // Its replays stay in the orgs they went into, and are still taken back
+  // from their own folder: said, as nothing of them is deleted.
+  const replays = await replaysLeftBy(deleted, {
+    storeRoot: args.storeRoot,
+    storeNamed: args.storeNamed === true,
+  });
+  for (const line of replays.lines) say(line);
+  const store = args.storeNamed ? args.storeRoot : undefined;
   answerJson({
     deleted: deleted.map((entry) => entry.checkpointId),
     kept: kept.map((entry) => entry.checkpointId),
+    ...(replays.entries.length > 0
+      ? { replaysInPlace: replays.entries.map((entry) => replayEntryJson(entry, store)) }
+      : {}),
   });
   if (kept.length > 0) endWith(deleted.length > 0 ? PARTIAL_EXIT : FAILED_EXIT);
 }
@@ -3798,8 +4081,9 @@ function sameOrgOrStop(
     code: 'OTHER_ORG',
     message: takenUnder
       ? `${alias} answers as another org than the one '${checkpoint.name}' was taken of: a ` +
-        'sandbox refreshed since is another org, and this checkpoint can only be deleted. ' +
-        `${FROZEN_WORDS} No record was read.`
+        'sandbox refreshed since is another org, and this checkpoint no longer rewinds it. ' +
+        `${CHECKPOINT_REPLAY_FOR_ANOTHER_ORG.replace(/\.$/, '')}: ` +
+        `${replayCommandOf(entry.checkpointId, alias)} --dry-run. No record was read.`
       : `'${checkpoint.name}' is a checkpoint of ${orgOf(checkpoint)}, not of ${alias}: ` +
         `${verb} with --org ${orgOf(checkpoint)}. No record was read.`,
   });

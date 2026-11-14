@@ -252,17 +252,6 @@ export const MAX_SLICES_PER_SET = 2_000;
 export const CHECKPOINT_BEFORE_RUN_KEEP_DAYS = { default: 7, min: 0, max: 3_650 } as const;
 
 /**
- * What keeps an org's data for another org, which a checkpoint never does:
- * said where a checkpoint can only be deleted, its sandbox refreshed or its
- * scratch org expired, and where one is imported for another org. "It can
- * only be deleted" was all there was to read, and the data a person meant to
- * set up again went with the org.
- */
-export const CHECKPOINT_FROZEN_FOR_ANOTHER_ORG =
-  'A checkpoint returns the org it was taken of to a moment, and no other org: data to set up ' +
-  'again in another org is frozen as a Frozen Dataset while its org lives.';
-
-/**
  * What sets a checkpoint's records up again in another org, which a rewind
  * never does: said where a checkpoint no longer returns its org to a moment
  * — its sandbox refreshed, its scratch org expired — and where a file is

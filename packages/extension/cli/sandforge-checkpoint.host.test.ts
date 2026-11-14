@@ -2710,6 +2710,11 @@ describe('sandforge-checkpoint export and import', () => {
 
     expect(into.code).toBe(1);
     expect(JSON.parse(into.stdout)).toMatchObject({ refusal: { code: 'OTHER_ORG' } });
+    // The way that file goes into this org, said as a command to run.
+    expect(into.stderr).toContain(
+      'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --file ' +
+        `${team.file} --target DEV-SB --dry-run`,
+    );
     expect(into.stderr).not.toContain('Key of the file');
     expect(existsSync(team.store) ? readdirSync(team.store) : []).toEqual([]);
   });

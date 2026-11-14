@@ -180,7 +180,7 @@ describe('parseArgs', () => {
     expect(restore.code).toBe(2);
     expect(restore.stderr).toContain(
       '"restore" is not a command of sandforge checkpoint: take, list, preview, rewind, undo, ' +
-        'delete, export or import',
+        'delete, export, import, replay or replays',
     );
   });
 
@@ -638,10 +638,30 @@ describe('invalidRefusal', () => {
     ).toEqual({
       code: 'SCRATCH_EXPIRED',
       message:
-        "The scratch org of checkpoint 'Before UAT' has expired: its checkpoints can only be " +
-        'deleted. A checkpoint returns the org it was taken of to a moment, and no other org: ' +
-        'data to set up again in another org is frozen as a Frozen Dataset while its org lives ' +
-        '(sandforge frozen select, then extract).',
+        "The scratch org of checkpoint 'Before UAT' has expired: its checkpoints no longer " +
+        'rewind it. A checkpoint returns the org it was taken of to a moment; replayed in ' +
+        'another org, it sets its records up there again, with new Ids, without its own org: ' +
+        'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --checkpoint ' +
+        'ck-20261022-160000-cccc --target <alias> --dry-run',
+    });
+    // A sandbox refreshed since is replayed into by its alias, the org it is now.
+    expect(
+      invalidRefusal(
+        entry('ck-20261022-160000-cccc', ORG_A, of, {
+          valid: false,
+          why: 'refreshed',
+          refreshedAt: '2026-11-12T08:00:00.000Z',
+        }),
+      ),
+    ).toEqual({
+      code: 'OTHER_ORG',
+      message:
+        'This sandbox was refreshed on 2026-11-12: it is another org now, and the checkpoint ' +
+        "'Before UAT' is of the org before it. It no longer rewinds. A checkpoint returns the org " +
+        'it was taken of to a moment; replayed in another org, it sets its records up there ' +
+        'again, with new Ids, without its own org: pnpm exec tsx ' +
+        'packages/extension/cli/sandforge-checkpoint.ts replay --checkpoint ' +
+        'ck-20261022-160000-cccc --target DEV-SB --dry-run',
     });
     expect(
       invalidRefusal(entry('ck-20261022-160000-cccc', ORG_A, of, { valid: false, why: 'taking' }))
@@ -651,29 +671,56 @@ describe('invalidRefusal', () => {
 });
 
 describe('listLines', () => {
-  it('warns before a scratch org expires, and names what keeps an org’s data for another where a checkpoint can only be deleted', () => {
+  it('warns before a scratch org expires, and gives the command that replays a checkpoint that no longer rewinds', () => {
     const of = { alias: 'DEV-SB', username: 'u@example.com', scratchExpiresAt: '2026-10-24' };
     const lines = listLines(
       [
         entry('ck-20261022-160000-cccc', ORG_A, of, { scratchExpiresSoon: true }),
-        entry('ck-20261021-160000-dddd', ORG_A, of, { valid: false, why: 'refreshed' }),
+        entry('ck-20261021-160000-dddd', ORG_A, of, {
+          valid: false,
+          why: 'refreshed',
+          refreshedAt: '2026-11-12T08:00:00.000Z',
+        }),
+        entry('ck-20261020-160000-eeee', ORG_B, of, { valid: false, why: 'scratchExpired' }),
       ],
       '/store',
     );
 
     expect(lines).toContain(
-      '  its scratch org expires on 2026-10-24: its checkpoints then can only be deleted, ' +
-        'whatever --keep-days said. To set up its data again in another org, freeze it as a ' +
-        'Frozen Dataset before (sandforge frozen select, then extract)',
+      '  its scratch org expires on 2026-10-24: its checkpoints then no longer rewind it, ' +
+        'whatever --keep-days said, and still replay into another org',
     );
     expect(lines).toContain(
-      '  A checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
-        'up again in another org is frozen as a Frozen Dataset while its org lives (sandforge ' +
-        'frozen select, then extract).',
+      '  refreshed on 2026-11-12: of the org before its refresh: it no longer rewinds, and ' +
+        'replays into another org',
     );
+    expect(lines).toContain(
+      '  replay it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay ' +
+        '--checkpoint ck-20261021-160000-dddd --target DEV-SB --dry-run',
+    );
+    expect(lines).toContain(
+      '  replay it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay ' +
+        '--checkpoint ck-20261020-160000-eeee --target <alias> --dry-run',
+    );
+    // Kept until its date, then deleted as any checkpoint is: where it is kept longer.
+    expect(lines).toContain(
+      '  deleted from this machine on 2026-11-21 14:05 UTC: to replay it after, Keep it in the ' +
+        'editor, or export it and replay the file',
+    );
+    expect(lines.join('\n')).not.toContain('can only be deleted');
+    expect(lines.join('\n')).not.toContain('Frozen Dataset');
     expect(
       listEntryJson(entry('ck-20261022-160000-cccc', ORG_A, of, { scratchExpiresSoon: true })),
     ).toMatchObject({ scratchExpiresSoon: true });
+    expect(
+      listEntryJson(
+        entry('ck-20261021-160000-dddd', ORG_A, of, { valid: false, why: 'refreshed' }),
+      ),
+    ).toMatchObject({
+      replayWith:
+        'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --checkpoint ' +
+        'ck-20261021-160000-dddd --target DEV-SB --dry-run',
+    });
   });
 });
 

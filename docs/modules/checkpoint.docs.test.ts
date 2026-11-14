@@ -202,6 +202,8 @@ describe('docs/modules/checkpoint.md', () => {
       'delete',
       'export',
       'import',
+      'replay',
+      'replays',
     ]);
 
     const table = section(DOC, '## From the command line');
