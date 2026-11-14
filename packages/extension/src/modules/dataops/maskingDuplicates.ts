@@ -167,6 +167,12 @@ export interface DuplicatesWatch {
    * or sent. Never throws.
    */
   read(): Promise<MaskingDuplicatesWritten | undefined>;
+  /**
+   * How many records it holds to read for: one per record of a covered
+   * object the run saved. A run in slices watches each slice apart, so it
+   * holds one slice's.
+   */
+  held(): number;
 }
 
 /**
@@ -231,6 +237,7 @@ export function watchDuplicates(
         (err: unknown) => ({ unread: extractErrorMessage(err) }),
       );
     },
+    held: () => written.size,
     read: async () => {
       if (written.size === 0) return undefined;
       const clock = since ? await since : undefined;
@@ -249,6 +256,30 @@ export function watchDuplicates(
       // The org's clock, read once, is one of its requests.
       return { ...read, requests: (read.requests ?? 0) + 1, waitedMs: wait };
     },
+  };
+}
+
+/**
+ * What the duplicate rules wrote over two reads of one run — a run in slices
+ * reads them as each slice ends —: the sets and items added, the requests
+ * and the waits added, `atLeast` when either was, and why one could not be
+ * read. Undefined when neither read anything.
+ */
+export function addDuplicates(
+  before: MaskingDuplicatesWritten | undefined,
+  read: MaskingDuplicatesWritten | undefined,
+): MaskingDuplicatesWritten | undefined {
+  if (!before) return read;
+  if (!read) return before;
+  const unread = [before.unread, read.unread].filter((why): why is string => why !== undefined);
+  return {
+    rules: read.rules.length >= before.rules.length ? read.rules : before.rules,
+    sets: before.sets + read.sets,
+    items: before.items + read.items,
+    ...(before.atLeast || read.atLeast ? { atLeast: true as const } : {}),
+    ...(unread.length > 0 ? { unread: unread.join('; ') } : {}),
+    requests: (before.requests ?? 0) + (read.requests ?? 0),
+    waitedMs: (before.waitedMs ?? 0) + (read.waitedMs ?? 0),
   };
 }
 

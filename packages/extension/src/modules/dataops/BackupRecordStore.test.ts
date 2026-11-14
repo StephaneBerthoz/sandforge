@@ -383,3 +383,21 @@ describe('nodeBackupFiles', () => {
     expect(await new BackupRecordStore(nodeBackupFiles(dir)).sweep([], 0, Date.now())).toEqual([]);
   });
 });
+
+describe('BackupRecordStore — where its files go', () => {
+  it('says the folder its backups go in, under the storage it was given', () => {
+    const store = new BackupRecordStore({
+      storagePath: '/storage',
+      readFile: async () => '',
+      writeFile: async () => undefined,
+      appendFile: async () => undefined,
+      exists: async () => false,
+      readLines: async function* () {},
+      mkdir: async () => undefined,
+      rm: async () => undefined,
+      listFiles: async () => [],
+    });
+
+    expect(store.directory).toBe(path.join('/storage', 'backups'));
+  });
+});

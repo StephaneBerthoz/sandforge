@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { statfs } from 'node:fs/promises';
+import * as path from 'node:path';
 
 import type {
   AnonymizationRuleConfig,
@@ -19,12 +21,15 @@ import type {
   ListedAnonymizationTemplate,
   MaskingDuplicatesWritten,
   MutedAutomation,
+  SlicePlan,
 } from '@sandforge/shared';
 import {
   recordWriteHeaders,
   sanitizeSoqlObjectName,
   guardTierOf,
   BACKUP_MAX_RECORDS_PER_OBJECT,
+  MAX_SLICES_PER_SET,
+  SLICE_REFUSAL,
   orgDisplayName,
 } from '@sandforge/shared';
 import type {
@@ -162,6 +167,7 @@ import {
 } from '../../modules/dataops/dataOpsAutomation.js';
 import {
   DUPLICATES_SETTLE_MS,
+  addDuplicates,
   duplicateRulesOn,
   duplicatesLeft,
   maskingDuplicatesSentence,
@@ -185,6 +191,35 @@ import {
   type PipelineMaskingOutcome,
   type PipelineMaskingRequest,
 } from './anonymizePipeline.js';
+import {
+  BackupSetStore,
+  backupSetSummaryOf,
+  lateRowsOf,
+  nextSliceIndex,
+  sliceDone,
+  sliceSetOpenOf,
+  sliceSetResultOf,
+  sliceSnapshotId,
+  slicesOf,
+  type BackupSet,
+  type BackupSetObject,
+  type BackupSlice,
+} from '../../modules/dataops/slices/backupSet.js';
+import {
+  lateCountStatement,
+  sliceStatement,
+  tailCountStatement,
+  type SliceBounds,
+} from '../../modules/dataops/slices/sliceStatement.js';
+import {
+  bytesWords,
+  diskNeeded,
+  planSlices,
+  sliceRequests,
+  slicesFor,
+  type SlicesPlanned,
+} from '../../modules/dataops/slices/slicePlan.js';
+import { runKeyCheck, type RunKeyStore } from '../../modules/dataops/slices/runKeyStore.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -390,8 +425,17 @@ const BACKUP_RETENTION_SINCE_KEY = 'backupRetention:since';
 /** The code a deletion refused while a backup or a restore of the org runs carries. */
 const BACKUP_BUSY = 'BACKUP_BUSY';
 
-/** One object of a snapshot as it is read: the rows written so far, and why it stopped short. */
-type BackupObjectRead = BackupObjectHeld & { truncated: boolean };
+/**
+ * One object of a snapshot as it is read: the rows written so far, why it
+ * stopped short, and, for a slice's, the last row it wrote, which the next
+ * slice starts past.
+ */
+type BackupObjectRead = BackupObjectHeld & {
+  truncated: boolean;
+  lastId?: string;
+  /** Of a slice's, the rows it read, those it left out as held by a slice before among them. */
+  readCount?: number;
+};
 
 /**
  * Where a snapshot's records go, a page at a time, as the org answers them:
@@ -676,11 +720,16 @@ interface BackupMeta {
    * (`syncOverwrites`), with the run it is of: the values its removal gives
    * back. `checkpoint` on the snapshot a checkpoint holds, in the
    * checkpoint's own folder, which lives as long as the checkpoint does:
-   * neither the count of backups per org nor their age removes it. Absent
-   * from a DataOps backup.
+   * neither the count of backups per org nor their age removes it. `slice`
+   * on a slice of a set (`setId`), which goes with its set alone, whatever
+   * the count of backups. Absent from a DataOps backup.
    */
-  origin?: 'sync' | 'checkpoint';
+  origin?: 'sync' | 'checkpoint' | 'slice';
   runId?: string;
+  /** Of a slice, its set. */
+  setId?: string;
+  /** Of a slice, its number in the set and its bounds. */
+  slice?: { index: number; afterId?: string; lastId?: string; size: number };
 }
 
 /**
@@ -701,6 +750,7 @@ function heldOf(o: BackupObjectHeld): BackupObjectHeld & { truncated: boolean } 
     ...(o.orgCount !== undefined ? { orgCount: o.orgCount } : {}),
     ...(o.stoppedAt ? { stoppedAt: o.stoppedAt } : {}),
     ...(o.notKept && o.notKept.length > 0 ? { notKept: [...o.notKept] } : {}),
+    ...(o.where ? { where: o.where } : {}),
   };
 }
 
@@ -773,6 +823,18 @@ interface MaskingTally {
   unanswered: number;
   /** Whether the run read the object to its last row. */
   done: boolean;
+  /**
+   * Of a run in slices, rows of a slice's snapshot the org no longer had when
+   * the run wrote them: deleted since, they hold nothing to mask, and are
+   * neither refused nor left.
+   */
+  deletedSince?: number;
+  /**
+   * Of a run in slices, rows created while it went in a range a slice had
+   * already masked, or past its last slice: no snapshot holds them, so they
+   * are left, and a resume masks them with a snapshot of their own.
+   */
+  late?: number;
 }
 
 /** One object of a masking run: its rules, its counts, and how far the run got through it. */
@@ -923,7 +985,12 @@ function notReached(tally: MaskingTally): number {
   if (tally.done) return 0;
   return Math.max(
     0,
-    tally.total - tally.masked - tally.nothingToMask - tally.refused - tally.unanswered,
+    tally.total -
+      tally.masked -
+      tally.nothingToMask -
+      tally.refused -
+      tally.unanswered -
+      (tally.deletedSince ?? 0),
   );
 }
 
@@ -932,7 +999,7 @@ function notReached(tally: MaskingTally): number {
  * never reached, or sent in a call whose answer never came back.
  */
 function notMasked(tally: MaskingTally): number {
-  return tally.refused + tally.unanswered + notReached(tally);
+  return tally.refused + tally.unanswered + notReached(tally) + (tally.late ?? 0);
 }
 
 /** A masking run's counts over every object, as its result carries them. */
@@ -1197,6 +1264,72 @@ function pageEnd(
   return lastId;
 }
 
+/** Whether the org refused an update of a row because the row was deleted since it was read. */
+function deletedSinceSnapshot(
+  errors: ReadonlyArray<{ statusCode?: string; errorCode?: string }> | undefined,
+): boolean {
+  const first = errors?.[0];
+  return first?.statusCode === 'ENTITY_IS_DELETED' || first?.errorCode === 'ENTITY_IS_DELETED';
+}
+
+/** Where the next slice of an object starts: past the last row of its last slice taken. */
+function sliceCursorOf(entry: BackupSetObject): string | undefined {
+  return entry.slices
+    .filter((s) => !s.late && s.state !== 'pending' && s.lastId !== undefined)
+    .at(-1)?.lastId;
+}
+
+/**
+ * Rows of an object its set's slices left: the rest of the slice a run
+ * stopped in, the rows the org refused, and the rows created late in a
+ * range masked. The rows past its last slice are counted apart.
+ */
+function rowsLeftInSlices(entry: BackupSetObject): number {
+  return entry.slices.reduce((sum, s) => {
+    const inFile =
+      s.state === 'masking'
+        ? Math.max(
+            0,
+            s.rows - s.masked - s.nothingToMask - s.refused - s.deletedSince - (s.unanswered ?? 0),
+          )
+        : 0;
+    return sum + inFile + s.refused + (s.lateLeft ?? 0);
+  }, 0);
+}
+
+/** How a run in slices is told to go on, in the words of whoever reads it. */
+interface SliceWays {
+  resume: string;
+  abandon: string;
+  restore: (setId: string) => string;
+}
+
+/** One part of a restore: an object of a backup, or a slice of a set, each read from its own snapshot. */
+interface RestorePart {
+  snapshotId: string;
+  objectApiName: string;
+  recordCount: number;
+  /** Of a set, the slice: noted once it is written back whole. */
+  slice?: BackupSlice;
+}
+
+/** A backup's metadata as a restore reads it. */
+type RestoreMeta = BackupMeta & {
+  orgId: string;
+  objects: BackupObjectHeld[];
+  totalRecords: number;
+};
+
+/** A slice of a set a restore did not read again: restored before, and not asked for again. */
+interface SliceSkipped {
+  index: number;
+  objectApiName: string;
+  restored: number;
+  failed: number;
+  unchanged: number;
+  skipped: true;
+}
+
 /** A snapshot taken, as its metadata records it. */
 export interface BackupTaken {
   operationId: string;
@@ -1209,6 +1342,39 @@ export interface BackupTaken {
   /** Whether any object stopped at the cap: the snapshot is only part of the org's data. */
   partial: boolean;
   timestamp: string;
+}
+
+/**
+ * What a snapshot of a slice of a set is taken with: its set and number, the
+ * rows it holds — its bounds by Id, its size, those a slice before holds —
+ * and who is told of each request it sends.
+ */
+interface SliceSnapshotAsk {
+  setId: string;
+  index: number;
+  bounds: SliceBounds;
+  size: number;
+  skip?: (row: BackupRecord) => boolean;
+  onRequest: () => void;
+}
+
+/** What a slice's snapshot came to: the rows it holds and the last of them, or why it was not taken. */
+type SliceTaken =
+  | { rows: number; read: number; lastId?: string; sizeUsed: number; readSince?: string }
+  | { failed: unknown; code: string; cancelled?: boolean };
+
+/**
+ * The fewest rows a slice is halved to when the org will not read it whole
+ * in time: the fewest a snapshot may be set to hold.
+ */
+const SLICE_SIZE_FLOOR = 100;
+
+/** How many times a slice the org will not read in time is halved before the run stops. */
+const SLICE_HALVINGS = 3;
+
+/** The object under which a slice's snapshot keeps, beside its rows, the ids the org refused. */
+function refusedSideOf(objectApiName: string): string {
+  return `_refused_${objectApiName}`;
 }
 
 /** A snapshot not taken: why, whether trying again may help, and what it was on. */
@@ -1288,10 +1454,42 @@ export class DataOpsHandler implements DomainHandler {
    * template replaced the same record with two different people, so nothing
    * the user saw in one run told them anything about the next. This handler is
    * built once per activation and shared by every panel, so the key is one per
-   * window, and staying out of storage keeps the permutation from being
-   * replayable by anyone who reads the workspace.
+   * window. It stays out of storage, except for a run in slices, whose key is
+   * kept with its set until the set ends (`runKeys`): beside the slices'
+   * snapshots, which hold the values in clear, it exposes nothing more.
    */
   private readonly maskingKey = randomBytes(32).toString('hex');
+
+  /**
+   * Where the key of each masking run in slices is kept until its set ends,
+   * so that a resume in another window or process masks as the run did: the
+   * editor's secret storage, a file of the command line's store. Absent, a
+   * set's slices are masked with the window's key, and a resume elsewhere is
+   * refused rather than masking with another.
+   */
+  private runKeys?: RunKeyStore;
+
+  /** Bytes free where the backups go, as the file system says; undefined when it does not. */
+  private freeBytes: () => Promise<number | undefined> = async () => {
+    const dir = this.backupRecords?.directory;
+    if (dir === undefined) return undefined;
+    for (const at of [dir, path.dirname(dir)]) {
+      try {
+        const info = await statfs(at);
+        return Number(info.bavail) * Number(info.bsize);
+      } catch {
+        // Not made yet: its parent holds the same disk.
+      }
+    }
+    return undefined;
+  };
+
+  /**
+   * The orgs a masking run in slices of this window writes to now, each with
+   * its set: a backup or a restore of the org it holds off names the run and
+   * how to go on.
+   */
+  private readonly sliceRunsOn = new Map<string, string>();
 
   /** Where an export of a backup is written: a file the user picks. */
   private readonly saveDialog: SaveDialogAdapter;
@@ -1331,11 +1529,17 @@ export class DataOpsHandler implements DomainHandler {
    * template. The window's key is the one the run's other keyed methods
    * already draw from, never written down, so an address gets the same digest
    * on every object of a run and on every run of the window, and another one
-   * in the next window.
+   * in the next window. A run in slices masks with its set's key, kept until
+   * the set ends, so a resume elsewhere gives the address the same digest.
+   *
+   * @param key - The key the run masks with: the window's unless said.
    */
-  private ruleConfig(rule: AnonymizationTemplateRule): AnonymizationRuleConfig {
+  private ruleConfig(
+    rule: AnonymizationTemplateRule,
+    key: string = this.maskingKey,
+  ): AnonymizationRuleConfig {
     const config: AnonymizationRuleConfig = { ...rule.config };
-    if (rule.ruleType === 'hash') config.hashSalt = this.maskingKey;
+    if (rule.ruleType === 'hash') config.hashSalt = key;
     return config;
   }
 
@@ -1348,6 +1552,7 @@ export class DataOpsHandler implements DomainHandler {
   private maskingRules(
     objectName: string,
     objectRules: readonly AnonymizationTemplateRule[],
+    key: string = this.maskingKey,
   ): DataOpsAnonymizationRule[] {
     return objectRules.map((r) => ({
       objectApiName: objectName,
@@ -1361,7 +1566,7 @@ export class DataOpsHandler implements DomainHandler {
         | 'truncate'
         | 'constant'
         | 'preserve_format',
-      config: this.ruleConfig(r),
+      config: this.ruleConfig(r, key),
     }));
   }
 
@@ -1392,6 +1597,38 @@ export class DataOpsHandler implements DomainHandler {
   /** Inject the Sync runs kept on this machine, which a restore of a Sync run's backup reads. */
   setSyncRuns(runs: Pick<SyncRunCreations, 'get'>): void {
     this.syncRuns = runs;
+  }
+
+  /** Inject where the key of a masking run in slices is kept until its set ends: see {@link runKeys}. */
+  setRunKeyStore(store: RunKeyStore): void {
+    this.runKeys = store;
+  }
+
+  /** Another reading of the bytes free where the backups go than the file system's. */
+  setFreeBytes(read: () => Promise<number | undefined>): void {
+    this.freeBytes = read;
+  }
+
+  /** The manifests of the sets of slices, beside the backups' metadata. */
+  private get sliceSets(): BackupSetStore {
+    return new BackupSetStore(this.deps.configStore);
+  }
+
+  /**
+   * Why a backup, a restore or a deletion is held off an org: a masking run
+   * in slices of it, named with its set and how to go on once it stopped, or
+   * what the caller says otherwise.
+   */
+  private busyMessage(orgId: string, otherwise: string): string {
+    const setId = this.sliceRunsOn.get(orgId);
+    if (setId === undefined) return otherwise;
+    const ways = this.onCommandLine
+      ? 'the same line with --resume masks the rest, and --abandon gives the set up'
+      : 'Resume masks the rest, and Abandon gives the set up';
+    return (
+      `A masking run in slices (set ${setId}) writes to org ${orgId} now, and holds its backups ` +
+      `and restores until it ends: wait for it, or stop it; once stopped, ${ways}.`
+    );
   }
 
   /**
@@ -1455,11 +1692,13 @@ export class DataOpsHandler implements DomainHandler {
   private countGaveUp(err: unknown, objectApiName: string): unknown {
     if (!HEAVY_READ_CODES.has(orgReasonCode(err))) return err;
     const way = this.onCommandLine
-      ? 'narrow --where to an indexed field, such as a range of CreatedDate, and mask the ' +
-        'rest in other runs'
-      : 'mask them in slices from the command line, each a run of its own (sandforge ' +
-        `dataops anonymize --object ${objectApiName} --where) on an indexed field, such as a ` +
-        'range of CreatedDate';
+      ? 'give --slices, which reads the object a slice at a time by Id and plans on the ' +
+        "org's own figure when no count comes, or narrow --where to an indexed field, such as a " +
+        'range of CreatedDate'
+      : 'mask in slices, which reads the object a slice at a time by Id and plans on the ' +
+        "org's own figure when no count comes, or narrow the run from the command line with " +
+        `sandforge dataops anonymize --object ${objectApiName} --where on an indexed field, such ` +
+        'as a range of CreatedDate';
     return new Error(
       `${extractErrorMessage(err)} The org gave up counting the ${objectApiName} records the ` +
         `run would mask: ${way}. Nothing was masked.`,
@@ -1904,7 +2143,23 @@ export class DataOpsHandler implements DomainHandler {
     // Deterministic ID from the message ID — enables genuine duplicate detection
     // (a fresh UUID per call made `isDuplicate` dead code).
     const operationId = msg.id;
-    const outcome = await this.takeBackup(operationId, parsed, msg.type);
+    // Each filter goes with its object, whatever the case it was named in.
+    const wheres = new Map<string, string>();
+    for (const [named, clause] of Object.entries(parsed.wheres ?? {})) {
+      const object = parsed.objects.find((o) => sameObject(o, named));
+      if (object !== undefined && clause.trim() !== '') {
+        wheres.set(sanitizeSoqlObjectName(object), clause.trim());
+      }
+    }
+    if (parsed.slices === true) {
+      await this.backupInSlices(msg, { orgId: parsed.orgId, objects: parsed.objects, wheres });
+      return;
+    }
+    const outcome = await this.takeBackup(
+      operationId,
+      { orgId: parsed.orgId, objects: parsed.objects, ...(wheres.size > 0 ? { wheres } : {}) },
+      msg.type,
+    );
 
     if ('error' in outcome) {
       // Dual channel, single display: `operation:failed` carries the lifecycle
@@ -1927,6 +2182,344 @@ export class DataOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Back up objects in slices of as many rows as a snapshot holds, each a
+   * snapshot of its own, consecutive by Id: an object past what one snapshot
+   * holds is backed up whole, where one snapshot stopped at the cap and kept
+   * part of it. Every field of each row, under each object's filter. The
+   * slices make a set, listed and restored as one; the org's backups and
+   * restores wait for it, as for any backup.
+   */
+  private async backupInSlices(
+    msg: InboundRequest,
+    asked: { orgId: string; objects: string[]; wheres: ReadonlyMap<string, string> },
+  ): Promise<void> {
+    const operationId = msg.id;
+    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
+    const refuse = (code: string | undefined, message: string): void => {
+      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, new Error(message), {
+        ...(code ? { code } : {}),
+      });
+      sendOperationFailed(this.deps, operationId, message, false, {
+        context: failure,
+        authored: true,
+      });
+    };
+    if (!this.backupRecords) {
+      refuse(
+        SLICE_REFUSAL.needsStore,
+        'A backup in slices writes each slice to the backup files, and this host keeps none.',
+      );
+      return;
+    }
+    const lockKey = `backup:${asked.orgId}`;
+    if (this.activeOrgOperations.has(lockKey)) {
+      refuse(
+        undefined,
+        this.busyMessage(
+          asked.orgId,
+          `A backup or rollback operation is already running for org ${asked.orgId}. Please wait for it to complete.`,
+        ),
+      );
+      return;
+    }
+    this.activeOrgOperations.add(lockKey);
+    const stop = new AbortController();
+    let settle: (error?: unknown) => void = () => {};
+    let live: LiveRun | undefined;
+    let failed: unknown;
+    const description = `Backup ${asked.objects.length} object(s) in slices`;
+    try {
+      const conn = await getJsforceConnection(
+        asked.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      sendOperationStarted(this.deps, operationId, 'dataops', description);
+      this.deps.infraServices?.backgroundRegistry?.register(
+        operationId,
+        'dataops',
+        description,
+        new Promise<void>((resolve, reject) => {
+          settle = (error) => {
+            if (error === undefined) resolve();
+            else reject(error instanceof Error ? error : new Error(String(error)));
+          };
+        }),
+        stop,
+      );
+      live = listLive(this.liveTracker, operationId, 'dataops', description, asked.objects.length);
+      let requests = 0;
+      const startedAt = new Date().toISOString();
+      const organizationId = await this.organizationIdOf(conn);
+      const set: BackupSet = {
+        setId: operationId,
+        kind: 'backup',
+        orgId: asked.orgId,
+        ...(organizationId !== undefined ? { organizationId } : {}),
+        size: this.backupCap(),
+        state: 'open',
+        startedAt,
+        lastActivityAt: startedAt,
+        requestsSpent: 0,
+        objects: asked.objects.map((name) => {
+          const objectApiName = sanitizeSoqlObjectName(name);
+          const where = asked.wheres.get(objectApiName);
+          return { objectApiName, ...(where ? { where } : {}), done: false, slices: [] };
+        }),
+      };
+      const sets = this.sliceSets;
+      const keep = (): void => {
+        set.lastActivityAt = new Date().toISOString();
+        set.requestsSpent = requests;
+        sets.save(set);
+      };
+      keep();
+      /** Why the backup stopped before every object was in slices, if it did. */
+      let stopped: string | undefined;
+      let cancelled = false;
+      objects: for (const entry of set.objects) {
+        failure.objectName = entry.objectApiName;
+        for (;;) {
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break objects;
+          }
+          const regular = entry.slices.filter((sl) => !sl.late);
+          if (regular.length >= MAX_SLICES_PER_SET) {
+            stopped =
+              `${entry.objectApiName} holds more rows than ${MAX_SLICES_PER_SET} slices of ` +
+              `${set.size} do: the backup stopped there.`;
+            break objects;
+          }
+          const index = nextSliceIndex(set);
+          const cursor = sliceCursorOf(entry);
+          const slice: BackupSlice = {
+            index,
+            ...(cursor !== undefined ? { afterId: cursor } : {}),
+            rows: 0,
+            snapshotId: sliceSnapshotId(set.setId, index),
+            state: 'pending',
+            masked: 0,
+            refused: 0,
+            deletedSince: 0,
+            nothingToMask: 0,
+            sizeUsed: regular.at(-1)?.sizeUsed ?? set.size,
+          };
+          entry.slices.push(slice);
+          keep();
+          const taken = await this.snapshotSlice(conn, asked.orgId, set, entry, slice, {
+            bounds: cursor !== undefined ? { afterId: cursor } : {},
+            stop: stop.signal,
+            onRequest: () => {
+              requests++;
+            },
+            origin: msg.type,
+            clock: false,
+          });
+          if ('failed' in taken) {
+            entry.slices = entry.slices.filter((sl) => sl !== slice);
+            keep();
+            if (taken.cancelled) cancelled = true;
+            else stopped = this.sliceNotTakenMessage(entry.objectApiName, taken);
+            break objects;
+          }
+          if (taken.lastId === undefined) {
+            await this.removeBackup(`backup:${slice.snapshotId}`);
+            entry.slices = entry.slices.filter((sl) => sl !== slice);
+            entry.done = true;
+            keep();
+            break;
+          }
+          slice.rows = taken.rows;
+          slice.lastId = taken.lastId;
+          slice.sizeUsed = taken.sizeUsed;
+          slice.takenAt = new Date().toISOString();
+          slice.state = 'snapshotted';
+          keep();
+          const step = `Backed up ${entry.objectApiName} slice ${index} (${taken.rows} records)`;
+          sendOperationProgress(this.deps, operationId, 0, index, index, step);
+          live.progress(0, index, index, step);
+        }
+      }
+      if (set.objects.every((o) => o.done)) set.state = 'done';
+      keep();
+      const objects = set.objects.map((o) => ({
+        objectApiName: o.objectApiName,
+        recordCount: o.slices.reduce((sum, sl) => sum + sl.rows, 0),
+        truncated: !o.done,
+        ...(o.done ? {} : { stoppedAt: 'failure' as const }),
+        ...(o.where ? { where: o.where } : {}),
+      }));
+      const totalRecords = objects.reduce((sum, o) => sum + o.recordCount, 0);
+      const partial = set.state !== 'done';
+      if (cancelled) {
+        this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true, totalRecords });
+        live.cancel();
+      } else {
+        sendOperationCompleted(this.deps, operationId, {
+          objects: objects.map((o) => ({
+            objectApiName: o.objectApiName,
+            recordCount: o.recordCount,
+          })),
+          totalRecords,
+          ...(partial ? { status: 'partial' } : {}),
+        });
+        if (partial) live.partial();
+        else live.complete();
+      }
+      if (stopped) this.deps.log(`[WARN] backup ${operationId}: ${stopped}`);
+      const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
+        operationId,
+        status: partial ? 'partial' : 'completed',
+        objects,
+        totalRecords,
+        ...(partial ? { partial: true } : {}),
+        timestamp: set.lastActivityAt,
+        slices: sliceSetResultOf(set, { requestsSpent: requests }),
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} slices=${slicesOf(set).length}`);
+      if (stopped || cancelled) {
+        sendNotification(
+          this.deps,
+          'warning',
+          'Backup',
+          `${cancelled ? 'The backup in slices was cancelled' : stopped}: set ${set.setId} holds ` +
+            `${totalRecords} record(s) in ${slicesOf(set).length} slice(s), listed as partial.`,
+        );
+      }
+    } catch (err: unknown) {
+      failed = err;
+      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, err);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
+      live?.fail(extractErrorMessage(err));
+    } finally {
+      this.activeOrgOperations.delete(lockKey);
+      settle(failed);
+    }
+  }
+
+  /**
+   * Of a restore that names a set of slices — or a slice of one, as its
+   * set's —, the backup it reads as: the set's objects, and its slices as
+   * parts, each from its own snapshot, in their order. Every slice not
+   * restored yet, the ones asked for, or every one with `rewriteAll`. Refused
+   * for a masking set still open, whose run would mask over what the restore
+   * puts back, for a slice the set does not hold, and when every slice was
+   * restored already. Nothing for a backup that is no set.
+   */
+  private restoreOfSet(
+    payload: { orgId: string; operationId: string; slices?: number[]; rewriteAll?: boolean },
+    kept: RestoreMeta | undefined,
+  ):
+    | { set?: BackupSet; meta?: RestoreMeta; parts?: RestorePart[]; skipped?: SliceSkipped[] }
+    | { refused: { code: string; message: string } } {
+    const setId =
+      kept === undefined ? payload.operationId : kept.origin === 'slice' ? kept.setId : undefined;
+    if (setId === undefined) {
+      return payload.slices
+        ? {
+            refused: {
+              code: 'NOT_A_SLICE_SET',
+              message:
+                `Backup ${payload.operationId} holds no slices: restore it whole, without naming ` +
+                'a slice.',
+            },
+          }
+        : {};
+    }
+    const set = this.sliceSets.get(setId);
+    if (!set || set.orgId !== payload.orgId) return {};
+    if (set.kind === 'masking' && set.state === 'open') {
+      const ways = this.sliceWays(this.onCommandLine ? undefined : 'page');
+      return {
+        refused: {
+          code: SLICE_REFUSAL.runOpen,
+          message:
+            `Set ${set.setId} is still open: its masking run stopped part way, and resumed it ` +
+            `would mask again over what a restore puts back. Give it up first (${ways.abandon}), ` +
+            `then restore it; or resume it to its end (${ways.resume}). Nothing was written.`,
+        },
+      };
+    }
+    const asked = payload.slices ?? (kept?.slice ? [kept.slice.index] : undefined);
+    const taken = set.objects.flatMap((o) =>
+      o.slices
+        .filter((sl) => sl.state !== 'pending')
+        .map((sl) => ({ objectApiName: o.objectApiName, slice: sl })),
+    );
+    taken.sort((a, b) => a.slice.index - b.slice.index);
+    const unknown = (asked ?? []).filter((n) => !taken.some((t) => t.slice.index === n));
+    if (unknown.length > 0) {
+      return {
+        refused: {
+          code: 'SLICE_NOT_FOUND',
+          message:
+            `Set ${set.setId} holds no slice ${unknown.join(', ')}: its slices are ` +
+            `${taken.map((t) => t.slice.index).join(', ') || 'none'}. Nothing was written.`,
+        },
+      };
+    }
+    const chosen = asked ? taken.filter((t) => asked.includes(t.slice.index)) : taken;
+    const again = (t: (typeof taken)[number]): boolean =>
+      asked !== undefined || payload.rewriteAll === true || t.slice.restoredAt === undefined;
+    const parts = chosen.filter(again).map((t): RestorePart => ({
+      snapshotId: t.slice.snapshotId,
+      objectApiName: t.objectApiName,
+      recordCount: t.slice.rows,
+      slice: t.slice,
+    }));
+    const skipped = chosen
+      .filter((t) => !again(t))
+      .map((t): SliceSkipped => ({
+        index: t.slice.index,
+        objectApiName: t.objectApiName,
+        restored: 0,
+        failed: 0,
+        unchanged: 0,
+        skipped: true,
+      }));
+    if (parts.length === 0 && skipped.length > 0) {
+      const last = skipped
+        .map((sk) => taken.find((t) => t.slice.index === sk.index)?.slice.restoredAt ?? '')
+        .sort()
+        .at(-1);
+      const way = this.onCommandLine ? '--rewrite-all' : 'Write every row back';
+      return {
+        refused: {
+          code: 'NOTHING_TO_RESTORE',
+          message:
+            `Every slice of set ${set.setId} was restored already (the last on ${last}): ` +
+            `nothing was written. ${way} restores them again.`,
+        },
+      };
+    }
+    const objects = set.objects
+      .map((o) => ({
+        objectApiName: o.objectApiName,
+        recordCount: parts
+          .filter((pt) => pt.objectApiName === o.objectApiName)
+          .reduce((sum, pt) => sum + pt.recordCount, 0),
+      }))
+      .filter((o) => parts.some((pt) => pt.objectApiName === o.objectApiName));
+    return {
+      set,
+      meta: {
+        orgId: set.orgId,
+        ...(set.organizationId !== undefined ? { organizationId: set.organizationId } : {}),
+        timestamp: set.startedAt,
+        totalRecords: objects.reduce((sum, o) => sum + o.recordCount, 0),
+        objects,
+      },
+      parts,
+      skipped,
+    };
   }
 
   /**
@@ -2065,6 +2658,12 @@ export class DataOpsHandler implements DomainHandler {
       failWhenTruncated?: boolean;
       /** Given the connection the snapshot reads through: see `backupForPipeline`. */
       onConnection?: (connection: Connection) => void;
+      /**
+       * Of a slice of a set: see {@link SliceSnapshotAsk}. The run that takes
+       * it holds the org's lock and says what it does: the slice is neither
+       * announced, listed in Live Operations, nor retained on its own.
+       */
+      slice?: SliceSnapshotAsk;
     },
     origin: string,
     signal?: AbortSignal,
@@ -2072,18 +2671,23 @@ export class DataOpsHandler implements DomainHandler {
     // Names the object in progress as the loop below advances, so the fix
     // suggestion for a failure says which object it came from.
     const failure: OperationFailureContext = { module: 'dataops', operation: origin };
+    const slice = payload.slice;
 
     const lockKey = `backup:${payload.orgId}`;
-    if (this.activeOrgOperations.has(lockKey)) {
+    if (!slice && this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
       // This message is one SandForge writes itself, so it is never asked
       // about and the context is never read — it is passed here, and at the
       // guard and precondition refusals below, so every failure of the run
       // carries the same thing.
-      return { error: new Error(message), retryable: false, context: failure };
+      return {
+        error: new Error(this.busyMessage(payload.orgId, message)),
+        retryable: false,
+        context: failure,
+      };
     }
-    this.activeOrgOperations.add(lockKey);
+    if (!slice) this.activeOrgOperations.add(lockKey);
 
     /**
      * Settles the promise the registry watches, so it stops listing this run:
@@ -2113,14 +2717,15 @@ export class DataOpsHandler implements DomainHandler {
     let connection: Connection | undefined;
     /** Its entry in Live Operations, once it is registered. */
     let live: LiveRun | undefined;
-    /** How far the snapshot is, on the page's channel and in Live Operations. */
+    /** How far the snapshot is, on the page's channel and in Live Operations; a slice's run says its own. */
     const report = (percentage: number, done: number, total: number, step: string): void => {
+      if (slice) return;
       sendOperationProgress(this.deps, operationId, percentage, done, total, step);
       live?.progress(percentage, done, total, step);
     };
 
     try {
-      if (this.dmlTracker.isDuplicate(operationId)) {
+      if (!slice && this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
         return {
           error: new Error(`Duplicate operation: ${operationId}`),
@@ -2128,7 +2733,9 @@ export class DataOpsHandler implements DomainHandler {
           context: failure,
         };
       }
-      this.dmlTracker.register(operationId, 'backup', 'insert', payload.objects.length);
+      if (!slice) {
+        this.dmlTracker.register(operationId, 'backup', 'insert', payload.objects.length);
+      }
 
       const conn = await getJsforceConnection(
         payload.orgId,
@@ -2151,32 +2758,34 @@ export class DataOpsHandler implements DomainHandler {
       const pageSize = getQueryLimits(orgTier).defaultQueryLimit;
 
       const description = `Backup ${payload.objects.length} object(s)`;
-      sendOperationStarted(this.deps, operationId, 'dataops', description);
+      if (!slice) {
+        sendOperationStarted(this.deps, operationId, 'dataops', description);
 
-      // A snapshot reads one page after another, so the registry's abort —
-      // the extension deactivating, the window closing, a cancel from Live
-      // Operations, a pipeline run stopped — is honoured between two pages.
-      // What the pages before wrote is then removed, so stopping leaves no
-      // half-saved backup behind.
-      this.deps.infraServices?.backgroundRegistry?.register(
-        operationId,
-        'dataops',
-        description,
-        new Promise<void>((resolve, reject) => {
-          settleBackup = (error) => {
-            if (error === undefined) resolve();
-            else reject(error instanceof Error ? error : new Error(String(error)));
-          };
-        }),
-        stop,
-      );
-      live = listLive(
-        this.liveTracker,
-        operationId,
-        'dataops',
-        description,
-        payload.objects.length,
-      );
+        // A snapshot reads one page after another, so the registry's abort —
+        // the extension deactivating, the window closing, a cancel from Live
+        // Operations, a pipeline run stopped — is honoured between two pages.
+        // What the pages before wrote is then removed, so stopping leaves no
+        // half-saved backup behind.
+        this.deps.infraServices?.backgroundRegistry?.register(
+          operationId,
+          'dataops',
+          description,
+          new Promise<void>((resolve, reject) => {
+            settleBackup = (error) => {
+              if (error === undefined) resolve();
+              else reject(error instanceof Error ? error : new Error(String(error)));
+            };
+          }),
+          stop,
+        );
+        live = listLive(
+          this.liveTracker,
+          operationId,
+          'dataops',
+          description,
+          payload.objects.length,
+        );
+      }
 
       for (const objectApiName of payload.objects) {
         if (stop.signal.aborted) {
@@ -2184,7 +2793,13 @@ export class DataOpsHandler implements DomainHandler {
         }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
-        const read: BackupObjectRead = { objectApiName, recordCount: 0, truncated: false };
+        const where = payload.wheres?.get(safeObj);
+        const read: BackupObjectRead = {
+          objectApiName,
+          recordCount: 0,
+          truncated: false,
+          ...(where !== undefined ? { where } : {}),
+        };
         reading = read;
         await this.readIntoBackup(
           conn,
@@ -2193,13 +2808,23 @@ export class DataOpsHandler implements DomainHandler {
           writer,
           {
             pageSize,
-            cap,
+            cap: slice?.size ?? cap,
             select: payload.fields?.get(safeObj),
-            where: payload.wheres?.get(safeObj),
+            where,
             scanAll: payload.scanAll?.has(safeObj) === true,
             ...(payload.origin === 'checkpoint' ? { stamp: CHECKPOINT_STAMP } : {}),
-            whole: payload.failWhenTruncated === true,
+            whole: payload.failWhenTruncated === true || slice !== undefined,
             viewsEncrypted,
+            ...(slice
+              ? {
+                  slice: {
+                    bounds: slice.bounds,
+                    size: slice.size,
+                    ...(slice.skip ? { skip: slice.skip } : {}),
+                  },
+                  onRequest: slice.onRequest,
+                }
+              : {}),
           },
           stop.signal,
           () => {
@@ -2240,8 +2865,8 @@ export class DataOpsHandler implements DomainHandler {
 
       // Which org the records were read from: a restore compares it with the
       // org it would write to, which a sandbox refresh replaces behind the
-      // same registered id.
-      const organizationId = await this.organizationIdOf(conn);
+      // same registered id. A slice's set keeps it once, for all its slices.
+      const organizationId = slice ? undefined : await this.organizationIdOf(conn);
 
       // And once more before anything is saved. A cancel that came while the
       // last object was read was honoured by nothing: the snapshot of a single
@@ -2256,13 +2881,34 @@ export class DataOpsHandler implements DomainHandler {
           operationId,
           orgId: payload.orgId,
           organizationId,
-          cap,
+          cap: slice?.size ?? cap,
           ...(payload.origin ? { origin: payload.origin } : {}),
+          ...(slice
+            ? {
+                origin: 'slice' as const,
+                setId: slice.setId,
+                slice: {
+                  index: slice.index,
+                  ...(slice.bounds.afterId !== undefined ? { afterId: slice.bounds.afterId } : {}),
+                  ...(taken[0]?.lastId !== undefined ? { lastId: taken[0].lastId } : {}),
+                  size: slice.size,
+                },
+              }
+            : {}),
         },
         taken,
         writer,
         false,
       );
+      if (slice) {
+        return {
+          operationId,
+          objects: taken,
+          totalRecords: backupMeta.totalRecords,
+          partial: false,
+          timestamp: backupMeta.timestamp,
+        };
+      }
 
       // `sandforge.backup.maxCount` retention: prune oldest backups for this
       // org. Housekeeping, and it runs after the snapshot is written — so a
@@ -2293,7 +2939,7 @@ export class DataOpsHandler implements DomainHandler {
         timestamp: backupMeta.timestamp,
       };
     } catch (err: unknown) {
-      this.dmlTracker.markFailed(operationId);
+      if (!slice) this.dmlTracker.markFailed(operationId);
       // Only a stop at the cancel is one. Read off the signal, a query the org
       // refused while a cancel was pending made a cancelled snapshot: the
       // activity feed listed it cancelled, and a pipeline's Backup step ended
@@ -2303,7 +2949,10 @@ export class DataOpsHandler implements DomainHandler {
       // a cancel, or a page the disk did not take whole, keeps nothing, and
       // neither does a snapshot that holds every row or none.
       const kept =
-        cancelled || err instanceof BackupWriteError || payload.failWhenTruncated === true
+        cancelled ||
+        err instanceof BackupWriteError ||
+        payload.failWhenTruncated === true ||
+        slice !== undefined
           ? undefined
           : await this.keepFailedBackup(
               {
@@ -2335,7 +2984,7 @@ export class DataOpsHandler implements DomainHandler {
       // Stopped through the run's signal rather than from Live Operations, the
       // snapshot is still listed as running there, and the error it settles
       // with below would list it as failed.
-      if (cancelled) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+      if (cancelled && !slice) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
       if (cancelled) live?.cancel();
       else live?.fail(extractErrorMessage(reported));
       const retryable = !(err instanceof BackupNotWholeError) || err.retryable;
@@ -2343,7 +2992,7 @@ export class DataOpsHandler implements DomainHandler {
     } finally {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
-      this.activeOrgOperations.delete(lockKey);
+      if (!slice) this.activeOrgOperations.delete(lockKey);
       this.backupsWriting.delete(operationId);
     }
   }
@@ -2360,36 +3009,48 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * What lifts the rows a masking's snapshot holds of one object, in the
-   * words of whoever reads the refusal: the setting in the editor,
-   * `--max-records` on a command line. Past the most a snapshot holds of one
-   * object, nothing raises it, and the refusal says so: the object is masked
-   * in slices, each a run with its own snapshot, which only the command
-   * line's `--where` draws. It named the editor's setting on a command line,
+   * What masks an object past the rows a masking's snapshot holds, in the
+   * words of whoever reads the refusal: slices of that many rows, each backed
+   * up just before it is masked — the command line's `--slices`, the
+   * confirmation's box on the page —, or, under the most a snapshot holds,
+   * the cap raised. A pipeline's step masks no slices, and names the panel
+   * and the command line. It named the editor's setting on a command line,
    * and offered to raise it past what it can be raised to.
    *
    * @param work - The run's objects, counted.
+   * @param voice - Whose words: the page's, a pipeline step's, the command line's otherwise.
    */
-  private snapshotCapWay(work: readonly MaskingWork[]): string {
+  private snapshotCapWay(work: readonly MaskingWork[], voice?: DataOpsVoice): string {
     const cap = this.backupCap();
-    const beyond = work
-      .filter((w) => w.tally.total > BACKUP_CAP_MAX)
-      .map((w) => w.tally.objectApiName);
-    if (beyond.length > 0 || cap >= BACKUP_CAP_MAX) {
-      const named = beyond.length > 0 ? beyond.join(', ') : 'the object';
-      return this.onCommandLine
-        ? `No snapshot holds more than ${BACKUP_CAP_MAX} records of one object, and nothing ` +
-            `raises that: mask ${named} in slices, each a run of its own with --object and a ` +
-            '--where that selects fewer (a range of CreatedDate, say), each taking its own snapshot.'
-        : 'No snapshot holds more than 1,000,000 records of one object, and nothing raises ' +
-            `that: mask ${named} in slices from the command line, each a run of its own ` +
-            '(sandforge dataops anonymize --object and --where), each taking its own snapshot.';
+    const beyond = work.filter((w) => w.tally.total > cap);
+    const named =
+      beyond.length > 0 ? beyond.map((w) => w.tally.objectApiName).join(', ') : 'the object';
+    const slices = beyond.reduce((most, w) => Math.max(most, slicesFor(w.tally.total, cap)), 1);
+    // Raising the cap helps only an object the most a snapshot holds would hold.
+    const raisable = cap < BACKUP_CAP_MAX && beyond.every((w) => w.tally.total <= BACKUP_CAP_MAX);
+    if (voice === 'step') {
+      return (
+        `A pipeline's step masks no slices: mask ${named} from the DataOps panel, in slices ` +
+        'each backed up just before it is masked, or with sandforge dataops anonymize --slices.'
+      );
     }
-    return this.onCommandLine
-      ? `Give --max-records up to ${BACKUP_CAP_MAX} (this run held ${cap}), or narrow the run ` +
-          'with --object and --where.'
-      : `Raise sandforge.backup.maxRecordsPerObject in Settings (this run held ${cap}, ` +
-          '1,000,000 at most), then apply again.';
+    if (voice === undefined && this.onCommandLine) {
+      return (
+        `Give --slices to mask ${named} in ${slices} slices, each with its own snapshot (the ` +
+        'same line with --dry-run shows the plan)' +
+        (raisable ? `, --max-records up to ${BACKUP_CAP_MAX} (this run held ${cap})` : '') +
+        ', or narrow the run with --where.'
+      );
+    }
+    return (
+      `Tick "Mask in slices" in the confirmation: ${named} is then masked in ${slices} slices, ` +
+      'each backed up just before it is masked' +
+      (raisable
+        ? `; or raise sandforge.backup.maxRecordsPerObject in Settings (this run held ${cap}, ` +
+          '1,000,000 at most)'
+        : '') +
+      '.'
+    );
   }
 
   /**
@@ -2466,7 +3127,11 @@ export class DataOpsHandler implements DomainHandler {
    *   otherwise — and the rows its filter holds it to; for a checkpoint's,
    *   whether it reads through the recycle bin (`scanAll`), the stamp every
    *   group of a wide read carries whatever the fields, and whether it holds
-   *   every row or none (`whole`).
+   *   every row or none (`whole`). For a slice of a set, its bounds and its
+   *   size: the slice reads the first rows past its start by Id, as many as
+   *   it holds (`sliceStatement`), and ends with the last one it wrote,
+   *   whatever the org says of the rows past it — those are the next
+   *   slice's; rows `skip` names, held by a slice before, are left out.
    * @param onPage - Called between two pages, once more are to come.
    * @throws {BackupCancelledError} At a cancel, between two pages.
    * @throws {BackupNotWholeError} For a read that holds every row or none,
@@ -2487,11 +3152,16 @@ export class DataOpsHandler implements DomainHandler {
       whole?: boolean;
       /** Whether the user reads encrypted fields in clear: asked of an object that has one. */
       viewsEncrypted?: () => Promise<boolean>;
+      /** Of a slice: its bounds, its size, and the rows held by a slice before. */
+      slice?: { bounds: SliceBounds; size: number; skip?: (row: BackupRecord) => boolean };
+      /** Told of each request the read sends. */
+      onRequest?: () => void;
     },
     stop: AbortSignal,
     onPage: () => void,
   ): Promise<void> {
     const scanAll = limits.scanAll === true;
+    const counted = (): void => limits.onRequest?.();
     const options: QueryOptions = {
       headers: { 'Sforce-Query-Options': `batchSize=${limits.pageSize}` },
       maxFetch: 10_000,
@@ -2508,7 +3178,10 @@ export class DataOpsHandler implements DomainHandler {
     // Read through the recycle bin, a statement keeps to the live rows: the
     // archived activities a plain query leaves out, not the deleted ones.
     const where = scanAll ? liveRowsOf(limits.where) : limits.where;
-    const soql = `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(where, undefined)}`;
+    const slice = limits.slice;
+    const soql = slice
+      ? sliceStatement(safeObj, select, where, slice.bounds, slice.size)
+      : `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(where, undefined)}`;
     // An object of hundreds of fields named them all in one statement, which
     // its URL made too long for the org (414 or 431): the backup failed before its
     // first row. Its fields are read in column groups, the first page by
@@ -2522,17 +3195,31 @@ export class DataOpsHandler implements DomainHandler {
     const wide = wideStatement(soql, stamp === undefined ? undefined : ['Id', stamp]);
     const byIds =
       scanAll || limits.whole === true
-        ? (statement: string) => everyRow(conn, statement, scanAll, safeObj)
-        : (statement: string) => queryAll(conn, statement);
+        ? (statement: string) => {
+            counted();
+            return everyRow(conn, statement, scanAll, safeObj);
+          }
+        : (statement: string) => {
+            counted();
+            return queryAll(conn, statement);
+          };
     let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(
       wide?.first ?? soql,
       options,
     );
+    counted();
     checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
-    if (typeof page.totalSize === 'number' && Number.isInteger(page.totalSize)) {
+    // A slice's statement ends at its LIMIT: what the org says it holds is
+    // the slice's, never the object's, and the rows past it are the next one's.
+    if (!slice && typeof page.totalSize === 'number' && Number.isInteger(page.totalSize)) {
       read.orgCount = page.totalSize;
     }
-    if (limits.whole === true && read.orgCount !== undefined && read.orgCount > limits.cap) {
+    if (
+      !slice &&
+      limits.whole === true &&
+      read.orgCount !== undefined &&
+      read.orgCount > limits.cap
+    ) {
       throw pastTheCap(safeObj, read.orgCount, limits.cap);
     }
     await writer.begin(read.objectApiName);
@@ -2557,6 +3244,24 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
       const truncated = cut || (next !== undefined && read.recordCount + rows.length >= limits.cap);
+      if (slice) {
+        // The slice ends at the last row it holds: the rows the org has past
+        // it, read or not, are the next slice's, which starts past that row.
+        const last = rows.at(-1)?.Id;
+        if (typeof last === 'string') read.lastId = last;
+        const kept = slice.skip ? rows.filter((row) => !slice.skip?.(row)) : rows;
+        await writer.append(read.objectApiName, kept);
+        read.recordCount += kept.length;
+        // Rows left out still count towards the slice's size: what it read.
+        read.readCount = (read.readCount ?? 0) + rows.length;
+        if (truncated || next === undefined) return;
+        onPage();
+        if (stop.aborted) throw new BackupCancelledError();
+        page = await conn.queryMore<BackupRecord>(next, options);
+        counted();
+        checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
+        continue;
+      }
       if (truncated && limits.whole === true) {
         throw pastTheCap(safeObj, read.orgCount, limits.cap);
       }
@@ -2571,6 +3276,7 @@ export class DataOpsHandler implements DomainHandler {
       onPage();
       if (stop.aborted) throw new BackupCancelledError();
       page = await conn.queryMore<BackupRecord>(next, options);
+      counted();
       checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
     }
   }
@@ -2589,7 +3295,9 @@ export class DataOpsHandler implements DomainHandler {
       orgId: string;
       organizationId?: string;
       cap: number;
-      origin?: 'checkpoint';
+      origin?: 'checkpoint' | 'slice';
+      setId?: string;
+      slice?: BackupMeta['slice'];
     },
     objects: readonly BackupObjectRead[],
     writer: BackupWriter,
@@ -2600,6 +3308,8 @@ export class DataOpsHandler implements DomainHandler {
       orgId: backup.orgId,
       ...(backup.organizationId !== undefined ? { organizationId: backup.organizationId } : {}),
       ...(backup.origin !== undefined ? { origin: backup.origin } : {}),
+      ...(backup.setId !== undefined ? { setId: backup.setId } : {}),
+      ...(backup.slice !== undefined ? { slice: backup.slice } : {}),
       objects: objects.map(heldOf),
       // True when any object stopped short, or was never reached, so the
       // listing can say so without reading every object of every snapshot.
@@ -2700,8 +3410,8 @@ export class DataOpsHandler implements DomainHandler {
         if (!Number.isFinite(taken) || taken >= takenBefore) continue;
         if (taken < since) continue;
         // A checkpoint's snapshot lives as long as its checkpoint, which may
-        // be kept until its owner deletes it.
-        if (meta?.origin === 'checkpoint') continue;
+        // be kept until its owner deletes it. A slice goes with its set, below.
+        if (meta?.origin === 'checkpoint' || meta?.origin === 'slice') continue;
         if (meta?.orgId !== undefined && this.backupBusy(meta.orgId)) continue;
         await this.removeBackup(key);
         // A Sync run's is named: what that run wrote over is no longer put
@@ -2719,11 +3429,49 @@ export class DataOpsHandler implements DomainHandler {
           ...(meta?.origin === 'sync' ? { syncRunId: meta.runId ?? '' } : {}),
         });
       }
+      // A set of slices goes whole, by when it last moved: its slices, its
+      // manifest and its key together. One left open goes too — the
+      // retention keeps people's values no longer than it says — and its
+      // run is over: the next resume says there is nothing to resume.
+      for (const set of this.sliceSets.list()) {
+        const moved = Date.parse(set.lastActivityAt);
+        if (!Number.isFinite(moved) || moved >= takenBefore || moved < since) continue;
+        if (this.backupBusy(set.orgId)) continue;
+        await this.removeSliceSet(set);
+        this.deps.log(
+          `[INFO] Removed set of slices ${set.setId}: last moved more than ${days} day(s) ago` +
+            (set.state === 'open' ? ', its run left open and now over' : ''),
+        );
+        this.expiryListener?.({ operationId: set.setId, days, takenAt: set.startedAt });
+      }
     } catch (err: unknown) {
       this.deps.log(
         `[WARN] the backups past their age were not removed: ${extractErrorMessage(err)}`,
       );
     }
+  }
+
+  /**
+   * Remove a set of slices: each slice's snapshot and the ids the org
+   * refused beside it, then the manifest, the key, and the checkpoint of a
+   * masking run left open.
+   */
+  private async removeSliceSet(set: BackupSet): Promise<void> {
+    for (const entry of set.objects) {
+      for (const slice of entry.slices) {
+        await this.removeBackup(`backup:${slice.snapshotId}`);
+        await this.backupRecords?.delete(slice.snapshotId, refusedSideOf(entry.objectApiName));
+      }
+    }
+    this.sliceSets.delete(set.setId);
+    if (set.kind === 'masking' && set.state === 'open' && set.templateId !== undefined) {
+      new MaskingCheckpointStore(this.deps.configStore).clear(set.orgId, set.templateId);
+    }
+    await this.runKeys?.delete(set.setId).catch((err: unknown) => {
+      this.deps.log(
+        `[WARN] the key of set ${set.setId} was not removed: ${extractErrorMessage(err)}`,
+      );
+    });
   }
 
   /**
@@ -2789,23 +3537,52 @@ export class DataOpsHandler implements DomainHandler {
         'dataops:error',
         msg,
         new Error(
-          `A backup or rollback operation is already running for org ${parsed.orgId}. ` +
-            'Delete its backups once it has ended.',
+          this.busyMessage(
+            parsed.orgId,
+            `A backup or rollback operation is already running for org ${parsed.orgId}. ` +
+              'Delete its backups once it has ended.',
+          ),
         ),
         { code: BACKUP_BUSY },
       );
       return;
     }
     const named = parsed.operationIds ? new Set(parsed.operationIds) : undefined;
+    // A slice is deleted with its set, which holds the way back of each of
+    // its slices: deleted alone, it would leave a set that restores part of
+    // what its run masked, and says it restores it all.
+    for (const operationId of named ?? []) {
+      const meta = this.deps.configStore.get<BackupMeta>(`backup:${operationId}`);
+      if (meta?.origin !== 'slice' || meta.orgId !== parsed.orgId) continue;
+      sendHandlerError(
+        this.deps,
+        'backup:delete',
+        'dataops:error',
+        msg,
+        new Error(
+          `Backup ${operationId} is slice ${meta.slice?.index ?? '?'} of set ${meta.setId ?? '?'}: ` +
+            'a slice is deleted with its set, which holds the way back of every slice. Delete ' +
+            `set ${meta.setId ?? '?'} to delete it. Nothing was deleted.`,
+        ),
+        { code: SLICE_REFUSAL.deleteAlone },
+      );
+      return;
+    }
     const deleted: string[] = [];
     try {
       for (const key of this.backupMetaKeys()) {
         const meta = this.deps.configStore.get<BackupMeta>(key);
         if (meta?.orgId !== parsed.orgId) continue;
+        if (meta.origin === 'slice') continue;
         const operationId = meta.operationId ?? key.slice('backup:'.length);
         if (named && !named.has(operationId)) continue;
         await this.removeBackup(key);
         deleted.push(operationId);
+      }
+      for (const set of this.sliceSets.list(parsed.orgId)) {
+        if (named && !named.has(set.setId)) continue;
+        await this.removeSliceSet(set);
+        deleted.push(set.setId);
       }
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'backup:delete', 'dataops:error', msg, err);
@@ -2859,6 +3636,8 @@ export class DataOpsHandler implements DomainHandler {
       if (key.slice('backup:'.length).includes(':')) continue;
       const meta = this.deps.configStore.get<BackupMeta>(key);
       if (!meta || meta.orgId !== parsed.orgId) continue;
+      // A slice is listed with its set, one entry whatever its slices.
+      if (meta.origin === 'slice') continue;
       backups.push({
         operationId: meta.operationId ?? key.slice('backup:'.length),
         orgId: meta.orgId,
@@ -2883,8 +3662,15 @@ export class DataOpsHandler implements DomainHandler {
     // Newest first — the list is a history, and the most recent restore point
     // is the one a user reaches for.
     backups.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    const sets = this.sliceSets
+      .list(parsed.orgId)
+      .map(backupSetSummaryOf)
+      .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
 
-    const response = buildResponse(this.deps, msg, 'backup:list:result', { backups });
+    const response = buildResponse(this.deps, msg, 'backup:list:result', {
+      backups,
+      ...(sets.length > 0 ? { sets } : {}),
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id} count=${backups.length}`);
   }
@@ -3069,6 +3855,9 @@ export class DataOpsHandler implements DomainHandler {
       // A checkpoint's snapshot is no DataOps backup either, and its age is
       // the checkpoint's own.
       if (meta.origin === 'checkpoint') continue;
+      // Nor is a slice: the snapshot of a set's eleventh slice took the way
+      // back of its first. A set goes whole, with its age.
+      if (meta.origin === 'slice') continue;
       metas.push({ key, timestamp: meta.timestamp ?? '' });
     }
     if (metas.length <= maxCount) return;
@@ -3161,7 +3950,10 @@ export class DataOpsHandler implements DomainHandler {
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
-      const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
+      const message = this.busyMessage(
+        payload.orgId,
+        `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`,
+      );
       this.deps.log(`[WARN] ${message}`);
       sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
       sendOperationFailed(this.deps, rollbackOpId, message, false, {
@@ -3174,6 +3966,8 @@ export class DataOpsHandler implements DomainHandler {
 
     /** The restore as the audit trail records it, once the backup is found. */
     let run: WriteRun | undefined;
+    /** Of a set of slices, the set: each slice it restores is noted in it. */
+    let restoreSet: BackupSet | undefined;
     /** Per object, what the restore wrote so far. */
     const restored: AuditObjectCounts[] = [];
     /**
@@ -3236,13 +4030,42 @@ export class DataOpsHandler implements DomainHandler {
       });
 
       const backupKey = `backup:${payload.operationId}`;
-      const backupMeta = this.deps.configStore.get<
+      const keptMeta = this.deps.configStore.get<
         BackupMeta & { orgId: string; objects: BackupObjectHeld[]; totalRecords: number }
       >(backupKey);
+      // A set of slices is restored as one backup whose parts are its slices,
+      // each read from its own snapshot, in their order; a slice named alone,
+      // as its set's slice.
+      const asSet = this.restoreOfSet(payload, keptMeta);
+      if ('refused' in asSet) {
+        sendHandlerError(
+          this.deps,
+          'dataops:rollback',
+          'dataops:error',
+          msg,
+          new Error(asSet.refused.message),
+          { code: asSet.refused.code },
+        );
+        sendOperationFailed(this.deps, rollbackOpId, asSet.refused.message, false, {
+          context: failure,
+          authored: true,
+        });
+        return;
+      }
+      restoreSet = asSet.set;
+      const backupMeta = asSet.meta ?? keptMeta;
 
       if (!backupMeta) {
         throw new Error(`No backup found for operation ${payload.operationId}. Cannot rollback.`);
       }
+      /** What the restore reads, each from its own snapshot: a backup's objects, or a set's slices. */
+      const parts: RestorePart[] =
+        asSet.parts ??
+        backupMeta.objects.map((o) => ({
+          snapshotId: payload.operationId,
+          objectApiName: o.objectApiName,
+          recordCount: o.recordCount,
+        }));
 
       // A backup belongs to the org it was taken from. Without this, the
       // records of org A could be poured into org B.
@@ -3295,14 +4118,13 @@ export class DataOpsHandler implements DomainHandler {
       // checked as the restore reached each object, a refusal stopped it with
       // the objects before it already restored, and named only that object.
       const denials: CrudFlsDenial[] = [];
-      for (const obj of backupMeta.objects) {
-        const first = await this.firstBackupRecord(
-          payload.operationId,
-          obj.objectApiName,
-          backupMeta,
-        );
+      const checked = new Set<string>();
+      for (const part of parts) {
+        if (checked.has(part.objectApiName.toLowerCase())) continue;
+        const first = await this.firstBackupRecord(part.snapshotId, part.objectApiName, backupMeta);
         if (first === undefined) continue;
-        const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
+        checked.add(part.objectApiName.toLowerCase());
+        const safeObj = sanitizeSoqlObjectName(part.objectApiName);
         const crudCheck = await crudFlsGuard.checkCrudPermission(safeObj, 'upsert');
         if (!crudCheck.allowed) {
           denials.push({ objectApiName: safeObj, operation: 'upsert', deniedFields: [] });
@@ -3481,6 +4303,15 @@ export class DataOpsHandler implements DomainHandler {
         'dataops',
         `Rollback ${backupMeta.objects.length} object(s)`,
       );
+      /** Of a set, what each slice came to, those restored before and not read again among them. */
+      const sliceResults: Array<{
+        index: number;
+        objectApiName: string;
+        restored: number;
+        failed: number;
+        unchanged: number;
+        skipped?: true;
+      }> = asSet.skipped ?? [];
       unrecorded = true;
       this.deps.infraServices?.backgroundRegistry?.register(
         rollbackOpId,
@@ -3539,12 +4370,12 @@ export class DataOpsHandler implements DomainHandler {
       }
       /** Per object, the records left as they are, changed since the Sync run. */
       const keptChanged: Array<{ objectApiName: string; count: number }> = [];
-      for (let i = 0; i < backupMeta.objects.length; i++) {
+      for (let i = 0; i < parts.length; i++) {
         if (stop.signal.aborted) {
           cancelled = true;
           break;
         }
-        const obj = backupMeta.objects[i];
+        const obj = parts[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
         failure.objectName = safeObj;
         // A batch at a time, whichever form the backup was kept in: a backup
@@ -3552,7 +4383,7 @@ export class DataOpsHandler implements DomainHandler {
         // memory was what writing it a page at a time stopped doing. A Sync
         // run's keeps a record once per call that wrote over it: its lines
         // are merged by record, as the run's removal merges them.
-        const kept = await this.backupBatches(payload.operationId, obj.objectApiName);
+        const kept = await this.backupBatches(obj.snapshotId, obj.objectApiName);
         const merged =
           backupMeta.origin === 'sync' ? mergedById(kept, RESTORE_BATCH_SIZE) : undefined;
         let batches = merged?.batches ?? kept;
@@ -3587,7 +4418,7 @@ export class DataOpsHandler implements DomainHandler {
         }
 
         if (first === undefined) {
-          rowsRead.set(obj.objectApiName, 0);
+          rowsRead.set(obj.objectApiName, rowsRead.get(obj.objectApiName) ?? 0);
           this.deps.log(`[WARN] No backup records for ${obj.objectApiName}, skipping.`);
           continue;
         }
@@ -3722,30 +4553,51 @@ export class DataOpsHandler implements DomainHandler {
           }
         }
         checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
-        // The lines read, as the backup counts them, merged or not.
-        rowsRead.set(obj.objectApiName, merged && !cancelled ? merged.lines() : read);
+        // The lines read, as the backup counts them, merged or not; a set's
+        // slices of one object added up.
+        rowsRead.set(
+          obj.objectApiName,
+          (rowsRead.get(obj.objectApiName) ?? 0) + (merged && !cancelled ? merged.lines() : read),
+        );
         totalRestored += successCount;
         totalFailed += failureCount;
         totalUnchanged += unchangedCount;
         // An upsert on the record's own Id writes over a record that exists —
         // or was just brought back from the recycle bin — so it updates.
         // A row the org already held as the backup does was not written.
-        restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
+        const counts = restored.find((c) => c.objectApiName === safeObj);
+        if (counts) {
+          counts.updated += successCount;
+          counts.failed += failureCount;
+        } else {
+          restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
+        }
+        if (obj.slice) {
+          sliceResults.push({
+            index: obj.slice.index,
+            objectApiName: safeObj,
+            restored: successCount,
+            failed: failureCount,
+            unchanged: unchangedCount,
+          });
+          // Noted once it is written back whole: after a cancel, the same
+          // restore carries on at the first slice not noted.
+          if (!cancelled && restoreSet) {
+            obj.slice.restoredAt = new Date().toISOString();
+            obj.slice.state = 'restored';
+            restoreSet.lastActivityAt = obj.slice.restoredAt;
+            this.sliceSets.save(restoreSet);
+          }
+        }
         if (cancelled) break;
 
         const step =
-          `Restored ${safeObj} (${successCount}/${read}` +
+          `Restored ${safeObj}${obj.slice ? ` slice ${obj.slice.index}` : ''} ` +
+          `(${successCount}/${read}` +
           `${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''})`;
-        const percentage = Math.round(((i + 1) / backupMeta.objects.length) * 100);
-        sendOperationProgress(
-          this.deps,
-          rollbackOpId,
-          percentage,
-          i + 1,
-          backupMeta.objects.length,
-          step,
-        );
-        live.progress(percentage, i + 1, backupMeta.objects.length, step);
+        const percentage = Math.round(((i + 1) / parts.length) * 100);
+        sendOperationProgress(this.deps, rollbackOpId, percentage, i + 1, parts.length, step);
+        live.progress(percentage, i + 1, parts.length, step);
       }
 
       const totalKeptChanged = keptChanged.reduce((sum, object) => sum + object.count, 0);
@@ -3866,6 +4718,7 @@ export class DataOpsHandler implements DomainHandler {
         ...(cancelled ? { cancelled: true } : {}),
         ...(released ? { mutedAutomation: released } : {}),
         ...(duplicates ? { duplicates } : {}),
+        ...(restoreSet ? { slices: sliceResults } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
@@ -4245,6 +5098,477 @@ export class DataOpsHandler implements DomainHandler {
     };
   }
 
+  /** The rows a page of a read takes in an org: 2,000 in a sandbox, 500 in production. */
+  private pageSizeFor(orgId: string): number {
+    const org = this.deps.orgManager.getOrg(orgId);
+    return getQueryLimits(resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch'))
+      .defaultQueryLimit;
+  }
+
+  /**
+   * How a run in slices goes on, in the words of whoever reads it: the
+   * command line's flags, the page's buttons, a pipeline step's, which masks
+   * no slices and names both.
+   */
+  private sliceWays(voice: DataOpsVoice | undefined): SliceWays {
+    if (voice === 'page') {
+      return {
+        resume: 'Resume',
+        abandon: 'Abandon',
+        restore: () => 'Restore lists the set and puts its values back',
+      };
+    }
+    if (voice === undefined && this.onCommandLine) {
+      return {
+        resume: 'the same line with --resume',
+        abandon: '--abandon',
+        restore: (setId) => `the same command with --restore ${setId} puts its values back`,
+      };
+    }
+    return {
+      resume: 'Resume on the DataOps panel, or sandforge dataops anonymize --resume',
+      abandon: 'Abandon on the DataOps panel, or sandforge dataops anonymize --abandon',
+      restore: () => 'the Restore tab of the DataOps panel lists the set and puts its values back',
+    };
+  }
+
+  /**
+   * The org's own figure of an object's records (`/limits/recordCount`),
+   * standing in for a count it gave up on as too heavy, for a run in slices
+   * that reads by Id and needs a count only to plan: approximate, said so.
+   * Undefined for any other refusal, or when the org says nothing.
+   */
+  private async approximateCount(
+    conn: Connection,
+    objectApiName: string,
+    err: unknown,
+  ): Promise<number | undefined> {
+    if (!HEAVY_READ_CODES.has(orgReasonCode(err))) return undefined;
+    try {
+      const answer = await conn.request<unknown>(
+        `/services/data/v${conn.version}/limits/recordCount?sObjects=${objectApiName}`,
+      );
+      const { recordCountsOf } = await import('../../modules/forge/WholeOrgDiscovery.js');
+      const figure = recordCountsOf(answer)?.get(objectApiName);
+      if (figure !== undefined) {
+        this.deps.log(
+          `[INFO] dataops:anonymize: the org gave up counting ${objectApiName}; its own figure, ` +
+            `${figure}, plans the slices, approximate.`,
+        );
+      }
+      return figure;
+    } catch (readErr: unknown) {
+      this.deps.log(
+        `[WARN] dataops:anonymize: the org's figure of ${objectApiName} was not read: ` +
+          extractErrorMessage(readErr),
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * A plan's requests against what the org has left today, as Forge's
+   * Review weighs them (`apiBudgetCheckOf`): its `/limits`, read once.
+   */
+  private async apiBudgetFor(conn: Connection, requests: number): Promise<SlicePlan['apiBudget']> {
+    const { apiBudgetCheckOf, readApiBudget } = await import('../../modules/forge/ForgeRunGate.js');
+    const budget = await readApiBudget(conn).catch((err: unknown) => ({
+      unread: extractErrorMessage(err),
+    }));
+    const check = apiBudgetCheckOf(requests, budget);
+    return check.verdict === 'unread'
+      ? { verdict: 'unread', unread: check.unread }
+      : { verdict: check.verdict, remaining: check.remaining, max: check.max };
+  }
+
+  /** The plan of a run in slices over its counted objects, each with the fields its snapshots keep. */
+  private async sliceRunPlan(
+    described: MaskingDescribes,
+    work: readonly MaskingWork[],
+    size: number,
+    pageSize: number,
+  ): Promise<SlicesPlanned> {
+    const inputs = [];
+    for (const w of work) {
+      if (w.tally.total === 0) continue;
+      const { select } = await this.maskedFields(
+        described,
+        w.tally.objectApiName,
+        this.maskingRules(w.objectName, w.objectRules),
+        this.maskingRules(w.objectName, w.personRules),
+      );
+      inputs.push({
+        objectApiName: w.tally.objectApiName,
+        rows: w.tally.total,
+        fields: select.split(',').length,
+      });
+    }
+    return planSlices(inputs, size, pageSize, 'masking');
+  }
+
+  /** Why a run is refused for more slices than a set holds. */
+  private tooManySlicesMessage(planned: SlicesPlanned, size: number): string {
+    const named = planned.objects
+      .filter((o) => planned.tooMany.includes(o.objectApiName))
+      .map((o) => `${o.objectApiName} (${o.slices} slices)`)
+      .join(', ');
+    const way = this.onCommandLine
+      ? `Give --max-records up to ${BACKUP_CAP_MAX}, so that a slice holds more, or narrow the ` +
+        'run with --where.'
+      : 'Raise sandforge.backup.maxRecordsPerObject in Settings, up to 1,000,000, so that a ' +
+        'slice holds more.';
+    return (
+      `Nothing was masked: ${named} would take more than the ${MAX_SLICES_PER_SET} slices a ` +
+      `set holds, at ${size} records a slice. ${way}`
+    );
+  }
+
+  /**
+   * Why a run in slices does not go on for the disk: what its snapshots take
+   * against what is free where they go, and what makes room.
+   *
+   * @param before - Whether the run wrote nothing yet.
+   */
+  private diskShortMessage(needed: number, free: number, before = false): string {
+    const where = this.backupRecords?.directory ?? 'the backups folder';
+    const ways = this.onCommandLine
+      ? 'give --store a folder on another disk, delete the backups no longer needed ' +
+        '(sandforge backup --list, then delete them), or keep backups fewer days (--max-age-days)'
+      : 'delete the backups no longer needed in the Restore tab, or keep backups fewer days ' +
+        '(sandforge.backup.maxAgeDays)';
+    return (
+      `${before ? 'Nothing was masked' : 'The run stopped between two slices'}: the slices' ` +
+      `snapshots take about ${bytesWords(needed)}, and ${where} has ${bytesWords(free)} free. ` +
+      `To make room, ${ways}.`
+    );
+  }
+
+  /**
+   * Whether the next slice of a run would take it past its bound of
+   * requests, or the org past the share of its day the run leaves to its
+   * integrations: said, and the run stops between two slices.
+   */
+  private sliceBudgetStop(
+    conn: Connection,
+    maxRequests: number | undefined,
+    sent: number,
+    estimate: number,
+    voice: DataOpsVoice | undefined,
+  ): string | undefined {
+    if (maxRequests !== undefined && sent + estimate > maxRequests) {
+      const bound = voice === 'page' ? 'the requests it was given' : '--max-requests';
+      return (
+        `Stopped between slices: the run sent ${sent} request(s), and the next slice takes ` +
+        `about ${estimate} more, past the ${maxRequests} of ${bound}.`
+      );
+    }
+    const usage = checkApiLimits(conn.limitInfo, 'dataops:anonymize slices');
+    if (
+      usage &&
+      usage.apiLimit > 0 &&
+      ((usage.apiUsage + estimate) / usage.apiLimit) * 100 >= MASKING_API_STOP_PERCENT
+    ) {
+      return (
+        `Stopped between slices: the org used ${usage.apiUsage} of its ${usage.apiLimit} daily ` +
+        `API requests, and the next slice takes about ${estimate} more, past the ` +
+        `${MASKING_API_STOP_PERCENT}% the run leaves the org's integrations below.`
+      );
+    }
+    return undefined;
+  }
+
+  /** Why the snapshot of a slice was not taken, and the run stopped there. */
+  private sliceNotTakenMessage(
+    objectApiName: string,
+    taken: { failed: unknown; code: string },
+  ): string {
+    if (taken.code === SLICE_REFUSAL.readTooHeavy) {
+      const way = this.onCommandLine
+        ? 'narrow --where to an indexed field, such as a range of CreatedDate, or give a lower ' +
+          '--max-records'
+        : 'mask it from the command line with --where on an indexed field, such as a range of ' +
+          'CreatedDate, or lower sandforge.backup.maxRecordsPerObject';
+      return (
+        `The org would not read a slice of ${objectApiName} in time, even halved ` +
+        `${SLICE_HALVINGS} times (${extractErrorMessage(taken.failed)}): the run stopped ` +
+        `there, and nothing of that slice was masked. To go on, ${way}.`
+      );
+    }
+    return (
+      `The snapshot of the next slice of ${objectApiName} was not taken ` +
+      `(${extractErrorMessage(taken.failed)}): the run stopped there, and nothing of that ` +
+      'slice was masked.'
+    );
+  }
+
+  /** Why a new run of a template is refused while its set of slices is open. */
+  private sliceRunOpenMessage(set: BackupSet, voice?: DataOpsVoice): string {
+    const slices = slicesOf(set);
+    const ways = this.sliceWays(voice);
+    return (
+      `A masking run of this template in slices is still open on ${this.orgNameOf(set.orgId)} ` +
+      `(set ${set.setId}, ${slices.filter(sliceDone).length} of ${slices.length} slice(s) ` +
+      `masked, last moved ${set.lastActivityAt}): a new run would mask its rows again and write ` +
+      `over where it stopped. Resume it (${ways.resume}), or give it up (${ways.abandon}), ` +
+      'which masks nothing more and keeps its slices to restore. Nothing was masked.'
+    );
+  }
+
+  /** Why a resume is refused when the key its set was masked with is not the one here. */
+  private sliceKeyLostMessage(set: BackupSet, voice?: DataOpsVoice): string {
+    const ways = this.sliceWays(voice);
+    return (
+      `The key set ${set.setId} was masked with is not kept where this run reads it: masked ` +
+      'with another, the same address would get another digest and the same record another ' +
+      `person. Give the set up (${ways.abandon}); ${ways.restore(set.setId)} if its values are ` +
+      'wanted back, and a new run masks again. Nothing was masked.'
+    );
+  }
+
+  /**
+   * What a run's end says of its set of slices: why it stopped between two,
+   * how many are masked and how a restore puts them back, the rows created
+   * late that no snapshot holds, and how the run goes on.
+   */
+  private slicesSentence(
+    set: BackupSet,
+    stopped: { message: string } | undefined,
+    voice: DataOpsVoice | undefined,
+    left: boolean,
+    lateUnread: readonly string[] = [],
+  ): string {
+    const ways = this.sliceWays(voice);
+    const slices = slicesOf(set);
+    const late = lateRowsOf(set);
+    return [
+      ...(stopped ? [stopped.message] : []),
+      `Set ${set.setId}: ${slices.filter(sliceDone).length} of ${slices.length} slice(s) of up ` +
+        `to ${set.size} records masked, each backed up just before it was masked; ` +
+        `${ways.restore(set.setId)}.`,
+      ...(late > 0
+        ? [
+            `${late} record(s) were created during the run in a range a slice had masked, or ` +
+              'past its last slice: no snapshot holds them, and they were not masked.',
+          ]
+        : []),
+      ...(lateUnread.length > 0
+        ? [
+            'Whether records were created during the run in a range a slice had masked could ' +
+              `not be read for ${lateUnread.join(', ')}: any such record was not masked.`,
+          ]
+        : []),
+      ...(set.state === 'open' && left
+        ? [
+            `${ways.resume[0].toUpperCase()}${ways.resume.slice(1)} masks the rest, each slice backed up first.`,
+          ]
+        : []),
+    ].join(' ');
+  }
+
+  /**
+   * Take the snapshot of one slice, the org's clock read first: a row created
+   * in its range after that is one no slice holds. A slice the org will not
+   * read in time — a read too heavy for it, which fails before the slice
+   * keeps a row — is read again halved, three times at most and never under a
+   * hundred rows, and the size it was read with is kept with the slice.
+   */
+  private async snapshotSlice(
+    conn: Connection,
+    orgId: string,
+    set: BackupSet,
+    entry: BackupSetObject,
+    slice: BackupSlice,
+    options: {
+      select?: string;
+      bounds: SliceBounds;
+      skip?: (row: BackupRecord) => boolean;
+      stop: AbortSignal;
+      onRequest: () => void;
+      origin: string;
+      /** Whether the org's clock is read first: not for a backup, which counts no late rows. */
+      clock?: boolean;
+    },
+  ): Promise<SliceTaken> {
+    let readSince: string | undefined;
+    try {
+      if (options.clock !== false) {
+        readSince = new Date((await conn.soap.getServerTimestamp()).timestamp).toISOString();
+        options.onRequest();
+      }
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] dataops: the org's clock before slice ${slice.index} was not read: ` +
+          extractErrorMessage(err),
+      );
+    }
+    let size = slice.sizeUsed;
+    for (let halved = 0; ; halved++) {
+      const outcome = await this.takeBackup(
+        slice.snapshotId,
+        {
+          orgId,
+          objects: [entry.objectApiName],
+          ...(entry.where !== undefined
+            ? { wheres: new Map([[entry.objectApiName, entry.where]]) }
+            : {}),
+          ...(options.select !== undefined
+            ? { fields: new Map([[entry.objectApiName, options.select]]) }
+            : {}),
+          slice: {
+            setId: set.setId,
+            index: slice.index,
+            bounds: options.bounds,
+            size,
+            ...(options.skip ? { skip: options.skip } : {}),
+            onRequest: options.onRequest,
+          },
+        },
+        options.origin,
+        options.stop,
+      );
+      if (!('error' in outcome)) {
+        const read = outcome.objects[0];
+        return {
+          rows: read?.recordCount ?? 0,
+          read: read?.readCount ?? read?.recordCount ?? 0,
+          ...(read?.lastId !== undefined ? { lastId: read.lastId } : {}),
+          sizeUsed: size,
+          ...(readSince !== undefined ? { readSince } : {}),
+        };
+      }
+      if (outcome.cancelled)
+        return { failed: outcome.error, code: ABORTED_BEFORE_START, cancelled: true };
+      const heavy = HEAVY_READ_CODES.has(orgReasonCode(outcome.error));
+      if (!heavy) return { failed: outcome.error, code: SNAPSHOT_NOT_TAKEN };
+      if (halved >= SLICE_HALVINGS || size <= SLICE_SIZE_FLOOR) {
+        return { failed: outcome.error, code: SLICE_REFUSAL.readTooHeavy };
+      }
+      size = Math.max(SLICE_SIZE_FLOOR, Math.floor(size / 2));
+      this.deps.log(
+        `[INFO] dataops: the org would not read slice ${slice.index} of ${entry.objectApiName} ` +
+          `in time; read again in ${size} records.`,
+      );
+    }
+  }
+
+  /**
+   * Of a set whose every object was read to its end, count what was created
+   * while the runs went: past each object's last slice, a read of its own;
+   * then in the ranges its slices masked, once a count over all of them says
+   * there are any, slice by slice, created since that slice was read. A
+   * count the org refuses is logged, and said with the run's end.
+   *
+   * @returns The objects whose late rows were not counted, each with why.
+   */
+  private async countLateRows(
+    conn: Connection,
+    set: BackupSet,
+    onRequest: () => void,
+  ): Promise<string[]> {
+    const unread: string[] = [];
+    const count = async (soql: string): Promise<number> => {
+      const answer = await conn.query(soql);
+      onRequest();
+      return typeof answer.totalSize === 'number' ? answer.totalSize : 0;
+    };
+    for (const entry of set.objects) {
+      try {
+        const ranges = entry.slices.filter((s) => !s.late && s.lastId !== undefined);
+        const lastEnd = ranges.at(-1)?.lastId;
+        const tail = await count(
+          lastEnd !== undefined
+            ? tailCountStatement(entry.objectApiName, entry.where, lastEnd)
+            : `SELECT COUNT() FROM ${entry.objectApiName}${rowsOfTheRun(entry.where, undefined)}`,
+        );
+        if (tail > 0) {
+          entry.tailLeft = tail;
+          entry.done = false;
+        } else {
+          delete entry.tailLeft;
+        }
+        const since = set.serverStartedAt;
+        if (lastEnd === undefined || since === undefined) continue;
+        const late = await count(
+          lateCountStatement(entry.objectApiName, entry.where, since, { untilId: lastEnd }),
+        );
+        if (late === 0) continue;
+        for (const slice of ranges) {
+          if (slice.lastId === undefined) continue;
+          const left = await count(
+            lateCountStatement(entry.objectApiName, entry.where, slice.readSince ?? since, {
+              ...(slice.afterId !== undefined ? { afterId: slice.afterId } : {}),
+              untilId: slice.lastId,
+            }),
+          );
+          if (left > 0) slice.lateLeft = left;
+          else delete slice.lateLeft;
+        }
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] dataops: the ${entry.objectApiName} records created during set ` +
+            `${set.setId} were not counted: ${extractErrorMessage(err)}`,
+        );
+        unread.push(`${entry.objectApiName} (${extractErrorMessage(err)})`);
+      }
+    }
+    return unread;
+  }
+
+  /**
+   * Give up the set of slices of a template left open on an org: nothing more
+   * is masked, its key and its checkpoint go, and its slices stay, as a
+   * restore reads them, until the retention takes them. Nothing is written
+   * to the org.
+   */
+  private async abandonSliceSet(
+    set: BackupSet | undefined,
+    payload: MaskingAsked,
+    replies: MaskingReplies,
+  ): Promise<void> {
+    if (!set) {
+      replies.refused(
+        new Error(
+          `No masking run of this template in slices is open on ${this.orgNameOf(payload.orgId)}: ` +
+            'there is nothing to give up.',
+        ),
+        { code: SLICE_REFUSAL.nothingToAbandon },
+      );
+      return;
+    }
+    if (this.sliceRunsOn.get(payload.orgId) === set.setId) {
+      replies.refused(new Error(this.busyMessage(payload.orgId, '')), { code: BACKUP_BUSY });
+      return;
+    }
+    set.state = 'abandoned';
+    set.lastActivityAt = new Date().toISOString();
+    this.sliceSets.save(set);
+    new MaskingCheckpointStore(this.deps.configStore).clear(payload.orgId, payload.templateId);
+    await this.runKeys?.delete(set.setId).catch((err: unknown) => {
+      this.deps.log(
+        `[WARN] dataops: the key of set ${set.setId} was not removed: ${extractErrorMessage(err)}`,
+      );
+    });
+    const slices = slicesOf(set);
+    const masked = slices.filter(sliceDone).length;
+    const ways = this.sliceWays(replies.voice);
+    this.deps.log(`[INFO] dataops: set ${set.setId} given up, ${masked} slice(s) masked`);
+    replies.ended({
+      templateId: payload.templateId,
+      status: 'success',
+      recordsProcessed: 0,
+      recordsFailed: 0,
+      recordsNotMasked: 0,
+      objects: [],
+      message:
+        `Set ${set.setId} given up: nothing more is masked. Its ${masked} masked slice(s) stay ` +
+        `masked, each with its snapshot; ${ways.restore(set.setId)} until the retention ` +
+        'removes them. The records no slice reached keep their values.',
+      errors: [],
+      abandoned: true,
+      slices: sliceSetResultOf(set, { requestsSpent: 0 }),
+    });
+  }
+
   /**
    * Mask an org as the template says, the DataOps page's run and a
    * pipeline's alike: every object counted, every field its template names
@@ -4363,6 +5687,23 @@ export class DataOpsHandler implements DomainHandler {
      */
     let snapshot: { operationId: string; totalRecords: number } | undefined;
     /**
+     * Of a run in slices, its set as its manifest keeps it, once opened or
+     * resumed: each slice's snapshot, how far its masking got, what it left.
+     */
+    let sliceSet: BackupSet | undefined;
+    /** Requests the run sent, counted call by call: what `maxRequests` bounds. */
+    let requestsSent = 0;
+    /** Requests the set's runs sent before this one. */
+    let requestsBefore = 0;
+    /** Why a run in slices stopped between two of them before its last, if it did. */
+    let sliceStop: { code?: string; message: string; budget?: boolean } | undefined;
+    /** What the duplicate rules wrote for the slices ended, read as each one ended. */
+    let slicesDuplicates: MaskingDuplicatesWritten | undefined;
+    /** Whether this run holds the org's lock of backups and restores, for a run in slices. */
+    let holdsLock = false;
+    /** Of a run in slices, the objects whose rows created during it the org would not count. */
+    let lateUnread: string[] = [];
+    /**
      * Aborted by the registry: a cancel of the run, the window closing. A run
      * was never registered, so nothing could stop it, and it masked every
      * batch of every object to its end.
@@ -4388,7 +5729,7 @@ export class DataOpsHandler implements DomainHandler {
      * Never throws.
      */
     const duplicatesOfRun = async (): Promise<MaskingDuplicatesWritten | undefined> =>
-      duplicatesWatch?.read();
+      addDuplicates(slicesDuplicates, await duplicatesWatch?.read());
     // Held under its id from the request on: the page's Stop can come while
     // the run counts its rows, waits on Production Guard's question or takes
     // its snapshot, before it is registered, and a stop then is taken: the
@@ -4444,6 +5785,9 @@ export class DataOpsHandler implements DomainHandler {
         ...(counted ? { ...totals, objects: maskingResultObjects(tallies) } : {}),
         ...(snapshot ? { snapshot } : {}),
         ...(duplicates ? { duplicates } : {}),
+        ...(sliceSet
+          ? { slices: sliceSetResultOf(sliceSet, { requestsSpent: requestsSent }) }
+          : {}),
       };
       const told = left
         ? `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
@@ -4486,13 +5830,18 @@ export class DataOpsHandler implements DomainHandler {
         0,
       );
       try {
-        if (recordsNotMasked === 0) {
+        // A set of slices done, or given up, is resumed no more.
+        if (
+          (recordsNotMasked === 0 && sliceSet?.state !== 'open') ||
+          (sliceSet !== undefined && sliceSet.state !== 'open')
+        ) {
           checkpoints.clear(payload.orgId, payload.templateId);
           return false;
         }
         // A run that handled no row changed nothing in the org: where the run
-        // before it stopped is still where the org stands.
-        if (handled === 0) {
+        // before it stopped is still where the org stands. A set of slices
+        // left open is resumed from its own checkpoint, kept whatever the run did.
+        if (handled === 0 && sliceSet === undefined) {
           return checkpoints.load(payload.orgId, payload.templateId, fingerprint) !== undefined;
         }
         const objects = work.map((w) => w.progress);
@@ -4514,6 +5863,7 @@ export class DataOpsHandler implements DomainHandler {
           // The names the run made up, counted: a resume gives none of them
           // again. A resume of a run that kept none adds its own to nothing.
           ...(drawing ? { namesGiven: drawing.namesGiven() } : {}),
+          ...(sliceSet ? { setId: sliceSet.setId } : {}),
         });
         return true;
       } catch (err: unknown) {
@@ -4522,6 +5872,36 @@ export class DataOpsHandler implements DomainHandler {
             extractErrorMessage(err),
         );
         return false;
+      }
+    };
+
+    /**
+     * Of a run in slices, keep its set's manifest and where the run is in it,
+     * as each slice is taken and as each ends: a run stopped in a slice, or
+     * between two, is resumed from them. The checkpoint holds the slice it
+     * was masking and the last row of its file the org answered for.
+     */
+    const keepSlicePosition = (): void => {
+      if (!sliceSet) return;
+      sliceSet.lastActivityAt = new Date().toISOString();
+      sliceSet.requestsSpent = requestsBefore + requestsSent;
+      this.sliceSets.save(sliceSet);
+      try {
+        new MaskingCheckpointStore(this.deps.configStore).save({
+          id: operationId,
+          orgId: payload.orgId,
+          templateId: payload.templateId,
+          fingerprint,
+          savedAt: new Date().toISOString(),
+          objects: work.map((w) => w.progress),
+          ...(drawing ? { namesGiven: drawing.namesGiven() } : {}),
+          setId: sliceSet.setId,
+        });
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] dataops:anonymize ${operationId}: where the run is in set ${sliceSet.setId} ` +
+            `was not kept: ${extractErrorMessage(err)}`,
+        );
       }
     };
 
@@ -4550,18 +5930,44 @@ export class DataOpsHandler implements DomainHandler {
       const withPersons = personRowsOnly(payload, template, ACCOUNT)
         ? plannedAnonymizeObjects(payload, template, true)
         : undefined;
-      const fingerprints = withPersons
-        ? [fingerprint, maskingFingerprint(template.rules, withPersons, where)]
-        : [fingerprint];
-      const refuseResume = (): void =>
+      const sets = this.sliceSets;
+      /**
+       * The set of slices of this template left open on the org, if one is:
+       * a new run would mask again what its slices masked, and write over the
+       * checkpoint that says where it stopped.
+       */
+      const openSet = sets.openFor(payload.orgId, payload.templateId);
+      if (payload.abandon === true) {
+        await this.abandonSliceSet(openSet, payload, replies);
+        return;
+      }
+      /** What a checkpoint of a run over these objects is good for, in slices of `size` when given. */
+      const fingerprintOf = (objects: readonly string[], size?: number): string =>
+        maskingFingerprint(template.rules, objects, where, size);
+      const plans = withPersons ? [plannedObjects, withPersons] : [plannedObjects];
+      const fingerprints = plans.flatMap((objects) => [
+        fingerprintOf(objects),
+        ...(openSet ? [fingerprintOf(objects, openSet.size)] : []),
+      ]);
+      const refuseResume = (why?: string): void =>
         replies.refused(
           new Error(
-            'There is nothing to resume: the run has finished since, another run of this ' +
-              'template has stopped since, or its rules have changed. Apply masks every record ' +
-              'of its objects.',
+            why ??
+              'There is nothing to resume: the run has finished since, another run of this ' +
+                'template has stopped since, its rules have changed, or the slices it masked ' +
+                'expired. Apply masks every record of its objects.',
           ),
           { code: NOTHING_TO_RESUME },
         );
+      /** Refuse the run before anything is counted, under its code, and record it so. */
+      const refuseBeforeCount = (code: string, message: string): void => {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined, code });
+        replies.refused(new Error(message), { code });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+        });
+      };
 
       /** Where the run this one resumes stopped; a run asked for whole starts from nothing. */
       let resumed: MaskingCheckpoint | undefined;
@@ -4577,6 +5983,66 @@ export class DataOpsHandler implements DomainHandler {
           refuseResume();
           return;
         }
+        // A run in slices resumes its set, open; a run of the whole object
+        // resumed in slices would leave the rows it masked in no snapshot.
+        if (
+          (resumed.setId !== undefined && resumed.setId !== openSet?.setId) ||
+          (resumed.setId === undefined && payload.slices === true)
+        ) {
+          refuseResume(
+            resumed.setId === undefined
+              ? 'The run this one resumes was not in slices: it resumes as it ran, without ' +
+                  'slices, or Apply masks every record of its objects in slices. Nothing was masked.'
+              : undefined,
+          );
+          return;
+        }
+      }
+      // A new run of the template while its set of slices is open is refused
+      // before anything is counted: the run is resumed, or the set given up.
+      if (openSet && resumed?.setId !== openSet.setId) {
+        refuseBeforeCount(SLICE_REFUSAL.runOpen, this.sliceRunOpenMessage(openSet, replies.voice));
+        return;
+      }
+      /** Of a run in slices, the rows a slice holds: the set's, or the cap of a snapshot now. */
+      const sliceSize =
+        resumed?.setId !== undefined
+          ? openSet?.size
+          : payload.slices === true
+            ? this.backupCap()
+            : undefined;
+      fingerprint = fingerprintOf(plannedObjects, sliceSize);
+      if (sliceSize !== undefined && !this.backupRecords) {
+        refuseBeforeCount(
+          SLICE_REFUSAL.needsStore,
+          'A run in slices writes each slice to the backup files, and this host keeps none. ' +
+            'Nothing was masked.',
+        );
+        return;
+      }
+      /**
+       * The key the run masks with: its set's, kept until the set ends, for a
+       * run in slices resumed; the window's otherwise.
+       */
+      let runKey = this.maskingKey;
+      if (resumed?.setId !== undefined && openSet) {
+        const kept = await this.runKeys?.load(openSet.setId).catch((err: unknown) => {
+          this.deps.log(
+            `[WARN] dataops:anonymize: the key of set ${openSet.setId} was not read: ` +
+              extractErrorMessage(err),
+          );
+          return undefined;
+        });
+        runKey = kept ?? this.maskingKey;
+        if (openSet.keyCheck !== undefined && runKeyCheck(runKey) !== openSet.keyCheck) {
+          refuseBeforeCount(
+            SLICE_REFUSAL.keyLost,
+            this.sliceKeyLostMessage(openSet, replies.voice),
+          );
+          return;
+        }
+        sliceSet = openSet;
+        requestsBefore = openSet.requestsSpent;
       }
 
       const conn = await getJsforceConnection(
@@ -4588,7 +6054,7 @@ export class DataOpsHandler implements DomainHandler {
       const described = describedOnce(conn);
       if (withPersons && (await orgHasPersonAccounts(described, this.deps.log))) {
         plannedObjects = withPersons;
-        fingerprint = fingerprints[1];
+        fingerprint = fingerprintOf(withPersons, sliceSize);
       }
       // The run resumed planned other objects than the org now gives: its
       // person accounts came or went since.
@@ -4601,6 +6067,7 @@ export class DataOpsHandler implements DomainHandler {
       let apiLimit: SforceLimitInfo | undefined;
       /** Log the org's API usage after a call, and keep it once it passes that line. */
       const noteApiUsage = (context: string): void => {
+        requestsSent++;
         const usage = checkApiLimits(conn.limitInfo, context);
         if (usage && usage.usagePercent >= MASKING_API_STOP_PERCENT) apiLimit ??= usage;
       };
@@ -4615,6 +6082,8 @@ export class DataOpsHandler implements DomainHandler {
       // stops says from them how many rows of each object it left. A resume
       // counts what the run it resumes left: the rows past where it stopped,
       // and the ones the org refused.
+      /** The objects of a run in slices counted by the org's approximate figure. */
+      const approximate = new Set<string>();
       for (const objectName of plannedObjects) {
         const objectRules = rulesOfObject(template, objectName);
         const personRules = personRulesOfObject(template, objectName);
@@ -4629,12 +6098,28 @@ export class DataOpsHandler implements DomainHandler {
           ...(from?.afterId !== undefined ? { afterId: from.afterId } : {}),
           refused: [...(from?.refused ?? [])],
           ...(from?.unconfirmed?.length ? { unconfirmed: [...from.unconfirmed] } : {}),
+          // Of a run in slices, the slice its position is in: the file read on past it.
+          ...(from?.slice ? { slice: { ...from.slice } } : {}),
         };
         let toRead = 0;
-        if (!progress.done) {
+        /** Count the rows past `afterId`, or say why the run ends on a count the org gave up. */
+        const countOrStop = async (afterId: string | undefined): Promise<number> => {
           try {
-            toRead = await this.countRows(conn, safeObj, progress.afterId, objectWhere);
+            const counted = await this.countRows(conn, safeObj, afterId, objectWhere);
+            noteApiUsage(`dataops:anonymize count ${safeObj}`);
+            return counted;
           } catch (err: unknown) {
+            // A run in slices reads its slices by Id, and needs no count but
+            // the plan's: the org's own figure stands in for one it gave up,
+            // said to be approximate.
+            const figure =
+              sliceSize !== undefined && afterId === undefined && objectWhere === undefined
+                ? await this.approximateCount(conn, safeObj, err)
+                : undefined;
+            if (figure !== undefined) {
+              approximate.add(safeObj);
+              return figure;
+            }
             // Before the guard is asked and before anything is written: the
             // run ends here, and is recorded as a failure with the object and
             // the org's reason, as a run a check of its own stops is. Once
@@ -4649,7 +6134,18 @@ export class DataOpsHandler implements DomainHandler {
             });
             throw this.countGaveUp(err, safeObj);
           }
-          noteApiUsage(`dataops:anonymize count ${safeObj}`);
+        };
+        /** Of a set of slices resumed, the object as the set keeps it. */
+        const entry = sliceSet?.objects.find((o) => o.objectApiName === safeObj);
+        if (entry) {
+          // What its slices left — the rest of the slice it stopped in, the
+          // rows the org refused, those created late in a range masked — and
+          // the rows past its last slice.
+          toRead = rowsLeftInSlices(entry);
+          if (!entry.done) toRead += await countOrStop(sliceCursorOf(entry));
+          progress.done = toRead === 0;
+        } else if (!progress.done) {
+          toRead = await countOrStop(progress.afterId);
           if (toRead === 0) progress.done = true;
         }
         const total = toRead + progress.refused.length + (progress.unconfirmed?.length ?? 0);
@@ -4738,6 +6234,47 @@ export class DataOpsHandler implements DomainHandler {
           authored: true,
         });
       };
+      // A run that keeps the values first holds every row of an object in one
+      // snapshot, or masks nothing: refused before the guard is asked for an
+      // object past what a snapshot holds, with the slices that mask it.
+      // Taken after the guard, its snapshot stopped at the cap and the run was
+      // refused once the person had answered Production Guard.
+      if (payload.snapshot === true && sliceSize === undefined) {
+        const cap = this.backupCap();
+        if (work.some((w) => w.tally.total > cap)) {
+          refuseBeforeWrite(
+            SNAPSHOT_NOT_TAKEN,
+            `Nothing was masked: ${work
+              .filter((w) => w.tally.total > cap)
+              .map((w) => `${w.tally.objectApiName} holds ${w.tally.total} record(s)`)
+              .join(', ')}, more than the ${cap} a snapshot holds of one object. ` +
+              this.snapshotCapWay(work, replies.voice),
+          );
+          return;
+        }
+      }
+      // A run in slices: refused before the guard is asked for more slices
+      // than a set holds, or a disk short of what its snapshots take.
+      if (sliceSize !== undefined) {
+        const planned = await this.sliceRunPlan(
+          described,
+          work,
+          sliceSize,
+          this.pageSizeFor(payload.orgId),
+        );
+        if (planned.tooMany.length > 0) {
+          refuseBeforeWrite(SLICE_REFUSAL.tooMany, this.tooManySlicesMessage(planned, sliceSize));
+          return;
+        }
+        const free = await this.freeBytes();
+        if (free !== undefined && diskNeeded(planned.diskBytes) > free) {
+          refuseBeforeWrite(
+            SLICE_REFUSAL.diskShort,
+            this.diskShortMessage(diskNeeded(planned.diskBytes), free, true),
+          );
+          return;
+        }
+      }
       // What the org runs as the run updates the records it counted, before
       // the guard is asked and before anything is written: a masking of every
       // contact ran the org's update flows, emails among them, unasked; a
@@ -4755,13 +6292,14 @@ export class DataOpsHandler implements DomainHandler {
         refuseBeforeWrite(gateRefused.code, gateRefused.message, gateRefused.alsoRefused);
         return;
       }
-      const watch = this.duplicatesWatchOf(
-        conn,
-        duplicateRulesOn(
-          gated.answer.automation,
-          tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
-        ),
+      const duplicateRules = duplicateRulesOn(
+        gated.answer.automation,
+        tallies.filter((t) => t.total > 0).map((t) => t.objectApiName),
       );
+      // A run in slices watches each slice apart, and reads what the rules
+      // wrote as the slice ends: it holds one slice's records, not the object's.
+      const watchOf = (): DuplicatesWatch => this.duplicatesWatchOf(conn, duplicateRules);
+      let watch = watchOf();
       duplicatesWatch = watch;
 
       const org = this.deps.orgManager.getOrg(payload.orgId);
@@ -4821,6 +6359,69 @@ export class DataOpsHandler implements DomainHandler {
       held = holding.held;
       counted = true;
 
+      // A run in slices holds the org's backups and restores from its first
+      // snapshot to its end, its own slices' snapshots aside: a restore
+      // between two slices would write the real values back over a slice it
+      // says is masked. Held in this window only: a command line, or another
+      // window, holds its own.
+      if (sliceSize !== undefined) {
+        const lockKey = `backup:${payload.orgId}`;
+        if (this.activeOrgOperations.has(lockKey)) {
+          refuseBeforeWrite(
+            BACKUP_BUSY,
+            this.busyMessage(
+              payload.orgId,
+              `A backup or rollback operation is already running for org ${payload.orgId}. ` +
+                'Mask once it has ended.',
+            ),
+          );
+          return;
+        }
+        this.activeOrgOperations.add(lockKey);
+        holdsLock = true;
+        if (!sliceSet) {
+          // The manifest is written before the first snapshot: a run that
+          // stops in it is resumed from what the manifest says.
+          const startedAt = new Date().toISOString();
+          const serverStartedAt = await conn.soap
+            .getServerTimestamp()
+            .then((answer) => new Date(answer.timestamp).toISOString())
+            .catch(() => startedAt);
+          requestsSent++;
+          const organizationId = await this.organizationIdOf(conn);
+          requestsSent++;
+          sliceSet = {
+            setId: operationId,
+            kind: 'masking',
+            orgId: payload.orgId,
+            ...(organizationId !== undefined ? { organizationId } : {}),
+            templateId: payload.templateId,
+            fingerprint,
+            size: sliceSize,
+            state: 'open',
+            startedAt,
+            serverStartedAt,
+            lastActivityAt: startedAt,
+            requestsSpent: 0,
+            keyCheck: runKeyCheck(runKey),
+            objects: work.map((w) => ({
+              objectApiName: w.tally.objectApiName,
+              ...(w.where !== undefined ? { where: w.where } : {}),
+              done: w.tally.total === 0,
+              slices: [],
+            })),
+          };
+          sets.save(sliceSet);
+          await this.runKeys?.save(sliceSet.setId, runKey).catch((err: unknown) => {
+            this.deps.log(
+              `[WARN] dataops:anonymize ${operationId}: the key of set ${operationId} was not ` +
+                `kept, so only this window resumes it: ${extractErrorMessage(err)}`,
+            );
+          });
+        }
+        this.sliceRunsOn.set(payload.orgId, sliceSet.setId);
+      }
+
       // The org's tier sets how many rows a page reads: 2,000 on a sandbox, 500
       // on production. It used to be how many rows of each object a run read at
       // all: the rows past it were never masked, the progress counted only what
@@ -4829,8 +6430,9 @@ export class DataOpsHandler implements DomainHandler {
       const pageSize = getQueryLimits(anonOrgTier).defaultQueryLimit;
 
       // A snapshot of what the run is about to write over, when asked: after
-      // the guard, which may stop the run, and before the first write.
-      if (payload.snapshot === true) {
+      // the guard, which may stop the run, and before the first write. A run
+      // in slices takes one per slice, just before it masks it.
+      if (payload.snapshot === true && sliceSet === undefined) {
         const kept = await this.snapshotBeforeMasking(described, operationId, payload.orgId, work, {
           origin: replies.origin,
           stop: stop.signal,
@@ -4884,8 +6486,9 @@ export class DataOpsHandler implements DomainHandler {
       live = listLive(this.liveTracker, operationId, 'dataops', description, grandTotal);
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
-      // The window's key, not a fresh random one: see `maskingKey`.
-      const engine = new AnonymizationEngine(undefined, this.maskingKey);
+      // The window's key, not a fresh random one: see `maskingKey`; a set's
+      // own, for a run in slices resumed.
+      const engine = new AnonymizationEngine(undefined, runKey);
       drawing = engine;
       // A resume carries on from the names the run it resumes made up: one
       // starting with none given handed out again, to the rows it masked, the
@@ -4904,17 +6507,428 @@ export class DataOpsHandler implements DomainHandler {
       /** Whether a cancel stopped the run before every record it was for was masked. */
       let cancelled = false;
 
-      /** Rows of one object the run is done with: masked, refused, or holding nothing to mask. */
-      const doneWith = (t: MaskingTally): number => t.masked + t.nothingToMask + t.refused;
+      /**
+       * Rows of one object the run is done with: masked, refused, holding
+       * nothing to mask, or, of a slice, deleted since its snapshot.
+       */
+      const doneWith = (t: MaskingTally): number =>
+        t.masked + t.nothingToMask + t.refused + (t.deletedSince ?? 0);
       /** Progress over the rows of every object, counted against what the counts said. */
+      /** Of a run in slices, the slice it masks now, as its progress names it. */
+      let sliceStep: string | undefined;
       const reportProgress = (objectName: string, tally: MaskingTally): void => {
         const handled = tallies.reduce((sum, t) => sum + doneWith(t), 0);
         // A row created while the run goes can be read past the count.
         const total = Math.max(grandTotal, handled);
         const percentage = Math.round((handled / total) * 100);
-        const step = `Anonymized ${objectName} (${doneWith(tally)}/${Math.max(tally.total, doneWith(tally))})`;
+        const step =
+          `Anonymized ${objectName}${sliceStep ? ` ${sliceStep}` : ''} ` +
+          `(${doneWith(tally)}/${Math.max(tally.total, doneWith(tally))})`;
         sendOperationProgress(this.deps, operationId, percentage, handled, total, step);
         live?.progress(percentage, handled, total, step);
+      };
+      /** Of a run in slices, the slices it masked, by number: what its audit entry covers. */
+      const slicesMaskedNow: number[] = [];
+
+      /**
+       * Mask one object of a run in slices: the rows the org refused in the
+       * slices before, tried again; then slice after slice, each read into a
+       * snapshot of its own just before it is masked, and masked from that
+       * snapshot's file, never from the org — a row created after the
+       * snapshot is in no slice, and is not masked without a copy. A slice
+       * ends with what the duplicate rules wrote for it read, and the people
+       * drawn for its records forgotten: the run holds one slice.
+       *
+       * @returns `done` once every row of the object is in a slice masked;
+       *   `stopped` when a cancel, the org's day, the run's own bound, the disk
+       *   or a slice the org would not read stopped it, between two slices or
+       *   in one.
+       */
+      const maskSlicesOf = async (object: {
+        objectName: string;
+        safeObj: string;
+        fields: string;
+        tally: MaskingTally;
+        progress: MaskingProgress;
+        writeBack: (
+          records: Array<Record<string, unknown>>,
+          onAnswered: (batch: ReadonlyArray<Record<string, unknown>>, refused: string[]) => void,
+          onUnanswered: (
+            batch: ReadonlyArray<Record<string, unknown>>,
+            sent: UnconfirmedRow[],
+          ) => void,
+        ) => Promise<boolean>;
+      }): Promise<'done' | 'stopped'> => {
+        const set = sliceSet;
+        const store = this.backupRecords;
+        const { safeObj, fields, tally, progress, writeBack } = object;
+        const entry = set?.objects.find((o) => o.objectApiName === safeObj);
+        if (!set || !store || !entry) {
+          throw new Error(`The set of slices holds no ${safeObj}: nothing more was masked.`);
+        }
+        const side = refusedSideOf(safeObj);
+        const fieldCount = fields.split(',').length;
+        /** What the tally holds now, to add to a slice what a write did. */
+        const countsNow = (): {
+          masked: number;
+          nothing: number;
+          refused: number;
+          gone: number;
+        } => ({
+          masked: tally.masked,
+          nothing: tally.nothingToMask,
+          refused: tally.refused,
+          gone: tally.deletedSince ?? 0,
+        });
+        const addTo = (slice: BackupSlice, before: ReturnType<typeof countsNow>): void => {
+          slice.masked += tally.masked - before.masked;
+          slice.nothingToMask += tally.nothingToMask - before.nothing;
+          slice.deletedSince += (tally.deletedSince ?? 0) - before.gone;
+          const unanswered = progress.unconfirmed?.length ?? 0;
+          if (unanswered > 0) slice.unanswered = unanswered;
+          else delete slice.unanswered;
+        };
+        /** The ids a slice's side file holds: the rows the org refused, which hold their values. */
+        const refusedOf = async (slice: BackupSlice): Promise<string[]> => {
+          const ids: string[] = [];
+          for await (const batch of await this.backupBatches(slice.snapshotId, side)) {
+            for (const row of batch) if (typeof row.Id === 'string') ids.push(row.Id);
+          }
+          return ids;
+        };
+        /** Write a slice's side file again, with the ids it holds now. */
+        const keepRefused = async (slice: BackupSlice, ids: readonly string[]): Promise<void> => {
+          if (ids.length === 0) await store.delete(slice.snapshotId, side);
+          else {
+            await store.begin(slice.snapshotId, side);
+            await store.append(
+              slice.snapshotId,
+              side,
+              ids.map((Id) => ({ Id })),
+            );
+          }
+          slice.refused = ids.length;
+        };
+        /** Add ids the org refused to a slice's side file. */
+        const addRefused = async (slice: BackupSlice, ids: readonly string[]): Promise<void> => {
+          if (ids.length === 0) return;
+          await store.append(
+            slice.snapshotId,
+            side,
+            ids.map((Id) => ({ Id })),
+          );
+          slice.refused += ids.length;
+        };
+
+        // What the read-back of an unanswered update and the retry of the
+        // org's refusals did, just before, is the slice's the run stopped in.
+        const current = entry.slices.find((s) => s.state === 'masking') ?? entry.slices.at(-1);
+        if (current) {
+          current.masked += tally.masked;
+          current.nothingToMask += tally.nothingToMask;
+          current.deletedSince += tally.deletedSince ?? 0;
+          // The rows of its unanswered update found to hold their values once
+          // read back, and refused again, go to its side file.
+          await addRefused(current, progress.refused);
+          progress.refused = [];
+          const unanswered = progress.unconfirmed?.length ?? 0;
+          if (unanswered > 0) current.unanswered = unanswered;
+          else delete current.unanswered;
+        }
+
+        // The rows the org refused in the slices before, and before the
+        // position in the slice the run stopped in: they hold their values,
+        // and lie behind every row still to come.
+        for (const slice of entry.slices) {
+          if (slice.refused === 0) continue;
+          const ids = await refusedOf(slice);
+          let left = [...ids];
+          const again: string[] = [];
+          for (let i = 0; i < ids.length; i += MASKING_BATCH_SIZE) {
+            if (stop.signal.aborted) {
+              cancelled = true;
+              return 'stopped';
+            }
+            if (usageAtStop()) return 'stopped';
+            const part = ids.slice(i, i + MASKING_BATCH_SIZE);
+            const rows = await queryAll<Record<string, unknown>>(
+              conn,
+              `SELECT ${fields} FROM ${safeObj} WHERE Id IN (${part.map((id) => `'${id}'`).join(', ')})`,
+            );
+            noteApiUsage(`dataops:anonymize query ${safeObj}`);
+            // A row deleted since holds nothing left to mask.
+            const gone = part.length - rows.length;
+            slice.deletedSince += gone;
+            tally.deletedSince = (tally.deletedSince ?? 0) + gone;
+            const before = countsNow();
+            const refusedNow: string[] = [];
+            let stopped = false;
+            try {
+              stopped = await writeBack(
+                rows,
+                (_batch, refused) => refusedNow.push(...refused),
+                (_batch, sent) => {
+                  progress.unconfirmed = [...(progress.unconfirmed ?? []), ...sent];
+                },
+              );
+            } finally {
+              addTo(slice, before);
+              left = left.slice(part.length);
+              again.push(...refusedNow);
+              await keepRefused(slice, [...again, ...(stopped ? part : []), ...left]);
+              keepSlicePosition();
+            }
+            if (stopped) return 'stopped';
+          }
+        }
+
+        /** The ids held in a range by its slice and the slices of its late rows: not masked twice. */
+        const heldIn = async (behind: BackupSlice): Promise<Set<string>> => {
+          const held = new Set<string>();
+          for (const slice of entry.slices) {
+            if (slice !== behind && slice.lateOf !== behind.index) continue;
+            if (slice.state === 'pending') continue;
+            for await (const batch of await this.backupBatches(slice.snapshotId, safeObj)) {
+              for (const row of batch) if (typeof row.Id === 'string') held.add(row.Id);
+            }
+          }
+          return held;
+        };
+
+        /** Mask a slice from its snapshot's file, past the row the run stopped at in it. */
+        const maskFromSnapshot = async (slice: BackupSlice): Promise<boolean> => {
+          const position = progress.slice?.index === slice.index ? progress.afterId : undefined;
+          let passed = position === undefined;
+          for await (const batch of await this.backupBatches(slice.snapshotId, safeObj)) {
+            let rows = batch;
+            // Passed by equality, not compared: the file's order is the
+            // statement's, and the run never orders ids itself.
+            if (!passed) {
+              const at = rows.findIndex((row) => row.Id === position);
+              if (at < 0) continue;
+              passed = true;
+              rows = rows.slice(at + 1);
+            }
+            if (rows.length === 0) continue;
+            if (stop.signal.aborted) {
+              cancelled = true;
+              return true;
+            }
+            if (usageAtStop()) return true;
+            const before = countsNow();
+            const refusedNow: string[] = [];
+            const passBatch = (sent: ReadonlyArray<Record<string, unknown>>): void => {
+              const lastId = sent[sent.length - 1]?.Id;
+              if (typeof lastId === 'string' && RECORD_ID.test(lastId)) progress.afterId = lastId;
+            };
+            let stopped = true;
+            try {
+              stopped = await writeBack(
+                rows,
+                (sent, refused) => {
+                  refusedNow.push(...refused);
+                  passBatch(sent);
+                },
+                (sent, unsure) => {
+                  progress.unconfirmed = [...(progress.unconfirmed ?? []), ...unsure];
+                  passBatch(sent);
+                },
+              );
+              // Every row of the batch is done with, those with nothing to mask included.
+              if (!stopped) passBatch(rows);
+            } finally {
+              addTo(slice, before);
+              await addRefused(slice, refusedNow);
+            }
+            if (stopped) return true;
+          }
+          if (!passed) {
+            throw new Error(
+              `The snapshot of slice ${slice.index} of ${safeObj} no longer holds the row the run ` +
+                'stopped at: it is not the file the slice was masked from, and nothing more of it ' +
+                'was masked.',
+            );
+          }
+          return false;
+        };
+
+        for (;;) {
+          if (stop.signal.aborted) {
+            cancelled = true;
+            return 'stopped';
+          }
+          if (usageAtStop()) return 'stopped';
+          let slice = entry.slices.find((s) => !sliceDone(s));
+          if (!slice) {
+            const behind = entry.slices.find((s) => !s.late && (s.lateLeft ?? 0) > 0);
+            if (!behind && entry.done) break;
+            // Before a slice is begun: whether the run's bound and the org's
+            // day leave room for it.
+            const regular = entry.slices.filter((s) => !s.late);
+            const sizeNow = regular.at(-1)?.sizeUsed ?? set.size;
+            const ahead = Math.max(1, Math.min(sizeNow, tally.total - doneWith(tally)));
+            const estimate = sliceRequests(ahead, pageSize, {
+              masking: true,
+              duplicateRule: watch.covers(safeObj),
+            });
+            const budget = this.sliceBudgetStop(
+              conn,
+              payload.maxRequests,
+              requestsSent,
+              estimate,
+              replies.voice,
+            );
+            if (budget) {
+              sliceStop = { budget: true, message: budget };
+              return 'stopped';
+            }
+            if (!behind && regular.length >= MAX_SLICES_PER_SET) {
+              sliceStop = {
+                code: SLICE_REFUSAL.tooMany,
+                message:
+                  `${safeObj} holds more rows than ${MAX_SLICES_PER_SET} slices of ${sizeNow} ` +
+                  'do, as it grew during the run: the run stopped between two slices.',
+              };
+              return 'stopped';
+            }
+            const index = nextSliceIndex(set);
+            slice = {
+              index,
+              ...(behind
+                ? {
+                    late: true as const,
+                    lateOf: behind.index,
+                    ...((behind.lateAfterId ?? behind.afterId) !== undefined
+                      ? { afterId: behind.lateAfterId ?? behind.afterId }
+                      : {}),
+                  }
+                : sliceCursorOf(entry) !== undefined
+                  ? { afterId: sliceCursorOf(entry) }
+                  : {}),
+              rows: 0,
+              snapshotId: sliceSnapshotId(set.setId, index),
+              state: 'pending',
+              masked: 0,
+              refused: 0,
+              deletedSince: 0,
+              nothingToMask: 0,
+              sizeUsed: sizeNow,
+            };
+            entry.slices.push(slice);
+            keepSlicePosition();
+          }
+          if (slice.state === 'pending') {
+            const behind =
+              slice.late === true ? entry.slices.find((s) => s.index === slice?.lateOf) : undefined;
+            const free = await this.freeBytes();
+            const needed = diskNeeded(slice.sizeUsed * (48 + 64 * fieldCount));
+            if (free !== undefined && needed > free) {
+              entry.slices = entry.slices.filter((s) => s !== slice);
+              keepSlicePosition();
+              sliceStop = {
+                code: SLICE_REFUSAL.diskShort,
+                message: this.diskShortMessage(needed, free),
+              };
+              return 'stopped';
+            }
+            const bounds: SliceBounds = behind
+              ? {
+                  ...(slice.afterId !== undefined ? { afterId: slice.afterId } : {}),
+                  ...(behind.lastId !== undefined ? { untilId: behind.lastId } : {}),
+                  createdSince: behind.readSince ?? set.serverStartedAt ?? set.startedAt,
+                }
+              : slice.afterId !== undefined
+                ? { afterId: slice.afterId }
+                : {};
+            const held = behind ? await heldIn(behind) : undefined;
+            // Said as it goes: the slice is backed up before it is masked.
+            const about = slicesFor(Math.max(tally.total, doneWith(tally)), slice.sizeUsed);
+            sliceStep = `slice ${slice.index} of about ${Math.max(about, slice.index)}`;
+            const handledNow = tallies.reduce((sum, t) => sum + doneWith(t), 0);
+            const backingUp = `Backing up ${safeObj} ${sliceStep}`;
+            sendOperationProgress(
+              this.deps,
+              operationId,
+              Math.round((handledNow / Math.max(grandTotal, handledNow, 1)) * 100),
+              handledNow,
+              Math.max(grandTotal, handledNow),
+              backingUp,
+            );
+            const taken = await this.snapshotSlice(conn, payload.orgId, set, entry, slice, {
+              select: fields,
+              bounds,
+              ...(held ? { skip: (row: BackupRecord) => held.has(String(row.Id)) } : {}),
+              stop: stop.signal,
+              onRequest: () => {
+                requestsSent++;
+              },
+              origin: replies.origin,
+            });
+            if ('failed' in taken) {
+              // Not taken: the slice is begun again by the next run.
+              entry.slices = entry.slices.filter((s) => s !== slice);
+              keepSlicePosition();
+              if (taken.cancelled) {
+                cancelled = true;
+                return 'stopped';
+              }
+              sliceStop = { code: taken.code, message: this.sliceNotTakenMessage(safeObj, taken) };
+              return 'stopped';
+            }
+            if (taken.lastId === undefined) {
+              // Nothing past the last slice: the object is in slices whole,
+              // or the late rows of a range were all taken.
+              await this.removeBackup(`backup:${slice.snapshotId}`);
+              entry.slices = entry.slices.filter((s) => s !== slice);
+              if (behind) {
+                delete behind.lateLeft;
+                delete behind.lateAfterId;
+                if (taken.readSince) behind.readSince = taken.readSince;
+              } else {
+                entry.done = true;
+              }
+              keepSlicePosition();
+              continue;
+            }
+            slice.rows = taken.rows;
+            slice.lastId = taken.lastId;
+            slice.sizeUsed = taken.sizeUsed;
+            slice.takenAt = new Date().toISOString();
+            if (taken.readSince) slice.readSince = taken.readSince;
+            if (behind) {
+              // A slice of late rows that came back full may leave more of them.
+              if (taken.read < taken.sizeUsed) {
+                delete behind.lateLeft;
+                delete behind.lateAfterId;
+                if (taken.readSince) behind.readSince = taken.readSince;
+              } else {
+                behind.lateAfterId = taken.lastId;
+              }
+            }
+            slice.state = 'masking';
+            progress.slice = { setId: set.setId, index: slice.index };
+            delete progress.afterId;
+            keepSlicePosition();
+          }
+          sliceStep ??= `slice ${slice.index}`;
+          if (await maskFromSnapshot(slice)) return 'stopped';
+          slicesMaskedNow.push(slice.index);
+          sliceStep = undefined;
+          // The slice is masked: what its duplicate rules wrote is read, and
+          // the people drawn for its records forgotten.
+          slice.state = 'masked';
+          delete slice.unanswered;
+          slicesDuplicates = addDuplicates(slicesDuplicates, await watch.read());
+          watch = watchOf();
+          duplicatesWatch = watch;
+          engine.forgetRecords();
+          delete progress.slice;
+          delete progress.afterId;
+          keepSlicePosition();
+        }
+        tally.done = true;
+        progress.done = true;
+        return 'done';
       };
 
       for (const {
@@ -4937,8 +6951,8 @@ export class DataOpsHandler implements DomainHandler {
         const { select: fields, rulesOf } = await this.maskedFields(
           described,
           safeObj,
-          this.maskingRules(objectName, objectRules),
-          this.maskingRules(objectName, personRules),
+          this.maskingRules(objectName, objectRules, runKey),
+          this.maskingRules(objectName, personRules, runKey),
         );
         failure.batchSize = MASKING_BATCH_SIZE;
 
@@ -4992,7 +7006,7 @@ export class DataOpsHandler implements DomainHandler {
           type JsforceResult = {
             success: boolean;
             id?: string;
-            errors?: Array<{ message: string }>;
+            errors?: Array<{ message: string; statusCode?: string; errorCode?: string }>;
           };
           for (let bi = 0; bi < payloads.length; bi += MASKING_BATCH_SIZE) {
             // A cancel stops the run before each batch, with what the batches
@@ -5051,6 +7065,12 @@ export class DataOpsHandler implements DomainHandler {
             answers.forEach((r, i) => {
               if (r.success) {
                 tally.masked++;
+                return;
+              }
+              // A row of a slice's snapshot the org deleted since holds nothing
+              // to mask: it is neither refused nor left.
+              if (sliceSet && deletedSinceSnapshot(r.errors)) {
+                tally.deletedSince = (tally.deletedSince ?? 0) + 1;
                 return;
               }
               tally.refused++;
@@ -5136,6 +7156,18 @@ export class DataOpsHandler implements DomainHandler {
           progress.refused = [...progress.refused.filter((id) => !tried.has(id)), ...refusedAgain];
         }
         if (cancelled || usageAtStop()) break;
+        if (sliceSet) {
+          const ended = await maskSlicesOf({
+            objectName,
+            safeObj,
+            fields,
+            tally,
+            progress,
+            writeBack,
+          });
+          if (ended !== 'done') break;
+          continue;
+        }
         if (progress.done) {
           tally.done = true;
           continue;
@@ -5203,6 +7235,50 @@ export class DataOpsHandler implements DomainHandler {
         if (cancelled || usageAtStop()) break;
       }
 
+      // A run in slices that read every object to its end counts what was
+      // created meanwhile in a range a slice masked, or past its last slice:
+      // no snapshot holds those rows, so they are left, and said.
+      if (sliceSet) {
+        if (!cancelled && !usageAtStop() && !sliceStop) {
+          lateUnread = await this.countLateRows(conn, sliceSet, () => {
+            requestsSent++;
+          });
+        }
+        for (const t of tallies) {
+          const entry = sliceSet.objects.find((o) => o.objectApiName === t.objectApiName);
+          const late = t.done && entry ? lateRowsOf({ objects: [entry] }) : 0;
+          if (late > 0) t.late = late;
+        }
+        if (
+          maskingTotals(tallies).recordsNotMasked === 0 &&
+          sliceSet.objects.every(
+            (o) =>
+              o.done &&
+              (o.tailLeft ?? 0) === 0 &&
+              o.slices.every((s) => sliceDone(s) && s.refused === 0 && (s.lateLeft ?? 0) === 0),
+          )
+        ) {
+          sliceSet.state = 'done';
+        }
+        if (slicesOf(sliceSet).length === 0 && sliceSet.state === 'open') {
+          // No slice was taken: nothing to resume that a new run, with a
+          // smaller size, would not do better. The set goes.
+          sliceSet.state = 'abandoned';
+          this.sliceSets.delete(sliceSet.setId);
+        } else {
+          keepSlicePosition();
+        }
+        if (sliceSet.state !== 'open') {
+          const setId = sliceSet.setId;
+          await this.runKeys?.delete(setId).catch((err: unknown) => {
+            this.deps.log(
+              `[WARN] dataops:anonymize ${operationId}: the key of set ${setId} was not ` +
+                `removed: ${extractErrorMessage(err)}`,
+            );
+          });
+        }
+      }
+
       const limitHit = usageAtStop();
       const status = maskingStatus(tallies, cancelled);
       const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
@@ -5212,6 +7288,15 @@ export class DataOpsHandler implements DomainHandler {
         ...run,
         ...maskingAuditOutcome(tallies, status, cancelled),
         objects: maskingAuditCounts(tallies),
+        ...(sliceSet
+          ? {
+              details: {
+                setId: sliceSet.setId,
+                sliceSize: sliceSet.size,
+                ...(slicesMaskedNow.length > 0 ? { slices: slicesMaskedNow.join(',') } : {}),
+              },
+            }
+          : {}),
       });
       const resumable = settleCheckpoint();
       if (recordsNotMasked > 0) {
@@ -5270,7 +7355,13 @@ export class DataOpsHandler implements DomainHandler {
       const resumeHint =
         resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
       const duplicatesSaid = maskingDuplicatesSentence(duplicates, this.orgNameOf(payload.orgId));
-      const message = ranMessage + resumeHint + (duplicatesSaid ? ` ${duplicatesSaid}` : '');
+      const slicesSaid = sliceSet
+        ? this.slicesSentence(sliceSet, sliceStop, replies.voice, recordsNotMasked > 0, lateUnread)
+        : '';
+      const message =
+        ranMessage +
+        (slicesSaid ? ` ${slicesSaid}` : resumeHint) +
+        (duplicatesSaid ? ` ${duplicatesSaid}` : '');
       replies.ended({
         templateId: payload.templateId,
         status,
@@ -5285,6 +7376,14 @@ export class DataOpsHandler implements DomainHandler {
         ...(snapshot ? { snapshot } : {}),
         ...(held ? { mutedAutomation: held.outcome } : {}),
         ...(duplicates ? { duplicates } : {}),
+        ...(sliceSet
+          ? {
+              slices: sliceSetResultOf(sliceSet, {
+                requestsSpent: requestsSent,
+                stoppedOnBudget: sliceStop?.budget === true,
+              }),
+            }
+          : {}),
       });
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
@@ -5309,7 +7408,21 @@ export class DataOpsHandler implements DomainHandler {
         });
       }
       // And where it got is kept for a resume, as for a run that ended on its own.
-      if (begun && !checkpointSettled) settleCheckpoint();
+      if (begun && !checkpointSettled) {
+        try {
+          keepSlicePosition();
+        } catch (err: unknown) {
+          this.deps.log(
+            `[WARN] dataops:anonymize ${operationId}: its set of slices was not kept: ` +
+              extractErrorMessage(err),
+          );
+        }
+        settleCheckpoint();
+      }
+      if (holdsLock) {
+        this.activeOrgOperations.delete(`backup:${payload.orgId}`);
+        this.sliceRunsOn.delete(payload.orgId);
+      }
       settleRun(runError);
       pending?.release();
       signal?.removeEventListener('abort', onStepAbort);
@@ -5442,40 +7555,111 @@ export class DataOpsHandler implements DomainHandler {
       );
       const objects: AnonymizeCoverageObject[] = [];
       const planned = await this.plannedObjectsIn(conn, parsed, template);
+      /** What a plan in slices reads of each object: its rows, counted or the org's figure, and its fields. */
+      const toPlan: Array<{ objectName: string; rows?: number; approximate?: true }> = [];
       for (const objectName of planned) {
         if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
+        const where = whereOfObject(parsed, template, objectName);
         let count: number | null = null;
+        let figure: number | undefined;
         try {
-          count = await this.countRows(
-            conn,
-            objectApiName,
-            undefined,
-            whereOfObject(parsed, template, objectName),
-          );
+          count = await this.countRows(conn, objectApiName, undefined, where);
         } catch (err: unknown) {
           this.deps.log(
             `[WARN] dataops:anonymize:coverage: ${objectApiName} not counted: ${extractErrorMessage(err)}`,
           );
+          figure = await this.approximateCount(conn, objectApiName, err);
         }
+        toPlan.push({
+          objectName,
+          ...(count !== null ? { rows: count } : figure !== undefined ? { rows: figure } : {}),
+          ...(count === null && figure !== undefined ? { approximate: true as const } : {}),
+        });
         const held = backup?.objects.find(
           (o) => o.objectApiName.toLowerCase() === objectApiName.toLowerCase(),
         );
+        // A backup held to a filter holds the rows under it, not the object:
+        // it covers a run held to that filter, and no other.
+        const filtered = held?.where !== undefined && held.where !== where;
         objects.push({
           objectApiName,
           count,
-          backedUp: held?.recordCount ?? 0,
-          truncated: held?.truncated === true,
-          ...(held?.stoppedAt ? { stoppedAt: held.stoppedAt } : {}),
+          backedUp: filtered ? 0 : (held?.recordCount ?? 0),
+          truncated: !filtered && held?.truncated === true,
+          ...(held?.stoppedAt && !filtered ? { stoppedAt: held.stoppedAt } : {}),
+          ...(filtered ? { filtered: true as const } : {}),
         });
       }
+      // The set of slices of this template left open on the org: a run is
+      // refused while it is, and resumed or given up.
+      const openSet = this.sliceSets.openFor(parsed.orgId, parsed.templateId);
+      const size = openSet?.size ?? this.backupCap();
+      // Planned in slices when asked, or when an object holds more rows than
+      // a snapshot does: what the run would cost, the org's day among it.
+      let plan: SlicePlan | undefined;
+      if (
+        parsed.slices === true ||
+        openSet !== undefined ||
+        toPlan.some((o) => (o.rows ?? 0) > this.backupCap())
+      ) {
+        const described = describedOnce(conn);
+        const inputs = [];
+        for (const o of toPlan) {
+          if (o.rows === undefined) continue;
+          const objectRules = rulesOfObject(template, o.objectName);
+          const personRules = personRulesOfObject(template, o.objectName);
+          // The fields its snapshots keep weigh only on the disk: a describe
+          // the org refuses leaves the template's own count of them.
+          const fields = await this.maskedFields(
+            described,
+            sanitizeSoqlObjectName(o.objectName),
+            this.maskingRules(o.objectName, objectRules),
+            this.maskingRules(o.objectName, personRules),
+          ).then(
+            ({ select }) => select.split(',').length,
+            () => objectRules.length + personRules.length + 1,
+          );
+          inputs.push({
+            objectApiName: sanitizeSoqlObjectName(o.objectName),
+            rows: o.rows,
+            fields,
+            ...(o.approximate ? { approximate: true } : {}),
+          });
+        }
+        const cost = planSlices(inputs, size, this.pageSizeFor(parsed.orgId), 'masking');
+        for (const object of objects) {
+          const slicePlan = cost.objects.find((o) => o.objectApiName === object.objectApiName);
+          if (slicePlan) object.slicePlan = slicePlan;
+        }
+        const diskFree = await this.freeBytes();
+        plan = {
+          requests: cost.requests,
+          parts: cost.parts,
+          bulkBatches: 0,
+          diskBytes: cost.diskBytes,
+          ...(diskFree !== undefined ? { diskFree } : {}),
+          seconds: cost.seconds,
+          apiBudget: await this.apiBudgetFor(conn, cost.requests),
+        };
+      }
       // The last run of this template on this org, when it stopped short and
-      // its rules are still the template's: the page offers to resume it.
-      const checkpoint = new MaskingCheckpointStore(this.deps.configStore).load(
-        parsed.orgId,
-        parsed.templateId,
-        maskingFingerprint(template.rules, planned, filterOf(parsed)),
-      );
+      // its rules are still the template's: the page offers to resume it. A
+      // run in slices is found by its set's size.
+      const checkpoints = new MaskingCheckpointStore(this.deps.configStore);
+      const checkpoint =
+        (openSet
+          ? checkpoints.load(
+              parsed.orgId,
+              parsed.templateId,
+              maskingFingerprint(template.rules, planned, filterOf(parsed), openSet.size),
+            )
+          : undefined) ??
+        checkpoints.load(
+          parsed.orgId,
+          parsed.templateId,
+          maskingFingerprint(template.rules, planned, filterOf(parsed)),
+        );
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:coverage:response', {
         templateId: parsed.templateId,
         ...(backup
@@ -5483,6 +7667,8 @@ export class DataOpsHandler implements DomainHandler {
           : {}),
         objects,
         ...(checkpoint ? { checkpoint: { id: checkpoint.id, savedAt: checkpoint.savedAt } } : {}),
+        ...(plan ? { plan } : {}),
+        ...(openSet ? { sliceSet: sliceSetOpenOf(openSet) } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);
@@ -5637,8 +7823,11 @@ export class DataOpsHandler implements DomainHandler {
         orgId?: string;
         timestamp?: string;
         objects?: KeptBackup['objects'];
+        origin?: BackupMeta['origin'];
       }>(key);
       if (meta?.orgId !== orgId) continue;
+      // A slice holds part of its set: the coverage names the set apart.
+      if (meta.origin === 'slice') continue;
       const timestamp = meta.timestamp ?? '';
       if (latest && latest.timestamp.localeCompare(timestamp) >= 0) continue;
       latest = { operationId, timestamp, objects: meta.objects ?? [] };

@@ -235,3 +235,57 @@ describe('MaskingCheckpointStore', () => {
     expect(checkpoints.load('org-1', 'tpl-1', checkpoint().fingerprint)).toBeUndefined();
   });
 });
+
+describe('MaskingCheckpointStore — a run in slices', () => {
+  it('keeps the fingerprint of a run without slices as it was, and tells a run in slices apart by their size', () => {
+    const plain = maskingFingerprint(RULES, ['Contact'], "LastName LIKE 'S%'");
+    // As written before slices were: the rules, the objects, the filter.
+    expect(plain).toBe(
+      createHash('sha256')
+        .update(
+          JSON.stringify({
+            rules: RULES.map((r) => [r.fieldPattern, r.ruleType, r.config ?? null]),
+            objects: ['Contact'],
+            where: "LastName LIKE 'S%'",
+          }),
+        )
+        .digest('hex'),
+    );
+    expect(maskingFingerprint(RULES, ['Contact'], "LastName LIKE 'S%'", 1000)).not.toBe(plain);
+    expect(maskingFingerprint(RULES, ['Contact'], undefined, 1000)).not.toBe(
+      maskingFingerprint(RULES, ['Contact'], undefined, 500),
+    );
+  });
+
+  it('keeps the set of a run in slices and the slice an object was masking, and reads them back', () => {
+    const config = new ConfigStore(new InMemoryConfigStoreBackend());
+    config.initialize();
+    const checkpoints = new MaskingCheckpointStore(config);
+    const fingerprint = maskingFingerprint(RULES, ['Contact'], undefined, 1000);
+    const kept: MaskingCheckpoint = {
+      id: 'run-2',
+      orgId: 'org-1',
+      templateId: 'tpl-1',
+      fingerprint,
+      savedAt: '2026-11-14T10:00:00.000Z',
+      setId: 'run-1',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          done: false,
+          afterId: '003000000000300AAA',
+          refused: [],
+          slice: { setId: 'run-1', index: 2 },
+        },
+      ],
+    };
+
+    checkpoints.save(kept);
+
+    expect(checkpoints.load('org-1', 'tpl-1', fingerprint)).toEqual(kept);
+    // A run without slices finds none of it.
+    expect(
+      checkpoints.load('org-1', 'tpl-1', maskingFingerprint(RULES, ['Contact'])),
+    ).toBeUndefined();
+  });
+});

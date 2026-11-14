@@ -7,12 +7,17 @@ import type {
   DataQualityScanResult,
   DataQualityScanTarget,
   PiiInventoryResult,
+  BackupSetSummary,
   RemovalOutcome,
   RemovalPlanObject,
   SubjectEraseMode,
   SubjectIdentifiers,
   SubjectRequestLogEntry,
   SubjectSearchResult,
+  SliceSetOpen,
+  SliceSetResult,
+  SlicePlan,
+  SlicePlanObject,
 } from '../dataops.types.js';
 import type {
   SavedTemplateMethod,
@@ -73,7 +78,15 @@ export interface BackupObjectsResponse extends BaseMessage {
  */
 export interface BackupListResult extends BaseMessage {
   type: 'backup:list:result';
-  payload: { backups: BackupSummary[] };
+  payload: {
+    backups: BackupSummary[];
+    /**
+     * The sets of slices of the org, one entry each whatever its slices: a
+     * slice is restored and deleted with its set, and is not listed in
+     * `backups`. Absent when there are none.
+     */
+    sets?: BackupSetSummary[];
+  };
 }
 
 /**
@@ -110,6 +123,12 @@ export interface BackupObjectHeld {
    * a restore wrote it back over the real one. Absent when none.
    */
   notKept?: string[];
+  /**
+   * The filter the backup held the object's rows to: it holds the rows under
+   * it, not the object, and a masking's coverage does not count it as
+   * holding the object. Absent for a backup of every row.
+   */
+  where?: string;
 }
 
 /** One entry of the backup history, as persisted by dataops:backup. */
@@ -261,6 +280,13 @@ export interface DataOpsAnonymizeCoverageRequest extends BaseMessage {
     objects?: string[];
     /** The filter a run would be given ({@link DataOpsAnonymizeRequest}): rows are counted under it. */
     where?: string;
+    /**
+     * Plan the run in slices ({@link DataOpsAnonymizeRequest.slices}): what
+     * it would cost is read and said, the org's requests left today among
+     * it. Absent, it is planned only when an object holds more rows than a
+     * snapshot does.
+     */
+    slices?: boolean;
   };
 }
 
@@ -275,6 +301,13 @@ export interface AnonymizeCoverageObject {
   truncated: boolean;
   /** Why the backup holds fewer rows than the object had, when it says: see {@link BackupObjectHeld}. */
   stoppedAt?: BackupStopReason;
+  /**
+   * Set when the latest backup held the object to a filter: it holds the rows
+   * under it, not the object, and `backedUp` counts none of them.
+   */
+  filtered?: true;
+  /** How a run in slices cuts it; present when it was planned in slices. */
+  slicePlan?: SlicePlanObject;
 }
 
 /** What a restore of the latest backup can bring back of what a template masks. */
@@ -291,6 +324,13 @@ export interface DataOpsAnonymizeCoverageResponse extends BaseMessage {
      * when it stopped.
      */
     checkpoint?: { id: string; savedAt: string };
+    /** What the run in slices would cost; present when it was planned in slices. */
+    plan?: SlicePlan;
+    /**
+     * The set of slices of this template left open on the org: a new run is
+     * refused while it is, and the run resumed or the set given up.
+     */
+    sliceSet?: SliceSetOpen;
   };
 }
 
@@ -519,6 +559,12 @@ export interface DataOpsRollbackRequest extends BaseMessage {
      * Sync leaves them.
      */
     includeChanged?: boolean;
+    /**
+     * Of a set of slices `operationId` names, the slices to restore, by
+     * index. Absent, every slice not restored yet, or every slice with
+     * `rewriteAll`.
+     */
+    slices?: number[];
   } & DataOpsWriteAccord &
     DataOpsAskedFrom;
 }
@@ -550,6 +596,20 @@ export interface DataOpsAnonymizeRequest extends BaseMessage {
      * already wrote over some of those rows.
      */
     snapshot?: boolean;
+    /**
+     * Mask in slices of as many rows as a snapshot holds, each backed up just
+     * before it is masked: an object past what one snapshot holds is masked
+     * with a way back. A resume of a set carries on its slices.
+     */
+    slices?: boolean;
+    /** The most requests the run sends: it stops between two slices before it would send more. */
+    maxRequests?: number;
+    /**
+     * Give up the set of slices of this template left open on the org: nothing
+     * more is masked, and its slices stay, as a restore reads them, until they
+     * expire.
+     */
+    abandon?: boolean;
   } & DataOpsWriteAccord &
     DataOpsAskedFrom;
 }
@@ -565,6 +625,8 @@ export interface DataOpsBackupResponse extends BaseMessage {
     /** Some object holds more rows than the backup read: see {@link BackupSummary.partial}. */
     partial?: boolean;
     timestamp: string;
+    /** The set the backup took in slices, when it was asked to. */
+    slices?: SliceSetResult;
   };
 }
 
@@ -612,6 +674,19 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     cancelled?: boolean;
     /** What the duplicate rules wrote during it; absent when it put back no record of an object that has one. */
     duplicates?: MaskingDuplicatesWritten;
+    /**
+     * Of a set of slices, each slice the restore reached: what it wrote
+     * back, what the org refused and what it held already; `skipped` for
+     * one restored before, which it did not read again.
+     */
+    slices?: Array<{
+      index: number;
+      objectApiName: string;
+      restored: number;
+      failed: number;
+      unchanged: number;
+      skipped?: true;
+    }>;
   };
 }
 
@@ -687,6 +762,10 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     mutedAutomation?: MutedAutomation;
     /** What the duplicate rules wrote during it; absent when no object it masked has one. */
     duplicates?: MaskingDuplicatesWritten;
+    /** Of a run in slices, its set: each slice, the rows created late, the requests sent. */
+    slices?: SliceSetResult;
+    /** Present when the request gave up the set of slices it names, and masked nothing. */
+    abandoned?: true;
   };
 }
 

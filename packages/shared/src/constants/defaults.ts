@@ -234,6 +234,14 @@ export const SEED_MAX_RECORDS_PER_OBJECT = 1_000_000;
 export const BACKUP_MAX_RECORDS_PER_OBJECT = 1_000_000;
 
 /**
+ * Slices a masking run, or a backup, cuts one object into at most, each of
+ * as many rows as a snapshot holds: 2,000 slices of the most a snapshot holds
+ * are two billion rows. Past it, the run is refused before it writes, and the
+ * refusal names the rows per slice to give.
+ */
+export const MAX_SLICES_PER_SET = 2_000;
+
+/**
  * Days a checkpoint a run takes before its first write (`Checkpoint first`)
  * is kept, `sandforge.checkpoint.beforeRunKeepDays`: one a run, which holds
  * the values of the target's records in clear on this machine — of a client's

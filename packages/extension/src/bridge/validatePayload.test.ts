@@ -464,6 +464,44 @@ describe('dataops payload schemas', () => {
       }).success,
     ).toBe(true);
   });
+
+  it('dataOpsAnonymizePayloadSchema takes slices, a bound of requests with them, a resume of a set in slices, and a give-up alone', () => {
+    const asked = (more: Record<string, unknown>) =>
+      dataOpsAnonymizePayloadSchema.safeParse({ orgId: 'o', templateId: 't', ...more }).success;
+    expect(asked({ snapshot: true, slices: true, maxRequests: 200_000 })).toBe(true);
+    expect(asked({ resumeFrom: 'run-1', slices: true, maxRequests: 40 })).toBe(true);
+    // A resume of a set takes each slice's snapshot before that slice is masked.
+    expect(asked({ resumeFrom: 'run-1', slices: true, snapshot: true })).toBe(true);
+    expect(asked({ resumeFrom: 'run-1', snapshot: true })).toBe(false);
+    // A slice is a snapshot.
+    expect(asked({ slices: true, snapshot: false })).toBe(false);
+    expect(asked({ maxRequests: 40 })).toBe(false);
+    expect(asked({ slices: true, maxRequests: 0 })).toBe(false);
+    expect(asked({ abandon: true })).toBe(true);
+    expect(asked({ abandon: true, resumeFrom: 'run-1' })).toBe(false);
+    expect(asked({ abandon: true, snapshot: true })).toBe(false);
+  });
+
+  it('dataOpsBackupPayloadSchema takes a filter per object it reads, and slices', () => {
+    const asked = (more: Record<string, unknown>) =>
+      dataOpsBackupPayloadSchema.safeParse({ orgId: 'o', objects: ['Contact', 'Lead'], ...more })
+        .success;
+    expect(
+      asked({ wheres: { Contact: 'CreatedDate >= 2025-01-01T08:00:00Z' }, slices: true }),
+    ).toBe(true);
+    expect(asked({ wheres: { contact: "LastName LIKE 'S%'" } })).toBe(true);
+    expect(asked({ wheres: { Account: "Name = 'x'" } })).toBe(false);
+    expect(asked({ wheres: { Contact: 'Name = null LIMIT 1' } })).toBe(false);
+  });
+
+  it('dataOpsRollbackPayloadSchema takes the slices of a set to restore, by number', () => {
+    const asked = (slices: unknown) =>
+      dataOpsRollbackPayloadSchema.safeParse({ orgId: 'o', operationId: 'run-1', slices }).success;
+    expect(asked([1, 3])).toBe(true);
+    expect(asked([])).toBe(false);
+    expect(asked([0])).toBe(false);
+    expect(asked(['1'])).toBe(false);
+  });
 });
 
 describe('anonymizationTemplateSavePayloadSchema', () => {

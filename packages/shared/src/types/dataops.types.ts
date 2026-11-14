@@ -522,3 +522,150 @@ export interface StorageRecommendation {
   estimatedSaving: number;
   reason: string;
 }
+
+// ─── Masking and backing up in slices ────────────────────────────────────────
+
+/**
+ * Where a set of slices stands: `open` while slices are left to take or to
+ * mask, a run stopped part way included; `done` once every row it was for is
+ * in a slice, masked or backed up; `abandoned` when the person gave it up,
+ * its slices kept until they expire.
+ */
+export type SliceSetState = 'open' | 'done' | 'abandoned';
+
+/**
+ * Where one slice stands: `pending` before its snapshot, `masking` once its
+ * snapshot holds it and its rows are written over, `masked` once each of its
+ * rows was, `snapshotted` for a slice of a backup, which masks nothing, and
+ * `restored` once a restore wrote its values back.
+ */
+export type SliceState = 'pending' | 'snapshotted' | 'masking' | 'masked' | 'restored';
+
+/**
+ * The codes a masking run, a backup or a restore in slices is refused or
+ * stopped with: a set of the template left open on the org, which a new run
+ * would write over; a slice deleted alone, whose set holds the way back;
+ * more slices than a set holds; the disk short of what the slices take; the
+ * run's key no longer the one its slices were masked with; an object the org
+ * would not read a slice of, even halved; nothing open to give up; and a
+ * host with no backup files, which slices are written to.
+ */
+export const SLICE_REFUSAL = {
+  runOpen: 'SLICE_RUN_OPEN',
+  deleteAlone: 'SLICE_DELETE_ALONE',
+  tooMany: 'SLICES_EXCEEDED',
+  diskShort: 'SLICE_DISK_SHORT',
+  keyLost: 'SLICE_KEY_LOST',
+  readTooHeavy: 'SLICE_READ_TOO_HEAVY',
+  nothingToAbandon: 'NOTHING_TO_ABANDON',
+  needsStore: 'SLICES_NEED_STORE',
+} as const;
+
+/** How a plan's requests sit against what the org has left today, as Forge's Review says it. */
+export type SliceBudgetVerdict = 'fits' | 'near' | 'exceeds' | 'unread';
+
+/** One object of a run in slices, as its plan cuts it. */
+export interface SlicePlanObject {
+  objectApiName: string;
+  /** Rows a slice holds at most: the rows a snapshot holds of one object. */
+  size: number;
+  /** Slices the object's rows make, from its count. */
+  slices: number;
+  /** Set when the count is the org's approximate one (`/limits/recordCount`): the org gave up counting. */
+  approximate?: true;
+}
+
+/**
+ * What a run in slices would cost, said before it is asked: the requests it
+ * sends against what the org has left today, the Bulk API batches it uses —
+ * none, it writes over REST —, the disk its snapshots take, and how long it
+ * takes.
+ */
+export interface SlicePlan {
+  /** Requests the run sends, about. */
+  requests: number;
+  /** What of them reads the snapshots, writes the rows over, and reads anything else. */
+  parts: { snapshots: number; updates: number; reads: number };
+  /** Bulk API batches: always none. */
+  bulkBatches: 0;
+  /** Bytes the snapshots take on this machine, about. */
+  diskBytes: number;
+  /** Bytes free where the snapshots go; absent when the disk did not say. */
+  diskFree?: number;
+  /** Seconds the run takes, about. */
+  seconds: number;
+  /** The requests against what the org has left today. */
+  apiBudget: {
+    verdict: SliceBudgetVerdict;
+    remaining?: number;
+    max?: number;
+    unread?: string;
+  };
+}
+
+/** A set of slices left open on an org, as a coverage names it: what a resume carries on. */
+export interface SliceSetOpen {
+  setId: string;
+  /** When it last moved. */
+  savedAt: string;
+  /** Slices masked of those it holds so far. */
+  done: number;
+  total: number;
+  state: SliceSetState;
+  /** Rows per slice. */
+  size: number;
+}
+
+/** One slice as a run's result, a listing and a restore say it. */
+export interface SliceSummary {
+  index: number;
+  objectApiName: string;
+  snapshotId: string;
+  /** Rows its snapshot holds. */
+  rows: number;
+  masked: number;
+  refused: number;
+  /** Rows of its snapshot deleted from the org since, which nothing masks or puts back. */
+  deletedSince: number;
+  nothingToMask: number;
+  state: SliceState;
+  /** Set on a slice of rows created during the run in a range already masked. */
+  late?: true;
+  /** Rows the slice was read with, when the org made it smaller than asked. */
+  sizeUsed?: number;
+  restoredAt?: string;
+}
+
+/** A set of slices of an org, as the backup listing gives it: one row whatever its slices. */
+export interface BackupSetSummary {
+  setId: string;
+  orgId: string;
+  kind: 'masking' | 'backup';
+  state: SliceSetState;
+  startedAt: string;
+  lastActivityAt: string;
+  /** Rows per slice. */
+  size: number;
+  totalRecords: number;
+  /** The template a masking set was masked with. */
+  templateId?: string;
+  slices: SliceSummary[];
+  /** Per object, the filter its rows were held to. */
+  wheres?: Record<string, string>;
+}
+
+/** What a masking run, or a backup, in slices says of its set once it ends. */
+export interface SliceSetResult {
+  setId: string;
+  size: number;
+  state: SliceSetState;
+  objects: Array<{ objectApiName: string; slices: SliceSummary[] }>;
+  /** Rows created during the run in a range already masked, which no slice holds yet. */
+  lateRecords: number;
+  /** Requests the run sent. */
+  requestsSpent: number;
+  /** Set when the run stopped between two slices on its `maxRequests`, or on the org's day. */
+  stoppedOnBudget?: true;
+  /** Whether rows are left that no slice holds yet: the run stopped before its last slice. */
+  slicesLeft: boolean;
+}

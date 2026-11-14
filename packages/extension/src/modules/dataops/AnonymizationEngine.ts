@@ -139,6 +139,23 @@ export class AnonymizationEngine {
   }
 
   /**
+   * Forget the people given to the records masked so far, every registry's,
+   * and keep the names given (`PersonaRegistry.forgetRecords`): a run in
+   * slices calls it as each slice ends, so it holds one slice's people.
+   */
+  forgetRecords(): void {
+    this.personaRegistry.forgetRecords();
+    for (const registry of this.saltedRegistries.values()) registry.forgetRecords();
+  }
+
+  /** The people held now, every registry's: one per record masked since they were last forgotten. */
+  peopleHeld(): number {
+    let held = this.personaRegistry.size;
+    for (const registry of this.saltedRegistries.values()) held += registry.size;
+    return held;
+  }
+
+  /**
    * Anonymize all records according to the provided rules.
    * Each rule targets a specific object/field combination.
    * @param records - The records to anonymize

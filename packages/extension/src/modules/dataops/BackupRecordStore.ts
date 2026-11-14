@@ -152,6 +152,11 @@ export class BackupRecordStore {
     this.dir = path.join(deps.storagePath, 'backups');
   }
 
+  /** The folder the backups' files go in: what a run in slices asks the disk's room of. */
+  get directory(): string {
+    return this.dir;
+  }
+
   /** Absolute path of one object's records within a backup, in one form or the other. */
   private filePath(
     operationId: string,

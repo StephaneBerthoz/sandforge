@@ -3,6 +3,7 @@ import {
   CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
   CSV_IMPORT_MAX_COLUMNS,
   CSV_IMPORT_MAX_ROWS,
+  MAX_SLICES_PER_SET,
   SEED_MAX_RECORDS_PER_OBJECT,
   SYNC_CONFLICT_STRATEGIES,
   isFileBodiedObject,
@@ -880,10 +881,26 @@ export const seedCsvPayloadSchema = z.object({
 
 // ── dataops:* / backup payload schemas ────────────────────────────────────
 
-export const dataOpsBackupPayloadSchema = z.object({
-  orgId: orgIdSchema,
-  objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
-});
+/**
+ * A backup: its objects, the rows of each its filter holds it to — every
+ * row of an object it names none for —, and whether it is taken in slices,
+ * each a snapshot of as many rows as one holds. A filter names an object the
+ * backup reads.
+ */
+export const dataOpsBackupPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    wheres: z.record(sfApiNameSchema, whereClauseSchema).optional(),
+    slices: z.boolean().optional(),
+  })
+  .refine(
+    (payload) =>
+      Object.keys(payload.wheres ?? {}).every((name) =>
+        payload.objects.some((o) => o.toLowerCase() === name.toLowerCase()),
+      ),
+    { message: 'A filter names an object the backup reads: give it in objects', path: ['wheres'] },
+  );
 export const dataOpsBackupListPayloadSchema = z.object({
   orgId: orgIdSchema,
 });
@@ -920,6 +937,12 @@ export const dataOpsRollbackPayloadSchema = z.object({
   rewriteAll: z.boolean().optional(),
   /** Of a Sync run's backup, restore the records changed or deleted since the run too. */
   includeChanged: z.boolean().optional(),
+  /** Of a set of slices, the slices to restore, by their number. */
+  slices: z
+    .array(z.number().int().positive())
+    .min(1)
+    .max(MAX_SLICES_PER_SET * MAX_OBJECTS_PER_REQUEST)
+    .optional(),
   ...dataOpsWriteAccordShape,
   ...dataOpsAskedFromShape,
 });
@@ -966,22 +989,56 @@ export const dataOpsAnonymizePayloadSchema = z
     // The checkpoint a resume names: matched against the one kept, never read as anything else.
     resumeFrom: opaqueIdSchema.optional(),
     snapshot: z.boolean().optional(),
+    // Mask in slices, each backed up just before it is masked.
+    slices: z.boolean().optional(),
+    // The most requests the run sends, counted call by call.
+    maxRequests: z.number().int().positive().max(1_000_000_000).optional(),
+    // Give up the set of slices of the template left open on the org.
+    abandon: z.boolean().optional(),
     ...dataOpsWriteAccordShape,
     ...dataOpsAskedFromShape,
   })
   .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT)
   // A resume carries on over rows the run it resumes already masked: a
   // snapshot of them now would keep their masked values, and a restore of it
-  // would put those back.
-  .refine((payload) => !(payload.snapshot === true && payload.resumeFrom !== undefined), {
-    message: 'A resume takes no snapshot: the run it resumes has written over some of its rows',
-    path: ['snapshot'],
-  });
+  // would put those back. A run in slices takes each slice's snapshot before
+  // that slice is masked, the slices a resume carries on among them.
+  .refine(
+    (payload) =>
+      !(payload.snapshot === true && payload.resumeFrom !== undefined && payload.slices !== true),
+    {
+      message: 'A resume takes no snapshot: the run it resumes has written over some of its rows',
+      path: ['snapshot'],
+    },
+  )
+  // A slice is a snapshot: a run in slices that keeps no values is one that asks two things.
+  .refine((payload) => !(payload.slices === true && payload.snapshot === false), {
+    message: 'A run in slices backs each slice up before it masks it: it cannot keep no snapshot',
+    path: ['slices'],
+  })
+  .refine((payload) => payload.maxRequests === undefined || payload.slices === true, {
+    message: 'A bound on requests stops a run in slices between two of them: give slices too',
+    path: ['maxRequests'],
+  })
+  // Giving a set up masks nothing: it goes alone.
+  .refine(
+    (payload) =>
+      payload.abandon !== true ||
+      (payload.resumeFrom === undefined &&
+        payload.snapshot !== true &&
+        payload.maxRequests === undefined),
+    {
+      message: 'Giving up a set of slices masks nothing: it takes no resume, snapshot or bound',
+      path: ['abandon'],
+    },
+  );
 export const dataOpsAnonymizeCoveragePayloadSchema = z
   .object({
     orgId: orgIdSchema,
     templateId: opaqueIdSchema,
     ...maskingScopeShape,
+    // Plan the run in slices, its cost read and said.
+    slices: z.boolean().optional(),
   })
   .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT);
 export const dataOpsAnonymizePreviewPayloadSchema = z

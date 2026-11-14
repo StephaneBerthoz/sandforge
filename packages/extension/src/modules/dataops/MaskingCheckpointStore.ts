@@ -54,6 +54,14 @@ const progressSchema = z.object({
    * way. Absent when there are none.
    */
   unconfirmed: z.array(unconfirmedSchema).max(MAX_CHECKPOINT_REFUSED).optional(),
+  /**
+   * Of a run in slices, the slice the run was masking: `afterId` is then the
+   * last row of its snapshot's file the run handled, and a resume reads the
+   * file on past it.
+   */
+  slice: z
+    .object({ setId: z.string().min(1).max(200), index: z.number().int().positive() })
+    .optional(),
 });
 
 /**
@@ -82,6 +90,8 @@ const checkpointSchema = z.object({
     .max(60_000)
     .regex(/^[A-Za-z0-9+/]*={0,2}$/)
     .optional(),
+  /** Of a run in slices, its set: a resume carries on its slices with the key they were masked with. */
+  setId: z.string().min(1).max(200).optional(),
 });
 
 /** How far a masking run got through one object, as a checkpoint keeps it. */
@@ -106,20 +116,30 @@ export type MaskingCheckpoint = z.infer<typeof checkpointSchema>;
  * it never masked. A run with no filter keeps the fingerprint it always had,
  * so a checkpoint kept before filters were is still found.
  *
+ * So are the slices a run masks in, by their size: a run in slices resumed
+ * as a run of the whole object would read the org's rows past the slice it
+ * stopped in, which no snapshot holds, and one of the whole object resumed
+ * in slices would read a snapshot file with no position in it.
+ *
  * @param where - The run's filter, as it was given; absent or blank for none.
+ * @param slices - Of a run in slices, the rows a slice holds.
  */
 export function maskingFingerprint(
   rules: readonly AnonymizationTemplateRule[],
   objects: readonly string[],
   where?: string,
+  slices?: number,
 ): string {
   const masked = rules.map((r) => [r.fieldPattern, r.ruleType, r.config ?? null]);
   const filter = where?.trim();
   return createHash('sha256')
     .update(
-      JSON.stringify(
-        filter ? { rules: masked, objects, where: filter } : { rules: masked, objects },
-      ),
+      JSON.stringify({
+        rules: masked,
+        objects,
+        ...(filter ? { where: filter } : {}),
+        ...(slices !== undefined ? { slices } : {}),
+      }),
     )
     .digest('hex');
 }

@@ -646,13 +646,17 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
       expect(rows).toEqual(before);
     });
 
-    it('writes nothing when the snapshot cannot hold every row it would mask', async () => {
+    it('writes nothing when the snapshot cannot hold every row it would mask, and names the slices a step does not mask in', async () => {
       cap = 100;
       const { update } = orgOf(contactsOf(150));
 
       await expect(mask()).rejects.toMatchObject({
         code: 'SNAPSHOT_NOT_TAKEN',
-        message: expect.stringContaining('Contact 100 of 150 (stopped at the cap)'),
+        message: expect.stringContaining(
+          'Contact holds 150 record(s), more than the 100 a snapshot holds of one object. ' +
+            "A pipeline's step masks no slices: mask Contact from the DataOps panel, in slices " +
+            'each backed up just before it is masked, or with sandforge dataops anonymize --slices.',
+        ),
       });
       expect(update).not.toHaveBeenCalled();
       expect(trail()).toEqual([

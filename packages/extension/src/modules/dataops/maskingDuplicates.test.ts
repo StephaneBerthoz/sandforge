@@ -3,6 +3,7 @@ import type { ForgeTargetAutomation } from '@sandforge/shared';
 
 import {
   DUPLICATE_ITEMS_READ,
+  addDuplicates,
   duplicateRulesOn,
   maskingDuplicatesSentence,
   readMaskingDuplicates,
@@ -403,5 +404,50 @@ describe('maskingDuplicatesSentence', () => {
       'The duplicate rules of TGT on Contact ("Standard Contact Duplicate Rule") wrote nothing ' +
         'for the records it overwrote. Read in 2 request(s), without waiting.',
     );
+  });
+});
+
+describe('addDuplicates', () => {
+  const read = (sets: number, items: number, more: Record<string, unknown> = {}) => ({
+    rules: RULES,
+    sets,
+    items,
+    requests: 3,
+    waitedMs: 5_000,
+    ...more,
+  });
+
+  it('adds what the rules wrote over the reads of a run, slice by slice', () => {
+    expect(addDuplicates(read(1, 2), read(2, 3, { atLeast: true }))).toEqual({
+      rules: RULES,
+      sets: 3,
+      items: 5,
+      atLeast: true,
+      requests: 6,
+      waitedMs: 10_000,
+    });
+  });
+
+  it('keeps one read when the other read nothing, and says every read that could not', () => {
+    expect(addDuplicates(undefined, read(1, 2))).toEqual(read(1, 2));
+    expect(addDuplicates(read(1, 2), undefined)).toEqual(read(1, 2));
+    expect(addDuplicates(undefined, undefined)).toBeUndefined();
+    expect(addDuplicates(read(0, 0, { unread: 'a' }), read(0, 0, { unread: 'b' }))?.unread).toBe(
+      'a; b',
+    );
+  });
+});
+
+describe('watchDuplicates — the records it holds', () => {
+  it('holds one record per covered record saved, and none of an object no rule covers', () => {
+    const watch = watchDuplicates(
+      { query: async () => ({ records: [] }), serverTime: async () => SINCE },
+      RULES,
+      { settleMs: 0 },
+    );
+    watch.wrote('Contact', [MASKED_1, MASKED_2, MASKED_1]);
+    watch.wrote('Lead', ['00Qxx0000000001AAA']);
+
+    expect(watch.held()).toBe(2);
   });
 });

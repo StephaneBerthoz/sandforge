@@ -701,9 +701,11 @@ describe('DataOpsHandler', () => {
       );
       expect(onPage).toContain('QUERY_TIMEOUT');
       expect(onPage).toContain(
-        'The org gave up counting the Contact records the run would mask: mask them in slices ' +
-          'from the command line, each a run of its own (sandforge dataops anonymize --object ' +
-          'Contact --where) on an indexed field, such as a range of CreatedDate. Nothing was masked.',
+        'The org gave up counting the Contact records the run would mask: mask in slices, which ' +
+          "reads the object a slice at a time by Id and plans on the org's own figure when no " +
+          'count comes, or narrow the run from the command line with sandforge dataops anonymize ' +
+          '--object Contact --where on an indexed field, such as a range of CreatedDate. Nothing ' +
+          'was masked.',
       );
 
       handler.setOnCommandLine(true);
@@ -712,8 +714,9 @@ describe('DataOpsHandler', () => {
         postedMessages().filter((m) => m.type === 'dataops:error')[1]?.payload.message,
       );
       expect(onCommandLine).toContain(
-        'The org gave up counting the Contact records the run would mask: narrow --where to an ' +
-          'indexed field, such as a range of CreatedDate, and mask the rest in other runs. ' +
+        'The org gave up counting the Contact records the run would mask: give --slices, which ' +
+          "reads the object a slice at a time by Id and plans on the org's own figure when no " +
+          'count comes, or narrow --where to an indexed field, such as a range of CreatedDate. ' +
           'Nothing was masked.',
       );
     });

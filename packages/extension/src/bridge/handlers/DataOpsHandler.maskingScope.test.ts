@@ -394,7 +394,7 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
   it('writes nothing when the snapshot stops at the cap with rows of the run past it', async () => {
     cap = 100;
     const rows = contactsOf(150, 150);
-    const { update } = orgOf(rows);
+    const { update, statements } = orgOf(rows);
 
     await send('dataops:anonymize', {
       orgId: 'org-1',
@@ -406,8 +406,13 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     expect(update).not.toHaveBeenCalled();
     const error = last('dataops:error')?.payload;
     expect(error).toMatchObject({ code: 'SNAPSHOT_NOT_TAKEN' });
-    expect(String(error?.message)).toContain('holds only part of the records the run would mask');
-    expect(String(error?.message)).toContain('Contact 100 of 150 (stopped at the cap)');
+    expect(String(error?.message)).toContain(
+      'Nothing was masked: Contact holds 150 record(s), more than the 100 a snapshot holds of ' +
+        'one object.',
+    );
+    // Refused from the count, before the guard: no row of a snapshot that
+    // could not hold them all is read.
+    expect(statements.some((soql) => soql.startsWith('SELECT Id, '))).toBe(false);
     expect(new AuditTrailStore(store).list().entries[0]).toMatchObject({
       action: 'anonymize_execute',
       outcome: 'stopped',
@@ -415,7 +420,7 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     });
   });
 
-  it('says in the editor which setting raises the snapshot, and on a command line which flag', async () => {
+  it('says in the editor which box masks in slices and which setting raises the snapshot, and on a command line which flags', async () => {
     // It named the setting on a command line, which has none, and offered to
     // narrow a run the page cannot narrow.
     cap = 100;
@@ -428,9 +433,12 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     });
     const inEditor = String(last('dataops:error')?.payload.message);
     expect(inEditor).toContain(
-      'Raise sandforge.backup.maxRecordsPerObject in Settings (this run held 100, 1,000,000 at most), then apply again.',
+      'Tick "Mask in slices" in the confirmation: Contact is then masked in 2 slices, each ' +
+        'backed up just before it is masked; or raise sandforge.backup.maxRecordsPerObject in ' +
+        'Settings (this run held 100, 1,000,000 at most).',
     );
     expect(inEditor).not.toContain('narrow the run');
+    expect(inEditor).not.toContain('--slices');
 
     handler.setOnCommandLine(true);
     orgOf(contactsOf(150, 150));
@@ -441,7 +449,9 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     );
     const onCommandLine = String(last('dataops:error')?.payload.message);
     expect(onCommandLine).toContain(
-      'Give --max-records up to 1000000 (this run held 100), or narrow the run with --object and --where.',
+      'Give --slices to mask Contact in 2 slices, each with its own snapshot (the same line ' +
+        'with --dry-run shows the plan), --max-records up to 1000000 (this run held 100), or ' +
+        'narrow the run with --where.',
     );
     expect(onCommandLine).not.toContain('sandforge.backup');
   });
@@ -467,10 +477,10 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     const message = String(last('dataops:error')?.payload.message);
     expect(last('dataops:error')?.payload.code).toBe('SNAPSHOT_NOT_TAKEN');
     expect(message).toContain(
-      'No snapshot holds more than 1,000,000 records of one object, and nothing raises that: ' +
-        'mask Contact in slices from the command line',
+      'Tick "Mask in slices" in the confirmation: Contact is then masked in 12000 slices, each ' +
+        'backed up just before it is masked.',
     );
-    expect(message).not.toContain('Raise sandforge.backup.maxRecordsPerObject');
+    expect(message).not.toContain('raise sandforge.backup.maxRecordsPerObject');
   });
 
   it('refuses a snapshot asked with a resume, whose run already wrote over some of its rows', async () => {

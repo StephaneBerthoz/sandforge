@@ -356,6 +356,17 @@ export class PersonaRegistry {
     this.personas.clear();
     this.timesGiven.fill(0);
   }
+
+  /**
+   * Forget the people given to the records so far, and keep how many times
+   * each name was given: a run in slices masks each record once, and kept one
+   * person a record it masked, so its memory grew with every slice up to the
+   * object's millions of rows. The records of the next slices are still given
+   * names no record had.
+   */
+  forgetRecords(): void {
+    this.personas.clear();
+  }
 }
 
 /**

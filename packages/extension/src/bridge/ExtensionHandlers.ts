@@ -18,6 +18,7 @@ import type { Services } from '../services.js';
 
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
+import { secretRunKeys } from '../modules/dataops/slices/runKeyStore.js';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -526,6 +527,10 @@ export class ExtensionHandlers {
   /** Inject the file-backed store that holds backup record payloads. */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.dataOpsHandler.setBackupRecordStore(store);
+    // A masking run in slices keeps its key in the editor's secret storage
+    // until its set ends, beside the backups it writes: a resume in another
+    // window masks as the run did.
+    this.dataOpsHandler.setRunKeyStore(secretRunKeys(this.handlerDeps.secretVault));
     // A Sync run keeps there what it writes over, and its removal gives it
     // back; so does a Real-Time session that writes.
     this.syncHandler.setBackupRecordStore(store);

@@ -494,3 +494,44 @@ describe('AnonymizationEngine', () => {
     });
   });
 });
+
+describe('AnonymizationEngine — forgetting the people of a slice', () => {
+  const fake = (field: string): DataOpsAnonymizationRule => ({
+    objectApiName: 'Contact',
+    fieldApiName: field,
+    method: 'fake',
+    config: {},
+  });
+
+  it('forgets the people drawn for the records masked, and still gives no name twice while names last', () => {
+    const engine = new AnonymizationEngine(undefined, 'k'.repeat(64));
+    const first = engine.anonymize(
+      Array.from({ length: 50 }, (_, i) => ({ Id: `003a${i}`, FirstName: 'x', LastName: 'x' })),
+      [fake('FirstName'), fake('LastName')],
+    );
+    expect(engine.peopleHeld()).toBe(50);
+
+    engine.forgetRecords();
+    expect(engine.peopleHeld()).toBe(0);
+
+    const next = engine.anonymize(
+      Array.from({ length: 50 }, (_, i) => ({ Id: `003b${i}`, FirstName: 'x', LastName: 'x' })),
+      [fake('FirstName'), fake('LastName')],
+    );
+    const names = [...first, ...next].map((r) => `${String(r.FirstName)} ${String(r.LastName)}`);
+    expect(new Set(names).size).toBe(100);
+  });
+
+  it('forgets the people of the registries a salted rule draws from too', () => {
+    const engine = new AnonymizationEngine(undefined, 'k'.repeat(64));
+    engine.anonymize(
+      [{ Id: '003a1', FirstName: 'x' }],
+      [{ ...fake('FirstName'), config: { hashSalt: 's'.repeat(64) } }],
+    );
+    expect(engine.peopleHeld()).toBe(1);
+
+    engine.forgetRecords();
+
+    expect(engine.peopleHeld()).toBe(0);
+  });
+});

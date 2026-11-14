@@ -390,12 +390,14 @@ describe('DataOpsHandler backup record storage', () => {
         } as BaseMessage),
       );
       const coverage = postedOf(deps, 'dataops:anonymize:coverage:response')[0]?.payload;
+      // Past the cap, the coverage plans the run in slices of it.
       expect(coverage?.objects).toContainEqual({
         objectApiName: 'Contact',
         count: 1_234,
         backedUp: 700,
         truncated: true,
         stoppedAt: 'cap',
+        slicePlan: { objectApiName: 'Contact', size: 700, slices: 2 },
       });
     });
 
