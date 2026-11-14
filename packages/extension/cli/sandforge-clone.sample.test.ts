@@ -1146,10 +1146,11 @@ describe('what a sample of the whole org says', () => {
     const recent = sampleReadsLine(graph, { draw: 'recent', maxTotal: 50 }, 'SRC');
     expect(recent).toContain('at most about 4 request(s) of SRC');
     expect(recent).toContain('the newest by creation date');
-    // Past a page, each page after the first may be read again a second apart:
-    // three pages of accounts and two more, then a count and a page.
+    // Past a page, each statement reads on from the last date the one before
+    // read, and no page is read again: a count and three pages of accounts,
+    // then a count and a page.
     expect(sampleReadsLine(graph, { draw: 'recent', maxTotal: 5_000 }, 'SRC')).toContain(
-      'at most about 8 request(s) of SRC',
+      'at most about 6 request(s) of SRC',
     );
   });
 

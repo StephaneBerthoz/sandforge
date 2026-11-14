@@ -109,6 +109,7 @@ import type {
   ForgeRunObjectRecords,
   ForgeSampleDraw,
   ForgeSampleOptions,
+  ForgeSampleWindow,
   ForgeSamplingProgress,
   ForgeSweepClasses,
   ForgeSweepLeftClass,
@@ -125,6 +126,7 @@ import type {
   WholeOrgSample,
   WholeOrgSampleDropReason,
   WholeOrgSampleResult,
+  WholeOrgSampleRoots,
   WholeOrgSamplePartialMaster,
   WholeOrgSampleWholeReason,
   WithoutRecordTypeWhy,
@@ -134,6 +136,10 @@ import {
   FORGE_ROOTS_DEFAULT,
   FORGE_ROOTS_MAX,
   FORGE_SAMPLE_DEFAULTS,
+  FORGE_SAMPLE_MAX_LAST_DAYS,
+  FORGE_SAMPLE_MAX_ROOT_WHERE,
+  FORGE_SAMPLE_MAX_STRATA,
+  FORGE_SAMPLE_STRATUM_PATTERN,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   FORGE_READ_CEILING_PER_OBJECT,
   adminChangesOf,
@@ -148,6 +154,8 @@ import {
   forgeRemovalPlanLeft,
   forgeRunCreatedRecords,
   forgeRunLinkedKept,
+  forgeSampleStrataSchema,
+  forgeSampleWindowBound,
   forgeTemplateSchema,
   removalBypassesOf,
   sweepTakenObjects,
@@ -161,6 +169,7 @@ import {
   soqlRootIssueWords,
   soqlRootQuery,
   soqlRootQueryIssue,
+  soqlWhereFragmentSchema,
 } from '@sandforge/shared';
 import {
   DEFAULT_MAX_NODES,
@@ -982,11 +991,43 @@ Copy a sample of the whole org that fits the target, with --depth all:
   --fit-within <MB>      take no more than this many MB of the target
   --fit-seed <n>         the seed the roots are drawn by        (default: 1)
                          The same seed and setup draw the same records.
-  --fit-draw uniform|recent
+  --fit-draw uniform|recent|oldest
                          uniform spreads the roots over each object, reading
-                         the id of every root; recent takes the newest by
-                         creation date, reading only those it keeps
-                                                           (default: uniform)
+                         the id of every root; recent takes the newest and
+                         oldest the oldest by creation date, reading only
+                         those it keeps                    (default: uniform)
+  --fit-window created|modified:<from>..<to> | created|modified:<n>d
+                         draw only the roots made (or last modified) in the
+                         window, UTC: a date alone starts at 00:00Z and, as
+                         the end, takes the whole day; either end may be left
+                         out; <n>d is the last n days, fixed when the sample
+                         is drawn. The records under or above a root come
+                         whatever their date.
+  --fit-where <Object>=<WHERE>
+                         draw the roots of Object only among the records
+                         that match (repeatable, one per object). Unlike
+                         --filter, the records under or above the roots come
+                         whatever it says, and no lookup is written empty for
+                         it.
+  --fit-strata <Field>|<Object>.<Field>
+                         keep the same share of the roots of each value of a
+                         picklist, checkbox or lookup (RecordTypeId, OwnerId),
+                         at least --fit-floor of each value (repeatable; Field
+                         alone: every object that has it)
+                         A draw told which roots to take names them under
+                         its sample: line — roots:, per object the roots in
+                         the draw of those of the source; strata:, the roots
+                         and those kept of each value — and its share is of
+                         the roots in the draw: all of them taken, it is
+                         limited by the draw; widen them to take more.
+                         Refused before any id is read, nothing written,
+                         every problem named with its way out, exit 2: a
+                         field that cannot stratify the roots, a condition
+                         the source refuses, an object with no root of its
+                         own or copied whole, more than two semi-joins with
+                         its --filter (SAMPLE_DRAW_INVALID); exit 1, only
+                         the counts read: no root left in the draw
+                         (SAMPLE_DRAW_EMPTY).
   --fit-parents all|required
                          all copies a record outside the sample that an
                          optional lookup names, without its children;
@@ -1449,18 +1490,21 @@ Exit codes:
      (CONFIRMATION_UNAVAILABLE) or that was declined (WRITE_DECLINED), or
      whose dry run says a real run would be refused; a sample of it that
      could not be drawn (SAMPLE_STORAGE_UNREAD, SAMPLE_CANNOT_FIT,
-     SAMPLE_TOO_LARGE); a query that chooses no record (NO_ROOTS) or more
-     than --max-roots (ROOTS_EXCEEDED), records that reach more than
-     --max-read-total (READ_BOUND_EXCEEDED); a removal of a run that still
+     SAMPLE_TOO_LARGE), or whose draw leaves no root (SAMPLE_DRAW_EMPTY);
+     a query that chooses no record (NO_ROOTS) or more than --max-roots
+     (ROOTS_EXCEEDED), records that reach more than --max-read-total
+     (READ_BOUND_EXCEEDED); a removal of a run that still
      writes its journal, or its preview, and a --resume of it (RUN_WRITING)
   2  a bad command line, an --exclude that names no field of the source
      (FIELD_EXCLUSION_UNMATCHED), an --object no clone writes
      (TABLE_NEVER_CLONED), or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there; the plan of a
      sample --fit-plan gives or --resume takes up gone, or drawn of another
-     org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH); a query that
-     cannot choose the records it clones (ROOTS_QUERY_REFUSED); the plan of
-     roots --roots-plan gives gone, or of another org, query or records
+     org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH); a draw whose
+     --fit-window, --fit-where or --fit-strata the source cannot take
+     (SAMPLE_DRAW_INVALID); a query that cannot choose the records it
+     clones (ROOTS_QUERY_REFUSED); the plan of roots --roots-plan gives
+     gone, or of another org, query or records
      (ROOTS_PLAN_GONE, ROOTS_PLAN_MISMATCH), and a run taken up whose journal
      names none of the roots it read (ROOTS_PLAN_GONE)
   3  the run was partial and --fail-on-partial was given, or was a clone of
@@ -2135,6 +2179,9 @@ const SAMPLE_FLAGS = [
   '--fit-within',
   '--fit-seed',
   '--fit-draw',
+  '--fit-window',
+  '--fit-where',
+  '--fit-strata',
   '--fit-parents',
   '--fit-children',
   '--fit-whole',
@@ -2216,7 +2263,11 @@ const CLONE_FLAGS: CommandFlags = {
 const NOT_WITH_THE_WHOLE_ORG: ReadonlyArray<readonly [string, string]> = [
   ['--record', 'it starts from no record'],
   ['--object', 'it starts from no table: --exclude-object leaves one out'],
-  ['--where', 'it starts from no table: --filter narrows an object'],
+  [
+    '--where',
+    'it starts from no table: --filter narrows an object, and --fit-where, with --fit share, ' +
+      'draws the roots of a sample among the records that match',
+  ],
   [
     '--template',
     'a template holds the choices of a walk from its record or query: give them with --config',
@@ -2273,8 +2324,182 @@ function wholeOrgArgs(has: (flag: string) => boolean, wholeOrg: boolean): void {
   process.exit(2);
 }
 
+/** The flags of a sample that each name one object or field, and are given once for each. */
+const SAMPLE_FLAGS_REPEATED: readonly string[] = ['--fit-whole', '--fit-where', '--fit-strata'];
+
 /** The flags of a sample given once at most: each sets one option. */
-const SAMPLE_FLAGS_ONCE: readonly string[] = SAMPLE_FLAGS.filter((flag) => flag !== '--fit-whole');
+const SAMPLE_FLAGS_ONCE: readonly string[] = SAMPLE_FLAGS.filter(
+  (flag) => !SAMPLE_FLAGS_REPEATED.includes(flag),
+);
+
+/** The fields of a window, as `--fit-window` names them. */
+const WINDOW_FIELDS: Readonly<Record<string, ForgeSampleWindow['field']>> = {
+  created: 'CreatedDate',
+  modified: 'LastModifiedDate',
+};
+
+/** What `--fit-window` takes, as its refusals say it. */
+const FIT_WINDOW_WORDS =
+  '--fit-window takes created or modified, a colon, then <from>..<to>, each a date, as ' +
+  '2025-06-30, or an instant in UTC, as 2025-06-30T12:00:00Z, either left out but not both; ' +
+  `or <n>d, the last n days, 1 to ${FORGE_SAMPLE_MAX_LAST_DAYS}`;
+
+/**
+ * The window `--fit-window` gives, as a sample takes it: its field, and its
+ * bounds as instants in UTC — a date alone at 00:00Z, and as the end the
+ * next day's, which the window leaves out — or its last days, fixed when the
+ * sample is drawn. A refusal in its words for anything else.
+ */
+function sampleWindowOf(raw: string): ForgeSampleWindow | { refusal: string } {
+  const colon = raw.indexOf(':');
+  const field = colon > 0 ? WINDOW_FIELDS[raw.slice(0, colon)] : undefined;
+  const span = raw.slice(colon + 1);
+  const refused = (why: string): { refusal: string } => ({
+    refusal: `${FIT_WINDOW_WORDS}, not "${raw}"${why}.`,
+  });
+  if (field === undefined) return refused('');
+  const days = /^(\d{1,6})d$/.exec(span);
+  if (days) {
+    const lastDays = Number(days[1]);
+    if (lastDays < 1 || lastDays > FORGE_SAMPLE_MAX_LAST_DAYS) {
+      return refused(`: ${lastDays} days is out of 1 to ${FORGE_SAMPLE_MAX_LAST_DAYS}`);
+    }
+    return { field, lastDays };
+  }
+  const dots = span.indexOf('..');
+  if (dots < 0) return refused('');
+  const fromRaw = span.slice(0, dots);
+  const toRaw = span.slice(dots + 2);
+  if (fromRaw === '' && toRaw === '') return refused(': give a start, an end or both');
+  const from = fromRaw === '' ? undefined : forgeSampleWindowBound(fromRaw, false);
+  const to = toRaw === '' ? undefined : forgeSampleWindowBound(toRaw, true);
+  if (fromRaw !== '' && from === undefined) return refused(`: "${fromRaw}" is no such date`);
+  if (toRaw !== '' && to === undefined) return refused(`: "${toRaw}" is no such date`);
+  if (from !== undefined && to !== undefined && from >= to) {
+    return refused(
+      `: it starts at ${from} and ends before ${to}, so no root is made in it; ` +
+        'the end is left out of the window, a date there taking the whole day',
+    );
+  }
+  return {
+    field,
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+  };
+}
+
+/**
+ * The condition each `--fit-where Object=WHERE` draws that object's roots
+ * among, cut at the first `=` as `--filter` is, and held to what a filter
+ * takes: 512 characters, no comment marker, no semicolon at its end. A
+ * refusal in its words for one that does not read, an object named twice
+ * — two conditions of its roots are one, joined with AND or OR —, more
+ * objects than a sample filters the roots of, or an object the sample
+ * copies whole (`--fit-whole`), every record of which comes whatever the
+ * condition, or one the run leaves out (`--exclude-object`).
+ */
+function sampleRootWhereOf(
+  raws: readonly string[],
+  run: { whole: readonly string[]; excludedObjects: readonly string[] },
+): { where: Record<string, string> } | { refusal: string } {
+  const where: Record<string, string> = {};
+  const named = new Set<string>();
+  for (const raw of raws) {
+    const eq = raw.indexOf('=');
+    const object = eq > 0 ? raw.slice(0, eq) : '';
+    const condition = eq > 0 ? raw.slice(eq + 1) : '';
+    if (!API_NAME_RE.test(object) || condition.trim() === '') {
+      return {
+        refusal:
+          `Invalid --fit-where value "${raw}": it takes <Object>=<WHERE>, the condition the ` +
+          "roots of Object are drawn among, as Account=BillingCountry = 'France'.",
+      };
+    }
+    if (!soqlWhereFragmentSchema.safeParse(condition).success) {
+      return {
+        refusal:
+          condition.length > 512
+            ? `--fit-where condition for "${object}" exceeds 512 chars`
+            : `--fit-where condition for "${object}" contains forbidden tokens (--, /*, */, trailing ;)`,
+      };
+    }
+    if (named.has(object.toLowerCase())) {
+      return {
+        refusal:
+          `--fit-where names ${object} twice: give one condition of its roots, the two joined ` +
+          'with AND or OR.',
+      };
+    }
+    named.add(object.toLowerCase());
+    where[object] = condition;
+  }
+  const objects = Object.keys(where);
+  if (objects.length > FORGE_SAMPLE_MAX_ROOT_WHERE) {
+    return {
+      refusal: `--fit-where filters the roots of ${FORGE_SAMPLE_MAX_ROOT_WHERE} objects at most, not ${objects.length}.`,
+    };
+  }
+  const among = (names: readonly string[]): string[] => {
+    const lower = new Set(names.map((name) => name.toLowerCase()));
+    return objects.filter((object) => lower.has(object.toLowerCase()));
+  };
+  const copiedWhole = among(run.whole);
+  if (copiedWhole.length > 0) {
+    return {
+      refusal:
+        `--fit-where filters the roots of ${copiedWhole.join(', ')}, which --fit-whole copies ` +
+        'whole: every record of it comes, whatever the condition. Leave it out of --fit-whole, ' +
+        'or narrow the object itself with --filter, which leaves records out of the copy.',
+    };
+  }
+  const leftOut = among(run.excludedObjects);
+  if (leftOut.length > 0) {
+    return {
+      refusal:
+        `--fit-where and --exclude-object both name ${leftOut.join(', ')}: the run would leave ` +
+        'out an object whose roots it draws. Give each to one of them.',
+    };
+  }
+  return { where };
+}
+
+/**
+ * The fields `--fit-strata` stratifies the roots by, each `Field`, of every
+ * object drawn that has it, or `Object.Field`, of that object. A refusal in
+ * its words for one that does not read as a field, one given twice, two
+ * fields of one object or of every object — the roots of an object are
+ * stratified by one field at most —, or more than a sample takes.
+ */
+function sampleStrataOf(raws: readonly string[]): { strata: string[] } | { refusal: string } {
+  const strata: string[] = [];
+  for (const raw of raws) {
+    if (!FORGE_SAMPLE_STRATUM_PATTERN.test(raw)) {
+      return {
+        refusal:
+          `Invalid --fit-strata value "${raw}": it takes a field, as RecordTypeId, of every ` +
+          'object drawn that has it, or an object and its field, as Account.RecordTypeId.',
+      };
+    }
+    if (strata.some((stratum) => stratum.toLowerCase() === raw.toLowerCase())) {
+      return { refusal: `--fit-strata ${raw} is given twice: give it once.` };
+    }
+    strata.push(raw);
+  }
+  if (strata.length > FORGE_SAMPLE_MAX_STRATA) {
+    return {
+      refusal: `--fit-strata stratifies the roots by ${FORGE_SAMPLE_MAX_STRATA} fields at most, not ${strata.length}.`,
+    };
+  }
+  const checked = forgeSampleStrataSchema.safeParse(strata);
+  if (!checked.success) {
+    return {
+      refusal:
+        `--fit-strata ${checked.error.issues.map((issue) => issue.message).join('; ')}: give ` +
+        'each object one field, its own (Object.Field) or the one every object takes (Field).',
+    };
+  }
+  return { strata };
+}
 
 /** The most records a sample takes of each object whatever its share (`--fit-floor`), as a config takes it. */
 const SAMPLE_FLOOR_MOST = 10_000;
@@ -2296,7 +2521,15 @@ const SAMPLE_MANIFEST = 'sample.json';
  * whose files no sample copies yet, or with `--list-objects`, which draws
  * nothing; `--fit-plan` with `--resume`, which writes the plan its journal
  * names; an object asked whole and left out at once; a flag given twice, or
- * a value out of its range. Each in its words. Exported so it can be tested.
+ * a value out of its range; a window that does not read or holds no instant
+ * (`--fit-window`); a filter of the roots that does not read, given twice
+ * for an object, or of an object copied whole or left out (`--fit-where`);
+ * a field the roots are stratified by twice, or two of one object
+ * (`--fit-strata`). Each in its words. Exported so it can be tested.
+ *
+ * What only the source can say — a field it does not hold or cannot group
+ * by, a condition it refuses, an object with no root — is refused as the
+ * sample is drawn, before any id is read (`SAMPLE_DRAW_INVALID`, exit 2).
  *
  * `--max-total` is a bound of the sample as of any run, its default too: a
  * sample past it would be refused at its gate, so none is drawn past it.
@@ -2380,13 +2613,19 @@ export function sampleArgsOf(
   }
   const draw = one('--fit-draw');
   if (draw !== undefined) {
-    if (draw !== 'uniform' && draw !== 'recent') {
+    if (draw !== 'uniform' && draw !== 'recent' && draw !== 'oldest') {
       refuse(
-        `--fit-draw takes uniform, the roots spread over each object by the seed, or recent, ` +
-          `the newest by their creation date, not "${draw}".`,
+        `--fit-draw takes uniform, the roots spread over each object by the seed, recent, ` +
+          `the newest by their creation date, or oldest, the oldest by it, not "${draw}".`,
       );
     }
     options.draw = draw as ForgeSampleDraw;
+  }
+  const windowRaw = one('--fit-window');
+  if (windowRaw !== undefined) {
+    const window = sampleWindowOf(windowRaw);
+    if ('refusal' in window) refuse(window.refusal);
+    else options.window = window;
   }
   const parents = one('--fit-parents');
   if (parents !== undefined) {
@@ -2426,6 +2665,15 @@ export function sampleArgsOf(
     );
   }
   if (whole.length > 0) options.whole = whole;
+  const rootWhere = sampleRootWhereOf(values('--fit-where'), {
+    whole,
+    excludedObjects: run.excludedObjects,
+  });
+  if ('refusal' in rootWhere) refuse(rootWhere.refusal);
+  else if (Object.keys(rootWhere.where).length > 0) options.rootWhere = rootWhere.where;
+  const strata = sampleStrataOf(values('--fit-strata'));
+  if ('refusal' in strata) refuse(strata.refusal);
+  else if (strata.strata.length > 0) options.strata = strata.strata;
   const floor = one('--fit-floor');
   if (floor !== undefined) {
     const n = Number(floor);
@@ -5373,6 +5621,13 @@ export function wholeOrgQuestionWords(
   // how its roots were drawn, and when and by what its plan was: a sample
   // taken for every record of the org is not what was asked.
   const said = question.sample;
+  // How its roots were chosen, when they were: a sample of the roots of a
+  // window or filters is not one of every root.
+  const chosen = said?.roots ? rootsChosenWords(said.roots) : [];
+  const inTheDraw =
+    said?.roots?.window !== undefined || (said?.roots?.where ?? []).length > 0
+      ? ' in the draw'
+      : '';
   const ofTheSample =
     said && sample
       ? `a sample of ${source}: ${plan.totalRows} record(s) of ${objects} object(s) ` +
@@ -5382,7 +5637,8 @@ export function wholeOrgQuestionWords(
         (said.automationMB !== undefined
           ? `, ${formatMB(said.automationMB)} MB of it for what the target's automation creates`
           : '') +
-        `; ${drawWords(said)}, ${percentOf(said.share)} % of the roots; drawn at ` +
+        `; ${[drawWords(said), ...chosen].join('; ')}, ${percentOf(said.share)} % of the ` +
+        `roots${inTheDraw}; drawn at ` +
         `${said.drawnAt} by ${said.drawnBy === 'dryRun' ? 'a dry run' : 'this run'}; ` +
         `${bulk?.jobs ?? 0} Bulk API job(s) among them`
       : undefined;
@@ -5556,11 +5812,75 @@ function percentOf(share: number): string {
 
 /** How a sample's roots were drawn, as its lines say it. */
 function drawWords(sample: Pick<WholeOrgSample, 'seed' | 'draw'>): string {
-  // The newest are read by their creation date: an org's ids follow it
-  // within a load only, not from one load to the next.
-  return sample.draw === 'recent'
-    ? 'the newest by creation date'
-    : `seed ${sample.seed}, spread over the org`;
+  // The newest and the oldest are read by their creation date: an org's ids
+  // follow it within a load only, not from one load to the next.
+  switch (sample.draw) {
+    case 'recent':
+      return 'the newest by creation date';
+    case 'oldest':
+      return 'the oldest by creation date';
+    case 'uniform':
+      return `seed ${sample.seed}, spread over the org`;
+  }
+}
+
+/**
+ * A sample's window, as its lines say it: what dates the roots, from and to
+ * when, in UTC; of the last days, those days and the instant they started
+ * at when it was drawn.
+ */
+function windowWords(window: ForgeSampleWindow): string {
+  const made = window.field === 'LastModifiedDate' ? 'last modified' : 'created';
+  if (window.lastDays !== undefined) {
+    return (
+      `roots ${made} in the last ${window.lastDays} day(s)` +
+      (window.from !== undefined ? `, from ${window.from}` : '')
+    );
+  }
+  const from = window.from !== undefined ? ` from ${window.from}` : '';
+  const to = window.to !== undefined ? ` to before ${window.to}` : '';
+  return `roots ${made}${from}${to}`;
+}
+
+/**
+ * How a sample chose its roots, as its lines and its question say it: the
+ * window, the filter on each object's roots in the user's own words, and the
+ * objects stratified, each with its field and the values it was counted to
+ * hold. Nothing of a draw among every root.
+ */
+function rootsChosenWords(roots: {
+  window?: ForgeSampleWindow;
+  where?: ReadonlyArray<{ objectApiName: string; where: string }>;
+  strata?: ReadonlyArray<{ objectApiName: string; field: string; values: number }>;
+}): string[] {
+  return [
+    ...(roots.window ? [windowWords(roots.window)] : []),
+    ...(roots.where ?? []).map(({ objectApiName, where }) => `${objectApiName} where ${where}`),
+    ...(roots.strata ?? []).map(
+      ({ objectApiName, field, values }) =>
+        `${objectApiName} stratified by ${field} (${values} value(s))`,
+    ),
+  ];
+}
+
+/** The values each object of a sample's strata was counted to hold, the ones beyond those listed too. */
+function strataCounted(
+  strata: WholeOrgSampleRoots['strata'],
+): Array<{ objectApiName: string; field: string; values: number }> {
+  return (strata ?? []).map(({ objectApiName, field, values, more }) => ({
+    objectApiName,
+    field,
+    values: values.length + (more ?? 0),
+  }));
+}
+
+/**
+ * Whether a sample's roots were held to a window or a filter: its share is
+ * then of the roots in the draw, never of every root of the source. Strata
+ * alone keep every root in it.
+ */
+function drawRestricted(roots: WholeOrgSampleRoots | undefined): boolean {
+  return roots?.window !== undefined || (roots?.where ?? []).length > 0;
 }
 
 /** What held a sample, past which the next share would not fit, as its lines say it. */
@@ -5591,10 +5911,13 @@ function sampleLimitWords(
       return `limited by the daily API requests ${source} has left`;
     case 'whole':
       return 'every record of the org fits: leave out --fit share to copy the whole org';
+    // Every root a window or filters leave is in the sample: it says to widen
+    // those, never to copy the whole org, which the draw never weighed.
+    // Strata alone keep every root in the draw, and never hold it.
     case 'draw':
       return (
-        'limited by the draw: every root --fit-window, --fit-where and --fit-strata leave is ' +
-        'in the sample; widen them to take more'
+        'limited by the draw: every root --fit-window and --fit-where leave is in the ' +
+        'sample; widen them to take more'
       );
   }
 }
@@ -5683,14 +6006,78 @@ function keptWords(
   return `${object.roots} drawn, ${object.below} under a parent, ${object.asParents} as parents`;
 }
 
+/** A value of a stratum, as its lines say it: its label, the value the API writes, or none. */
+function stratumValueWords(value: { value: string | boolean | null; label?: string }): string {
+  if (value.label !== undefined) return value.label;
+  return value.value === null ? '(no value)' : String(value.value);
+}
+
+/**
+ * The lines of how a sample chose its roots, after its objects': of a draw
+ * held to a window or filters, the roots in the draw of the roots of the
+ * source of each object restricted, the objects left none, and those the
+ * window could not date (`roots:`); of a draw by strata, the roots in the
+ * draw and those kept of each value of each object, the values past those
+ * listed counted (`strata:`). Nothing of a draw among every root.
+ */
+function sampleRootsLines(sample: WholeOrgSample, source: string): string[] {
+  const roots = sample.roots;
+  if (!roots) return [];
+  const lines: string[] = [];
+  if (drawRestricted(roots)) {
+    const notWindowed = new Set(roots.notWindowed ?? []);
+    const parts = [
+      ...sample.objects.flatMap((object) =>
+        object.rootsInTheDraw === undefined
+          ? []
+          : [
+              `${object.objectApiName} ${object.rootsInTheDraw} in the draw` +
+                (object.rootsInTheSource !== undefined
+                  ? ` of ${object.rootsInTheSource} root(s) in ${source}`
+                  : ''),
+            ],
+      ),
+      ...sample.noRecordDrawn
+        .filter(
+          ({ objectApiName, noRootInTheDraw }) =>
+            noRootInTheDraw && !notWindowed.has(objectApiName),
+        )
+        .map(
+          ({ objectApiName, sourceRows }) =>
+            `${objectApiName} none in the draw (${sourceRows} record(s) in ${source})`,
+        ),
+      ...(notWindowed.size > 0 && roots.window
+        ? [`not windowed (no ${roots.window.field}): ${[...notWindowed].join(', ')}`]
+        : []),
+    ];
+    if (parts.length > 0) lines.push(`roots: ${parts.join('; ')}`);
+  }
+  const strata = roots.strata ?? [];
+  if (strata.length > 0) {
+    const objects = strata.map(
+      ({ objectApiName, field, values, more }) =>
+        `${objectApiName} by ${field}: ` +
+        values
+          .map((value) => `${stratumValueWords(value)} ${value.kept} of ${value.roots} root(s)`)
+          .join(', ') +
+        (more !== undefined && more > 0 ? `, and ${more} more value(s)` : ''),
+    );
+    lines.push(`strata: ${objects.join('; ')} (the records under the roots are not stratified)`);
+  }
+  return lines;
+}
+
 /**
  * What a sample of the whole org says at its gate, its dry run's as its
  * run's, before the lines of any clone of the whole org: what it keeps of
- * the source, how its roots were drawn and what share of them, what it may
- * take of the target and what held it; per object what it keeps and how
- * each record came in, and the children the cap on each relation left; the
- * objects copied whole and why; the objects whose newest were read by their
- * ids; the roots set aside, by id, and the relation that swells each; the
+ * the source, how its roots were drawn and chosen and what share of them,
+ * what it may take of the target and what held it; per object what it keeps
+ * and how each record came in, and the children the cap on each relation
+ * left; of a draw held to a window or filters, the roots in the draw of the
+ * roots of the source per object (`roots:`), and of a draw by strata, the
+ * roots and those kept of each value (`strata:`); the objects copied whole
+ * and why; the objects whose newest or oldest were read by their ids; the
+ * roots set aside, by id, and the relation that swells each; the
  * records its draw reached and left out, never sent, and why; the lookups
  * written empty; the objects it keeps none of, never said empty; and its
  * plan on disk, and the requests drawing it sent the source. Exported so it
@@ -5707,10 +6094,19 @@ export function sampleLines(
   const sourceRows =
     sample.objects.reduce((sum, object) => sum + object.sourceRows, 0) +
     sample.noRecordDrawn.reduce((sum, object) => sum + object.sourceRows, 0);
+  // Of a draw held to a window or filters, the share is of the roots they
+  // leave, never of every root of the source.
+  const chosen = sample.roots
+    ? rootsChosenWords({
+        ...sample.roots,
+        strata: strataCounted(sample.roots.strata),
+      })
+    : [];
   const lines = [
     `sample: ${sample.rows} of ${sourceRows} record(s) of ${source}, of ${sample.objects.length} ` +
-      `object(s): ${percentOf(sample.share)} % of the roots of each object ` +
-      `(${drawWords(sample)}), with the records they reach and name; ` +
+      `object(s): ${percentOf(sample.share)} % of the roots ` +
+      `${drawRestricted(sample.roots) ? 'in the draw ' : ''}of each object ` +
+      `(${[drawWords(sample), ...chosen].join('; ')}), with the records they reach and name; ` +
       `${sampleBudgetWords(sample, target)}; ${sampleLimitWords(sample, source, target)}`,
   ];
   for (const object of sample.objects) {
@@ -5728,6 +6124,7 @@ export function sampleLines(
         partial.map((master) => `; ${partialMasterWords(master)}`).join(''),
     );
   }
+  lines.push(...sampleRootsLines(sample, source));
   if (sample.whole.length > 0) {
     lines.push(
       `whole: ${sample.whole.map(({ objectApiName, why }) => `${objectApiName} (${WHOLE_WORDS[why]})`).join(', ')}`,
@@ -5737,6 +6134,12 @@ export function sampleLines(
     lines.push(
       'newest by the order of their ids, the org sorting none of their creation dates — ids ' +
         `follow it within a load only: ${sample.newestByIds.join(', ')}`,
+    );
+  }
+  if (sample.oldestByIds && sample.oldestByIds.length > 0) {
+    lines.push(
+      'oldest by the order of their ids, the org sorting none of their creation dates — ids ' +
+        `follow it within a load only: ${sample.oldestByIds.join(', ')}`,
     );
   }
   if (sample.heavyRoots.length > 0) {
@@ -5765,8 +6168,11 @@ export function sampleLines(
   }
   if (sample.noRecordDrawn.length > 0) {
     lines.push(`no record drawn, ${source} holding some:`);
-    for (const { objectApiName, sourceRows: rows } of sample.noRecordDrawn) {
-      lines.push(`  ${objectApiName}: ${rows} in ${source}`);
+    for (const { objectApiName, sourceRows: rows, noRootInTheDraw } of sample.noRecordDrawn) {
+      lines.push(
+        `  ${objectApiName}: ${rows} in ${source}` +
+          (noRootInTheDraw ? ', none of its roots in the draw' : ''),
+      );
     }
   }
   const { plan } = sample;
@@ -5795,7 +6201,12 @@ export function sampleLines(
  * target unread and no MB asked —, what it keeps per object and how, the
  * objects copied whole, the roots set aside, the records left out, the
  * lookups written empty, the objects it keeps none of, the requests drawing
- * it sent the source, and its plan on disk. Exported so it can be tested.
+ * it sent the source, and its plan on disk. Of a draw told which roots to
+ * take, how it chose them (`roots`), and per object restricted the roots of
+ * the source and those in the draw (`rootsInTheSource`, `rootsInTheDraw`);
+ * the objects it left no root of (`noRootInTheDraw`); the objects whose
+ * oldest were read by their ids (`oldestByIds`). Exported so it can be
+ * tested.
  */
 export function sampleJson(sample: WholeOrgSample) {
   const { budget, plan } = sample;
@@ -5830,6 +6241,12 @@ export function sampleJson(sample: WholeOrgSample) {
       ...(object.childrenCut && object.childrenCut.length > 0
         ? { childrenCut: object.childrenCut.map(({ field, rows }) => ({ field, rows })) }
         : {}),
+      // Of an object whose roots a window or a filter held, those of the
+      // source and those in the draw: its share is of the second.
+      ...(object.rootsInTheSource !== undefined
+        ? { rootsInTheSource: object.rootsInTheSource }
+        : {}),
+      ...(object.rootsInTheDraw !== undefined ? { rootsInTheDraw: object.rootsInTheDraw } : {}),
     })),
     whole: sample.whole.map(({ objectApiName, why }) => ({ objectApiName, why })),
     heavyRoots: sample.heavyRoots.map(({ objectApiName, id, rows, relation }) => ({
@@ -5848,15 +6265,48 @@ export function sampleJson(sample: WholeOrgSample) {
       field,
       rows,
     })),
-    noRecordDrawn: sample.noRecordDrawn.map(({ objectApiName, sourceRows }) => ({
+    noRecordDrawn: sample.noRecordDrawn.map(({ objectApiName, sourceRows, noRootInTheDraw }) => ({
       objectApiName,
       sourceRows,
+      ...(noRootInTheDraw ? { noRootInTheDraw: true as const } : {}),
     })),
+    // How its roots were chosen, when they were: the window, its instants
+    // resolved, the objects the window could not date, the filters on the
+    // roots, and the values of each stratum.
+    ...(sample.roots
+      ? {
+          roots: {
+            ...(sample.roots.window ? { window: { ...sample.roots.window } } : {}),
+            ...(sample.roots.notWindowed ? { notWindowed: [...sample.roots.notWindowed] } : {}),
+            ...(sample.roots.where
+              ? {
+                  where: sample.roots.where.map(({ objectApiName, where }) => ({
+                    objectApiName,
+                    where,
+                  })),
+                }
+              : {}),
+            ...(sample.roots.strata
+              ? {
+                  strata: sample.roots.strata.map(({ objectApiName, field, values, more }) => ({
+                    objectApiName,
+                    field,
+                    values: values.map((value) => ({ ...value })),
+                    ...(more !== undefined ? { more } : {}),
+                  })),
+                }
+              : {}),
+          },
+        }
+      : {}),
     // The masters it keeps part of the details of: what they sum of them
     // counts those written alone.
     partialMasters: (sample.partialMasters ?? []).map((master) => ({ ...master })),
     ...(sample.newestByIds && sample.newestByIds.length > 0
       ? { newestByIds: [...sample.newestByIds] }
+      : {}),
+    ...(sample.oldestByIds && sample.oldestByIds.length > 0
+      ? { oldestByIds: [...sample.oldestByIds] }
       : {}),
     planRequests: { source: sample.planRequests.source },
     plan: {
@@ -5884,6 +6334,10 @@ export function sampleResultJson(result: WholeOrgSampleResult) {
     share: result.share,
     sha256: result.sha256,
     drawnAt: result.drawnAt,
+    // How its roots were chosen: the window, the objects whose roots were
+    // filtered and the fields they were stratified by — the filters' text
+    // is in the run's config, the values of the strata in its plan.
+    ...(result.roots ? { roots: structuredClone(result.roots) } : {}),
     objects: result.objects.map((object) => ({
       objectApiName: object.objectApiName,
       sourceRows: object.sourceRows,
@@ -5917,9 +6371,23 @@ export function sampleResultJson(result: WholeOrgSampleResult) {
  * empty. Exported so it can be tested.
  */
 export function sampleResultLines(result: WholeOrgSampleResult, source: string): string[] {
+  const roots = result.roots;
+  const chosen = roots
+    ? [
+        ...(roots.window ? [windowWords(roots.window)] : []),
+        ...(roots.whereObjects && roots.whereObjects.length > 0
+          ? [`the roots of ${roots.whereObjects.join(', ')} filtered`]
+          : []),
+        ...(roots.strataFields && roots.strataFields.length > 0
+          ? [`stratified by ${roots.strataFields.join(', ')}`]
+          : []),
+      ]
+    : [];
+  const restricted =
+    roots?.window !== undefined || (roots?.whereObjects ?? []).length > 0 ? 'in the draw ' : '';
   const lines = [
-    `sample (${drawWords(result)}, ${percentOf(result.share)} % of the roots of each object; ` +
-      `plan sha256 ${result.sha256}, drawn ${result.drawnAt}):`,
+    `sample (${[drawWords(result), ...chosen].join('; ')}, ${percentOf(result.share)} % of the ` +
+      `roots ${restricted}of each object; plan sha256 ${result.sha256}, drawn ${result.drawnAt}):`,
   ];
   for (const object of result.objects) {
     const how = object.whole
@@ -5946,32 +6414,51 @@ export function sampleResultLines(result: WholeOrgSampleResult, source: string):
 /**
  * What drawing a sample of the whole org reads of the source before a row is
  * read, said before it begins, from discovery's counts: of each object it
- * takes, one count of its roots and the pages of their ids — every root's
- * spread over the org, those it may keep of the newest. An object's roots
- * are some of its rows: the figure is the most these reads take. The records
- * the roots reach and name are read on top, and the plan says what it sent
- * once drawn. Exported so it can be tested.
+ * takes, one count of its roots — two, of an object a window or a filter of
+ * its roots holds: its roots in the source are counted apart — and the
+ * pages of their ids, every root's spread over the org, those it may keep of
+ * the newest or the oldest. An object's roots are some of its rows, and those
+ * a window or filters leave fewer still: the figure is the most these reads
+ * take. An object stratified and drawn by date reads a statement per value
+ * besides, which no count of discovery tells, said once the values are
+ * counted. The records the roots reach and name are read on top, and the
+ * plan says what it sent once drawn. Exported so it can be tested.
  */
 export function sampleReadsLine(
   graph: Pick<ForgeGraph, 'nodes'>,
-  options: Pick<ForgeSampleOptions, 'draw' | 'maxTotal'>,
+  options: Pick<ForgeSampleOptions, 'draw' | 'maxTotal' | 'window' | 'rootWhere' | 'strata'>,
   source: string,
 ): string {
   const draw = options.draw ?? FORGE_SAMPLE_DEFAULTS.draw;
   const most = options.maxTotal ?? DEFAULT_MAX_TOTAL;
+  const filtered = new Set(Object.keys(options.rootWhere ?? {}).map((name) => name.toLowerCase()));
+  const restricts = (objectApiName: string): boolean =>
+    options.window !== undefined || filtered.has(objectApiName.toLowerCase());
   let requests = 0;
   for (const node of graph.nodes) {
     if (!node.included || node.recordCount <= 0) continue;
     const rows = draw === 'uniform' ? node.recordCount : Math.min(node.recordCount, most);
-    const pages = Math.ceil(rows / SAMPLE_ID_PAGE);
-    // The newest are read a page at a time, and past the first, the rest of a
-    // page's last second may be read again apart (`rootScanRequestsOf`).
-    requests += 1 + pages + (draw === 'uniform' ? 0 : Math.max(0, pages - 1));
+    // The newest and the oldest are read a statement of up to a page at a
+    // time, each from the last date the one before read: no page is read
+    // again (`rootScanRequestsOf`).
+    requests += 1 + (restricts(node.objectApiName) ? 1 : 0) + Math.ceil(rows / SAMPLE_ID_PAGE);
   }
+  const how =
+    draw === 'uniform'
+      ? "every root's id, spread over the org"
+      : `the ${draw === 'recent' ? 'newest' : 'oldest'} by creation date, those it may keep`;
+  const restricted = options.window !== undefined || filtered.size > 0;
+  const byValue = draw !== 'uniform' && (options.strata ?? []).length > 0;
   return (
     `sample: drawing it reads at most about ${requests} request(s) of ${source} for the ` +
-    `roots, by discovery's counts (${draw === 'uniform' ? "every root's id, spread over the org" : 'the newest by creation date, those it may keep'}); ` +
-    'the records they reach and name are read on top, and said once drawn'
+    `roots, by discovery's counts (${how}` +
+    (restricted
+      ? "; of the roots --fit-window and --fit-where leave, fewer than discovery's counts, " +
+        'each object they hold counted again without them'
+      : '') +
+    ')' +
+    (byValue ? ', and a statement per value of each stratum, said once they are counted' : '') +
+    '; the records they reach and name are read on top, and said once drawn'
   );
 }
 
@@ -6007,6 +6494,7 @@ export function samplingProgressPrinter(
 const REFUSED_FOR_THE_LINE: ReadonlySet<string> = new Set([
   SAMPLE_PLAN_GONE,
   SAMPLE_PLAN_MISMATCH,
+  'SAMPLE_DRAW_INVALID',
   'ROOTS_QUERY_REFUSED',
   'ROOTS_PLAN_MISMATCH',
   'ROOTS_PLAN_GONE',
@@ -6016,11 +6504,13 @@ const REFUSED_FOR_THE_LINE: ReadonlySet<string> = new Set([
  * The exit code of a run refused before its first write: 2 for a plan the
  * line gave or its journal names that cannot be written — gone, or another
  * than this run's (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`,
- * `ROOTS_PLAN_GONE`, `ROOTS_PLAN_MISMATCH`) — and for a query that cannot
- * choose the records a clone takes (`ROOTS_QUERY_REFUSED`), a line to give
- * otherwise; 1 for one the orgs refuse — a storage unread, a sample that
- * cannot fit, too large to draw, a query that chooses no record or more than
- * the run takes. Exported so it can be tested.
+ * `ROOTS_PLAN_GONE`, `ROOTS_PLAN_MISMATCH`) —, for a query that cannot
+ * choose the records a clone takes (`ROOTS_QUERY_REFUSED`), and for a draw
+ * whose window, filters of the roots or strata the source cannot take
+ * (`SAMPLE_DRAW_INVALID`), a line to give otherwise; 1 for one the orgs
+ * refuse — a storage unread, a sample that cannot fit, too large to draw, a
+ * draw that leaves no root (`SAMPLE_DRAW_EMPTY`), a query that chooses no
+ * record or more than the run takes. Exported so it can be tested.
  */
 export function sampleRefusalExit(code: string): number {
   return REFUSED_FOR_THE_LINE.has(code) ? 2 : 1;

@@ -1028,6 +1028,50 @@ describe('a forge resource of depth: all, the whole org', () => {
     );
   });
 
+  it('has the clone read back each key of its sample from its line, as the sample the file asks', () => {
+    const config = join(dir, 'whole.json');
+    writeFileSync(config, '{}\n');
+    const lineOf = (fit: EnvForgeFit): string[] =>
+      forgeDryRunLine({
+        source: 'SRC',
+        target: 'TGT',
+        templateFile: config,
+        wholeOrg: wholeOf({ ...whole, fit }).wholeOrg,
+        maxTotal: 40_000,
+        acceptAutomation: false,
+      });
+    const optionsOf = (fit: EnvForgeFit) =>
+      parseCloneArgs(['node', 'sandforge-clone.ts', ...lineOf(fit)]).sample?.options;
+
+    expect(
+      optionsOf({
+        seed: 7,
+        draw: 'oldest',
+        window: { field: 'created', from: '2025-01-01', to: '2025-06-30' },
+        where: { Account: "BillingCountry = 'France'", Lead: 'IsConverted = false' },
+        strata: ['Account.RecordTypeId', 'Status'],
+      }),
+    ).toEqual({
+      maxTotal: 40_000,
+      seed: 7,
+      draw: 'oldest',
+      // The file's dates as the window holds them: the end takes its whole day.
+      window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', to: '2025-07-01T00:00:00Z' },
+      rootWhere: { Account: "BillingCountry = 'France'", Lead: 'IsConverted = false' },
+      strata: ['Account.RecordTypeId', 'Status'],
+    });
+    expect(optionsOf({ window: { field: 'modified', lastDays: 30 } })?.window).toEqual({
+      field: 'LastModifiedDate',
+      lastDays: 30,
+    });
+    expect(optionsOf({ window: { field: 'created', to: '2025-06-30T12:00:00Z' } })?.window).toEqual(
+      {
+        field: 'CreatedDate',
+        to: '2025-06-30T12:00:00Z',
+      },
+    );
+  });
+
   it('counts as anonymized, by each category’s default method, and is fingerprinted apart from a walk', () => {
     const run = wholeOf(whole);
     const read = { organizationId: '00D000000000008AAA', production: true as const };
