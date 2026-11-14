@@ -5,6 +5,27 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.79.0] - 2026-11-14
+
+Forge copies a sample of a whole org that fits the target, and the command-line scripts and MCP server come as the `sandforge` npm package.
+
+### Added
+
+- **Forge**: ALL can copy a sample of the org that fits the target, offered when the whole org does not, drawn spread or newest first.
+- **Forge**: a sample is simulated and said per object, kept as a plan the run writes as simulated, and resumed, verified or removed like any run.
+- **Command line and MCP**: the `sandforge` npm package, no checkout, Node.js 20.19+: `npx sandforge clone …`, `npx -y sandforge mcp`; `--fit share`.
+
+### Fixed
+
+- **Forge**: a removal takes, and Verify counts, a record the run created that a later row was linked to; only what the target held stays.
+- **Forge**: the gate of ALL counts what the target's automation creates under the records, and offers a sample past the storage left.
+- **Forge**: ALL reads a line item, a case comment or an order line as the detail of its master, as Salesforce lists it.
+- **Forge**: Verify of a whole-org clone counts the synced quote it leaves empty, and a person account's contact, as the run said.
+- **Forge**: a run says the rows it linked to its own records apart from those linked to what the target held.
+- **Forge**: removing a run takes the duplicate record set Salesforce fills a second after it ends.
+- **Command line and MCP**: every command printed runs as written, and an unknown alias, a missing `sf`, a username and `NO_PROXY` are handled.
+- **Seed and Autopilot**: a fit says Salesforce can take several minutes to count a load in the storage left.
+
 ## [1.78.1] - 2026-11-13
 
 A whole-org clone cut once its Bulk API job closed resumes without writing a record twice, and its removal takes what the job wrote.
