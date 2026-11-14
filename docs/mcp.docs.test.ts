@@ -111,7 +111,7 @@ describe('docs/mcp.md', () => {
     expect(SERVER).toContain(`    ${line}\n`);
     const run = [...section('The tools').matchAll(/`sandforge ([a-z]+)\b/g)].map((m) => m[1]);
     // Positive control: the table names the command each tool runs.
-    expect(new Set(run)).toEqual(new Set(['seed', 'clone', 'sync', 'checkpoint', 'env']));
+    expect(new Set(run)).toEqual(new Set(['seed', 'clone', 'sync', 'checkpoint', 'empty', 'env']));
     for (const tool of new Set(run)) {
       expect(
         existsSync(resolve(REPO_ROOT, `packages/extension/cli/sandforge-${tool}.ts`)),
