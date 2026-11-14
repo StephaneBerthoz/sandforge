@@ -16,7 +16,8 @@ import { orgDisplayName } from '@sandforge/shared';
  *
  * The checkpoints this machine keeps of the org before the refresh are
  * named with it: they are of another org now, which no rewind reaches, and
- * the Checkpoints page lists them as such, to be deleted.
+ * each is still exported or replayed into another org, its records made
+ * anew there. The notice said they could only be deleted.
  *
  * @param refresh - The refresh noticed.
  * @param orgManager - Resolves the aliases the user knows the orgs by.
@@ -41,7 +42,7 @@ export function sandboxRefreshNotice(
         );
   if (checkpointsKept <= 0) return notice;
   return `${notice} ${vscode.l10n.t(
-    'Its {0} checkpoint(s) kept on this machine are of the org before the refresh: they can only be deleted.',
+    'Its {0} checkpoint(s) kept on this machine are of the org before the refresh: they no longer bring it back, but each can still be exported, or replayed into another org, where its records are made anew with new ids.',
     checkpointsKept,
   )}`;
 }

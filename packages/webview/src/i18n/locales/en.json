@@ -2058,7 +2058,7 @@
     "backupPartialLead": "Partial: a restore brings back only the rows this backup read, and leaves the rest of each object as it is.",
     "backupStoppedAtCap": "{{object}}: {{read}} of {{held}} rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).",
-    "backupStoppedPastMax": "{{object}}: {{read}} of {{held}} rows read — no backup holds more than 1,000,000 rows of one object, and nothing raises that. Salesforce’s Data Export (Setup) copies the whole object.",
+    "backupStoppedPastMax": "{{object}}: {{read}} of {{held}} rows read — no backup holds more than 1,000,000 rows of one object. Tick “Back up in slices” and back up again: each slice is a backup of its own.",
     "backupReadFailed": "{{object}}: {{read}} of {{held}} rows read — the read failed there.",
     "backupReadFailedUncounted": "{{object}}: {{read}} rows read — the read failed there.",
     "backupNotReached": "{{object}}: not read — the backup failed before it reached this object, and holds none of its rows.",
@@ -2109,9 +2109,7 @@
       "confirmShortfall": "Once masked, these records can never be brought back by a restore:",
       "stoppedAtCap": "{{rows}} (stopped at the cap)",
       "readFailed": "{{rows}} (read failed)",
-      "capHint": "The backup stopped at its cap of rows per object for {{objects}}: raise sandforge.backup.maxRecordsPerObject in Settings and back up again to hold every row.",
-      "capBeyond_one": "No backup holds more than 1,000,000 rows of one object, and nothing raises that, for {{objects}}: mask it in slices from the command line (sandforge dataops anonymize --object and --where), each run taking its own snapshot of what it masks.",
-      "capBeyond_other": "No backup holds more than 1,000,000 rows of one object, and nothing raises that, for {{objects}}: mask each in slices from the command line (sandforge dataops anonymize --object and --where), each run taking its own snapshot of what it masks."
+      "capHint": "The backup stopped at its cap of rows per object for {{objects}}: raise sandforge.backup.maxRecordsPerObject in Settings and back up again to hold every row."
     },
     "compliance": "Compliance",
     "frameworks": {
@@ -2421,7 +2419,123 @@
       "taken_one": "The values before masking are kept in a backup of {{formatted}} record: Restore puts them back.",
       "taken_other": "The values before masking are kept in a backup of {{formatted}} records: Restore puts them back.",
       "openRestore": "Open in Restore",
-      "refused": "No backup could be kept, so nothing was masked. To mask without a way back, untick “Keep the values first” in the confirmation."
+      "refused": "No backup could be kept, so nothing was masked. An object holding more rows than one backup does is masked in slices: tick “Mask in slices” in the confirmation. To mask without a way back, untick “Keep the values first”."
+    },
+    "slices": {
+      "column": "In slices",
+      "columnValue_one": "{{formatted}} slice",
+      "columnValue_other": "{{formatted}} slices",
+      "capBeyond_one": "No backup holds more than 1,000,000 rows of one object, for {{objects}}: with “Keep the values first”, Apply masks it in slices, each backed up just before it is masked.",
+      "capBeyond_other": "No backup holds more than 1,000,000 rows of one object, for {{objects}}: with “Keep the values first”, Apply masks each in slices, each slice backed up just before it is masked.",
+      "plan": {
+        "lead_one": "{{objects}} holds more rows than one backup does: with “Keep the values first”, Apply masks it in slices, each backed up just before it is masked. The run would take:",
+        "lead_other": "{{objects}} hold more rows than one backup does: with “Keep the values first”, Apply masks them in slices, each backed up just before it is masked. The run would take:",
+        "object_one": "{{object}}: {{formatted}} slice of up to {{size}} records",
+        "object_other": "{{object}}: {{formatted}} slices of up to {{size}} records",
+        "approximate": "(from the org's own figure, approximate: it gave up counting)",
+        "requests": "Requests: about {{requests}} (backups {{snapshots}}, updates {{updates}}, reads {{reads}}) of the {{remaining}} the org has left today: {{verdict}}",
+        "requestsUnread": "Requests: about {{requests}} (backups {{snapshots}}, updates {{updates}}, reads {{reads}}). What the org has left today was not read.",
+        "verdict": {
+          "fits": "they fit.",
+          "near": "close to what is left.",
+          "exceeds": "more than is left. The run goes as far as the day allows and stops between two slices; Resume carries on."
+        },
+        "bulk": "Bulk API batches: none. The run writes over REST, 200 records a call.",
+        "disk": "Disk: about {{size}} on this machine, {{free}} free.",
+        "diskUnknown": "Disk: about {{size}} on this machine.",
+        "time": "Time: about {{time}}."
+      },
+      "confirm": {
+        "toggle": "Mask in slices, each backed up just before it is masked",
+        "held_one": "Tick “Mask in slices”: {{objects}} holds more rows than one backup does.",
+        "held_other": "Tick “Mask in slices”: {{objects}} hold more rows than one backup does.",
+        "hint": "If a slice cannot be backed up whole, the run stops there, and the slices before it stay masked with their backups.",
+        "lock": "While the run goes, this window refuses any other backup or restore of {{org}}. That hold lives in this window alone: a restore from the command line or from another window is not held off, so start none until the run ends."
+      },
+      "progress": {
+        "label": "Masking progress",
+        "backingUp": "Backing up {{object}}, slice {{index}} of about {{about}}",
+        "backingUpResumed": "Backing up {{object}}, slice {{index}}",
+        "masking": "Masking {{object}}, slice {{index}} of about {{about}}: {{done}} of {{total}} records",
+        "maskingResumed": "Masking {{object}}, slice {{index}}: {{done}} of {{total}} records"
+      },
+      "result": {
+        "summary_one": "{{done}} of {{formatted}} slice of up to {{size}} records masked, each backed up just before it was masked.",
+        "summary_other": "{{done}} of {{formatted}} slices of up to {{size}} records masked, each backed up just before it was masked.",
+        "abandoned_one": "Run given up: nothing more is masked. Its {{formatted}} masked slice stays masked with its backup, which Restore puts back until it expires; the records no slice reached keep their values.",
+        "abandoned_other": "Run given up: nothing more is masked. Its {{formatted}} masked slices stay masked with their backups, which Restore puts back until they expire; the records no slice reached keep their values.",
+        "budget": "The run stopped between two slices after {{requests}} requests: the next slice would have gone past what it was given, or past the share of the org's day it leaves to integrations.",
+        "late_one": "{{formatted}} record was created during the run in a range a slice had masked: no backup holds it, and it was not masked. Resume masks it, with a backup of its own.",
+        "late_other": "{{formatted}} records were created during the run in a range a slice had masked: no backup holds them, and they were not masked. Resume masks them, with a backup of their own.",
+        "left": "Slices are left. Resume masks the rest, each slice backed up first.",
+        "openRestore": "Open the set in Restore"
+      },
+      "table": {
+        "slice": "Slice",
+        "object": "Object",
+        "rows": "Rows backed up",
+        "masked": "Masked",
+        "refused": "Refused",
+        "deletedSince": "Deleted since",
+        "state": "State",
+        "actions": "Actions",
+        "late": "late",
+        "sizeUsed": "(read in slices of {{size}})"
+      },
+      "state": {
+        "pending": "Not started",
+        "snapshotted": "Backed up",
+        "masking": "Being masked",
+        "masked": "Masked",
+        "restored": "Restored",
+        "restoredOn": "Restored {{date}}"
+      },
+      "set": {
+        "kindMasking": "Masking in slices, {{date}}",
+        "kindBackup": "Backup in slices, {{date}}",
+        "summary_one": "{{formatted}} slice of up to {{size}} records, {{records}} records in all",
+        "summary_other": "{{formatted}} slices of up to {{size}} records, {{records}} records in all",
+        "state": {
+          "open": "Open",
+          "done": "Done",
+          "abandoned": "Given up"
+        },
+        "filtered": "Held to: {{filters}}",
+        "openHeld": "Its masking run is still open: resume it to its end, or abandon it, on the Anonymize tab before restoring. Resumed, it would mask again what a restore puts back.",
+        "expand": "Show its slices",
+        "collapse": "Hide its slices",
+        "restoreAll": "Restore all",
+        "restoreSlice": "Restore slice {{index}}",
+        "delete": "Delete the set",
+        "deleteConfirm": "Delete this set, and the backup of each of its slices, from this machine? The values they hold unencrypted are gone for good, and none can be restored any more.",
+        "confirmTitleAll": "Restore the set of {{date}} into {{org}}?",
+        "confirmTitleSlice": "Restore slice {{index}} of the set of {{date}} into {{org}}?",
+        "confirmDescription": "Each slice goes back in order, from its own backup: rows changed since get the backup's values back, whoever changed them. Stopped, the same Restore carries on from the first slice not restored.",
+        "cost": "About {{requests}} requests, no Bulk API batch.",
+        "result": "Slices restored: {{restored}}. Restored before, not read again: {{skipped}}."
+      },
+      "open": {
+        "notice": "A run of this template in slices is open on this org: {{done}} of {{total}} slices of up to {{size}} records masked, last moved {{date}}.",
+        "ways": "Apply waits until it is resumed to its end or abandoned.",
+        "abandonOnly": "It can no longer be resumed from here, its template's rules having changed since: Apply waits until it is abandoned.",
+        "resume": "Resume the run in slices",
+        "abandon": "Abandon the run",
+        "abandonTitle": "Abandon the run in slices of “{{name}}” on {{org}}?",
+        "abandonDescription_one": "Nothing more is masked. Its {{formatted}} masked slice stays masked, with its backup, which Restore puts back until it expires; the records no slice reached keep their values. A new Apply masks with another key: the same address gets another digest.",
+        "abandonDescription_other": "Nothing more is masked. Its {{formatted}} masked slices stay masked, with their backups, which Restore puts back until they expire; the records no slice reached keep their values. A new Apply masks with another key: the same address gets another digest.",
+        "abandonConfirm": "Abandon the run"
+      },
+      "backup": {
+        "toggle": "Back up in slices",
+        "hint_one": "{{objects}} holds more rows than one backup does: in slices, each slice is a backup of its own, and Restore lists them as one set.",
+        "hint_other": "{{objects}} hold more rows than one backup does: in slices, each slice is a backup of its own, and Restore lists them as one set."
+      },
+      "notify": {
+        "done": "Masking in slices finished: {{done}} of {{total}} slices masked, each with its backup.",
+        "open": "Masking in slices stopped with slices left: {{done}} of {{total}} masked. Resume, on the Anonymize tab, carries on.",
+        "late_one": "Masking in slices finished, but {{formatted}} record created during the run was not masked: Resume, on the Anonymize tab, masks it.",
+        "late_other": "Masking in slices finished, but {{formatted}} records created during the run were not masked: Resume, on the Anonymize tab, masks them."
+      }
     },
     "backupDeleteConfirmSync": "Delete this backup? It holds what the Sync run of {{date}} wrote over: removing that run in Sync will no longer put these values back, and they are gone for good from this machine.",
     "restoreSyncPartial": "The Sync run is still writing, or stopped before it ended — its window closed, or the extension stopped: this backup holds what it had kept by then.",

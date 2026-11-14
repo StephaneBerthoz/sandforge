@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { RestorePanel } from './RestorePanel';
-import type { BackupSummary } from '@sandforge/shared';
+import type { BackupSetSummary, BackupSummary } from '@sandforge/shared';
 
 const backups: BackupSummary[] = [
   {
@@ -671,6 +671,96 @@ describe('RestorePanel', () => {
 
       expect(screen.getByTestId('restore-kept-changed').textContent).toContain(
         en.dataops.restoreRunNotKept,
+      );
+    });
+  });
+
+  describe('a set of slices', () => {
+    /** A masking set of three slices, the second restored before. */
+    const set: BackupSetSummary = {
+      setId: 'set-1',
+      orgId: 'org-1',
+      kind: 'masking',
+      state: 'done',
+      startedAt: '2026-11-14T08:00:00.000Z',
+      lastActivityAt: '2026-11-14T09:00:00.000Z',
+      size: 1_000,
+      totalRecords: 2_500,
+      slices: [1, 2, 3].map((index) => ({
+        index,
+        objectApiName: 'Contact',
+        snapshotId: `set-1-s000${index}`,
+        rows: index === 3 ? 500 : 1_000,
+        masked: index === 3 ? 500 : 1_000,
+        refused: 0,
+        deletedSince: 0,
+        nothingToMask: 0,
+        state: index === 2 ? ('restored' as const) : ('masked' as const),
+        ...(index === 2 ? { restoredAt: '2026-11-14T10:00:00.000Z' } : {}),
+      })),
+    };
+
+    it('lists the set beside the backups, and offers nothing empty', () => {
+      render(<RestorePanel orgName="dev1" sets={[set]} onCreateBackup={vi.fn()} />);
+
+      expect(screen.getByTestId('restore-set-set-1')).toBeDefined();
+      expect(screen.queryByText(en.dataops.restoreEmptyDesc)).toBeNull();
+    });
+
+    it('asks before a restore of the set, naming what it puts back and what it costs', () => {
+      const onRestoreSet = vi.fn();
+      render(<RestorePanel orgName="dev1" sets={[set]} onRestoreSet={onRestoreSet} />);
+
+      fireEvent.click(screen.getByTestId('restore-set-set-1-all'));
+      expect(onRestoreSet).not.toHaveBeenCalled();
+      // The slice restored before is not read again: 1,500 rows, not 2,500.
+      expect(screen.getByTestId('restore-set-confirm-objects').textContent).toContain(
+        'Contact: 1,500 records',
+      );
+      expect(screen.getByTestId('restore-set-cost').textContent).toBe(
+        'About 16 requests, no Bulk API batch.',
+      );
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onRestoreSet).toHaveBeenCalledWith('set-1', undefined);
+    });
+
+    it('counts the slice restored before once every row is written back', () => {
+      render(<RestorePanel orgName="dev1" sets={[set]} onRestoreSet={vi.fn()} rewriteAll />);
+      fireEvent.click(screen.getByTestId('restore-set-set-1-all'));
+
+      expect(screen.getByTestId('restore-set-confirm-objects').textContent).toContain(
+        'Contact: 2,500 records',
+      );
+    });
+
+    it('counts the sets among the backups a Delete all deletes', () => {
+      render(
+        <RestorePanel orgName="dev1" backups={[backups[0]]} sets={[set]} onDeleteAll={vi.fn()} />,
+      );
+      fireEvent.click(screen.getByTestId('delete-all-backups-btn'));
+
+      expect(screen.getByTestId('delete-backup-question').textContent).toContain(
+        'Delete the 2 backups of this org',
+      );
+    });
+
+    it('says which slices the last restore wrote back and which it did not read again', () => {
+      render(
+        <RestorePanel
+          orgName="dev1"
+          sets={[set]}
+          lastRestore={{
+            written: 10,
+            unchanged: 0,
+            failed: 0,
+            slices: { restored: [1, 3], skipped: [2] },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-set-result').textContent).toBe(
+        'Slices restored: 1, 3. Restored before, not read again: 2.',
       );
     });
   });

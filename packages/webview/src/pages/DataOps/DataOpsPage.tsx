@@ -6,10 +6,12 @@ import type {
   BackupDeleteResult,
   BackupExportResult,
   BackupObjectsResponse,
+  BackupSetSummary,
   BackupSummary,
   DataOpsAnonymizeCoverageResponse,
   DataOpsAnonymizePreviewResponse,
   ListedAnonymizationTemplate,
+  SliceSetResult,
 } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -19,6 +21,7 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
@@ -69,6 +72,43 @@ function readSnapshot(
     : null;
 }
 
+/**
+ * The set of a masking run in slices, as its answer says it once it ended —
+ * or as an answer that gave the set up says it —, or none: a run of no slice.
+ */
+function readSliceRun(
+  answer: Record<string, unknown> | null,
+): { result: SliceSetResult; abandoned?: boolean } | null {
+  const slices = answer?.slices;
+  if (typeof slices !== 'object' || slices === null) return null;
+  const result = slices as Partial<SliceSetResult>;
+  if (typeof result.setId !== 'string' || !Array.isArray(result.objects)) return null;
+  return {
+    result: slices as SliceSetResult,
+    ...(answer?.abandoned === true ? { abandoned: true } : {}),
+  };
+}
+
+/**
+ * The objects Backup reads that hold more rows than one backup does: those
+ * the masking coverage plans in more than one slice, and those the latest
+ * backup holding them stopped at the cap for. A backup of them in slices
+ * holds them whole; one without, the rows up to the cap.
+ */
+function pastOneBackup(
+  objects: readonly string[],
+  backups: readonly BackupSummary[],
+  coverage: DataOpsAnonymizeCoverageResponse['payload'] | null,
+): string[] {
+  const latest = [...backups].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  return objects.filter((name) => {
+    const planned = coverage?.objects.find((o) => o.objectApiName === name)?.slicePlan;
+    if (planned && planned.slices > 1) return true;
+    const held = latest.flatMap((b) => b.objectResults).find((o) => o.objectApiName === name);
+    return held?.stoppedAt === 'cap';
+  });
+}
+
 /** What Backup read whatever the templates masked, kept for an org that lists none. */
 const DEFAULT_BACKUP_OBJECTS = ['Account', 'Contact'];
 
@@ -89,6 +129,21 @@ function keptChangedOf(value: unknown): RestoreCounts['keptChanged'] {
   });
   if (counted.length === 0) return undefined;
   return { objects: counted, ...(runNotKept === true ? { runNotKept: true } : {}) };
+}
+
+/**
+ * Of a restore of a set of slices, the slices it wrote back and those it
+ * did not read again, restored before, as its answer lists them; undefined
+ * for a restore of no set.
+ */
+function restoredSlicesOf(value: unknown): RestoreCounts['slices'] {
+  if (!Array.isArray(value)) return undefined;
+  const indexes = (skipped: boolean): number[] =>
+    value.flatMap((slice: unknown) => {
+      const { index, skipped: was } = (slice ?? {}) as { index?: unknown; skipped?: unknown };
+      return typeof index === 'number' && (was === true) === skipped ? [index] : [];
+    });
+  return { restored: indexes(false), skipped: indexes(true) };
 }
 
 /** Main DataOps page — wired to extension via bridge hooks. */
@@ -152,7 +207,7 @@ export const DataOpsPage: React.FC = () => {
   // The request type was declared in no Zod member, so the broker rejected the
   // message and this query never resolved — the list stayed empty and the KPI
   // row read 0 until the 30 s timeout turned it into an error banner.
-  const backupsQuery = useBridgeQuery<{ backups: BackupSummary[] }>(
+  const backupsQuery = useBridgeQuery<{ backups: BackupSummary[]; sets?: BackupSetSummary[] }>(
     'backup:list',
     currentOrg ? { orgId: currentOrg.id } : undefined,
     {
@@ -206,6 +261,15 @@ export const DataOpsPage: React.FC = () => {
     errorType: 'dataops:error',
   });
 
+  /**
+   * Bridge mutation: give up the run in slices of a template left open on the
+   * org. It masks nothing and writes nothing to the org: its answer is the
+   * set, given up.
+   */
+  const abandonMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
+    responseType: 'dataops:anonymize:response',
+  });
+
   /** Bridge mutation: anonymize data. */
   const anonymizeMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
     responseType: 'dataops:anonymize:response',
@@ -238,6 +302,19 @@ export const DataOpsPage: React.FC = () => {
     anonymizeMutation.loading ? anonymizeMutation.requestId : null,
     cancelRefused,
   );
+  /**
+   * Where the masking run is, as the extension reports it under the id of the
+   * request that started it: of a run in slices, which can take hours, the
+   * slice and its phase. The tab said nothing but Stop while a run went.
+   */
+  const { getProgress } = useOperationProgress();
+  const anonymizeReported =
+    anonymizeMutation.loading && anonymizeMutation.requestId
+      ? getProgress(anonymizeMutation.requestId)
+      : undefined;
+  const anonymizeProgress = anonymizeReported
+    ? { percentage: anonymizeReported.percentage, step: anonymizeReported.currentStep }
+    : null;
 
   /**
    * Bridge query: load anonymization templates.
@@ -314,6 +391,9 @@ export const DataOpsPage: React.FC = () => {
 
   // Derive backups from bridge query + mutation results
   const backups = backupsQuery.data?.backups ?? [];
+  // The sets of slices of the org, one entry each: a slice is restored and
+  // deleted with its set, and is listed in none of the backups.
+  const sets = useMemo(() => backupsQuery.data?.sets ?? [], [backupsQuery.data]);
 
   // What Backup reads: the objects the picked template masks, or, with none
   // picked, every object a listed template masks — what an Anonymize writes
@@ -328,6 +408,14 @@ export const DataOpsPage: React.FC = () => {
   const templateObjects = maskedObjects(pickedTemplate ? [pickedTemplate] : templates);
   const plannedObjects = backupObjectsQuery.data?.objects ?? templateObjects;
   const backupObjects = plannedObjects.length > 0 ? plannedObjects : DEFAULT_BACKUP_OBJECTS;
+  // Of those, the ones past what one backup holds, which a backup in slices
+  // holds whole: offered then, and only then, as its box.
+  const coverageOfPicked =
+    coverageQuery.data && coverageQuery.data.templateId === selectedTemplateId
+      ? coverageQuery.data
+      : null;
+  const backupSliced = pastOneBackup(backupObjects, backups, coverageOfPicked);
+  const [backupInSlices, setBackupInSlices] = useState(false);
 
   // A run that stopped short leaves a checkpoint to resume, and one that
   // finished forgets it: the coverage answer says which, so it is asked again
@@ -337,15 +425,68 @@ export const DataOpsPage: React.FC = () => {
   useEffect(() => {
     if (anonymizeEnded) refetchCoverage.current();
   }, [anonymizeEnded, refetchCoverage]);
+  // A set given up is no longer open: Apply is offered again, and the set,
+  // listed in Restore, says so.
+  const abandonEnded = abandonMutation.data ?? abandonMutation.error;
+  const refetchAfterAbandon = useLatestRef(() => {
+    coverageQuery.refetch();
+    backupsQuery.refetch();
+  });
+  useEffect(() => {
+    if (abandonEnded) refetchAfterAbandon.current();
+  }, [abandonEnded, refetchAfterAbandon]);
 
   // The snapshot a run took before it masked is a backup of the org: listed
-  // once the run ends, so Restore offers it.
+  // once the run ends, so Restore offers it. So is the set of a run in
+  // slices, each slice's backup in it.
   const anonymizeAnswer = anonymizeMutation.data;
   const anonymizeSnapshot = useMemo(() => readSnapshot(anonymizeAnswer), [anonymizeAnswer]);
+  const anonymizeSlices = useMemo(() => readSliceRun(anonymizeAnswer), [anonymizeAnswer]);
+  const abandonAnswer = abandonMutation.data;
+  const abandonedSlices = useMemo(() => readSliceRun(abandonAnswer), [abandonAnswer]);
+  /** The run in slices the tab says the end of: the last one masked, or the set given up since. */
+  const [sliceRunShown, setSliceRunShown] = useState<'run' | 'abandon'>('run');
+  const sliceRun = sliceRunShown === 'abandon' ? abandonedSlices : anonymizeSlices;
   const refetchBackupsOnSnapshot = useLatestRef(() => backupsQuery.refetch());
   useEffect(() => {
-    if (anonymizeSnapshot) refetchBackupsOnSnapshot.current();
-  }, [anonymizeSnapshot, refetchBackupsOnSnapshot]);
+    if (anonymizeSnapshot || anonymizeSlices) refetchBackupsOnSnapshot.current();
+  }, [anonymizeSnapshot, anonymizeSlices, refetchBackupsOnSnapshot]);
+
+  // A run in slices can take hours, the tab left meanwhile: its end is said
+  // where any tab shows it, in the interface language — every slice masked,
+  // slices left for Resume, or records created during the run left unmasked.
+  const announceSliceRun = useLatestRef((run: { result: SliceSetResult }) => {
+    const slices = run.result.objects.flatMap((o) => o.slices);
+    const done = slices.filter((s) => s.state === 'masked').length;
+    const counts = { done: formatNumber(done), total: formatNumber(slices.length) };
+    const late = run.result.lateRecords;
+    addNotification(
+      late > 0
+        ? {
+            level: 'warning',
+            title: t('dataops.title'),
+            message: t('dataops.slices.notify.late', {
+              count: late,
+              formatted: formatNumber(late),
+            }),
+          }
+        : run.result.state === 'open'
+          ? {
+              level: 'warning',
+              title: t('dataops.title'),
+              message: t('dataops.slices.notify.open', counts),
+            }
+          : {
+              level: 'success',
+              title: t('dataops.title'),
+              message: t('dataops.slices.notify.done', counts),
+              autoDismissMs: 6000,
+            },
+    );
+  });
+  useEffect(() => {
+    if (anonymizeSlices) announceSliceRun.current(anonymizeSlices);
+  }, [anonymizeSlices, announceSliceRun]);
 
   // A backup that ends, however it ends, is listed: one that stopped at the
   // cap, or whose read failed part-way, says so in the list, and the list was
@@ -375,6 +516,7 @@ export const DataOpsPage: React.FC = () => {
       exportMutation.error ??
       deleteBackupsMutation.error ??
       anonymizeMutation.error ??
+      abandonMutation.error ??
       previewMutation.error ??
       templatesQuery.error ??
       saveTemplateMutation.error ??
@@ -394,6 +536,7 @@ export const DataOpsPage: React.FC = () => {
     exportMutation.error,
     deleteBackupsMutation.error,
     anonymizeMutation.error,
+    abandonMutation.error,
     previewMutation.error,
     templatesQuery.error,
     saveTemplateMutation.error,
@@ -441,6 +584,8 @@ export const DataOpsPage: React.FC = () => {
     backupMutation.mutate({
       orgId: currentOrg.id,
       objects: backupObjects,
+      // Offered only for an object past one backup, and asked, never assumed.
+      ...(backupInSlices && backupSliced.length > 0 ? { slices: true } : {}),
     });
   };
 
@@ -460,9 +605,30 @@ export const DataOpsPage: React.FC = () => {
       ...ASKED_FROM_PAGE,
     });
   };
+  /**
+   * Restore a set of slices: every slice not restored yet, or the slices
+   * named, each from its own backup, in order.
+   */
+  const handleRestoreSet = (
+    setId: string,
+    slices: number[] | undefined,
+    accord?: DataOpsAutomationAccord,
+  ) => {
+    if (!currentOrg) return;
+    setError(null);
+    rollbackMutation.mutate({
+      orgId: currentOrg.id,
+      operationId: setId,
+      ...(slices ? { slices } : {}),
+      ...(rewriteAll ? { rewriteAll: true } : {}),
+      ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
+    });
+  };
   /** What the last restore wrote, left alone and had refused, from its answer. */
   const restored = rollbackMutation.data;
   const keptChanged = keptChangedOf(restored?.keptChanged);
+  const restoredSlices = restoredSlicesOf(restored?.slices);
   const lastRestore =
     restored && typeof restored.totalRestored === 'number'
       ? {
@@ -470,6 +636,7 @@ export const DataOpsPage: React.FC = () => {
           unchanged: typeof restored.totalUnchanged === 'number' ? restored.totalUnchanged : 0,
           failed: typeof restored.totalFailed === 'number' ? restored.totalFailed : 0,
           ...(keptChanged ? { keptChanged } : {}),
+          ...(restoredSlices ? { slices: restoredSlices } : {}),
         }
       : undefined;
 
@@ -556,40 +723,60 @@ export const DataOpsPage: React.FC = () => {
   // on an org with no backup had no way back.
   const handleApplyAnonymize = (
     templateId: string,
-    options: { snapshot: boolean; accord?: DataOpsAutomationAccord },
+    options: { snapshot: boolean; slices?: true; accord?: DataOpsAutomationAccord },
   ) => {
     if (!currentOrg) return;
     setError(null);
     previewMutation.reset();
+    setSliceRunShown('run');
     anonymizeMutation.mutate({
       orgId: currentOrg.id,
       templateId,
       ...(options.snapshot ? { snapshot: true } : {}),
+      // In slices, each backed up just before it is masked: a slice is a snapshot.
+      ...(options.snapshot && options.slices ? { slices: true } : {}),
       ...accordPayloadOf(options.accord),
       ...ASKED_FROM_PAGE,
     });
   };
 
-  /** Open the Restore tab on the snapshot a masking run took. */
+  /** Open the Restore tab on the snapshot a masking run took, or on its set of slices. */
   const openRestoreOn = (operationId: string) => {
     setSelectedBackupId(operationId);
     setActiveTab('restore');
   };
 
-  // Masks only what the run that stopped short left, from where it stopped.
+  // Masks only what the run that stopped short left, from where it stopped:
+  // of a run in slices, its set, with the key it was masked with.
   const handleResumeAnonymize = (
     templateId: string,
     resumeFrom: string,
     accord?: DataOpsAutomationAccord,
+    options?: { slices: true },
   ) => {
     if (!currentOrg) return;
     setError(null);
     previewMutation.reset();
+    setSliceRunShown('run');
     anonymizeMutation.mutate({
       orgId: currentOrg.id,
       templateId,
       resumeFrom,
+      ...(options?.slices ? { slices: true } : {}),
       ...accordPayloadOf(accord),
+      ...ASKED_FROM_PAGE,
+    });
+  };
+
+  // Gives the run in slices up: nothing more is masked, its slices stay.
+  const handleAbandonAnonymize = (templateId: string) => {
+    if (!currentOrg) return;
+    setError(null);
+    setSliceRunShown('abandon');
+    abandonMutation.mutate({
+      orgId: currentOrg.id,
+      templateId,
+      abandon: true,
       ...ASKED_FROM_PAGE,
     });
   };
@@ -618,7 +805,10 @@ export const DataOpsPage: React.FC = () => {
   // records the backups hold; "Error Rate", failed backups over objects
   // backed up, 0.0% beside a backup whose read had failed; and "Anonymized
   // Templates", which anonymize nothing.
-  const backedUpRecords = backups.reduce((sum, b) => sum + b.totalRecords, 0);
+  // A set of slices is one backup of the org, whatever its slices.
+  const backedUpRecords =
+    backups.reduce((sum, b) => sum + b.totalRecords, 0) +
+    sets.reduce((sum, s) => sum + s.totalRecords, 0);
   const partialBackups = backups.filter((b) => b.partial === true || b.status === 'failed').length;
   const templateCount = templates.length;
 
@@ -712,7 +902,7 @@ export const DataOpsPage: React.FC = () => {
                 className="h-full"
                 icon="archive"
                 label={t('dataops.kpi.backups', { org: orgName })}
-                value={formatNumber(backups.length)}
+                value={formatNumber(backups.length + sets.length)}
                 subtitle={t('common.recordCountFormatted', {
                   count: backedUpRecords,
                   formatted: formatNumber(backedUpRecords),
@@ -758,8 +948,13 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'backup' && !tabLoading && (
             <BackupPanel
               backups={backups}
+              sets={sets}
               objects={backupObjects}
               template={pickedTemplate?.name}
+              slicesOffered={backupSliced}
+              inSlices={backupInSlices}
+              onInSlicesChange={setBackupInSlices}
+              onOpenSet={openRestoreOn}
               onCreate={handleCreateBackup}
               onExport={handleExportBackup}
               // Nothing held the button while a backup read, nor stopped it.
@@ -776,6 +971,8 @@ export const DataOpsPage: React.FC = () => {
               {...(currentOrg ? { orgId: currentOrg.id } : {})}
               onCreateBackup={() => setActiveTab('backup')}
               backups={backups}
+              sets={sets}
+              onRestoreSet={handleRestoreSet}
               selectedBackupId={selectedBackupId}
               onSelectBackup={(operationId) => {
                 // The choice is made of one backup: another starts without it.
@@ -817,9 +1014,14 @@ export const DataOpsPage: React.FC = () => {
               preview={previewMutation.data}
               onApply={handleApplyAnonymize}
               onResume={handleResumeAnonymize}
+              onAbandon={handleAbandonAnonymize}
+              isAbandoning={abandonMutation.loading}
               // Nothing held the buttons while a run went on, so a second
               // click started a second run over the same records.
               isApplying={anonymizeMutation.loading}
+              progress={anonymizeProgress}
+              sliceRun={sliceRun}
+              onOpenSet={openRestoreOn}
               coverage={coverageQuery.data}
               onStop={anonymizeStop.cancel}
               stopRequested={anonymizeStop.requested}

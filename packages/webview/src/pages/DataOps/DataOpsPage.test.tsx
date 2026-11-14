@@ -78,6 +78,20 @@ let mockAnonymizeMutationState = {
   reset: mockAnonymizeReset,
 };
 
+/**
+ * Mutable mutation state for the `dataops:anonymize` that gives a run in
+ * slices up: the page's second mutation of that type, which waits no longer
+ * than a request does.
+ */
+const mockAbandonMutate = vi.fn();
+let mockAbandonMutationState = {
+  mutate: mockAbandonMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
 /** Mutable mutation state for dataops:anonymization-template:save. */
 let mockSaveTemplateMutationState = {
   mutate: vi.fn(),
@@ -188,6 +202,10 @@ const NOTHING_FIRES = {
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { timeoutMs?: number }) => {
+    // Giving a run in slices up is the masking request too, waited on as any request.
+    if (type === 'dataops:anonymize' && options?.timeoutMs === undefined) {
+      return mockAbandonMutationState;
+    }
     mutationOptions[type] = options;
     if (type === 'dataops:automation') {
       return {
@@ -295,6 +313,14 @@ describe('DataOpsPage', () => {
     };
     mockRollbackMutationState = {
       mutate: mockRollbackMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+    mockAbandonMutate.mockClear();
+    mockAbandonMutationState = {
+      mutate: mockAbandonMutate,
       data: null,
       loading: false,
       error: null,
@@ -1659,6 +1685,280 @@ describe('DataOpsPage', () => {
         acceptAutomation: true,
         fromPage: true,
       });
+    });
+  });
+
+  describe('masking and backing up in slices', () => {
+    const templateList = {
+      templates: [
+        {
+          id: 'tpl-1',
+          name: 'GDPR Template',
+          description: 'Anonymize PII',
+          rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' }],
+          complianceFramework: 'gdpr',
+        },
+      ],
+    };
+    /** The coverage of an org whose contacts hold more rows than one backup does. */
+    const past = {
+      templateId: 'tpl-1',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          count: 3_002,
+          backedUp: 0,
+          truncated: false,
+          slicePlan: { objectApiName: 'Contact', size: 1_000, slices: 4 },
+        },
+      ],
+      plan: {
+        requests: 40,
+        parts: { snapshots: 6, updates: 17, reads: 17 },
+        bulkBatches: 0,
+        diskBytes: 1_000_000,
+        seconds: 60,
+        apiBudget: { verdict: 'fits', remaining: 4_861_233, max: 5_000_000 },
+      },
+    };
+    /** A set of slices as `backup:list` gives it. */
+    const set = {
+      setId: 'set-1',
+      orgId: 'org-1',
+      kind: 'masking',
+      state: 'done',
+      startedAt: '2026-11-14T08:00:00.000Z',
+      lastActivityAt: '2026-11-14T09:00:00.000Z',
+      size: 1_000,
+      totalRecords: 2_000,
+      templateId: 'tpl-1',
+      slices: [1, 2].map((index) => ({
+        index,
+        objectApiName: 'Contact',
+        snapshotId: `set-1-s000${index}`,
+        rows: 1_000,
+        masked: 1_000,
+        refused: 0,
+        deletedSince: 0,
+        nothingToMask: 0,
+        state: 'masked',
+      })),
+    };
+
+    beforeEach(() => {
+      mockTemplatesQueryState = {
+        data: templateList,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      useNotificationStore.setState({ notifications: [] });
+    });
+
+    /** Open the Anonymize tab on the template, the coverage answering `coverage`. */
+    const openTemplate = (coverage: Record<string, unknown>) => {
+      mockCoverageData = coverage;
+      const view = render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+      fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
+      return view;
+    };
+
+    it('masks in slices, each a snapshot, once the confirmation’s box asks for them', () => {
+      openTemplate(past);
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+      fireEvent.click(screen.getByTestId('confirm-slices-toggle'));
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(mockAnonymizeMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        templateId: 'tpl-1',
+        snapshot: true,
+        slices: true,
+        acceptAutomation: true,
+        fromPage: true,
+      });
+      mockCoverageData = null;
+    });
+
+    it('resumes an open set in slices, and gives one up with a request that masks nothing', () => {
+      openTemplate({
+        ...past,
+        checkpoint: { id: 'ck-1', savedAt: '2026-11-14T10:00:00.000Z' },
+        sliceSet: {
+          setId: 'set-1',
+          savedAt: '2026-11-14T10:00:00.000Z',
+          done: 2,
+          total: 4,
+          state: 'open',
+          size: 1_000,
+        },
+      });
+
+      fireEvent.click(screen.getByTestId('resume-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(mockAnonymizeMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        templateId: 'tpl-1',
+        resumeFrom: 'ck-1',
+        slices: true,
+        acceptAutomation: true,
+        fromPage: true,
+      });
+
+      fireEvent.click(screen.getByTestId('abandon-btn'));
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(mockAbandonMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        templateId: 'tpl-1',
+        abandon: true,
+        fromPage: true,
+      });
+      mockCoverageData = null;
+    });
+
+    it('asks the coverage and the list again once a set is given up', () => {
+      const { rerender } = openTemplate(past);
+      mockCoverageRefetch.mockClear();
+      const listAgain = mockBackupsQueryState.refetch;
+
+      mockAbandonMutationState = {
+        ...mockAbandonMutationState,
+        data: { status: 'success', abandoned: true, slices: { setId: 'set-1', objects: [] } },
+      };
+      rerender(<DataOpsPage />);
+
+      expect(mockCoverageRefetch).toHaveBeenCalledTimes(1);
+      expect(listAgain).toHaveBeenCalled();
+      mockCoverageData = null;
+    });
+
+    it('says a run in slices ended, slices left or not, where any tab shows it', () => {
+      const { rerender } = render(<DataOpsPage />);
+      const result = (state: string) => ({
+        status: 'success',
+        slices: {
+          setId: 'set-1',
+          size: 1_000,
+          state,
+          objects: [{ objectApiName: 'Contact', slices: set.slices }],
+          lateRecords: 0,
+          requestsSpent: 40,
+          slicesLeft: state === 'open',
+        },
+      });
+
+      mockAnonymizeMutationState = { ...mockAnonymizeMutationState, data: result('done') };
+      rerender(<DataOpsPage />);
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({
+          level: 'success',
+          message: 'Masking in slices finished: 2 of 2 slices masked, each with its backup.',
+        }),
+      ]);
+
+      useNotificationStore.setState({ notifications: [] });
+      mockAnonymizeMutationState = { ...mockAnonymizeMutationState, data: result('open') };
+      rerender(<DataOpsPage />);
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({
+          level: 'warning',
+          message:
+            'Masking in slices stopped with slices left: 2 of 2 masked. Resume, on the ' +
+            'Anonymize tab, carries on.',
+        }),
+      ]);
+    });
+
+    it('lists the org’s sets in Restore, and restores one slice of one by its set', () => {
+      mockBackupsQueryState = {
+        data: { backups: [], sets: [set] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+
+      fireEvent.click(screen.getByTestId('restore-set-set-1-toggle'));
+      fireEvent.click(screen.getByTestId('restore-set-set-1-slices-2-restore'));
+      expect(mockRollbackMutate).not.toHaveBeenCalled();
+      expect(screen.getByTestId('danger-title').textContent).toMatch(/^Restore slice 2 of the set/);
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(mockRollbackMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        operationId: 'set-1',
+        slices: [2],
+        acceptAutomation: true,
+        fromPage: true,
+      });
+    });
+
+    it('counts a set among the org’s backups', () => {
+      mockBackupsQueryState = {
+        data: { backups: [], sets: [set] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      render(<DataOpsPage />);
+
+      const row = screen.getByTestId('dataops-kpi-row');
+      expect(row.textContent).toContain('2,000 records');
+    });
+
+    it('offers a backup in slices of an object the last backup stopped at the cap for, and takes it so', () => {
+      mockBackupObjectsData = { objects: ['Contact'] };
+      mockBackupsQueryState = {
+        data: {
+          backups: [
+            {
+              operationId: 'op-1',
+              orgId: 'org-1',
+              timestamp: '2026-11-14T08:00:00.000Z',
+              totalRecords: 1_000,
+              totalSize: 0,
+              status: 'completed',
+              partial: true,
+              objectResults: [
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 1_000,
+                  orgCount: 3_002,
+                  truncated: true,
+                  stoppedAt: 'cap',
+                },
+              ],
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      render(<DataOpsPage />);
+
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+      expect(mockBackupMutate).toHaveBeenLastCalledWith({ orgId: 'org-1', objects: ['Contact'] });
+
+      fireEvent.click(screen.getByTestId('backup-slices-toggle'));
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+      expect(mockBackupMutate).toHaveBeenLastCalledWith({
+        orgId: 'org-1',
+        objects: ['Contact'],
+        slices: true,
+      });
+    });
+
+    it('offers no backup in slices while every object fits one', () => {
+      mockBackupObjectsData = { objects: ['Contact'] };
+      render(<DataOpsPage />);
+
+      expect(screen.queryByTestId('backup-slices-toggle')).toBeNull();
     });
   });
 });

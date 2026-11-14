@@ -2058,7 +2058,7 @@
     "backupPartialLead": "Parcial: una restauración solo recupera las filas que leyó este respaldo y deja el resto de cada objeto como está.",
     "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
-    "backupStoppedPastMax": "{{object}}: {{read}} de {{held}} filas leídas — ningún respaldo guarda más de 1.000.000 de filas de un objeto, y nada eleva ese límite. La Exportación de datos de Salesforce (Configuración) copia el objeto entero.",
+    "backupStoppedPastMax": "{{object}}: {{read}} de {{held}} filas leídas — ningún respaldo guarda más de 1.000.000 de filas de un objeto. Marque «Respaldar por tramos» y vuelva a hacer el respaldo: cada tramo es un respaldo propio.",
     "backupReadFailed": "{{object}}: {{read}} de {{held}} filas leídas — la lectura falló ahí.",
     "backupReadFailedUncounted": "{{object}}: {{read}} filas leídas — la lectura falló ahí.",
     "backupNotReached": "{{object}}: no leído — el respaldo falló antes de llegar a este objeto y no contiene ninguna de sus filas.",
@@ -2109,9 +2109,7 @@
       "confirmShortfall": "Una vez enmascarados, una restauración nunca podrá devolver estos registros:",
       "stoppedAtCap": "{{rows}} (se detuvo en el límite)",
       "readFailed": "{{rows}} (la lectura falló)",
-      "capHint": "El respaldo se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer el respaldo para conservar todas las filas.",
-      "capBeyond_one": "Ningún respaldo guarda más de 1.000.000 de filas de un objeto, y nada eleva ese límite, para {{objects}}: enmascárelo por tramos desde la línea de comandos (sandforge dataops anonymize --object y --where), cada ejecución con su propia instantánea de lo que enmascara.",
-      "capBeyond_other": "Ningún respaldo guarda más de 1.000.000 de filas de un objeto, y nada eleva ese límite, para {{objects}}: enmascare cada uno por tramos desde la línea de comandos (sandforge dataops anonymize --object y --where), cada ejecución con su propia instantánea de lo que enmascara."
+      "capHint": "El respaldo se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer el respaldo para conservar todas las filas."
     },
     "compliance": "Cumplimiento",
     "frameworks": {
@@ -2421,7 +2419,123 @@
       "taken_one": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registro: Restaurar los devuelve.",
       "taken_other": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registros: Restaurar los devuelve.",
       "openRestore": "Abrir en Restaurar",
-      "refused": "No se pudo conservar ningún respaldo, así que no se enmascaró nada. Para enmascarar sin vuelta atrás, desmarque «Conservar primero los valores» en la confirmación."
+      "refused": "No se pudo conservar ningún respaldo, así que no se enmascaró nada. Un objeto con más filas de las que guarda un respaldo se enmascara por tramos: marque «Enmascarar por tramos» en la confirmación. Para enmascarar sin vuelta atrás, desmarque «Conservar primero los valores»."
+    },
+    "slices": {
+      "column": "Por tramos",
+      "columnValue_one": "{{formatted}} tramo",
+      "columnValue_other": "{{formatted}} tramos",
+      "capBeyond_one": "Ningún respaldo guarda más de 1.000.000 de filas de un objeto, para {{objects}}: con «Conservar primero los valores», Aplicar lo enmascara por tramos, cada uno respaldado justo antes de enmascararlo.",
+      "capBeyond_other": "Ningún respaldo guarda más de 1.000.000 de filas de un objeto, para {{objects}}: con «Conservar primero los valores», Aplicar enmascara cada uno por tramos, cada tramo respaldado justo antes de enmascararlo.",
+      "plan": {
+        "lead_one": "{{objects}} tiene más filas de las que guarda un respaldo: con «Conservar primero los valores», Aplicar lo enmascara por tramos, cada uno respaldado justo antes de enmascararlo. La ejecución tomaría:",
+        "lead_other": "{{objects}} tienen más filas de las que guarda un respaldo: con «Conservar primero los valores», Aplicar los enmascara por tramos, cada uno respaldado justo antes de enmascararlo. La ejecución tomaría:",
+        "object_one": "{{object}}: {{formatted}} tramo de {{size}} registros como máximo",
+        "object_other": "{{object}}: {{formatted}} tramos de {{size}} registros como máximo",
+        "approximate": "(según la cifra propia de la org, aproximada: dejó de contar)",
+        "requests": "Solicitudes: unas {{requests}} (respaldos {{snapshots}}, actualizaciones {{updates}}, lecturas {{reads}}) de las {{remaining}} que le quedan hoy a la org: {{verdict}}",
+        "requestsUnread": "Solicitudes: unas {{requests}} (respaldos {{snapshots}}, actualizaciones {{updates}}, lecturas {{reads}}). No se leyó lo que le queda hoy a la org.",
+        "verdict": {
+          "fits": "caben.",
+          "near": "cerca de lo que queda.",
+          "exceeds": "más de lo que queda. La ejecución llega tan lejos como el día lo permita y se detiene entre dos tramos; Reanudar continúa después."
+        },
+        "bulk": "Lotes de la API Bulk: ninguno. La ejecución escribe por REST, 200 registros por llamada.",
+        "disk": "Disco: unos {{size}} en este equipo, {{free}} libres.",
+        "diskUnknown": "Disco: unos {{size}} en este equipo.",
+        "time": "Duración: unos {{time}}."
+      },
+      "confirm": {
+        "toggle": "Enmascarar por tramos, cada uno respaldado justo antes de enmascararlo",
+        "held_one": "Marque «Enmascarar por tramos»: {{objects}} tiene más filas de las que guarda un respaldo.",
+        "held_other": "Marque «Enmascarar por tramos»: {{objects}} tienen más filas de las que guarda un respaldo.",
+        "hint": "Si un tramo no se puede respaldar entero, la ejecución se detiene ahí, y los tramos anteriores siguen enmascarados con sus respaldos.",
+        "lock": "Mientras dura la ejecución, esta ventana rechaza cualquier otro respaldo o restauración de {{org}}. Ese bloqueo vale solo en esta ventana: una restauración desde la línea de comandos o desde otra ventana no se detiene, así que no inicie ninguna hasta que termine."
+      },
+      "progress": {
+        "label": "Progreso del enmascaramiento",
+        "backingUp": "Respaldando {{object}}, tramo {{index}} de unos {{about}}",
+        "backingUpResumed": "Respaldando {{object}}, tramo {{index}}",
+        "masking": "Enmascarando {{object}}, tramo {{index}} de unos {{about}}: {{done}} de {{total}} registros",
+        "maskingResumed": "Enmascarando {{object}}, tramo {{index}}: {{done}} de {{total}} registros"
+      },
+      "result": {
+        "summary_one": "{{done}} de {{formatted}} tramo de {{size}} registros como máximo enmascarado, cada uno respaldado justo antes de enmascararlo.",
+        "summary_other": "{{done}} de {{formatted}} tramos de {{size}} registros como máximo enmascarados, cada uno respaldado justo antes de enmascararlo.",
+        "abandoned_one": "Ejecución abandonada: no se enmascara nada más. Su {{formatted}} tramo enmascarado sigue así, con su respaldo, que Restaurar devuelve hasta que caduque; los registros a los que no llegó ningún tramo conservan sus valores.",
+        "abandoned_other": "Ejecución abandonada: no se enmascara nada más. Sus {{formatted}} tramos enmascarados siguen así, con sus respaldos, que Restaurar devuelve hasta que caduquen; los registros a los que no llegó ningún tramo conservan sus valores.",
+        "budget": "La ejecución se detuvo entre dos tramos tras {{requests}} solicitudes: el tramo siguiente habría superado lo que se le dio, o la parte del día de la org que deja a las integraciones.",
+        "late_one": "{{formatted}} registro se creó durante la ejecución en un rango ya enmascarado: ningún respaldo lo guarda, y no se enmascaró. Reanudar lo enmascara, con un respaldo propio.",
+        "late_other": "{{formatted}} registros se crearon durante la ejecución en un rango ya enmascarado: ningún respaldo los guarda, y no se enmascararon. Reanudar los enmascara, con un respaldo propio.",
+        "left": "Quedan tramos. Reanudar enmascara el resto, cada tramo respaldado antes.",
+        "openRestore": "Abrir el conjunto en Restaurar"
+      },
+      "table": {
+        "slice": "Tramo",
+        "object": "Objeto",
+        "rows": "Filas respaldadas",
+        "masked": "Enmascaradas",
+        "refused": "Rechazadas",
+        "deletedSince": "Eliminadas desde entonces",
+        "state": "Estado",
+        "actions": "Acciones",
+        "late": "tardío",
+        "sizeUsed": "(leído en tramos de {{size}})"
+      },
+      "state": {
+        "pending": "Sin empezar",
+        "snapshotted": "Respaldado",
+        "masking": "Enmascarándose",
+        "masked": "Enmascarado",
+        "restored": "Restaurado",
+        "restoredOn": "Restaurado el {{date}}"
+      },
+      "set": {
+        "kindMasking": "Enmascaramiento por tramos, {{date}}",
+        "kindBackup": "Respaldo por tramos, {{date}}",
+        "summary_one": "{{formatted}} tramo de {{size}} registros como máximo, {{records}} registros en total",
+        "summary_other": "{{formatted}} tramos de {{size}} registros como máximo, {{records}} registros en total",
+        "state": {
+          "open": "Abierto",
+          "done": "Terminado",
+          "abandoned": "Abandonado"
+        },
+        "filtered": "Limitado a: {{filters}}",
+        "openHeld": "Su enmascaramiento sigue abierto: reanúdelo hasta el final, o abandónelo, en la pestaña Anonimizar antes de restaurar. Reanudado, volvería a enmascarar lo que una restauración devuelve.",
+        "expand": "Mostrar sus tramos",
+        "collapse": "Ocultar sus tramos",
+        "restoreAll": "Restaurar todo",
+        "restoreSlice": "Restaurar el tramo {{index}}",
+        "delete": "Eliminar el conjunto",
+        "deleteConfirm": "¿Eliminar este conjunto, y el respaldo de cada uno de sus tramos, de este equipo? Los valores que guardan en claro desaparecen para siempre, y ninguno se podrá restaurar.",
+        "confirmTitleAll": "¿Restaurar el conjunto del {{date}} en {{org}}?",
+        "confirmTitleSlice": "¿Restaurar el tramo {{index}} del conjunto del {{date}} en {{org}}?",
+        "confirmDescription": "Cada tramo se devuelve en orden, desde su propio respaldo: las filas modificadas desde entonces recuperan los valores del respaldo, quienquiera que las haya cambiado. Detenida, la misma restauración continúa en el primer tramo no restaurado.",
+        "cost": "Unas {{requests}} solicitudes, ningún lote de la API Bulk.",
+        "result": "Tramos restaurados: {{restored}}. Restaurados antes, no leídos de nuevo: {{skipped}}."
+      },
+      "open": {
+        "notice": "Una ejecución de esta plantilla por tramos está abierta en esta org: {{done}} de {{total}} tramos de {{size}} registros como máximo enmascarados, último movimiento el {{date}}.",
+        "ways": "Aplicar espera a que se reanude hasta el final o se abandone.",
+        "abandonOnly": "Ya no se puede reanudar desde aquí, porque las reglas de su plantilla cambiaron desde entonces: Aplicar espera a que se abandone.",
+        "resume": "Reanudar la ejecución por tramos",
+        "abandon": "Abandonar la ejecución",
+        "abandonTitle": "¿Abandonar la ejecución por tramos de «{{name}}» en {{org}}?",
+        "abandonDescription_one": "No se enmascara nada más. Su {{formatted}} tramo enmascarado sigue así, con su respaldo, que Restaurar devuelve hasta que caduque; los registros a los que no llegó ningún tramo conservan sus valores. Un nuevo Aplicar enmascara con otra clave: la misma dirección recibe otra huella.",
+        "abandonDescription_other": "No se enmascara nada más. Sus {{formatted}} tramos enmascarados siguen así, con sus respaldos, que Restaurar devuelve hasta que caduquen; los registros a los que no llegó ningún tramo conservan sus valores. Un nuevo Aplicar enmascara con otra clave: la misma dirección recibe otra huella.",
+        "abandonConfirm": "Abandonar la ejecución"
+      },
+      "backup": {
+        "toggle": "Respaldar por tramos",
+        "hint_one": "{{objects}} tiene más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Restaurar los lista como un solo conjunto.",
+        "hint_other": "{{objects}} tienen más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Restaurar los lista como un solo conjunto."
+      },
+      "notify": {
+        "done": "Enmascaramiento por tramos terminado: {{done}} de {{total}} tramos enmascarados, cada uno con su respaldo.",
+        "open": "Enmascaramiento por tramos detenido con tramos pendientes: {{done}} de {{total}} enmascarados. Reanudar, en la pestaña Anonimizar, continúa.",
+        "late_one": "Enmascaramiento por tramos terminado, pero {{formatted}} registro creado durante la ejecución no se enmascaró: Reanudar, en la pestaña Anonimizar, lo enmascara.",
+        "late_other": "Enmascaramiento por tramos terminado, pero {{formatted}} registros creados durante la ejecución no se enmascararon: Reanudar, en la pestaña Anonimizar, los enmascara."
+      }
     },
     "backupDeleteConfirmSync": "¿Eliminar este respaldo? Guarda lo que sobrescribió la ejecución de Sync del {{date}}: quitar esa ejecución en Sync ya no devolverá estos valores, y desaparecen para siempre de este equipo.",
     "restoreSyncPartial": "La ejecución de Sync sigue escribiendo, o se detuvo antes de terminar — su ventana se cerró o la extensión se detuvo: este respaldo guarda lo que había conservado hasta entonces.",

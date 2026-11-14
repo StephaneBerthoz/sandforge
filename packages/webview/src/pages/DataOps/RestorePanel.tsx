@@ -2,7 +2,8 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { RunStopControl } from './RunStopControl';
-import type { BackupSummary } from '@sandforge/shared';
+import type { BackupSetSummary, BackupSummary } from '@sandforge/shared';
+import { SliceSetRow } from './SliceSetRow';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -32,6 +33,26 @@ export interface RestoreCounts {
     objects: ReadonlyArray<{ objectApiName: string; count: number }>;
     runNotKept?: boolean;
   };
+  /**
+   * Of a set of slices, the slices written back, and those restored before,
+   * which the restore did not read again.
+   */
+  slices?: { restored: readonly number[]; skipped: readonly number[] };
+}
+
+/** Rows a REST call writes back: a restore compares, then writes what differs, 200 a call. */
+const RESTORE_BATCH = 200;
+
+/** The slices a restore of a set reaches: those named, or every slice taken not restored yet. */
+function slicesRestored(
+  set: BackupSetSummary,
+  asked: readonly number[] | undefined,
+  rewriteAll: boolean,
+): BackupSetSummary['slices'] {
+  const taken = set.slices.filter((s) => s.state !== 'pending');
+  return asked
+    ? taken.filter((s) => asked.includes(s.index))
+    : taken.filter((s) => rewriteAll || s.restoredAt === undefined);
 }
 
 /** RestorePanel component props. */
@@ -80,6 +101,17 @@ export interface RestorePanelProps {
   onStop?: () => void;
   /** Whether that stop was sent and not refused. */
   stopRequested?: boolean;
+  /**
+   * The sets of slices of the org, one row each: a masking or a backup run
+   * in slices, each slice a backup of its own.
+   */
+  sets?: BackupSetSummary[];
+  /** Restore a set: every slice not restored yet, or the slices named. */
+  onRestoreSet?: (
+    setId: string,
+    slices: number[] | undefined,
+    accord?: DataOpsAutomationAccord,
+  ) => void;
 }
 
 /** The moment a backup was taken, as its cards name it. */
@@ -123,8 +155,14 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   isDeleting = false,
   onStop,
   stopRequested = false,
+  sets = [],
+  onRestoreSet,
 }) => {
   const { t } = useTranslation();
+  /** The set a Restore asks about, and the slices it names: every one not restored yet when none. */
+  const [askingSet, setAskingSet] = useState<{ setId: string; slices?: number[] } | null>(null);
+  /** The sets whose slices were shown or hidden by hand; one opened on otherwise shows them. */
+  const [toggled, setToggled] = useState<Readonly<Record<string, boolean>>>({});
   /**
    * What a Delete asks to confirm: one backup, by its id, or every one of the
    * org. A backup deleted cannot be restored, so the first click only asks.
@@ -171,6 +209,17 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   // question with it.
   const askedBackup =
     asking === null ? undefined : restorableBackups.find((b) => b.operationId === asking);
+  // So does a set gone, and the slices its question would restore.
+  const askedSet = askingSet === null ? undefined : sets.find((s) => s.setId === askingSet.setId);
+  const askedSlices = askedSet ? slicesRestored(askedSet, askingSet?.slices, rewriteAll) : [];
+  /** Per object, the rows the asked restore of a set puts back. */
+  const askedObjects = [...new Set(askedSlices.map((s) => s.objectApiName))].map((name) => ({
+    objectApiName: name,
+    records: askedSlices
+      .filter((s) => s.objectApiName === name)
+      .reduce((sum, s) => sum + s.rows, 0),
+  }));
+  const askedRows = askedObjects.reduce((sum, o) => sum + o.records, 0);
 
   // Its question gone with the answer, the focus fell to <body>: Confirm and
   // Cancel hand it back to the Delete that asked, and once the backups a
@@ -227,7 +276,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
 
       {/* A restore writes only what changed since the backup: a backup of
           12 000 contacts, three of them changed, was written back whole. */}
-      {restorableBackups.length > 0 && onRewriteAllChange && (
+      {(restorableBackups.length > 0 || sets.length > 0) && onRewriteAllChange && (
         <label className="flex items-start gap-2 text-xs text-text-secondary">
           <input
             type="checkbox"
@@ -250,6 +299,16 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
           })}
         </p>
       )}
+      {lastRestore?.slices && !isRestoring && (
+        <p className="text-xs text-text-secondary" role="status" data-testid="restore-set-result">
+          {t('dataops.slices.set.result', {
+            restored:
+              lastRestore.slices.restored.map((index) => formatNumber(index)).join(', ') || '0',
+            skipped:
+              lastRestore.slices.skipped.map((index) => formatNumber(index)).join(', ') || '0',
+          })}
+        </p>
+      )}
 
       {/* What a restore of a Sync run's backup left as it is, changed since
           the run: listed, as the run's removal lists it, with how to put it
@@ -267,7 +326,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
 
       {/* It asked to select a backup where there was none to select, and
           offered no way to take one. */}
-      {restorableBackups.length === 0 && !isRestoring && (
+      {restorableBackups.length === 0 && sets.length === 0 && !isRestoring && (
         <EmptyState
           icon={<Icon name="package" />}
           title={orgName ? t('dataops.restoreEmpty', { org: orgName }) : t('dataops.noBackups')}
@@ -444,9 +503,34 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         );
       })}
 
+      {/* A set of slices, one row whatever its slices: restored whole, or a
+          slice at a time, and deleted whole. Opened from a masking run's
+          result, it shows its slices. */}
+      {sets.map((set) => (
+        <SliceSetRow
+          key={set.setId}
+          set={set}
+          expanded={toggled[set.setId] ?? selectedBackupId === set.setId}
+          onToggle={() =>
+            setToggled((was) => ({
+              ...was,
+              [set.setId]: !(was[set.setId] ?? selectedBackupId === set.setId),
+            }))
+          }
+          {...(onRestoreSet && orgName
+            ? {
+                onRestore: (slices?: number[]) =>
+                  setAskingSet({ setId: set.setId, ...(slices ? { slices } : {}) }),
+              }
+            : {})}
+          {...(onDelete ? { onDelete: () => onDelete(set.setId) } : {})}
+          busy={isRestoring || isDeleting}
+        />
+      ))}
+
       {/* The org's backups, on this machine, all at once: what a person's
           erasure or the org's masking leaves in clear in each of them. */}
-      {onDeleteAll && backups.length > 0 && !isRestoring && (
+      {onDeleteAll && backups.length + sets.length > 0 && !isRestoring && (
         <div className="flex flex-col items-start gap-2 border-t border-subtle pt-3">
           <Button
             ref={deleteAllButton}
@@ -464,10 +548,12 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
             <DeleteQuestion
               id={questionId}
               confirmLabel={t('dataops.backupDeleteAll')}
-              question={t('dataops.backupDeleteAllConfirm', { count: backups.length })}
+              question={t('dataops.backupDeleteAllConfirm', {
+                count: backups.length + sets.length,
+              })}
               onConfirm={() => {
                 afterDelete.current = {
-                  gone: backups.map((b) => b.operationId),
+                  gone: [...backups.map((b) => b.operationId), ...sets.map((s) => s.setId)],
                   place: 0,
                   opener: deleteAllButton.current,
                 };
@@ -537,6 +623,82 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 objectApiName: o.objectApiName,
                 records: o.recordCount,
               }))}
+              accord={accord}
+              onAccordChange={setAccord}
+              onHeld={setAutomationHeld}
+            />
+          )}
+        </DangerConfirm>
+      )}
+
+      {/* A set's restore asks as a backup's does: the org, what each object
+          gets back, what it costs, and what the org runs as it writes. */}
+      {onRestoreSet && orgName && (
+        <DangerConfirm
+          open={askedSet !== undefined}
+          variant="warning"
+          onClose={() => {
+            setAskingSet(null);
+            setAccord(NO_ACCORD);
+          }}
+          onConfirm={() => {
+            const asked = askingSet;
+            setAskingSet(null);
+            setAccord(NO_ACCORD);
+            if (!askedSet || !asked) return;
+            if (orgId) onRestoreSet(askedSet.setId, asked.slices, accord);
+            else onRestoreSet(askedSet.setId, asked.slices);
+          }}
+          {...(orgId && automationHeld !== undefined ? { held: automationHeld } : {})}
+          title={
+            askedSet
+              ? askingSet?.slices?.length === 1
+                ? t('dataops.slices.set.confirmTitleSlice', {
+                    index: formatNumber(askingSet.slices[0]),
+                    org: orgName,
+                    date:
+                      formatStoredDate(askedSet.startedAt, (d) => d.toLocaleString(uiLocale())) ??
+                      t('common.dateUnknown'),
+                  })
+                : t('dataops.slices.set.confirmTitleAll', {
+                    org: orgName,
+                    date:
+                      formatStoredDate(askedSet.startedAt, (d) => d.toLocaleString(uiLocale())) ??
+                      t('common.dateUnknown'),
+                  })
+              : ''
+          }
+          description={askedSet ? t('dataops.slices.set.confirmDescription') : ''}
+          confirmLabel={t('dataops.restoreConfirm.confirm', { org: orgName })}
+        >
+          {askedSet && (
+            <div className="flex flex-col gap-1" data-testid="restore-set-confirm-objects">
+              {rewriteAll && <p>{t('dataops.restoreConfirm.rewriteAll')}</p>}
+              <p>{t('dataops.restoreConfirm.objects')}</p>
+              <ul className="list-disc pl-4">
+                {askedObjects.map((o) => (
+                  <li key={o.objectApiName}>
+                    {o.objectApiName}:{' '}
+                    {t('common.recordCountFormatted', {
+                      count: o.records,
+                      formatted: formatNumber(o.records),
+                    })}
+                  </li>
+                ))}
+              </ul>
+              <p data-testid="restore-set-cost">
+                {t('dataops.slices.set.cost', {
+                  requests: formatNumber(2 * Math.ceil(askedRows / RESTORE_BATCH)),
+                })}
+              </p>
+            </div>
+          )}
+          {askedSet && orgId && (
+            <DataOpsAutomation
+              orgId={orgId}
+              org={orgName}
+              act="restore"
+              objects={askedObjects}
               accord={accord}
               onAccordChange={setAccord}
               onHeld={setAutomationHeld}

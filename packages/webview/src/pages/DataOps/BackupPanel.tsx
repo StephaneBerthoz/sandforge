@@ -2,7 +2,12 @@ import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { BACKUP_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
-import type { BackupObjectHeld, BackupSummary, BackupStatus } from '@sandforge/shared';
+import type {
+  BackupObjectHeld,
+  BackupSetSummary,
+  BackupSummary,
+  BackupStatus,
+} from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -32,6 +37,22 @@ export interface BackupPanelProps {
    * taken, a connected sandbox, scratch org or Developer Edition.
    */
   onTakeCheckpoint?: () => void;
+  /**
+   * The sets of slices of the org, one entry each: a backup or a masking
+   * run in slices, each slice a backup of its own, restored and deleted with
+   * its set on the Restore tab.
+   */
+  sets?: BackupSetSummary[];
+  /** Open the Restore tab on a set. */
+  onOpenSet?: (setId: string) => void;
+  /**
+   * The objects Create Backup reads that hold more rows than one backup
+   * does: a backup in slices holds them whole, and its box is offered.
+   */
+  slicesOffered?: string[];
+  /** Whether Create Backup takes them in slices. */
+  inSlices?: boolean;
+  onInSlicesChange?: (inSlices: boolean) => void;
 }
 
 const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -168,9 +189,15 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
   onStop,
   stopRequested = false,
   onTakeCheckpoint,
+  sets = [],
+  onOpenSet,
+  slicesOffered = [],
+  inSlices = false,
+  onInSlicesChange,
 }) => {
   const { t } = useTranslation();
   const checkpointWhyId = useId();
+  const slicesHintId = useId();
 
   return (
     <div className="flex flex-col gap-3" data-testid="backup-panel">
@@ -200,6 +227,32 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
         </p>
       )}
 
+      {/* An object past what one backup holds was backed up up to the cap,
+          the rest said lost to a restore: in slices, each slice a backup of
+          its own, it is held whole. Asked, never assumed. */}
+      {slicesOffered.length > 0 && onInSlicesChange && (
+        <div className="flex flex-col gap-1" data-testid="backup-slices">
+          <label className="flex items-start gap-2 text-xs text-text-primary">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={inSlices}
+              disabled={isCreating}
+              onChange={(e) => onInSlicesChange(e.target.checked)}
+              aria-describedby={slicesHintId}
+              data-testid="backup-slices-toggle"
+            />
+            <span>{t('dataops.slices.backup.toggle')}</span>
+          </label>
+          <p id={slicesHintId} className="text-xs text-text-secondary">
+            {t('dataops.slices.backup.hint', {
+              count: slicesOffered.length,
+              objects: slicesOffered.join(', '),
+            })}
+          </p>
+        </div>
+      )}
+
       {/* A backup reads only the objects the templates mask: it is no way
           back from a Seed, a Sync or a Forge run on the others, and the tab
           told a newcomer to take one before any risky operation. A
@@ -225,13 +278,56 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
         </div>
       )}
 
-      {backups.length === 0 && (
+      {backups.length === 0 && sets.length === 0 && (
         <EmptyState
           icon={<Icon name="save" />}
           title={t('dataops.noBackups')}
           description={t('dataops.backupDesc')}
         />
       )}
+
+      {/* A set is restored and deleted whole on the Restore tab: listed here
+          by what took it and what it holds, the way to it beside. */}
+      {sets.map((set) => (
+        <div
+          key={set.setId}
+          className="flex flex-wrap items-center justify-between gap-2 rounded border border-subtle bg-surface-1 p-3"
+          data-testid={`backup-set-${set.setId}`}
+        >
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm font-medium text-text-primary">
+              {t(
+                set.kind === 'masking'
+                  ? 'dataops.slices.set.kindMasking'
+                  : 'dataops.slices.set.kindBackup',
+                {
+                  date:
+                    formatStoredDate(set.startedAt, (date) => date.toLocaleString(uiLocale())) ??
+                    t('common.dateUnknown'),
+                },
+              )}
+            </span>
+            <span className="text-xs text-text-secondary">
+              {t('dataops.slices.set.summary', {
+                count: set.slices.length,
+                formatted: formatNumber(set.slices.length),
+                size: formatNumber(set.size),
+                records: formatNumber(set.totalRecords),
+              })}
+            </span>
+          </div>
+          {onOpenSet && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenSet(set.setId)}
+              data-testid={`backup-set-open-${set.setId}`}
+            >
+              {t('dataops.slices.result.openRestore')}
+            </Button>
+          )}
+        </div>
+      ))}
 
       {backups.map((backup) => (
         <div key={backup.operationId} data-testid={`backup-${backup.operationId}`}>

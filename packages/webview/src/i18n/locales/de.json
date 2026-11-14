@@ -2058,7 +2058,7 @@
     "backupPartialLead": "Unvollständig: Eine Wiederherstellung bringt nur die Zeilen zurück, die diese Sicherung gelesen hat, und lässt den Rest jedes Objekts, wie er ist.",
     "backupStoppedAtCap": "{{object}}: {{read}} von {{held}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
-    "backupStoppedPastMax": "{{object}}: {{read}} von {{held}} Zeilen gelesen — keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts, und nichts hebt diese Grenze an. Der Datenexport von Salesforce (Setup) kopiert das ganze Objekt.",
+    "backupStoppedPastMax": "{{object}}: {{read}} von {{held}} Zeilen gelesen — keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts. Aktivieren Sie „In Abschnitten sichern“ und sichern Sie erneut: Jeder Abschnitt ist eine eigene Sicherung.",
     "backupReadFailed": "{{object}}: {{read}} von {{held}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupReadFailedUncounted": "{{object}}: {{read}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupNotReached": "{{object}}: nicht gelesen — die Sicherung ist fehlgeschlagen, bevor sie dieses Objekt erreichte, und enthält keine seiner Zeilen.",
@@ -2109,9 +2109,7 @@
       "confirmShortfall": "Einmal maskiert, kann eine Wiederherstellung diese Datensätze nie zurückbringen:",
       "stoppedAtCap": "{{rows}} (an der Obergrenze angehalten)",
       "readFailed": "{{rows}} (Lesen fehlgeschlagen)",
-      "capHint": "Die Sicherung hat bei {{objects}} an ihrer Obergrenze von Zeilen pro Objekt angehalten: Erhöhen Sie sandforge.backup.maxRecordsPerObject in den Einstellungen und sichern Sie erneut, damit jede Zeile enthalten ist.",
-      "capBeyond_one": "Keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts, und nichts hebt diese Grenze an, für {{objects}}: Maskieren Sie es abschnittsweise über die Befehlszeile (sandforge dataops anonymize --object und --where), wobei jeder Lauf seinen eigenen Snapshot dessen nimmt, was er maskiert.",
-      "capBeyond_other": "Keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts, und nichts hebt diese Grenze an, für {{objects}}: Maskieren Sie jedes abschnittsweise über die Befehlszeile (sandforge dataops anonymize --object und --where), wobei jeder Lauf seinen eigenen Snapshot dessen nimmt, was er maskiert."
+      "capHint": "Die Sicherung hat bei {{objects}} an ihrer Obergrenze von Zeilen pro Objekt angehalten: Erhöhen Sie sandforge.backup.maxRecordsPerObject in den Einstellungen und sichern Sie erneut, damit jede Zeile enthalten ist."
     },
     "compliance": "Compliance",
     "frameworks": {
@@ -2421,7 +2419,123 @@
       "taken_one": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensatz aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
       "taken_other": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensätzen aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
       "openRestore": "In „Wiederherstellen“ öffnen",
-      "refused": "Es konnte keine Sicherung aufbewahrt werden, daher wurde nichts maskiert. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“ in der Bestätigung."
+      "refused": "Es konnte keine Sicherung aufbewahrt werden, daher wurde nichts maskiert. Ein Objekt mit mehr Zeilen, als eine Sicherung enthält, wird in Abschnitten maskiert: Aktivieren Sie „In Abschnitten maskieren“ in der Bestätigung. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“."
+    },
+    "slices": {
+      "column": "In Abschnitten",
+      "columnValue_one": "{{formatted}} Abschnitt",
+      "columnValue_other": "{{formatted}} Abschnitte",
+      "capBeyond_one": "Keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts, für {{objects}}: Mit „Die Werte vorher aufbewahren“ maskiert „Anwenden“ es in Abschnitten, jeden direkt vor dem Maskieren gesichert.",
+      "capBeyond_other": "Keine Sicherung enthält mehr als 1.000.000 Zeilen eines Objekts, für {{objects}}: Mit „Die Werte vorher aufbewahren“ maskiert „Anwenden“ jedes in Abschnitten, jeden Abschnitt direkt vor dem Maskieren gesichert.",
+      "plan": {
+        "lead_one": "{{objects}} hat mehr Zeilen, als eine Sicherung enthält: Mit „Die Werte vorher aufbewahren“ maskiert „Anwenden“ es in Abschnitten, jeden direkt vor dem Maskieren gesichert. Der Lauf bräuchte:",
+        "lead_other": "{{objects}} haben mehr Zeilen, als eine Sicherung enthält: Mit „Die Werte vorher aufbewahren“ maskiert „Anwenden“ sie in Abschnitten, jeden direkt vor dem Maskieren gesichert. Der Lauf bräuchte:",
+        "object_one": "{{object}}: {{formatted}} Abschnitt mit höchstens {{size}} Datensätzen",
+        "object_other": "{{object}}: {{formatted}} Abschnitte mit höchstens {{size}} Datensätzen",
+        "approximate": "(nach der eigenen Zahl der Org, ungefähr: Sie hat das Zählen aufgegeben)",
+        "requests": "Anfragen: etwa {{requests}} (Sicherungen {{snapshots}}, Aktualisierungen {{updates}}, Lesevorgänge {{reads}}) von den {{remaining}}, die der Org heute bleiben: {{verdict}}",
+        "requestsUnread": "Anfragen: etwa {{requests}} (Sicherungen {{snapshots}}, Aktualisierungen {{updates}}, Lesevorgänge {{reads}}). Was der Org heute bleibt, wurde nicht gelesen.",
+        "verdict": {
+          "fits": "Sie reichen.",
+          "near": "knapp an dem, was bleibt.",
+          "exceeds": "mehr, als bleibt. Der Lauf geht so weit, wie der Tag es erlaubt, und hält zwischen zwei Abschnitten an; „Fortsetzen“ macht weiter."
+        },
+        "bulk": "Bulk-API-Batches: keine. Der Lauf schreibt über REST, 200 Datensätze pro Aufruf.",
+        "disk": "Speicher: etwa {{size}} auf diesem Rechner, {{free}} frei.",
+        "diskUnknown": "Speicher: etwa {{size}} auf diesem Rechner.",
+        "time": "Dauer: etwa {{time}}."
+      },
+      "confirm": {
+        "toggle": "In Abschnitten maskieren, jeden direkt vor dem Maskieren gesichert",
+        "held_one": "Aktivieren Sie „In Abschnitten maskieren“: {{objects}} hat mehr Zeilen, als eine Sicherung enthält.",
+        "held_other": "Aktivieren Sie „In Abschnitten maskieren“: {{objects}} haben mehr Zeilen, als eine Sicherung enthält.",
+        "hint": "Lässt sich ein Abschnitt nicht vollständig sichern, hält der Lauf dort an, und die Abschnitte davor bleiben mit ihren Sicherungen maskiert.",
+        "lock": "Während des Laufs lehnt dieses Fenster jede andere Sicherung oder Wiederherstellung von {{org}} ab. Diese Sperre gilt nur in diesem Fenster: Eine Wiederherstellung über die Befehlszeile oder aus einem anderen Fenster wird nicht aufgehalten, starten Sie daher keine vor dem Ende des Laufs."
+      },
+      "progress": {
+        "label": "Fortschritt des Maskierens",
+        "backingUp": "Sicherung von {{object}}, Abschnitt {{index}} von etwa {{about}}",
+        "backingUpResumed": "Sicherung von {{object}}, Abschnitt {{index}}",
+        "masking": "Maskieren von {{object}}, Abschnitt {{index}} von etwa {{about}}: {{done}} von {{total}} Datensätzen",
+        "maskingResumed": "Maskieren von {{object}}, Abschnitt {{index}}: {{done}} von {{total}} Datensätzen"
+      },
+      "result": {
+        "summary_one": "{{done}} von {{formatted}} Abschnitt mit höchstens {{size}} Datensätzen maskiert, jeder direkt vor dem Maskieren gesichert.",
+        "summary_other": "{{done}} von {{formatted}} Abschnitten mit höchstens {{size}} Datensätzen maskiert, jeder direkt vor dem Maskieren gesichert.",
+        "abandoned_one": "Lauf aufgegeben: Es wird nichts mehr maskiert. Sein {{formatted}} maskierter Abschnitt bleibt mit seiner Sicherung maskiert, die „Wiederherstellen“ bis zu ihrem Ablauf zurückschreibt; die Datensätze, die kein Abschnitt erreicht hat, behalten ihre Werte.",
+        "abandoned_other": "Lauf aufgegeben: Es wird nichts mehr maskiert. Seine {{formatted}} maskierten Abschnitte bleiben mit ihren Sicherungen maskiert, die „Wiederherstellen“ bis zu ihrem Ablauf zurückschreibt; die Datensätze, die kein Abschnitt erreicht hat, behalten ihre Werte.",
+        "budget": "Der Lauf hat nach {{requests}} Anfragen zwischen zwei Abschnitten angehalten: Der nächste Abschnitt hätte überschritten, was ihm zugestanden war, oder den Anteil am Tag der Org, den er den Integrationen lässt.",
+        "late_one": "{{formatted}} Datensatz wurde während des Laufs in einem bereits maskierten Bereich angelegt: Keine Sicherung enthält ihn, und er wurde nicht maskiert. „Fortsetzen“ maskiert ihn, mit einer eigenen Sicherung.",
+        "late_other": "{{formatted}} Datensätze wurden während des Laufs in einem bereits maskierten Bereich angelegt: Keine Sicherung enthält sie, und sie wurden nicht maskiert. „Fortsetzen“ maskiert sie, mit einer eigenen Sicherung.",
+        "left": "Es bleiben Abschnitte. „Fortsetzen“ maskiert den Rest, jeden Abschnitt vorher gesichert.",
+        "openRestore": "Den Satz in „Wiederherstellen“ öffnen"
+      },
+      "table": {
+        "slice": "Abschnitt",
+        "object": "Objekt",
+        "rows": "Gesicherte Zeilen",
+        "masked": "Maskiert",
+        "refused": "Abgelehnt",
+        "deletedSince": "Seitdem gelöscht",
+        "state": "Stand",
+        "actions": "Aktionen",
+        "late": "nachträglich",
+        "sizeUsed": "(gelesen in Abschnitten von {{size}})"
+      },
+      "state": {
+        "pending": "Nicht begonnen",
+        "snapshotted": "Gesichert",
+        "masking": "Wird maskiert",
+        "masked": "Maskiert",
+        "restored": "Wiederhergestellt",
+        "restoredOn": "Wiederhergestellt am {{date}}"
+      },
+      "set": {
+        "kindMasking": "Maskieren in Abschnitten, {{date}}",
+        "kindBackup": "Sicherung in Abschnitten, {{date}}",
+        "summary_one": "{{formatted}} Abschnitt mit höchstens {{size}} Datensätzen, {{records}} Datensätze insgesamt",
+        "summary_other": "{{formatted}} Abschnitte mit höchstens {{size}} Datensätzen, {{records}} Datensätze insgesamt",
+        "state": {
+          "open": "Offen",
+          "done": "Fertig",
+          "abandoned": "Aufgegeben"
+        },
+        "filtered": "Beschränkt auf: {{filters}}",
+        "openHeld": "Sein Maskierungslauf ist noch offen: Setzen Sie ihn auf der Registerkarte „Anonymisieren“ bis zum Ende fort, oder geben Sie ihn auf, bevor Sie wiederherstellen. Fortgesetzt würde er erneut maskieren, was eine Wiederherstellung zurückschreibt.",
+        "expand": "Seine Abschnitte anzeigen",
+        "collapse": "Seine Abschnitte ausblenden",
+        "restoreAll": "Alle wiederherstellen",
+        "restoreSlice": "Abschnitt {{index}} wiederherstellen",
+        "delete": "Den Satz löschen",
+        "deleteConfirm": "Diesen Satz und die Sicherung jedes seiner Abschnitte von diesem Rechner löschen? Die Werte, die sie im Klartext enthalten, sind endgültig weg, und keine lässt sich mehr wiederherstellen.",
+        "confirmTitleAll": "Den Satz vom {{date}} in {{org}} wiederherstellen?",
+        "confirmTitleSlice": "Abschnitt {{index}} des Satzes vom {{date}} in {{org}} wiederherstellen?",
+        "confirmDescription": "Jeder Abschnitt wird der Reihe nach aus seiner eigenen Sicherung zurückgeschrieben: Seitdem geänderte Zeilen erhalten die Werte der Sicherung zurück, egal wer sie geändert hat. Angehalten, macht dieselbe Wiederherstellung beim ersten nicht wiederhergestellten Abschnitt weiter.",
+        "cost": "Etwa {{requests}} Anfragen, kein Bulk-API-Batch.",
+        "result": "Wiederhergestellte Abschnitte: {{restored}}. Schon vorher wiederhergestellt, nicht erneut gelesen: {{skipped}}."
+      },
+      "open": {
+        "notice": "Ein Lauf dieser Vorlage in Abschnitten ist in dieser Org offen: {{done}} von {{total}} Abschnitten mit höchstens {{size}} Datensätzen maskiert, zuletzt bewegt am {{date}}.",
+        "ways": "„Anwenden“ wartet, bis er bis zum Ende fortgesetzt oder aufgegeben ist.",
+        "abandonOnly": "Er lässt sich hier nicht mehr fortsetzen, weil sich die Regeln seiner Vorlage seitdem geändert haben: „Anwenden“ wartet, bis er aufgegeben ist.",
+        "resume": "Den Lauf in Abschnitten fortsetzen",
+        "abandon": "Den Lauf aufgeben",
+        "abandonTitle": "Den Lauf von „{{name}}“ in Abschnitten in {{org}} aufgeben?",
+        "abandonDescription_one": "Es wird nichts mehr maskiert. Sein {{formatted}} maskierter Abschnitt bleibt maskiert, mit seiner Sicherung, die „Wiederherstellen“ bis zu ihrem Ablauf zurückschreibt; die Datensätze, die kein Abschnitt erreicht hat, behalten ihre Werte. Ein neues „Anwenden“ maskiert mit einem anderen Schlüssel: Dieselbe Adresse erhält einen anderen Hashwert.",
+        "abandonDescription_other": "Es wird nichts mehr maskiert. Seine {{formatted}} maskierten Abschnitte bleiben maskiert, mit ihren Sicherungen, die „Wiederherstellen“ bis zu ihrem Ablauf zurückschreibt; die Datensätze, die kein Abschnitt erreicht hat, behalten ihre Werte. Ein neues „Anwenden“ maskiert mit einem anderen Schlüssel: Dieselbe Adresse erhält einen anderen Hashwert.",
+        "abandonConfirm": "Den Lauf aufgeben"
+      },
+      "backup": {
+        "toggle": "In Abschnitten sichern",
+        "hint_one": "{{objects}} hat mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Wiederherstellen“ führt sie als einen Satz.",
+        "hint_other": "{{objects}} haben mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Wiederherstellen“ führt sie als einen Satz."
+      },
+      "notify": {
+        "done": "Maskieren in Abschnitten beendet: {{done}} von {{total}} Abschnitten maskiert, jeder mit seiner Sicherung.",
+        "open": "Maskieren in Abschnitten mit verbleibenden Abschnitten angehalten: {{done}} von {{total}} maskiert. „Fortsetzen“ auf der Registerkarte „Anonymisieren“ macht weiter.",
+        "late_one": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegter Datensatz wurde nicht maskiert: „Fortsetzen“ auf der Registerkarte „Anonymisieren“ maskiert ihn.",
+        "late_other": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegte Datensätze wurden nicht maskiert: „Fortsetzen“ auf der Registerkarte „Anonymisieren“ maskiert sie."
+      }
     },
     "backupDeleteConfirmSync": "Diese Sicherung löschen? Sie enthält, was der Sync-Lauf vom {{date}} überschrieben hat: Diesen Lauf in Sync zu entfernen, stellt diese Werte dann nicht mehr wieder her, und sie sind endgültig von diesem Rechner weg.",
     "restoreSyncPartial": "Der Sync-Lauf schreibt noch, oder er hat vor seinem Ende angehalten — sein Fenster wurde geschlossen oder die Erweiterung hat angehalten: Diese Sicherung enthält, was er bis dahin aufbewahrt hatte.",

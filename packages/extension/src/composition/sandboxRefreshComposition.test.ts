@@ -123,6 +123,9 @@ describe('sandbox refresh detection wiring', () => {
     expect(shown).toContain(
       "Ses 2 point(s) de contrôle conservés sur cette machine sont ceux de l'org d'avant le rafraîchissement",
     );
+    // No longer only deleted: exported, or replayed into another org.
+    expect(shown).toContain('rejoué dans une autre org');
+    expect(shown).not.toContain('supprimés');
     expect(asked).toEqual([REGISTERED_ORG_ID.slice(0, 15)]);
   });
 

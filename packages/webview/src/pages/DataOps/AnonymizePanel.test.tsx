@@ -410,6 +410,10 @@ describe('AnonymizePanel', () => {
     expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toContain(
       'untick “Keep the values first”',
     );
+    // Past what one backup holds, the values are kept a slice at a time.
+    expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toContain(
+      'tick “Mask in slices” in the confirmation',
+    );
     // A backup, as its hint and the Restore tab call it: "snapshot" named the
     // same thing here, and Compare's live object lists elsewhere.
     expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toMatch(
@@ -613,8 +617,9 @@ describe('AnonymizePanel', () => {
       );
     });
 
-    it('says past a million rows of an object that nothing raises a backup, and how to mask in slices', () => {
-      // It said to raise the setting, which holds 1,000,000 rows at most.
+    it('says past a million rows of an object that nothing raises a backup, and that Apply masks it in slices', () => {
+      // It said to raise the setting, which holds 1,000,000 rows at most;
+      // then to mask from the command line, a slice a run.
       render(
         <AnonymizePanel
           orgName="dev1"
@@ -637,9 +642,8 @@ describe('AnonymizePanel', () => {
       );
 
       expect(screen.getByTestId('restore-coverage-cap').textContent).toBe(
-        'No backup holds more than 1,000,000 rows of one object, and nothing raises that, for ' +
-          'Contact: mask it in slices from the command line (sandforge dataops anonymize ' +
-          '--object and --where), each run taking its own snapshot of what it masks.',
+        'No backup holds more than 1,000,000 rows of one object, for Contact: with “Keep the ' +
+          'values first”, Apply masks it in slices, each backed up just before it is masked.',
       );
     });
 
@@ -1070,6 +1074,365 @@ describe('AnonymizePanel', () => {
 
       expect(screen.queryByTestId('delete-template-confirm')).toBeNull();
       expect(screen.getByTestId('delete-template-btn')).toBeDefined();
+    });
+  });
+
+  describe('masking in slices', () => {
+    /** What a coverage answers of an org whose contacts hold more rows than one backup does. */
+    const sliced = {
+      templateId: 'tpl-1',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          count: 3_002,
+          backedUp: 0,
+          truncated: false,
+          slicePlan: { objectApiName: 'Contact', size: 1_000, slices: 4 },
+        },
+        {
+          objectApiName: 'Lead',
+          count: 12,
+          backedUp: 0,
+          truncated: false,
+          slicePlan: { objectApiName: 'Lead', size: 1_000, slices: 1 },
+        },
+      ],
+      plan: {
+        requests: 40,
+        parts: { snapshots: 6, updates: 17, reads: 17 },
+        bulkBatches: 0 as const,
+        diskBytes: 1_258_291,
+        diskFree: 412 * 1024 ** 3,
+        seconds: 190,
+        apiBudget: { verdict: 'fits' as const, remaining: 4_861_233, max: 5_000_000 },
+      },
+    };
+
+    /** The same org with a run of the template in slices left open on it. */
+    const open = {
+      ...sliced,
+      checkpoint: { id: 'ck-1', savedAt: '2026-11-14T10:00:00.000Z' },
+      sliceSet: {
+        setId: 'set-1',
+        savedAt: '2026-11-14T10:00:00.000Z',
+        done: 2,
+        total: 4,
+        state: 'open' as const,
+        size: 1_000,
+      },
+    };
+
+    /** Open Apply's confirmation and type the org's name. */
+    function confirmApply(): void {
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+    }
+
+    it('counts the slices of each object in the coverage, with what the run would cost', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={sliced}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-coverage-slices-Contact').textContent).toBe('4 slices');
+      expect(screen.getByTestId('restore-coverage-slices-Lead').textContent).toBe('1 slice');
+      expect(screen.getByTestId('coverage-slice-plan-Contact').textContent).toBe(
+        'Contact: 4 slices of up to 1,000 records',
+      );
+      expect(screen.getByTestId('coverage-slice-plan-requests').textContent).toBe(
+        'Requests: about 40 (backups 6, updates 17, reads 17) of the 4,861,233 the org has ' +
+          'left today: they fit.',
+      );
+      expect(screen.getByTestId('coverage-slice-plan-bulk').textContent).toBe(
+        'Bulk API batches: none. The run writes over REST, 200 records a call.',
+      );
+      expect(screen.getByTestId('coverage-slice-plan-disk').textContent).toBe(
+        'Disk: about 1.2 MB on this machine, 412 GB free.',
+      );
+    });
+
+    it('asks for the slices before Apply masks an object past one backup, the plan above the box', () => {
+      const onApply = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={sliced}
+          onApply={onApply}
+        />,
+      );
+      confirmApply();
+
+      expect(screen.getByTestId('confirm-slice-plan-Contact')).toBeDefined();
+      const box = screen.getByTestId('confirm-slices-toggle') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      // The name typed does not arm it: the box is asked for first.
+      expect(screen.getByTestId('danger-held').textContent).toContain('Tick “Mask in slices”');
+      expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.click(box);
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true, slices: true });
+    });
+
+    it('says the confirmation holds the org in this window alone, not against the command line', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={sliced}
+        />,
+      );
+      confirmApply();
+
+      expect(screen.getByTestId('confirm-slices-lock').textContent).toBe(
+        'While the run goes, this window refuses any other backup or restore of dev1. That ' +
+          'hold lives in this window alone: a restore from the command line or from another ' +
+          'window is not held off, so start none until the run ends.',
+      );
+    });
+
+    it('asks for no slice of a run that keeps no value, which says what it cannot bring back', () => {
+      const onApply = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={sliced}
+          onApply={onApply}
+        />,
+      );
+      confirmApply();
+      fireEvent.click(screen.getByTestId('confirm-keep-values-toggle'));
+
+      expect(screen.queryByTestId('confirm-slices')).toBeNull();
+      expect(screen.getByTestId('confirm-unrestorable')).toBeDefined();
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: false });
+    });
+
+    it('asks for no slice when every object fits one backup', () => {
+      const onApply = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{ ...sliced, objects: [sliced.objects[1]] }}
+          onApply={onApply}
+        />,
+      );
+      confirmApply();
+
+      expect(screen.queryByTestId('confirm-slices')).toBeNull();
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
+    });
+
+    it('holds Apply while a run in slices is open, saying why where the keyboard lands', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={open}
+          onResume={vi.fn()}
+          onAbandon={vi.fn()}
+        />,
+      );
+
+      const apply = screen.getByTestId('apply-btn');
+      expect(apply.getAttribute('aria-disabled') ?? String(apply.hasAttribute('disabled'))).toBe(
+        'true',
+      );
+      const reason = document.getElementById(apply.getAttribute('aria-describedby') ?? '');
+      expect(reason?.textContent).toContain('2 of 4 slices of up to 1,000 records masked');
+      expect(reason?.textContent).toContain(
+        'Apply waits until it is resumed to its end or abandoned.',
+      );
+      fireEvent.click(apply);
+      expect(screen.queryByTestId('danger-title')).toBeNull();
+    });
+
+    it('resumes the set in slices, with no snapshot of its own', () => {
+      const onResume = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={open}
+          onResume={onResume}
+        />,
+      );
+      expect(screen.getByTestId('resume-btn').textContent).toBe('Resume the run in slices');
+      fireEvent.click(screen.getByTestId('resume-btn'));
+      expect(screen.queryByTestId('confirm-keep-values')).toBeNull();
+      expect(screen.getByTestId('confirm-slices-lock')).toBeDefined();
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onResume).toHaveBeenCalledWith('tpl-1', 'ck-1', undefined, { slices: true });
+    });
+
+    it('gives the open run up only once its question is answered', () => {
+      const onAbandon = vi.fn();
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={open}
+          onAbandon={onAbandon}
+        />,
+      );
+      // No checkpoint to resume from here: Abandon is the way out, said so.
+      expect(screen.getByTestId('slices-open').textContent).toContain(
+        'Apply waits until it is resumed to its end or abandoned.',
+      );
+      fireEvent.click(screen.getByTestId('abandon-btn'));
+      expect(onAbandon).not.toHaveBeenCalled();
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Abandon the run in slices of “GDPR Template” on dev1?',
+      );
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(onAbandon).toHaveBeenCalledWith('tpl-1');
+    });
+
+    it('says the slice a run backs up, then the one it masks, in the reader’s words', () => {
+      const { rerender } = render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          isApplying
+          progress={{ percentage: 30, step: 'Backing up Contact slice 2 of about 4' }}
+        />,
+      );
+      expect(screen.getByTestId('anonymize-progress-step').textContent).toBe(
+        'Backing up Contact, slice 2 of about 4',
+      );
+
+      rerender(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          isApplying
+          progress={{ percentage: 37, step: 'Anonymized Contact slice 2 of about 4 (412/1000)' }}
+        />,
+      );
+      expect(screen.getByTestId('anonymize-progress-step').textContent).toBe(
+        'Masking Contact, slice 2 of about 4: 412 of 1,000 records',
+      );
+    });
+
+    it('lists what a run in slices left, the rows created late, and the way to its set', () => {
+      const onOpenSet = vi.fn();
+      const slice = (index: number, state: 'masked' | 'pending') => ({
+        index,
+        objectApiName: 'Contact',
+        snapshotId: `set-1-s000${index}`,
+        rows: state === 'masked' ? 1_000 : 0,
+        masked: state === 'masked' ? 1_000 : 0,
+        refused: 0,
+        deletedSince: index === 2 ? 1 : 0,
+        nothingToMask: 0,
+        state,
+      });
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onOpenSet={onOpenSet}
+          sliceRun={{
+            result: {
+              setId: 'set-1',
+              size: 1_000,
+              state: 'open',
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  slices: [slice(1, 'masked'), slice(2, 'masked'), slice(3, 'pending')],
+                },
+              ],
+              lateRecords: 1,
+              requestsSpent: 40,
+              stoppedOnBudget: true,
+              slicesLeft: true,
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('anonymize-slices-summary').textContent).toBe(
+        '2 of 3 slices of up to 1,000 records masked, each backed up just before it was masked.',
+      );
+      expect(
+        within(screen.getByTestId('anonymize-slices-table-2')).getAllByRole('cell')[4].textContent,
+      ).toBe('1');
+      expect(screen.getByTestId('anonymize-slices-late').textContent).toContain(
+        '1 record was created during the run in a range a slice had masked',
+      );
+      expect(screen.getByTestId('anonymize-slices-budget')).toBeDefined();
+      expect(screen.getByTestId('anonymize-slices-left')).toBeDefined();
+      fireEvent.click(screen.getByTestId('anonymize-open-set'));
+      expect(onOpenSet).toHaveBeenCalledWith('set-1');
+    });
+
+    it('says what giving a run up left', () => {
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          sliceRun={{
+            abandoned: true,
+            result: {
+              setId: 'set-1',
+              size: 1_000,
+              state: 'abandoned',
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  slices: [
+                    {
+                      index: 1,
+                      objectApiName: 'Contact',
+                      snapshotId: 'set-1-s0001',
+                      rows: 1_000,
+                      masked: 1_000,
+                      refused: 0,
+                      deletedSince: 0,
+                      nothingToMask: 0,
+                      state: 'masked',
+                    },
+                  ],
+                },
+              ],
+              lateRecords: 0,
+              requestsSpent: 0,
+              slicesLeft: true,
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('anonymize-slices-summary').textContent).toBe(
+        'Run given up: nothing more is masked. Its 1 masked slice stays masked with its backup, ' +
+          'which Restore puts back until it expires; the records no slice reached keep their values.',
+      );
+      expect(screen.queryByTestId('anonymize-slices-left')).toBeNull();
     });
   });
 });

@@ -124,7 +124,7 @@ describe('BackupPanel', () => {
     expect(screen.getByTestId('backup-status-op-1').textContent).toBe('Partial');
   });
 
-  it('says past a million rows of an object that nothing raises a backup, and what copies it whole', () => {
+  it('says past a million rows of an object that nothing raises a backup, and that a backup in slices holds it whole', () => {
     // It named the setting, which holds 1,000,000 rows at most.
     render(
       <BackupPanel
@@ -153,7 +153,7 @@ describe('BackupPanel', () => {
       ),
     ).toEqual([
       'Task: 1,000,000 of 3,400,000 rows read — no backup holds more than 1,000,000 rows of one ' +
-        'object, and nothing raises that. Salesforce’s Data Export (Setup) copies the whole object.',
+        'object. Tick “Back up in slices” and back up again: each slice is a backup of its own.',
     ]);
   });
 
@@ -301,5 +301,58 @@ describe('BackupPanel', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByTestId('backup-op-1')).toBeDefined();
     expect(screen.getByTestId('backup-op-2')).toBeDefined();
+  });
+
+  describe('in slices', () => {
+    it('offers a backup in slices of the objects past one backup, never ticked for the user', () => {
+      const onInSlicesChange = vi.fn();
+      render(
+        <BackupPanel
+          objects={['Contact', 'Lead']}
+          slicesOffered={['Contact']}
+          onInSlicesChange={onInSlicesChange}
+        />,
+      );
+
+      const box = screen.getByTestId('backup-slices-toggle') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(document.getElementById(box.getAttribute('aria-describedby') ?? '')?.textContent).toBe(
+        'Contact holds more rows than one backup does: in slices, each slice is a backup of its ' +
+          'own, and Restore lists them as one set.',
+      );
+      fireEvent.click(box);
+      expect(onInSlicesChange).toHaveBeenCalledWith(true);
+    });
+
+    it('offers none while every object fits one backup', () => {
+      render(<BackupPanel objects={['Contact']} onInSlicesChange={vi.fn()} />);
+      expect(screen.queryByTestId('backup-slices')).toBeNull();
+    });
+
+    it('lists the org’s sets, which Restore opens on', () => {
+      const onOpenSet = vi.fn();
+      render(
+        <BackupPanel
+          onOpenSet={onOpenSet}
+          sets={[
+            {
+              setId: 'set-1',
+              orgId: 'org-1',
+              kind: 'backup',
+              state: 'done',
+              startedAt: '2026-11-14T08:00:00.000Z',
+              lastActivityAt: '2026-11-14T08:30:00.000Z',
+              size: 1_000,
+              totalRecords: 3_002,
+              slices: [],
+            },
+          ]}
+        />,
+      );
+
+      expect(screen.queryByText('No backups available')).toBeNull();
+      fireEvent.click(screen.getByTestId('backup-set-open-set-1'));
+      expect(onOpenSet).toHaveBeenCalledWith('set-1');
+    });
   });
 });

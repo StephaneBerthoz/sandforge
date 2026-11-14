@@ -6,8 +6,13 @@ import type {
   DataOpsAnonymizeCoverageResponse,
   DataOpsAnonymizePreviewResponse,
   ListedAnonymizationTemplate,
+  SliceSetResult,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
+import { ProgressBar } from '../../components/ui/ProgressBar';
+import { SlicePlan, slicedObjects } from './SlicePlan';
+import { SliceTable } from './SliceSetRow';
+import { sliceProgressOf } from './sliceProgress';
 import { maskingGapWords, type MaskingGaps } from '../../utils/maskingRefusal';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -51,18 +56,42 @@ export interface AnonymizePanelProps {
   onDeleteTemplate?: (templateId: string) => void;
   /**
    * Masks every row of the template's objects; `snapshot` takes, before the
-   * first write, a backup of the fields it masks, which Restore puts back.
+   * first write, a backup of the fields it masks, which Restore puts back;
+   * `slices`, of an object holding more rows than one backup does, a backup
+   * of each slice just before it is masked.
    */
   onApply?: (
     templateId: string,
-    options: { snapshot: boolean; accord?: DataOpsAutomationAccord },
+    options: { snapshot: boolean; slices?: true; accord?: DataOpsAutomationAccord },
   ) => void;
   /**
    * Resumes the run of the template that stopped short, the checkpoint the
-   * coverage answer names: only what that run left is masked.
+   * coverage answer names: only what that run left is masked. A run in
+   * slices resumes its set, `slices` given.
    */
-  onResume?: (templateId: string, resumeFrom: string, accord?: DataOpsAutomationAccord) => void;
+  onResume?: (
+    templateId: string,
+    resumeFrom: string,
+    accord?: DataOpsAutomationAccord,
+    options?: { slices: true },
+  ) => void;
+  /**
+   * Gives up the run in slices of the template left open on the org: nothing
+   * more is masked, and its slices stay, which Restore puts back.
+   */
+  onAbandon?: (templateId: string) => void;
+  /** Whether that giving up is on its way to the host. */
+  isAbandoning?: boolean;
   isApplying?: boolean;
+  /** Where the run in progress is, as its progress names it. */
+  progress?: { percentage: number; step: string } | null;
+  /**
+   * Of the last run in slices, its set as its end says it — each slice, the
+   * rows created late, whether slices are left —, or the set it gave up.
+   */
+  sliceRun?: { result: SliceSetResult; abandoned?: boolean } | null;
+  /** Open the Restore tab on a set of slices. */
+  onOpenSet?: (setId: string) => void;
   /**
    * Reads the first rows of each object the template masks and masks them as
    * Apply would, writing nothing. Preview shows them, original beside masked.
@@ -278,6 +307,11 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
   const atCap = coverage.objects.filter((o) => o.stoppedAt === 'cap');
   const capped = atCap.filter((o) => !pastMax(o)).map((o) => o.objectApiName);
   const beyond = atCap.filter(pastMax).map((o) => o.objectApiName);
+  // Past what one backup holds, a run keeping the values first masks the
+  // object in slices, each backed up just before it is masked: what it would
+  // cost is said here, as the command line's dry run says it. The page
+  // offered only to mask from the command line, a slice a run.
+  const sliced = slicedObjects(coverage.objects);
   const date = coverage.backup
     ? (formatStoredDate(coverage.backup.timestamp, (d) => d.toLocaleString(uiLocale())) ??
       t('common.dateUnknown'))
@@ -304,6 +338,11 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
               <th scope="col" className="text-right font-normal">
                 {t('dataops.coverage.inBackup')}
               </th>
+              {sliced.length > 0 && (
+                <th scope="col" className="text-right font-normal">
+                  {t('dataops.slices.column')}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -322,6 +361,21 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
                       ? t('dataops.coverage.readFailed', { rows: formatNumber(o.backedUp) })
                       : formatNumber(o.backedUp)}
                 </td>
+                {sliced.length > 0 && (
+                  <td
+                    className="text-right tabular-nums"
+                    data-testid={`restore-coverage-slices-${o.objectApiName}`}
+                  >
+                    {/* In slices, every object of the run is: one under a
+                        backup's rows makes a single slice. */}
+                    {o.slicePlan
+                      ? t('dataops.slices.columnValue', {
+                          count: o.slicePlan.slices,
+                          formatted: formatNumber(o.slicePlan.slices),
+                        })
+                      : t('dataops.coverage.notCounted')}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -340,7 +394,7 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
               : []),
             ...(beyond.length > 0
               ? [
-                  t('dataops.coverage.capBeyond', {
+                  t('dataops.slices.capBeyond', {
                     count: beyond.length,
                     objects: beyond.join(', '),
                   }),
@@ -348,6 +402,138 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
               : []),
           ].join(' ')}
         </span>
+      )}
+      {sliced.length > 0 && coverage.plan && (
+        <div className="flex flex-col gap-1" data-testid="restore-coverage-plan">
+          <span className="text-xs text-text-primary">
+            {t('dataops.slices.plan.lead', {
+              count: sliced.length,
+              objects: sliced.map((o) => o.objectApiName).join(', '),
+            })}
+          </span>
+          <SlicePlan plan={coverage.plan} objects={sliced} testId="coverage-slice-plan" />
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Where a masking run is: the slice and its phase of a run in slices — backed
+ * up, then masked —, in the interface language; the step as the extension
+ * wrote it otherwise.
+ */
+const AnonymizeProgress: React.FC<{ progress: { percentage: number; step: string } }> = ({
+  progress,
+}) => {
+  const { t } = useTranslation();
+  const slice = sliceProgressOf(progress.step);
+  const said =
+    slice === undefined
+      ? progress.step
+      : slice.phase === 'backingUp'
+        ? t(
+            slice.about === undefined
+              ? 'dataops.slices.progress.backingUpResumed'
+              : 'dataops.slices.progress.backingUp',
+            {
+              object: slice.object,
+              index: formatNumber(slice.index),
+              about: formatNumber(slice.about ?? slice.index),
+            },
+          )
+        : t(
+            slice.about === undefined
+              ? 'dataops.slices.progress.maskingResumed'
+              : 'dataops.slices.progress.masking',
+            {
+              object: slice.object,
+              index: formatNumber(slice.index),
+              about: formatNumber(slice.about ?? slice.index),
+              done: formatNumber(slice.done),
+              total: formatNumber(slice.total),
+            },
+          );
+  return (
+    <div className="flex flex-col gap-1" data-testid="anonymize-progress">
+      <p className="text-xs text-text-primary" data-testid="anonymize-progress-step">
+        {said}
+      </p>
+      <ProgressBar
+        value={progress.percentage}
+        max={100}
+        ariaLabel={t('dataops.slices.progress.label')}
+        valueText={`${formatNumber(Math.round(progress.percentage))} %`}
+      />
+    </div>
+  );
+};
+
+/**
+ * What a run in slices left, once it ended: each slice of its set, the rows
+ * created during the run that no backup holds, why it stopped between two
+ * slices, and how to go on; the set opens in Restore, which puts its values
+ * back. Of a set given up, what giving it up left.
+ */
+const SliceRunResult: React.FC<{
+  run: { result: SliceSetResult; abandoned?: boolean };
+  onOpenSet?: (setId: string) => void;
+}> = ({ run, onOpenSet }) => {
+  const { t } = useTranslation();
+  const { result } = run;
+  const slices = result.objects.flatMap((o) => o.slices);
+  const done = slices.filter((s) => s.state === 'masked' || s.state === 'restored').length;
+  return (
+    <div className="flex flex-col gap-2" data-testid="anonymize-slices" role="status">
+      <p className="text-xs text-text-primary" data-testid="anonymize-slices-summary">
+        {run.abandoned
+          ? t('dataops.slices.result.abandoned', {
+              count: done,
+              formatted: formatNumber(done),
+            })
+          : t('dataops.slices.result.summary', {
+              count: slices.length,
+              done: formatNumber(done),
+              formatted: formatNumber(slices.length),
+              size: formatNumber(result.size),
+            })}
+      </p>
+      {slices.length > 0 && (
+        <div className="overflow-x-auto">
+          <SliceTable slices={slices} kind="masking" testId="anonymize-slices-table" />
+        </div>
+      )}
+      {result.stoppedOnBudget && (
+        <p className="text-xs text-text-primary" data-testid="anonymize-slices-budget">
+          {t('dataops.slices.result.budget', {
+            requests: formatNumber(result.requestsSpent),
+          })}
+        </p>
+      )}
+      {result.lateRecords > 0 && (
+        <p className="text-xs text-text-primary" data-testid="anonymize-slices-late">
+          {t('dataops.slices.result.late', {
+            count: result.lateRecords,
+            formatted: formatNumber(result.lateRecords),
+          })}
+        </p>
+      )}
+      {!run.abandoned && result.state === 'open' && result.slicesLeft && (
+        <p className="text-xs text-text-primary" data-testid="anonymize-slices-left">
+          {t('dataops.slices.result.left')}
+        </p>
+      )}
+      {onOpenSet && slices.some((s) => s.state !== 'pending') && (
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onOpenSet(result.setId)}
+            data-testid="anonymize-open-set"
+          >
+            {t('dataops.slices.result.openRestore')}
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -366,7 +552,12 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   onDeleteTemplate,
   onApply,
   onResume,
+  onAbandon,
+  isAbandoning = false,
   isApplying = false,
+  progress,
+  sliceRun,
+  onOpenSet,
   onPreview,
   isPreviewing = false,
   preview,
@@ -380,6 +571,17 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   const { t } = useTranslation();
   // Apply and Resume both write over the org's records, behind the same typed confirmation.
   const [confirming, setConfirming] = useState<'apply' | 'resume' | null>(null);
+  /**
+   * Whether Apply masks in slices the objects holding more rows than one
+   * backup does: asked each time, never ticked for the user — a run in
+   * slices masks for hours, a backup a slice, and the slices before a slice
+   * that cannot be backed up stay masked.
+   */
+  const [inSlices, setInSlices] = useState(false);
+  const slicesHintId = useId();
+  /** Whether Abandon asks to give up the run in slices left open. */
+  const [askingAbandon, setAskingAbandon] = useState(false);
+  const applyHeldId = useId();
   /**
    * Whether Apply keeps the values it masks first, as the command line always
    * does: ticked unless the user unticks it. The panel took no snapshot, and
@@ -403,6 +605,26 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
     coverage && selectedTemplate && coverage.templateId === selectedTemplate.id ? coverage : null;
   const checkpoint = selectedCoverage?.checkpoint;
   const lost = selectedCoverage ? unrestorable(selectedCoverage) : [];
+  /**
+   * The run in slices of this template left open on the org: a new Apply is
+   * refused while it is — it would mask again what its slices masked —, and
+   * it is resumed or given up.
+   */
+  const openSet = selectedCoverage?.sliceSet?.state === 'open' ? selectedCoverage.sliceSet : null;
+  /** The objects past what one backup holds, which a run keeping the values masks in slices. */
+  const sliced = slicedObjects(selectedCoverage?.objects);
+  const slicesPlan = selectedCoverage?.plan;
+  const asksSlices = confirming === 'apply' && keepValues && sliced.length > 0;
+  // The run keeps no value of an object past one backup unless in slices:
+  // the confirmation waits on the box, as on the read of the org's automation.
+  const slicesHeld =
+    asksSlices && !inSlices
+      ? t('dataops.slices.confirm.held', {
+          count: sliced.length,
+          objects: sliced.map((o) => o.objectApiName).join(', '),
+        })
+      : undefined;
+  const held = slicesHeld ?? (orgId ? automationHeld : undefined);
   // Nor is a preview of another template this one's.
   const selectedPreview =
     preview && selectedTemplate && preview.templateId === selectedTemplate.id ? preview : null;
@@ -504,7 +726,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 </div>
                 {/* Before Apply, which masks every row for good. */}
                 {selectedCoverage && <RestoreCoverage coverage={selectedCoverage} />}
-                {checkpoint && onResume && (
+                {checkpoint && onResume && !openSet && (
                   <span className="text-xs text-text-primary" data-testid="resume-hint">
                     {t('dataops.resumeHint', {
                       date:
@@ -512,6 +734,27 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         t('common.dateUnknown'),
                     })}
                   </span>
+                )}
+                {/* Said where Apply is: it waits on the run left open, which
+                    Resume carries on and Abandon gives up. */}
+                {openSet && (
+                  <p
+                    id={applyHeldId}
+                    className="text-xs text-text-primary"
+                    data-testid="slices-open"
+                  >
+                    {t('dataops.slices.open.notice', {
+                      done: formatNumber(openSet.done),
+                      total: formatNumber(openSet.total),
+                      size: formatNumber(openSet.size),
+                      date:
+                        formatStoredDate(openSet.savedAt, (d) => d.toLocaleString(uiLocale())) ??
+                        t('common.dateUnknown'),
+                    })}{' '}
+                    {/* With no checkpoint of it for the template's rules as
+                        they are, the run cannot be resumed: given up only. */}
+                    {t(checkpoint ? 'dataops.slices.open.ways' : 'dataops.slices.open.abandonOnly')}
+                  </p>
                 )}
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="flex flex-wrap gap-2">
@@ -537,7 +780,11 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                       onClick={() => setConfirming('apply')}
                       loading={isApplying}
                       // Its confirmation names the org and asks for its name.
-                      disabled={!orgName}
+                      // A run in slices left open holds it, and says why
+                      // where the keyboard lands on it.
+                      disabled={!orgName || openSet !== null}
+                      focusableWhenDisabled={openSet !== null}
+                      {...(openSet ? { 'aria-describedby': applyHeldId } : {})}
                       data-testid="apply-btn"
                     >
                       {t('dataops.applyAnonymization')}
@@ -550,10 +797,22 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         variant="secondary"
                         size="sm"
                         onClick={() => setConfirming('resume')}
-                        disabled={isApplying || !orgName}
+                        disabled={isApplying || isAbandoning || !orgName}
                         data-testid="resume-btn"
                       >
-                        {t('dataops.resumeAnonymization')}
+                        {t(openSet ? 'dataops.slices.open.resume' : 'dataops.resumeAnonymization')}
+                      </Button>
+                    )}
+                    {openSet && onAbandon && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setAskingAbandon(true)}
+                        loading={isAbandoning}
+                        disabled={isApplying || !orgName}
+                        data-testid="abandon-btn"
+                      >
+                        {t('dataops.slices.open.abandon')}
                       </Button>
                     )}
                     {isApplying && onStop && (
@@ -599,6 +858,10 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                       />
                     )}
                 </div>
+                {isApplying && progress && <AnonymizeProgress progress={progress} />}
+                {sliceRun && !isApplying && (
+                  <SliceRunResult run={sliceRun} {...(onOpenSet ? { onOpenSet } : {})} />
+                )}
                 {snapshotRefused && !isApplying && (
                   <p
                     role="status"
@@ -642,25 +905,32 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
               onClose={() => {
                 setConfirming(null);
                 setAccord(NO_ACCORD);
+                setInSlices(false);
               }}
               onConfirm={() => {
                 const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
                 // Confirmed once what the org runs was listed above: what
                 // fires is accepted, the emails as their box says.
                 const given = orgId ? accord : undefined;
+                const slices = asksSlices && inSlices;
                 setConfirming(null);
                 setAccord(NO_ACCORD);
+                setInSlices(false);
                 if (resumeFrom !== undefined) {
-                  if (given) onResume?.(selectedTemplate.id, resumeFrom, given);
+                  // A run in slices resumes its set: its next slice is backed
+                  // up before it is masked, as the run's were.
+                  if (openSet) onResume?.(selectedTemplate.id, resumeFrom, given, { slices: true });
+                  else if (given) onResume?.(selectedTemplate.id, resumeFrom, given);
                   else onResume?.(selectedTemplate.id, resumeFrom);
                 } else {
                   onApply?.(selectedTemplate.id, {
                     snapshot: keepValues,
+                    ...(slices ? { slices: true as const } : {}),
                     ...(given ? { accord: given } : {}),
                   });
                 }
               }}
-              {...(orgId && automationHeld !== undefined ? { held: automationHeld } : {})}
+              {...(held !== undefined ? { held } : {})}
               // It was titled Apply over "Anonymize sensitive data", naming
               // neither the org nor the template, and asked to type the word
               // Anonymize — 匿名化 in Japanese, typed only through an input
@@ -707,6 +977,43 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                   </p>
                 </div>
               )}
+              {/* Past what one backup holds of an object, the values are
+                  kept a slice at a time: what that costs, and the box that
+                  asks for it. Unticked "Keep the values first" takes no
+                  backup, and no slice. */}
+              {asksSlices && (
+                <div className="flex flex-col gap-1" data-testid="confirm-slices">
+                  {slicesPlan && (
+                    <SlicePlan plan={slicesPlan} objects={sliced} testId="confirm-slice-plan" />
+                  )}
+                  <label className="flex items-start gap-2 text-xs text-text-primary">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={inSlices}
+                      onChange={(e) => setInSlices(e.target.checked)}
+                      aria-describedby={slicesHintId}
+                      data-testid="confirm-slices-toggle"
+                    />
+                    <span>{t('dataops.slices.confirm.toggle')}</span>
+                  </label>
+                  <div
+                    id={slicesHintId}
+                    className="flex flex-col gap-1 text-xs text-text-secondary"
+                  >
+                    <p>{t('dataops.slices.confirm.hint')}</p>
+                    <p data-testid="confirm-slices-lock">
+                      {t('dataops.slices.confirm.lock', { org: orgName })}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* A resume of a run in slices holds the org as the run did. */}
+              {confirming === 'resume' && openSet && (
+                <p className="text-xs text-text-secondary" data-testid="confirm-slices-lock">
+                  {t('dataops.slices.confirm.lock', { org: orgName })}
+                </p>
+              )}
               {/* What the preview found Apply would be refused for, said again
                 where the user confirms it. The host decides: a preview can
                 be out of date once the user has given the access it asks for. */}
@@ -746,6 +1053,28 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 </div>
               )}
             </DangerConfirm>
+          )}
+          {/* Giving up writes nothing to the org, and cannot be taken back:
+              the run's key goes with it, and a later run masks with another. */}
+          {orgName && openSet && onAbandon && (
+            <DangerConfirm
+              open={askingAbandon}
+              variant="warning"
+              onClose={() => setAskingAbandon(false)}
+              onConfirm={() => {
+                setAskingAbandon(false);
+                onAbandon(selectedTemplate.id);
+              }}
+              title={t('dataops.slices.open.abandonTitle', {
+                org: orgName,
+                name: selectedTemplate.name,
+              })}
+              description={t('dataops.slices.open.abandonDescription', {
+                count: openSet.done,
+                formatted: formatNumber(openSet.done),
+              })}
+              confirmLabel={t('dataops.slices.open.abandonConfirm')}
+            />
           )}
         </div>
       )}

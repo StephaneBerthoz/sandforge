@@ -2058,7 +2058,7 @@
     "backupPartialLead": "Partielle : une restauration ne rétablit que les lignes lues par cette sauvegarde, et laisse le reste de chaque objet tel quel.",
     "backupStoppedAtCap": "{{object}} : {{read}} lignes lues sur {{held}} — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}} : {{read}} lignes lues — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
-    "backupStoppedPastMax": "{{object}} : {{read}} lignes lues sur {{held}} — aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet, et rien ne relève ce plafond. L'Exportation de données de Salesforce (Configuration) copie l'objet entier.",
+    "backupStoppedPastMax": "{{object}} : {{read}} lignes lues sur {{held}} — aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet. Cochez « Sauvegarder par tranches » et sauvegardez de nouveau : chaque tranche est une sauvegarde à part.",
     "backupReadFailed": "{{object}} : {{read}} lignes lues sur {{held}} — la lecture a échoué à cet endroit.",
     "backupReadFailedUncounted": "{{object}} : {{read}} lignes lues — la lecture a échoué à cet endroit.",
     "backupNotReached": "{{object}} : non lu — la sauvegarde a échoué avant d'atteindre cet objet, et n'en contient aucune ligne.",
@@ -2109,9 +2109,7 @@
       "confirmShortfall": "Une fois masqués, ces enregistrements ne pourront jamais être rendus par une restauration :",
       "stoppedAtCap": "{{rows}} (arrêtée au plafond)",
       "readFailed": "{{rows}} (lecture échouée)",
-      "capHint": "La sauvegarde s'est arrêtée à son plafond de lignes par objet pour {{objects}} : relevez sandforge.backup.maxRecordsPerObject dans les Paramètres et sauvegardez de nouveau pour garder chaque ligne.",
-      "capBeyond_one": "Aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet, et rien ne relève ce plafond, pour {{objects}} : masquez-le par tranches en ligne de commande (sandforge dataops anonymize --object et --where), chaque exécution prenant son propre instantané de ce qu'elle masque.",
-      "capBeyond_other": "Aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet, et rien ne relève ce plafond, pour {{objects}} : masquez chacun par tranches en ligne de commande (sandforge dataops anonymize --object et --where), chaque exécution prenant son propre instantané de ce qu'elle masque."
+      "capHint": "La sauvegarde s'est arrêtée à son plafond de lignes par objet pour {{objects}} : relevez sandforge.backup.maxRecordsPerObject dans les Paramètres et sauvegardez de nouveau pour garder chaque ligne."
     },
     "compliance": "Conformité",
     "frameworks": {
@@ -2421,7 +2419,123 @@
       "taken_one": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrement : Restaurer les remet.",
       "taken_other": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrements : Restaurer les remet.",
       "openRestore": "Ouvrir dans Restaurer",
-      "refused": "Aucune sauvegarde n'a pu être conservée, donc rien n'a été masqué. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs » dans la confirmation."
+      "refused": "Aucune sauvegarde n'a pu être conservée, donc rien n'a été masqué. Un objet qui compte plus de lignes qu'une sauvegarde n'en contient se masque par tranches : cochez « Masquer par tranches » dans la confirmation. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs »."
+    },
+    "slices": {
+      "column": "Par tranches",
+      "columnValue_one": "{{formatted}} tranche",
+      "columnValue_other": "{{formatted}} tranches",
+      "capBeyond_one": "Aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet, pour {{objects}} : avec « Conserver d'abord les valeurs », Appliquer le masque par tranches, chacune sauvegardée juste avant d'être masquée.",
+      "capBeyond_other": "Aucune sauvegarde ne contient plus de 1 000 000 de lignes d'un objet, pour {{objects}} : avec « Conserver d'abord les valeurs », Appliquer masque chacun par tranches, chaque tranche sauvegardée juste avant d'être masquée.",
+      "plan": {
+        "lead_one": "{{objects}} compte plus de lignes qu'une sauvegarde n'en contient : avec « Conserver d'abord les valeurs », Appliquer le masque par tranches, chacune sauvegardée juste avant d'être masquée. L'exécution prendrait :",
+        "lead_other": "{{objects}} comptent plus de lignes qu'une sauvegarde n'en contient : avec « Conserver d'abord les valeurs », Appliquer les masque par tranches, chacune sauvegardée juste avant d'être masquée. L'exécution prendrait :",
+        "object_one": "{{object}} : {{formatted}} tranche de {{size}} enregistrements au plus",
+        "object_other": "{{object}} : {{formatted}} tranches de {{size}} enregistrements au plus",
+        "approximate": "(d'après le chiffre de l'org elle-même, approximatif : elle a renoncé à compter)",
+        "requests": "Requêtes : environ {{requests}} (sauvegardes {{snapshots}}, mises à jour {{updates}}, lectures {{reads}}) sur les {{remaining}} qui restent aujourd'hui à l'org : {{verdict}}",
+        "requestsUnread": "Requêtes : environ {{requests}} (sauvegardes {{snapshots}}, mises à jour {{updates}}, lectures {{reads}}). Ce qui reste aujourd'hui à l'org n'a pas été lu.",
+        "verdict": {
+          "fits": "elles tiennent.",
+          "near": "près de ce qui reste.",
+          "exceeds": "plus que ce qui reste. L'exécution va aussi loin que la journée le permet et s'arrête entre deux tranches ; Reprendre continue ensuite."
+        },
+        "bulk": "Lots de l'API Bulk : aucun. L'exécution écrit en REST, 200 enregistrements par appel.",
+        "disk": "Disque : environ {{size}} sur cette machine, {{free}} libres.",
+        "diskUnknown": "Disque : environ {{size}} sur cette machine.",
+        "time": "Durée : environ {{time}}."
+      },
+      "confirm": {
+        "toggle": "Masquer par tranches, chacune sauvegardée juste avant d'être masquée",
+        "held_one": "Cochez « Masquer par tranches » : {{objects}} compte plus de lignes qu'une sauvegarde n'en contient.",
+        "held_other": "Cochez « Masquer par tranches » : {{objects}} comptent plus de lignes qu'une sauvegarde n'en contient.",
+        "hint": "Si une tranche ne peut pas être sauvegardée entière, l'exécution s'arrête là, et les tranches d'avant restent masquées avec leurs sauvegardes.",
+        "lock": "Pendant l'exécution, cette fenêtre refuse toute autre sauvegarde ou restauration de {{org}}. Ce verrou ne vaut que dans cette fenêtre : une restauration lancée en ligne de commande ou depuis une autre fenêtre n'est pas retenue, n'en lancez donc aucune avant la fin."
+      },
+      "progress": {
+        "label": "Progression du masquage",
+        "backingUp": "Sauvegarde de {{object}}, tranche {{index}} sur environ {{about}}",
+        "backingUpResumed": "Sauvegarde de {{object}}, tranche {{index}}",
+        "masking": "Masquage de {{object}}, tranche {{index}} sur environ {{about}} : {{done}} enregistrements sur {{total}}",
+        "maskingResumed": "Masquage de {{object}}, tranche {{index}} : {{done}} enregistrements sur {{total}}"
+      },
+      "result": {
+        "summary_one": "{{done}} tranche masquée sur {{formatted}}, de {{size}} enregistrements au plus, chacune sauvegardée juste avant d'être masquée.",
+        "summary_other": "{{done}} tranches masquées sur {{formatted}}, de {{size}} enregistrements au plus, chacune sauvegardée juste avant d'être masquée.",
+        "abandoned_one": "Exécution abandonnée : plus rien n'est masqué. Sa {{formatted}} tranche masquée le reste, avec sa sauvegarde, que Restaurer remet jusqu'à son expiration ; les enregistrements qu'aucune tranche n'a atteints gardent leurs valeurs.",
+        "abandoned_other": "Exécution abandonnée : plus rien n'est masqué. Ses {{formatted}} tranches masquées le restent, avec leurs sauvegardes, que Restaurer remet jusqu'à leur expiration ; les enregistrements qu'aucune tranche n'a atteints gardent leurs valeurs.",
+        "budget": "L'exécution s'est arrêtée entre deux tranches après {{requests}} requêtes : la tranche suivante aurait dépassé ce qui lui était accordé, ou la part de la journée de l'org qu'elle laisse aux intégrations.",
+        "late_one": "{{formatted}} enregistrement a été créé pendant l'exécution dans une plage déjà masquée : aucune sauvegarde ne le contient, et il n'a pas été masqué. Reprendre le masque, avec une sauvegarde à lui.",
+        "late_other": "{{formatted}} enregistrements ont été créés pendant l'exécution dans une plage déjà masquée : aucune sauvegarde ne les contient, et ils n'ont pas été masqués. Reprendre les masque, avec une sauvegarde à eux.",
+        "left": "Il reste des tranches. Reprendre masque le reste, chaque tranche sauvegardée d'abord.",
+        "openRestore": "Ouvrir l'ensemble dans Restaurer"
+      },
+      "table": {
+        "slice": "Tranche",
+        "object": "Objet",
+        "rows": "Lignes sauvegardées",
+        "masked": "Masquées",
+        "refused": "Refusées",
+        "deletedSince": "Supprimées depuis",
+        "state": "État",
+        "actions": "Actions",
+        "late": "tardive",
+        "sizeUsed": "(lue par tranches de {{size}})"
+      },
+      "state": {
+        "pending": "Pas commencée",
+        "snapshotted": "Sauvegardée",
+        "masking": "En cours de masquage",
+        "masked": "Masquée",
+        "restored": "Restaurée",
+        "restoredOn": "Restaurée le {{date}}"
+      },
+      "set": {
+        "kindMasking": "Masquage par tranches, {{date}}",
+        "kindBackup": "Sauvegarde par tranches, {{date}}",
+        "summary_one": "{{formatted}} tranche de {{size}} enregistrements au plus, {{records}} enregistrements en tout",
+        "summary_other": "{{formatted}} tranches de {{size}} enregistrements au plus, {{records}} enregistrements en tout",
+        "state": {
+          "open": "Ouvert",
+          "done": "Terminé",
+          "abandoned": "Abandonné"
+        },
+        "filtered": "Limité à : {{filters}}",
+        "openHeld": "Son masquage est encore ouvert : reprenez-le jusqu'au bout, ou abandonnez-le, dans l'onglet Anonymiser avant de restaurer. Repris, il masquerait de nouveau ce qu'une restauration remet.",
+        "expand": "Afficher ses tranches",
+        "collapse": "Masquer ses tranches",
+        "restoreAll": "Tout restaurer",
+        "restoreSlice": "Restaurer la tranche {{index}}",
+        "delete": "Supprimer l'ensemble",
+        "deleteConfirm": "Supprimer cet ensemble, et la sauvegarde de chacune de ses tranches, de cette machine ? Les valeurs qu'elles conservent en clair disparaissent définitivement, et aucune ne peut plus être restaurée.",
+        "confirmTitleAll": "Restaurer l'ensemble du {{date}} dans {{org}} ?",
+        "confirmTitleSlice": "Restaurer la tranche {{index}} de l'ensemble du {{date}} dans {{org}} ?",
+        "confirmDescription": "Chaque tranche est remise dans l'ordre, depuis sa propre sauvegarde : les lignes modifiées depuis reprennent les valeurs de la sauvegarde, quel que soit l'auteur de la modification. Arrêtée, la même restauration reprend à la première tranche non restaurée.",
+        "cost": "Environ {{requests}} requêtes, aucun lot de l'API Bulk.",
+        "result": "Tranches restaurées : {{restored}}. Restaurées avant, non relues : {{skipped}}."
+      },
+      "open": {
+        "notice": "Une exécution de ce modèle par tranches est ouverte sur cette org : {{done}} tranches masquées sur {{total}}, de {{size}} enregistrements au plus, dernier mouvement le {{date}}.",
+        "ways": "Appliquer attend qu'elle soit reprise jusqu'au bout ou abandonnée.",
+        "abandonOnly": "Elle ne peut plus être reprise d'ici, les règles de son modèle ayant changé depuis : Appliquer attend qu'elle soit abandonnée.",
+        "resume": "Reprendre l'exécution par tranches",
+        "abandon": "Abandonner l'exécution",
+        "abandonTitle": "Abandonner l'exécution par tranches de « {{name}} » sur {{org}} ?",
+        "abandonDescription_one": "Plus rien n'est masqué. Sa {{formatted}} tranche masquée le reste, avec sa sauvegarde, que Restaurer remet jusqu'à son expiration ; les enregistrements qu'aucune tranche n'a atteints gardent leurs valeurs. Un nouvel Appliquer masque avec une autre clé : la même adresse reçoit une autre empreinte.",
+        "abandonDescription_other": "Plus rien n'est masqué. Ses {{formatted}} tranches masquées le restent, avec leurs sauvegardes, que Restaurer remet jusqu'à leur expiration ; les enregistrements qu'aucune tranche n'a atteints gardent leurs valeurs. Un nouvel Appliquer masque avec une autre clé : la même adresse reçoit une autre empreinte.",
+        "abandonConfirm": "Abandonner l'exécution"
+      },
+      "backup": {
+        "toggle": "Sauvegarder par tranches",
+        "hint_one": "{{objects}} compte plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Restaurer les liste comme un seul ensemble.",
+        "hint_other": "{{objects}} comptent plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Restaurer les liste comme un seul ensemble."
+      },
+      "notify": {
+        "done": "Masquage par tranches terminé : {{done}} tranches masquées sur {{total}}, chacune avec sa sauvegarde.",
+        "open": "Masquage par tranches arrêté avec des tranches restantes : {{done}} masquées sur {{total}}. Reprendre, dans l'onglet Anonymiser, continue.",
+        "late_one": "Masquage par tranches terminé, mais {{formatted}} enregistrement créé pendant l'exécution n'a pas été masqué : Reprendre, dans l'onglet Anonymiser, le masque.",
+        "late_other": "Masquage par tranches terminé, mais {{formatted}} enregistrements créés pendant l'exécution n'ont pas été masqués : Reprendre, dans l'onglet Anonymiser, les masque."
+      }
     },
     "backupDeleteConfirmSync": "Supprimer cette sauvegarde ? Elle contient ce que l'exécution Sync du {{date}} a écrasé : retirer cette exécution dans Sync ne remettra plus ces valeurs, et elles disparaissent définitivement de cette machine.",
     "restoreSyncPartial": "L'exécution Sync écrit encore, ou s'est arrêtée avant la fin — sa fenêtre s'est fermée, ou l'extension s'est arrêtée : cette sauvegarde contient ce qu'elle avait conservé jusque-là.",

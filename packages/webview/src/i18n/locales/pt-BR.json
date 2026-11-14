@@ -2058,7 +2058,7 @@
     "backupPartialLead": "Parcial: uma restauração traz de volta apenas as linhas que este backup leu e deixa o resto de cada objeto como está.",
     "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} linhas lidas — parou no limite (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} linhas lidas — parou no limite (sandforge.backup.maxRecordsPerObject).",
-    "backupStoppedPastMax": "{{object}}: {{read}} de {{held}} linhas lidas — nenhum backup guarda mais de 1.000.000 de linhas de um objeto, e nada eleva esse limite. A Exportação de dados do Salesforce (Configuração) copia o objeto inteiro.",
+    "backupStoppedPastMax": "{{object}}: {{read}} de {{held}} linhas lidas — nenhum backup guarda mais de 1.000.000 de linhas de um objeto. Marque “Fazer backup em partes” e faça o backup de novo: cada parte é um backup próprio.",
     "backupReadFailed": "{{object}}: {{read}} de {{held}} linhas lidas — a leitura falhou ali.",
     "backupReadFailedUncounted": "{{object}}: {{read}} linhas lidas — a leitura falhou ali.",
     "backupNotReached": "{{object}}: não lido — o backup falhou antes de chegar a este objeto e não contém nenhuma de suas linhas.",
@@ -2109,9 +2109,7 @@
       "confirmShortfall": "Depois de mascarados, uma restauração nunca poderá trazer estes registros de volta:",
       "stoppedAtCap": "{{rows}} (parou no limite)",
       "readFailed": "{{rows}} (a leitura falhou)",
-      "capHint": "O backup parou no limite de linhas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject nas Configurações e faça o backup de novo para guardar todas as linhas.",
-      "capBeyond_one": "Nenhum backup guarda mais de 1.000.000 de linhas de um objeto, e nada eleva esse limite, para {{objects}}: mascare-o por partes pela linha de comando (sandforge dataops anonymize --object e --where), cada execução tirando seu próprio snapshot do que mascara.",
-      "capBeyond_other": "Nenhum backup guarda mais de 1.000.000 de linhas de um objeto, e nada eleva esse limite, para {{objects}}: mascare cada um por partes pela linha de comando (sandforge dataops anonymize --object e --where), cada execução tirando seu próprio snapshot do que mascara."
+      "capHint": "O backup parou no limite de linhas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject nas Configurações e faça o backup de novo para guardar todas as linhas."
     },
     "compliance": "Conformidade",
     "frameworks": {
@@ -2421,7 +2419,123 @@
       "taken_one": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registro: Restaurar os devolve.",
       "taken_other": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registros: Restaurar os devolve.",
       "openRestore": "Abrir em Restaurar",
-      "refused": "Nenhum backup pôde ser guardado, então nada foi mascarado. Para mascarar sem volta, desmarque “Guardar os valores antes” na confirmação."
+      "refused": "Nenhum backup pôde ser guardado, então nada foi mascarado. Um objeto com mais linhas do que um backup guarda é mascarado em partes: marque “Mascarar em partes” na confirmação. Para mascarar sem volta, desmarque “Guardar os valores antes”."
+    },
+    "slices": {
+      "column": "Em partes",
+      "columnValue_one": "{{formatted}} parte",
+      "columnValue_other": "{{formatted}} partes",
+      "capBeyond_one": "Nenhum backup guarda mais de 1.000.000 de linhas de um objeto, para {{objects}}: com “Guardar os valores antes”, Aplicar o mascara em partes, cada uma com backup feito logo antes de ser mascarada.",
+      "capBeyond_other": "Nenhum backup guarda mais de 1.000.000 de linhas de um objeto, para {{objects}}: com “Guardar os valores antes”, Aplicar mascara cada um em partes, cada parte com backup feito logo antes de ser mascarada.",
+      "plan": {
+        "lead_one": "{{objects}} tem mais linhas do que um backup guarda: com “Guardar os valores antes”, Aplicar o mascara em partes, cada uma com backup feito logo antes de ser mascarada. A execução levaria:",
+        "lead_other": "{{objects}} têm mais linhas do que um backup guarda: com “Guardar os valores antes”, Aplicar os mascara em partes, cada uma com backup feito logo antes de ser mascarada. A execução levaria:",
+        "object_one": "{{object}}: {{formatted}} parte de no máximo {{size}} registros",
+        "object_other": "{{object}}: {{formatted}} partes de no máximo {{size}} registros",
+        "approximate": "(pelo número da própria org, aproximado: ela desistiu de contar)",
+        "requests": "Requisições: cerca de {{requests}} (backups {{snapshots}}, atualizações {{updates}}, leituras {{reads}}) das {{remaining}} que restam hoje à org: {{verdict}}",
+        "requestsUnread": "Requisições: cerca de {{requests}} (backups {{snapshots}}, atualizações {{updates}}, leituras {{reads}}). O que resta hoje à org não foi lido.",
+        "verdict": {
+          "fits": "cabem.",
+          "near": "perto do que resta.",
+          "exceeds": "mais do que resta. A execução vai até onde o dia permitir e para entre duas partes; Retomar continua depois."
+        },
+        "bulk": "Lotes da API Bulk: nenhum. A execução grava por REST, 200 registros por chamada.",
+        "disk": "Disco: cerca de {{size}} nesta máquina, {{free}} livres.",
+        "diskUnknown": "Disco: cerca de {{size}} nesta máquina.",
+        "time": "Duração: cerca de {{time}}."
+      },
+      "confirm": {
+        "toggle": "Mascarar em partes, cada uma com backup feito logo antes de ser mascarada",
+        "held_one": "Marque “Mascarar em partes”: {{objects}} tem mais linhas do que um backup guarda.",
+        "held_other": "Marque “Mascarar em partes”: {{objects}} têm mais linhas do que um backup guarda.",
+        "hint": "Se não for possível fazer o backup de uma parte inteira, a execução para ali, e as partes anteriores continuam mascaradas com seus backups.",
+        "lock": "Enquanto a execução dura, esta janela recusa qualquer outro backup ou restauração de {{org}}. Esse bloqueio vale só nesta janela: uma restauração pela linha de comando ou por outra janela não é impedida, então não inicie nenhuma antes do fim."
+      },
+      "progress": {
+        "label": "Progresso da mascaração",
+        "backingUp": "Fazendo backup de {{object}}, parte {{index}} de cerca de {{about}}",
+        "backingUpResumed": "Fazendo backup de {{object}}, parte {{index}}",
+        "masking": "Mascarando {{object}}, parte {{index}} de cerca de {{about}}: {{done}} de {{total}} registros",
+        "maskingResumed": "Mascarando {{object}}, parte {{index}}: {{done}} de {{total}} registros"
+      },
+      "result": {
+        "summary_one": "{{done}} de {{formatted}} parte de no máximo {{size}} registros mascarada, cada uma com backup feito logo antes de ser mascarada.",
+        "summary_other": "{{done}} de {{formatted}} partes de no máximo {{size}} registros mascaradas, cada uma com backup feito logo antes de ser mascarada.",
+        "abandoned_one": "Execução abandonada: nada mais é mascarado. Sua {{formatted}} parte mascarada continua assim, com seu backup, que Restaurar devolve até expirar; os registros que nenhuma parte alcançou mantêm seus valores.",
+        "abandoned_other": "Execução abandonada: nada mais é mascarado. Suas {{formatted}} partes mascaradas continuam assim, com seus backups, que Restaurar devolve até expirarem; os registros que nenhuma parte alcançou mantêm seus valores.",
+        "budget": "A execução parou entre duas partes após {{requests}} requisições: a parte seguinte teria passado do que lhe foi dado, ou da parcela do dia da org que ela deixa para as integrações.",
+        "late_one": "{{formatted}} registro foi criado durante a execução em um intervalo já mascarado: nenhum backup o guarda, e ele não foi mascarado. Retomar o mascara, com um backup próprio.",
+        "late_other": "{{formatted}} registros foram criados durante a execução em um intervalo já mascarado: nenhum backup os guarda, e eles não foram mascarados. Retomar os mascara, com um backup próprio.",
+        "left": "Restam partes. Retomar mascara o resto, cada parte com backup feito antes.",
+        "openRestore": "Abrir o conjunto em Restaurar"
+      },
+      "table": {
+        "slice": "Parte",
+        "object": "Objeto",
+        "rows": "Linhas no backup",
+        "masked": "Mascaradas",
+        "refused": "Recusadas",
+        "deletedSince": "Excluídas desde então",
+        "state": "Estado",
+        "actions": "Ações",
+        "late": "tardia",
+        "sizeUsed": "(lida em partes de {{size}})"
+      },
+      "state": {
+        "pending": "Não iniciada",
+        "snapshotted": "Com backup",
+        "masking": "Sendo mascarada",
+        "masked": "Mascarada",
+        "restored": "Restaurada",
+        "restoredOn": "Restaurada em {{date}}"
+      },
+      "set": {
+        "kindMasking": "Mascaração em partes, {{date}}",
+        "kindBackup": "Backup em partes, {{date}}",
+        "summary_one": "{{formatted}} parte de no máximo {{size}} registros, {{records}} registros no total",
+        "summary_other": "{{formatted}} partes de no máximo {{size}} registros, {{records}} registros no total",
+        "state": {
+          "open": "Aberto",
+          "done": "Concluído",
+          "abandoned": "Abandonado"
+        },
+        "filtered": "Limitado a: {{filters}}",
+        "openHeld": "Sua mascaração ainda está aberta: retome-a até o fim, ou abandone-a, na aba Anonimizar antes de restaurar. Retomada, ela mascararia de novo o que uma restauração devolve.",
+        "expand": "Mostrar suas partes",
+        "collapse": "Ocultar suas partes",
+        "restoreAll": "Restaurar tudo",
+        "restoreSlice": "Restaurar a parte {{index}}",
+        "delete": "Excluir o conjunto",
+        "deleteConfirm": "Excluir este conjunto, e o backup de cada uma de suas partes, desta máquina? Os valores que eles guardam em claro somem de vez, e nenhum poderá mais ser restaurado.",
+        "confirmTitleAll": "Restaurar o conjunto de {{date}} em {{org}}?",
+        "confirmTitleSlice": "Restaurar a parte {{index}} do conjunto de {{date}} em {{org}}?",
+        "confirmDescription": "Cada parte volta em ordem, a partir do seu próprio backup: as linhas alteradas desde então recebem de volta os valores do backup, não importa quem as alterou. Interrompida, a mesma restauração continua na primeira parte não restaurada.",
+        "cost": "Cerca de {{requests}} requisições, nenhum lote da API Bulk.",
+        "result": "Partes restauradas: {{restored}}. Restauradas antes, não lidas de novo: {{skipped}}."
+      },
+      "open": {
+        "notice": "Uma execução deste modelo em partes está aberta nesta org: {{done}} de {{total}} partes de no máximo {{size}} registros mascaradas, último movimento em {{date}}.",
+        "ways": "Aplicar espera até que ela seja retomada até o fim ou abandonada.",
+        "abandonOnly": "Ela não pode mais ser retomada daqui, porque as regras do seu modelo mudaram desde então: Aplicar espera até que ela seja abandonada.",
+        "resume": "Retomar a execução em partes",
+        "abandon": "Abandonar a execução",
+        "abandonTitle": "Abandonar a execução em partes de “{{name}}” em {{org}}?",
+        "abandonDescription_one": "Nada mais é mascarado. Sua {{formatted}} parte mascarada continua assim, com seu backup, que Restaurar devolve até expirar; os registros que nenhuma parte alcançou mantêm seus valores. Um novo Aplicar mascara com outra chave: o mesmo endereço recebe outro hash.",
+        "abandonDescription_other": "Nada mais é mascarado. Suas {{formatted}} partes mascaradas continuam assim, com seus backups, que Restaurar devolve até expirarem; os registros que nenhuma parte alcançou mantêm seus valores. Um novo Aplicar mascara com outra chave: o mesmo endereço recebe outro hash.",
+        "abandonConfirm": "Abandonar a execução"
+      },
+      "backup": {
+        "toggle": "Fazer backup em partes",
+        "hint_one": "{{objects}} tem mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Restaurar as lista como um só conjunto.",
+        "hint_other": "{{objects}} têm mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Restaurar as lista como um só conjunto."
+      },
+      "notify": {
+        "done": "Mascaração em partes concluída: {{done}} de {{total}} partes mascaradas, cada uma com seu backup.",
+        "open": "Mascaração em partes interrompida com partes restantes: {{done}} de {{total}} mascaradas. Retomar, na aba Anonimizar, continua.",
+        "late_one": "Mascaração em partes concluída, mas {{formatted}} registro criado durante a execução não foi mascarado: Retomar, na aba Anonimizar, o mascara.",
+        "late_other": "Mascaração em partes concluída, mas {{formatted}} registros criados durante a execução não foram mascarados: Retomar, na aba Anonimizar, os mascara."
+      }
     },
     "backupDeleteConfirmSync": "Excluir este backup? Ele guarda o que a execução do Sync de {{date}} sobrescreveu: remover essa execução no Sync não devolverá mais esses valores, e eles somem de vez desta máquina.",
     "restoreSyncPartial": "A execução do Sync ainda está gravando, ou parou antes de terminar — a janela foi fechada ou a extensão parou: este backup guarda o que ela tinha guardado até então.",
