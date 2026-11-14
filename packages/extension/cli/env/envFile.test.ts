@@ -633,13 +633,25 @@ describe('a forge resource in the file', () => {
     expect(read.runs['accounts']?.kind).toBe('seed');
   });
 
-  it('refuses depth: all with the command that clones the whole org, or a sample of it that fits', () => {
+  it('takes depth: all, the whole org or the sample of it that fits, from no table, and says what a walk alone takes', () => {
+    const read = checked(
+      withForge({
+        depth: 'all',
+        tables: undefined,
+        fit: { withinMB: 120 },
+        anonymize: { rules: {} },
+      }),
+    );
+    expect(read.runs['cloned']).toEqual({
+      kind: 'forge',
+      source: 'uat',
+      wholeOrg: { anonymize: true, keepContactPoints: false, fit: { withinMB: 120 } },
+      acceptAutomation: false,
+      acceptRealData: false,
+    });
+    // A table beside it is a walk's, refused by key.
     expect(refusedWith(withForge({ depth: 'all' }))).toEqual([
-      'resources.cloned.depth: depth: all clones the whole org, which a resource of the file ' +
-        'does not take: a resource clones a record or tables. "pnpm exec tsx ' +
-        'packages/extension/cli/sandforge-clone.ts --depth all --source <alias> --target ' +
-        '<alias> --fit share --dry-run" says the sample of it that fits the target; without ' +
-        '--dry-run it copies it.',
+      'resources.cloned.tables: depth: all clones the whole org, and does not go with tables: it starts from no table',
     ]);
   });
 

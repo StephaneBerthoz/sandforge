@@ -187,10 +187,13 @@ function contactsOf(count: number): Array<Record<string, unknown>> {
  * statement names, nothing in its recycle bin, an upsert on Id that changes
  * the rows.
  */
-function orgOf(rows: Array<Record<string, unknown>>) {
+function orgOf(
+  rows: Array<Record<string, unknown>>,
+  organization: { id: string } = { id: '00D000000000001AAA' },
+) {
   const query = vi.fn(async (soql: string) => {
     if (soql === 'SELECT Id FROM Organization') {
-      return { records: [{ Id: '00D000000000001AAA' }], done: true, totalSize: 1 };
+      return { records: [{ Id: organization.id }], done: true, totalSize: 1 };
     }
     if (soql.includes('IsDeleted = true')) return { records: [], done: true, totalSize: 0 };
     if (soql.startsWith('SELECT COUNT() '))
@@ -521,6 +524,41 @@ describe('against an org', () => {
       expect(
         restore.posted.find((m) => m.type === 'dataops:rollback:response')?.payload,
       ).toMatchObject({ includeChanged: true, totalRestored: 1 });
+    });
+  });
+
+  it('says that --yes counts as no for a restore into the org a refresh put behind the alias, and to run it in a terminal', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition', true);
+      const rows = contactsOf(2);
+      const organization = { id: '00D000000000001AAA' };
+      const { upsert } = orgOf(rows, organization);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      // Refreshed since: the alias reaches another org.
+      organization.id = '00D000000000009AAA';
+      let said = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        said += String(chunk);
+        return true;
+      });
+
+      const restore = await run(
+        store,
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotOf(backup.posted),
+        '--yes',
+      );
+
+      expect(restore.code).toBe(1);
+      expect(upsert).not.toHaveBeenCalled();
+      expect(said).toContain(
+        'answers as org 00D000000000009AAA now: a sandbox refreshed since, or another org. ' +
+          "--yes does not answer whether to write the snapshot's values into the org it is now, " +
+          'and counts as no: nothing is written. Run the restore again without --yes, in a ' +
+          'terminal, to answer it.',
+      );
     });
   });
 

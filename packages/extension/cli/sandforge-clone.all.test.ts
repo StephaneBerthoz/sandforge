@@ -57,6 +57,7 @@ import { BulkJobLostError } from '../src/modules/forge/forgeBulkWrite.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { removalOrg, type RemovalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { forgeDryRunCount, readForgeDryRun } from './env/kinds/forge.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -788,6 +789,53 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
         expect(said).not.toContain('lower the records per object');
         expect(orgs.TGT.creates).toEqual([]);
       }
+    });
+
+    it('gives what its gate counted as a dry run of tables does, which an environment reads and holds its run to', async () => {
+      withFakeOrgs();
+
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+      const printed = stdout.join('');
+      const summary = JSON.parse(printed) as {
+        result: { wouldInsertCount: number; failedCount: number };
+        writePlan: { totalRows: number; objects: Array<{ objectApiName: string; rows: number }> };
+        wholeOrg: WholeOrgJson;
+      };
+      expect(summary.writePlan.totalRows).toBe(summary.wholeOrg.totalRows);
+      expect(summary.result).toEqual({
+        wouldInsertCount: summary.wholeOrg.totalRows,
+        failedCount: 0,
+      });
+      // Read by the environment's own reader, as its plan reads it: it read
+      // neither, and counted a clone of the whole org as one that never came
+      // to count.
+      const counted = forgeDryRunCount(readForgeDryRun(printed));
+      expect(counted.refusal).toBeUndefined();
+      expect(counted.total).toBe(summary.wholeOrg.totalRows);
+      expect(counted.objects.map(({ object, wouldCreate }) => [object, wouldCreate])).toEqual(
+        summary.writePlan.objects.map(({ objectApiName, rows }) => [objectApiName, rows]),
+      );
+    });
+
+    it('leaves out what --exclude-object names before discovery counts or describes it', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(
+        await run(argv('--dry-run', '--json', '--exclude-object', 'Ticket__c')),
+      ).toBeUndefined();
+
+      // Left out after discovery, it was counted and described all the same,
+      // and took its place under the 1950 objects one run writes.
+      expect(orgs.SRC.read.filter((soql) => /\bFROM Ticket__c\b/.test(soql))).toEqual([]);
+      const summary = JSON.parse(stdout.join('')) as { wholeOrg: WholeOrgJson };
+      expect(summary.wholeOrg.leftOut.objects).toContainEqual({
+        objectApiName: 'Ticket__c',
+        reason: 'excludedByUser',
+      });
+      expect(summary.wholeOrg.wouldInsert.map((object) => object.objectApiName)).not.toContain(
+        'Ticket__c',
+      );
     });
 
     it('is refused NOTHING_TO_CLONE, exit 1, when --exclude-object leaves out every object, a dry run as a run', async () => {

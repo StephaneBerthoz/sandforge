@@ -25,6 +25,7 @@ import {
   main,
   parseArgs,
   parseRunSummary,
+  journalGoneWords,
   removalPlan,
   removalPlanLines,
   resumedJournalPath,
@@ -883,9 +884,10 @@ describe('sandforge-clone --summary', () => {
       });
 
       stopOnAccount = false;
-      // Given otherwise than the run began, the resume is refused.
-      expect(await run(argv('--resume', journal, '--files', '--max-file-size', '9'))).toBe(2);
-      expect(stderr).toContain('The clone is set up otherwise than the run to take up');
+      // Given otherwise than the run began, the resume is refused, by its code.
+      expect(await run(argv('--resume', journal, '--files', '--max-file-size', '9'))).toBe(1);
+      expect(stderr).toContain('refused (RESUME_CHANGED): The clone is set up otherwise');
+      expect(stderr).toContain(`--remove ${journal}, and run the clone again as it is now`);
       expect(orgs.TGT.written).toEqual(['Account']);
 
       printed.length = 0;
@@ -1013,8 +1015,10 @@ describe('sandforge-clone --summary', () => {
         await run(argv('--summary', first));
         const journal = killedDuringTheCall(first);
 
-        expect(await run(argv('--resume', journal))).toBe(2);
-        expect(stderr).toContain('1 row(s) may already be in TGT (1 Contact)');
+        expect(await run(argv('--resume', journal))).toBe(1);
+        expect(stderr).toContain(
+          'refused (RESUME_UNCERTAIN): 1 row(s) may already be in TGT (1 Contact)',
+        );
         expect(stderr).toContain('--write-uncertain');
         expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
 
@@ -1134,8 +1138,13 @@ describe('sandforge-clone --summary', () => {
       expect(await run(argv('--summary', path))).toBeUndefined();
       const journal = String(documentOf(path).journal);
 
-      expect(await run(argv('--resume', journal))).toBe(2);
-      expect(stderr).toContain('the run ended, and there is nothing of it to take up.');
+      // Refused before a row is read, each by its code: no command line to
+      // give otherwise, as exit 2 said.
+      expect(await run(argv('--resume', journal))).toBe(1);
+      expect(stderr).toContain(
+        'refused (RESUME_UNAVAILABLE): --resume ' +
+          `${journal}: the run ended, and there is nothing of it to take up.`,
+      );
 
       // Its end taken off: as a run that stopped.
       rmSync(journal.replace(/\.ndjson$/, '.end.json'));
@@ -1147,13 +1156,18 @@ describe('sandforge-clone --summary', () => {
           .join('\n'),
       );
       stderr = '';
-      expect(await run(argv('--resume', journal, '--exclude', 'Contact.LastName'))).toBe(2);
-      expect(stderr).toContain('The clone is set up otherwise than the run to take up');
+      expect(await run(argv('--resume', journal, '--exclude', 'Contact.LastName'))).toBe(1);
+      expect(stderr).toContain('refused (RESUME_CHANGED): The clone is set up otherwise');
+      // The journal of a clone of a record keeps no exclusion: what differs
+      // is named among what it does not keep.
+      expect(stderr).toContain('what differs is among what its journal does not keep');
 
       stderr = '';
       withOrgs(fakeOrg([], () => {}, '00D000000000003AAA'));
-      expect(await run(argv('--resume', journal))).toBe(2);
-      expect(stderr).toContain('TGT is not the org the run to take up wrote to');
+      expect(await run(argv('--resume', journal))).toBe(1);
+      expect(stderr).toContain(
+        'refused (RESUME_TARGET_CHANGED): TGT is not the org the run to take up wrote to',
+      );
       expect(orgs.TGT.written).toEqual([]);
     });
 
@@ -1218,8 +1232,11 @@ describe('sandforge-clone --summary', () => {
         JSON.stringify({ ...bounded, journal: undefined }),
         'TGT',
       );
+      // What still takes the run back is said: the checkpoint before it, or
+      // emptying its objects.
       expect(unnamed).toEqual({
-        refusal: 'keeps the ids of its records in a journal it does not name.',
+        refusal:
+          'keeps the ids of its records in a journal it does not name. ' + journalGoneWords('TGT'),
       });
     });
 

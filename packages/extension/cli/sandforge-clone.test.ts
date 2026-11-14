@@ -2809,9 +2809,10 @@ describe('sandforge-clone graph line', () => {
       estimatedDurationSeconds: 0,
     };
 
+    // Named: "1 not counted" sent the reader to --list-objects to learn which.
     expect(graphLine(graph, plan, 50)).toBe(
       'graph: 4 objects at a cap of 50 (1 empty, taking no place under it), 2 included, ' +
-        '1 not counted; 1 lookups, 1 between these objects; 2 waves, 0 cycles',
+        '1 not counted (OutgoingEmail); 1 lookups, 1 between these objects; 2 waves, 0 cycles',
     );
     expect(graphCounts(graph)).toEqual({ included: 2, emptyTables: 1, notCounted: 1, leftOut: 0 });
     // An object left out by name is none of them.

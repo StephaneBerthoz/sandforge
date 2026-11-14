@@ -875,8 +875,9 @@ describe('what a forge resource’s clone says, relayed by the environment', () 
 
     expect(envPlanSchema.parse(ran.answer).actions[0]?.action).toBe('blocked');
     expect(clone.said()).toContain('the table Asset: discovery from Account did not reach it');
+    // Discovery stopped short of its cap: more of it reaches nothing, and is not named.
     expect(clone.said()).toContain(
-      "name first a table it hangs from or points at, or raise the resource's depth or maxNodes.",
+      "name first a table it hangs from or points at, or raise the resource's depth.",
     );
     expect(clone.said()).not.toMatch(/--object|--depth|--max-nodes/);
   });

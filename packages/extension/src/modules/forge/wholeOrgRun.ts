@@ -108,10 +108,17 @@ export const NOTHING_TO_CLONE = 'NOTHING_TO_CLONE';
  * line and the panel alike.
  */
 export function nothingToClone(
-  graph: Pick<ForgeGraph, 'nodes'>,
+  graph: Pick<ForgeGraph, 'nodes' | 'leftOut'>,
 ): { code: typeof NOTHING_TO_CLONE; message: string } | undefined {
   if (graph.nodes.some((node) => node.included)) return undefined;
-  const byName = graph.nodes.filter((node) => node.leftOutByUser === true).length;
+  // Left out by name before discovery counts them, they are among what it
+  // left of the source, never nodes: counted with those left out after.
+  const byName = new Set([
+    ...graph.nodes.filter((node) => node.leftOutByUser === true).map((node) => node.objectApiName),
+    ...(graph.leftOut ?? [])
+      .filter((out) => out.reason === 'excludedByUser')
+      .map((out) => out.objectApiName),
+  ]).size;
   return {
     code: NOTHING_TO_CLONE,
     message:

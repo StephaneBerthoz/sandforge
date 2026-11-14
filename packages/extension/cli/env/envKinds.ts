@@ -269,7 +269,9 @@ export function payloadOf(resource: EnvFileResource, context: EnvPayloadContext)
     case 'seed':
       return seedTemplateOf(resource.run, context.drawn, { standIns: context.standIns === true });
     case 'forge':
-      return resource.run.template;
+      // A clone of the whole org takes its choices from --config, none of a
+      // template: the file gives none of them yet.
+      return resource.run.template ?? {};
     case 'frozen': {
       if (context.sasDir === undefined) {
         throw new Error(`${resource.name} is given no folder to keep its loads in: plan again.`);
@@ -385,14 +387,18 @@ function storeOf(resource: EnvFileResource, context: { store?: string }): string
   return context.store;
 }
 
-/** What a forge resource's lines share: its source's alias, and the record or the tables it clones. */
+/** What a forge resource's lines share: its source's alias, and the record, the tables or the whole org it clones. */
 function forgeLineOf(resource: Extract<EnvFileResource, { kind: 'forge' }>): {
   source: string;
   recordId?: string;
   tables?: EnvForgeRun['tables'];
+  wholeOrg?: EnvForgeRun['wholeOrg'];
   acceptAutomation: boolean;
 } {
   const { run, source } = resource;
+  if (run.wholeOrg) {
+    return { source: source.alias, wholeOrg: run.wholeOrg, acceptAutomation: run.acceptAutomation };
+  }
   if (run.tables !== undefined) {
     return { source: source.alias, tables: run.tables, acceptAutomation: run.acceptAutomation };
   }

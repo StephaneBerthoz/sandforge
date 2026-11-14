@@ -432,7 +432,9 @@ describe('sandforge-clone of whole tables', () => {
       expect(() =>
         parseArgs(['node', 'sandforge-clone.ts', '--source', 'SRC', '--target', 'TGT']),
       ).toThrow(ExitCalled);
-      expect(stderr.join('')).toContain('Missing required flag');
+      expect(stderr.join('')).toContain(
+        'Missing what to clone: --record <id> for one record, --object <ApiName> for whole tables',
+      );
     });
 
     it('fingerprints a clone of whole tables by its tables, and a clone of a record as before', () => {
@@ -752,6 +754,73 @@ describe('sandforge-clone of whole tables', () => {
         '--object Opportunity: discovery from Account did not reach it',
       );
       expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('refuses a table no clone writes before a row of either org is read, by its code, saying what it is', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(await run(argv('--object', 'User', '--json'))).toBe(2);
+
+      expect(stderr.join('')).toContain(
+        'refused (TABLE_NEVER_CLONED): --object User: no clone writes it — users and their ' +
+          'access, metadata,',
+      );
+      expect(stderr.join('')).not.toContain('raise --depth');
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        refused: { code: 'TABLE_NEVER_CLONED' },
+      });
+      expect(orgs.SRC.read).toEqual([]);
+      expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('refuses before a row is read an --exclude that names no field of the source, exit 2, naming the field nearest it', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(await run(argv('--exclude', 'Contact.Departmnt', '--json'))).toBe(2);
+
+      expect(stderr.join('')).toContain(
+        'refused (FIELD_EXCLUSION_UNMATCHED): --exclude Contact.Departmnt: Contact has no ' +
+          'field Departmnt (Department?): it leaves nothing out',
+      );
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        refused: { code: 'FIELD_EXCLUSION_UNMATCHED' },
+      });
+      // The source was described, never read; nothing written.
+      expect(orgs.SRC.read.filter((soql) => !/^SELECT COUNT\(\)/.test(soql))).toEqual([]);
+      expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('says with a dry run that a real run would be refused for that --exclude, and takes another case as the field', async () => {
+      withFakeOrgs();
+
+      // As it says --max-total: a dry run of tables ends 0, its refusals said.
+      expect(
+        await run(argv('--dry-run', '--json', '--exclude', 'Contact.Departmnt')),
+      ).toBeUndefined();
+
+      const summary = JSON.parse(stdout.join('')) as {
+        wouldBeRefusedCodes?: string[];
+        result: { fieldExclusionsUnmatched?: unknown[] };
+      };
+      expect(summary.wouldBeRefusedCodes).toEqual(['FIELD_EXCLUSION_UNMATCHED']);
+      expect(summary.result.fieldExclusionsUnmatched).toEqual([
+        {
+          objectApiName: 'Contact',
+          field: 'Departmnt',
+          missing: 'field',
+          nearest: 'Department',
+        },
+      ]);
+
+      // In another case, it names the field: the run goes, the field left out.
+      stdout = [];
+      const orgs = withFakeOrgs();
+      expect(await run(argv('--exclude', 'contact.department'))).toBeUndefined();
+      const contacts = orgs.TGT.creates.filter((call) => call.name === 'Contact');
+      expect(contacts.length).toBeGreaterThan(0);
+      for (const { rows } of contacts) {
+        for (const row of rows) expect(row).not.toHaveProperty('Department');
+      }
     });
 
     it('refuses the object of the first table left out, by the flag that left it out', async () => {

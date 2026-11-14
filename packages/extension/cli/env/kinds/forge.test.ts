@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import { forgeTemplateSchema, type EnvForgeResource, type EnvForgeRun } from '@sandforge/shared';
+import {
+  forgeTemplateSchema,
+  type EnvForgeResource,
+  type EnvForgeRun,
+  type ForgeTemplateInput,
+} from '@sandforge/shared';
 
 vi.mock('../../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -91,10 +96,13 @@ const tables: EnvForgeResource = {
 };
 
 /** What a resource converts into, or the refusals' messages. */
-function converted(resource: EnvForgeResource): EnvForgeRun {
+/** The run a resource of a record or of tables converts into, with its template. */
+function converted(resource: EnvForgeResource): EnvForgeRun & { template: ForgeTemplateInput } {
   const read = forgeRunOfResource('demo', 'cloned', resource, dir, NOW);
   if ('refusals' in read) throw new Error(read.refusals.map((r) => r.message).join('\n'));
-  return read.run;
+  const { template } = read.run;
+  if (template === undefined) throw new Error('A walk converts into a template.');
+  return { ...read.run, template };
 }
 
 function refusedWith(resource: EnvForgeResource): string[] {
@@ -864,5 +872,142 @@ describe('what the org to fill would refuse every row of a forge resource for', 
       'Account, which a feature or licence the org has not turned on keeps closed',
     );
     expect(said).not.toMatch(/object_through_parent|object_feature_off/);
+  });
+});
+
+describe('a forge resource of depth: all, the whole org', () => {
+  const whole: EnvForgeResource = {
+    kind: 'forge',
+    source: 'uat',
+    depth: 'all',
+    fit: { withinMB: 120 },
+    anonymize: { rules: {} },
+    maxTotal: 40_000,
+    accept: { automation: true },
+  };
+
+  /** What a resource of the whole org converts into: no template, its choices as flags. */
+  function wholeOf(resource: EnvForgeResource): EnvForgeRun {
+    const read = forgeRunOfResource('demo', 'cloned', resource, dir, NOW);
+    if ('refusals' in read) throw new Error(read.refusals.map((r) => r.message).join('\n'));
+    return read.run;
+  }
+
+  it('converts into a clone of the whole org, with no template, the sample it asks and its anonymization', () => {
+    expect(wholeOf(whole)).toEqual({
+      source: 'uat',
+      wholeOrg: { anonymize: true, keepContactPoints: false, fit: { withinMB: 120 } },
+      maxTotal: 40_000,
+      acceptAutomation: true,
+      acceptRealData: false,
+    });
+    expect(wholeOf({ ...whole, fit: 'share', anonymize: undefined }).wholeOrg).toEqual({
+      anonymize: false,
+      keepContactPoints: false,
+      fit: {},
+    });
+  });
+
+  it('gives the clone lines it reads: --depth all and --config, no --template, its run answering the question with --yes', () => {
+    const config = join(dir, 'whole.json');
+    writeFileSync(config, '{}\n');
+    const line = {
+      source: 'SRC',
+      target: 'TGT',
+      templateFile: config,
+      wholeOrg: wholeOf(whole).wholeOrg,
+      maxTotal: 40_000,
+      acceptAutomation: true,
+    };
+    const dry = forgeDryRunLine(line);
+    const run = forgeApplyLine({ ...line, maxTotal: 9_876, summary: join(dir, '1.summary.json') });
+
+    expect(dry).not.toContain('--template');
+    expect(parseCloneArgs(['node', 'sandforge-clone.ts', ...dry])).toMatchObject({
+      depth: 'all',
+      dryRun: true,
+      json: true,
+      anonymize: true,
+      anonymizeGiven: true,
+      maxTotal: 40_000,
+      acceptAutomation: true,
+      sample: { options: { maxTotal: 40_000, withinMB: 120 } },
+      choicesFrom: { flag: '--config', path: config },
+    });
+    // The clone asks before it writes a whole org: nobody is there to answer.
+    expect(parseCloneArgs(['node', 'sandforge-clone.ts', ...run])).toMatchObject({
+      depth: 'all',
+      dryRun: false,
+      yes: true,
+      maxTotal: 9_876,
+      summary: join(dir, '1.summary.json'),
+    });
+    expect(dry).not.toContain('--yes');
+    // Real data accepted: the clone copies a production source as it is only when told.
+    const asRead = forgeDryRunLine({
+      ...line,
+      wholeOrg: { anonymize: false, keepContactPoints: true },
+    });
+    expect(parseCloneArgs(['node', 'sandforge-clone.ts', ...asRead])).toMatchObject({
+      anonymize: false,
+      anonymizeGiven: true,
+      keepContactPoints: true,
+    });
+    expect(parseCloneArgs(['node', 'sandforge-clone.ts', ...asRead])).not.toHaveProperty('sample');
+  });
+
+  it('counts as anonymized, by each category’s default method, and is fingerprinted apart from a walk', () => {
+    const run = wholeOf(whole);
+    const read = { organizationId: '00D000000000008AAA', production: true as const };
+
+    expect(forgeAnonymizes(run)).toBe(true);
+    expect(realDataNotes(run, { role: 'uat', alias: 'PROD', read })).toEqual([
+      'real data: its source, the uat org (PROD), is a production org; what it clones is ' +
+        'anonymized, every personal field by its category’s default method',
+      'contact points: neutralized before writing (emails under .invalid, phone numbers in a ' +
+        'fictional range), as the clone does unless keepContactPoints',
+    ]);
+    expect(forgeWritten(run, read)).toMatchObject({
+      record: null,
+      tables: null,
+      config: null,
+      wholeOrg: { anonymize: true, keepContactPoints: false, fit: { withinMB: 120 } },
+    });
+    expect(forgeWritten(wholeOf({ ...whole, fit: 'share' }), read)).not.toEqual(
+      forgeWritten(run, read),
+    );
+    // A walk's fingerprint keeps no key it did not have.
+    expect(forgeWritten(converted(tables), read)).not.toHaveProperty('wholeOrg');
+  });
+
+  it('reads per object what a run past the ids its summary keeps created, from its counts', () => {
+    expect(
+      forgeRunCount(
+        readForgeRun(
+          JSON.stringify({
+            tool: 'sandforge-clone',
+            version: 1,
+            dryRun: false,
+            result: {
+              successCount: 60_002,
+              failedCount: 0,
+              createdByObject: [],
+              remapInJournal: true,
+              createdCountByObject: [
+                { objectApiName: 'Account', created: 2 },
+                { objectApiName: 'Contact', created: 60_000 },
+              ],
+              errors: [],
+            },
+          }),
+        ),
+      ),
+    ).toEqual({
+      objects: [
+        { object: 'Account', created: 2, refused: 0, errors: [] },
+        { object: 'Contact', created: 60_000, refused: 0, errors: [] },
+      ],
+      created: 60_002,
+    });
   });
 });

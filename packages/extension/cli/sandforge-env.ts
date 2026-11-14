@@ -1595,8 +1595,12 @@ function validatedLine(run: EnvKindRun): string {
   }
   const where = (object: string, condition: string | undefined): string =>
     condition !== undefined ? `${object} WHERE ${condition}` : object;
-  const what =
-    run.tables !== undefined
+  const fit = run.wholeOrg?.fit;
+  const what = run.wholeOrg
+    ? fit !== undefined
+      ? `a sample of the whole org that fits the org to fill${fit.withinMB !== undefined ? `, within ${fit.withinMB} MB` : ''}`
+      : 'the whole org'
+    : run.tables !== undefined
       ? `tables ${run.tables.map((table) => where(table.object, table.where)).join(', ')}`
       : run.record?.id !== undefined
         ? `record ${run.record.id}`

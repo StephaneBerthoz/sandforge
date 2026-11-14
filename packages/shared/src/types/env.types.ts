@@ -195,8 +195,16 @@ export interface EnvForgeResource {
   record?: EnvForgeRecord;
   tables?: EnvForgeTable[];
   template?: EnvForgeTemplateRef;
-  /** How far discovery walks from the record: never `all`, the clone of a whole org, which no file asks for. */
-  depth?: ForgeTraversalDepth;
+  /**
+   * How far discovery walks from the record or the first table, or `all`:
+   * the whole org, from no record, no table and no template.
+   */
+  depth?: ForgeTraversalDepth | 'all';
+  /**
+   * With `depth: all`, a sample of the whole org that fits the data storage
+   * the target has left, within `withinMB` when given: `--fit share`.
+   */
+  fit?: 'share' | { withinMB: number };
   customDepth?: number;
   maxNodes?: number;
   anonymize?: EnvForgeAnonymize;
@@ -346,7 +354,19 @@ export interface EnvFrozenRun {
 export interface EnvForgeRun {
   /** The org role it clones from. */
   source: string;
-  template: ForgeTemplateInput;
+  /**
+   * What a clone of a record or of tables takes: an exported template, the
+   * file's choices over its own. None for a clone of the whole org, which
+   * takes no template (`wholeOrg`).
+   */
+  template?: ForgeTemplateInput;
+  /**
+   * A clone of the whole org (`depth: all`): whether it anonymizes, each
+   * category by its default method, keeps contact points, and the sample of
+   * it that fits the target it asks (`fit`): `--fit share`, and
+   * `--fit-within` when it gives `withinMB`.
+   */
+  wholeOrg?: { anonymize: boolean; keepContactPoints: boolean; fit?: { withinMB?: number } };
   /** One record, by its id or by the query read at each plan; or the tables. */
   record?: EnvForgeRecord;
   tables?: EnvForgeTable[];

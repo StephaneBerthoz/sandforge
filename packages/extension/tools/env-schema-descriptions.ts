@@ -408,9 +408,10 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   // The forge kind
   'resources.<name>{forge}':
     'A forge resource: records `sandforge clone` clones from the org a role of `orgs` names ' +
-    '(`source`) into the org to fill, one `record` and what discovery reaches from it, or ' +
-    'whole `tables`; taken back by the clone’s own removal. A source that is a production ' +
-    'org is refused unless the resource gives `anonymize` or `accept: { realData: true }`.',
+    '(`source`) into the org to fill, one `record` and what discovery reaches from it, whole ' +
+    '`tables`, or the whole org (`depth: all`), or a sample of it that fits (`fit`); taken ' +
+    'back by the clone’s own removal. A source that is a production org is refused unless ' +
+    'the resource gives `anonymize` or `accept: { realData: true }`.',
   'resources.<name>{forge}.kind': KIND,
   'resources.<name>{forge}.dependsOn': DEPENDS_ON,
   'resources.<name>{forge}.accept': ACCEPT,
@@ -461,7 +462,18 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'resources.<name>{forge}.depth':
     'How many levels of relationships discovery follows from the record or the first ' +
     `table: \`direct\`, one; \`full\`, ${FULL_DEPTH}; \`custom\`, \`customDepth\`. \`custom\` ` +
-    'unless the resource or its template says otherwise.',
+    'unless the resource or its template says otherwise. `all`: the whole org, every object ' +
+    'the org to fill can take, as `sandforge clone --depth all` copies it — with no ' +
+    '`record`, `tables`, `template`, `customDepth` or `maxNodes`, and an `anonymize` of no ' +
+    'rules, each category by its default method; its run is held to the count of its plan.',
+  'resources.<name>{forge}.fit':
+    'With `depth: all`, `share`: a sample of the whole org that fits the data storage the ' +
+    'org to fill has left and `maxTotal`, as `sandforge clone --depth all --fit share` ' +
+    'draws it, none of its records without those they name. `{ withinMB: <MB> }`: the ' +
+    'same, within that many MB. Without it, every record of the whole org.',
+  'resources.<name>{forge}.fit{object}.withinMB':
+    'The most MB the sample may take, above 0 and up to {maximum}, whatever the org to fill ' +
+    'has left.',
   'resources.<name>{forge}.customDepth':
     'With `depth: custom`: how many levels discovery goes, 1 to {maximum}; `3` unless the ' +
     'resource or its template says otherwise. Refused with another depth.',

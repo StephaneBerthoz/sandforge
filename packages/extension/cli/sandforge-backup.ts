@@ -98,7 +98,10 @@ ${dataOpsAutomationHelp('written back')}  --max-age-days <n>     the retention, 
                          (default: 30)
   --yes                  do not ask before a restore writes. Without it, a
                          command with no terminal to answer the question — a
-                         CI step — stops there, exit 2, and writes nothing
+                         CI step — stops there, exit 2, and writes nothing.
+                         Into an org that is not the one the snapshot was
+                         taken of — a sandbox refreshed since — --yes counts
+                         as no, exit 1: run it without --yes, in a terminal
   --json                 emit what the panel would receive, or with --list the
                          snapshots, every other line on stderr
   --help                 this text
@@ -353,18 +356,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       productionGuard: commandLineGuard(log, args.org),
       // A snapshot of the org an alias reached before a refresh goes into the
       // org it reaches now only on a yes typed here: `--yes` answers the
-      // question asked before the restore, not this one.
-      confirmRestoreIntoReplacedOrg: ({
-        alias,
-        backedUpFrom,
-        now,
-      }: ReplacedOrgRestoreQuestion): Promise<boolean> =>
-        args.yes
-          ? Promise.resolve(false)
-          : confirm(
-              `${alias} answered as org ${backedUpFrom} when this snapshot was taken and ` +
-                `answers as org ${now} now. Write its saved values into the org it is now?`,
-            ),
+      // question asked before the restore, not this one, and counts as no.
+      // Said: the restore was refused "not confirmed", and a CI job given
+      // --yes could not tell why, nor that only a terminal answers it.
+      confirmRestoreIntoReplacedOrg: (question: ReplacedOrgRestoreQuestion): Promise<boolean> => {
+        if (args.yes) {
+          process.stderr.write(`${replacedOrgYesWords(question)}\n`);
+          return Promise.resolve(false);
+        }
+        return confirm(
+          `${question.alias} answered as org ${question.backedUpFrom} when this snapshot was ` +
+            `taken and answers as org ${question.now} now. Write its saved values into the org ` +
+            'it is now?',
+        );
+      },
     },
     // Built rather than stubbed: the handler stamps every message it posts
     // with one, and a message with no id settles nothing on the other side.
@@ -547,6 +552,22 @@ function snapshotLine(meta: ListedSnapshot): string {
 }
 
 /** The listing as `--list --json` prints it. Exported so it can be tested. */
+/**
+ * What a restore given `--yes` is told when the org its alias reaches is no
+ * longer the org the snapshot was taken of — a sandbox refreshed since:
+ * `--yes` answers the question every restore asks, never this one, and counts
+ * as no; only a person at a terminal answers it. Exported so it can be tested.
+ */
+export function replacedOrgYesWords(question: ReplacedOrgRestoreQuestion): string {
+  return (
+    `${question.alias} answered as org ${question.backedUpFrom} when this snapshot was taken, ` +
+    `and answers as org ${question.now} now: a sandbox refreshed since, or another org. ` +
+    "--yes does not answer whether to write the snapshot's values into the org it is now, and " +
+    'counts as no: nothing is written. Run the restore again without --yes, in a terminal, ' +
+    'to answer it.'
+  );
+}
+
 export function snapshotListing(snapshots: readonly ListedSnapshot[]): {
   tool: 'sandforge-backup';
   snapshots: ListedSnapshot[];

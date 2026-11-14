@@ -630,7 +630,10 @@ describe('the command line of a sample of the whole org', () => {
   it.each([
     [['--fit', 'all'], '--fit takes share, once, not "all"'],
     [['--fit', 'share', '--fit', 'share'], '--fit takes share, once'],
-    [['--fit', 'share', '--files'], '--fit share copies no files yet'],
+    [
+      ['--fit', 'share', '--files'],
+      '--fit share copies no files: the sample goes without the files',
+    ],
     [['--fit', 'share', '--list-objects'], '--list-objects lists the objects of the graph'],
     [
       ['--fit', 'share', '--fit-plan', '/plans/a', '--resume', 'run-1'],

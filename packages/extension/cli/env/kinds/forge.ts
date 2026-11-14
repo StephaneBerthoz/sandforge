@@ -17,6 +17,13 @@
  * resource's fingerprint, its alias does not: an alias pointed at another
  * org is a change, an alias renamed is not.
  *
+ * A forge resource of `depth: all` clones the whole org instead, from no
+ * record, no table and no template (`sandforge-clone --depth all`), or the
+ * sample of it that fits the target (`fit`, `--fit share`): its line names
+ * its anonymization and contact points as flags, its choices go in a
+ * `--config` file, and its run is given `--yes`, the question the clone asks
+ * before it writes a whole org having been answered by the file and its plan.
+ *
  * It runs `sandforge-clone`: a dry run, whose gate counts what a run would
  * write; a run held to that count with `--max-total`, its summary written as
  * it goes with `--summary`, beside the state; the verification of what it
@@ -173,6 +180,26 @@ export function forgeRunOfResource(
 ): { run: EnvForgeRun; warnings: EnvFileRefusal[] } | { refusals: EnvFileRefusal[] } {
   const base: EnvDocumentPath = ['resources', name];
   const warnings: EnvFileRefusal[] = [];
+  // The whole org takes no template (refused by the file's schema): its
+  // anonymization and contact points are flags of its line.
+  if (resource.depth === 'all') {
+    return {
+      run: {
+        source: resource.source,
+        wholeOrg: {
+          anonymize: resource.anonymize !== undefined,
+          keepContactPoints: resource.keepContactPoints === true,
+          ...(resource.fit !== undefined
+            ? { fit: resource.fit === 'share' ? {} : { withinMB: resource.fit.withinMB } }
+            : {}),
+        },
+        ...(resource.maxTotal !== undefined ? { maxTotal: resource.maxTotal } : {}),
+        acceptAutomation: resource.accept?.automation === true,
+        acceptRealData: resource.accept?.realData === true,
+      },
+      warnings,
+    };
+  }
   let entry: ForgeTemplateInput | undefined;
   if (resource.template !== undefined) {
     const read = templateEntryOf(name, resource.template, folder);
@@ -292,10 +319,13 @@ export type EnvSourceRead =
  * anonymization that names none does not count: a run would fall on Forge's
  * defaults, and the file would say nothing of what is done to the data.
  */
-export function forgeAnonymizes(run: Pick<EnvForgeRun, 'template'>): boolean {
-  const rules = run.template.anonymization?.rules ?? {};
+export function forgeAnonymizes(run: Pick<EnvForgeRun, 'template' | 'wholeOrg'>): boolean {
+  // The whole org anonymizes every personal field by its category's default
+  // method: asked, it sets one for each.
+  if (run.wholeOrg) return run.wholeOrg.anonymize;
+  const rules = run.template?.anonymization?.rules ?? {};
   return (
-    run.template.config.anonymizePII === true &&
+    run.template?.config.anonymizePII === true &&
     Object.values(rules).some((method) => method !== undefined)
   );
 }
@@ -313,13 +343,13 @@ function productionEvidence(typed: TypedTarget): string {
  * data. The refusal names both ways out.
  */
 export function realDataRefusal(
-  run: Pick<EnvForgeRun, 'template' | 'acceptRealData'>,
+  run: Pick<EnvForgeRun, 'template' | 'wholeOrg' | 'acceptRealData'>,
   what: string,
   typed: TypedTarget,
 ): string | undefined {
   if (run.acceptRealData || forgeAnonymizes(run)) return undefined;
   const empty =
-    run.template.config.anonymizePII === true
+    run.template?.config.anonymizePII === true
       ? ' Its anonymize sets a method for no category of personal field, so it does not count.'
       : '';
   return (
@@ -337,21 +367,26 @@ export function realDataRefusal(
  * emails and phone numbers — neutralized unless the resource keeps them.
  */
 export function realDataNotes(
-  run: Pick<EnvForgeRun, 'template' | 'acceptRealData'>,
+  run: Pick<EnvForgeRun, 'template' | 'wholeOrg' | 'acceptRealData'>,
   source: { role: string; alias: string; read?: EnvSourceRead },
 ): string[] {
   const read = source.read;
   if (read === undefined || 'refusal' in read || read.production !== true) return [];
-  const rules = Object.entries(run.template.anonymization?.rules ?? {})
+  const rules = Object.entries(run.template?.anonymization?.rules ?? {})
     .filter(([, method]) => method !== undefined)
     .map(([category, method]) => `${category} ${String(method)}`);
-  const data = forgeAnonymizes(run)
-    ? `anonymized as its anonymize says (${rules.join(', ')})`
-    : 'written as read, as the file accepts (accept: { realData: true })';
+  const data = !forgeAnonymizes(run)
+    ? 'written as read, as the file accepts (accept: { realData: true })'
+    : run.wholeOrg
+      ? 'anonymized, every personal field by its category’s default method'
+      : `anonymized as its anonymize says (${rules.join(', ')})`;
+  const keeps = run.wholeOrg
+    ? run.wholeOrg.keepContactPoints
+    : run.template?.config.keepContactPoints === true;
   return [
     `real data: its source, the ${source.role} org (${source.alias}), is a production org; ` +
       `what it clones is ${data}`,
-    run.template.config.keepContactPoints === true
+    keeps
       ? 'contact points: written as read (keepContactPoints: true)'
       : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a ' +
         'fictional range), as the clone does unless keepContactPoints',
@@ -433,8 +468,11 @@ export function forgeWritten(
         ? null
         : ((run.record.id ?? source?.recordId)?.slice(0, 15) ?? { unread: run.record }),
     tables: run.tables ?? null,
-    config: run.template.config,
-    anonymization: run.template.anonymization ?? null,
+    config: run.template?.config ?? null,
+    anonymization: run.template?.anonymization ?? null,
+    // Only of a clone of the whole org: a resource of a record or of tables
+    // keeps the fingerprint it was applied from.
+    ...(run.wholeOrg ? { wholeOrg: run.wholeOrg } : {}),
   };
 }
 
@@ -446,11 +484,16 @@ export interface ForgeRunLine {
   source: string;
   /** sf CLI alias of the org the environment is applied to. */
   target: string;
-  /** The exported template the resource converts into, written to a file. */
+  /**
+   * The exported template the resource converts into, written to a file; of
+   * a clone of the whole org, its choices as `--config` reads them.
+   */
   templateFile: string;
   /** The record it clones; the tables when absent. */
   recordId?: string;
   tables?: readonly EnvForgeTable[];
+  /** A clone of the whole org, in place of a record or tables: see `EnvForgeRun.wholeOrg`. */
+  wholeOrg?: EnvForgeRun['wholeOrg'];
   /** The most records it may write: a run's, its dry run's count. */
   maxTotal: number;
   /** Write although the target runs automation as the records go in: the file's acceptance. */
@@ -459,6 +502,7 @@ export interface ForgeRunLine {
 
 /** What a run and its dry run are given alike: the same records, planned then written. */
 function forgeRunSwitches(input: ForgeRunLine): string[] {
+  if (input.wholeOrg) return wholeOrgSwitches(input, input.wholeOrg);
   if (input.recordId === undefined && (input.tables ?? []).length === 0) {
     throw new Error('A forge resource clones a record or tables: its line names neither.');
   }
@@ -485,14 +529,64 @@ function forgeRunSwitches(input: ForgeRunLine): string[] {
   ];
 }
 
+/**
+ * What a clone of the whole org and its dry run are given alike: the orgs,
+ * `--depth all`, the choices file `--config` reads, the bound, the
+ * anonymization asked or refused as the file says it — the clone anonymizes a
+ * production source unless told, and the file's `accept: { realData: true }`
+ * is that telling —, the contact points, and the sample asked.
+ */
+function wholeOrgSwitches(
+  input: ForgeRunLine,
+  wholeOrg: NonNullable<ForgeRunLine['wholeOrg']>,
+): string[] {
+  return [
+    '--source',
+    valueOf('--source', input.source),
+    '--target',
+    valueOf('--target', input.target),
+    '--depth',
+    'all',
+    '--config',
+    valueOf('--config', input.templateFile),
+    '--max-total',
+    String(input.maxTotal),
+    '--skip-preflight',
+    wholeOrg.anonymize ? '--anonymize' : '--no-anonymize',
+    ...(wholeOrg.keepContactPoints ? ['--keep-contact-points'] : []),
+    ...(wholeOrg.fit !== undefined
+      ? [
+          '--fit',
+          'share',
+          ...(wholeOrg.fit.withinMB !== undefined
+            ? ['--fit-within', String(wholeOrg.fit.withinMB)]
+            : []),
+        ]
+      : []),
+    ...(input.acceptAutomation ? ['--accept-automation'] : []),
+  ];
+}
+
 /** The line of a forge resource's dry run: what its gate counts, nothing written. */
 export function forgeDryRunLine(input: ForgeRunLine): string[] {
   return [...forgeRunSwitches(input), '--dry-run', '--json'];
 }
 
-/** The line of a forge resource's run: its summary written as it goes, alone on stdout too. */
+/**
+ * The line of a forge resource's run: its summary written as it goes, alone
+ * on stdout too. A clone of the whole org is given `--yes`: it asks before it
+ * writes, whatever its volume, and nobody is there to answer — the file asked
+ * it, and its plan said the records it would write, which `--max-total`
+ * holds it to.
+ */
 export function forgeApplyLine(input: ForgeRunLine & { summary: string }): string[] {
-  return [...forgeRunSwitches(input), '--summary', valueOf('--summary', input.summary), '--json'];
+  return [
+    ...forgeRunSwitches(input),
+    ...(input.wholeOrg ? ['--yes'] : []),
+    '--summary',
+    valueOf('--summary', input.summary),
+    '--json',
+  ];
 }
 
 /** What the removal of a forge resource's run, or its preview, is given. */
@@ -614,6 +708,13 @@ export const forgeRunAnswerSchema = z.object({
     createdByObject: z.array(
       z.object({ objectApiName: z.string().min(1), sourceIds: z.array(idSchema) }),
     ),
+    // Past the ids a summary keeps, they are in the run's journal, and the
+    // summary counts per object what the run created: a clone of the whole
+    // org passes the bound, and was read as having created nothing.
+    remapInJournal: z.literal(true).optional(),
+    createdCountByObject: z
+      .array(z.object({ objectApiName: z.string().min(1), created: countSchema }))
+      .optional(),
     errors: z.array(
       z.object({
         objectApiName: z.string().min(1),
@@ -703,10 +804,10 @@ export type ForgeVerifyAnswer = z.infer<typeof forgeVerifyAnswerSchema>;
  */
 export function forgeTargetRefusal(
   answer: ForgeDryRunAnswer,
-  template: ForgeTemplateInput,
+  template: ForgeTemplateInput | undefined,
 ): string | undefined {
   const given = new Set(
-    (template.config.defaultValues ?? []).map((value) =>
+    (template?.config.defaultValues ?? []).map((value) =>
       `${value.object}.${value.field}`.toLowerCase(),
     ),
   );
@@ -820,9 +921,18 @@ export function forgeDryRunCount(answer: ForgeDryRunAnswer): EnvDryRunCount {
 
 /** What a forge run wrote, per object, from its summary: the records it created, and the refused. */
 export function forgeRunCount(answer: ForgeRunAnswer): EnvRunCount {
-  const objects = answer.result.createdByObject.map((object) => ({
+  // Past the bound, the ids are in the journal and the summary counts them.
+  const counted =
+    answer.result.remapInJournal === true ? answer.result.createdCountByObject : undefined;
+  const objects = (
+    counted ??
+    answer.result.createdByObject.map((object) => ({
+      objectApiName: object.objectApiName,
+      created: object.sourceIds.length,
+    }))
+  ).map((object) => ({
     object: object.objectApiName,
-    created: object.sourceIds.length,
+    created: object.created,
     refused: 0,
     errors: [] as string[],
   }));

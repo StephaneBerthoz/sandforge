@@ -50,7 +50,6 @@ import { maskingSetsOf } from './kinds/mask.js';
 import { canonicalJson, pathText, refusalAt, sha256, type EnvFileRefusal } from './kinds/common.js';
 import type { EnvSourceRead } from './kinds/forge.js';
 import type { EnvDatasetRead } from './kinds/frozen.js';
-import { commandOf } from '../invocation.js';
 
 export { canonicalJson, pathText, type EnvFileRefusal };
 
@@ -207,7 +206,6 @@ export function checkEnvFile(
     return {
       refusals: parsed.error.issues.map((issue) => {
         const path = issue.path as EnvDocumentPath;
-        if (asksTheWholeOrg(document, path)) return refusalAt(path, WHOLE_ORG_WORDS);
         const nested = issue.code === 'invalid_key' ? issue.issues.map((i) => i.message) : [];
         return refusalAt(path, nested.join('; ') || issue.message);
       }),
@@ -515,26 +513,6 @@ export interface EnvFileResolved {
   resources: EnvFileResource[];
   /** sha256 of the resolved file, canonical: the state's `file.digest`. */
   digest: string;
-}
-
-/**
- * Why a forge resource's `depth: all` is refused, and what clones the whole
- * org: the schema said "Invalid option: expected one of direct, full,
- * custom", and the clone of the whole org, or of a sample of it that fits the
- * target, is a command of its own.
- */
-const WHOLE_ORG_WORDS =
-  'depth: all clones the whole org, which a resource of the file does not take: a resource ' +
-  `clones a record or tables. "${commandOf('clone')} --depth all --source <alias> --target ` +
-  '<alias> --fit share --dry-run" says the sample of it that fits the target; without ' +
-  '--dry-run it copies it.';
-
-/** Whether the schema's refusal at `path` is of a forge resource that asks `depth: all`. */
-function asksTheWholeOrg(document: unknown, path: EnvDocumentPath): boolean {
-  if (path.length !== 3 || path[0] !== 'resources' || path[2] !== 'depth') return false;
-  const resources = (document as { resources?: Record<string, unknown> } | null)?.resources;
-  const resource = resources?.[String(path[1])] as { kind?: unknown; depth?: unknown } | undefined;
-  return resource?.kind === 'forge' && resource.depth === 'all';
 }
 
 /** An alias as the sf CLI and a script's line take one: no space, never a flag. */

@@ -335,7 +335,13 @@ describe('--template', () => {
     };
 
     expect(await run(argv('--template', fileOf('tpl.json', soql)))).toBe(2);
-    expect(stderr).toContain('give --record');
+    // The command runs a query as tables: "give --record" alone named the
+    // one way that leaves the query behind.
+    expect(stderr).toContain(
+      'the template clones from a query, which the command runs as whole tables: give ' +
+        '--object Account with --template',
+    );
+    expect(stderr).toContain('or --record to clone one record with its choices');
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 

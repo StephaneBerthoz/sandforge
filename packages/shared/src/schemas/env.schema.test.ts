@@ -426,7 +426,7 @@ describe('a forge resource', () => {
 
   it('clones one record or whole tables, one of them, a record named one way', () => {
     expect(refusalsOf(withForge({}))).toEqual([
-      'resources.bug-1234: A forge resource clones one record (record) or whole tables (tables): give one of them',
+      'resources.bug-1234: A forge resource clones one record (record), whole tables (tables) or the whole org (depth: all): give one of them',
     ]);
     expect(
       refusalsOf(withForge({ record: { id: '500xx0000001234AAA' }, tables: [{ object: 'Case' }] })),
@@ -461,9 +461,49 @@ describe('a forge resource', () => {
     ]);
   });
 
-  it('refuses the depth all, the clone of a whole org, which no file asks for', () => {
-    expect(refusalsOf(withForge({ tables: [{ object: 'Account' }], depth: 'all' }))).toEqual([
-      'resources.bug-1234.depth: Invalid option: expected one of "direct"|"full"|"custom"',
+  it('takes the depth all, the clone of the whole org, with a fit, and nothing a walk starts from', () => {
+    const whole = envFileSchema.parse(
+      withForge({
+        depth: 'all',
+        fit: { withinMB: 150 },
+        anonymize: { rules: {} },
+        maxTotal: 40_000,
+      }),
+    );
+    expect(whole.resources['bug-1234']).toMatchObject({
+      depth: 'all',
+      fit: { withinMB: 150 },
+      maxTotal: 40_000,
+    });
+    expect(envFileSchema.safeParse(withForge({ depth: 'all', fit: 'share' })).success).toBe(true);
+
+    expect(
+      refusalsOf(
+        withForge({
+          depth: 'all',
+          tables: [{ object: 'Account' }],
+          record: { id: '500xx0000001234AAA' },
+          template: { file: 'templates.json', id: 't' },
+          customDepth: 3,
+          maxNodes: 20,
+        }),
+      ),
+    ).toEqual([
+      'resources.bug-1234.record: depth: all clones the whole org, and does not go with record: it starts from no record',
+      'resources.bug-1234.tables: depth: all clones the whole org, and does not go with tables: it starts from no table',
+      'resources.bug-1234.template: depth: all clones the whole org, and does not go with template: a template holds the choices of a walk from its record or query; sandforge clone --depth all takes them from --config',
+      'resources.bug-1234.customDepth: depth: all clones the whole org, and does not go with customDepth: it walks no depth',
+      'resources.bug-1234.maxNodes: depth: all clones the whole org, and does not go with maxNodes: it takes every object it can',
+    ]);
+    // Its anonymization is every category's default method: no other is taken.
+    expect(
+      refusalsOf(withForge({ depth: 'all', anonymize: { rules: { email: 'hash' } } })),
+    ).toEqual([
+      'resources.bug-1234.anonymize: depth: all anonymizes every personal field by its category’s default method, the clone of the whole org taking no other: give anonymize: { rules: {} }',
+    ]);
+    // A sample is of the whole org alone.
+    expect(refusalsOf(withForge({ tables: [{ object: 'Account' }], fit: 'share' }))).toEqual([
+      'resources.bug-1234.fit: fit goes with depth: all: it copies a sample of the whole org that fits the target. A clone of a record or of tables writes what it reaches',
     ]);
   });
 

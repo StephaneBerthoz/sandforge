@@ -31,7 +31,8 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
  *       [--leave-undeletable] [--json]
- *       [--preview] [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--audit <file>]
+ *       [--preview] [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--sweep-user <id>]
+ *       [--audit <file>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
  *
@@ -56,6 +57,7 @@ import { basename, dirname, join as joinPath, resolve as resolvePath, sep } from
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import { SfSessionError } from './sfFailure.js';
 import {
   envWords,
   ownOptionWords,
@@ -92,11 +94,13 @@ import type {
   ForgeContactPointsReport,
   ForgeDecisionApplied,
   ForgeDepth,
+  ForgeFieldExclusionUnmatched,
   ForgeFieldRefusal,
   ForgeFilesReport,
   ForgeGap,
   ForgeGraph,
   ForgeLeftOutReason,
+  ForgeOrphanParentsCapped,
   ForgePlan,
   ForgeRemovalFilesLeft,
   ForgeRemovalLeftCount,
@@ -145,6 +149,7 @@ import {
   forgeWriteHeaders,
   formatFileSize,
   isDeveloperEdition,
+  isFileBodiedObject,
   leftOutAsEmptyTable,
   mergeGaps,
   removalRisksOf,
@@ -184,7 +189,11 @@ import { ownerMapRefusalOf } from '../src/modules/forge/ownerMapRefusal.js';
 import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { cursorPages, queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
-import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
+import {
+  matchFieldExclusions,
+  withObjectsLeftOut,
+} from '../src/modules/forge/stages/ScopeResolver.js';
+import { isNotFound } from '../src/modules/forge/ForgeMetadataDiff.js';
 import {
   runAnonymization,
   type ForgeAnonymizationMethods,
@@ -375,7 +384,11 @@ import {
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { writtenWithWords } from '../src/core/common/platformRecords.js';
-import { isNeverCopied } from '../src/modules/forge/excludedObjects.js';
+import {
+  isExcludedFromCopy,
+  isNeverCopied,
+  isNeverCopiedWhenPicked,
+} from '../src/modules/forge/excludedObjects.js';
 import {
   noUserCreates,
   readCreateFacts,
@@ -416,7 +429,7 @@ import {
   nodeRunJournal,
   withUnattributed,
 } from '../src/modules/forge/ForgeRunJournal.js';
-import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
+import type { ForgeRunPartEnd, ForgeRunResumeHead } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
 import {
   inFlightLines,
@@ -528,6 +541,13 @@ export interface CliArgs {
   upsert: boolean;
   /** Single-hop orphan parent expansion when a required FK is out-of-graph. */
   expandOrphans: boolean;
+  /**
+   * The most parents from outside the run `--expand-orphans` copies
+   * (`--max-orphans`); undefined leaves the executor's 20. Past it, the rows
+   * that cannot be written without one are refused, and the summary says how
+   * many parents were left and of which objects.
+   */
+  maxOrphans?: number;
   /** Let the target's assignment rules apply to the records the run writes (`Sforce-Auto-Assign: TRUE`). */
   applyAssignmentRules: boolean;
   /** Skip the pre-execute target preflight (counts existing rows on target). */
@@ -670,7 +690,8 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
       [--mute-automation] [--leave-undeletable] [--json]
-      [--preview] [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--audit <file>]
+      [--preview] [--sweep | --sweep-list] [--sweep-late] [--sweep-untied] [--sweep-user <id>]
+      [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
 
@@ -739,9 +760,19 @@ Clone whole tables, in place of --record:
                          discovery starts, and each other must be in its graph
                          (--depth, --max-nodes): a parent one of them points at,
                          or a child that hangs from one. Every other object
-                         discovery reaches is left out.
+                         discovery reaches is left out. A table no clone
+                         writes — users and their access, setup, a record's
+                         history, feed or sharing rows, a file — is refused
+                         before a row is read (TABLE_NEVER_CLONED), exit 2.
   --where <condition>    the rows of the --object before it: a SOQL condition,
                          written without WHERE         (default: every row)
+                         It narrows that table alone: every other --object is
+                         read whole, whatever rows the first keeps. To hold a
+                         table to the rows of another, give it a --where of
+                         its own that names them, e.g. --object Account
+                         --where "Industry = 'Energy'" --object Contact
+                         --where "AccountId IN (SELECT Id FROM Account WHERE
+                         Industry = 'Energy')".
                          The run is the panel's run of a query: each table read
                          with the org's cursor in the order of its ids and
                          written a page at a time, so the run holds a page of
@@ -968,6 +999,11 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          Skips DUPLICATE_VALUE on re-runs of the same source records.
   --expand-orphans       single-hop expand orphan parent FKs    (default: off)
                          Clones missing parents (out-of-graph) so child FKs resolve.
+  --max-orphans <n>      with --expand-orphans, most parents from outside the
+                         run it copies, 1 to 1000                (default: 20)
+                         Past it, the rows that cannot be written without one
+                         are refused, and the summary says how many parents
+                         were left and of which objects.
   --apply-assignment-rules
                          apply the target's assignment rules    (default: off)
                          Off, every write says Sforce-Auto-Assign: FALSE and
@@ -1021,6 +1057,11 @@ ${checkpointFirstHelp({ run: 'the run', simulation: '--dry-run' })}
                          them being there — each may then be there twice.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
+                         Matched whatever its case. One that names no object
+                         or field of the source refuses the run before a row
+                         is read, exit 2, naming the field nearest it
+                         (FIELD_EXCLUSION_UNMATCHED); a dry run says it, as
+                         the summary's result.fieldExclusionsUnmatched does.
   --exclude-object <obj> leave an object out of the clone (repeatable)
                          e.g. --exclude-object PricebookEntry
                          Out whether discovery reaches it or the run would
@@ -1191,6 +1232,10 @@ Remove what a run created:
                          when that user created records there on objects
                          neither the run nor the automation reaches (hand
                          work, likely)
+  --sweep-user <id>      with --sweep or --sweep-list, the user the run wrote as,
+                         for a run whose summary does not keep it: the sweep
+                         reads it otherwise from the run's records, and is
+                         refused when none is left or several users made them
   --sweep-list           list what --sweep would delete, per object with a few
                          names and how many it ties to the run, and delete
                          nothing, the run's records included; exit 3, as a
@@ -1269,7 +1314,9 @@ Exit codes:
      took every record it set out to take; the preview said what a removal
      would do, refusals included
   1  the clone or the removal could not run; the clone produced only failures,
-     or its files were refused; the target is a production org; the target
+     or its files were refused; --resume could not take the run up
+     (RESUME_UNAVAILABLE, RESUME_TARGET_CHANGED, RESUME_CHANGED,
+     RESUME_UNCERTAIN); the target is a production org; the target
      runs automation on insert or on the updates the clone makes after its
      inserts, or the removal's deletes fire automation, and
      --accept-automation was not given; the target delivers the emails of
@@ -1284,7 +1331,9 @@ Exit codes:
      whose dry run says a real run would be refused; a sample of it that
      could not be drawn (SAMPLE_STORAGE_UNREAD, SAMPLE_CANNOT_FIT,
      SAMPLE_TOO_LARGE)
-  2  a bad command line, or a summary --remove cannot take a run back from, or
+  2  a bad command line, an --exclude that names no field of the source
+     (FIELD_EXCLUSION_UNMATCHED), an --object no clone writes
+     (TABLE_NEVER_CLONED), or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there; the plan of a
      sample --fit-plan gives or --resume takes up gone, or drawn of another
      org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH)
@@ -1479,6 +1528,172 @@ export function tablesNotReached(
 ): string[] {
   const reached = new Set(graph.nodes.map((node) => node.objectApiName));
   return tables.map((table) => table.objectApiName).filter((name) => !reached.has(name));
+}
+
+/**
+ * Why a table named with `--object` is one no clone writes, or nothing when a
+ * clone may write it: users and their access, metadata, a record's history,
+ * feed or sharing rows, the platform's own records — and a file, which goes
+ * with the record it hangs on. Exported so it can be tested.
+ */
+export function neverClonedTableRefusal(objectApiName: string): string | undefined {
+  if (!isNeverCopiedWhenPicked(objectApiName)) return undefined;
+  // An environment names its tables in its file, and copies no file.
+  const env = relayedByAnEnvironment();
+  const named = env ? `the table ${objectApiName}` : `--object ${objectApiName}`;
+  if (isFileBodiedObject(objectApiName)) {
+    return (
+      `${named}: a file goes with the record it hangs on, never as a table of its own. Leave ` +
+      `it out${env ? '' : ', and give --files to copy the files of the records cloned'}.`
+    );
+  }
+  return (
+    `${named}: no clone writes it — users and their access, metadata, a ` +
+    "record's history, feed or sharing rows, and the records the platform keeps for itself " +
+    'are not data a copy carries. Leave it out.'
+  );
+}
+
+/** The deepest walk `--custom-depth` takes, as discovery bounds it. */
+const MAX_CUSTOM_DEPTH = 10;
+
+/**
+ * Why the tables `notReached` names were not reached by discovery from the
+ * first, and what reaches them: the namespace of a managed package discovery
+ * never walks into, which only starting from one of them reaches; a walk
+ * short of the deepest, or a graph cut at its cap, which more of either may
+ * reach; and otherwise no path from the first, which another first table or a
+ * run of its own does. "raise --depth or --max-nodes" was said of every one,
+ * a package's objects and an object no lookup joins to the first among them.
+ * Exported so it can be tested.
+ */
+export function tablesNotReachedWords(
+  notReached: readonly string[],
+  run: {
+    root: string;
+    objects: number;
+    depth: ForgeDepth;
+    customDepth: number;
+    truncated: boolean;
+    /** Relayed by an environment, whose file names its tables, depth and maxNodes. */
+    env: boolean;
+  },
+): string {
+  const ofAPackage = notReached.filter(
+    (name) => isExcludedFromCopy(name) && !isNeverCopiedWhenPicked(name),
+  );
+  const others = notReached.filter((name) => !ofAPackage.includes(name));
+  const named = (names: readonly string[]): string =>
+    run.env
+      ? `the table${names.length === 1 ? '' : 's'} ${names.join(', ')}`
+      : `--object ${names.join(', ')}`;
+  const lines: string[] = [];
+  if (others.length > 0) {
+    const one = others.length === 1;
+    const deeper = run.depth !== 'custom' || run.customDepth < MAX_CUSTOM_DEPTH;
+    const raise = [
+      ...(deeper ? [run.env ? "the resource's depth" : '--depth'] : []),
+      ...(run.truncated ? [run.env ? "the resource's maxNodes" : '--max-nodes'] : []),
+    ];
+    const depthSaid = run.depth === 'custom' ? String(run.customDepth) : run.depth;
+    lines.push(
+      `${named(others)}: discovery from ${run.root} did not reach ${one ? 'it' : 'them'} ` +
+        `(${run.objects} object(s), depth ${depthSaid}${run.truncated ? ', cut at its cap' : ''}): ` +
+        'name first a table it hangs from or points at' +
+        (raise.length > 0
+          ? `, or raise ${raise.join(' or ')}.`
+          : `; no lookup joins ${one ? 'it' : 'them'} to ${run.root} within the deepest walk, ` +
+            `so clone ${one ? 'it' : 'them'} in a run of ${one ? 'its' : 'their'} own.`),
+    );
+  }
+  if (ofAPackage.length > 0) {
+    lines.push(
+      `${named(ofAPackage)}: discovery does not walk into the objects of a managed package's ` +
+        'namespace, whose configuration hangs off standard records: name ' +
+        `${ofAPackage.length === 1 ? 'it' : 'one of them'} first, the table discovery starts ` +
+        'from, or clone it in a run of its own.',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Why a template the line gives clones nothing the line can run, and what
+ * does: a template of a record that names none takes `--record`; one of a
+ * query is run as tables, its root under its condition, which the line gives
+ * with `--object` and `--where`. It said "give --record" of a query too.
+ * Exported so it can be tested.
+ */
+export function templateWithoutInputWords(
+  inputMode: string,
+  queryRoot: string | undefined,
+  queryWhere: string | undefined,
+): string {
+  if (inputMode === 'record') {
+    return '--template: the template clones from a record it does not name: give --record.';
+  }
+  const table =
+    queryRoot !== undefined
+      ? `--object ${queryRoot}${queryWhere !== undefined ? ` --where "${queryWhere}"` : ''}`
+      : '--object <ApiName> --where <condition>';
+  return (
+    '--template: the template clones from a query, which the command runs as whole tables: ' +
+    `give ${table} with --template, its root under the query's condition, and an --object ` +
+    'for each other table to clone; or --record to clone one record with its choices.'
+  );
+}
+
+/**
+ * What a line that lacks a flag a clone needs is told: which of them, and
+ * the three things a clone starts from. It said "Missing required flag",
+ * none named. Exported so it can be tested.
+ *
+ * @param missing - `what to clone`, `--source`, `--target`: those the line lacks.
+ */
+export function missingFlagsWords(missing: readonly string[]): string {
+  const said = [
+    ...(missing.includes('what to clone')
+      ? [
+          'what to clone: --record <id> for one record, --object <ApiName> for whole tables, ' +
+            'or --depth all for the whole org',
+        ]
+      : []),
+    ...missing.filter((what) => what.startsWith('--')).map((flag) => `${flag} <alias>`),
+  ];
+  return `Missing ${said.join('; ')}. Run with --help for usage.`;
+}
+
+/** The most parents from outside a run `--max-orphans` lets `--expand-orphans` copy. */
+const MAX_ORPHANS_MOST = 1_000;
+
+/**
+ * The most parents `--expand-orphans` copies from outside the run
+ * (`--max-orphans`), or nothing when the line does not give it; exits 2 on
+ * one given without `--expand-orphans`, which copies none, and on a value
+ * that is not a whole number from 1 to {@link MAX_ORPHANS_MOST}. The cap
+ * was 20 with nothing to raise it, and said nowhere when reached.
+ */
+function maxOrphansArg(
+  value: string | undefined,
+  line: { given: boolean; expands: boolean },
+): number | undefined {
+  if (!line.given) return undefined;
+  if (!line.expands) {
+    process.stderr.write(
+      '--max-orphans goes with --expand-orphans: it bounds the parents from outside the run ' +
+        'that one copies.\n',
+    );
+    process.exit(2);
+  }
+  const n = Number(value);
+  if (value === undefined || !/^\d{1,4}$/.test(value) || n < 1 || n > MAX_ORPHANS_MOST) {
+    process.stderr.write(
+      `--max-orphans takes a whole number of parents, 1 to ${MAX_ORPHANS_MOST}, not ` +
+        `"${value ?? ''}".\n`,
+    );
+    process.exit(2);
+  }
+  return n;
 }
 
 /**
@@ -1800,6 +2015,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--max-nodes',
     '--max-total',
     '--max-records-per-object',
+    '--max-orphans',
     '--summary',
     '--resume',
     '--exclude',
@@ -1839,8 +2055,20 @@ const NOT_WITH_THE_WHOLE_ORG: ReadonlyArray<readonly [string, string]> = [
       'a sample of the org that fits the target, none of its records without those they name',
   ],
   ['--expand-orphans', 'every parent it reaches is in the org it copies'],
-  ['--rehearse', 'a rehearsal holds every row it prepares'],
-  ['--upsert', 'its writes go as Bulk API jobs that insert'],
+  ['--max-orphans', 'every parent it reaches is in the org it copies'],
+  [
+    '--rehearse',
+    'a rehearsal holds every row it prepares: --dry-run counts what a real run would write ' +
+      'and says what would refuse it, writing nothing',
+  ],
+  [
+    '--upsert',
+    'its writes go as Bulk API jobs that insert. To copy the org again without its records ' +
+      'twice: --resume <journal> takes up a run that stopped, writing nothing it wrote; ' +
+      '--remove <summary> takes back a run that ended before the copy is made again; or ' +
+      `${commandOf('empty')} --target <alias> --objects <A,B> --dry-run says what emptying ` +
+      "the target's objects would delete, every record of them",
+  ],
 ];
 
 /**
@@ -1934,10 +2162,13 @@ export function sampleArgsOf(
         'target. A clone of a record or of tables reads what it reaches: --max caps each object.',
     );
   }
+  // A sample is asked where the whole org does not fit the target: a copy of
+  // every record with its files, named here as the other way, met there the
+  // refusal of the data storage the sample was asked to stay under.
   if (asked('--files')) {
     return refuse(
-      '--fit share copies no files yet: leave out --files, or leave out --fit share to copy ' +
-        'every record of the org with its files.',
+      '--fit share copies no files: the sample goes without the files of its records, and ' +
+        '--files does not go with it. Leave out --files.',
     );
   }
   if (asked('--list-objects')) {
@@ -2103,6 +2334,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // object could read nothing. The panel leaves it to the query too.
   const queryRoot =
     template?.config.soqlQuery !== undefined ? queryRootOf(template.config.soqlQuery) : undefined;
+  /** The condition of a template's query, the filter of its root: what `--where` gives it. */
+  const queryWhere =
+    queryRoot !== undefined ? fileChoices.objectSoqlFilters?.[queryRoot] : undefined;
   if (queryRoot !== undefined && fileChoices.objectSoqlFilters?.[queryRoot] !== undefined) {
     const filters = { ...fileChoices.objectSoqlFilters };
     delete filters[queryRoot];
@@ -2113,12 +2347,20 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // filter, read and written as the panel runs a query.
   const tables = tableArgs(args);
   if (tables) {
-    const refused = ['--record', '--expand-orphans', '--rehearse'].filter((flag) => has(flag));
+    const refused = ['--record', '--expand-orphans', '--max-orphans', '--rehearse'].filter((flag) =>
+      has(flag),
+    );
     if (refused.length > 0) {
+      // A rehearsal is asked to know what the target would refuse: the dry
+      // run of the tables says what a real run would be refused for.
+      const instead = refused.includes('--rehearse')
+        ? ' --dry-run reads the tables and counts what a real run would write, and says what ' +
+          'would refuse it, writing nothing.'
+        : '';
       process.stderr.write(
         `--object clones whole tables, as the panel runs a query: it does not go with ` +
           `${refused.join(', ')}, which ${refused.length === 1 ? 'goes' : 'go'} with a clone ` +
-          'of one record (--record).\n',
+          `of one record (--record).${instead}\n`,
       );
       process.exit(2);
     }
@@ -2136,16 +2378,20 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     template?.config.inputMode === 'record' ? template.config.recordId : undefined;
   if (template && !tables && !has('--record') && !templateRecord) {
     process.stderr.write(
-      `--template: the template clones from a ${template.config.inputMode === 'record' ? 'record it does not name' : 'query'}, ` +
-        'and the command clones from a record: give --record.\n',
+      `${templateWithoutInputWords(template.config.inputMode, queryRoot, queryWhere)}\n`,
     );
     process.exit(2);
   }
   const record = tables || wholeOrg ? undefined : (get('--record') ?? templateRecord);
   const source = get('--source');
   const target = get('--target');
-  if ((!record && !tables && !wholeOrg) || !source || !target) {
-    process.stderr.write('Missing required flag. Run with --help for usage.\n');
+  const missing = [
+    ...(!record && !tables && !wholeOrg ? ['what to clone'] : []),
+    ...(!source ? ['--source'] : []),
+    ...(!target ? ['--target'] : []),
+  ];
+  if (missing.length > 0 || !source || !target) {
+    process.stderr.write(`${missingFlagsWords(missing)}\n`);
     process.exit(2);
   }
   // The flag says what a removal takes; on a clone it would do nothing, and is
@@ -2333,6 +2579,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     process.stderr.write('--max-nodes takes a whole number of objects, 1 or more.\n');
     process.exit(2);
   }
+  const maxOrphans = maxOrphansArg(get('--max-orphans'), {
+    given: has('--max-orphans'),
+    expands: has('--expand-orphans') || template?.config.expandOrphanParents === true,
+  });
   // A run of one record whose scope widened wrote 34 216 records into a
   // sandbox where its dry run had said 37: no run writes past this many.
   const maxTotal = maxTotalRaw === undefined ? DEFAULT_MAX_TOTAL : Number(maxTotalRaw);
@@ -2436,6 +2686,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     listObjects: has('--list-objects'),
     upsert: has('--upsert'),
     expandOrphans: has('--expand-orphans') || template?.config.expandOrphanParents === true,
+    ...(maxOrphans !== undefined ? { maxOrphans } : {}),
     applyAssignmentRules:
       has('--apply-assignment-rules') || template?.config.applyAssignmentRules === true,
     skipPreflight: has('--skip-preflight'),
@@ -2649,6 +2900,9 @@ export function cliRunSetup(
     keepContactPoints: args.keepContactPoints,
     upsert: args.upsert,
     expandOrphans: args.expandOrphans,
+    // Only when given: a run without it keeps the fingerprint its journals
+    // were begun with.
+    ...(args.maxOrphans !== undefined ? { maxOrphans: args.maxOrphans } : {}),
     applyAssignmentRules: args.applyAssignmentRules,
     fieldExclusions: args.fieldExclusions,
     excludedObjects: args.excludedObjects,
@@ -2690,19 +2944,31 @@ export async function resumeRefusal(
     graph: ForgeGraph;
     setup: unknown;
     sample?: { asked: boolean; setupWith: (planSha256: string) => unknown };
+    /** The config the run goes with, which names what differs from the one taken up. */
+    config?: ForgeConfig;
+    /** The record the line clones, of a clone of one record. */
+    record?: string;
   },
 ): Promise<{ code: string; message: string } | undefined> {
   const head = await journals.headAt(journalPath);
   if (!head) {
     return {
       code: 'RESUME_UNAVAILABLE',
-      message: `--resume ${journalPath}: there is no journal of a run there.`,
+      message:
+        `--resume ${journalPath}: there is no journal of a run there. Every run that writes ` +
+        'says its journal as it starts (journal: …), under SANDFORGE_JOURNAL_DIR when it is ' +
+        'set: give that file, or its run id. Nothing was written.',
     };
   }
+  // Begun before its journal kept its setup, the run cannot be taken up:
+  // what it wrote can still be taken back, and the clone run again whole.
   if (!head.resume) {
     return {
       code: 'RESUME_UNAVAILABLE',
-      message: `--resume ${journalPath}: the journal does not say how its run was set up, and the run cannot be taken up.`,
+      message:
+        `--resume ${journalPath}: the journal does not say how its run was set up, and the run ` +
+        `cannot be taken up: --remove ${journalPath} takes back what it wrote, then run the ` +
+        'clone again. Nothing was written.',
     };
   }
   const end = await journals.lastEndAt(journalPath);
@@ -2760,11 +3026,96 @@ export async function resumeRefusal(
     return {
       code: 'RESUME_CHANGED',
       message:
-        'The clone is set up otherwise than the run to take up: give the same record or ' +
-        'tables, orgs, depth, choices and flags it ran with. Nothing was written.',
+        `The clone is set up otherwise than the run to take up: ${resumeChangedWords(head.resume, run)}. ` +
+        'Give the same record or tables, orgs, depth, choices and flags it ran with; or take ' +
+        `back what it wrote with --remove ${journalPath}, and run the clone again as it is now. ` +
+        'Nothing was written.',
     };
   }
   return undefined;
+}
+
+/** What a config's keys are given by on the line, as a refused resume names what differs. */
+const SETUP_KEY_WORDS: Readonly<Record<string, string>> = {
+  sourceOrgId: '--source',
+  depth: '--depth',
+  customDepth: '--custom-depth',
+  soqlQuery: 'the first --object and its --where',
+  anonymizePII: '--anonymize',
+  keepContactPoints: '--keep-contact-points',
+  maxRecordsPerObject: '--max',
+  objectSoqlFilters: '--filter or --where',
+  excludedObjects: '--exclude-object',
+  fieldExclusions: '--exclude',
+  fieldMappings: '--map',
+  ownerMappings: '--owner-map',
+  applyAssignmentRules: '--apply-assignment-rules',
+  sample: '--fit and its --fit-* flags',
+  picklistValueMappings: 'the decisions of --config or --template',
+  recordTypeMappings: 'the decisions of --config or --template',
+  defaultValues: 'the decisions of --config or --template',
+  truncateFields: 'the decisions of --config or --template',
+  skippedRows: 'the decisions of --config or --template',
+  ignoredGaps: 'the decisions of --config or --template',
+};
+
+/** What a journal's config holds that names no choice of the run: its target alias, its batch size. */
+const SETUP_KEYS_UNSAID = new Set(['inputMode', 'targetOrgId', 'skipEmpty', 'batchSize', 'dryRun']);
+
+/**
+ * What differs between the run a journal began and the one the line sets
+ * up, as far as the journal keeps it: the record, what the config it began
+ * with holds — the source, depth, filters, exclusions, mappings, decisions,
+ * sample — and the objects its graph took. The rest of the setup is in the
+ * fingerprint alone: what differs there is named among the flags the journal
+ * does not keep. "set up otherwise" named nothing, and the user compared
+ * every flag by hand. Exported so it can be tested.
+ */
+export function resumeChangedWords(
+  head: Pick<ForgeRunResumeHead, 'recordId' | 'startedWith'>,
+  run: { graph: ForgeGraph; config?: ForgeConfig; record?: string },
+): string {
+  const said: string[] = [];
+  if (
+    head.recordId !== undefined &&
+    run.record !== undefined &&
+    head.recordId.slice(0, 15) !== run.record.slice(0, 15)
+  ) {
+    said.push(`--record (${head.recordId} then, ${run.record} now)`);
+  }
+  const before = head.startedWith;
+  if (before && run.config) {
+    const then: Record<string, unknown> = { ...before.config };
+    const now: Record<string, unknown> = { ...run.config };
+    const keys = [...new Set([...Object.keys(then), ...Object.keys(now)])].filter(
+      (key) => !SETUP_KEYS_UNSAID.has(key) && key !== 'recordId',
+    );
+    const flags = new Set<string>();
+    for (const key of keys) {
+      if (JSON.stringify(then[key] ?? null) !== JSON.stringify(now[key] ?? null)) {
+        flags.add(SETUP_KEY_WORDS[key] ?? key);
+      }
+    }
+    if (flags.size > 0) said.push(`${[...flags].join(', ')} differ`);
+    const taken = (graph: Pick<ForgeGraph, 'nodes'>): Set<string> =>
+      new Set(
+        graph.nodes
+          .filter((node) => node.included || leftOutAsEmptyTable(node))
+          .map((node) => node.objectApiName),
+      );
+    const thenTaken = taken(before.graph);
+    const nowTaken = taken(run.graph);
+    const onlyThen = [...thenTaken].filter((name) => !nowTaken.has(name));
+    const onlyNow = [...nowTaken].filter((name) => !thenTaken.has(name));
+    if (onlyThen.length > 0) said.push(`it took ${namedSome(onlyThen)}, which this one leaves`);
+    if (onlyNow.length > 0) said.push(`this one takes ${namedSome(onlyNow)}, which it left`);
+  }
+  if (said.length > 0) return said.join('; ');
+  return (
+    'what differs is among what its journal does not keep: --upsert, --expand-orphans, ' +
+    '--max-orphans, --max-nodes, --max-records-per-object, --files, --keep-contact-points, ' +
+    '--exclude, --exclude-object, --owner-map, --map and the choices of --config or --template'
+  );
 }
 
 /**
@@ -3349,6 +3700,111 @@ function linkedLine(
 }
 
 /**
+ * The code a run is refused with, before a row is read, when a field it
+ * leaves out names no field or object of the source: exit 2, as a line to
+ * give otherwise.
+ */
+export const FIELD_EXCLUSION_UNMATCHED = 'FIELD_EXCLUSION_UNMATCHED';
+
+/**
+ * One field left out that names nothing of the source, as a line says it:
+ * the exclusion as given, what the source lacks, and the field nearest it.
+ */
+export function fieldExclusionUnmatchedWords(entry: ForgeFieldExclusionUnmatched): string {
+  const given = `${envWords('--exclude', 'the exclusion')} ${entry.objectApiName}.${entry.field}`;
+  if (entry.missing === 'object') {
+    return `${given}: the source has no object ${entry.objectApiName}`;
+  }
+  return (
+    `${given}: ${entry.objectApiName} has no field ${entry.field}` +
+    (entry.nearest !== undefined ? ` (${entry.nearest}?)` : '')
+  );
+}
+
+/**
+ * What a summary says of the fields left out that name nothing of the
+ * source: they left nothing out. Exported so it can be tested.
+ */
+export function fieldExclusionsUnmatchedLines(
+  unmatched: readonly ForgeFieldExclusionUnmatched[],
+): string[] {
+  return [
+    `left nothing out, naming no field of the source (${unmatched.length}):`,
+    ...unmatched.map((entry) => `  ${fieldExclusionUnmatchedWords(entry)}`),
+  ];
+}
+
+/**
+ * Why a run is refused before a row is read for the fields it leaves out
+ * that name nothing of the source: each, with the field nearest it. Exported
+ * so it can be tested.
+ */
+export function fieldExclusionsUnmatchedRefusal(
+  unmatched: readonly ForgeFieldExclusionUnmatched[],
+  choicesFrom?: { flag: string; path: string },
+): string {
+  // A file's exclusion is the file's to change: no --exclude gave it. An
+  // environment's are its template's, the file it writes for the run aside.
+  const where = relayedByAnEnvironment()
+    ? ' of the template the resource names'
+    : choicesFrom
+      ? ` of --exclude, or of the fieldExclusions of ${choicesFrom.flag} ${choicesFrom.path}`
+      : '';
+  return (
+    `${unmatched.map(fieldExclusionUnmatchedWords).join('; ')}: ` +
+    `${unmatched.length === 1 ? 'it leaves' : 'they leave'} nothing out, and the field the run ` +
+    'was asked to keep back would be written with every row. Name the field as the source ' +
+    `does — whatever its case — or leave the exclusion out${where}. Nothing was read or written.`
+  );
+}
+
+/**
+ * The fields the line leaves out (`--exclude`, or the file's
+ * `fieldExclusions`) that name no field or object of the source, read before
+ * a row is: as the run matches them (`matchFieldExclusions`), the object of
+ * each found among the graph's whatever its case, its fields read from its
+ * describe — an object the source does not have answers `NOT_FOUND`; one
+ * whose describe fails otherwise is kept as given, unsaid. Nothing is asked
+ * when nothing is left out. Exported so it can be tested.
+ */
+export async function fieldExclusionsUnmatchedOf(
+  exclusions: Readonly<Record<string, readonly string[]>>,
+  graph: Pick<ForgeGraph, 'nodes'>,
+  fieldsOf: (objectApiName: string) => Promise<readonly string[]>,
+): Promise<ForgeFieldExclusionUnmatched[]> {
+  const named = Object.keys(exclusions);
+  if (named.length === 0) return [];
+  const objects = graph.nodes.map((node) => node.objectApiName);
+  const fields = new Map<string, readonly string[] | null | undefined>();
+  for (const given of named) {
+    const object = objects.find((name) => name.toLowerCase() === given.toLowerCase()) ?? given;
+    if (fields.has(object)) continue;
+    try {
+      fields.set(object, await fieldsOf(object));
+    } catch (err: unknown) {
+      fields.set(object, isNotFound(err) ? undefined : null);
+    }
+  }
+  return matchFieldExclusions(exclusions, objects, (object) =>
+    fields.has(object) ? fields.get(object) : null,
+  ).unmatched;
+}
+
+/**
+ * What a summary says when `--expand-orphans` reached the most parents it
+ * copies from outside the run: how many it left, of which objects, and what
+ * raises the cap. Exported so it can be tested.
+ */
+export function orphanParentsCappedLine(capped: ForgeOrphanParentsCapped): string {
+  const raise = relayedByAnEnvironment() ? '' : ' (--max-orphans raises it)';
+  return (
+    `parents from outside the run not copied: ${capped.notCopied} past the ${capped.cap} ` +
+    `--expand-orphans copies at most${raise}, of ${capped.objects.join(', ')}; the rows that ` +
+    'cannot be written without one were refused'
+  );
+}
+
+/**
  * The text summary of a run. Records the target already held are named apart
  * from the created and the failed ones: linked is neither, and a duplicate
  * nobody could identify is a failure whose children lost their lookup.
@@ -3432,6 +3888,18 @@ export function summaryLines(
         `the source holding more, which were not cloned (${truncated.objects.length} object(s)):`,
       ...truncated.objects.map((objectApiName) => `  ${objectApiName}`),
     );
+  }
+  // A field --exclude names that the source does not have left nothing out:
+  // typed in another case or misspelt, the field the user believed kept back
+  // went in with every row.
+  const unmatched = summary.fieldExclusionsUnmatched ?? [];
+  if (unmatched.length > 0) {
+    lines.push('', ...fieldExclusionsUnmatchedLines(unmatched));
+  }
+  // Past the most parents --expand-orphans copies, the rest stay out, and the
+  // rows that cannot be written without one are refused: said with the cap.
+  if (summary.orphanParentsCapped) {
+    lines.push('', orphanParentsCappedLine(summary.orphanParentsCapped));
   }
   if (summary.files) lines.push('', ...fileLines(summary.files, dryRun));
   // Read, such a field gives its file's address, never the file: the clone
@@ -3882,6 +4350,16 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // The ceiling of --max-records-per-object and the objects whose read was
     // cut at it with rows left in the source; only when a read was.
     ...(truncated ? { truncatedObjects: truncated } : {}),
+    // The fields --exclude names that the source has no such field or object
+    // of, which left nothing out, each with the field nearest it; only when
+    // one did. A dry run says them; a real run is refused on them first.
+    ...(summary.fieldExclusionsUnmatched
+      ? { fieldExclusionsUnmatched: summary.fieldExclusionsUnmatched }
+      : {}),
+    // The parents from outside the run --expand-orphans did not copy, past
+    // the most it copies (--max-orphans), and their objects: the rows that
+    // needed them were refused. Only when the run reached that cap.
+    ...(summary.orphanParentsCapped ? { orphanParentsCapped: summary.orphanParentsCapped } : {}),
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),
@@ -3930,8 +4408,16 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // reach them.
     ...(summary.mayHaveBeenWritten ? { mayHaveBeenWritten: summary.mayHaveBeenWritten } : {}),
     // Past the bound, the ids are in the run's journal, which the document
-    // names: --remove and --verify read them from there.
+    // names: --remove and --verify read them from there; per object, what
+    // the run created is counted, as an environment reads it.
     ...(summary.remapInJournal ? { remapInJournal: true as const } : {}),
+    ...(summary.remapInJournal
+      ? {
+          createdCountByObject: summary.remapByObject
+            .filter(({ created }) => created > 0)
+            .map(({ objectApiName, created }) => ({ objectApiName, created })),
+        }
+      : {}),
     // Of a sample of the whole org, per object what the run wrote of its plan.
     ...(summary.sample ? { sample: sampleResultJson(summary.sample) } : {}),
   };
@@ -4038,12 +4524,19 @@ export function graphLine(
       ? ' (raised for the parents their records cannot be written without)'
       : '';
   // Said, the objects add up: 78 objects, 69 empty and 6 included left three
-  // unaccounted for, the tables the source would not count.
-  const { notCounted } = graphCounts(graph);
-  const notCountedNote = notCounted > 0 ? `, ${notCounted} not counted` : '';
+  // unaccounted for, the tables the source would not count. Named: "3 not
+  // counted" sent the reader to --list-objects to learn which.
+  const { refused, unanswered } = notCountedObjectsOf(graph);
+  const notCountedNote =
+    refused.length > 0 ? `, ${refused.length} not counted (${namedSome(refused)})` : '';
+  const unansweredNote =
+    unanswered.length > 0
+      ? `, ${unanswered.length} of them kept though their count got no answer ` +
+        `(${namedSome(unanswered)})`
+      : '';
   return (
     `graph: ${graph.nodes.length} objects at a cap of ${maxNodes}${emptyNote}${raised}, ` +
-    `${included} included${notCountedNote}; ` +
+    `${included} included${unansweredNote}${notCountedNote}; ` +
     `${graph.edges.length} lookups, ${between} between these objects; ` +
     `${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles` +
     (graph.truncated ? ' (TRUNCATED)' : '')
@@ -4361,14 +4854,24 @@ export function wholeOrgQuestionWords(
  * line's words: the gate names the page and its setting, which the command
  * takes as its flags. Exported so it can be tested.
  */
-export function wholeOrgRefusalWords(message: string): string {
+export function wholeOrgRefusalWords(message: string, sampled = false): string {
+  // The requests and batches a run takes go down with its records: a sample
+  // that fits the target takes fewer, which the gate's "leave objects out"
+  // and "write fewer records" never named.
+  const fewer =
+    ' — or leave objects out (--exclude-object), narrow them (--filter)' +
+    (sampled
+      ? '.'
+      : ', or copy a sample of the org that fits the target (--fit share, its dry run first).');
   return message
     .replaceAll('turn the copy of files off on Review', 'leave out --files')
     .replaceAll('leave the object out on Review', 'leave it out with --exclude-object')
     .replaceAll(
       'the sandforge.forge.maxRecordsPerObject setting lets a run hold at once: raise the setting',
       '--max-records-per-object lets a run hold at once: raise it',
-    );
+    )
+    .replaceAll(' — or leave objects out.', fewer)
+    .replaceAll(' — or write fewer records.', fewer);
 }
 
 /**
@@ -4376,11 +4879,17 @@ export function wholeOrgRefusalWords(message: string): string {
  * own words, which name no `--max`, a cap no whole org takes. Exported so it
  * can be tested.
  */
-export function wholeOrgMaxTotalRefusal(rows: number, max: number): string {
+export function wholeOrgMaxTotalRefusal(rows: number, max: number, sampled = false): string {
+  // Any production org passes the default of 10 000: the sample that fits
+  // the target and --max-total is the way most runs take, and was not named.
   return (
     `The clone of the whole org would write ${rows} records, more than the ${max} ` +
-    '--max-total holds it to: give --max-total the count its dry run says, or leave objects ' +
-    'out (--exclude-object) or narrow them (--filter).'
+    '--max-total holds it to: give --max-total the count its dry run says, ' +
+    (sampled
+      ? ''
+      : 'copy a sample of the org that fits the target and --max-total (--fit share, its dry ' +
+        'run first), ') +
+    'or leave objects out (--exclude-object) or narrow them (--filter).'
   );
 }
 
@@ -4962,6 +5471,27 @@ export function graphCounts(graph: Pick<ForgeGraph, 'nodes'>): {
 }
 
 /**
+ * The objects of the graph discovery could not count, by name: those it left
+ * out, the source refusing their count or their describe, and those it kept,
+ * their count unanswered (`recordCountUnknown`), whose rows the run reads all
+ * the same. Exported so it can be tested.
+ */
+export function notCountedObjectsOf(graph: Pick<ForgeGraph, 'nodes'>): {
+  refused: string[];
+  unanswered: string[];
+} {
+  const refused: string[] = [];
+  const unanswered: string[] = [];
+  for (const node of graph.nodes) {
+    if (node.included && node.recordCountUnknown === true) unanswered.push(node.objectApiName);
+    else if (!node.included && !leftOutAsEmptyTable(node)) {
+      if (node.status === 'error' || node.errors.length > 0) refused.push(node.objectApiName);
+    }
+  }
+  return { refused, unanswered };
+}
+
+/**
  * The `graph` of the `--json` summary, and of `--list-objects --json`, the
  * same on a dry run and a real one: the objects discovery described — how
  * many it reads, how many it left out for an empty table or a count that
@@ -4970,9 +5500,13 @@ export function graphCounts(graph: Pick<ForgeGraph, 'nodes'>): {
  * walked everything.
  */
 function graphJson(graph: ForgeGraph, plan: Pick<ForgePlan, 'waves' | 'cycleResolutions'>) {
+  const { refused, unanswered } = notCountedObjectsOf(graph);
   return {
     nodes: graph.nodes.length,
     ...graphCounts(graph),
+    // By name, those `notCounted` counts, and those kept uncounted.
+    ...(refused.length > 0 ? { notCountedObjects: refused } : {}),
+    ...(unanswered.length > 0 ? { uncountedObjects: unanswered } : {}),
     edges: graph.edges.length,
     waves: plan.waves.length,
     cycles: plan.cycleResolutions.length,
@@ -5033,6 +5567,7 @@ export function executeOptions(
     referenceFallback: 'nullify',
     upsertMode: args.upsert ? 'auto' : undefined,
     expandOrphanParents: args.expandOrphans,
+    ...(args.maxOrphans !== undefined ? { maxOrphanParentExpansions: args.maxOrphans } : {}),
     fieldExclusions:
       Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
     // By name, to the run: an object discovery never reached is one the run
@@ -5446,6 +5981,12 @@ export interface RemoveArgs {
   audit: string | undefined;
   /** Say what the removal would do, and do nothing. Absent unless given. */
   preview?: true;
+  /**
+   * The user the run wrote as, for a sweep of a run whose summary does not
+   * keep it (`--sweep-user`): read otherwise from the run's records, which a
+   * removal may have taken. Absent unless given.
+   */
+  sweepUser?: string;
 }
 
 /** The flags a removal reads. */
@@ -5464,10 +6005,16 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--sweep-untied',
   '--audit',
   '--mute-automation',
+  '--sweep-user',
 ]);
 
 /** The flags of a removal that take a value. */
-const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target', '--audit']);
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '--remove',
+  '--target',
+  '--audit',
+  '--sweep-user',
+]);
 
 /**
  * The command line of a removal read and checked; exits on `--help` or a bad
@@ -5506,7 +6053,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --preview, --include-changed, --accept-automation, --mute-automation, --leave-undeletable, --sweep, --sweep-late, --sweep-untied, --sweep-list, --json and --audit, not "${arg}". ` +
+        `--remove takes --target, --preview, --include-changed, --accept-automation, --mute-automation, --leave-undeletable, --sweep, --sweep-late, --sweep-untied, --sweep-list, --sweep-user, --json and --audit, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -5545,6 +6092,9 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     process.stderr.write(`${classes.refusal} Run with --help for usage.\n`);
     process.exit(2);
   }
+  const sweepUser = sweepUserArg(get('--sweep-user'), has('--sweep-user'), {
+    sweeps: has('--sweep') || has('--sweep-list'),
+  });
   return {
     summaryPath,
     target,
@@ -5558,7 +6108,56 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     ...classes,
     audit: auditArg(args),
     ...(has('--preview') ? { preview: true as const } : {}),
+    ...(sweepUser !== undefined ? { sweepUser } : {}),
   };
+}
+
+/**
+ * The user `--sweep-user` names, checked: a user's id, given with `--sweep`
+ * or `--sweep-list`, whose queries it goes into; exits 2 otherwise. Nothing
+ * when the line does not give it.
+ */
+function sweepUserArg(
+  value: string | undefined,
+  given: boolean,
+  line: { sweeps: boolean },
+): string | undefined {
+  if (!given) return undefined;
+  if (!line.sweeps) {
+    process.stderr.write(
+      '--sweep-user goes with --sweep or --sweep-list: it names the user the run wrote as, ' +
+        'whose records the sweep looks for. Run with --help for usage.\n',
+    );
+    process.exit(2);
+  }
+  if (value === undefined || !SF_ID_RE.test(value) || !value.startsWith('005')) {
+    process.stderr.write(
+      `--sweep-user takes the id of a user, 005 and 12 or 15 more letters and digits, not ` +
+        `"${value ?? ''}". Run with --help for usage.\n`,
+    );
+    process.exit(2);
+  }
+  return value;
+}
+
+/**
+ * What a sweep refused for the user the run wrote as is told: the flag that
+ * names that user, and how to read the id of the user sf signs in as, when
+ * the summary keeps none and the line gave none. A run's records gone, or
+ * created by several users, the sweep was refused with no way to go on.
+ * Nothing for any other refusal. Exported so it can be tested.
+ */
+export function sweepUserHint(
+  refusal: string | undefined,
+  run: { kept: boolean; given: boolean; target: string },
+): string | undefined {
+  if (refusal === undefined || run.kept || run.given) return undefined;
+  if (!/user the run wrote as|different users/.test(refusal)) return undefined;
+  return (
+    `  --sweep-user <id> names the user the run wrote as, which its summary does not keep: ` +
+    `"sf org display user --target-org ${run.target}" gives the id of the user sf signs in ` +
+    'as, the one a run of this machine wrote as'
+  );
 }
 
 /** A Salesforce id, as every id of a summary is. */
@@ -5720,10 +6319,19 @@ export async function runSummaryOfFile(
     journal !== undefined && part !== undefined ? await journals.readAt(journal, part) : undefined;
   if (!kept) {
     if (!read.summary.result.remapInJournal) return read;
+    const objects = (read.summary.objects ?? []).map((object) => object.objectApiName);
     if (journal === undefined || part === undefined) {
-      return { refusal: 'keeps the ids of its records in a journal it does not name.' };
+      return {
+        refusal:
+          'keeps the ids of its records in a journal it does not name. ' +
+          journalGoneWords(target, objects),
+      };
     }
-    return { refusal: `keeps the ids of its records in ${journal}, which cannot be read.` };
+    return {
+      refusal:
+        `keeps the ids of its records in ${journal}, which cannot be read. ` +
+        journalGoneWords(target, objects),
+    };
   }
   return {
     summary: {
@@ -5741,6 +6349,26 @@ export async function runSummaryOfFile(
       },
     },
   };
+}
+
+/**
+ * What still takes back the records of a run whose ids were kept in a
+ * journal that is gone, as the panel says it (`JOURNAL_GONE`) in the
+ * command's words: the checkpoint taken before the run, or the emptying of
+ * its objects — every record of them, not only the run's. It said the
+ * journal could not be read, and nothing more. Exported so it can be tested.
+ *
+ * @param objects - The objects the run read, when its summary names them.
+ */
+export function journalGoneWords(target: string, objects: readonly string[] = []): string {
+  const named = objects.length > 0 ? objects.join(',') : '<its objects>';
+  return (
+    `Its records can no longer be removed or verified from here. A checkpoint taken before ` +
+    `the run takes ${target} back: ${commandOf('checkpoint')} list --org ${target} names ` +
+    `them, ${commandOf('checkpoint')} rewind --org ${target} --checkpoint <id> rewinds to ` +
+    `one. Without one, ${commandOf('empty')} --target ${target} --objects ${named} --dry-run ` +
+    "says what emptying its objects would delete: every record of them, not only the run's."
+  );
 }
 
 /** The summary of every part of the run the journal at `filePath` keeps: see `runSummaryOfFile`. */
@@ -6769,7 +7397,13 @@ export async function cliSweepInput(
   {
     signal,
     ofTheRun,
-  }: { signal?: AbortSignal; ofTheRun?: Pick<RunInParts, 'parts' | 'part'> } = {},
+    user,
+  }: {
+    signal?: AbortSignal;
+    ofTheRun?: Pick<RunInParts, 'parts' | 'part'>;
+    /** The user `--sweep-user` names: the run's when its summary keeps none. */
+    user?: string;
+  } = {},
 ): Promise<SweepInput> {
   let automation: ForgeTargetAutomation | { error: string };
   try {
@@ -6780,7 +7414,7 @@ export async function cliSweepInput(
   } catch (err: unknown) {
     automation = { error: extractErrorMessage(err) };
   }
-  const runUserId = summary.result.runUserId;
+  const runUserId = summary.result.runUserId ?? user;
   const otherParts = partsBeside(ofTheRun).map(({ part, created: theirs }) => ({
     part,
     created: theirs,
@@ -7999,6 +8633,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       sweepOrgOf(conn, 'sandforge clone --sweep-list'),
       await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
         ofTheRun,
+        ...(args.sweepUser !== undefined ? { user: args.sweepUser } : {}),
       }),
       earlier?.removalSpans ?? [],
     );
@@ -8007,6 +8642,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // only without it, a list read before a sweep lost the warning that what
     // a person made by hand as the run's user reads as the automation's.
     for (const line of sweepListingLines(listing, args.target, args, true)) say(line);
+    const hint = sweepUserHint(listing.refusal, {
+      kept: summary.result.runUserId !== undefined,
+      given: args.sweepUser !== undefined,
+      target: args.target,
+    });
+    if (hint !== undefined) say(hint);
     for (const line of otherPartsSweepLines(ofTheRun, listing)) say(line);
     if (args.json) {
       process.stdout.write(
@@ -8075,6 +8716,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         await cliSweepInput(conn, args.target, summary, created, await sweepTies(), {
           signal: stop.signal,
           ofTheRun,
+          ...(args.sweepUser !== undefined ? { user: args.sweepUser } : {}),
         }),
         {
           includeChanged: args.includeChanged,
@@ -8087,6 +8729,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             sweepListing = listing;
             say('');
             for (const line of sweepListingLines(listing, args.target, args)) say(line);
+            const hint = sweepUserHint(listing.refusal, {
+              kept: summary.result.runUserId !== undefined,
+              given: args.sweepUser !== undefined,
+              target: args.target,
+            });
+            if (hint !== undefined) say(hint);
             for (const line of otherPartsSweepLines(ofTheRun, listing)) say(line);
             return undefined;
           },
@@ -8820,12 +9468,18 @@ async function previewRemoval(
         summary,
         created,
         await summarySweepTies(org.id, args.target, summary, created, earlier, ofTheRun),
-        { ofTheRun },
+        { ofTheRun, ...(args.sweepUser !== undefined ? { user: args.sweepUser } : {}) },
       ),
       earlier?.removalSpans ?? [],
     );
     say('');
     for (const line of sweepListingLines(sweepListing, args.target, args, true)) say(line);
+    const hint = sweepUserHint(sweepListing.refusal, {
+      kept: summary.result.runUserId !== undefined,
+      given: args.sweepUser !== undefined,
+      target: args.target,
+    });
+    if (hint !== undefined) say(hint);
     for (const line of otherPartsSweepLines(ofTheRun, sweepListing)) say(line);
   }
   // What the target runs as a removal takes the run back, and as its sweep
@@ -9532,6 +10186,9 @@ export function wholeOrgSweepLine(
 /** The code of a clone refused for an object to start from that no user can create. */
 export const ROOT_NEVER_CREATED = 'ROOT_NEVER_CREATED';
 
+/** The code a clone of tables is refused with when it names one no clone writes, exit 2. */
+export const TABLE_NEVER_CLONED = 'TABLE_NEVER_CLONED';
+
 /** What a refusal for a root says it did not do: the target's metadata alone was read. */
 const NO_RECORD_READ = 'No record was read or written.';
 
@@ -10049,6 +10706,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     ...((args.tables || wholeOrg) && Object.keys(args.objectSoqlFilters).length > 0
       ? { objectSoqlFilters: args.objectSoqlFilters }
       : {}),
+    // A whole org leaves out what --exclude-object names before it counts:
+    // left out after discovery, an object was counted and described all the
+    // same, and took its place under the 1950 one run writes.
+    ...(wholeOrg && args.excludedObjects.length > 0
+      ? { excludedObjects: args.excludedObjects }
+      : {}),
   };
 
   const piiDetector = new PIIDetector();
@@ -10162,6 +10825,37 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
     process.exit(1);
   }
+  // A table no clone writes, refused before a row of either org is read with
+  // what it is: never reached by discovery, it was refused after it with
+  // "raise --depth or --max-nodes", which reaches it no better. Exit 2, a
+  // line to give otherwise.
+  const neverCloned = (args.tables ?? []).flatMap(({ objectApiName }) => {
+    const refusal = neverClonedTableRefusal(objectApiName);
+    return refusal !== undefined ? [refusal] : [];
+  });
+  if (neverCloned.length > 0) {
+    const refused = {
+      code: TABLE_NEVER_CLONED,
+      message: `${neverCloned.join(' ')} ${NO_RECORD_READ}`,
+    };
+    recordClone({ outcome: 'stopped', code: refused.code, context: runAudit().context() });
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+          },
+          refused,
+        ),
+      );
+    }
+    process.exit(2);
+  }
 
   say('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);
@@ -10195,17 +10889,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // it had cloned what it was given: refused before a row is read.
   const notReached = args.tables ? tablesNotReached(discovered, args.tables) : [];
   if (notReached.length > 0) {
-    // An environment names its tables, depth and maxNodes in its file.
-    const env = relayedByAnEnvironment();
-    const named = env
-      ? `the table${notReached.length === 1 ? '' : 's'} ${notReached.join(', ')}`
-      : `--object ${notReached.join(', ')}`;
     process.stderr.write(
-      `${named}: discovery from ${root ?? args.tables?.[0]?.objectApiName} ` +
-        `did not reach ${notReached.length === 1 ? 'it' : 'them'} ` +
-        `(${discovered.nodes.length} object(s), depth ${args.depth === 'custom' ? args.customDepth : args.depth}): ` +
-        'name first a table it hangs from or points at, or raise ' +
-        `${env ? "the resource's depth or maxNodes" : '--depth or --max-nodes'}.\n`,
+      `${tablesNotReachedWords(notReached, {
+        root: root ?? args.tables?.[0]?.objectApiName ?? '',
+        objects: discovered.nodes.length,
+        depth: args.depth,
+        customDepth: args.customDepth,
+        truncated: discovered.truncated === true,
+        // An environment names its tables, depth and maxNodes in its file.
+        env: relayedByAnEnvironment(),
+      })}\n`,
     );
     process.exit(2);
   }
@@ -10282,6 +10975,62 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     return;
   }
 
+  // The fields the line leaves out, matched to the source's whatever their
+  // case, read before a row is: one that names no field of the source leaves
+  // nothing out, and the run would write it with every row — the email of
+  // every contact the user believed kept back. A real run is refused here,
+  // exit 2, a line to give otherwise; a dry run says it, as a real run would
+  // be refused for it.
+  const exclusionsUnmatched = await fieldExclusionsUnmatchedOf(
+    args.fieldExclusions,
+    graph,
+    async (object) => (await describe(args.source, object)).fields.map((field) => field.name),
+  );
+  const exclusionsRefused: RunRefusal | undefined =
+    exclusionsUnmatched.length > 0
+      ? {
+          code: FIELD_EXCLUSION_UNMATCHED,
+          message: fieldExclusionsUnmatchedRefusal(exclusionsUnmatched, args.choicesFrom).replace(
+            / Nothing was read or written\.$/,
+            '',
+          ),
+        }
+      : undefined;
+  if (exclusionsRefused !== undefined && !args.dryRun) {
+    recordClone({
+      outcome: 'stopped',
+      code: FIELD_EXCLUSION_UNMATCHED,
+      context: runAudit().context(),
+    });
+    const refused = {
+      code: FIELD_EXCLUSION_UNMATCHED,
+      message: fieldExclusionsUnmatchedRefusal(exclusionsUnmatched, args.choicesFrom),
+    };
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+            apiRequests: cloneApiRequestsJson(
+              { target: sentOf(args.target), source: sentOf(args.source) },
+              {},
+              wholeOrg ? discoveryRequests : undefined,
+            ),
+          },
+          refused,
+        ),
+      );
+    }
+    process.exit(2);
+  }
+  // Its summary names them again, with the rest of what the run found.
+  if (exclusionsRefused !== undefined) say(`  ${wouldBeRefusedLine(exclusionsRefused)}`);
+
   // A clone of the whole org that copies no object is refused here, before
   // the target's automation is read and before a journal is opened: run, it
   // ended `success` with nothing written and kept a journal.
@@ -10312,12 +11061,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   }
 
   /**
-   * End a sample refused before the target's automation is read, nothing
-   * written: its line names its code, with --json the summary on stdout
-   * carries it, and the exit is the code's (`sampleRefusalExit`): 2 for a
-   * plan to give otherwise, 1 for what the orgs refuse.
+   * End a run refused before the target's automation is read, nothing
+   * written — a sample's plan, a run to take up —: its line names its code,
+   * with --json the summary on stdout carries it, and the exit is the code's
+   * (`sampleRefusalExit`): 2 for a plan to give otherwise, 1 for what the
+   * orgs or the journal refuse.
    */
-  const refuseTheSample = (refused: RunRefusal): never => {
+  const refuseBeforeRead = (refused: RunRefusal): never => {
     recordClone({ outcome: 'stopped', code: refused.code, context: runAudit().context() });
     process.stderr.write(`${refusedLine(refused)}\n`);
     if (args.json) {
@@ -10371,7 +11121,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       } catch (err: unknown) {
         const stop = sampleGateErrorOf(err, 'replay');
         if (!stop) throw err;
-        refuseTheSample({
+        refuseBeforeRead({
           code: stop.code,
           message: stop.message.replace(
             / Nothing was written\.$/,
@@ -10417,16 +11167,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         asked: args.sample !== undefined,
         setupWith: (planSha256) => setupOfTheRun(resumedOrg, planSha256),
       },
+      config: runConfig,
+      ...(args.record ? { record: args.record } : {}),
     });
-    if (refusal) {
-      // A sample's own, by its code; the others as they always were.
-      if (refusal.code === SAMPLE_PLAN_GONE || refusal.code === SAMPLE_PLAN_MISMATCH) {
-        refuseTheSample(refusal);
-      }
-      recordClone({ outcome: 'stopped', code: refusal.code, context: runAudit().context() });
-      process.stderr.write(`${refusal.message}\n`);
-      process.exit(2);
-    }
+    // Each by its code, as any refusal before a row is read: a sample's plan
+    // to give otherwise exits 2, a run the journal cannot take up 1. They
+    // exited 2, a bad command line, their code said nowhere.
+    if (refusal) refuseBeforeRead(refusal);
     resumedEnd = await journals.lastEndAt(journalPath);
     if ((await journals.headAt(journalPath))?.resume?.muteAutomation === true) {
       muteAutomation = true;
@@ -10442,13 +11189,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     );
     for (const line of inFlightLines(reconciled, args.target)) say(line);
     if (uncertainRows(reconciled) > 0 && !args.writeUncertain) {
-      recordClone({
-        outcome: 'stopped',
+      refuseBeforeRead({
         code: 'RESUME_UNCERTAIN',
-        context: runAudit().context(),
+        message: uncertainRefusal(reconciled, args.target),
       });
-      process.stderr.write(`${uncertainRefusal(reconciled, args.target)}\n`);
-      process.exit(2);
     }
   }
 
@@ -10742,7 +11486,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * under `wouldBeRefused` and `wouldBeRefusedCodes`, where a pipeline reads
    * them, as the lines say them on stderr.
    */
-  const dryRunRefusals: RunRefusal[] = muteRefused !== undefined ? [muteRefused] : [];
+  const dryRunRefusals: RunRefusal[] = [
+    ...(exclusionsRefused !== undefined ? [exclusionsRefused] : []),
+    ...(muteRefused !== undefined ? [muteRefused] : []),
+  ];
   const notAccepted = automationStop !== undefined && !args.acceptAutomation;
   if ((notAccepted || emailsStop) && !args.dryRun) {
     recordClone({
@@ -11221,7 +11968,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (overBound && !boundary.dryRun) {
       throw ForgeRunGateError.of({
         ...overBound,
-        message: wholeOrgRefusalWords(overBound.message),
+        message: wholeOrgRefusalWords(overBound.message, measures.sample !== undefined),
       });
     }
     const plan = wholeOrgWritePlanOf(boundary.objects, measures);
@@ -11396,7 +12143,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
     const unsaid = (message: string): string =>
-      wholeOrgRefusalWords(message).replace(/ Nothing was written\.$/, '');
+      wholeOrgRefusalWords(message, sampled !== undefined).replace(/ Nothing was written\.$/, '');
     // In the order the run meets them, each under the code a real run refused
     // for it alone is refused with.
     const refusals: Array<RunRefusal & { stop?: ForgeGateStop }> = [
@@ -11404,7 +12151,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ? [
             {
               code: 'MAX_TOTAL_EXCEEDED',
-              message: wholeOrgMaxTotalRefusal(plan.totalRows, args.maxTotal),
+              message: wholeOrgMaxTotalRefusal(
+                plan.totalRows,
+                args.maxTotal,
+                sampled !== undefined,
+              ),
             },
           ]
         : []),
@@ -11424,6 +12175,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (dry) {
       for (const { code, message } of refusals) say(`  ${wouldBeRefusedLine({ code, message })}`);
       dryRunRefusals.push(...refusals.map(({ code, message }) => ({ code, message })));
+      // What its gate counted, as a dry run of a record or of tables gives
+      // it: an environment holds the run to that count, and read nothing of
+      // a dry run of the whole org to count.
+      dryRunWritePlan = {
+        totalRows: plan.totalRows,
+        storageBytes: plan.storageBytes,
+        objects: plan.objects,
+        ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
+      };
       throw new WholeOrgDryRunStop(dry);
     }
     const words = (message: string): string => `${message} Nothing was written.`;
@@ -11782,6 +12542,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       anonymize: args.anonymize,
       files: args.files !== undefined,
       graph: graphJson(graph, plan),
+      // As a dry run of a record or of tables says them: what it would
+      // insert, and what its gate counted, the count a run is held to.
+      result: {
+        wouldInsertCount: dryRunWritePlan?.totalRows ?? dry.totalRows,
+        failedCount: 0,
+      },
+      ...(dryRunWritePlan !== undefined ? { writePlan: dryRunWritePlan } : {}),
       targetAutomation: emails?.ofRun.read
         ? { ...targetAutomation, deliverability: emails.ofRun.read.reading }
         : targetAutomation,
@@ -12366,11 +13133,30 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   if (code !== 0) process.exit(code);
 }
 
+/**
+ * How the command ends on what it threw: a refusal it expects — sf that does
+ * not know the alias or wants a sign-in renewed, an alias that is no alias —
+ * said as it is, in its words; anything else a fault, with its stack after
+ * FATAL. "FATAL:" before "sf does not know SRC" read as a crash of the
+ * command, not a line to give otherwise. Exported so it can be tested.
+ */
+export function endOfAThrow(err: unknown): { line: string; exitCode: number } {
+  if (err instanceof SfSessionError) return { line: err.message, exitCode: 1 };
+  if (err instanceof Error && err.message.startsWith('Invalid SF org alias:')) {
+    return { line: err.message, exitCode: 2 };
+  }
+  return {
+    line: `FATAL: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+    exitCode: 1,
+  };
+}
+
 // Only when run as a script: importing the module must not start a clone.
 if (/sandforge-clone\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
   holdOutputWhole();
-  main().catch((err) => {
-    console.error('FATAL:', err instanceof Error ? err.stack : err);
-    process.exit(1);
+  main().catch((err: unknown) => {
+    const end = endOfAThrow(err);
+    process.stderr.write(`${end.line}\n`);
+    process.exit(end.exitCode);
   });
 }

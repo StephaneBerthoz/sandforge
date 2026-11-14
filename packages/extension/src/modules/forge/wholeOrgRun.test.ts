@@ -4,6 +4,7 @@ import {
   WholeOrgDryRunStop,
   carriedOf,
   isWholeOrgDryRunStop,
+  nothingToClone,
   pricedOfTheDryRun,
   wholeOrgConfirmationOf,
 } from './wholeOrgRun.js';
@@ -331,5 +332,29 @@ describe('the question of a clone of the whole org', () => {
         budget: pricedOfTheDryRun(dry),
       }),
     ).not.toHaveProperty('sample');
+  });
+});
+
+describe('a clone of the whole org that copies no object', () => {
+  it('counts by name what discovery left out before counting it, with what it left out after', () => {
+    const refused = nothingToClone({
+      nodes: [
+        {
+          objectApiName: 'Account',
+          included: false,
+          leftOutByUser: true,
+        } as Parameters<typeof nothingToClone>[0]['nodes'][number],
+      ],
+      leftOut: [
+        { objectApiName: 'Contact', reason: 'excludedByUser' },
+        { objectApiName: 'Account', reason: 'excludedByUser' },
+        { objectApiName: 'Task', reason: 'empty' },
+      ],
+    });
+
+    expect(refused?.message).toBe(
+      'Nothing to clone: every object of the source that holds records is left out, 2 of them ' +
+        'by name. Leave fewer out. Nothing was written.',
+    );
   });
 });

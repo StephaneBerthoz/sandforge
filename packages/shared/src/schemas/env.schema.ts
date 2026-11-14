@@ -10,7 +10,7 @@ import {
   TEMPLATE_MAX_RULES,
   savedTemplateRuleSchema,
 } from '../constants/saved-anonymization-templates.js';
-import { forgeAnonymizationRulesSchema, forgeDepthSchema } from './forge.schema.js';
+import { forgeAnonymizationRulesSchema, forgeRunDepthSchema } from './forge.schema.js';
 import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
 
 /**
@@ -429,7 +429,9 @@ const fitWithinSchema = z.number().positive().max(FIT_WITHIN_MOST_MB);
 /**
  * A seed fitted to the target's data storage, as `sandforge seed --fit share`
  * seeds it: the largest share of every count that fits, or of what fits
- * within `withinMB` (`--fit-within`).
+ * within `withinMB` (`--fit-within`). A forge resource of `depth: all` takes
+ * it too: the sample of the whole org that fits, `sandforge clone --depth all
+ * --fit share`.
  */
 const seedFitSchema = z.union(
   [z.literal('share'), strictObject('fit', { withinMB: fitWithinSchema })],
@@ -618,7 +620,10 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
   tables: z.array(forgeTableFileSchema).min(1).max(ENV_FORGE_MAX_TABLES).optional(),
   /** A template the Template tab saved: its decisions, exclusions, filters and mappings. */
   template: forgeTemplateRefFileSchema.optional(),
-  depth: forgeDepthSchema.optional(),
+  /** A walk's depth, or `all`: the whole org, from no record, no table and no template. */
+  depth: forgeRunDepthSchema.optional(),
+  /** With `depth: all`, a sample of the whole org that fits the target: `share`, or `{ withinMB }`. */
+  fit: seedFitSchema.optional(),
   customDepth: z.number().int().positive().max(10).optional(),
   maxNodes: z.number().int().min(10).max(500).optional(),
   anonymize: forgeAnonymizeFileSchema.optional(),
@@ -626,12 +631,62 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
   /** The most records a run of it may write; each run is held to its plan's count below it. */
   maxTotal: z.number().int().positive().max(1_000_000).optional(),
 }).superRefine((resource, ctx) => {
+  if (resource.depth === 'all') {
+    // The clone of the whole org starts from nothing a walk starts from, and
+    // takes what a walk alone takes nowhere: refused by key, as the clone's
+    // own line refuses each flag.
+    const notWithAll: Array<[keyof typeof resource, string]> = [
+      ['record', 'it starts from no record'],
+      ['tables', 'it starts from no table'],
+      [
+        'template',
+        'a template holds the choices of a walk from its record or query; ' +
+          'sandforge clone --depth all takes them from --config',
+      ],
+      ['customDepth', 'it walks no depth'],
+      ['maxNodes', 'it takes every object it can'],
+    ];
+    for (const [key, why] of notWithAll) {
+      if (resource[key] === undefined) continue;
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: `depth: all clones the whole org, and does not go with ${key}: ${why}`,
+      });
+    }
+    const anonymize = resource.anonymize;
+    if (
+      anonymize !== undefined &&
+      (Object.keys(anonymize.rules).length > 0 ||
+        anonymize.fields !== undefined ||
+        anonymize.presetId !== undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['anonymize'],
+        message:
+          'depth: all anonymizes every personal field by its category’s default method, the ' +
+          'clone of the whole org taking no other: give anonymize: { rules: {} }',
+      });
+    }
+    return;
+  }
+  if (resource.fit !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['fit'],
+      message:
+        'fit goes with depth: all: it copies a sample of the whole org that fits the target. ' +
+        'A clone of a record or of tables writes what it reaches',
+    });
+  }
   if ((resource.record === undefined) === (resource.tables === undefined)) {
     ctx.addIssue({
       code: 'custom',
       path: [],
       message:
-        'A forge resource clones one record (record) or whole tables (tables): give one of them',
+        'A forge resource clones one record (record), whole tables (tables) or the whole org ' +
+        '(depth: all): give one of them',
     });
   }
   const seen = new Set<string>();

@@ -15,10 +15,11 @@ import type {
 export const forgeInputModeSchema = z.enum(['record', 'soql', 'template', 'ai', 'org']);
 
 /**
- * Zod schema for ForgeTraversalDepth: how far discovery walks from a root.
- * `sandforge.yaml` reuses it, and so the JSON Schema written from it, which
- * is why it never takes `all`: a file asking for a clone of the whole org is
- * refused at its parse.
+ * Zod schema for ForgeTraversalDepth: how far discovery walks from a root,
+ * never `all`, which walks from none: what a template and the panel's walks
+ * hold. A forge resource of `sandforge.yaml` takes `all` too, by
+ * {@link forgeRunDepthSchema}, the clone of the whole org going there with no
+ * record, no table and no template.
  */
 export const forgeDepthSchema = z.enum(['direct', 'full', 'custom']);
 
