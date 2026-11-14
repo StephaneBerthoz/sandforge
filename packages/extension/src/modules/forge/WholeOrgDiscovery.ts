@@ -24,7 +24,8 @@
  *   leaves the object out as unreadable, in the org's own words. An empty
  *   table is left out without a describe;
  * - `describing`: the describe of each object that holds records, which
- *   names its personal fields and the lookups the relations are drawn from.
+ *   names its personal fields, the lookups the relations are drawn from and
+ *   the children its delete takes along.
  *
  * Each node is sized as a walk from a root sizes its nodes, by REST calls of
  * 200 rows; what the run's writes cost by the Bulk API is the write gate's to
@@ -65,6 +66,7 @@ import {
 } from './GraphDiscoveryService.js';
 import { stronglyConnected } from './ForgePlanGenerator.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
+import { isMasterDetailLookup } from './masterDetail.js';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 import type { CreateFacts } from './targetCreators.js';
 import { wholeOrgCandidates } from './wholeOrgScope.js';
@@ -260,6 +262,9 @@ interface Counted {
  * The relations between the nodes, one a pair of objects, drawn from each
  * child's own lookups: a lookup at an object that is no node relates nothing,
  * whatever the copy's lists say of it, and none relates an object to itself.
+ * A lookup is a master-detail as `isMasterDetailLookup` reads it, from the
+ * child's field and the parent's list of its children: a line item's field
+ * says no cascade, and read alone it made the line a lookup's child.
  *
  * A pair seen through several lookups keeps the first, unless a later one is
  * master-detail over a lookup; it is required when any lookup is, orders
@@ -285,7 +290,9 @@ function relationsOf(described: ReadonlyMap<string, ObjectDescribe>): ForgeGraph
           sourceObject: parent,
           targetObject: child,
           relationshipName: field.relationshipName ?? field.name,
-          type: field.isMasterDetail ? 'master-detail' : 'lookup',
+          type: isMasterDetailLookup(child, field, described.get(parent)?.childRelationships)
+            ? 'master-detail'
+            : 'lookup',
           required,
         };
         const seen = pairs.get(key);

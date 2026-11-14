@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cascadesTo,
   drawFakeSample,
   emptiedOf,
   fakeId,
@@ -171,42 +172,117 @@ describe('drawTheSample: the cut', () => {
   // Run for real on a whole org: Opportunity, a small parent, was copied
   // whole, and 3 of its 4 line items were drawn as roots. Each opportunity's
   // amount came to the lines written, and neither the dry run nor the run
-  // said so.
+  // said so: the line's OpportunityId says no cascade, and only the
+  // opportunity's list of its children says it, as here. An account's list
+  // says it of its contacts too, which may be left without an account: no
+  // details of it.
   it('names a master copied whole that keeps part of its details, what it sums of them counting those written alone', async () => {
     const objects: FakeObject[] = [
+      {
+        name: 'Account',
+        keyPrefix: '001',
+        fields: [],
+        childRelationships: [cascadesTo('Contact', 'AccountId')],
+        records: [{ id: A(1) }],
+      },
+      {
+        name: 'Contact',
+        keyPrefix: '003',
+        fields: [lookup('AccountId', 'Account')],
+        records: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: C(n), refs: { AccountId: A(1) } })),
+      },
       {
         name: 'Opportunity',
         keyPrefix: '006',
         fields: [],
+        childRelationships: [cascadesTo('OpportunityLineItem', 'OpportunityId')],
         records: [1, 2].map((n) => ({ id: O(n) })),
       },
       {
         name: 'OpportunityLineItem',
         keyPrefix: '00k',
-        fields: [masterDetail('OpportunityId', 'Opportunity')],
+        fields: [required('OpportunityId', 'Opportunity')],
         records: [1, 2, 3, 4].map((n) => ({
           id: fakeId('00k', n),
           refs: { OpportunityId: O(n <= 2 ? 1 : 2) },
         })),
       },
     ];
+    const whole = ['Account', 'Opportunity'];
 
-    const part = sampled((await sampleOf(objects, { bytes: 10 * KB, whole: ['Opportunity'] })).cut);
-    expect(idsOf(part, 'OpportunityLineItem')).toHaveLength(3);
+    const part = sampled((await sampleOf(objects, { bytes: 22 * KB, whole })).cut);
+    expect(idsOf(part, 'OpportunityLineItem')).toHaveLength(2);
+    // Six of the account's eight contacts, said of no master: no account sums its contacts.
+    expect(idsOf(part, 'Contact')).toHaveLength(6);
     expect(part.partialMasters).toEqual([
       {
         objectApiName: 'Opportunity',
         details: 'OpportunityLineItem',
         field: 'OpportunityId',
-        kept: 3,
+        kept: 2,
         sourceRows: 4,
       },
     ]);
 
     // Every line kept: nothing to say.
-    const all = sampled((await sampleOf(objects, { bytes: 20 * KB, whole: ['Opportunity'] })).cut);
+    const all = sampled((await sampleOf(objects, { bytes: 30 * KB, whole })).cut);
     expect(idsOf(all, 'OpportunityLineItem')).toHaveLength(4);
     expect(all.partialMasters).toEqual([]);
+  });
+
+  it('takes every line under an opportunity it draws, past the cap, and cuts the contacts under an account to it', async () => {
+    const objects: FakeObject[] = [
+      {
+        name: 'Account',
+        keyPrefix: '001',
+        fields: [],
+        childRelationships: [cascadesTo('Contact', 'AccountId')],
+        records: [{ id: A(1) }],
+      },
+      {
+        name: 'Contact',
+        keyPrefix: '003',
+        fields: [lookup('AccountId', 'Account')],
+        records: Array.from({ length: 150 }, (_, n) => ({
+          id: C(n + 1),
+          refs: { AccountId: A(1) },
+        })),
+      },
+      {
+        name: 'Opportunity',
+        keyPrefix: '006',
+        fields: [],
+        childRelationships: [cascadesTo('OpportunityLineItem', 'OpportunityId')],
+        records: [{ id: O(1) }],
+      },
+      {
+        name: 'OpportunityLineItem',
+        keyPrefix: '00k',
+        fields: [required('OpportunityId', 'Opportunity')],
+        records: Array.from({ length: 150 }, (_, n) => ({
+          id: fakeId('00k', n + 1),
+          refs: { OpportunityId: O(1) },
+        })),
+      },
+    ];
+
+    const sample = sampled((await sampleOf(objects, { bytes: 2_000 * KB })).cut);
+
+    // A detail comes with its master, every one: the opportunity's amount is the lines'.
+    expect(sample.objects.find((o) => o.objectApiName === 'OpportunityLineItem')).toEqual({
+      objectApiName: 'OpportunityLineItem',
+      sourceRows: 150,
+      kept: 150,
+      roots: 0,
+      below: 150,
+      asParents: 0,
+    });
+    // A lookup's children are cut to the cap, its parent deleting them all the same.
+    expect(sample.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      kept: 100,
+      childrenCut: [{ field: 'AccountId', rows: 50 }],
+    });
+    expect(sample.partialMasters).toEqual([]);
   });
 
   it('names a master drawn whose records come in as a parent, their details only as far as the sample drew them', async () => {

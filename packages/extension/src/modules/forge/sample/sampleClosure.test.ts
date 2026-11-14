@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   FakeSampleSource,
+  cascadesTo,
   fakeId,
   lookup,
-  masterDetail,
   required,
   type FakeObject,
 } from '../../../test/sampleSource';
@@ -226,13 +226,21 @@ describe('SampleClosure: down', () => {
     expect(kept).toEqual([4, 5]);
   });
 
+  // A line item's OpportunityId says no cascade; the opportunity's list of
+  // its children does, and makes the line its detail.
   it('takes every record under a master-detail, past the cap', async () => {
     const objects: FakeObject[] = [
-      { name: 'Opportunity', keyPrefix: '006', fields: [], records: [{ id: O(1) }] },
+      {
+        name: 'Opportunity',
+        keyPrefix: '006',
+        fields: [],
+        childRelationships: [cascadesTo('OpportunityLineItem', 'OpportunityId')],
+        records: [{ id: O(1) }],
+      },
       {
         name: 'OpportunityLineItem',
         keyPrefix: '00k',
-        fields: [masterDetail('OpportunityId', 'Opportunity')],
+        fields: [required('OpportunityId', 'Opportunity')],
         records: [1, 2, 3, 4, 5].map((n) => ({
           id: fakeId('00k', n),
           refs: { OpportunityId: O(1) },
@@ -441,7 +449,13 @@ describe('SampleClosure: person accounts', () => {
 describe('SampleClosure: the catalog read as it is named', () => {
   const PB = (n: number) => fakeId('01u', n);
   const catalog = (also: { standard: string | null }): FakeObject[] => [
-    { name: 'Opportunity', keyPrefix: '006', fields: [], records: [{ id: O(1) }] },
+    {
+      name: 'Opportunity',
+      keyPrefix: '006',
+      fields: [],
+      childRelationships: [cascadesTo('OpportunityLineItem', 'OpportunityId')],
+      records: [{ id: O(1) }],
+    },
     { name: 'Product2', keyPrefix: '01t', fields: [], records: [{ id: fakeId('01t', 1) }] },
     {
       name: 'Pricebook2',
@@ -466,7 +480,7 @@ describe('SampleClosure: the catalog read as it is named', () => {
       name: 'OpportunityLineItem',
       keyPrefix: '00k',
       fields: [
-        masterDetail('OpportunityId', 'Opportunity'),
+        required('OpportunityId', 'Opportunity'),
         lookup('PricebookEntryId', 'PricebookEntry'),
       ],
       records: [{ id: fakeId('00k', 1), refs: { OpportunityId: O(1), PricebookEntryId: PB(2) } }],

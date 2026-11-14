@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { countedStorageBytes } from '../ForgeRunGate';
+import type { CascadingRelation } from '../masterDetail';
 import {
   SMALL_PARENT_RECORDS,
   fieldsToRead,
@@ -39,6 +40,11 @@ function object(
   keyPrefix?: string,
 ): SampleObjectInput {
   return { objectApiName, rows, fields, ...(keyPrefix ? { keyPrefix } : {}) };
+}
+
+/** A relation of a parent to children its delete cascades to, as the parent's describe lists it. */
+function cascadesTo(childSObject: string, field: string): CascadingRelation {
+  return { childSObject, field, isCascadeDelete: true };
 }
 
 function linksOf(objects: SampleObjectInput[], extra: Partial<SampleLinksInput> = {}) {
@@ -109,7 +115,7 @@ describe('sampleLinksOf: the objects copied whole', () => {
       ]),
     ];
     const opportunityLines = object('OpportunityLineItem', 9_000, [
-      lookup('OpportunityId', 'Opportunity', { nillable: false, isMasterDetail: true }),
+      lookup('OpportunityId', 'Opportunity', { nillable: false }),
       lookup('PricebookEntryId', 'PricebookEntry'),
     ]);
     const fits = linksOf([...salesObjects(), ...catalog, opportunityLines]);
@@ -232,10 +238,11 @@ describe('sampleLinksOf: what each lookup does', () => {
   it('carries the draw down a lookup a record cannot be written without, and a master-detail, whatever the order', () => {
     const own = linksOf([
       object('Opportunity', 5_000, [lookup('SyncedQuoteId', 'Quote')]),
-      object('Quote', 5_000, [lookup('OpportunityId', 'Opportunity', { nillable: false })]),
-      object('QuoteLineItem', 5_000, [
-        lookup('QuoteId', 'Quote', { nillable: false, isMasterDetail: true }),
-      ]),
+      {
+        ...object('Quote', 5_000, [lookup('OpportunityId', 'Opportunity', { nillable: false })]),
+        childRelationships: [cascadesTo('QuoteLineItem', 'QuoteId')],
+      },
+      object('QuoteLineItem', 5_000, [lookup('QuoteId', 'Quote', { nillable: false })]),
     ]);
     expect(own.order).toEqual(['Opportunity', 'Quote', 'QuoteLineItem']);
     expect(link(own, 'Quote', 'OpportunityId')).toMatchObject({ required: true, carries: true });
@@ -245,6 +252,55 @@ describe('sampleLinksOf: what each lookup does', () => {
       carries: true,
     });
     expect(link(own, 'Opportunity', 'SyncedQuoteId')).toMatchObject({ owed: true, carries: false });
+  });
+
+  // As a describe of a Developer Edition org gives them: no field of a
+  // standard detail says the cascade, its master's list of its children does;
+  // an account's list says it of its contacts too, which may have no account.
+  it("reads a master-detail from its master's list of its children, never a lookup that may be left empty or that names several objects", () => {
+    const own = linksOf([
+      {
+        ...object('Account', 5_000),
+        childRelationships: [
+          cascadesTo('Contact', 'AccountId'),
+          cascadesTo('Opportunity', 'AccountId'),
+          cascadesTo('Note', 'ParentId'),
+        ],
+      },
+      object('Contact', 5_000, [lookup('AccountId', 'Account')]),
+      {
+        ...object('Opportunity', 5_000, [lookup('AccountId', 'Account')]),
+        childRelationships: [
+          cascadesTo('OpportunityLineItem', 'OpportunityId'),
+          cascadesTo('Note', 'ParentId'),
+        ],
+      },
+      object('OpportunityLineItem', 5_000, [
+        lookup('OpportunityId', 'Opportunity', { nillable: false, updateable: false }),
+      ]),
+      object('Note', 5_000, [
+        lookup('ParentId', ['Account', 'Opportunity'], { nillable: false, updateable: false }),
+      ]),
+    ]);
+    expect(link(own, 'OpportunityLineItem', 'OpportunityId')).toMatchObject({
+      required: true,
+      masterDetail: true,
+      carries: true,
+    });
+    expect(link(own, 'Contact', 'AccountId')).toMatchObject({
+      required: false,
+      masterDetail: false,
+      carries: true,
+    });
+    expect(link(own, 'Opportunity', 'AccountId')).toMatchObject({ masterDetail: false });
+    expect(link(own, 'Note', 'ParentId', 'Account')).toMatchObject({
+      required: true,
+      masterDetail: false,
+    });
+    expect(link(own, 'Note', 'ParentId', 'Opportunity')).toMatchObject({
+      required: true,
+      masterDetail: false,
+    });
   });
 
   it('reads a lookup the platform alone fills as none, and one at an object outside the run as none', () => {

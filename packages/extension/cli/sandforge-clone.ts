@@ -5869,6 +5869,23 @@ export function removalPlan(summary: RunSummary): ForgeRunObjectRecords[] {
 }
 
 /**
+ * What a removal leaves of what the target held before the run, said with its
+ * plan and by its preview: the records the run linked to, but for those the
+ * platform wrote with a record it created and those linked to a record it
+ * created itself, which go with that one, and the records --upsert wrote over.
+ */
+function heldRecordsStayLine(summary: RunSummary): string {
+  const stay =
+    forgeRunLinkedKept({
+      idRemapTable: summary.result.remapTable,
+      idRemapExisting: summary.result.existingSourceIds,
+      idRemapCreated: summary.result.createdByObject,
+      idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
+    }).length + summary.result.updatedSourceIds.length;
+  return `${stay} record(s) the target already held, which the run linked to or wrote over, stay`;
+}
+
+/**
  * What a removal is about to take, said before it deletes anything: the run
  * and the org, the records per object, and what stays — the records the target
  * already held, and, without `--include-changed`, those changed since the run.
@@ -5881,23 +5898,12 @@ export function removalPlanLines(
 ): string[] {
   const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const ended = summary.result.writtenBetween?.last ?? summary.finishedAt;
-  // Left where they are: the records the run linked to, but for those the
-  // platform wrote with a record it created and those linked to a record it
-  // created itself, which go with that one, and the records --upsert wrote
-  // over.
-  const stay =
-    forgeRunLinkedKept({
-      idRemapTable: summary.result.remapTable,
-      idRemapExisting: summary.result.existingSourceIds,
-      idRemapCreated: summary.result.createdByObject,
-      idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
-    }).length + summary.result.updatedSourceIds.length;
   return [
     `the clone of ${cloneSubjectOf(summary)} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
       `a removal deletes the ${planned} record(s) it created, children first:`,
     ...plan.map((object) => `  ${object.objectApiName}: ${object.ids.length}`),
     ...quoteCopiesLines(plan),
-    `${stay} record(s) the target already held, which the run linked to or wrote over, stay`,
+    heldRecordsStayLine(summary),
     args.includeChanged
       ? 'records changed since the run go too, and what was added to them since'
       : 'records changed since the run stay, as do those records added since depend on ' +
@@ -8980,6 +8986,9 @@ async function previewRemoval(
         '--leave-undeletable, which removes the rest and leaves those.',
     });
   }
+  // As the removal says it with its plan: run for real, the removal said
+  // what stays, and the preview read first to know what it takes did not.
+  if (plan.length > 0 || leftByOtherParts.length > 0) notes.push(heldRecordsStayLine(summary));
   answer(
     {
       planned: count(plan) + leftByOtherParts.reduce((sum, left) => sum + count(left.plan), 0),

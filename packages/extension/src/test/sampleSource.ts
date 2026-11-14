@@ -26,6 +26,7 @@
 
 import type { ForgeSampleDraw } from '@sandforge/shared';
 import { countedStorageBytes } from '../modules/forge/ForgeRunGate';
+import type { CascadingRelation } from '../modules/forge/masterDetail';
 import {
   newerFirst,
   type SampleChildren,
@@ -78,6 +79,8 @@ export interface FakeObject {
   name: string;
   keyPrefix: string;
   fields: SampleField[];
+  /** Its relations to its children, as its describe lists them: see {@link cascadesTo}. */
+  childRelationships?: CascadingRelation[];
   records: FakeRecord[];
 }
 
@@ -103,9 +106,20 @@ export function required(name: string, referenceTo: string | string[]): SampleFi
   return lookup(name, referenceTo, { nillable: false });
 }
 
-/** A master-detail lookup. */
+/** A master-detail lookup its own field says (`cascadeDelete` read on the detail's field). */
 export function masterDetail(name: string, referenceTo: string): SampleField {
   return lookup(name, referenceTo, { nillable: false, isMasterDetail: true });
+}
+
+/**
+ * A relation of a parent to its children that its delete cascades to, as the
+ * parent's describe lists it. Salesforce says a standard master-detail there
+ * alone: a line item's `OpportunityId` is {@link required}, its field says no
+ * cascade, and only the opportunity's list says it. An account's list says it
+ * of its contacts too, whose `AccountId` may be left empty: a lookup.
+ */
+export function cascadesTo(childSObject: string, field: string): CascadingRelation {
+  return { childSObject, field, isCascadeDelete: true };
 }
 
 /** An 18-character id of `prefix`, numbered `n`: the same `n` gives the same id. */
@@ -172,6 +186,7 @@ export class FakeSampleSource implements SampleReader {
       rows: o.records.filter((r) => !r.filteredOut).length,
       keyPrefix: o.keyPrefix,
       fields: o.fields,
+      ...(o.childRelationships ? { childRelationships: o.childRelationships } : {}),
     }));
   }
 

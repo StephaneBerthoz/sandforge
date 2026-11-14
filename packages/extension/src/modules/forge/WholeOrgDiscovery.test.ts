@@ -501,6 +501,69 @@ describe('discoverWholeOrg', () => {
     expect(edgeOf(graph.edges, 'Account', 'Account')).toBeUndefined();
   });
 
+  // Run for real on a whole org: a line item's OpportunityId says
+  // `cascadeDelete false`, and only the opportunity's list of its children
+  // says the delete cascades. Read from the field alone, the pair was a
+  // lookup, and a sample that kept three of an opportunity's four lines said
+  // nothing of it.
+  it("types a standard master-detail from its master's list of its children, and a lookup that cascades but may be left empty a lookup", async () => {
+    const cascades = (childSObject: string, field: string) => ({
+      childSObject,
+      field,
+      relationshipName: `${childSObject}s`,
+      isCascadeDelete: true,
+    });
+    const { deps } = fakeDeps({
+      objects: { Account: 1, Contact: 1, Opportunity: 1, OpportunityLineItem: 1, Item__c: 1 },
+      describes: {
+        Account: {
+          ...describeOf('Account'),
+          childRelationships: [
+            cascades('Contact', 'AccountId'),
+            cascades('Opportunity', 'AccountId'),
+            cascades('Item__c', 'Parent__c'),
+          ],
+        },
+        Opportunity: {
+          ...describeOf('Opportunity', [lookup('AccountId', ['Account'])]),
+          childRelationships: [
+            cascades('OpportunityLineItem', 'OpportunityId'),
+            cascades('Item__c', 'Parent__c'),
+          ],
+        },
+        Contact: describeOf('Contact', [lookup('AccountId', ['Account'])]),
+        OpportunityLineItem: describeOf('OpportunityLineItem', [
+          lookup('OpportunityId', ['Opportunity'], { nillable: false, updateable: false }),
+        ]),
+        // A lookup that may name several objects, as a feed item's parent:
+        // required, cascading from each, and no master-detail of any.
+        Item__c: describeOf('Item__c', [
+          lookup('Parent__c', ['Account', 'Opportunity'], { nillable: false }),
+        ]),
+      },
+    });
+
+    const graph = await discoverWholeOrg(deps, CONFIG);
+
+    expect(edgeOf(graph.edges, 'Opportunity', 'OpportunityLineItem')).toMatchObject({
+      type: 'master-detail',
+      required: true,
+    });
+    expect(edgeOf(graph.edges, 'Account', 'Contact')).toMatchObject({
+      type: 'lookup',
+      required: false,
+    });
+    expect(edgeOf(graph.edges, 'Account', 'Opportunity')).toMatchObject({ type: 'lookup' });
+    expect(edgeOf(graph.edges, 'Account', 'Item__c')).toMatchObject({
+      type: 'lookup',
+      required: true,
+    });
+    expect(edgeOf(graph.edges, 'Opportunity', 'Item__c')).toMatchObject({
+      type: 'lookup',
+      required: true,
+    });
+  });
+
   it('marks a pair no write can set as ordering nothing, and one only an insert sets as wanting its parent first', async () => {
     const { deps } = fakeDeps({
       objects: { Account: 1, Quote: 1, EmailMessage: 1, Case: 1 },

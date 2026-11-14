@@ -43,6 +43,7 @@ import {
 } from '@sandforge/shared';
 import { insertionGroups, orderWithinGroup } from '../../../core/common/insertionOrder.js';
 import type { FieldDescribe } from '../GraphDiscoveryService.js';
+import { isMasterDetailLookup, type CascadingRelation } from '../masterDetail.js';
 import { CATALOG_OBJECTS } from '../stages/ScopeResolver.js';
 
 /** A field of an object of the run, as the source describes it. */
@@ -63,6 +64,13 @@ export interface SampleObjectInput {
    */
   keyPrefix?: string | null;
   fields: readonly SampleField[];
+  /**
+   * Its relations to its children, as its describe lists them: what says a
+   * standard master-detail, whose detail's field says no cascade. Absent, a
+   * lookup at it is a master-detail when its field says so — as a run's
+   * fields say it from discovery's graph.
+   */
+  childRelationships?: readonly CascadingRelation[];
 }
 
 /** What the objects copied whole are chosen against, and the objects asked. */
@@ -110,7 +118,10 @@ export type SampleObjectClass =
  * - `owed`: the second pass fills it — a lookup at its own object, or at an
  *   object written after;
  * - `required`: the record cannot be written without it, as the platform has
- *   it (`isRequiredLookup`), or as a master-detail.
+ *   it (`isRequiredLookup`), a master-detail among them;
+ * - `masterDetail`: as `isMasterDetailLookup` reads it, from the field and
+ *   the parent's list of its children — the record comes with its parent
+ *   whenever the parent is read from above, its siblings with it.
  *
  * `target` says what the parent is: `drawn`, its records read as they are
  * named; `whole`, all in; `excluded`, an object the user left out — set only
@@ -175,10 +186,7 @@ function parentsFirst(objects: readonly SampleObjectInput[]): string[] {
     const first = new Set<string>();
     for (const field of object.fields) {
       if (field.referenceTo.length === 0 || !isSettableField(field)) continue;
-      const before =
-        field.isMasterDetail ||
-        isRequiredLookup(object.objectApiName, field.name, field.nillable) ||
-        isInsertOnlyField(field);
+      const before = requiredOf(object.objectApiName, field) || isInsertOnlyField(field);
       for (const parent of field.referenceTo) {
         if (parent === object.objectApiName || !names.has(parent)) continue;
         parents.add(parent);
@@ -193,9 +201,12 @@ function parentsFirst(objects: readonly SampleObjectInput[]): string[] {
   );
 }
 
-/** Whether the field holds a lookup a record cannot be written without. */
+/**
+ * Whether the field holds a lookup a record cannot be written without: a
+ * master-detail is one, its field never empty (`isMasterDetailLookup`).
+ */
 function requiredOf(objectApiName: string, field: SampleField): boolean {
-  return field.isMasterDetail || isRequiredLookup(objectApiName, field.name, field.nillable);
+  return isRequiredLookup(objectApiName, field.name, field.nillable);
 }
 
 /** The objects a sample copies whole, and why: see the file's header. */
@@ -314,6 +325,11 @@ export function sampleLinksOf(input: SampleLinksInput): SampleLinks {
       const polymorphic = field.referenceTo.length > 1;
       for (const parent of [...field.referenceTo].sort()) {
         const kind = classes.get(parent);
+        const masterDetail = isMasterDetailLookup(
+          child,
+          field,
+          nodes.get(parent)?.childRelationships,
+        );
         const excludedPrefix = input.excluded?.get(parent);
         const prefixOf = (prefix: string | null | undefined): { prefix?: string | null } =>
           polymorphic ? { prefix: prefix ?? null } : {};
@@ -327,7 +343,7 @@ export function sampleLinksOf(input: SampleLinksInput): SampleLinks {
               carries: false,
               owed: false,
               required,
-              masterDetail: field.isMasterDetail,
+              masterDetail,
               ...prefixOf(excludedPrefix),
             });
           }
@@ -343,7 +359,7 @@ export function sampleLinksOf(input: SampleLinksInput): SampleLinks {
           carries: !self && rooted(parent) && rooted(child) && (required || !owed),
           owed,
           required,
-          masterDetail: field.isMasterDetail,
+          masterDetail,
           ...prefixOf(nodes.get(parent)?.keyPrefix),
         };
         own.push(link);

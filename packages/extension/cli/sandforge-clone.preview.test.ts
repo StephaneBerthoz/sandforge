@@ -265,6 +265,37 @@ describe('sandforge-clone --remove --preview', () => {
     expect(existsSync(removalsPath(file))).toBe(false);
   });
 
+  // Run for real on a whole org: the removal said "3 record(s) the target
+  // already held, which the run linked to or wrote over, stay", and its
+  // preview, read first to know what it takes, said nothing of them.
+  it('says the records the target already held stay, as the removal says it, in its lines and its notes', async () => {
+    const HELD = fakeId('001', 2);
+    const WRITTEN_OVER = fakeId('003', 3);
+    const linked = summary();
+    const result = linked['result'] as Record<string, unknown>;
+    result['remapTable'] = {
+      ...(result['remapTable'] as Record<string, string>),
+      [HELD]: fakeId('001', 902),
+      [WRITTEN_OVER]: fakeId('003', 903),
+    };
+    result['existingSourceIds'] = [HELD];
+    result['updatedSourceIds'] = [WRITTEN_OVER];
+    writeFileSync(file, JSON.stringify(linked));
+    const stay = '2 record(s) the target already held, which the run linked to or wrote over, stay';
+
+    await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+    expect((JSON.parse(stdout) as { notes: string[] }).notes).toContain(stay);
+
+    const printed: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: string) => {
+      printed.push(line);
+    });
+    await main(argv('--remove', file, '--target', 'TGT', '--preview'));
+
+    expect(printed).toContain(stay);
+  });
+
   it('counts the records changed since among those to delete with --include-changed', async () => {
     org.edit('Contact', TGT_CONTACTS[1] ?? '', { LastName: 'Renamed' }, COLLEAGUE);
 
