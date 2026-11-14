@@ -167,6 +167,20 @@ export interface SampleDrawingInput {
   /** Why a record of a record type is held back: see `SampleClosureOptions.recordTypeVerdict`. */
   recordTypeVerdict?: SampleClosureOptions['recordTypeVerdict'];
   /**
+   * The currency a price read in `code` goes in, when the target does not
+   * hold `code` active: the one the user mapped it to, or the target's
+   * corporate currency, as the run settles its prices. Undefined for one the
+   * target holds, which goes as it is read. Absent, every price goes so.
+   */
+  priceCurrencyWrittenIn?: (code: string) => string | undefined;
+  /**
+   * Per object of a size of its own — an email, the size of its text — what
+   * each record of it is weighed at as the sample is drawn, on average: the
+   * plan is weighed exactly at the run's gate. An object not in it is weighed
+   * by the documented sizes.
+   */
+  averageBytes?: ReadonlyMap<string, number>;
+  /**
    * The requests the source has left today: reading the roots' ids past a
    * tenth of them is refused before one is read. Undefined when the source
    * would not say: nothing is refused for it.
@@ -207,6 +221,19 @@ function idOrNull(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
+/** What tells the price a price goes as in another currency: its book, product and selling model. */
+function bookKeyOf(row: SourceRow): string {
+  const part = (field: string): string => {
+    const value = row[field];
+    return typeof value === 'string' ? idKey(value) : '';
+  };
+  return [
+    part(PRICEBOOK_ENTRY_BOOK_FIELD),
+    part(PRICEBOOK_ENTRY_PRODUCT_FIELD),
+    part(PRICEBOOK_ENTRY_SELLING_MODEL_FIELD),
+  ].join('\n');
+}
+
 /** What tells the standard price a price needs: its product, currency and selling model. */
 function standardKeyOf(row: SourceRow): string {
   const part = (field: string): string => {
@@ -230,6 +257,8 @@ export class SourceSampleReader implements SampleReader {
     private readonly reader: SampleSourceReader,
     private readonly links: SampleLinks,
     private readonly sourceRows: ReadonlyMap<string, number>,
+    /** See `SampleDrawingInput.priceCurrencyWrittenIn`. */
+    private readonly priceCurrencyWrittenIn?: (code: string) => string | undefined,
   ) {}
 
   /** The columns read of `objectApiName` besides its id: those the reader's describe does not list are left out there. */
@@ -286,14 +315,66 @@ export class SourceSampleReader implements SampleReader {
     const standardIds = new Set(standard.map((row) => idKey(String(row['Id']))));
     const byKey = new Map<string, string>();
     for (const row of standard) byKey.set(standardKeyOf(row), String(row['Id']));
+    const asWritten = await this.pricesWrittenFor(rows);
     return mapped.map((sampleRow, index) => {
       const row = rows[index];
-      if (row === undefined || standardIds.has(idKey(sampleRow.id))) return sampleRow;
+      if (row === undefined) return sampleRow;
+      const also: Array<{ objectApiName: string; id: string | null }> = [];
       // A price of its own book: the platform takes it only beside the
       // standard price of its product, currency and selling model.
-      const id = byKey.get(standardKeyOf(row)) ?? null;
-      return { ...sampleRow, also: [{ objectApiName: PRICEBOOK_ENTRY_OBJECT, id }] };
+      if (!standardIds.has(idKey(sampleRow.id))) {
+        also.push({
+          objectApiName: PRICEBOOK_ENTRY_OBJECT,
+          id: byKey.get(standardKeyOf(row)) ?? null,
+        });
+      }
+      // In a currency the target does not hold, it goes as the source's own
+      // price of its book and product in the currency it is written in: the
+      // run writes that one in its place, which the plan holds with it.
+      const instead = asWritten.get(sampleRow.id);
+      if (instead !== undefined) also.push({ objectApiName: PRICEBOOK_ENTRY_OBJECT, id: instead });
+      return also.length > 0 ? { ...sampleRow, also } : sampleRow;
     });
+  }
+
+  /**
+   * Of the prices `rows` in a currency the target does not hold, by their
+   * id, the source's own price of the same book and product in the currency
+   * each goes in (`priceCurrencyWrittenIn`), where it holds one: the run
+   * writes it in their place (`settlePriceCurrencies`). Read once a currency
+   * for the products and books of the batch.
+   */
+  private async pricesWrittenFor(rows: readonly SourceRow[]): Promise<Map<string, string>> {
+    const instead = new Map<string, string>();
+    const writtenIn = this.priceCurrencyWrittenIn;
+    if (!writtenIn) return instead;
+    const byCurrency = new Map<string, SourceRow[]>();
+    for (const row of rows) {
+      const read = row[PRICEBOOK_ENTRY_CURRENCY_FIELD];
+      if (typeof read !== 'string') continue;
+      const written = writtenIn(read);
+      if (written === undefined || written === read) continue;
+      byCurrency.set(written, [...(byCurrency.get(written) ?? []), row]);
+    }
+    for (const [currency, priced] of byCurrency) {
+      const ids = (field: string): string[] =>
+        priced.flatMap((row) => {
+          const value = idOrNull(row[field]);
+          return value ? [value] : [];
+        });
+      const found = await this.reader.readPricesIn(
+        currency,
+        ids(PRICEBOOK_ENTRY_PRODUCT_FIELD),
+        ids(PRICEBOOK_ENTRY_BOOK_FIELD),
+        PRICE_COLUMNS,
+      );
+      const byBook = new Map(found.map((row) => [bookKeyOf(row), String(row['Id'])]));
+      for (const row of priced) {
+        const id = byBook.get(bookKeyOf(row));
+        if (id !== undefined) instead.set(String(row['Id']), id);
+      }
+    }
+    return instead;
   }
 
   async rows(objectApiName: string, ids: readonly string[]): Promise<readonly SampleRow[]> {
@@ -371,6 +452,12 @@ function carriersOf(links: SampleLinks, objectApiName: string): RootCarrier[] {
  */
 export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<SampleDrawing> {
   const { options, budget } = input;
+  const average = (objectApiName: string): number | undefined =>
+    input.averageBytes?.get(objectApiName);
+  const wholeBytesOf = (objectApiName: string, rows: number): number => {
+    const each = average(objectApiName);
+    return each !== undefined ? rows * each : countedStorageBytes(objectApiName, { rows });
+  };
   const sourceRows = new Map(
     input.objects.flatMap((object) =>
       object.rows === undefined ? [] : [[object.objectApiName, object.rows] as const],
@@ -386,7 +473,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     ...(input.maxRecordsPerObject !== undefined
       ? { maxRecordsPerObject: input.maxRecordsPerObject }
       : {}),
-    wholeBytes: (objectApiName, rows) => countedStorageBytes(objectApiName, { rows }),
+    wholeBytes: (objectApiName, rows) => wholeBytesOf(objectApiName, rows),
   });
   const described = (objectApiName: string, name: string): SampleDescribedField | undefined =>
     input.fieldsOf(objectApiName)?.find((field) => field.name.toLowerCase() === name.toLowerCase());
@@ -473,7 +560,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       : budget.bytesLimit;
   const cut = await drawTheSample({
     links,
-    reader: new SourceSampleReader(reader, links, sourceRows),
+    reader: new SourceSampleReader(reader, links, sourceRows, input.priceCurrencyWrittenIn),
     draw: { roots: draw.drawn(), beyond: draw.beyond, heldBy, floor: options.floor },
     sourceRows,
     options: {
@@ -484,7 +571,9 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       ...(input.signal ? { signal: input.signal } : {}),
     },
     measure: {
-      ...documentedMeasure,
+      bytes: (objectApiName, row) =>
+        row.bytes ?? average(objectApiName) ?? documentedMeasure.bytes(objectApiName, row),
+      wholeBytes: wholeBytesOf,
       ...(budget.automationBytes ? { roomBytes: budget.automationBytes } : {}),
     },
     bounds: {

@@ -802,6 +802,32 @@ export class SampleSourceReader {
   }
 
   /**
+   * The prices of `productIds` in the books `bookIds` and the currency
+   * `currency`, the columns asked that the describe lists: the price a price
+   * in a currency the target does not hold goes as, the run writing the
+   * source's own of the same product and book in the currency it writes it
+   * in. None for a code that is not one.
+   */
+  async readPricesIn(
+    currency: string,
+    productIds: readonly string[],
+    bookIds: readonly string[],
+    columns: readonly string[],
+  ): Promise<SourceRow[]> {
+    if (!/^[A-Z]{3}$/.test(currency)) return [];
+    const products = idsOnce(productIds);
+    const books = idsOnce(bookIds);
+    if (products.length === 0 || books.length === 0) return [];
+    const select = this.columnsOf('PricebookEntry', ['Product2Id', 'Pricebook2Id', ...columns]);
+    const terms = [
+      ...this.termsOf('PricebookEntry'),
+      `Pricebook2Id IN (${books.map((id) => `'${id}'`).join(', ')})`,
+      `CurrencyIsoCode = '${currency}'`,
+    ];
+    return this.byList('PricebookEntry', select, 'Product2Id', products, terms, undefined);
+  }
+
+  /**
    * The rows whose `field` names one of `values`, in lists the URI holds
    * with the first group of `columns`, a select too wide for one statement
    * read in column groups.

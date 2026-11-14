@@ -66,7 +66,14 @@ const FIELDS: Record<string, FieldInfo[]> = {
   ],
 };
 
-const PREFIX: Record<string, string> = { Account: '001', Contact: '003' };
+const PREFIX: Record<string, string> = {
+  Account: '001',
+  Contact: '003',
+  Pricebook2: '01s',
+  Product2: '01t',
+  PricebookEntry: '01u',
+  Line__c: 'a0L',
+};
 
 function node(objectApiName: string, recordCount: number): ForgeGraphNode {
   return {
@@ -254,7 +261,12 @@ function targetOrg() {
 /** Deps over `source` and a fresh target; `abortAfterInserts` stops the run once the target took that many rows by REST. */
 function orgs(
   source: SampleSourceOrg,
-  options: { stopAfterInserts?: () => number; target?: ReturnType<typeof targetOrg> } = {},
+  options: {
+    stopAfterInserts?: () => number;
+    target?: ReturnType<typeof targetOrg>;
+    /** What an org answers a statement with before anything else; undefined to go on. */
+    answers?: (org: string, soql: string) => Row[] | undefined;
+  } = {},
 ) {
   const target = options.target ?? targetOrg();
   const holder: { executor?: ForgeExecutor } = {};
@@ -266,7 +278,10 @@ function orgs(
   };
   const deps = {
     describeFields: vi.fn(async (_org: string, object: string) => FIELDS[object] ?? []),
-    queryRecords: vi.fn(async (org: string, soql: string) => (org === 'src' ? gather(soql) : [])),
+    queryRecords: vi.fn(
+      async (org: string, soql: string) =>
+        options.answers?.(org, soql) ?? (org === 'src' ? gather(soql) : []),
+    ),
     queryPages: (org: string, soql: string, read?: { all?: true }) =>
       org === 'src'
         ? cursorPages(source, soql, read)
@@ -665,7 +680,8 @@ describe('a clone of the whole org that copies a sample of it', () => {
         'src',
         'tgt',
         () => {},
-        sampleRun(keepAt, budgetOf(120), { dryRun: true, gate }),
+        // Weighed at some 75 KB each, an email past a tenth of a smaller room is set aside.
+        sampleRun(keepAt, budgetOf(1_500), { dryRun: true, gate }),
       );
     } finally {
       delete FIELDS['EmailMessage'];
@@ -681,6 +697,49 @@ describe('a clone of the whole org that copies a sample of it', () => {
       0,
     );
     expect(gate[0]?.wholeOrg?.emailTextBytes).toBe(planned);
+  }, 60_000);
+
+  it('weighs each email it draws at the size of the text of two hundred emails of the source, not at nothing', async () => {
+    const source = new SampleSourceOrg();
+    source.columns.set('EmailMessage', ['Id', 'Subject', 'TextBody', 'CreatedDate', 'IsDeleted']);
+    for (let n = 1; n <= 300; n++) {
+      source.add('EmailMessage', {
+        Id: fakeId('02s', 'S', n),
+        Subject: 'S',
+        // 9 999 bytes of text each, the subject's included.
+        TextBody: 'x'.repeat(9_998),
+        IsDeleted: false,
+      });
+    }
+    FIELDS['EmailMessage'] = [
+      field('Id'),
+      field('Subject', { type: 'string' }),
+      field('TextBody', { type: 'textarea' }),
+    ];
+    const keepAt = join(plansDir(), 'dry');
+    try {
+      await orgs(source).executor.execute(
+        { ...graphOf(0, 0), nodes: [node('EmailMessage', 300)], edges: [] },
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(400), { dryRun: true }),
+      );
+    } finally {
+      delete FIELDS['EmailMessage'];
+    }
+
+    const plan = await SamplePlan.open(keepAt);
+    // 400 KB hold forty emails of 9 999 bytes; weighed at nothing, the 300.
+    expect(plan.countOf('EmailMessage')).toBe(Math.floor((400 * 1024) / 9_999));
+    expect(plan.manifest.sample.storageBytes).toBe(plan.countOf('EmailMessage') * 9_999);
+    expect(plan.manifest.sample.budget.limitedBy).toBe('storage');
+    // One read of the source's text, of two hundred of its emails.
+    expect(
+      source.sent.filter(({ soql }) =>
+        /^SELECT Id, Subject, TextBody FROM EmailMessage LIMIT 200$/.test(soql),
+      ),
+    ).toHaveLength(1);
   }, 60_000);
 
   it('writes empty, owed to no second pass and failing nothing, an optional lookup at a record outside the plan', async () => {
@@ -707,5 +766,382 @@ describe('a clone of the whole org that copies a sample of it', () => {
     expect(summary.sample?.leftEmpty).toEqual([
       { objectApiName: 'Account', field: 'ParentId', rows: naming.length },
     ]);
+  }, 60_000);
+});
+
+/*
+ * The price catalog, too large for a sample to copy whole: drawn, its records
+ * come as the lines the sample keeps name them — a price, the standard price
+ * its product needs, the product, the books. The run reads it by the plan's
+ * ids and writes no price of the source beyond them.
+ */
+describe('a sample of the whole org that draws its price catalog', () => {
+  const CATALOG_FIELDS: Record<string, FieldInfo[]> = {
+    Pricebook2: [
+      field('Id'),
+      field('Name'),
+      field('IsActive', { type: 'boolean' }),
+      field('IsStandard', { type: 'boolean', createable: false, updateable: false }),
+    ],
+    Product2: [field('Id'), field('Name'), field('IsActive', { type: 'boolean' })],
+    PricebookEntry: [
+      field('Id'),
+      field('Pricebook2Id', { isReference: true, referenceTo: ['Pricebook2'], nillable: false }),
+      field('Product2Id', { isReference: true, referenceTo: ['Product2'], nillable: false }),
+      field('UnitPrice', { type: 'double' }),
+      field('IsActive', { type: 'boolean' }),
+      field('CurrencyIsoCode', { type: 'picklist' }),
+    ],
+    Line__c: [
+      field('Id'),
+      field('Name'),
+      field('Price__c', { isReference: true, referenceTo: ['PricebookEntry'], nillable: false }),
+    ],
+  };
+  const STD = fakeId('01s', 'S', 1);
+  const PARTNERS = fakeId('01s', 'S', 2);
+  const TARGET_STD = fakeId('01s', 'T', 900);
+  const LINES = 150;
+  /** The standard price of product `n` in `currency`, and its price in the partners' book. */
+  const standardOf = (n: number, currency = 'USD'): string =>
+    fakeId('01u', 'S', (currency === 'USD' ? 1_000 : 3_000) + n);
+  const partnersOf = (n: number, currency = 'USD'): string =>
+    fakeId('01u', 'S', (currency === 'USD' ? 2_000 : 4_000) + n);
+
+  /** A catalog of `LINES` products, each with a standard and a partners' price in USD, and a line naming each partners' price. */
+  function catalogSource(): SampleSourceOrg {
+    const org = new SampleSourceOrg();
+    org.columns.set('Pricebook2', ['Id', 'Name', 'IsActive', 'IsStandard', 'IsDeleted']);
+    org.columns.set('Product2', ['Id', 'Name', 'IsActive', 'IsDeleted']);
+    org.columns.set('PricebookEntry', [
+      'Id',
+      'Pricebook2Id',
+      'Product2Id',
+      'UnitPrice',
+      'IsActive',
+      'CurrencyIsoCode',
+      'IsDeleted',
+    ]);
+    org.columns.set('Line__c', ['Id', 'Name', 'Price__c', 'CreatedDate', 'IsDeleted']);
+    org.add(
+      'Pricebook2',
+      { Id: STD, Name: 'Standard', IsActive: true, IsStandard: true, IsDeleted: false },
+      { Id: PARTNERS, Name: 'Partners', IsActive: true, IsStandard: false, IsDeleted: false },
+    );
+    for (let n = 1; n <= LINES; n++) {
+      org.add('Product2', {
+        Id: fakeId('01t', 'S', n),
+        Name: `P${n}`,
+        IsActive: true,
+        IsDeleted: false,
+      });
+      org.add('PricebookEntry', price(standardOf(n), STD, n, 'USD'));
+      org.add('PricebookEntry', price(partnersOf(n), PARTNERS, n, 'USD'));
+      org.add('Line__c', {
+        Id: fakeId('a0L', 'S', n),
+        Name: `L${n}`,
+        Price__c: partnersOf(n),
+        IsDeleted: false,
+      });
+    }
+    return org;
+  }
+
+  function price(id: string, book: string, n: number, currency: string): Row {
+    return {
+      Id: id,
+      Pricebook2Id: book,
+      Product2Id: fakeId('01t', 'S', n),
+      UnitPrice: n,
+      IsActive: true,
+      CurrencyIsoCode: currency,
+      IsDeleted: false,
+    };
+  }
+
+  const CURRENCIES_SOQL =
+    'SELECT IsoCode, ConversionRate, DecimalPlaces, IsActive, IsCorporate FROM CurrencyType';
+  const currency = (IsoCode: string, ConversionRate: number, IsCorporate = false): Row => ({
+    IsoCode,
+    ConversionRate,
+    DecimalPlaces: 2,
+    IsActive: true,
+    IsCorporate,
+  });
+
+  /** What the two orgs answer besides the source's tables: the standard book, and their currencies. */
+  function catalogAnswers(sourceCurrencies: Row[], targetCurrencies: Row[]) {
+    return (org: string, soql: string): Row[] | undefined => {
+      if (soql === 'SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1') {
+        return [{ Id: org === 'src' ? STD : TARGET_STD }];
+      }
+      if (soql === CURRENCIES_SOQL) return org === 'src' ? sourceCurrencies : targetCurrencies;
+      // The rest of what the currencies are read with: an org that says nothing of it.
+      if (!/FROM (Pricebook2|Product2|PricebookEntry|Line__c)\b/.test(soql)) return [];
+      return undefined;
+    };
+  }
+
+  function catalogGraph(): ForgeGraph {
+    return {
+      nodes: [
+        node('Pricebook2', 2),
+        node('Product2', LINES),
+        node('PricebookEntry', LINES * 2),
+        node('Line__c', LINES),
+      ],
+      edges: [
+        {
+          sourceObject: 'Pricebook2',
+          targetObject: 'PricebookEntry',
+          relationshipName: 'PricebookEntries',
+          type: 'lookup',
+          required: true,
+        },
+        {
+          sourceObject: 'Product2',
+          targetObject: 'PricebookEntry',
+          relationshipName: 'PricebookEntries',
+          type: 'lookup',
+          required: true,
+        },
+        {
+          sourceObject: 'PricebookEntry',
+          targetObject: 'Line__c',
+          relationshipName: 'Lines',
+          type: 'lookup',
+          required: true,
+        },
+      ],
+      totalRecords: LINES * 4 + 2,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+  }
+
+  /** The source ids the run wrote of `object`, by the prefix of its ids. */
+  const writtenOf = (summary: ExecutionSummary, object: string): string[] =>
+    Object.entries(summary.remapTable)
+      .filter(([sourceId]) => sourceId.startsWith(PREFIX[object] ?? ''))
+      .map(([sourceId]) => sourceId)
+      .sort();
+
+  /** Run `body` with the catalog's describes beside the accounts'. */
+  async function withCatalog<T>(body: () => Promise<T>): Promise<T> {
+    Object.assign(FIELDS, CATALOG_FIELDS);
+    try {
+      return await body();
+    } finally {
+      for (const object of Object.keys(CATALOG_FIELDS)) delete FIELDS[object];
+    }
+  }
+
+  it('reads its books, products and prices by the plan’s ids, links the standard book, and writes no price beyond the plan', async () => {
+    const source = catalogSource();
+    const usd = [currency('USD', 1, true)];
+    const answers = catalogAnswers(usd, usd);
+    await withCatalog(async () => {
+      const keepAt = join(plansDir(), 'dry');
+      await orgs(source, { answers }).executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(200), { dryRun: true }),
+      );
+      const plan = await SamplePlan.open(keepAt);
+      const whole = plan.manifest.sample.whole.map((w) => w.objectApiName);
+      // Too large for a quarter of the room: drawn, not copied whole.
+      expect(whole).toEqual([]);
+      const lines = await planIds(plan, 'Line__c');
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.length).toBeLessThan(LINES);
+      const prices = await planIds(plan, 'PricebookEntry');
+      const kept = lines.map((id) => Number(id.slice(4, 15)));
+      expect(prices).toEqual(
+        [...kept.map((n) => standardOf(n)), ...kept.map((n) => partnersOf(n))].sort(),
+      );
+      expect(await planIds(plan, 'Pricebook2')).toEqual([STD, PARTNERS]);
+      const sentBefore = source.sent.length;
+      const { executor, target } = orgs(source, { answers });
+
+      const summary = await executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan }),
+      );
+
+      // Read by its ids, never a page of the whole table.
+      const reads = source.sent.slice(sentBefore).map(({ soql }) => soql);
+      expect(reads.filter((soql) => /FROM PricebookEntry(?! WHERE)/.test(soql))).toEqual([]);
+      expect(reads.some((soql) => /FROM PricebookEntry WHERE .*Id IN \(/.test(soql))).toBe(true);
+      expect(writtenOf(summary, 'PricebookEntry')).toEqual(prices);
+      expect(writtenOf(summary, 'Product2')).toEqual(await planIds(plan, 'Product2'));
+      // The standard book linked to the target's, never written; the partners' written.
+      expect(summary.remapTable[STD]).toBe(TARGET_STD);
+      expect(
+        [...(target.held.get('Pricebook2')?.values() ?? [])].map((row) => row['Name']),
+      ).toEqual(['Partners']);
+      expect(target.held.get('PricebookEntry')?.size).toBe(prices.length);
+      expect(summary.failedCount).toBe(0);
+      expect(summary.errors.filter((e) => e.objectApiName === '__pass2__')).toEqual([]);
+    });
+  }, 60_000);
+
+  it('writes no standard price the source made since the plan, and holds back, never sent, the price that needed the one it replaced', async () => {
+    const source = catalogSource();
+    const usd = [currency('USD', 1, true)];
+    const answers = catalogAnswers(usd, usd);
+    await withCatalog(async () => {
+      const keepAt = join(plansDir(), 'dry');
+      await orgs(source, { answers }).executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(200), { dryRun: true }),
+      );
+      const plan = await SamplePlan.open(keepAt);
+      const prices = await planIds(plan, 'PricebookEntry');
+      const n = Number((await planIds(plan, 'Line__c'))[0]?.slice(4, 15));
+      // Since the plan, the standard price of its product made again: a new id.
+      const old = source.rows.get('PricebookEntry')?.find((row) => row['Id'] === standardOf(n));
+      if (!old) throw new Error('no standard price');
+      (old as Row)['IsDeleted'] = true;
+      const remade = fakeId('01u', 'S', 5_000 + n);
+      source.add('PricebookEntry', price(remade, STD, n, 'USD'));
+      const { executor, deps } = orgs(source, { answers });
+
+      const summary = await executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan }),
+      );
+
+      const sent = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.filter(([, object]) => object === 'PricebookEntry')
+        .flatMap(([, , rows]) => rows);
+      const written = writtenOf(summary, 'PricebookEntry');
+      expect(written).not.toContain(remade);
+      expect(written.every((id) => prices.includes(id))).toBe(true);
+      // Its partners' price would go without a standard price, which the
+      // platform refuses: held back, as the line under it.
+      expect(sent.some((row) => row['UnitPrice'] === n && row['Pricebook2Id'] !== TARGET_STD)).toBe(
+        false,
+      );
+      const entries = summary.sample?.objects.find((o) => o.objectApiName === 'PricebookEntry');
+      expect(entries?.goneSinceTheSample).toBe(1);
+      expect(entries?.changedSinceTheSample).toBe(1);
+      expect(summary.failedCount).toBe(2);
+    });
+  }, 60_000);
+
+  it('takes into its plan, counted, the price a price in a currency the target lacks goes as, and writes no price beyond the plan', async () => {
+    const source = catalogSource();
+    // Each product priced in GBP besides, which the target does not hold: the
+    // even lines name the GBP price of the partners' book.
+    for (let n = 1; n <= LINES; n++) {
+      source.add('PricebookEntry', price(standardOf(n, 'GBP'), STD, n, 'GBP'));
+      source.add('PricebookEntry', price(partnersOf(n, 'GBP'), PARTNERS, n, 'GBP'));
+      if (n % 2 === 0) {
+        const line = source.rows.get('Line__c')?.find((row) => row['Id'] === fakeId('a0L', 'S', n));
+        if (line) (line as Row)['Price__c'] = partnersOf(n, 'GBP');
+      }
+    }
+    const answers = catalogAnswers(
+      [currency('USD', 1, true), currency('GBP', 0.8)],
+      [currency('USD', 1, true)],
+    );
+    await withCatalog(async () => {
+      const keepAt = join(plansDir(), 'run.sample');
+      const gate: ForgeWriteBoundary[] = [];
+      const { executor, target } = orgs(source, { answers });
+
+      const summary = await executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(400), { gate }),
+      );
+
+      const plan = await SamplePlan.open(keepAt);
+      const prices = await planIds(plan, 'PricebookEntry');
+      const even = (await planIds(plan, 'Line__c'))
+        .map((id) => Number(id.slice(4, 15)))
+        .filter((n) => n % 2 === 0);
+      expect(even.length).toBeGreaterThan(0);
+      // The USD prices the GBP ones go as are the plan's, drawn with them.
+      for (const n of even) {
+        expect(prices).toEqual(expect.arrayContaining([partnersOf(n), standardOf(n)]));
+      }
+      const written = writtenOf(summary, 'PricebookEntry');
+      expect(written.every((id) => prices.includes(id))).toBe(true);
+      // The GBP prices go as the USD ones, never written themselves: the
+      // line naming one is written with the other.
+      for (const n of even) {
+        expect(written).not.toContain(partnersOf(n, 'GBP'));
+        const line = target.held
+          .get('Line__c')
+          ?.get(summary.remapTable[fakeId('a0L', 'S', n)] ?? '');
+        expect(line?.['Price__c']).toBe(summary.remapTable[partnersOf(n)]);
+      }
+      const entries = gate[0]?.objects.find((o) => o.objectApiName === 'PricebookEntry');
+      expect(entries?.leftOut?.currencyReplaced).toBe(even.length * 2);
+      expect(entries?.counted?.rows).toBe(written.length);
+      // Every line written, none without its price.
+      const pricesWritten = new Set(target.held.get('PricebookEntry')?.keys());
+      for (const line of target.held.get('Line__c')?.values() ?? []) {
+        expect(pricesWritten.has(String(line['Price__c']))).toBe(true);
+      }
+      expect(summary.failedCount).toBe(0);
+    });
+  }, 60_000);
+
+  it('writes a price its plan holds in a currency the target no longer does converted, never the source’s other price beyond the plan', async () => {
+    const source = catalogSource();
+    for (let n = 1; n <= LINES; n++) {
+      source.add('PricebookEntry', price(standardOf(n, 'GBP'), STD, n, 'GBP'));
+      source.add('PricebookEntry', price(partnersOf(n, 'GBP'), PARTNERS, n, 'GBP'));
+      const line = source.rows.get('Line__c')?.find((row) => row['Id'] === fakeId('a0L', 'S', n));
+      if (line) (line as Row)['Price__c'] = partnersOf(n, 'GBP');
+    }
+    const both = [currency('USD', 1, true), currency('GBP', 0.8)];
+    await withCatalog(async () => {
+      // Drawn while the target held GBP: no other price taken in.
+      const keepAt = join(plansDir(), 'dry');
+      await orgs(source, { answers: catalogAnswers(both, both) }).executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(200), { dryRun: true }),
+      );
+      const plan = await SamplePlan.open(keepAt);
+      const prices = await planIds(plan, 'PricebookEntry');
+      const { executor } = orgs(source, {
+        answers: catalogAnswers(both, [currency('USD', 1, true)]),
+      });
+
+      const summary = await executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan }),
+      );
+
+      const written = writtenOf(summary, 'PricebookEntry');
+      expect(written).toEqual(prices);
+      expect(summary.currenciesReplaced?.some((c) => c.from === 'GBP' && c.to === 'USD')).toBe(
+        true,
+      );
+      expect(summary.failedCount).toBe(0);
+    });
   }, 60_000);
 });

@@ -2713,6 +2713,8 @@ interface RunSample {
   readonly leftEmpty: Map<string, Map<string, number>>;
   /** Per object, how the run reads it, decided once: see `readOfThePlan`. */
   readonly reads: Map<string, RunRead>;
+  /** The prices of the plan whose standard price is the plan's no more, by their key: held back. */
+  readonly withoutStandard: Set<string>;
 }
 
 /**
@@ -4774,6 +4776,47 @@ function recordTypeGivenOfTally(objectApiName: string, tally: RecordTypeTally): 
  * children that cannot be written without it; the others lose their lookup at
  * it, and the second pass reports each one.
  */
+/**
+ * The standard price a custom price needs: of its product, in its currency
+ * — absent from an org with one — and under its selling model when the run
+ * keeps them. A standard price is the one of its own pair.
+ */
+function standardPairOf(row: Record<string, unknown>, sellingModels: boolean): string {
+  return [
+    row[PRICEBOOK_ENTRY_PRODUCT_FIELD],
+    sellingModels ? row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] : '',
+    row[PRICEBOOK_ENTRY_CURRENCY_FIELD],
+  ]
+    .map((value) => String(value ?? ''))
+    .join('|');
+}
+
+/**
+ * The fields of an email whose text it takes its storage by: those the run
+ * writes, text of some kind, the user's exclusions left out.
+ */
+function emailTextFieldsOf(
+  fields: readonly FieldInfo[],
+  leftOut: readonly string[] | undefined,
+): FieldInfo[] {
+  const left = new Set(leftOut ?? []);
+  return fields.filter(
+    (f) =>
+      f.createable &&
+      f.queryable &&
+      !f.isReference &&
+      !left.has(f.name) &&
+      (f.type === undefined || TEXT_FIELD_TYPES.has(f.type)),
+  );
+}
+
+/** The emails whose text a sample weighs each email it draws at, on average. */
+const EMAILS_WEIGHED = 200;
+
+/** Why a price of a sample whose standard price is no longer its plan's is held back. */
+const STANDARD_CHANGED_SINCE_THE_SAMPLE =
+  'the standard price of its product, which it may not go without, changed since the sample';
+
 /** A summary's `sample`, when the run has one. */
 function sampleResultOrNothing(result: WholeOrgSampleResult | undefined): {
   sample?: WholeOrgSampleResult;
@@ -6787,6 +6830,26 @@ export class ForgeExecutor {
       }
     }
     const terms = await sample.budget();
+    // A price in a currency the target does not hold goes as the source's
+    // own in the currency it is written in: the plan takes that one in, so
+    // that the run writes none beyond it.
+    const currencies =
+      state.standardPricebookId && nodes.some((n) => isPricebookEntry(n.objectApiName))
+        ? await this.runCurrencies(state)
+        : undefined;
+    const writtenIn = currencies && this.priceCurrencyWrittenIn(state, currencies.target);
+    // An email takes the size of its text, which no count says: each drawn is
+    // weighed at the average of the text of two hundred of the source's, and
+    // the plan's own are weighed exactly at the gate (`emailBytesOf`).
+    const averageBytes = new Map<string, number>();
+    if (nodes.some((n) => n.objectApiName === EMAIL_MESSAGE)) {
+      const average = await this.averageEmailBytes(state, described.get(EMAIL_MESSAGE) ?? []);
+      if (average !== undefined) averageBytes.set(EMAIL_MESSAGE, average);
+    }
+    const priceCurrencyWrittenIn = writtenIn
+      ? (code: string): string | undefined =>
+          currencies.target.active.has(code) ? undefined : writtenIn(code)
+      : undefined;
     this.sampling = new AbortController();
     if (this.isAborted) this.sampling.abort();
     let drawing: Awaited<ReturnType<typeof drawSampleOfTheOrg>>;
@@ -6846,6 +6909,8 @@ export class ForgeExecutor {
           ? { sourceRequestsLeft: sample.sourceRequestsLeft }
           : {}),
         ...(sample.maxRows !== undefined ? { maxRows: sample.maxRows } : {}),
+        ...(priceCurrencyWrittenIn ? { priceCurrencyWrittenIn } : {}),
+        ...(averageBytes.size > 0 ? { averageBytes } : {}),
         signal: this.sampling.signal,
         ...(sample.onProgress ? { onProgress: sample.onProgress } : {}),
       });
@@ -6892,6 +6957,44 @@ export class ForgeExecutor {
   }
 
   /**
+   * The size of the text of an email of the source, on average, read of
+   * {@link EMAILS_WEIGHED} of them under the run's filter, in one statement:
+   * what a sample weighs each email it draws at before its plan is known.
+   * Undefined when the source holds none, or would not answer: the email is
+   * then weighed by the documented sizes alone, and its plan at the gate.
+   */
+  private async averageEmailBytes(
+    state: ExecutionState,
+    fields: readonly FieldInfo[],
+  ): Promise<number | undefined> {
+    const texts = emailTextFieldsOf(fields, state.config.fieldExclusions[EMAIL_MESSAGE]);
+    if (texts.length === 0) return undefined;
+    const filter = this.filterOf(state, EMAIL_MESSAGE);
+    try {
+      const rows = await this.readWholeOf(
+        state,
+        EMAIL_MESSAGE,
+        `SELECT Id, ${texts.map((f) => f.name).join(', ')} FROM ${EMAIL_MESSAGE}` +
+          `${filter ? ` WHERE ${filter}` : ''} LIMIT ${EMAILS_WEIGHED}`,
+      );
+      if (rows.length === 0) return undefined;
+      let bytes = 0;
+      for (const row of rows) {
+        for (const [name, value] of Object.entries(row)) {
+          if (name !== 'Id' && typeof value === 'string') bytes += Buffer.byteLength(value, 'utf8');
+        }
+      }
+      return Math.ceil(bytes / rows.length);
+    } catch (err) {
+      logger.warn(
+        '[forge] the size of the emails could not be read before the sample was drawn: ' +
+          extractErrorMessage(err),
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * What the run holds of its plan (`RunSample`): the ids of each object it
    * draws by their key, read once from the plan's files, and the key prefix
    * each begins with. The objects drawn are those of the run the plan does
@@ -6930,6 +7033,7 @@ export class ForgeExecutor {
       changed: new Map(),
       leftEmpty: new Map(),
       reads: new Map(),
+      withoutStandard: new Set(),
     };
   }
 
@@ -7933,17 +8037,9 @@ export class ForgeExecutor {
     node: ForgeGraphNode,
   ): Promise<number | undefined> {
     const object = node.objectApiName;
-    const left = new Set(state.config.fieldExclusions[object] ?? []);
     try {
       const fields = await this.deps.describeFields(state.sourceOrgId, object);
-      const texts = fields.filter(
-        (f) =>
-          f.createable &&
-          f.queryable &&
-          !f.isReference &&
-          !left.has(f.name) &&
-          (f.type === undefined || TEXT_FIELD_TYPES.has(f.type)),
-      );
+      const texts = emailTextFieldsOf(fields, state.config.fieldExclusions[object]);
       if (texts.length === 0) return 0;
       const sample = state.sample;
       if (sample?.drawn.has(object)) {
@@ -8552,6 +8648,15 @@ export class ForgeExecutor {
       const own = state.heldInTheOrg.get(String(record['Id']));
       if (own !== undefined && own !== 'held') {
         aside.set(index, own);
+        return;
+      }
+      if (state.sample?.withoutStandard.has(idKey(String(record['Id'])))) {
+        held.set(index, {
+          field: PRICEBOOK_ENTRY_PRODUCT_FIELD,
+          parentObject: PRICEBOOK_ENTRY_OBJECT,
+          reason: STANDARD_CHANGED_SINCE_THE_SAMPLE,
+        });
+        changed.add(index);
         return;
       }
       for (const { field, parent } of lookups) {
@@ -12449,6 +12554,21 @@ export class ForgeExecutor {
           );
           records.length = 0;
           records.push(...planned);
+          // A price of a book of its own whose standard price is the plan's
+          // no more — gone, the source holding another made since — would go
+          // without one, which the platform refuses: held back as it is
+          // written, never sent (`rowsHeldInTheWholeOrg`).
+          const standardId = state.standardPricebookId;
+          const pairs = new Set(
+            records
+              .filter((row) => row[PRICEBOOK_ENTRY_BOOK_FIELD] === standardId)
+              .map((row) => standardPairOf(row, state.sellingModels)),
+          );
+          for (const row of records) {
+            if (row[PRICEBOOK_ENTRY_BOOK_FIELD] === standardId) continue;
+            if (pairs.has(standardPairOf(row, state.sellingModels))) continue;
+            sample.withoutStandard.add(idKey(String(row['Id'])));
+          }
         }
         // A run that reads every row first settles them as they are written,
         // once the records of their lines have gone in: see `writeNode`.
@@ -15016,17 +15136,8 @@ export class ForgeExecutor {
   ): Promise<void> {
     const standardId = state.standardPricebookId;
     if (!standardId) return;
-    // The standard price a custom price needs: of its product, in its currency
-    // — absent from an org with one — and under its selling model when the
-    // run keeps them.
     const pairOf = (row: Record<string, unknown>): string =>
-      [
-        row[PRICEBOOK_ENTRY_PRODUCT_FIELD],
-        state.sellingModels ? row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] : '',
-        row[PRICEBOOK_ENTRY_CURRENCY_FIELD],
-      ]
-        .map((value) => String(value ?? ''))
-        .join('|');
+      standardPairOf(row, state.sellingModels);
     const productIds = new Set<string>();
     const pricedPairs = new Set<string>();
     const seen = new Set<string>();
@@ -15176,6 +15287,16 @@ export class ForgeExecutor {
       }
     }
 
+    // A sample writes no price beyond its plan, which took in the ones the
+    // prices it holds go as: read past it, a price is left to the conversion.
+    const sample = state.sample;
+    if (sample?.drawn.has(node.objectApiName)) {
+      const planned = fetched.filter((row) =>
+        this.inThePlan(sample, node.objectApiName, String(row['Id'])),
+      );
+      fetched.length = 0;
+      fetched.push(...planned);
+    }
     const plan = settlePriceCurrencies(
       input,
       counted
@@ -15245,7 +15366,29 @@ export class ForgeExecutor {
     const currencies = await this.runCurrencies(state);
     if (!currencies) return undefined;
     const { target } = currencies;
-    const writtenIn = (code: string): string | undefined => {
+    const writtenIn = this.priceCurrencyWrittenIn(state, target);
+    return {
+      prices: records,
+      standardBookId: standardPricebookId,
+      sellingModels: state.sellingModels,
+      writtenIn,
+      active: target.active,
+    };
+  }
+
+  /**
+   * The currency a price read in `code` goes in when nothing asks another of
+   * it: the one the user mapped `code` to when the target holds it, the
+   * target's corporate currency otherwise — a price has no record type. What
+   * the settling of the prices reads (`priceCurrencyInput`), and the drawing
+   * of a sample, which takes into its plan the price each one in a currency
+   * the target does not hold goes as.
+   */
+  private priceCurrencyWrittenIn(
+    state: ExecutionState,
+    target: NonNullable<Awaited<ReturnType<ForgeExecutor['runCurrencies']>>>['target'],
+  ): (code: string) => string | undefined {
+    return (code) => {
       const probe: Record<string, unknown> = { [PRICEBOOK_ENTRY_CURRENCY_FIELD]: code };
       state.config.decisions.applyToRow(
         PRICEBOOK_ENTRY_OBJECT,
@@ -15256,13 +15399,6 @@ export class ForgeExecutor {
       const decided = probe[PRICEBOOK_ENTRY_CURRENCY_FIELD];
       if (typeof decided === 'string' && target.active.has(decided)) return decided;
       return replacementCurrency(undefined, target)?.to;
-    };
-    return {
-      prices: records,
-      standardBookId: standardPricebookId,
-      sellingModels: state.sellingModels,
-      writtenIn,
-      active: target.active,
     };
   }
 
