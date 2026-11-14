@@ -221,6 +221,39 @@ describe('GraphDiscoveryService', () => {
         undefined,
       );
     });
+
+    it('counts the records a query chooses to clone by its WHERE, no more than its LIMIT, and keeps the root when it chooses none', async () => {
+      // Sent with no filter, as the panel sends a query read as records, its
+      // root was counted as every record of the object.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Account' ? makeAccountDescribe() : makeContactDescribe(),
+      );
+      vi.mocked(deps.queryCount).mockResolvedValue(120);
+      const config = createConfig({
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: "SELECT Id FROM Account a WHERE a.Industry = 'X' LIMIT 50",
+        queryScope: 'records',
+        objectSoqlFilters: { Account: "Name != 'Y'" },
+        skipEmpty: true,
+      });
+
+      const graph = await service.discover(config);
+
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        "SELECT COUNT() FROM Account WHERE (Industry = 'X') AND (Name != 'Y')",
+        undefined,
+      );
+      expect(graph.nodes[0]).toMatchObject({ objectApiName: 'Account', recordCount: 50 });
+
+      vi.mocked(deps.queryCount).mockResolvedValue(0);
+      const none = await new GraphDiscoveryService(deps).discover({
+        ...config,
+        soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Z'",
+      });
+      expect(none.nodes[0]).toMatchObject({ recordCount: 0, included: true });
+    });
   });
 
   describe('discover from SOQL', () => {

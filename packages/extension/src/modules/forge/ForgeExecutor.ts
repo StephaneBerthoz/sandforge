@@ -19,6 +19,9 @@ import type {
   ForgePicklistValuesChanged,
   ForgeReadRecords,
   ForgeRemapObjectCounts,
+  ForgeRootsFrom,
+  ForgeRootsQuery,
+  ForgeRunRoots,
   ForgeWrittenBetween,
   ForgeWrittenWithoutFields,
   RecordTypeGiven,
@@ -322,6 +325,25 @@ import {
   type ForgeBulkWriteOptions,
 } from './forgeBulkWrite.js';
 import type { WholeOrgMeasures } from './ForgeRunGate.js';
+import { ForgeRunGateError, isForgeRunGateError } from './ForgeRunGate.js';
+import {
+  noRootsStop,
+  rootPlanRefusal,
+  rootsExceededStop,
+  rootsPlanGoneStop,
+  rootsPlanMismatchStop,
+  rootsQueryIssue,
+  rootsQueryRefusedStop,
+  rootsReadBoundStop,
+  rootsReadingBound,
+  rootsReadingStop,
+  rootsSha256,
+  rootsStatement,
+  isRootId,
+  sortedRootIds,
+  type ForgeRootsOptions,
+} from './stages/QueryRoots.js';
+import { ROOT_PLAN_MAX_AGE_MS, keepRootPlan, rootPlanAgeMs } from './roots/rootPlanStore.js';
 import {
   findUnavailableRecordTypes,
   parseRecordTypeCounts,
@@ -520,6 +542,19 @@ export interface ExecuteOptions {
   rootRecordId?: string;
   /** API name of the root object (resolved from the record ID prefix). */
   rootObjectApiName?: string;
+  /**
+   * Clone the records a query chooses, or records named one by one, each
+   * with what the clone of that record would copy, a shared one read and
+   * written once: record-scoped mode from many roots. They are read before
+   * anything else — or taken from a dry run's plan, or from the journal of
+   * the run this one resumes — and the run is refused, nothing written, for
+   * a query that chooses none or more than it takes, or a plan that is not
+   * its own (`ROOTS_*`), and for what they reach past the records it may
+   * hold or the requests it may send the source (`READ_BOUND_EXCEEDED`,
+   * `API_BUDGET_EXCEEDED`). See `stages/QueryRoots.ts`. `rootRecordId` is
+   * not read beside them.
+   */
+  roots?: ForgeRootsOptions;
   /**
    * A simulation: the run reads what a real run reads and takes every row
    * through the write stage a real run takes it through — the holds, the
@@ -1725,6 +1760,19 @@ export interface ExecutionSummary {
   /** Set on a simulation, which wrote nothing: see `ExecuteOptions.dryRun`. */
   dryRun?: true;
   /**
+   * Of a clone from records (`ExecuteOptions.roots`), what it did of its
+   * roots: see `ForgeRunRoots`. Absent from every other run.
+   */
+  roots?: ForgeRunRoots;
+  /**
+   * Of the same clone, the requests it had sent once every row was read,
+   * before its first write, each page and describe counted: what its bound
+   * on requests to the source weighed. The deps count the describes and the
+   * few reads of the target with them (`requestsSent`), so it is the source's
+   * at most. Absent from any other run, and when the deps count none.
+   */
+  reads?: { source: number };
+  /**
    * What a simulation found the target would refuse or change, row by row.
    * Absent from a real run.
    */
@@ -2204,6 +2252,32 @@ interface ReadIds {
  * that pass, before the catalog or after it. See `readUnderWhatWaited`.
  */
 type ReadLate = 'at its turn' | 'before the catalog' | 'after the catalog';
+
+/**
+ * The roots of a clone from records once chosen (`ExecutionState.roots`):
+ * where they came from and by what query, their ids once each and the
+ * SHA-256 of them, when they were read, and the bounds the read of what they
+ * reach is held to.
+ */
+interface ChosenRoots {
+  readonly objectApiName: string;
+  readonly from: ForgeRootsFrom;
+  readonly query?: ForgeRootsQuery;
+  readonly cap: number;
+  readonly ids: ReadonlySet<string>;
+  readonly sha256: string;
+  readonly readAt: string;
+  /** Taken from the journal of the run this one resumes, which names them already. */
+  readonly fromTheJournal: boolean;
+  /** A dry run's plan too old to take up, its query read again in its place: what it held. */
+  readonly readAgain?: { roots: number; readAt: string };
+  /** The most records the run reads in all. */
+  readonly readTotal: number;
+  /** The most requests its read sends the source (`rootsReadingBound`). */
+  readonly readingBound: number;
+  /** What the source had left today, as the caller read it; absent when it would not say. */
+  readonly sourceRequestsLeft?: number;
+}
 
 interface ExecutionState {
   /** Normalized stage configuration resolved from `ExecuteOptions`. */
@@ -2688,6 +2762,20 @@ interface ExecutionState {
   writtenBetween?: ForgeWrittenBetween;
   /** What the deps' `requestsSent` said as the run began; absent when they count none. */
   readonly requestsBefore: number | undefined;
+  /**
+   * Of a clone from records (`ExecuteOptions.roots`), its roots once chosen —
+   * read before anything else, taken from a plan or from the journal it
+   * resumes — with the bounds its read is held to. Absent from any other run.
+   */
+  readonly roots?: ChosenRoots;
+  /**
+   * Of the same clone, per object, the objects whose rows in scope its rows
+   * were read under (`NodeQuery.readUnder`): the hub a parent read by id
+   * makes of itself, said (`ForgeReadRecords.readUnder`).
+   */
+  readonly readUnder: Map<string, Set<string>>;
+  /** Of the same clone, the requests its read sent once every row was read: `ExecutionSummary.reads`. */
+  readRequests?: number;
   /**
    * The ids a simulation gave the rows it would have written, in place of the
    * target's: what lets their children be cleaned as a real run cleans them.
@@ -4105,6 +4193,7 @@ function idsTheClonesRowsName(state: ExecutionState): Set<string> {
         catalog &&
         typeof id === 'string' &&
         id !== state.config.rootRecordId &&
+        state.roots?.ids.has(id) !== true &&
         reached?.has(id) !== true
       ) {
         catalogRows.set(id, inHand);
@@ -4141,6 +4230,7 @@ function namedOnlyByRowsHeldBack(
 ): HeldForExclusion | undefined {
   const why = state.namedByRowsHeldBack.get(id);
   if (!why || needed.has(id) || id === state.config.rootRecordId) return undefined;
+  if (state.roots?.ids.has(id) === true) return undefined;
   if (id === state.standardPricebookId || state.config.writtenBefore.has(id)) return undefined;
   if (state.scopeCache?.reachedOf(objectApiName)?.has(id) === true) return undefined;
   return why;
@@ -5358,6 +5448,14 @@ export class ForgeExecutor {
       const unwired = this.fileCopyUnwired();
       if (unwired) throw new ForgeFilesRefusedError(unwired, 'FILES_NOT_COPYABLE');
     }
+    // The roots of a clone from records, before anything else is read: a
+    // query that chooses none, or more than the run takes, is refused having
+    // sent the source that one statement, and nothing else.
+    const roots = await this.chooseTheRoots(
+      resolved,
+      sourceOrgId,
+      resolved.dryRun ? undefined : resolved.stream?.store,
+    );
     // An owner mapping that gives records to a user the target holds inactive,
     // or holds no user of, is refused before anything is read, a simulation's
     // as a run's: the target refuses every record that user would own, and
@@ -5421,6 +5519,17 @@ export class ForgeExecutor {
     const store = config.dryRun ? undefined : config.stream?.store;
     const startedAt = new Date();
     store?.beginPart(startedAt);
+    // Named in the journal before the first write, as a sample's plan is: a
+    // part that takes the run up writes these roots, and reads no query again.
+    if (roots && store && !roots.fromTheJournal) {
+      store.nameRoots({
+        objectApiName: roots.objectApiName,
+        ids: [...roots.ids],
+        sha256: roots.sha256,
+        readAt: roots.readAt,
+        ...(roots.query ? { query: roots.query } : {}),
+      });
+    }
     // 2 000 smaller calls until a gate that read the target's requests allows fewer.
     const splitting = limitSplitting();
     const bulk = await this.bulkTransportOf(config, targetOrgId);
@@ -5567,6 +5676,8 @@ export class ForgeExecutor {
       emailsFirstPassRan: false,
       syncedQuotesLeft: 0,
       requestsBefore,
+      ...(roots ? { roots } : {}),
+      readUnder: new Map<string, Set<string>>(),
       simulated,
       gaps: config.dryRun ? new SimulationGaps() : null,
       decisionsApplied: new DecisionTally(),
@@ -5983,7 +6094,9 @@ export class ForgeExecutor {
   private async runPasses(state: ExecutionState): Promise<ExecutionSummary> {
     const { config, graph, sourceOrgId, targetOrgId, onProgress } = state;
 
-    if (state.scopeCache && config.rootRecordId && config.rootObjectApiName) {
+    if (state.scopeCache && state.roots && config.rootObjectApiName) {
+      state.scopeCache.add(config.rootObjectApiName, state.roots.ids);
+    } else if (state.scopeCache && config.rootRecordId && config.rootObjectApiName) {
       state.scopeCache.add(config.rootObjectApiName, [config.rootRecordId]);
     }
 
@@ -6327,6 +6440,13 @@ export class ForgeExecutor {
           this.holdBackWhatHeldRowsCost(state);
         } while (this.holdBackWhatOnlyRowsHeldBackName(state));
       }
+    }
+
+    // What the read of a clone from records sent, once every row is read:
+    // what its bound on requests to the source weighed (`reads.source`).
+    const requestsRead = this.deps.requestsSent?.();
+    if (state.roots && requestsRead !== undefined && state.requestsBefore !== undefined) {
+      state.readRequests = requestsRead - state.requestsBefore;
     }
 
     // The files of what was read, chosen and measured while nothing is
@@ -6934,6 +7054,198 @@ export class ForgeExecutor {
     const ceiling = this.streamsNode(node, state) ? state.config.stream?.ceiling : undefined;
     if (capped === undefined) return ceiling;
     return ceiling === undefined ? capped : Math.min(capped, ceiling);
+  }
+
+  /**
+   * The roots of a clone from records (`ExecuteOptions.roots`), chosen before
+   * anything else is read: those the journal of the run this one resumes
+   * names; a dry run's plan, when it is of this source, this query and these
+   * ids, and less than a day old; the ids named; or those the query chooses,
+   * read by one statement of the run's own (`rootsStatement`). Those read
+   * now are kept where the caller says (`keepAt`), for the run after a dry
+   * run to take up.
+   *
+   * Refused, nothing written: a query that cannot choose them, one that
+   * chooses none or more than the run takes, a plan of another source, query
+   * or ids, a resume whose journal names no roots — and a run without roots
+   * that resumes one whose journal names some, which would read whole what
+   * the earlier part read from its roots.
+   */
+  private async chooseTheRoots(
+    config: ForgeStageConfig,
+    sourceOrgId: string,
+    store: ForgeRunStore | undefined,
+  ): Promise<ChosenRoots | undefined> {
+    const asked = config.roots;
+    const resumes = store?.resumes === true;
+    const named = resumes ? store?.roots : undefined;
+    if (!asked) {
+      if (named)
+        throw ForgeRunGateError.of(rootsPlanMismatchStop(named.objectApiName, 'otherQuery'));
+      return undefined;
+    }
+    const { objectApiName, cap } = asked;
+    const bounds = {
+      cap,
+      readTotal: asked.readTotal,
+      readingBound: rootsReadingBound(asked.sourceRequestsLeft),
+      ...(asked.sourceRequestsLeft !== undefined
+        ? { sourceRequestsLeft: asked.sourceRequestsLeft }
+        : {}),
+    };
+    if (resumes) {
+      if (!named) throw ForgeRunGateError.of(rootsPlanGoneStop(objectApiName));
+      if (named.objectApiName.toLowerCase() !== objectApiName.toLowerCase()) {
+        throw ForgeRunGateError.of(rootsPlanMismatchStop(objectApiName, 'otherQuery'));
+      }
+      if (rootsSha256(named.ids) !== named.sha256) {
+        throw ForgeRunGateError.of(rootsPlanMismatchStop(objectApiName, 'changed'));
+      }
+      return {
+        objectApiName,
+        from: 'plan',
+        ...(named.query ? { query: named.query } : {}),
+        ids: new Set(named.ids),
+        sha256: named.sha256,
+        readAt: named.readAt,
+        fromTheJournal: true,
+        ...bounds,
+      };
+    }
+    let readAgain: ChosenRoots['readAgain'];
+    const plan = asked.plan;
+    if (plan) {
+      const refusal = rootPlanRefusal(plan, {
+        sourceOrgId,
+        objectApiName,
+        ...(asked.query ? { query: asked.query } : {}),
+        ...(asked.ids ? { ids: asked.ids } : {}),
+      });
+      if (refusal) throw ForgeRunGateError.of(rootsPlanMismatchStop(objectApiName, refusal));
+      // Past a day, the records its query chose may be others: read again,
+      // and said. Ids named one by one are the same ids whenever.
+      if (rootPlanAgeMs(plan, new Date()) < ROOT_PLAN_MAX_AGE_MS || asked.query === undefined) {
+        return {
+          objectApiName,
+          from: 'plan',
+          ...(plan.query ? { query: plan.query } : {}),
+          ids: new Set(plan.ids),
+          sha256: plan.sha256,
+          readAt: plan.readAt,
+          fromTheJournal: false,
+          ...bounds,
+        };
+      }
+      readAgain = { roots: plan.ids.length, readAt: plan.readAt };
+    }
+    let ids: string[];
+    let from: ForgeRootsFrom;
+    if (asked.ids !== undefined) {
+      const notIds = asked.ids.filter((id) => !isRootId(id));
+      if (notIds.length > 0) {
+        throw ForgeRunGateError.of({
+          code: 'ROOTS_QUERY_REFUSED',
+          message:
+            `${JSON.stringify(notIds[0]?.slice(0, 40))} is not the id of a record: name each ` +
+            `${objectApiName} record by its 15- or 18-character id. Nothing was read or written.`,
+          roots: { objectApiName },
+        });
+      }
+      ids = sortedRootIds(asked.ids);
+      from = 'records';
+      if (ids.length > cap) throw ForgeRunGateError.of(rootsExceededStop(objectApiName, cap, from));
+    } else if (asked.query !== undefined) {
+      const issue = rootsQueryIssue(asked.query);
+      if (issue) throw ForgeRunGateError.of(rootsQueryRefusedStop(issue, objectApiName));
+      const rows = await this.deps.queryRecords(
+        sourceOrgId,
+        rootsStatement(objectApiName, asked.query, config.objectSoqlFilters?.[objectApiName], cap),
+      );
+      ids = sortedRootIds(
+        rows.flatMap((row) => (typeof row['Id'] === 'string' ? [row['Id']] : [])),
+      );
+      from = 'query';
+      if (ids.length > cap) throw ForgeRunGateError.of(rootsExceededStop(objectApiName, cap, from));
+    } else {
+      throw new Error(
+        `Internal error: the roots of ${objectApiName} were asked with neither a query nor ids.`,
+      );
+    }
+    if (ids.length === 0) {
+      throw ForgeRunGateError.of(noRootsStop(objectApiName, asked.query, cap));
+    }
+    const readAt = new Date().toISOString();
+    if (asked.keepAt !== undefined) {
+      await keepRootPlan(asked.keepAt, {
+        sourceOrgId,
+        fingerprint: asked.fingerprint ?? '',
+        objectApiName,
+        ...(asked.query ? { query: asked.query } : {}),
+        from: from === 'records' ? 'records' : 'query',
+        readAt,
+        ids,
+      });
+    }
+    return {
+      objectApiName,
+      from,
+      ...(asked.query ? { query: asked.query } : {}),
+      ids: new Set(ids),
+      sha256: rootsSha256(ids),
+      readAt,
+      fromTheJournal: false,
+      ...(readAgain ? { readAgain } : {}),
+      ...bounds,
+    };
+  }
+
+  /**
+   * Of a clone from records, hold what it is about to send the source to the
+   * requests its read may: those sent since the run began, and `statements`
+   * more for `objectApiName`. Past the bound, refused (`API_BUDGET_EXCEEDED`,
+   * of the source), before the statements go and with nothing written —
+   * every read of such a run comes before its first write. Deps that count
+   * no request hold nothing.
+   */
+  private holdTheRootsReading(
+    state: ExecutionState,
+    objectApiName: string,
+    statements: number,
+  ): void {
+    const roots = state.roots;
+    const now = this.deps.requestsSent?.();
+    if (!roots || now === undefined || state.requestsBefore === undefined) return;
+    const sent = now - state.requestsBefore;
+    if (sent + statements <= roots.readingBound) return;
+    throw ForgeRunGateError.of(
+      rootsReadingStop({
+        roots: roots.ids.size,
+        bound: roots.readingBound,
+        sent,
+        next: statements,
+        objectApiName,
+        sourceRequestsLeft: roots.sourceRequestsLeft,
+      }),
+    );
+  }
+
+  /**
+   * Of a clone from records, hold the records it has read to the most it may
+   * hold before it writes, once `objectApiName` is read: past it, refused
+   * (`READ_BOUND_EXCEEDED`), the objects read named with their rows, the one
+   * just read last. Nothing is written by then.
+   */
+  private holdTheRootsRows(state: ExecutionState, objectApiName: string): void {
+    const roots = state.roots;
+    if (!roots) return;
+    let total = 0;
+    for (const rows of state.readByObject.values()) total += rows;
+    if (total <= roots.readTotal) return;
+    const objects = [...state.readByObject]
+      .filter(([name]) => name !== objectApiName)
+      .map(([name, rows]) => ({ objectApiName: name, rows }));
+    objects.push({ objectApiName, rows: state.readByObject.get(objectApiName) ?? 0 });
+    throw ForgeRunGateError.of(rootsReadBoundStop(roots.ids.size, roots.readTotal, objects));
   }
 
   /**
@@ -11138,6 +11450,7 @@ export class ForgeExecutor {
       readByObject: [...state.readByObject].map(([objectApiName, read]) => ({
         objectApiName,
         read,
+        ...this.originOf(state, objectApiName, read),
       })),
       failedReads: [...state.failedReads],
       ...(state.files ? { files: structuredClone(state.files) } : {}),
@@ -11193,6 +11506,113 @@ export class ForgeExecutor {
         : {}),
       ...(mayHaveBeenWritten.length > 0 ? { mayHaveBeenWritten } : {}),
       ...sampleResultOrNothing(this.sampleResultOf(state)),
+      ...(state.roots ? { roots: this.rootsResultOf(state, state.roots) } : {}),
+      ...(state.roots && state.readRequests !== undefined
+        ? { reads: { source: state.readRequests } }
+        : {}),
+    };
+  }
+
+  /**
+   * Of a clone from records, how an object's rows read came in: its roots,
+   * the rows reached from above under a record of the clone, and the others,
+   * read because a row of the clone names them; and the objects its rows were
+   * read under. Nothing for any other run.
+   */
+  private originOf(
+    state: ExecutionState,
+    objectApiName: string,
+    read: number,
+  ): Pick<ForgeReadRecords, 'origin' | 'readUnder'> {
+    const roots = state.roots;
+    if (!roots) return {};
+    const isRootObject = objectApiName === state.config.rootObjectApiName;
+    let rootRows = 0;
+    if (isRootObject) for (const id of roots.ids) if (state.idsRead.has(id)) rootRows++;
+    rootRows = Math.min(rootRows, read);
+    let reached = 0;
+    for (const id of state.scopeCache?.reachedOf(objectApiName) ?? []) {
+      if (!(isRootObject && roots.ids.has(id))) reached++;
+    }
+    const under = Math.min(reached, read - rootRows);
+    const readUnder = state.readUnder.get(objectApiName);
+    return {
+      origin: { roots: rootRows, under, named: read - rootRows - under },
+      ...(readUnder && readUnder.size > 0 ? { readUnder: [...readUnder] } : {}),
+    };
+  }
+
+  /**
+   * What a clone from records did of its roots: those it set out with, read,
+   * gone from the source since they were chosen, written — would be, on a
+   * dry run —, linked to a record the target held, and refused, each with the
+   * first word its object's errors give.
+   */
+  private rootsResultOf(state: ExecutionState, roots: ChosenRoots): ForgeRunRoots {
+    const gone: string[] = [];
+    const failed: ForgeRunRoots['failed'] = [];
+    let read = 0;
+    let written = 0;
+    let linked = 0;
+    const reason =
+      state.errors
+        .find((error) => error.objectApiName === roots.objectApiName)
+        ?.samples.flatMap((sample) => sample.messages)[0] ?? 'not written';
+    const updated = new Set(state.remapper.updatedSourceIds());
+    // A person account's contact goes in with its account, never on its own:
+    // a root of it is written so, or would be, on a dry run that holds it.
+    const withTheirRecord = new Set(withTheirRecordOf(state));
+    const rootRows = new Map(
+      (state.preread.get(roots.objectApiName)?.records ?? []).map((row) => [
+        String(row['Id']),
+        row,
+      ]),
+    );
+    const withTheirAccountOnADryRun = (id: string): boolean => {
+      const row = rootRows.get(id);
+      return (
+        state.simulated !== null &&
+        roots.objectApiName === CONTACT &&
+        row !== undefined &&
+        isPersonAccountRow(row) &&
+        !state.contactsOnTheirOwn.has(id) &&
+        typeof row['AccountId'] === 'string' &&
+        state.remapper.wasCreated(row['AccountId'])
+      );
+    };
+    let withTheirAccount = 0;
+    for (const id of roots.ids) {
+      if (!state.idsRead.has(id)) {
+        gone.push(id);
+        continue;
+      }
+      read++;
+      if (state.remapper.wasCreated(id) || updated.has(id)) {
+        written++;
+      } else if (withTheirRecord.has(id) || withTheirAccountOnADryRun(id)) {
+        written++;
+        withTheirAccount++;
+      } else if (state.remapper.isExisting(id)) {
+        linked++;
+      } else {
+        failed.push({ id, reason });
+      }
+    }
+    return {
+      objectApiName: roots.objectApiName,
+      from: roots.from,
+      ...(roots.query ? { query: { ...roots.query } } : {}),
+      cap: roots.cap,
+      asked: roots.ids.size,
+      read,
+      gone,
+      written,
+      linked,
+      failed,
+      sha256: roots.sha256,
+      readAt: roots.readAt,
+      ...(roots.readAgain ? { readAgain: { ...roots.readAgain } } : {}),
+      ...(withTheirAccount > 0 ? { withTheirAccount } : {}),
     };
   }
 
@@ -11800,6 +12220,7 @@ export class ForgeExecutor {
       scopeCache: state.scopeCache,
       rootObjectApiName: state.config.rootObjectApiName,
       rootRecordId: state.config.rootRecordId,
+      rootRecordIds: state.roots?.ids,
       extraWhere: state.config.objectSoqlFilters?.[node.objectApiName],
       fieldsLeftOut: state.config.fieldExclusions[node.objectApiName],
       readObjects: state.readObjects,
@@ -12349,6 +12770,7 @@ export class ForgeExecutor {
       ids: wanted.ids,
       extraWhere: config.objectSoqlFilters?.[parent],
     });
+    this.holdTheRootsReading(state, parent, statements.length);
     let read: Record<string, unknown>[];
     try {
       read = await queryNodeRecords(
@@ -12450,6 +12872,7 @@ export class ForgeExecutor {
       parent,
       (state.readByObject.get(parent) ?? 0) + fresh.length + heldNow.length,
     );
+    this.holdTheRootsRows(state, parent);
     if (config.dryRun) {
       const withTheirAccount =
         fresh.length > 0
@@ -12566,6 +12989,7 @@ export class ForgeExecutor {
         scopeCache: state.scopeCache,
         rootObjectApiName: config.rootObjectApiName,
         rootRecordId: config.rootRecordId,
+        rootRecordIds: state.roots?.ids,
         extraWhere: withTheWhereOfAPass(this.filterOf(state, node.objectApiName), cursor?.pass),
         fieldsLeftOut: config.fieldExclusions[node.objectApiName],
         maxRecordsPerObject: cursor
@@ -12629,6 +13053,16 @@ export class ForgeExecutor {
             : [];
         this.reportNotCreatable(node, state, held.length > 0);
         return false;
+      }
+
+      // A clone from records holds its read to the requests it may send the
+      // source, before the node's statements go; and says what each object
+      // was read under.
+      this.holdTheRootsReading(state, node.objectApiName, query.statements.length);
+      if (state.roots && query.readUnder) {
+        const under = state.readUnder.get(node.objectApiName) ?? new Set<string>();
+        for (const parent of query.readUnder) under.add(parent);
+        state.readUnder.set(node.objectApiName, under);
       }
 
       // The target describe does not depend on the source rows, so it runs
@@ -12913,6 +13347,9 @@ export class ForgeExecutor {
           (cursor ? cursor.carry.rows : records.length) + (heldOfNode?.size ?? 0),
         );
       }
+      // Of a clone from records, the records read so far against the most it
+      // may hold before it writes.
+      this.holdTheRootsRows(state, node.objectApiName);
 
       // Held for the write pass: a simulation's too, which takes them through
       // it with a writer that writes nothing.
@@ -12954,7 +13391,11 @@ export class ForgeExecutor {
       // An abort is a control-flow signal, not a node failure. Recording it as
       // one and continuing is what let a cancelled run carry on writing. Nor
       // is a whole read a clone of the whole org cut short: the run stops.
-      if (err instanceof ForgeAbortedError || err instanceof WholeReadPastBoundError) {
+      if (
+        err instanceof ForgeAbortedError ||
+        err instanceof WholeReadPastBoundError ||
+        isForgeRunGateError(err)
+      ) {
         throw err;
       }
       // Never going to be written, it is read only to know whether the clone
@@ -15023,6 +15464,7 @@ export class ForgeExecutor {
           scopeCache: cache,
           rootObjectApiName: config.rootObjectApiName,
           rootRecordId: config.rootRecordId,
+          rootRecordIds: state.roots?.ids,
           extraWhere,
           fieldsLeftOut: config.fieldExclusions[objectApiName],
           readObjects: state.readObjects,
@@ -15152,6 +15594,7 @@ export class ForgeExecutor {
           scopeCache: cache,
           rootObjectApiName: config.rootObjectApiName,
           rootRecordId: config.rootRecordId,
+          rootRecordIds: state.roots?.ids,
           extraWhere,
           fieldsLeftOut: config.fieldExclusions[objectApiName],
           readObjects: state.readObjects,
@@ -15234,6 +15677,7 @@ export class ForgeExecutor {
     const held = new Set(wasRead ? (cache.scopeOf(objectApiName) ?? []) : []);
     const unheld = (row: Record<string, unknown>): boolean =>
       typeof row['Id'] !== 'string' || !held.has(row['Id']);
+    this.holdTheRootsReading(state, objectApiName, statements.length);
     let fresh: Record<string, unknown>[];
     try {
       const rows = await queryNodeRecords(
@@ -15333,6 +15777,7 @@ export class ForgeExecutor {
         objectApiName,
         (state.readByObject.get(objectApiName) ?? 0) + added + heldNow.length,
       );
+      this.holdTheRootsRows(state, objectApiName);
       if (config.dryRun) {
         // Said of the rows a read of the object would say it of: the contact
         // of a person account read late is the platform's to write, as one
@@ -15357,7 +15802,7 @@ export class ForgeExecutor {
         });
       }
     } catch (err) {
-      if (err instanceof ForgeAbortedError) throw err;
+      if (err instanceof ForgeAbortedError || isForgeRunGateError(err)) throw err;
       state.errors.push({
         objectApiName,
         stage: 'query',

@@ -7,7 +7,12 @@
  * inline defaults (`?? false`, `?? 20`, …) throughout the executor.
  */
 
-import { BYTES_PER_MB, FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  FILE_COPY_CEILING_MB,
+  FILE_COPY_DEFAULT_MAX_MB,
+  FORGE_ROOTS_DEFAULT,
+} from '@sandforge/shared';
 import type { ForgeRecordTypeMapping } from '@sandforge/shared';
 import type {
   ExecuteOptions,
@@ -19,6 +24,7 @@ import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
 import type { ForgeRunStore } from '../ForgeRunStore.js';
 import { RunDecisions } from './RunDecisions.js';
+import { rootsCapOf, rootsReadTotalOf, type ForgeRootsOptions } from './QueryRoots.js';
 
 /**
  * What the runs this one retries or resumes wrote: the mappings the run
@@ -75,7 +81,10 @@ export class WrittenBefore implements Iterable<[string, string]> {
 
 /** Normalized configuration consumed by the execution stages. */
 export interface ForgeStageConfig {
-  /** True when both rootRecordId and rootObjectApiName are set — record-scoped mode. */
+  /**
+   * Record-scoped mode: a root object, and the record the run starts from
+   * (`rootRecordId`) or the records a query chose (`roots`).
+   */
   readonly isScoped: boolean;
   /** A simulation: every stage a real run goes through, with a writer that writes nothing. */
   readonly dryRun: boolean;
@@ -89,6 +98,13 @@ export interface ForgeStageConfig {
   readonly rootRecordId?: string;
   /** API name of the root object (scoped mode only). */
   readonly rootObjectApiName?: string;
+  /**
+   * The records a query chose, or records named one by one, as the run's
+   * roots (`ExecuteOptions.roots`), their cap held to 1 … `FORGE_ROOTS_MAX`
+   * and their read total set. Absent from a clone of one record, and from a
+   * run of whole tables.
+   */
+  readonly roots?: ForgeRootsOptions & { readonly readTotal: number };
   /** Cross-org RecordType ID translations (matched by `developerName`). */
   readonly recordTypeMappings?: RecordTypeMapping[];
   /** Per-object hard cap on records to clone (appended as `LIMIT N`). */
@@ -189,13 +205,25 @@ function positiveWhole(value: number | undefined): number | undefined {
  * Pure — no I/O, no side effects.
  */
 export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeStageConfig {
-  const isScoped = !!(options?.rootRecordId && options.rootObjectApiName);
+  const roots = options?.roots;
+  const rootObjectApiName = options?.rootObjectApiName ?? roots?.objectApiName;
+  const isScoped = !!(rootObjectApiName && (options?.rootRecordId || roots));
   return {
     isScoped,
     dryRun: options?.dryRun ?? false,
     referenceFallback: options?.referenceFallback ?? (isScoped ? 'nullify' : 'keep'),
     rootRecordId: options?.rootRecordId,
-    rootObjectApiName: options?.rootObjectApiName,
+    rootObjectApiName,
+    ...(roots && rootObjectApiName
+      ? {
+          roots: {
+            ...roots,
+            objectApiName: rootObjectApiName,
+            cap: rootsCapOf(roots.cap, FORGE_ROOTS_DEFAULT),
+            readTotal: rootsReadTotalOf(roots.readTotal),
+          },
+        }
+      : {}),
     recordTypeMappings: options?.recordTypeMappings,
     maxRecordsPerObject: options?.maxRecordsPerObject,
     referenceDataObjects: new Set(

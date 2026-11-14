@@ -80,6 +80,10 @@ export function forgeCaseKey(graph: Pick<ForgeGraph, 'nodes'>, config: ForgeConf
     config.templateId ?? null,
     config.aiPrompt ?? null,
     graph.nodes.map((node) => node.objectApiName).sort(),
+    // A query that clones its records reads other rows than the same query
+    // read as tables: another case, whose simulation stands for its run
+    // alone. Read as tables, the key stays as it was.
+    ...(config.queryScope === 'records' ? ['records'] : []),
   ]);
 }
 

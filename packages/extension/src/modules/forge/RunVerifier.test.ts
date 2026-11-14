@@ -255,6 +255,38 @@ describe('RunVerifier', () => {
     expect(target.asked.queryAlls).toEqual([]);
   });
 
+  it('says how many of the roots of a clone from records the target holds, one linked to among them', async () => {
+    const { target, source, run } = scenario();
+    const gone = tid('003', 3);
+    const verification = await new RunVerifier({ target, source }).verify(
+      {
+        ...run,
+        records: [
+          { objectApiName: 'Contact', ids: [tid('003', 2), tid('003', 1), gone] },
+          { objectApiName: 'Account', ids: [tid('001', 1)] },
+        ],
+        remapTable: { ...run.remapTable, [sid('003', 3)]: gone },
+        roots: {
+          objectApiName: 'Contact',
+          sourceIds: [sid('003', 1), sid('003', 2), sid('003', 3), sid('003', 8)],
+        },
+      },
+      NO_WAIT,
+    );
+    // The fourth root was never written: it is none of the three.
+    expect(verification.roots).toEqual({ inTarget: 2, of: 3 });
+
+    const { run: plain } = scenario();
+    const linked = await new RunVerifier({ target, source }).verify(
+      { ...plain, roots: { objectApiName: 'Account', sourceIds: [sid('001', 1), sid('001', 9)] } },
+      NO_WAIT,
+    );
+    expect(linked.roots).toEqual({ inTarget: 2, of: 2 });
+    expect(
+      (await new RunVerifier({ target, source }).verify(plain, NO_WAIT)).roots,
+    ).toBeUndefined();
+  });
+
   it('counts the records it could not look for in the recycle bin as out of sight, and says why', async () => {
     const { source, run } = scenario();
     const org = fakeOrg({

@@ -453,6 +453,7 @@ export function forgeVolumeCaseKey(
     | 'inputMode'
     | 'recordId'
     | 'soqlQuery'
+    | 'queryScope'
     | 'templateId'
     | 'aiPrompt'
   >,
@@ -465,6 +466,10 @@ export function forgeVolumeCaseKey(
     config.soqlQuery ?? null,
     config.templateId ?? null,
     config.aiPrompt ?? null,
+    // A query that clones its records reads other rows than the same query
+    // read as tables: another case. Read as tables, the key stays as it was,
+    // and a simulation kept before 1.81.0 still stands for its run.
+    ...(config.queryScope === 'records' ? ['records'] : []),
   ]);
 }
 
@@ -1416,6 +1421,8 @@ export interface ForgeGateStop {
   readBound?: NonNullable<ForgeRunGateStop['readBound']>;
   /** For a sample of the whole org refused: what the stop names of it (`ForgeRunGateStop.sample`). */
   sample?: NonNullable<ForgeRunGateStop['sample']>;
+  /** For a clone from the records a query chose refused for them: see `ForgeRunGateStop.roots`. */
+  roots?: NonNullable<ForgeRunGateStop['roots']>;
 }
 
 /** The objects a refusal for objects read whole names, at most, as the page reads it. */
@@ -3693,6 +3700,11 @@ export class ForgeRunGateError extends Error {
   readonly readBound?: NonNullable<ForgeRunGateStop['readBound']>;
   /** For a sample of the whole org refused: what the stop names of it. */
   readonly sample?: NonNullable<ForgeRunGateStop['sample']>;
+  /**
+   * For a clone from the records a query chose refused for them: their
+   * object, the most it takes, and what is wrong with their plan.
+   */
+  readonly roots?: NonNullable<ForgeRunGateStop['roots']>;
 
   constructor(
     code: ForgeRunGateErrorCode,
@@ -3700,7 +3712,7 @@ export class ForgeRunGateError extends Error {
     storage?: NonNullable<ForgeRunGateStop['storage']>,
     ceiling?: number,
     reason?: CheckpointRefusalCode,
-    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound' | 'sample'>,
+    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound' | 'sample' | 'roots'>,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
@@ -3711,6 +3723,7 @@ export class ForgeRunGateError extends Error {
     if (detail?.api) this.api = detail.api;
     if (detail?.readBound) this.readBound = detail.readBound;
     if (detail?.sample) this.sample = detail.sample;
+    if (detail?.roots) this.roots = detail.roots;
   }
 
   /**
@@ -3734,6 +3747,7 @@ export class ForgeRunGateError extends Error {
         ...(stop.api ? { api: stop.api } : {}),
         ...(stop.readBound ? { readBound: stop.readBound } : {}),
         ...(stop.sample ? { sample: stop.sample } : {}),
+        ...(stop.roots ? { roots: stop.roots } : {}),
       },
     );
   }
@@ -3753,9 +3767,19 @@ export class ForgeRunGateError extends Error {
         ? { readBound: this.readBound }
         : {}),
       ...(this.sample ? { sample: this.sample } : {}),
+      ...(this.roots && ROOTS_STOP_CODES.has(this.code) ? { roots: this.roots } : {}),
     };
   }
 }
+
+/** The codes of a clone from records' own stops: those that name its roots. */
+const ROOTS_STOP_CODES: ReadonlySet<string> = new Set([
+  'ROOTS_QUERY_REFUSED',
+  'NO_ROOTS',
+  'ROOTS_EXCEEDED',
+  'ROOTS_PLAN_MISMATCH',
+  'ROOTS_PLAN_GONE',
+] as const satisfies ReadonlyArray<ForgeRunGateCode>);
 
 /**
  * Whether `error` is a run's gate stop. Read by its name as well as its class:

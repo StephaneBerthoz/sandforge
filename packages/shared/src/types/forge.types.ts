@@ -2510,6 +2510,13 @@ export interface ForgeRunVerification {
    * that org could not be read. Absent when they were checked.
    */
   linksUnchecked?: string;
+  /**
+   * Of a clone from records (`ForgeExecutionResult.roots`), its roots the
+   * run wrote or linked to (`of`), and of them those the target holds
+   * (`inTarget`): a root it created read back, or one it linked to. Absent
+   * from any other run, and when the roots' object could not be read back.
+   */
+  roots?: { inTarget: number; of: number };
 }
 
 /**
@@ -2567,6 +2574,18 @@ export interface ForgeRunRoots {
   failed: Array<{ id: string; reason: string }>;
   sha256: string;
   readAt: string;
+  /**
+   * The roots a dry run kept, given to the run more than a day after they
+   * were read, which read its query again in their place: how many there
+   * were, and when they were read. Absent when no such plan was given.
+   */
+  readAgain?: { roots: number; readAt: string };
+  /**
+   * Of `written`, the roots the platform wrote with their person account,
+   * which the run wrote in their place — a contact of a person account is
+   * never sent on its own. Absent when there were none.
+   */
+  withTheirAccount?: number;
 }
 
 /**

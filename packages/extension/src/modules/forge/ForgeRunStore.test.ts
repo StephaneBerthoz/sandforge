@@ -603,4 +603,40 @@ describe('ForgeRunStore', () => {
       expect(taken.resumes).toBe(false);
     });
   });
+
+  describe('the roots of a clone from records', () => {
+    const SHA = 'b'.repeat(64);
+    const roots = {
+      objectApiName: 'Account',
+      ids: ['001S00000000001AAA', '001S00000000002AAA'],
+      sha256: SHA,
+      readAt: '2026-11-14T10:00:00.000Z',
+      query: { where: "Industry = 'Energy'", limit: 50 },
+    };
+
+    it('names them in the journal at once, and a part that takes the run up reads them back, the last named', () => {
+      const { store, file } = freshStore();
+      expect(store.roots).toBeUndefined();
+      store.nameRoots(roots);
+      expect(file.text()).toContain('{"roots":{"objectApiName":"Account"');
+      store.nameRoots({ ...roots, ids: [roots.ids[0]] });
+
+      const taken = ForgeRunStore.open(memoryRunFile(file.text()));
+      expect(taken.roots).toEqual({ ...roots, ids: [roots.ids[0]] });
+      expect(taken.partCount).toBe(1);
+      expect(taken.resumes).toBe(false);
+    });
+
+    it('reads none from a line that does not read as roots, and refuses to name what is not', () => {
+      const lines = [
+        '{"run":{"journalId":"j"}}',
+        `{"roots":{"objectApiName":"Account","ids":["x' OR 1"],"sha256":"${SHA}","readAt":"2026-11-14"}}`,
+        `{"roots":{"objectApiName":"Account","ids":[],"sha256":"abc","readAt":"2026-11-14"}}`,
+        '{"roots":"Account"}',
+      ];
+      const store = ForgeRunStore.open(memoryRunFile(`${lines.join('\n')}\n`));
+      expect(store.roots).toBeUndefined();
+      expect(() => store.nameRoots({ ...roots, sha256: 'abc' })).toThrow(/roots/);
+    });
+  });
 });

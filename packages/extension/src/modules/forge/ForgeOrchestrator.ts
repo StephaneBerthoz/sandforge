@@ -7,7 +7,13 @@ import type {
   ForgePlan,
   ForgeWriteOptions,
 } from '@sandforge/shared';
-import { BYTES_PER_MB, FORGE_READ_CEILING_PER_OBJECT, leftOutByTheUser } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  FORGE_READ_CEILING_PER_OBJECT,
+  FORGE_ROOTS_DEFAULT,
+  isRecordScoped,
+  leftOutByTheUser,
+} from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import {
   WHOLE_ORG_WINDOW,
@@ -26,6 +32,12 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { finishedRunStatus, forgeRunResult } from './runResult.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import { runDecisionsOf } from './stages/RunDecisions.js';
+import { ForgeRunGateError } from './ForgeRunGate.js';
+import {
+  rootsQueryOf,
+  rootsQueryRefusedStop,
+  type ForgeRootsOptions,
+} from './stages/QueryRoots.js';
 
 /** Events emitted by ForgeOrchestrator during operation. */
 type ForgeEvents = {
@@ -149,6 +161,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       config.anonymizePII ? 'anonPII' : '',
       config.expandOrphanParents ? 'orphan' : '',
       config.maxRecordsPerObject ?? '',
+      // The same query counts its root by its WHERE, read as records, and
+      // its LIMIT bounds that count: another graph than the tables'.
+      config.queryScope ?? '',
+      config.maxRoots ?? '',
     ].join('::');
   }
 
@@ -339,6 +355,18 @@ export type ForgeRunOptions = Pick<
   ExecuteOptions,
   'recordTypeMappings' | 'writtenBefore' | 'beforeWrite' | 'stream'
 > & {
+  /**
+   * Of a clone from records (`isRecordScoped`), what its caller hands over
+   * beside its config: the ids named one by one in place of a query (the
+   * command line's repeated `--record`), a dry run's plan to take up, where
+   * to keep the roots read, the fingerprint kept with them, what the source
+   * has left today, and a lower bound on the records read in all
+   * (`--max-read-total`). See `ExecuteOptions.roots`.
+   */
+  roots?: Pick<
+    ForgeRootsOptions,
+    'ids' | 'plan' | 'keepAt' | 'fingerprint' | 'sourceRequestsLeft' | 'readTotal'
+  >;
   anonymizationRules?: ForgeAnonymizationMethods;
   files?: ForgeFileCopyOption;
   /**
@@ -478,11 +506,17 @@ export function forgeExecuteOptions(
   // Only said when the user keeps them: absent, the executor neutralizes
   // every email address and phone number it writes.
   const keepContactPoints = config.keepContactPoints === true ? true : undefined;
+  // A clone from the records a query chose, or from records named one by
+  // one: each with what the clone of that record copies. Its query's WHERE
+  // chooses the roots alone, never as a filter of every read of their object
+  // — a parent of that object a clone's record names is read as a parent —,
+  // and the object's own filter goes on as a clone of one record takes it.
+  const roots = rootsOf(graph, config, runOptions?.roots);
   const scoped: ExecuteOptions | undefined =
-    config.inputMode === 'record' && typeof config.recordId === 'string'
+    roots || (config.inputMode === 'record' && typeof config.recordId === 'string')
       ? {
-          rootRecordId: config.recordId,
-          rootObjectApiName: graph.nodes[0]?.objectApiName,
+          ...(roots ? { roots } : { rootRecordId: config.recordId }),
+          rootObjectApiName: roots?.objectApiName ?? graph.nodes[0]?.objectApiName,
           expandOrphanParents: config.expandOrphanParents,
           maxRecordsPerObject: config.maxRecordsPerObject,
           fieldExclusions: config.fieldExclusions,
@@ -538,4 +572,48 @@ export function forgeExecuteOptions(
           }
         : undefined;
   return scoped;
+}
+
+/**
+ * The roots a run of `config` clones from (`ExecuteOptions.roots`): of a
+ * query read as records (`isRecordScoped`), its WHERE, ORDER BY and LIMIT
+ * on the object of the graph's root, the most it takes (`maxRoots`), and
+ * what the caller hands over; of a clone of one record handed ids one by
+ * one, those ids. Nothing for any other run.
+ *
+ * @throws {ForgeRunGateError} `ROOTS_QUERY_REFUSED` for a query that cannot
+ *   choose the records a clone takes: nothing was read.
+ */
+function rootsOf(
+  graph: ForgeGraph,
+  config: ForgeConfig,
+  given: ForgeRunOptions['roots'],
+): ForgeRootsOptions | undefined {
+  const cap = config.maxRoots ?? FORGE_ROOTS_DEFAULT;
+  const rootNode = graph.nodes.find((node) => node.level === 0) ?? graph.nodes[0];
+  const handed = {
+    ...(given?.plan ? { plan: given.plan } : {}),
+    ...(given?.keepAt !== undefined ? { keepAt: given.keepAt } : {}),
+    ...(given?.fingerprint !== undefined ? { fingerprint: given.fingerprint } : {}),
+    ...(given?.sourceRequestsLeft !== undefined
+      ? { sourceRequestsLeft: given.sourceRequestsLeft }
+      : {}),
+    ...(given?.readTotal !== undefined ? { readTotal: given.readTotal } : {}),
+  };
+  if (config.inputMode === 'record' && given?.ids !== undefined) {
+    const objectApiName = rootNode?.objectApiName;
+    if (objectApiName === undefined) return undefined;
+    return { objectApiName, ids: [...given.ids], cap, ...handed };
+  }
+  if (!isRecordScoped(config) || config.inputMode !== 'soql') return undefined;
+  const read = rootsQueryOf(config.soqlQuery ?? '');
+  if ('issue' in read) {
+    throw ForgeRunGateError.of(rootsQueryRefusedStop(read.issue, rootNode?.objectApiName));
+  }
+  return {
+    objectApiName: rootNode?.objectApiName ?? read.objectApiName,
+    query: read.query,
+    cap,
+    ...handed,
+  };
 }

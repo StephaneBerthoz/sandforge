@@ -195,5 +195,10 @@ export function forgeRunResult(
     // Of a sample, what was written of each object of its plan: the page's
     // line per object and the history read it from the result alone.
     ...(summary.sample ? { sample: summary.sample } : {}),
+    // Of a clone from records, what it did of its roots and the requests its
+    // read sent the source: the results, the history and the command line
+    // say "37 roots of 37 written" from the result alone.
+    ...(summary.roots ? { roots: summary.roots } : {}),
+    ...(summary.reads ? { reads: summary.reads } : {}),
   };
 }

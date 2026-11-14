@@ -1419,3 +1419,61 @@ describe('ScopedSoqlBuilder', () => {
     });
   });
 });
+
+describe('the roots a query chose', () => {
+  const ids = (count: number): string[] =>
+    Array.from({ length: count }, (_, i) => `001XX${String(i).padStart(13, '0')}`);
+
+  it('are read by their ids, reached from above, under the object’s own filter', () => {
+    const roots = ids(3);
+    const result = new ScopedSoqlBuilder().build({
+      node: makeNode('Account'),
+      fields: [],
+      selectFields: ['Id', 'Name'],
+      edges: [],
+      cache: new RecordScopeCache(),
+      rootObjectApiName: 'Account',
+      rootRecordIds: new Set(roots),
+      extraWhere: "Name != 'X'",
+    });
+    expect(result).toMatchObject({ scope: 'root', scoped: true, byIdCount: 0, scopeIdCount: 3 });
+    expect(result.statements).toEqual([
+      `SELECT Id, Name FROM Account WHERE Id IN (${roots.map((id) => `'${id}'`).join(', ')}) AND (Name != 'X')`,
+    ]);
+  });
+
+  it('are laid over as many statements as fit a query URI, every root read once', () => {
+    const roots = ids(1_200);
+    const result = new ScopedSoqlBuilder().build({
+      node: makeNode('Account'),
+      fields: [],
+      selectFields: ['Id', 'Name'],
+      edges: [],
+      cache: new RecordScopeCache(),
+      rootObjectApiName: 'Account',
+      rootRecordIds: new Set(roots),
+    });
+    expect(result.statements.length).toBeGreaterThanOrEqual(3);
+    expect(result.byIdCount).toBe(0);
+    for (const soql of result.statements) {
+      expect(uriLength(soql)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
+      expect(soql.match(/001XX\d{13}/g)?.length ?? 0).toBeLessThanOrEqual(500);
+    }
+    const read = result.statements.flatMap((soql) => soql.match(/001XX\d{13}/g) ?? []);
+    expect(read).toHaveLength(1_200);
+    expect(new Set(read)).toEqual(new Set(roots));
+  });
+
+  it('leave a clone of one record reading its root by its id alone, as it always did', () => {
+    const result = new ScopedSoqlBuilder().build({
+      node: makeNode('Case'),
+      fields: [],
+      selectFields: ['Id'],
+      edges: [],
+      cache: new RecordScopeCache(),
+      rootObjectApiName: 'Case',
+      rootRecordId: ROOT_ID,
+    });
+    expect(result.statements).toEqual([`SELECT Id FROM Case WHERE Id = '${ROOT_ID}'`]);
+  });
+});

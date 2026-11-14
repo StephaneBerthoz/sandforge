@@ -25,7 +25,7 @@ export interface ScopableField {
 
 /** How the SOQL was scoped to the record-graph closure. */
 export type ScopeKind =
-  /** Root record query (`WHERE Id = '<rootRecordId>'`). */
+  /** Root record query (`WHERE Id = '<rootRecordId>'`), or the roots' (`WHERE Id IN (…)`). */
   | 'root'
   /** This object already has IDs in the cache (from earlier wave). */
   | 'self-cached'
@@ -82,7 +82,13 @@ export interface ScopedSoqlBuildOpts {
   /** API name of the root object (the one matching `recordId`). */
   rootObjectApiName: string;
   /** The original record ID supplied by the user. */
-  rootRecordId: string;
+  rootRecordId?: string;
+  /**
+   * The records a query chose, as the run's roots: read by their ids, laid
+   * over as many statements as fit a query URI, each row reached from above
+   * as the one root is. Given, `rootRecordId` is not read.
+   */
+  rootRecordIds?: ReadonlySet<string>;
   /**
    * Optional extra WHERE-clause fragment appended via `AND (...)` after the
    * scope-derived clause. Used by per-object filters from `ForgeConfig`
@@ -215,7 +221,24 @@ export class ScopedSoqlBuilder {
 
     const root = opts.node.objectApiName === opts.rootObjectApiName && !opts.under;
     if (root && !(opts.rootReadAgain && opts.cache.has(opts.node.objectApiName))) {
-      const escapedId = sanitizeSoqlValue(opts.rootRecordId);
+      // The records a query chose: by their ids, none of the statements read
+      // by an id a row read before names — each root is reached from above,
+      // and brings the rows under it as the one root of a clone does.
+      if (opts.rootRecordIds !== undefined) {
+        return {
+          statements: packInClauses(
+            { prefix, suffix: extraSuffix, wrap: false, objectApiName: opts.node.objectApiName },
+            [{ field: 'Id', ids: opts.rootRecordIds }],
+          ),
+          scoped: opts.rootRecordIds.size > 0,
+          scope: 'root',
+          reason: `${opts.rootRecordIds.size} root records${reasonSuffix}`,
+          parentObjectsUsed: [opts.rootObjectApiName],
+          scopeIdCount: opts.rootRecordIds.size,
+          byIdCount: 0,
+        };
+      }
+      const escapedId = sanitizeSoqlValue(opts.rootRecordId ?? '');
       return {
         statements: [`${prefix}Id = '${escapedId}'${extraSuffix}`],
         scoped: true,

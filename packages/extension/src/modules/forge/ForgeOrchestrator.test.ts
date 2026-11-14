@@ -903,4 +903,75 @@ describe('ForgeOrchestrator', () => {
       );
     });
   });
+
+  describe('a query that clones the records it chooses', () => {
+    const query =
+      "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY CreatedDate DESC LIMIT 50";
+
+    it('reads a query of a config from before 1.81.0 as tables, as it always did', async () => {
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: query,
+          objectSoqlFilters: { Account: "Industry = 'Energy'" },
+        }),
+      );
+      const [options] = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(options?.roots).toBeUndefined();
+      expect(options?.rootRecordId).toBeUndefined();
+      expect(options?.rootObjectApiName).toBeUndefined();
+      expect(options?.objectSoqlFilters).toEqual({ Account: "Industry = 'Energy'" });
+    });
+
+    it('hands the executor the roots of a query read as records, with what the caller gives', async () => {
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: query,
+          queryScope: 'records',
+          maxRoots: 60,
+        }),
+        { roots: { sourceRequestsLeft: 9_000, readTotal: 300 } },
+      );
+      const [options] = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(options?.roots).toEqual({
+        objectApiName: 'Account',
+        query: { where: "Industry = 'Energy'", orderBy: 'CreatedDate DESC', limit: 50 },
+        cap: 60,
+        sourceRequestsLeft: 9_000,
+        readTotal: 300,
+      });
+      expect(options?.rootObjectApiName).toBe('Account');
+      expect(options?.rootRecordId).toBeUndefined();
+      expect(options?.objectSoqlFilters).toBeUndefined();
+    });
+
+    it('refuses a query that cannot choose records before the executor is asked anything', async () => {
+      await expect(
+        orchestrator.execute(
+          createMockGraph(),
+          createMockConfig({
+            inputMode: 'soql',
+            recordId: undefined,
+            soqlQuery: 'SELECT Industry, COUNT(Id) FROM Account GROUP BY Industry',
+            queryScope: 'records',
+          }),
+        ),
+      ).rejects.toMatchObject({ name: 'ForgeRunGateError', code: 'ROOTS_QUERY_REFUSED' });
+      expect(deps.executor.execute).not.toHaveBeenCalled();
+    });
+
+    it('discovers a query read as records apart from the same query read as tables', async () => {
+      const tables = createMockConfig({ inputMode: 'soql', recordId: undefined, soqlQuery: query });
+      await orchestrator.discover(tables);
+      await orchestrator.discover({ ...tables, queryScope: 'records' });
+      await orchestrator.discover({ ...tables, queryScope: 'records', maxRoots: 20 });
+      await orchestrator.discover({ ...tables, queryScope: 'records', maxRoots: 20 });
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(3);
+    });
+  });
 });

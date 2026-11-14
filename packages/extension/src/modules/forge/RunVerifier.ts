@@ -162,6 +162,12 @@ export interface RunToVerify {
    * pointing at such a record is broken.
    */
   runStartedAt?: Date;
+  /**
+   * Of a clone from records, its roots by their source ids
+   * (`ForgeRunRoots`): the verification says how many of those it wrote or
+   * linked to the target holds (`ForgeRunVerification.roots`).
+   */
+  roots?: { objectApiName: string; sourceIds: readonly string[] };
 }
 
 /** How a verification goes. */
@@ -383,12 +389,14 @@ export class RunVerifier {
     }
 
     const objects = (stable ?? last).map(objectResult);
+    const roots = run.roots ? rootsInTheTarget(run, run.roots, stable ?? last) : undefined;
     return {
       verdict: verdictOf(stable !== null, objects, sourceUnavailable),
       verifiedAt: now().toISOString(),
       attempts,
       objects,
       ...(sourceUnavailable !== undefined ? { linksUnchecked: sourceUnavailable } : {}),
+      ...(roots ? { roots } : {}),
     };
   }
 
@@ -968,6 +976,40 @@ export class RunVerifier {
 }
 
 /** One object's result, from the reading the verdict stands on, its lists cut short. */
+/**
+ * Of a clone from records, its roots the run wrote or linked to (`of`), and
+ * of them those the target holds: a root it created and the last reading
+ * found, deleted and unseen ones aside, or one it linked to, which the
+ * target held before the run. Nothing when the roots' object could not be
+ * read back.
+ */
+function rootsInTheTarget(
+  run: Pick<RunToVerify, 'remapTable' | 'records'>,
+  roots: NonNullable<RunToVerify['roots']>,
+  readings: readonly ObjectReading[],
+): { inTarget: number; of: number } | undefined {
+  const reading = readings.find((r) => r.objectApiName === roots.objectApiName);
+  if (reading?.error !== undefined) return undefined;
+  const created = new Set(
+    run.records
+      .filter((object) => object.objectApiName === roots.objectApiName)
+      .flatMap((object) => object.ids.map(recordKey)),
+  );
+  const missing = new Set(
+    [...(reading?.deletedIds ?? []), ...(reading?.notVisibleIds ?? [])].map(recordKey),
+  );
+  let of = 0;
+  let inTarget = 0;
+  for (const sourceId of roots.sourceIds) {
+    const targetId = run.remapTable[sourceId];
+    if (targetId === undefined) continue;
+    of++;
+    const key = recordKey(targetId);
+    if (!created.has(key) || (reading !== undefined && !missing.has(key))) inTarget++;
+  }
+  return { inTarget, of };
+}
+
 function objectResult(reading: ObjectReading): ForgeVerificationObject {
   const leftByTheRun = reading.explained.filter((l) => l.cause === 'run').length;
   // What the platform wrote with the run's records is the run's, as created

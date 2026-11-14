@@ -83,6 +83,18 @@ describe('forgeCaseKey', () => {
     expect(forgeCaseKey(GRAPH, { ...CONFIG, recordId: '001000000000456' })).not.toBe(key);
     expect(forgeCaseKey(graphOf(['Account', true]), CONFIG)).not.toBe(key);
   });
+
+  it('is another case for a query read as records than for the same query read as tables', () => {
+    const tables: ForgeConfig = {
+      ...CONFIG,
+      inputMode: 'soql',
+      recordId: undefined,
+      soqlQuery: 'SELECT Id FROM Account',
+    };
+    const key = forgeCaseKey(GRAPH, tables);
+    expect(forgeCaseKey(GRAPH, { ...tables, queryScope: 'tables' })).toBe(key);
+    expect(forgeCaseKey(GRAPH, { ...tables, queryScope: 'records' })).not.toBe(key);
+  });
 });
 
 describe('RecentTrials', () => {

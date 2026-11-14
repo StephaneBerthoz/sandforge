@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import { forgeRunFingerprint, sameRunSetup, sampleFingerprintOf } from './runFingerprint.js';
+import {
+  forgeRunFingerprint,
+  rootsFingerprintOf,
+  sameRunSetup,
+  sampleFingerprintOf,
+} from './runFingerprint.js';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -126,6 +131,29 @@ describe('forgeRunFingerprint', () => {
         setup,
       ),
     ).not.toBe(base);
+  });
+});
+
+describe('the fingerprint of a clone from records', () => {
+  const g = graph([node('Account'), node('Contact')]);
+  const sha = 'a'.repeat(64);
+
+  it('takes its roots by their object and the SHA-256 of their ids, never where their plan is', () => {
+    const a = forgeRunFingerprint(g, {
+      ...setup,
+      roots: { objectApiName: 'Account', sha256: sha, plan: '/tmp/a.json', readAt: '2026-11-14' },
+    });
+    expect(
+      forgeRunFingerprint(g, { ...setup, roots: { sha256: sha, objectApiName: 'Account' } }),
+    ).toBe(a);
+    expect(
+      forgeRunFingerprint(g, {
+        ...setup,
+        roots: { objectApiName: 'Account', sha256: 'b'.repeat(64) },
+      }),
+    ).not.toBe(a);
+    expect(forgeRunFingerprint(g, setup)).not.toBe(a);
+    expect(rootsFingerprintOf('none')).toBe('none');
   });
 });
 

@@ -93,6 +93,26 @@ describe('resolveStageConfig', () => {
     expect(resolveStageConfig({ rootObjectApiName: 'Case' }).isScoped).toBe(false);
   });
 
+  it('enters scoped mode from the roots a query chose, their cap held and their read bounded', () => {
+    const config = resolveStageConfig({
+      roots: { objectApiName: 'Account', query: { where: "Industry = 'Energy'" }, cap: 9_000 },
+    });
+    expect(config.isScoped).toBe(true);
+    expect(config.referenceFallback).toBe('nullify');
+    expect(config.rootObjectApiName).toBe('Account');
+    expect(config.rootRecordId).toBeUndefined();
+    expect(config.roots).toEqual({
+      objectApiName: 'Account',
+      query: { where: "Industry = 'Energy'" },
+      cap: 2_000,
+      readTotal: 50_000,
+    });
+    expect(
+      resolveStageConfig({ roots: { objectApiName: 'Case', ids: [], cap: 5, readTotal: 300 } })
+        .roots,
+    ).toMatchObject({ cap: 5, readTotal: 300 });
+  });
+
   it('respects an explicit referenceFallback override', () => {
     const config = resolveStageConfig({
       rootRecordId: '500XX00000000001AAA',

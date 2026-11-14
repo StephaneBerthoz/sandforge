@@ -136,6 +136,53 @@ export interface StoredSamplePlan {
 /** The SHA-256 of a plan's ids, as its manifest writes it. */
 const PLAN_SHA = /^[0-9a-f]{64}$/;
 
+/**
+ * The roots of a clone from the records a query chose, as its journal names
+ * them before its first write: their object, their ids, the SHA-256 of them,
+ * when they were read, and the query that chose them. A part that takes the
+ * run up writes these roots, and reads no query again.
+ */
+export interface StoredRoots {
+  objectApiName: string;
+  ids: string[];
+  sha256: string;
+  readAt: string;
+  query?: { where?: string; orderBy?: string; limit?: number };
+}
+
+/** A record id, as a line of roots names one. */
+const ROOT_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/** The roots a line names, or nothing when it does not read as roots. */
+export function storedRootsOf(value: unknown): StoredRoots | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { objectApiName, ids, sha256, readAt, query } = value as Record<string, unknown>;
+  if (typeof objectApiName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(objectApiName)) {
+    return undefined;
+  }
+  if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && ROOT_ID.test(id))) {
+    return undefined;
+  }
+  if (typeof sha256 !== 'string' || !PLAN_SHA.test(sha256)) return undefined;
+  if (typeof readAt !== 'string' || !Number.isFinite(Date.parse(readAt))) return undefined;
+  let kept: StoredRoots['query'];
+  if (typeof query === 'object' && query !== null) {
+    const { where, orderBy, limit } = query as Record<string, unknown>;
+    kept = {
+      ...(typeof where === 'string' ? { where } : {}),
+      ...(typeof orderBy === 'string' ? { orderBy } : {}),
+      ...(typeof limit === 'number' && Number.isInteger(limit) ? { limit } : {}),
+    };
+  }
+  return {
+    objectApiName,
+    ids: ids as string[],
+    sha256,
+    readAt,
+    ...(kept ? { query: kept } : {}),
+  };
+}
+
 /** A lookup owed to the second pass, as the store gives it back. */
 export interface StoredOwedLookup {
   update: PendingFkUpdate;
@@ -568,6 +615,7 @@ export class ForgeRunStore {
   private readonly foundOwingUntold = new Set<string>();
   /** The plan of the sample the run writes, the last the journal named. */
   private plan?: StoredSamplePlan;
+  private rootsNamed?: StoredRoots;
 
   private constructor(private readonly file: RunFile) {
     this.index = new SourceIdIndex((offset, length) => this.idOfLine(offset, length));
@@ -632,6 +680,26 @@ export class ForgeRunStore {
   /** The plan of a sample the journal names, in any part; none for a run that copies every record. */
   get samplePlan(): StoredSamplePlan | undefined {
     return this.plan ? { ...this.plan } : undefined;
+  }
+
+  /* ---- the roots of a clone from records ---- */
+
+  /**
+   * Name the roots of a clone from the records a query chose, before its
+   * first write, written at once: a part that takes the run up writes these
+   * and reads no query again (`ROOTS_PLAN_GONE` when none is named).
+   */
+  nameRoots(roots: StoredRoots): void {
+    const read = storedRootsOf(roots);
+    if (!read) throw new Error('Not the roots of a clone from records.');
+    this.write({ roots: read });
+    this.rootsNamed = read;
+    this.flush();
+  }
+
+  /** The roots the journal names, the last named, in any part; none for any other run. */
+  get roots(): StoredRoots | undefined {
+    return this.rootsNamed ? { ...this.rootsNamed, ids: [...this.rootsNamed.ids] } : undefined;
   }
 
   /* ---- what the run wrote: source id to target id ---- */
@@ -1395,6 +1463,10 @@ export class ForgeRunStore {
         if (typeof dir !== 'string' || dir === '' || typeof sha256 !== 'string') continue;
         if (!PLAN_SHA.test(sha256)) continue;
         this.plan = { dir, sha256 };
+      } else if ('roots' in parsed) {
+        // A line that does not read as roots names none.
+        const roots = storedRootsOf((parsed as { roots: unknown }).roots);
+        if (roots) this.rootsNamed = roots;
       } else if ('at' in parsed) {
         const at = (parsed as { at: unknown }).at;
         if (typeof at !== 'object' || at === null) continue;

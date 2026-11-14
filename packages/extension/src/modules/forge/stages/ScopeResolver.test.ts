@@ -235,6 +235,60 @@ describe('buildNodeQuery', () => {
     }
   });
 
+  it('reads the roots a query chose by their ids, whatever the cap on each object', () => {
+    // Cut at the cap, the query's records would be cloned in part, at an
+    // order nobody chose: the roots are held to the most the run takes.
+    const roots = ['001000000000001AAA', '001000000000002AAA', '001000000000003AAA'];
+    const result = buildNodeQuery({
+      node: makeNode('Account'),
+      edges: [],
+      fieldInfos: FIELDS,
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: new RecordScopeCache(),
+      rootObjectApiName: 'Account',
+      rootRecordIds: new Set(roots),
+      maxRecordsPerObject: 1,
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        `SELECT Id, Name FROM Account WHERE Id IN (${roots.map((id) => `'${id}'`).join(', ')})`,
+      ],
+    });
+  });
+
+  it('says which objects the rows of a node are read under, and caps them as it always did', () => {
+    const cache = new RecordScopeCache();
+    cache.add('Account', ['001000000000001AAA']);
+    const result = buildNodeQuery({
+      node: makeNode('Contact'),
+      edges: [LOOKUP_EDGE],
+      fieldInfos: [
+        ...FIELDS,
+        {
+          name: 'AccountId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+        },
+      ],
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Account',
+      rootRecordIds: new Set(['001000000000001AAA']),
+      maxRecordsPerObject: 5,
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        "SELECT Id, Name, AccountId FROM Contact WHERE AccountId IN ('001000000000001AAA') LIMIT 6",
+      ],
+      limit: 5,
+      readUnder: ['Account'],
+    });
+  });
+
   it("applies the object's filter to a full-table SELECT outside scoped mode", () => {
     // A SOQL-mode run carries its WHERE clause as the root object's filter. It
     // used to be dropped here, and the root was read from the whole table.

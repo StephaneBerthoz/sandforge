@@ -23,8 +23,10 @@ import {
   jobEndedTimesOf,
   journalLines,
   nodeRunFile,
+  storedRootsOf,
   WITH_THEIR_RECORD_TAG,
   type RunFile,
+  type StoredRoots,
 } from './ForgeRunStore.js';
 import type { RunRecords } from './ForgeRunRemoval.js';
 import {
@@ -343,6 +345,14 @@ export interface ForgeRunJournalRead {
    * named it.
    */
   checkpoint?: RunCheckpointTaken;
+  /**
+   * Of a clone from the records a query chose, its roots as the journal
+   * names them, the last named (`ForgeRunStore.nameRoots`): what a part that
+   * takes the run up writes, and what its history says the run cloned —
+   * "37 Account (query)". The head is written before they are read, so they
+   * are a line of their own. Absent from any other run.
+   */
+  roots?: StoredRoots;
   /** Parts the run has had. */
   parts: number;
   /** How the last part ended, and when; absent while it has not, or since a window closed under it. */
@@ -1260,6 +1270,8 @@ export class ForgeRunJournal {
     let unattributed = new Map<string, Set<string>>();
     /** The source ids the parts read marked written with a record of the run. */
     let withTheirRecord = new Set<string>();
+    /** The roots of a clone from records, the last line that names them. */
+    let roots: StoredRoots | undefined;
     const newPart = (): void => {
       parts++;
       endBefore = lastEnd;
@@ -1316,6 +1328,10 @@ export class ForgeRunJournal {
             typeof object === 'string' && objectSchema.safeParse(object).success ? object : '',
           created: tag === 'c',
         });
+        continue;
+      }
+      if (typeof value === 'object' && value !== null && 'roots' in value) {
+        roots = storedRootsOf((value as { roots: unknown }).roots) ?? roots;
         continue;
       }
       const part = partSchema.safeParse(value);
@@ -1382,6 +1398,7 @@ export class ForgeRunJournal {
       ...(resume ? { resume } : {}),
       ...(runUserId ? { runUserId } : {}),
       ...(checkpoint ? { checkpoint } : {}),
+      ...(roots ? { roots } : {}),
       parts,
       partStartedAt: partStartedAt ?? head.startedAt,
       ...(lastEnd ? { lastEnd } : {}),

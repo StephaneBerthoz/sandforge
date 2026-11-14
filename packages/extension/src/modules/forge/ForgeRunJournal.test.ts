@@ -222,6 +222,31 @@ describe("a run's journal", () => {
     expect(read?.created).toEqual([{ objectApiName: 'Account', ids: ['001000000000103AAA'] }]);
   });
 
+  it('says the roots a clone from records named, and none for any other run', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('from-records', 'tgt-org', STARTED, RESUME);
+    const store = journal.open('from-records');
+    store.beginPart(STARTED);
+    const roots = {
+      objectApiName: 'Account',
+      ids: [ACCOUNT_A, ACCOUNT_B],
+      sha256: 'c'.repeat(64),
+      readAt: STARTED.toISOString(),
+      query: { where: "Industry = 'Energy'" },
+    };
+    store.nameRoots(roots);
+    store.setMapping('created', ACCOUNT_A, NEW_ACCOUNT_A, 'Account');
+    store.close();
+
+    const read = await journal.read('from-records');
+    expect(read?.roots).toEqual(roots);
+    expect(read?.created).toEqual([{ objectApiName: 'Account', ids: [NEW_ACCOUNT_A] }]);
+
+    await runThatWrote(journal, 'plain', RESUME);
+    expect((await journal.read('plain'))?.roots).toBeUndefined();
+  });
+
   it('says beside the journal how its last part ended, until a part resuming it begins', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

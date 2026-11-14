@@ -213,6 +213,24 @@ describe('the last simulation of a case', () => {
     ).not.toBe(key);
   });
 
+  it('tells a query read as records from the same query read as tables, which keeps its key', () => {
+    const tables = { ...config, inputMode: 'soql' as const, soqlQuery: 'SELECT Id FROM Account' };
+    const key = forgeVolumeCaseKey(tables);
+    expect(forgeVolumeCaseKey({ ...tables, queryScope: 'tables' })).toBe(key);
+    expect(forgeVolumeCaseKey({ ...tables, queryScope: 'records' })).not.toBe(key);
+    expect(key).toBe(
+      JSON.stringify([
+        'src',
+        'tgt',
+        'soql',
+        '001000000000123',
+        'SELECT Id FROM Account',
+        null,
+        null,
+      ]),
+    );
+  });
+
   it('keeps the last simulation of each case, and drops the oldest past sixteen', () => {
     const kept = new LastSimulations();
     const plan = (n: number) => writePlanOf([{ objectApiName: 'Contact', rows: rows(n) }]);

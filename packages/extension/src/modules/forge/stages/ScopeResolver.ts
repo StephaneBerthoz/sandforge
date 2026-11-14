@@ -662,6 +662,11 @@ export interface NodeQueryInput {
   rootObjectApiName?: string;
   /** The original record ID supplied by the user (scoped mode). */
   rootRecordId?: string;
+  /**
+   * The records a query chose, as the run's roots (scoped mode): read by
+   * their ids in place of `rootRecordId`. See `ScopedSoqlBuildOpts.rootRecordIds`.
+   */
+  rootRecordIds?: ReadonlySet<string>;
   /** Per-object extra WHERE fragment (`ExecuteOptions.objectSoqlFilters`). */
   extraWhere?: string;
   /** Per-object hard cap appended as `LIMIT N` when > 0. */
@@ -721,6 +726,13 @@ export interface NodeQuery {
    * when none reads by id.
    */
   byIdCount?: number;
+  /**
+   * Of a clone from records (`rootRecordIds`), the objects whose rows in
+   * scope the statements read rows under — a contact's cases read under the
+   * account as under the contact. Absent when they read under none — the
+   * roots, rows read by id —, and from any other run.
+   */
+  readUnder?: string[];
 }
 
 /**
@@ -744,11 +756,17 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
 
   let statements: string[];
   let byIdCount = 0;
+  let readUnder: string[] = [];
+  // The roots' own read is held to the most roots the run takes, never to
+  // the cap on each object: cut there, a query's records would be cloned in
+  // part, at an order nobody chose.
+  let rootsRead = false;
+  const rooted = Boolean(input.rootRecordId) || input.rootRecordIds !== undefined;
   if (
     input.scopedBuilder &&
     input.scopeCache &&
     input.rootObjectApiName &&
-    input.rootRecordId &&
+    rooted &&
     input.node.objectApiName === SELLING_MODEL_OPTION_OBJECT &&
     input.node.objectApiName !== input.rootObjectApiName &&
     input.catalog?.has(SELLING_MODEL_OPTION_OBJECT)
@@ -762,12 +780,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     if (!options) return { kind: 'skip', reason: UNSCOPED_NO_PARENT_REASON };
     statements = options;
     byIdCount = statements.length;
-  } else if (
-    input.scopedBuilder &&
-    input.scopeCache &&
-    input.rootObjectApiName &&
-    input.rootRecordId
-  ) {
+  } else if (input.scopedBuilder && input.scopeCache && input.rootObjectApiName && rooted) {
     const scopeFields = input.fieldInfos
       .filter((f) => f.isReference)
       .map((f) => ({
@@ -783,7 +796,9 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
       edges: input.edges,
       cache: input.scopeCache,
       rootObjectApiName: input.rootObjectApiName,
-      rootRecordId: input.rootRecordId,
+      ...(input.rootRecordIds !== undefined
+        ? { rootRecordIds: input.rootRecordIds }
+        : { rootRecordId: input.rootRecordId }),
       extraWhere: input.extraWhere,
       // An object is read once, so its read has to take what every edge
       // brings to it: the rows already read point at, and its rows under a
@@ -800,6 +815,14 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     }
     statements = scopeResult.statements;
     byIdCount = scopeResult.byIdCount;
+    rootsRead = scopeResult.scope === 'root' && input.rootRecordIds !== undefined;
+    // Said of a clone from records alone: a clone of one record reads as it did.
+    if (
+      input.rootRecordIds !== undefined &&
+      (scopeResult.scope === 'parent-fk' || scopeResult.scope === 'self-and-parent-fk')
+    ) {
+      readUnder = scopeResult.parentObjectsUsed;
+    }
   } else {
     // Outside scoped mode the object's filter is its whole WHERE clause. This
     // is how a SOQL-mode run applies its query's WHERE to the object after FROM;
@@ -817,10 +840,13 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     ];
   }
 
-  const byId = byIdCount > 0 ? { byIdCount } : {};
+  const byId = {
+    ...(byIdCount > 0 ? { byIdCount } : {}),
+    ...(readUnder.length > 0 ? { readUnder: [...readUnder] } : {}),
+  };
   // Math.floor on positive non-integers is safe; guard against
   // negatives or NaN that would produce MALFORMED_QUERY.
-  if (input.maxRecordsPerObject && input.maxRecordsPerObject > 0) {
+  if (!rootsRead && input.maxRecordsPerObject && input.maxRecordsPerObject > 0) {
     const cap = Math.floor(input.maxRecordsPerObject);
     if (cap > 0) return cappedQuery(statements, cap, byId);
   }
@@ -834,7 +860,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
 export function cappedQuery(
   statements: readonly string[],
   cap: number,
-  byId: { byIdCount?: number } = {},
+  byId: { byIdCount?: number; readUnder?: string[] } = {},
 ): NodeQuery {
   return {
     kind: 'query',

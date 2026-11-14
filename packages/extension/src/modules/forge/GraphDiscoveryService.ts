@@ -3,7 +3,13 @@ import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlV
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isExcludedFromCopy } from './excludedObjects.js';
-import { isInsertOnlyField, isRequiredLookup, isSettableField } from '@sandforge/shared';
+import {
+  isInsertOnlyField,
+  isRecordScoped,
+  isRequiredLookup,
+  isSettableField,
+  soqlRootQuery,
+} from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 import type { GlobalObject } from '../checkpoint/checkpointScope.js';
 import type { CreateFacts } from './targetCreators.js';
@@ -237,21 +243,39 @@ function isCountedById(config: ForgeConfig): boolean {
 }
 
 /**
+ * The WHERE and LIMIT of a query that clones the records it chooses
+ * (`queryScope: 'records'`), which its root is counted by; nothing for any
+ * other config, or a query that names no object to read them from.
+ */
+function rootsQueryCounted(
+  config: ForgeConfig,
+): { where: string | null; limit: number | null } | undefined {
+  if (!isRecordScoped(config) || config.inputMode !== 'soql') return undefined;
+  const read = soqlRootQuery(config.soqlQuery ?? '');
+  return read ? { where: read.where, limit: read.limit } : undefined;
+}
+
+/**
  * The count of an object's rows a walk asks the source: of the record a clone
- * starts from, by its id; of an object with a filter, the rows it matches —
- * an object is cloned through its filter, in SOQL mode the object after FROM;
+ * starts from, by its id; of the records a query chooses to clone, the rows
+ * its WHERE matches; of an object with a filter, the rows it matches — an
+ * object is cloned through its filter, in SOQL mode the object after FROM;
  * of any other, its whole table.
  *
  * A clone from a record reads the root by its id alone, and counting its
  * whole table measured nothing the run reads: on a large org, the count of
  * every account ran past the panel's wait each time, and the run then refused
- * the record for a root discovery could not measure.
+ * the record for a root discovery could not measure. A clone from a query's
+ * records sends no filter of its WHERE: counted as a table, its root was
+ * every record of the object.
  */
 function countStatementOf(config: ForgeConfig, objectName: string, depth: number): string {
   const conditions: string[] = [];
   if (depth === 0 && isCountedById(config)) {
     conditions.push(`Id = '${sanitizeSoqlValue(config.recordId ?? '')}'`);
   }
+  const roots = depth === 0 ? rootsQueryCounted(config) : undefined;
+  if (roots?.where) conditions.push(`(${roots.where})`);
   const filter = config.objectSoqlFilters?.[objectName];
   if (filter) conditions.push(`(${filter})`);
   return `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}${
@@ -670,10 +694,18 @@ export class GraphDiscoveryService {
         const countFailed = recordCount < 0;
         const notCounted = countFailed && countRefused !== true;
         const refused = countFailed && !notCounted;
-        const effectiveCount = countFailed ? 0 : recordCount;
+        // The records a query chooses are no more than its LIMIT.
+        const rootsLimit = depth === 0 ? rootsQueryCounted(config)?.limit : undefined;
+        const effectiveCount = countFailed
+          ? 0
+          : typeof rootsLimit === 'number' && Number.isFinite(rootsLimit)
+            ? Math.min(recordCount, rootsLimit)
+            : recordCount;
         // The record a clone starts from stays in the run whatever its count
-        // by id said: what the run reads of it says whether there is one.
-        const theRecord = depth === 0 && isCountedById(config);
+        // by id said: what the run reads of it says whether there is one. So
+        // do the records a query chooses: none read, the run says so.
+        const theRecord =
+          depth === 0 && (isCountedById(config) || rootsQueryCounted(config) !== undefined);
         const piiFields = this.deps.detectPII(describe.fields);
         const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
         const node: ForgeGraphNode = {

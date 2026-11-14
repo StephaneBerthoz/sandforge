@@ -344,6 +344,31 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('sample');
   });
 
+  it('keeps what a clone from records did of its roots, and what its read sent the source', () => {
+    // "37 roots of 37 written" is read from the result alone, by the results,
+    // the history and the command line.
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const roots = {
+      objectApiName: 'Account',
+      from: 'query' as const,
+      query: { where: "Industry = 'Energy'" },
+      cap: 200,
+      asked: 37,
+      read: 37,
+      gone: [],
+      written: 37,
+      linked: 0,
+      failed: [],
+      sha256: 'a'.repeat(64),
+      readAt: '2026-11-14T10:00:00.000Z',
+    };
+    const result = forgeRunResult(summary({ roots, reads: { source: 84 } }), GRAPH, run);
+    expect(result.roots).toEqual(roots);
+    expect(result.reads).toEqual({ source: 84 });
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('roots');
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('reads');
+  });
+
   it('keeps whether the run neutralized the contact points, and how many, for the results and the history', () => {
     const run = { startedAt: Date.now(), status: 'success' as const };
     const contactPoints = {

@@ -643,6 +643,37 @@ describe('ForgeExecutor, person accounts', () => {
     expect(summary.withTheirRecordSourceIds).toEqual([PERSON_CONTACT]);
   });
 
+  it('says a root that is the contact of a person account written with its account, never linked nor failed', async () => {
+    // A clone from contacts a query chose: the contact of a person account
+    // goes in with its account, as in the clone of one record.
+    const { executor, inserted } = orgsWithPersonAccounts();
+    const graph = graphOf(
+      [node('Contact', 0), node('Account', 1)],
+      [
+        edge('Account', 'Contact', 'Contacts'),
+        edge('Contact', 'Account', 'PersonContact', { settable: false }),
+      ],
+    );
+
+    const summary = await executor.execute(graph, 'src', 'tgt', () => undefined, {
+      rootObjectApiName: 'Contact',
+      roots: { objectApiName: 'Contact', query: {}, cap: 10 },
+    });
+
+    expect(inserted.find(({ object }) => object === 'Contact')?.rows).toEqual([
+      { LastName: 'Roe', AccountId: summary.remapTable[BUSINESS] },
+    ]);
+    expect(summary.roots).toMatchObject({
+      from: 'query',
+      asked: 2,
+      read: 2,
+      written: 2,
+      withTheirAccount: 1,
+      linked: 0,
+      failed: [],
+    });
+  });
+
   it('counts the contact of a person account the target already held as kept', async () => {
     const { executor } = orgsWithPersonAccounts((object, row) =>
       object === 'Account' && row['LastName'] === 'Doe'

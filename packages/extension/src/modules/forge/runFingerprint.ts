@@ -28,6 +28,9 @@ import type { WholeOrgCarriedSample } from '../../core/precheck/ProductionGuard.
  * could not have been taken up. Of the rest, what the caller hands over,
  * keys in any order: a setup said in another order is the same setup.
  *
+ * The roots of a clone from records in the setup (`setup.roots`) are taken
+ * by their object and the SHA-256 of their ids ({@link rootsFingerprintOf}).
+ *
  * A sample of the whole org in the setup — at its top, as the command line
  * gives it, or in its config, as the panel does — is taken as it applies
  * ({@link sampleFingerprintOf}): an option left out is its default, the
@@ -97,10 +100,25 @@ function withSampleAsApplied(setup: unknown): unknown {
   return {
     ...setup,
     ...('sample' in setup ? { sample: sampleAsApplied(setup.sample) } : {}),
+    ...('roots' in setup ? { roots: rootsFingerprintOf(setup.roots) } : {}),
     ...(isRecord(config) && 'sample' in config
       ? { config: { ...config, sample: sampleAsApplied(config.sample) } }
       : {}),
   };
+}
+
+/**
+ * The roots of a clone from records as a run's fingerprint takes them: their
+ * object and the SHA-256 of their ids, which the caller reads of a plan it
+ * gives the run or of the journal it resumes — never the plan's path, nor
+ * when it was read. The same ids are the same roots wherever their file is.
+ * Anything else a setup holds there is taken as it is.
+ */
+export function rootsFingerprintOf(roots: unknown): unknown {
+  if (!isRecord(roots)) return roots;
+  const { objectApiName, sha256 } = roots;
+  if (typeof objectApiName !== 'string' || typeof sha256 !== 'string') return roots;
+  return { objectApiName, sha256 };
 }
 
 /**
