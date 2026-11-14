@@ -77,6 +77,12 @@ jobs:
       # reached CI, so they went on not running exactly as before.
       - name: Static gates (lint + docs + audits)
         if: matrix.os == 'ubuntu-latest'
+        # Typed linting of the extension holds about 4 GB for src/ alone since
+        # 1.79.0 (measured: 4.0 GB resident under a 4 GB heap, 5.6 GB when
+        # src/, cli/ and tools/ shared one run and it ran out of memory). The
+        # package lints src/ apart from cli/ and tools/; 6 GB leaves room.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: >
           pnpm lint &&
           pnpm test:docs &&
