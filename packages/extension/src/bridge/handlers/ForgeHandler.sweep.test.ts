@@ -1333,7 +1333,7 @@ describe('a sweep asked with a removal', () => {
     expect(
       posted<BaseMessage & { payload: { code: string } }>('forge:undo-sweep:error')[0]?.payload
         .code,
-    ).toBe('NOT_FOUND');
+    ).toBe('RUN_NOT_IN_HISTORY');
     expect(mockGetConn).not.toHaveBeenCalled();
   });
 });

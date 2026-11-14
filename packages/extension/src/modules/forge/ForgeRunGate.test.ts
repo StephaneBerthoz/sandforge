@@ -540,7 +540,9 @@ describe('countedEmailChecksOf', () => {
         'among them, as a Developer Edition counts them), -75 of 15 left today: past them, ' +
         'each record whose flow fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), ' +
         "and the org's own emails stop for the rest of the day. Assign the user a bypass that " +
-        'keeps what sends quiet, or write fewer records.',
+        "keeps what sends quiet — muting the target's automation for the run (--mute-automation " +
+        "on the command line, the Mute box on a page) assigns, for the run alone, those the target's " +
+        'flows test — or write fewer records.',
     );
   });
 
@@ -1021,7 +1023,9 @@ describe('emailRefusal', () => {
       "The target's automation would make TARGET send about 60 single emails, 15 of 15 left " +
         'today: past them, each record whose flow fails in the save is refused ' +
         "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
-        'Assign the user a bypass that keeps what sends quiet, or write fewer records.',
+        "Assign the user a bypass that keeps what sends quiet — muting the target's automation " +
+        'for the run (--mute-automation on the command line, the Mute box on a page) assigns, ' +
+        "for the run alone, those the target's flows test — or write fewer records.",
     );
   });
 

@@ -74,7 +74,7 @@
       "transformBadPattern_other": "Las reglas {{rules}} tienen patrones que no son expresiones regulares: abra la configuración y corríjalos, o quite las reglas. Al ejecutarse, cada una detendría la sincronización en su objeto antes de escribir ninguno de sus registros. No se leyó ni se escribió nada.",
       "transformPatternOn": "{{rule}} en {{object}}, «{{pattern}}» ({{reason}})",
       "seedStorageExceeded": "El seed se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Reduzca el número de registros, elija una plantilla más ligera o libere almacenamiento de datos en {{org}}.",
-      "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o asígnese el permiso que los silencia.",
+      "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o marque Silenciar las automatizaciones del destino en esta ejecución: solo durante la ejecución, le asigna las omisiones que comprueban.",
       "seedWriteDeclined": "El seed se canceló antes de escribir nada. No se escribió nada en la org de destino.",
       "backupBusy": "Hay un respaldo o una restauración de esta org en curso: elimine sus respaldos cuando haya terminado.",
       "autopilotRunning": "Una ejecución de Autopilot sigue escribiendo en esta org de destino, y no se inició nada más: las Operaciones en vivo del Monitor muestran en qué punto está. Inicie otra cuando haya terminado.",
@@ -6942,7 +6942,7 @@
     },
     "rowLocked": {
       "explanation": "La org no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento. Suele ser pasajero.",
-      "action": "Vuelva a ejecutar en un momento. Si se repite, espere a que terminen los trabajos y las integraciones que escriben esos registros.",
+      "action": "Espere a que terminen los trabajos y las integraciones que escriben esos registros, y vuelva a ejecutar. Las filas rechazadas no se escribieron y las demás sí: una inserción ejecutada de nuevo entera escribe esas demás por segunda vez, así que elimine primero lo que creó esta ejecución, donde sus resultados lo ofrecen.",
       "forge": {
         "explanation": "La org de destino no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento: un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Suele ser pasajero.",
         "action": "Reintente los objetos fallidos. Si el bloqueo vuelve, espere a que terminen los trabajos y las integraciones que escriben esos registros en la org de destino, y luego reintente."
@@ -7014,6 +7014,14 @@
     "requestTooLong": {
       "explanation": "Salesforce detuvo una solicitud que duró más de lo que permite: un lote grande, una consulta amplia o una automatización pesada en el objeto.",
       "action": "Vuelva a ejecutar con menos registros, o con la automatización de la org en el objeto desactivada mientras escribe la ejecución."
+    },
+    "queryTimeout": {
+      "explanation": "Salesforce detuvo una consulta que superó su límite de tiempo: un filtro en un campo que ningún índice atiende, o una tabla demasiado grande para leerse en una consulta. Relanzada tal cual, se detiene igual.",
+      "action": "Filtre por un campo indexado — Id, Name, CreatedDate, un lookup o un ID externo — o redúzcala a un intervalo de fechas, y vuelva a ejecutar."
+    },
+    "operationTooLarge": {
+      "explanation": "Salesforce rechazó una consulta cuyas filas habría tenido que comprobar una a una contra el uso compartido del usuario: pasado un umbral que fija, rechaza una consulta así a un usuario sin «Ver todo».",
+      "action": "Dé al usuario «Ver todo» en el objeto, o «Ver todos los datos», o acote la consulta por un campo indexado o un intervalo de fechas."
     },
     "allOrNoneRolledBack": {
       "explanation": "Un registro de un lote escrito en modo todo o nada falló, así que Salesforce revirtió todo el lote.",
@@ -7168,20 +7176,51 @@
       "action": "Vuelva a ejecutar la clonación desde la revisión."
     },
     "resumeUnavailable": {
-      "explanation": "Esta ejecución no puede retomarse donde se detuvo: ya se retomó o su ejecución terminó, no guardó ningún diario, o se eliminaron sus registros. No se escribió nada.",
-      "action": "Reinténtela desde sus resultados, o vuelva a ejecutar la clonación desde la revisión."
+      "explanation": "Esta ejecución no puede retomarse donde se detuvo: se está retomando, ya se retomó o su ejecución terminó, ya no está en el historial, su diario falta o no dice cómo se configuró, o se eliminaron sus registros. No se escribió nada.",
+      "action": "Si ya se está retomando, espere a que termine esa ejecución. Si no, en Ejecuciones recientes, elimine los registros que creó esta ejecución, luego Reutilizar la configuración y vuelva a ejecutar la clonación: ejecutada de nuevo sin la eliminación, la clonación escribe esos registros por segunda vez."
     },
     "resumeTargetChanged": {
-      "explanation": "La org en la que escribió esta ejecución ya no es la que era — actualizada, sustituida o ya no registrada en SandForge —, así que lo que escribió la ejecución no está allí para continuar. No se escribió nada.",
-      "action": "Vuelva a ejecutar la clonación desde la revisión en la org tal como está ahora."
+      "explanation": "La org en la que escribió esta ejecución ya no está registrada en SandForge, o ya no es la que era — actualizada o sustituida desde entonces. No se escribió nada.",
+      "action": "Solo quitada de SandForge: vuelva a añadir la misma org en la página Organizaciones y retome — la ejecución comprueba que es la org en la que escribió. Actualizada o sustituida, no contiene nada de lo que escribió la ejecución: vuelva a ejecutar la clonación desde la revisión en la org tal como está ahora."
     },
     "resumeChanged": {
       "explanation": "Esta ejecución quedaría ahora configurada de otro modo que la parte que retoma: la clonación de la página, o el ajuste sandforge.forge.maxRecordsPerObject, cambió desde que se detuvo. No se escribió nada.",
       "action": "Restablezca el ajuste, o reintente la ejecución en su lugar: un reintento vuelve a leer la clonación y vincula lo que escribió esta ejecución."
     },
-    "resumeUncertain": {
-      "explanation": "La ejecución se detuvo con una llamada de inserción en curso, cuya respuesta nunca se guardó: el destino contiene registros que la reanudación no sabe distinguir de las filas de esa llamada, o no se pudo leer. No se escribió nada.",
-      "action": "Revise los registros de esos objetos creados cuando se detuvo la ejecución. Retome la ejecución con --write-uncertain para escribir esas filas de todos modos, cada una quizá entonces duplicada, o elimine la ejecución."
+    "resumeTargetUnread": {
+      "explanation": "No se pudo leer la org de destino para las llamadas de inserción que la ejecución tenía en curso al detenerse: retomada sin ellas, la ejecución escribiría por segunda vez los registros de esas llamadas. No se escribió nada.",
+      "action": "Vuelva a conectar la org en la página Organizaciones (Intentar reconectar, en su tarjeta) si su sesión expiró, y retome la ejecución de nuevo: primero busca esas llamadas."
+    },
+    "journalUnavailable": {
+      "explanation": "La ejecución guarda en el disco de esta máquina los Id que asocia y el punto desde el que se retomaría, y su diario no se pudo abrir allí: el mensaje nombra la carpeta y el motivo. No se escribió nada.",
+      "action": "Libere espacio en ese disco, o permita a su usuario escribir en esa carpeta, y vuelva a ejecutar."
+    },
+    "runNotInHistory": {
+      "explanation": "Esta ejecución ya no está en el historial de Forge, que guarda las últimas: lo que escribió ya no se conoce aquí. No se leyó ni se escribió nada.",
+      "action": "Mire en Ejecuciones anteriores, bajo Ejecuciones recientes: una ejecución cuyos registros aún se pueden eliminar aparece allí. Si no, un punto de control tomado antes de la ejecución devuelve la org atrás (Puntos de control → Retroceder…), y DataOps → Limpieza → Vaciar objetos vacía sus objetos, todos sus registros."
+    },
+    "removalRunning": {
+      "explanation": "Ya hay en curso una eliminación de esta ejecución, desde esta página u otra: una segunda preguntaría, y eliminaría, dos veces. No se eliminó nada más.",
+      "action": "Espere a que termine: Operaciones en vivo la muestra, y su resultado aparece bajo la ejecución. Si deja registros, elimine entonces lo que queda."
+    },
+    "verifyRunning": {
+      "explanation": "Los registros de esta ejecución ya se están verificando: una segunda verificación los volvería a leer todos. No se leyó nada.",
+      "action": "Espere su veredicto: aparece bajo la ejecución en cuanto dos lecturas coinciden."
+    },
+    "journalGone": {
+      "explanation": "Los Id de los registros de esta ejecución se guardaban en su diario en esta máquina, que ya no existe: nada aquí los distingue ya de los demás registros de la org. No se leyó ni se escribió nada.",
+      "action": "Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución."
+    },
+    "notRecorded": {
+      "explanation": "Esta ejecución se registró antes de que Forge guardara lo que crea una ejecución, y dónde: sus registros no se distinguen de los demás de la org. No se leyó ni se escribió nada."
+    },
+    "inFlightUnread": {
+      "explanation": "No se pudo leer la org de destino para las llamadas de inserción que la ejecución tenía en curso al detenerse: eliminada sin ellas, los registros que escribieron esas llamadas se quedarían. No se eliminó nada.",
+      "action": "Vuelva a conectar la org en la página Organizaciones (Intentar reconectar, en su tarjeta) si su sesión expiró, y elimine de nuevo la ejecución: la eliminación busca primero esas llamadas."
+    },
+    "runOrgUnregistered": {
+      "explanation": "La org en la que escribió esta ejecución ya no está registrada en SandForge. No se leyó nada.",
+      "action": "Vuelva a añadir la misma org en la página Organizaciones y pruebe de nuevo: se registra con el mismo identificador. Un sandbox actualizado desde entonces es otra org, y no contiene nada de lo que escribió esta ejecución."
     },
     "filesNotAccepted": {
       "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",

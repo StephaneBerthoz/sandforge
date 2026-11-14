@@ -811,7 +811,13 @@ describe('a run whose ids are in its journal', () => {
     expect(removals).toEqual([]);
     expect(verified).toEqual([]);
     expect(saved).toEqual([]);
-    expect(answerTo('wv-undo', 'forge:undo:error')).toMatchObject({ code: 'JOURNAL_GONE' });
+    // What still takes its records back is named: no removal from here does.
+    expect(answerTo('wv-undo', 'forge:undo:error')).toMatchObject({
+      code: 'JOURNAL_GONE',
+      message: expect.stringMatching(
+        /checkpoint taken before the run .*Checkpoints → Rewind….*DataOps → Cleanup → Empty objects empties its objects, every record of them/,
+      ),
+    });
     expect(answerTo('wv-verify', 'forge:verify:error')).toMatchObject({ code: 'JOURNAL_GONE' });
     expect(answerTo('wv-export', 'forge:export-ids:error')).toMatchObject({ code: 'JOURNAL_GONE' });
     expect(answerTo('wv-retry', 'forge:execute:error')).toMatchObject({
@@ -1267,6 +1273,10 @@ describe('a run whose ids are in its journal', () => {
         code: 'IN_FLIGHT_UNREAD',
         message: expect.stringContaining('Nothing was deleted'),
       });
+      // And the way past it: the session of the org is the common cause.
+      expect(answerTo('wv-undo', 'forge:undo:error')?.message).toMatch(
+        /Reconnect .* on Organizations if its session expired, then remove the run again\./,
+      );
     });
 
     it('reads nothing of the target for a run whose calls were all answered', async () => {

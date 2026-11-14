@@ -74,7 +74,7 @@
       "transformBadPattern_other": "Die Regeln {{rules}} haben Muster, die keine regulären Ausdrücke sind: Öffnen Sie die Konfiguration und korrigieren Sie sie, oder entfernen Sie die Regeln. Im Lauf würde jede davon die Synchronisierung bei ihrem Objekt anhalten, bevor einer seiner Datensätze geschrieben wird. Es wurde nichts gelesen oder geschrieben.",
       "transformPatternOn": "{{rule}} auf {{object}}, „{{pattern}}“ ({{reason}})",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
-      "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
+      "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder aktivieren Sie Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten: Nur für den Lauf erhalten Sie damit die Umgehungen, die sie prüfen.",
       "seedWriteDeclined": "Der Seed wurde abgebrochen, bevor er etwas schrieb. In die Ziel-Org wurde nichts geschrieben.",
       "backupBusy": "Eine Sicherung oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Sicherungen, sobald der Vorgang beendet ist.",
       "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist.",
@@ -6942,7 +6942,7 @@
     },
     "rowLocked": {
       "explanation": "Die Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt. Das ist meist vorübergehend.",
-      "action": "Starten Sie gleich erneut. Kommt es wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze schreiben, fertig sind.",
+      "action": "Warten Sie, bis die Jobs und Integrationen, die diese Datensätze schreiben, fertig sind, und starten Sie dann erneut. Die abgelehnten Zeilen wurden nicht geschrieben, die anderen schon: Eine vollständig erneut gestartete Einfügung schreibt diese anderen ein zweites Mal, entfernen Sie also zuerst, was dieser Lauf erstellt hat, wo seine Ergebnisse es anbieten.",
       "forge": {
         "explanation": "Die Ziel-Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt: ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Das ist meist vorübergehend.",
         "action": "Wiederholen Sie die fehlgeschlagenen Objekte. Kommt die Sperre wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze in der Ziel-Org schreiben, fertig sind, und wiederholen Sie dann."
@@ -7014,6 +7014,14 @@
     "requestTooLong": {
       "explanation": "Salesforce hat eine Anfrage gestoppt, die länger lief, als es zulässt: ein großer Stapel, eine breite Abfrage oder schwere Automatisierung auf dem Objekt.",
       "action": "Starten Sie erneut mit weniger Datensätzen, oder mit der Automatisierung der Org auf dem Objekt abgeschaltet, solange der Lauf schreibt."
+    },
+    "queryTimeout": {
+      "explanation": "Salesforce hat eine Abfrage gestoppt, die ihr Zeitlimit überschritten hat: ein Filter auf ein Feld, das kein Index bedient, oder eine Tabelle, die zu groß ist, um in einer Abfrage gelesen zu werden. Unverändert erneut gestartet, stoppt sie ebenso.",
+      "action": "Filtern Sie auf ein indiziertes Feld — Id, Name, CreatedDate, ein Lookup oder eine externe ID — oder beschränken Sie sie auf einen Datumszeitraum, und starten Sie dann erneut."
+    },
+    "operationTooLarge": {
+      "explanation": "Salesforce hat eine Abfrage abgelehnt, deren Zeilen es einzeln gegen die Freigaben des Benutzers hätte prüfen müssen: Ab einer Grenze, die es selbst setzt, lehnt es eine solche Abfrage für einen Benutzer ohne „Alle anzeigen“ ab.",
+      "action": "Geben Sie dem Benutzer „Alle anzeigen“ für das Objekt oder „Alle Daten anzeigen“, oder schränken Sie die Abfrage über ein indiziertes Feld oder einen Datumszeitraum ein."
     },
     "allOrNoneRolledBack": {
       "explanation": "Ein Datensatz eines Stapels, der ganz oder gar nicht geschrieben wird, ist fehlgeschlagen, daher hat Salesforce den ganzen Stapel zurückgesetzt.",
@@ -7168,20 +7176,51 @@
       "action": "Starten Sie das Klonen erneut aus der Überprüfung."
     },
     "resumeUnavailable": {
-      "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wurde bereits fortgesetzt oder sein Lauf ist beendet, er hat kein Journal geführt, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
-      "action": "Wiederholen Sie ihn über seine Ergebnisse, oder führen Sie den Klon erneut über die Überprüfung aus."
+      "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wird gerade fortgesetzt, wurde bereits fortgesetzt oder sein Lauf ist beendet, er ist nicht mehr im Verlauf, sein Journal fehlt oder sagt nicht, wie er eingerichtet war, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
+      "action": "Wird er bereits fortgesetzt, warten Sie, bis dieser Lauf endet. Sonst entfernen Sie unter Letzte Durchläufe die von diesem Lauf erstellten Datensätze, wählen dann Konfiguration wiederverwenden und führen den Klon erneut aus: Ohne das Entfernen erneut ausgeführt, schreibt der Klon diese Datensätze ein zweites Mal."
     },
     "resumeTargetChanged": {
-      "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr dieselbe — aktualisiert, ersetzt oder nicht mehr in SandForge registriert —, daher ist das, was der Lauf geschrieben hat, nicht da, um daran anzuknüpfen. Es wurde nichts geschrieben.",
-      "action": "Führen Sie den Klon erneut über die Überprüfung in die Org aus, wie sie jetzt ist."
+      "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr in SandForge registriert oder nicht mehr dieselbe — seitdem aktualisiert oder ersetzt. Es wurde nichts geschrieben.",
+      "action": "Nur aus SandForge entfernt: Fügen Sie dieselbe Org auf der Seite Organisationen erneut hinzu und setzen Sie dann fort — der Lauf prüft, dass es die Org ist, in die er geschrieben hat. Aktualisiert oder ersetzt, enthält sie nichts von dem, was der Lauf geschrieben hat: Führen Sie den Klon erneut über die Überprüfung in die Org aus, wie sie jetzt ist."
     },
     "resumeChanged": {
       "explanation": "Dieser Lauf wäre jetzt anders eingerichtet als der Teil, den er fortsetzt: Der Klon auf der Seite oder die Einstellung sandforge.forge.maxRecordsPerObject hat sich geändert, seit er stoppte. Es wurde nichts geschrieben.",
       "action": "Setzen Sie die Einstellung zurück, oder wiederholen Sie den Lauf stattdessen: Eine Wiederholung liest den Klon erneut und verknüpft, was dieser Lauf geschrieben hat."
     },
-    "resumeUncertain": {
-      "explanation": "Der Lauf stoppte, während ein Einfügeaufruf unterwegs war, und dessen Antwort wurde nie festgehalten: Das Ziel enthält Datensätze, die die Fortsetzung nicht von den Zeilen dieses Aufrufs unterscheiden kann, oder konnte nicht gelesen werden. Es wurde nichts geschrieben.",
-      "action": "Prüfen Sie die Datensätze dieser Objekte, die beim Stopp angelegt wurden. Setzen Sie den Lauf mit --write-uncertain fort, um diese Zeilen trotzdem zu schreiben, jede dann vielleicht doppelt, oder entfernen Sie den Lauf."
+    "resumeTargetUnread": {
+      "explanation": "Die Ziel-Org konnte nicht nach den Einfügeaufrufen gelesen werden, die der Lauf beim Stopp offen hatte: Ohne sie fortgesetzt, würde der Lauf die Datensätze dieser Aufrufe ein zweites Mal schreiben. Es wurde nichts geschrieben.",
+      "action": "Verbinden Sie die Org auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte), falls ihre Sitzung abgelaufen ist, und setzen Sie den Lauf dann erneut fort: Er sucht zuerst nach diesen Aufrufen."
+    },
+    "journalUnavailable": {
+      "explanation": "Der Lauf hält auf der Festplatte dieses Rechners die IDs, die er zuordnet, und die Stelle, an der er fortgesetzt würde, und sein Journal konnte dort nicht geöffnet werden: Die Meldung nennt den Ordner und den Grund. Es wurde nichts geschrieben.",
+      "action": "Schaffen Sie Platz auf dieser Festplatte oder erlauben Sie Ihrem Benutzer, in diesen Ordner zu schreiben, und starten Sie dann erneut."
+    },
+    "runNotInHistory": {
+      "explanation": "Dieser Durchlauf ist nicht mehr im Verlauf von Forge, der die letzten Durchläufe behält: Was er geschrieben hat, ist hier nicht mehr bekannt. Es wurde nichts gelesen oder geschrieben.",
+      "action": "Sehen Sie unter Ältere Durchläufe nach, unterhalb von Letzte Durchläufe: Ein Durchlauf, dessen Datensätze sich noch entfernen lassen, steht dort. Sonst bringt ein vor dem Durchlauf erstellter Prüfpunkt die Org zurück (Prüfpunkte → Zurücksetzen…), und DataOps → Bereinigung → Objekte leeren leert seine Objekte, jeden ihrer Datensätze."
+    },
+    "removalRunning": {
+      "explanation": "Ein Entfernen dieses Durchlaufs läuft bereits, von dieser Seite oder einer anderen: Ein zweites würde doppelt fragen und doppelt löschen. Es wurde nichts weiter gelöscht.",
+      "action": "Warten Sie, bis es endet: Live-Operationen listet es, und sein Ergebnis erscheint unter dem Durchlauf. Lässt es Datensätze zurück, entfernen Sie dann den Rest."
+    },
+    "verifyRunning": {
+      "explanation": "Die Datensätze dieses Durchlaufs werden bereits geprüft: Eine zweite Prüfung würde sie alle erneut lesen. Es wurde nichts gelesen.",
+      "action": "Warten Sie auf ihr Ergebnis: Es erscheint unter dem Durchlauf, sobald zwei Lesungen übereinstimmen."
+    },
+    "journalGone": {
+      "explanation": "Die IDs der Datensätze dieses Durchlaufs wurden in seinem Journal auf diesem Rechner gehalten, das nicht mehr da ist: Nichts hier unterscheidet sie mehr von den übrigen Datensätzen der Org. Es wurde nichts gelesen oder geschrieben.",
+      "action": "Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs."
+    },
+    "notRecorded": {
+      "explanation": "Dieser Durchlauf wurde aufgezeichnet, bevor Forge festhielt, was ein Durchlauf erstellt und wo: Seine Datensätze lassen sich nicht von den übrigen der Org unterscheiden. Es wurde nichts gelesen oder geschrieben."
+    },
+    "inFlightUnread": {
+      "explanation": "Die Ziel-Org konnte nicht nach den Einfügeaufrufen gelesen werden, die der Lauf beim Stopp offen hatte: Ohne sie entfernt, blieben die Datensätze dieser Aufrufe zurück. Es wurde nichts gelöscht.",
+      "action": "Verbinden Sie die Org auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte), falls ihre Sitzung abgelaufen ist, und entfernen Sie den Durchlauf dann erneut: Das Entfernen sucht zuerst nach diesen Aufrufen."
+    },
+    "runOrgUnregistered": {
+      "explanation": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr in SandForge registriert. Es wurde nichts gelesen.",
+      "action": "Fügen Sie dieselbe Org auf der Seite Organisationen erneut hinzu und versuchen Sie es dann noch einmal: Sie wird unter derselben ID registriert. Eine seitdem aktualisierte Sandbox ist eine andere Org und enthält nichts, was dieser Durchlauf geschrieben hat."
     },
     "filesNotAccepted": {
       "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",

@@ -1136,7 +1136,10 @@ describe('sandforge-clone target automation', () => {
           'single email (its email alerts among them, as a Developer Edition counts them), 0 ' +
           'of 15 left today: past them, each record whose flow fails in the save is refused ' +
           "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the " +
-          'day. Assign the user a bypass that keeps what sends quiet, or write fewer records.',
+          "day. Assign the user a bypass that keeps what sends quiet — muting the target's " +
+          'automation for the run (--mute-automation on the command line, the Mute box on a ' +
+          "page) assigns, for the run alone, those the target's flows test — or write fewer " +
+          'records.',
       );
       expect(orgs.TGT.written).toEqual([]);
 

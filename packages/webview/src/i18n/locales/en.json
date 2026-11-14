@@ -74,7 +74,7 @@
       "transformBadPattern_other": "The rules {{rules}} have patterns that are no regular expressions: open the configuration and correct them, or remove the rules. Run, each would stop the run at its object before any of its records is written. Nothing was read or written.",
       "transformPatternOn": "{{rule}} on {{object}}, \"{{pattern}}\" ({{reason}})",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
-      "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
+      "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or tick Mute the target's automation for this run: for the run alone, it gives you the bypasses they test.",
       "seedWriteDeclined": "The seed was cancelled before it wrote anything. Nothing was written to the target org.",
       "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended.",
       "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended.",
@@ -6942,7 +6942,7 @@
     },
     "rowLocked": {
       "explanation": "The org could not lock the record, or the record it hangs from, because another operation held it at that moment. It is usually transient.",
-      "action": "Run again in a moment. If it comes back, wait until the jobs and integrations writing those records have finished.",
+      "action": "Wait until the jobs and integrations writing those records have finished, then run again. The rows refused were not written and the others were: an insert run again whole writes those others a second time, so first remove what this run created, where its results offer it.",
       "forge": {
         "explanation": "The target org could not lock the record, or the record it hangs from, because another operation held it at that moment: a job, an integration, or the target's own automation still at work on records the clone had just written. It is usually transient.",
         "action": "Retry the failed objects. If the lock comes back, wait until the jobs and integrations writing those records in the target org have finished, then retry."
@@ -7014,6 +7014,14 @@
     "requestTooLong": {
       "explanation": "Salesforce stopped a request that ran longer than it allows: a large batch, a broad query, or heavy automation on the object.",
       "action": "Run again with fewer records, or with the org's automation on the object turned off while the run writes."
+    },
+    "queryTimeout": {
+      "explanation": "Salesforce stopped a query that ran past its time limit: a filter on a field no index serves, or a table too large to read in one query. Run again as it was, it stops the same.",
+      "action": "Filter on an indexed field — Id, Name, CreatedDate, a lookup or an External ID — or narrow it to a window of dates, then run again."
+    },
+    "operationTooLarge": {
+      "explanation": "Salesforce refused a query whose rows it would have had to check one by one against the user's sharing: past a bound it sets, it refuses such a query to a user without View All.",
+      "action": "Give the user View All on the object, or View All Data, or narrow the query by an indexed field or a window of dates."
     },
     "allOrNoneRolledBack": {
       "explanation": "One record of a batch written all or none failed, so Salesforce rolled back the whole batch.",
@@ -7168,20 +7176,51 @@
       "action": "Run the clone again from Review."
     },
     "resumeUnavailable": {
-      "explanation": "This run cannot be taken up where it stopped: it was taken up already or its run ended, it kept no journal, or its records were removed. Nothing was written.",
-      "action": "Retry it from its results, or run the clone again from Review."
+      "explanation": "This run cannot be taken up where it stopped: it is being taken up, was taken up already or its run ended, it is no longer in the history, its journal is missing or does not say how it was set up, or its records were removed. Nothing was written.",
+      "action": "Being taken up already: wait for that run to end. Otherwise, in Recent runs, remove the records this run created, then Reuse configuration and run the clone again: run again without the removal, the clone writes those records a second time."
     },
     "resumeTargetChanged": {
-      "explanation": "The org this run wrote to is no longer the one it was — refreshed, replaced, or no longer registered in SandForge — so what the run wrote is not there to go on from. Nothing was written.",
-      "action": "Run the clone again from Review into the org as it is now."
+      "explanation": "The org this run wrote to is no longer the one it was — refreshed or replaced since — or is no longer registered in SandForge. Nothing was written.",
+      "action": "Removed from SandForge only: add the same org again on the Organizations page, then resume — the run checks it is the org it wrote to. Refreshed or replaced, it holds none of what the run wrote: run the clone again from Review into the org as it is now."
     },
     "resumeChanged": {
       "explanation": "This run would now be set up otherwise than the part it resumes: the clone on the page, or the sandforge.forge.maxRecordsPerObject setting, changed since it stopped. Nothing was written.",
       "action": "Put the setting back, or retry the run instead: a retry reads the clone again and links what this run wrote."
     },
-    "resumeUncertain": {
-      "explanation": "The run stopped while an insert call was under way, and its answer was never kept: the target holds records the resume cannot tell from that call's rows, or could not be read. Nothing was written.",
-      "action": "Look at the records of those objects created as the run stopped. Take the run up again with --write-uncertain to write those rows all the same, each then perhaps there twice, or remove the run."
+    "resumeTargetUnread": {
+      "explanation": "The target could not be read for the insert calls the run had under way when it stopped: taken up without them, the run would write those calls' records a second time. Nothing was written.",
+      "action": "Reconnect the org on the Organizations page (Try Reconnect on its card) if its session expired, then resume the run again: it looks for those calls first."
+    },
+    "journalUnavailable": {
+      "explanation": "The run keeps on this machine's disk the ids it maps and where it would be taken up, and its journal there could not be opened: the message names the folder and why. Nothing was written.",
+      "action": "Free some space on that disk, or let your user write in that folder, then run it again."
+    },
+    "runNotInHistory": {
+      "explanation": "This run is no longer in Forge's history, which keeps the latest runs: what it wrote is no longer known here. Nothing was read or written.",
+      "action": "Look under Older runs, below Recent runs: a run whose records can still be removed is listed there. Otherwise a checkpoint taken before the run takes the org back (Checkpoints → Rewind…), and DataOps → Cleanup → Empty objects empties its objects, every record of them."
+    },
+    "removalRunning": {
+      "explanation": "A removal of this run is already under way, from this page or another: a second one would ask, and delete, twice. Nothing more was deleted.",
+      "action": "Wait for it to end: Live Operations lists it, and its result shows under the run. If it leaves records, remove what is left then."
+    },
+    "verifyRunning": {
+      "explanation": "This run's records are already being verified: a second verification would read them all again. Nothing was read.",
+      "action": "Wait for its verdict: it shows under the run once two readings agree."
+    },
+    "journalGone": {
+      "explanation": "The ids of this run's records were kept in its journal on this machine, which is gone: nothing here tells them from the org's other records any more. Nothing was read or written.",
+      "action": "A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone."
+    },
+    "notRecorded": {
+      "explanation": "This run was recorded before Forge kept what a run created, and where: its records cannot be told from the org's others. Nothing was read or written."
+    },
+    "inFlightUnread": {
+      "explanation": "The target could not be read for the insert calls the run had under way when it stopped: removed without them, the records those calls wrote would stay behind. Nothing was deleted.",
+      "action": "Reconnect the org on the Organizations page (Try Reconnect on its card) if its session expired, then remove the run again: the removal looks for those calls first."
+    },
+    "runOrgUnregistered": {
+      "explanation": "The org this run wrote to is no longer registered in SandForge. Nothing was read.",
+      "action": "Add the same org again on the Organizations page, then try again: it is registered under the same id. A sandbox refreshed since is another org, and holds nothing this run wrote."
     },
     "filesNotAccepted": {
       "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",

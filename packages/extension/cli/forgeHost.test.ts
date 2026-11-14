@@ -96,7 +96,7 @@ describe('createForgeHost', () => {
         payload: { forgeId: 'forge-none' },
       });
       expect(removal.outcome).toBe('failed');
-      expect(removal.message?.payload).toMatchObject({ code: 'NOT_FOUND' });
+      expect(removal.message?.payload).toMatchObject({ code: 'RUN_NOT_IN_HISTORY' });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

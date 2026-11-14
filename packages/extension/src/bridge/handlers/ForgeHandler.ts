@@ -63,6 +63,7 @@ import {
   wholeOrgSampleFilesIssue,
   orgDisplayName,
 } from '@sandforge/shared';
+import { dirname } from 'node:path';
 import * as z from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
@@ -331,6 +332,7 @@ import {
   type InFlightJobUnderway,
   type InFlightObjectRows,
   type InFlightReconciliation,
+  type InFlightTarget,
 } from '../../modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../../modules/forge/runFingerprint.js';
 import { ForgeStops, MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
@@ -494,14 +496,115 @@ const WHOLE_ORG_JOURNAL_MESSAGE =
   'A clone of the whole org keeps its journal on disk, which could not be opened. Nothing was ' +
   'written.';
 
+/** Why a run that keeps its journal on disk was refused: the journal could not be opened. */
+const JOURNAL_UNAVAILABLE = 'JOURNAL_UNAVAILABLE';
+
+/**
+ * Why a resume was refused: the target could not be read for the insert
+ * calls the run had under way, which taken up without them it writes twice.
+ */
+const RESUME_TARGET_UNREAD = 'RESUME_TARGET_UNREAD';
+
+/**
+ * A run refused before its first write under a code of its own, which the
+ * page says in the user's language: a journal that could not be opened, a
+ * target that could not be read before a resume. Sent as EXECUTE_ERROR, the
+ * page showed a failure's English and nothing to do about it.
+ */
+class ForgeRunRefusal extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ForgeRunRefusal';
+  }
+}
+
+/**
+ * Why a run's journal could not be opened, as the disk said it, and what
+ * lifts it: a disk full is not lifted as a folder the user may not write in.
+ */
+function journalFailureWords(err: unknown): { reason: string; lift: string } {
+  const code =
+    err !== null && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
+  const lift =
+    code === 'ENOSPC' || code === 'EDQUOT'
+      ? 'Free some space on that disk'
+      : code === 'EACCES' || code === 'EPERM' || code === 'EROFS'
+        ? 'Let your user write in that folder'
+        : 'Free some space on that disk, or let your user write in that folder';
+  return { reason: extractErrorMessage(err), lift };
+}
+
+/**
+ * The target a reconciliation reads, which keeps in `said` the first error
+ * the org gave it: a reconciliation reads the journal on disk too, and the
+ * two failures are not lifted alike.
+ */
+function sayingWhatFailed(target: InFlightTarget, said: { err?: unknown }): InFlightTarget {
+  const noted = <T>(read: Promise<T>): Promise<T> =>
+    read.catch((err: unknown) => {
+      said.err ??= err;
+      throw err;
+    });
+  const { serverTime, readJob } = target;
+  return {
+    queryPages: (soql) =>
+      (async function* pages(): AsyncGenerator<Record<string, unknown>[]> {
+        try {
+          yield* target.queryPages(soql);
+        } catch (err: unknown) {
+          said.err ??= err;
+          throw err;
+        }
+      })(),
+    userId: () => noted(target.userId()),
+    ...(serverTime ? { serverTime: () => noted(serverTime.call(target)) } : {}),
+    ...(readJob ? { readJob: (jobId: string) => noted(readJob.call(target, jobId)) } : {}),
+  };
+}
+
+/**
+ * What still takes back the records of a run its history cannot name: the
+ * checkpoint taken before it, or the emptying of its objects, which takes
+ * every record of them.
+ */
+const RECORDS_TAKEN_BACK_BY =
+  'A checkpoint taken before the run takes the org back (Checkpoints → Rewind…); without one, ' +
+  'DataOps → Cleanup → Empty objects empties its objects, every record of them.';
+
 /** Why a reader of a run's ids was refused: they were kept in its journal, which is gone. */
 const JOURNAL_GONE = 'JOURNAL_GONE';
 const JOURNAL_GONE_MESSAGE =
   "The ids of this run's records were kept in its journal, which is gone: they can no longer " +
-  'be removed, verified, retried against or exported from here.';
+  `be removed, verified, retried against or exported from here. ${RECORDS_TAKEN_BACK_BY}`;
+
+/** Why a run named by the page was refused: its history no longer holds it. */
+const RUN_NOT_IN_HISTORY = 'RUN_NOT_IN_HISTORY';
+
+/** Why a run's records were refused a removal or a verification: one is under way. */
+const REMOVAL_RUNNING = 'REMOVAL_RUNNING';
+const VERIFY_RUNNING = 'VERIFY_RUNNING';
+
+/**
+ * What a run is told of the org it wrote to, no longer registered: the same
+ * org added again is registered under its Salesforce org id, as before; a
+ * sandbox refreshed since is another org.
+ */
+const RUN_ORG_UNREGISTERED_MESSAGE =
+  'The org this run wrote to is no longer registered. Add the same org again on Organizations, ' +
+  'then try again; a sandbox refreshed since is another org, and holds nothing this run wrote.';
 
 /** Why a resume was refused: the run cannot be taken up where it stopped. */
 const RESUME_UNAVAILABLE = 'RESUME_UNAVAILABLE';
+/**
+ * What a run that cannot be taken up is told to do: remove what it wrote,
+ * then run it again, which without the removal writes those records twice.
+ */
+const RERUN_INSTEAD =
+  'remove the records it created (Forge → Recent runs), then run the clone again. Nothing was ' +
+  'read or written.';
 /** Why a resume was refused: the org the run wrote to is not the one it was. */
 const RESUME_TARGET_CHANGED = 'RESUME_TARGET_CHANGED';
 /** Why a resume was refused: the run would be set up otherwise than the part it resumes. */
@@ -2227,12 +2330,22 @@ export class ForgeHandler implements DomainHandler {
         this.describeGlobalCache.set(orgId, sobjects);
       }
       const sobjectInfo = sobjects.find((s) => s.keyPrefix === keyPrefix);
+      // Said of the org the record was looked for in, by a code the panel
+      // words: "Record not found: 003…" named none, and a record pasted from
+      // another org than the source picked read as one gone.
+      const orgName = orgDisplayName(this.deps.orgManager.getOrg(orgId), orgId);
+      const notIn = (code: 'UNKNOWN_KEY_PREFIX' | 'RECORD_NOT_FOUND', message: string): void => {
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'forge:preview:error', { code, orgName, message }),
+        );
+      };
 
       if (!sobjectInfo) {
-        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {
-          message: `Unknown object for key prefix "${keyPrefix}"`,
-        });
-        this.deps.broker.postToWebview(errResponse);
+        notIn(
+          'UNKNOWN_KEY_PREFIX',
+          `No object of ${orgName} has ids starting "${keyPrefix}": the record is read from the ` +
+            'source org picked.',
+        );
         return;
       }
 
@@ -2245,10 +2358,11 @@ export class ForgeHandler implements DomainHandler {
       checkApiLimits(conn.limitInfo, `forge:preview query ${sobjectInfo.name}`);
 
       if (!records || records.length === 0) {
-        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {
-          message: `Record not found: ${recordId}`,
-        });
-        this.deps.broker.postToWebview(errResponse);
+        notIn(
+          'RECORD_NOT_FOUND',
+          `Record ${recordId} is not in ${orgName}, or the user connected there cannot see it: ` +
+            'the record is read from the source org picked.',
+        );
         return;
       }
 
@@ -3237,6 +3351,8 @@ export class ForgeHandler implements DomainHandler {
       // A run from a record kept none, and one that stopped could only be
       // retried from the ids its history entry held.
       const journal = !dryRun ? this.runJournal : undefined;
+      /** Why the journal was not begun or taken up, when it was not: as the disk or the target said it. */
+      let journalFailed: { err: unknown } | undefined;
       if (journal) {
         const id = resume?.journalId ?? `forge-run-${startedAt}`;
         journalId = id;
@@ -3247,14 +3363,31 @@ export class ForgeHandler implements DomainHandler {
         // in the target first, and what it holds of them kept as the run's
         // (`reconcileInFlight`): taken up from the journal alone, a run whose
         // window closed during a call wrote that call's rows twice.
+        // Of a resume, what the target said apart from what the disk said:
+        // one sentence named both, and neither's way past it.
+        const unread = (err: unknown): ForgeRunRefusal =>
+          new ForgeRunRefusal(
+            RESUME_TARGET_UNREAD,
+            `${targetName} could not be read for the insert calls the run had under way when it ` +
+              `stopped (${extractErrorMessage(err)}): taken up without them, the run would write ` +
+              `their records twice. Reconnect ${targetName} on Organizations if its session ` +
+              'expired, then resume the run again. Nothing was written.',
+          );
         const begun = resume
           ? journal.resuming(id).then(async () => {
               const conn = await getJsforceConnection(
                 config.targetOrgId,
                 this.deps.orgRegistry,
                 this.deps.orgManager,
-              );
-              const reconciled = await journal.reconcile(id, inFlightTargetOf(conn));
+              ).catch((err: unknown) => {
+                throw unread(err);
+              });
+              const said: { err?: unknown } = {};
+              const reconciled = await journal
+                .reconcile(id, sayingWhatFailed(inFlightTargetOf(conn), said))
+                .catch((err: unknown) => {
+                  throw said.err !== undefined ? unread(said.err) : err;
+                });
               for (const line of inFlightLines(reconciled, targetName)) {
                 logger.info(`Forge resume: ${line.trim()}`);
               }
@@ -3280,27 +3413,45 @@ export class ForgeHandler implements DomainHandler {
               },
               runUserId,
             );
-        store = await begun.then(
-          () => journal.open(id),
-          (err: unknown) => {
+        store = await begun
+          .then(() => journal.open(id))
+          .catch((err: unknown) => {
             // A journal that cannot be written costs the run nothing: the
             // history records what it created once it ends.
             logger.warn(`Forge run journal not started: ${extractErrorMessage(err)}`);
+            journalFailed = { err };
             return undefined;
-          },
-        );
-        if (resume && !store)
-          throw new Error(
-            'The journal of the run to resume could not be opened, or the target could not be ' +
-              'read for the calls the run had under way. Nothing was written.',
+          });
+        if (resume && !store) {
+          const failed = journalFailed?.err;
+          if (failed instanceof ForgeRunRefusal) throw failed;
+          const { reason, lift } = journalFailureWords(failed);
+          throw new ForgeRunRefusal(
+            JOURNAL_UNAVAILABLE,
+            `The journal of the run to resume, in ${dirname(journal.pathOf(id))}, could not ` +
+              `be opened (${reason}). ${lift}, then resume it again. Nothing was written.`,
           );
+        }
       }
       // A clone of the whole org keeps on disk the ids it maps, the lookups
       // its second pass sets and where it would be taken up: run without its
       // journal, they would all be held in memory, which a whole org does not
       // fit in. It stops before it reads a row; a run of anything else runs
-      // on, its history keeping what it created. Its dry run keeps none.
-      if (wholeOrg && !dryRun && !store) throw new Error(WHOLE_ORG_JOURNAL_MESSAGE);
+      // on, its history keeping what it created. Its dry run keeps none. The
+      // folder and what the disk said are named: a disk full, a folder the
+      // user may not write in, each lifted otherwise.
+      if (wholeOrg && !dryRun && !store) {
+        if (!journal || !journalId || journalFailed === undefined) {
+          throw new ForgeRunRefusal(JOURNAL_UNAVAILABLE, WHOLE_ORG_JOURNAL_MESSAGE);
+        }
+        const { reason, lift } = journalFailureWords(journalFailed.err);
+        throw new ForgeRunRefusal(
+          JOURNAL_UNAVAILABLE,
+          'A clone of the whole org keeps its journal on disk, in ' +
+            `${dirname(journal.pathOf(journalId))}, which could not be opened (${reason}). ` +
+            `${lift}, then run it again. Nothing was written.`,
+        );
+      }
       // A sample's plan: the last simulation's of the same setup taken up, or
       // what the run draws its own with, kept beside its journal.
       if (sampled) {
@@ -3703,7 +3854,9 @@ export class ForgeHandler implements DomainHandler {
             ? ABORTED_BEFORE_START
             : outcome === 'stopped'
               ? RUN_CANCELLED
-              : undefined;
+              : error instanceof ForgeRunRefusal
+                ? error.code
+                : undefined;
       // The checkpoint the run took first: kept when it wrote a record before
       // it stopped, deleted when it wrote none — its lease refused, a stop
       // before its first write. One whose run threw saying nothing of what it
@@ -5663,7 +5816,10 @@ export class ForgeHandler implements DomainHandler {
     const journalId = entry ? entry.journalId : kept?.inJournal?.journalId;
     if (target && journalId && (!entry || entry.idRemapCreated)) {
       if (this.removing.has(forgeId)) {
-        refuse('The records of this run are being removed already.', 'DUPLICATE');
+        refuse(
+          'The records of this run are being removed already: its result shows under the run once it ends.',
+          REMOVAL_RUNNING,
+        );
         return;
       }
       this.removing.add(forgeId);
@@ -5696,7 +5852,8 @@ export class ForgeHandler implements DomainHandler {
       const runEnded = Date.parse(entry.timestamp);
       if (!entry.idRemapCreated || !entry.targetOrgId || Number.isNaN(runEnded)) {
         refuse(
-          'This run was recorded before Forge kept what a run created: its records cannot be removed from the history.',
+          'This run was recorded before Forge kept what a run created: its records cannot be removed ' +
+            `from the history. ${RECORDS_TAKEN_BACK_BY}`,
           'NOT_RECORDED',
         );
         return;
@@ -5764,7 +5921,7 @@ export class ForgeHandler implements DomainHandler {
           : forgeRemovalPlanLeft(kept);
       }
     } else {
-      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      refuse('This run is no longer in the Forge history.', RUN_NOT_IN_HISTORY);
       return;
     }
     try {
@@ -5783,7 +5940,10 @@ export class ForgeHandler implements DomainHandler {
         return;
       }
       if (this.removing.has(forgeId)) {
-        refuse('The records of this run are being removed already.', 'DUPLICATE');
+        refuse(
+          'The records of this run are being removed already: its result shows under the run once it ends.',
+          REMOVAL_RUNNING,
+        );
         return;
       }
       // Claimed before Production Guard is consulted: its confirmation waits on
@@ -6040,7 +6200,8 @@ export class ForgeHandler implements DomainHandler {
         unread:
           `${org} could not be read for the insert calls this run had under way when it ` +
           `stopped (${extractErrorMessage(err)}): removed without them, the records those ` +
-          'calls wrote would stay behind. Nothing was deleted.',
+          `calls wrote would stay behind. Nothing was deleted. Reconnect ${org} on Organizations ` +
+          'if its session expired, then remove the run again.',
       };
     }
   }
@@ -6227,14 +6388,17 @@ export class ForgeHandler implements DomainHandler {
     if (!entry) {
       return {
         refused:
-          'The run to resume is no longer in the history: what it wrote and where it stopped are not known.',
+          'The run to resume is no longer in the history: what it wrote and where it stopped are ' +
+          'not known. Run the clone again from Review. Nothing was read or written.',
       };
     }
     const targetOrgId = entry.targetOrgId;
     const journal = this.runJournal;
+    // Asked from the history or Live Operations, neither of which opens the
+    // run's results, the refusal sent the user to a Retry neither offers.
     if (!entry.journalId || !journal) {
       return {
-        refused: 'This run kept no journal to take it up from. Retry it from its results instead.',
+        refused: `This run kept no journal to take it up from: ${RERUN_INSTEAD}`,
         targetOrgId,
       };
     }
@@ -6260,8 +6424,7 @@ export class ForgeHandler implements DomainHandler {
     const startedWith = head?.resume?.startedWith;
     if (!head?.resume || !startedWith || head.targetOrgId !== targetOrgId) {
       return {
-        refused:
-          'The journal of this run does not say how it was set up. Retry it from its results instead.',
+        refused: `The journal of this run does not say how it was set up: ${RERUN_INSTEAD}`,
         targetOrgId,
       };
     }
@@ -6309,10 +6472,15 @@ export class ForgeHandler implements DomainHandler {
     // The org it wrote to: in the registry still, and the same org — a
     // sandbox refreshed under its alias holds none of what the run wrote.
     const target = this.deps.orgManager.getOrg(targetOrgId);
+    // Removed from the registry only, the same org added again is registered
+    // under its Salesforce org id, as before, and the run is found there:
+    // told to run the clone again, the user wrote what the run wrote twice.
     if (!target) {
       refuse(
         RESUME_TARGET_CHANGED,
-        'The org this run wrote to is no longer registered in SandForge: the run cannot be taken up there.',
+        'The org this run wrote to is no longer registered in SandForge: add the same org again ' +
+          'on Organizations, then resume — the run checks it is the org it wrote to. Refreshed ' +
+          'since, it holds nothing the run wrote: run the clone again. Nothing was read or written.',
         targetOrgId,
       );
       return;
@@ -6324,7 +6492,9 @@ export class ForgeHandler implements DomainHandler {
     ) {
       refuse(
         RESUME_TARGET_CHANGED,
-        `${orgDisplayName(target, targetOrgId)} is no longer the org this run wrote to — refreshed or replaced since: what the run wrote is not there.`,
+        `${orgDisplayName(target, targetOrgId)} is no longer the org this run wrote to — refreshed ` +
+          'or replaced since: what the run wrote is not there. Run the clone again from Review into ' +
+          'it as it is now. Nothing was read or written.',
         targetOrgId,
       );
       return;
@@ -6536,7 +6706,7 @@ export class ForgeHandler implements DomainHandler {
 
     const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
     if (!entry) {
-      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      refuse('This run is no longer in the Forge history.', RUN_NOT_IN_HISTORY);
       return;
     }
     if (!entry.targetOrgId) {
@@ -6565,7 +6735,7 @@ export class ForgeHandler implements DomainHandler {
     }
     const org = this.deps.orgManager.getOrg(entry.targetOrgId);
     if (!org) {
-      refuse('The org this run wrote to is no longer registered.', 'ORG_NOT_FOUND');
+      refuse(RUN_ORG_UNREGISTERED_MESSAGE, 'ORG_NOT_FOUND');
       return;
     }
     const target = recordPageUrl(org.instanceUrl, created.objectApiName, created.id);
@@ -6622,7 +6792,7 @@ export class ForgeHandler implements DomainHandler {
 
     const entry = this.loadHistory().find((e) => e.forgeId === forgeId);
     if (!entry) {
-      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      refuse('This run is no longer in the Forge history.', RUN_NOT_IN_HISTORY);
       return;
     }
     if (entry.dryRun === true) {
@@ -6632,7 +6802,8 @@ export class ForgeHandler implements DomainHandler {
     const targetOrgId = entry.targetOrgId;
     if (!entry.idRemapCreated || !entry.idRemapTable || !targetOrgId) {
       refuse(
-        'This run was recorded before Forge kept what a run created: its records cannot be verified.',
+        'This run was recorded before Forge kept what a run created: its records cannot be ' +
+          `verified. ${RECORDS_TAKEN_BACK_BY}`,
         'NOT_RECORDED',
       );
       return;
@@ -6660,11 +6831,14 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     if (!this.deps.orgManager.getOrg(targetOrgId)) {
-      refuse('The org this run wrote to is no longer registered.', 'ORG_NOT_FOUND');
+      refuse(RUN_ORG_UNREGISTERED_MESSAGE, 'ORG_NOT_FOUND');
       return;
     }
     if (this.verifying.has(forgeId)) {
-      refuse('The records of this run are being verified already.', 'DUPLICATE');
+      refuse(
+        'The records of this run are being verified already: its verdict shows under the run once it ends.',
+        VERIFY_RUNNING,
+      );
       return;
     }
     this.verifying.add(forgeId);
@@ -6765,7 +6939,7 @@ export class ForgeHandler implements DomainHandler {
     };
     const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
     if (!entry) {
-      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      refuse('This run is no longer in the Forge history.', RUN_NOT_IN_HISTORY);
       return;
     }
     if (!entry.remapInJournal) {
@@ -7941,13 +8115,14 @@ export class ForgeHandler implements DomainHandler {
       );
     const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
     if (!entry) {
-      refuse(SWEEP_NEEDS_HISTORY, 'NOT_FOUND');
+      refuse(SWEEP_NEEDS_HISTORY, RUN_NOT_IN_HISTORY);
       return;
     }
     const targetOrgId = entry.targetOrgId;
     if (!entry.idRemapCreated || !targetOrgId) {
       refuse(
-        'This run was recorded before Forge kept what a run created: nothing of it can be swept.',
+        'This run was recorded before Forge kept what a run created: nothing of it can be swept. ' +
+          RECORDS_TAKEN_BACK_BY,
         'NOT_RECORDED',
       );
       return;
@@ -8602,7 +8777,7 @@ export class ForgeHandler implements DomainHandler {
     }
     const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
     if (!entry?.targetOrgId) {
-      refuse(new Error('This run is no longer in the Forge history.'), 'NOT_FOUND');
+      refuse(new Error('This run is no longer in the Forge history.'), RUN_NOT_IN_HISTORY);
       return;
     }
     // Its objects, counted: a run past the bound counts them without its ids.

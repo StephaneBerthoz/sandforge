@@ -77,7 +77,15 @@ const FORGE_REFUSAL_CODES: readonly string[] = [
   'RESUME_UNAVAILABLE',
   'RESUME_TARGET_CHANGED',
   'RESUME_CHANGED',
-  'RESUME_UNCERTAIN',
+  'RESUME_TARGET_UNREAD',
+  'JOURNAL_UNAVAILABLE',
+  'RUN_NOT_IN_HISTORY',
+  'REMOVAL_RUNNING',
+  'VERIFY_RUNNING',
+  'JOURNAL_GONE',
+  'NOT_RECORDED',
+  'IN_FLIGHT_UNREAD',
+  'ORG_NOT_FOUND',
   'FILES_NOT_ACCEPTED',
   'OWNER_MAP_INACTIVE',
   'OWNER_MAP_UNKNOWN',
@@ -343,6 +351,52 @@ describe('what the hints say, in English', () => {
     expect(errors.rowLocked.forge.explanation).toContain('transient');
     expect(errors.rowLocked.forge.action).toMatch(/^Retry the failed objects/);
     expect(errors.rowLocked.explanation).toContain('transient');
+  });
+
+  /*
+   * Forge alone sends again the rows a lock refused. Told to run again in a
+   * moment, a Quick Sync inserted every record a second time, and an
+   * Autopilot run, which has no removal, could not take the first ones back.
+   */
+  it('says outside Forge that an insert run again whole writes again what it wrote', () => {
+    expect(errors.rowLocked.action).not.toMatch(/^Run again in a moment/);
+    expect(errors.rowLocked.action).toContain('a second time');
+    expect(errors.rowLocked.action).toContain('remove what this run created');
+  });
+
+  /*
+   * Refused for its journal, a run from the history was sent to Retry "from
+   * its results", which neither the history nor Live Operations opens.
+   */
+  it('sends a run that cannot be taken up to the history’s removal and reuse, not to results it cannot open', () => {
+    expect(errors.resumeUnavailable.action).not.toContain('Retry it from its results');
+    expect(errors.resumeUnavailable.action).toContain(en.forge.history.title);
+    expect(errors.resumeUnavailable.action).toContain(en.forge.history.reuse);
+  });
+
+  it('tells an org removed from SandForge apart from one refreshed since', () => {
+    expect(errors.resumeTargetChanged.action).toContain(`the ${en.nav.orgs} page`);
+    expect(errors.resumeTargetChanged.action).toContain('add the same org again');
+    expect(errors.resumeTargetChanged.action).toContain('Refreshed or replaced');
+    expect(errors.runOrgUnregistered.action).toContain('Add the same org again');
+  });
+
+  it('names the checkpoint and the emptying that take back a run whose ids are gone', () => {
+    expect(errors.journalGone.action).toContain(
+      `${en.nav.checkpoint} → ${en.checkpoint.list.rewind}`,
+    );
+    expect(errors.journalGone.action).toContain('DataOps → Cleanup → Empty objects');
+    expect(errors.journalGone.action).toContain("not this run's alone");
+    expect(errors.runNotInHistory.action).toContain(en.forge.history.olderTitle);
+  });
+
+  it('says a removal or a verification under way is waited for, never that a clone was sent twice', () => {
+    expect(errors.removalRunning.action).toContain(en.monitor.liveOps.title);
+    expect(errors.verifyRunning.explanation).not.toContain('sent again');
+  });
+
+  it('keeps no wording of a refusal the panel never meets', () => {
+    expect('resumeUncertain' in errors).toBe(false);
   });
 
   it('says which clone leaves its records to the user it writes as, and which keeps an owner the target holds active', () => {

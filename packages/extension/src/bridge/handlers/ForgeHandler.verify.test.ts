@@ -364,7 +364,7 @@ describe('forge:verify:request', () => {
 
   it('refuses a run that is no longer in the history', async () => {
     await handler.handle(request({ forgeId: 'forge-gone' }));
-    expect(refusedWith('NOT_FOUND')).toBe('This run is no longer in the Forge history.');
+    expect(refusedWith('RUN_NOT_IN_HISTORY')).toBe('This run is no longer in the Forge history.');
   });
 
   it('refuses a simulation, which wrote nothing', async () => {
@@ -376,7 +376,9 @@ describe('forge:verify:request', () => {
   it('refuses a run recorded before runs kept what they created', async () => {
     data.set('forge:history', [pastRun({ idRemapCreated: undefined })]);
     await handler.handle(request({ forgeId: 'forge-run' }));
-    refusedWith('NOT_RECORDED');
+    expect(refusedWith('NOT_RECORDED')).toContain(
+      'its records cannot be verified. A checkpoint taken before the run takes the org back',
+    );
   });
 
   it('refuses a run whose records were all removed, and one that created none', async () => {
@@ -403,7 +405,11 @@ describe('forge:verify:request', () => {
   it('refuses a run whose target is no longer registered', async () => {
     registered.delete('tgt-org');
     await handler.handle(request({ forgeId: 'forge-run' }));
-    refusedWith('ORG_NOT_FOUND');
+    // The same org added again is registered under the same id: the way back.
+    expect(refusedWith('ORG_NOT_FOUND')).toBe(
+      'The org this run wrote to is no longer registered. Add the same org again on Organizations, ' +
+        'then try again; a sandbox refreshed since is another org, and holds nothing this run wrote.',
+    );
   });
 
   it('refuses a request that names records or anything past the run', async () => {
@@ -424,7 +430,7 @@ describe('forge:verify:request', () => {
     expect(posted()).toEqual([
       expect.objectContaining({
         type: 'forge:verify:error',
-        payload: expect.objectContaining({ code: 'DUPLICATE' }),
+        payload: expect.objectContaining({ code: 'VERIFY_RUNNING' }),
       }),
     ]);
     release(VERIFIED);

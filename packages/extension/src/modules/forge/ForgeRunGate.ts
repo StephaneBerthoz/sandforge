@@ -2897,11 +2897,18 @@ export function emailRefusal(checks: readonly EmailCheck[], org: string): string
         `, ${check.remaining ?? 0} of ${check.max ?? 0} left today`,
     )
     .join('; ');
+  // The bypass is what the mute assigns: unnamed, the user was sent to Setup
+  // for what a flag of the command and a box of the page do for the run
+  // alone. A run muted already counts what its mute leaves running, which
+  // tests no bypass the mute holds: said as what the mute assigns, not as a
+  // way past it.
   return (
     `The target's automation would make ${org} send ${said}: past them, each record whose flow ` +
     "fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop " +
-    'for the rest of the day. Assign the user a bypass that keeps what sends quiet, or write ' +
-    'fewer records.'
+    'for the rest of the day. Assign the user a bypass that keeps what sends quiet — muting ' +
+    "the target's automation for the run (--mute-automation on the command line, the Mute box " +
+    "on a page) assigns, for the run alone, those the target's flows test — or write fewer " +
+    'records.'
   );
 }
 

@@ -816,7 +816,12 @@ describe('forge:undo', () => {
 
   describe('refusals, before anything is read', () => {
     it.each([
-      ['a run no longer in the history', { forgeId: 'forge-gone' }, undefined, 'NOT_FOUND'],
+      [
+        'a run no longer in the history',
+        { forgeId: 'forge-gone' },
+        undefined,
+        'RUN_NOT_IN_HISTORY',
+      ],
       [
         'a run recorded before runs kept what they created',
         { forgeId: 'forge-1' },
@@ -861,6 +866,22 @@ describe('forge:undo', () => {
       expect(trail()).toEqual([]);
     });
 
+    /*
+     * Its records were refused a removal from the history, and nothing said
+     * what still takes them back.
+     */
+    it('names, of a run recorded before runs kept what they created, what still takes its records back', async () => {
+      store.set('forge:history', [runEntry({ idRemapCreated: undefined })], 'forge');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(errors()[0].payload).toMatchObject({ code: 'NOT_RECORDED' });
+      expect(errors()[0].payload.message).toContain(
+        'A checkpoint taken before the run takes the org back (Checkpoints → Rewind…); without one, ' +
+          'DataOps → Cleanup → Empty objects empties its objects, every record of them.',
+      );
+    });
+
     it('refuses a second removal of a run while the first one runs', async () => {
       let release: () => void = () => {};
       let paused = false;
@@ -878,7 +899,7 @@ describe('forge:undo', () => {
       release();
       await first;
 
-      expect(errors().map((e) => e.payload.code)).toEqual(['DUPLICATE']);
+      expect(errors().map((e) => e.payload.code)).toEqual(['REMOVAL_RUNNING']);
     });
 
     it('refuses a second removal while the first waits on the production confirmation', async () => {
@@ -913,7 +934,7 @@ describe('forge:undo', () => {
 
       // One question, one removal.
       expect(confirmIfNeeded).toHaveBeenCalledTimes(1);
-      expect(errors().map((e) => e.payload.code)).toEqual(['DUPLICATE']);
+      expect(errors().map((e) => e.payload.code)).toEqual(['REMOVAL_RUNNING']);
       expect(org.deletes.map((d) => d.object)).toEqual(['Contact', 'Account']);
     });
   });
@@ -1848,7 +1869,7 @@ describe('forge:undo', () => {
 
       await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
 
-      expect(errors().map((e) => e.payload.code)).toEqual(['NOT_FOUND']);
+      expect(errors().map((e) => e.payload.code)).toEqual(['RUN_NOT_IN_HISTORY']);
       expect(org.deletes).toEqual([]);
     });
   });
@@ -2195,7 +2216,7 @@ describe('forge:undo-automation', () => {
     expect(
       posted<BaseMessage & { payload: { code: string } }>('forge:undo-automation:error')[0]?.payload
         .code,
-    ).toBe('NOT_FOUND');
+    ).toBe('RUN_NOT_IN_HISTORY');
   });
 
   it('says the read failed rather than taking it for nothing firing', async () => {

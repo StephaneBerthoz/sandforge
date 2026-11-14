@@ -164,7 +164,10 @@ class PathMap extends Map<string, string> {
 }
 
 /** A disk in memory under a real journal: each file's text, by its path. */
-function journalOnMemory(files: Map<string, string>): ForgeRunJournal {
+function journalOnMemory(
+  files: Map<string, string>,
+  over: Partial<ConstructorParameters<typeof ForgeRunJournal>[0]> = {},
+): ForgeRunJournal {
   return new ForgeRunJournal({
     storagePath: '/storage',
     appendFile: async (filePath, content) => {
@@ -187,6 +190,7 @@ function journalOnMemory(files: Map<string, string>): ForgeRunJournal {
         Buffer.from(files.get(filePath) ?? '').subarray(offset, offset + length),
       close: () => {},
     }),
+    ...over,
   });
 }
 
@@ -249,7 +253,10 @@ describe('a run taken up where it stopped', () => {
   });
 
   /** A handler of a window, whose orchestrator runs `execute`. */
-  function windowRunning(execute: Execute): {
+  function windowRunning(
+    execute: Execute,
+    journal: ForgeRunJournal = journalOnMemory(files),
+  ): {
     handler: ForgeHandler;
     execute: ReturnType<typeof vi.fn>;
   } {
@@ -264,7 +271,7 @@ describe('a run taken up where it stopped', () => {
         resume: vi.fn(),
         clearDiscoveryCache: vi.fn(),
       } as unknown as ForgeOrchestrator,
-      { targetAutomation: reader, runJournal: journalOnMemory(files) },
+      { targetAutomation: reader, runJournal: journal },
     );
     handler.setLiveOperationTracker(tracker);
     return { handler, execute: run };
@@ -639,6 +646,15 @@ describe('a run taken up where it stopped', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(refusal('wv-refreshed')).toMatchObject({ code: 'RESUME_TARGET_CHANGED' });
     expect(refusal('wv-gone')).toMatchObject({ code: 'RESUME_TARGET_CHANGED' });
+    // An org only removed from SandForge comes back under the same id: told
+    // to run the clone again, the user wrote what the run had written twice.
+    expect(refusal('wv-gone')?.message).toContain(
+      'add the same org again on Organizations, then resume',
+    );
+    expect(refusal('wv-refreshed')?.message).toContain(
+      'Run the clone again from Review into it as it is now.',
+    );
+    expect(refusal('wv-refreshed')?.message).not.toContain('add the same org again');
     const audited = new AuditTrailStore(configStore)
       .list()
       .entries.filter((e) => e.details?.['code'] === 'RESUME_TARGET_CHANGED');
@@ -686,6 +702,30 @@ describe('a run taken up where it stopped', () => {
     await send(handler, 'wv-again', 'forge:resume-run', { forgeId: stopped.forgeId });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(refusal('wv-again')).toMatchObject({ code: 'RESUME_UNAVAILABLE' });
+  });
+
+  /*
+   * Sent from the history or Live Operations, which open no run's results,
+   * the refusal said to retry it from there.
+   */
+  it('sends a run with no journal to take it up from to its removal, then to running the clone again', async () => {
+    const { stopped } = await cancelledRun();
+    const kept = configStore.get<ForgeExecutionResult[]>('forge:history') ?? [];
+    configStore.set(
+      'forge:history',
+      kept.map(({ journalId: _journal, ...entry }) => entry),
+      'forge',
+    );
+    const { handler, execute } = windowRunning(async () => DONE);
+
+    await send(handler, 'wv-unjournaled', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(refusal('wv-unjournaled')).toMatchObject({ code: 'RESUME_UNAVAILABLE' });
+    expect(refusal('wv-unjournaled')?.message).not.toContain('Retry it from its results');
+    expect(refusal('wv-unjournaled')?.message).toContain(
+      'remove the records it created (Forge → Recent runs), then run the clone again',
+    );
   });
 
   it('keeps the journal of a clone of one record that stopped, and takes it up reading its scope again', async () => {
@@ -867,6 +907,55 @@ describe('a run taken up where it stopped', () => {
       });
       return DONE;
     };
+
+    /*
+     * One sentence said both: the journal could not be opened, or the target
+     * could not be read for the calls. Each has its own way past.
+     */
+    it('says a target it could not read for those calls apart from a journal it could not open, with the way past each', async () => {
+      const entry = await closedDuringTheCall();
+      // A query refused is a row the run asks about before it writes; a
+      // target it cannot reach at all is no question to ask.
+      vi.mocked(getJsforceConnection).mockRejectedValue(
+        new Error('INVALID_SESSION_ID: Session expired or invalid'),
+      );
+      const unread = windowRunning(async () => DONE);
+
+      await send(unread.handler, 'wv-unread', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      expect(unread.execute).not.toHaveBeenCalled();
+      expect(refusal('wv-unread')).toMatchObject({
+        code: 'RESUME_TARGET_UNREAD',
+        message: expect.stringContaining('INVALID_SESSION_ID'),
+      });
+      expect(refusal('wv-unread')?.message).toContain(
+        'Reconnect DEV on Organizations if its session expired, then resume the run again.',
+      );
+      expect(refusal('wv-unread')?.message).not.toContain('journal');
+
+      // The disk refuses the journal its first step: what ended the part goes.
+      const refusing = journalOnMemory(files, {
+        rm: async (filePath) => {
+          if (filePath.endsWith('.end.json')) {
+            throw Object.assign(new Error(`EACCES: permission denied, unlink '${filePath}'`), {
+              code: 'EACCES',
+            });
+          }
+          files.delete(filePath);
+        },
+      });
+      const locked = windowRunning(async () => DONE, refusing);
+
+      await send(locked.handler, 'wv-locked', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      expect(locked.execute).not.toHaveBeenCalled();
+      expect(refusal('wv-locked')).toMatchObject({ code: 'JOURNAL_UNAVAILABLE' });
+      expect(refusal('wv-locked')?.message).toContain(path.join('/storage', 'forge-runs'));
+      expect(refusal('wv-locked')?.message).toContain('EACCES');
+      expect(refusal('wv-locked')?.message).toContain(
+        'Let your user write in that folder, then resume it again.',
+      );
+    });
 
     it('finds the contact in the target before the run is taken up, and links to it', async () => {
       const entry = await closedDuringTheCall();

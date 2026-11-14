@@ -693,8 +693,43 @@ describe('forge:execute of the whole org', () => {
 
       await execute();
 
-      const refused = expectRefused('EXECUTE_ERROR');
+      const refused = expectRefused('JOURNAL_UNAVAILABLE');
       expect(String(refused.message)).toContain('keeps its journal on disk');
+      expect(handed).toEqual([]);
+    });
+
+    /*
+     * The disk full, or a folder the user may not write in: said as a failure
+     * with no folder and no cause, nothing told the user what to free or fix.
+     */
+    it('when its journal cannot be opened: the folder, what the disk said, and what to do about it', async () => {
+      const full = new ForgeRunJournal({
+        storagePath: '/storage',
+        appendFile: async () => {
+          throw Object.assign(new Error('ENOSPC: no space left on device, write'), {
+            code: 'ENOSPC',
+          });
+        },
+        readLines: () => (async function* none(): AsyncGenerator<string> {})(),
+        mkdir: async () => {},
+        rm: async () => {},
+        listFiles: async () => [],
+        openRunFile: () => ({
+          size: () => 0,
+          append: () => {},
+          read: () => Buffer.alloc(0),
+          close: () => {},
+        }),
+      });
+      use(orchestratorHanding(), { runJournal: full });
+
+      await execute();
+
+      const refused = expectRefused('JOURNAL_UNAVAILABLE');
+      expect(String(refused.message)).toContain(
+        `keeps its journal on disk, in ${path.join('/storage', 'forge-runs')}, which could not be opened (ENOSPC`,
+      );
+      expect(String(refused.message)).toContain('Free some space on that disk, then run it again.');
       expect(handed).toEqual([]);
     });
 

@@ -74,7 +74,7 @@
       "transformBadPattern_other": "Les règles {{rules}} ont des motifs qui ne sont pas des expressions régulières : ouvrez la configuration et corrigez-les, ou retirez les règles. Exécutée, chacune arrêterait la synchronisation à son objet avant l'écriture de ses enregistrements. Rien n'a été lu ni écrit.",
       "transformPatternOn": "{{rule}} sur {{object}}, « {{pattern}} » ({{reason}})",
       "seedStorageExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit : ses enregistrements prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}. Réduisez le nombre d'enregistrements, choisissez un modèle plus léger, ou libérez du stockage de données dans {{org}}.",
-      "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire.",
+      "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou cochez Rendre muettes les automatisations de la cible pour cette exécution : le temps de l'exécution seulement, elle vous attribue les contournements qu'elles testent.",
       "seedWriteDeclined": "Le seed a été annulé avant d'écrire quoi que ce soit. Rien n'a été écrit dans l'org cible.",
       "backupBusy": "Une sauvegarde ou une restauration de cette org est en cours : supprimez ses sauvegardes une fois qu'elle est terminée.",
       "autopilotRunning": "Une exécution Autopilot écrit encore dans cette org cible, et rien d'autre n'a été lancé : les Opérations en cours du Moniteur montrent où elle en est. Lancez-en une autre une fois qu'elle est terminée.",
@@ -6942,7 +6942,7 @@
     },
     "rowLocked": {
       "explanation": "L'org n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment. C'est en général passager.",
-      "action": "Relancez dans un instant. Si cela revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements soient terminés.",
+      "action": "Attendez que les traitements et les intégrations qui écrivent ces enregistrements soient terminés, puis relancez. Les lignes refusées n'ont pas été écrites et les autres l'ont été : une insertion relancée en entier écrit ces autres une seconde fois, alors supprimez d'abord ce que cette exécution a créé, là où ses résultats le proposent.",
       "forge": {
         "explanation": "L'org cible n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment : un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. C'est en général passager.",
         "action": "Relancez les objets en échec. Si le verrou revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements dans l'org cible soient terminés, puis relancez."
@@ -7014,6 +7014,14 @@
     "requestTooLong": {
       "explanation": "Salesforce a arrêté une requête qui a duré plus longtemps qu'il ne le permet : un gros lot, une requête trop large, ou une automatisation lourde sur l'objet.",
       "action": "Relancez avec moins d'enregistrements, ou avec l'automatisation de l'org sur l'objet désactivée le temps de l'écriture."
+    },
+    "queryTimeout": {
+      "explanation": "Salesforce a arrêté une requête qui a dépassé sa limite de temps : un filtre sur un champ qu'aucun index ne sert, ou une table trop grande pour être lue en une requête. Relancée telle quelle, elle s'arrête de même.",
+      "action": "Filtrez sur un champ indexé — Id, Name, CreatedDate, une référence ou un ID externe — ou réduisez-la à une fenêtre de dates, puis relancez."
+    },
+    "operationTooLarge": {
+      "explanation": "Salesforce a refusé une requête dont il aurait dû vérifier les lignes une à une contre le partage de l'utilisateur : au-delà d'un seuil qu'il fixe, il refuse une telle requête à un utilisateur sans « Afficher tout ».",
+      "action": "Donnez à l'utilisateur « Afficher tout » sur l'objet, ou « Afficher toutes les données », ou resserrez la requête sur un champ indexé ou une fenêtre de dates."
     },
     "allOrNoneRolledBack": {
       "explanation": "Un enregistrement d'un lot écrit en tout ou rien a échoué : Salesforce a annulé tout le lot.",
@@ -7168,20 +7176,51 @@
       "action": "Relancez le clonage depuis la revue."
     },
     "resumeUnavailable": {
-      "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle a déjà été reprise ou son exécution s'est terminée, elle n'a gardé aucun journal, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
-      "action": "Relancez-la depuis ses résultats, ou relancez le clonage depuis la revue."
+      "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle est en cours de reprise, a déjà été reprise ou son exécution s'est terminée, elle n'est plus dans l'historique, son journal manque ou ne dit pas comment elle a été configurée, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
+      "action": "Déjà en cours de reprise : attendez la fin de cette exécution. Sinon, dans Exécutions récentes, supprimez les enregistrements créés par cette exécution, puis Réutiliser la configuration et relancez le clonage : relancé sans cette suppression, le clonage écrit ces enregistrements une seconde fois."
     },
     "resumeTargetChanged": {
-      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus celle qu'elle était — actualisée, remplacée, ou plus enregistrée dans SandForge — : ce que l'exécution a écrit n'y est pas pour la poursuivre. Rien n'a été écrit.",
-      "action": "Relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
+      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge, ou n'est plus celle qu'elle était — actualisée ou remplacée depuis. Rien n'a été écrit.",
+      "action": "Seulement retirée de SandForge : ajoutez de nouveau la même org depuis la page Organisations, puis reprenez — l'exécution vérifie que c'est bien l'org où elle a écrit. Actualisée ou remplacée, elle ne contient rien de ce que l'exécution a écrit : relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
     },
     "resumeChanged": {
       "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
       "action": "Remettez le paramètre, ou relancez plutôt l'exécution : un nouvel essai relit le clonage et rattache ce que cette exécution a écrit."
     },
-    "resumeUncertain": {
-      "explanation": "L'exécution s'est arrêtée pendant un appel d'insertion, dont la réponse n'a jamais été conservée : la cible contient des enregistrements que la reprise ne sait pas distinguer des lignes de cet appel, ou n'a pas pu être lue. Rien n'a été écrit.",
-      "action": "Examinez les enregistrements de ces objets créés au moment de l'arrêt. Reprenez l'exécution avec --write-uncertain pour écrire ces lignes malgré tout, chacune alors peut-être en double, ou supprimez l'exécution."
+    "resumeTargetUnread": {
+      "explanation": "L'org cible n'a pas pu être lue pour les appels d'insertion que l'exécution avait en cours à son arrêt : reprise sans eux, l'exécution écrirait une seconde fois les enregistrements de ces appels. Rien n'a été écrit.",
+      "action": "Reconnectez l'org depuis la page Organisations (Reconnecter, sur sa carte) si sa session a expiré, puis reprenez l'exécution : elle cherche d'abord ces appels."
+    },
+    "journalUnavailable": {
+      "explanation": "L'exécution garde sur le disque de cette machine les Id qu'elle associe et l'endroit d'où la reprendre, et son journal n'a pas pu y être ouvert : le message nomme le dossier et la raison. Rien n'a été écrit.",
+      "action": "Libérez de la place sur ce disque, ou donnez à votre utilisateur le droit d'écrire dans ce dossier, puis relancez."
+    },
+    "runNotInHistory": {
+      "explanation": "Cette exécution n'est plus dans l'historique de Forge, qui garde les dernières : ce qu'elle a écrit n'est plus connu ici. Rien n'a été lu ni écrit.",
+      "action": "Regardez sous Exécutions plus anciennes, après Exécutions récentes : une exécution dont les enregistrements peuvent encore être supprimés y figure. Sinon, un point de contrôle pris avant l'exécution ramène l'org en arrière (Points de contrôle → Revenir à ce point…), et DataOps → Nettoyage → Vider des objets vide ses objets, tous leurs enregistrements."
+    },
+    "removalRunning": {
+      "explanation": "Une suppression de cette exécution est déjà en cours, depuis cette page ou une autre : une seconde demanderait, et supprimerait, deux fois. Rien de plus n'a été supprimé.",
+      "action": "Attendez qu'elle se termine : Opérations en cours la liste, et son résultat s'affiche sous l'exécution. Si elle laisse des enregistrements, supprimez alors ce qui reste."
+    },
+    "verifyRunning": {
+      "explanation": "Les enregistrements de cette exécution sont déjà en cours de vérification : une seconde vérification les relirait tous. Rien n'a été lu.",
+      "action": "Attendez son verdict : il s'affiche sous l'exécution une fois que deux lectures concordent."
+    },
+    "journalGone": {
+      "explanation": "Les Id des enregistrements de cette exécution étaient gardés dans son journal sur cette machine, qui n'existe plus : plus rien ici ne les distingue des autres enregistrements de l'org. Rien n'a été lu ni écrit.",
+      "action": "Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution."
+    },
+    "notRecorded": {
+      "explanation": "Cette exécution a été enregistrée avant que Forge garde ce qu'une exécution crée, et où : ses enregistrements ne se distinguent pas des autres enregistrements de l'org. Rien n'a été lu ni écrit."
+    },
+    "inFlightUnread": {
+      "explanation": "L'org cible n'a pas pu être lue pour les appels d'insertion que l'exécution avait en cours à son arrêt : supprimée sans eux, les enregistrements écrits par ces appels resteraient. Rien n'a été supprimé.",
+      "action": "Reconnectez l'org depuis la page Organisations (Reconnecter, sur sa carte) si sa session a expiré, puis supprimez de nouveau l'exécution : la suppression cherche d'abord ces appels."
+    },
+    "runOrgUnregistered": {
+      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge. Rien n'a été lu.",
+      "action": "Ajoutez de nouveau la même org depuis la page Organisations, puis réessayez : elle est enregistrée sous le même identifiant. Une sandbox actualisée depuis est une autre org, et ne contient rien de ce que l'exécution a écrit."
     },
     "filesNotAccepted": {
       "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",

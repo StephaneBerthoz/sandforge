@@ -362,6 +362,18 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     severity: 'warning',
     keys: ['errors.requestTooLong.explanation', 'errors.requestTooLong.action'],
   },
+  // A read of a large table: a query the org stopped past its time, on a
+  // filter no index serves, and one it refused for a user whose sharing it
+  // would have had to check row by row. Run again as it was, either meets the
+  // same refusal, which the platform's English does not say.
+  QUERY_TIMEOUT: {
+    severity: 'error',
+    keys: ['errors.queryTimeout.explanation', 'errors.queryTimeout.action'],
+  },
+  OPERATION_TOO_LARGE: {
+    severity: 'error',
+    keys: ['errors.operationTooLarge.explanation', 'errors.operationTooLarge.action'],
+  },
   ALL_OR_NONE_OPERATION_ROLLED_BACK: {
     severity: 'warning',
     keys: ['errors.allOrNoneRolledBack.explanation', 'errors.allOrNoneRolledBack.action'],
@@ -855,10 +867,60 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
     keys: ['errors.resumeChanged.explanation', 'errors.resumeChanged.action'],
     severity: 'warning',
   },
-  // A resume that stopped before it wrote: the target may hold rows of a call
-  // the run had under way, which it would write twice.
-  RESUME_UNCERTAIN: {
-    keys: ['errors.resumeUncertain.explanation', 'errors.resumeUncertain.action'],
+  // A resume stopped before it wrote, the target unread for the insert calls
+  // the run had under way: taken up without them, it would write their rows
+  // twice. A target whose session expired is the common cause.
+  RESUME_TARGET_UNREAD: {
+    keys: ['errors.resumeTargetUnread.explanation', 'errors.resumeTargetUnread.action'],
+    severity: 'warning',
+  },
+  // A run that keeps its journal on disk, which could not be opened or
+  // written: a clone of the whole org, which holds no id in memory, or a
+  // resume, which goes on in it. The message names the folder and why.
+  JOURNAL_UNAVAILABLE: {
+    keys: ['errors.journalUnavailable.explanation', 'errors.journalUnavailable.action'],
+    severity: 'error',
+  },
+  // A past run named by the page that its history no longer holds. Refused
+  // under NOT_FOUND, it was explained as a record the source org could not
+  // find, with its id to check.
+  RUN_NOT_IN_HISTORY: {
+    keys: ['errors.runNotInHistory.explanation', 'errors.runNotInHistory.action'],
+    severity: 'warning',
+  },
+  // A removal or a verification of a run asked while one was under way.
+  // Refused under DUPLICATE, it was explained as a clone sent twice.
+  REMOVAL_RUNNING: {
+    keys: ['errors.removalRunning.explanation', 'errors.removalRunning.action'],
+    severity: 'info',
+  },
+  VERIFY_RUNNING: {
+    keys: ['errors.verifyRunning.explanation', 'errors.verifyRunning.action'],
+    severity: 'info',
+  },
+  // What a run created known no longer, or never: its journal is gone, or it
+  // was recorded before runs kept it. Nothing takes its records back from
+  // the history; a checkpoint taken before it does, or an emptying of its
+  // objects, whole.
+  JOURNAL_GONE: {
+    keys: ['errors.journalGone.explanation', 'errors.journalGone.action'],
+    severity: 'warning',
+  },
+  NOT_RECORDED: {
+    keys: ['errors.notRecorded.explanation', 'errors.journalGone.action'],
+    severity: 'warning',
+  },
+  // A removal that could not look in the target for the calls the run had
+  // under way when it stopped: removed without them, their rows would stay.
+  IN_FLIGHT_UNREAD: {
+    keys: ['errors.inFlightUnread.explanation', 'errors.inFlightUnread.action'],
+    severity: 'warning',
+  },
+  // The org a past run wrote to, no longer registered. The same org added
+  // again is registered under the same id, its Salesforce org id; a sandbox
+  // refreshed since is another org.
+  ORG_NOT_FOUND: {
+    keys: ['errors.runOrgUnregistered.explanation', 'errors.runOrgUnregistered.action'],
     severity: 'warning',
   },
   FILES_NOT_ACCEPTED: {

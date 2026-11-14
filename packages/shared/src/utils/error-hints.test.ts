@@ -206,10 +206,55 @@ const REFUSALS: ReadonlyArray<{
     severity: 'warning',
   },
   {
+    message: 'This run is no longer in the Forge history.',
+    code: 'RUN_NOT_IN_HISTORY',
+    hint: 'runNotInHistory',
+    severity: 'warning',
+  },
+  {
+    message: 'The records of this run are being removed already.',
+    code: 'REMOVAL_RUNNING',
+    hint: 'removalRunning',
+    severity: 'info',
+  },
+  {
+    message: 'The records of this run are being verified already.',
+    code: 'VERIFY_RUNNING',
+    hint: 'verifyRunning',
+    severity: 'info',
+  },
+  {
     message:
-      '200 row(s) may already be in DEV (200 Contact): the insert call that sent them was under way when the run stopped.',
-    code: 'RESUME_UNCERTAIN',
-    hint: 'resumeUncertain',
+      "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or exported from here.",
+    code: 'JOURNAL_GONE',
+    hint: 'journalGone',
+    severity: 'warning',
+  },
+  {
+    message:
+      'DEV could not be read for the insert calls this run had under way when it stopped (socket hang up): removed without them, the records those calls wrote would stay behind. Nothing was deleted.',
+    code: 'IN_FLIGHT_UNREAD',
+    hint: 'inFlightUnread',
+    severity: 'warning',
+  },
+  {
+    message:
+      'A clone of the whole org keeps its journal on disk, in /storage/forge-runs, which could not be opened (ENOSPC: no space left on device). Nothing was written.',
+    code: 'JOURNAL_UNAVAILABLE',
+    hint: 'journalUnavailable',
+    severity: 'error',
+  },
+  {
+    message:
+      'DEV could not be read for the insert calls the run had under way when it stopped (socket hang up). Nothing was written.',
+    code: 'RESUME_TARGET_UNREAD',
+    hint: 'resumeTargetUnread',
+    severity: 'warning',
+  },
+  {
+    message: 'The org this run wrote to is no longer registered.',
+    code: 'ORG_NOT_FOUND',
+    hint: 'runOrgUnregistered',
     severity: 'warning',
   },
 ];
@@ -455,6 +500,41 @@ describe('translateError in Forge', () => {
     },
   );
 
+  /*
+   * A run the history dropped was refused under NOT_FOUND, whose Forge
+   * wording told the user to check a record's id in the source org; a removal
+   * or a verification under way under DUPLICATE, whose wording is of a clone
+   * sent twice.
+   */
+  it('says of a run, never of a record or of a clone sent twice, what refused its removal or its verification', () => {
+    expect(
+      forge('This run is no longer in the Forge history.', 'RUN_NOT_IN_HISTORY')?.actionKey,
+    ).toBe('errors.runNotInHistory.action');
+    expect(
+      forge('The records of this run are being removed already.', 'REMOVAL_RUNNING')?.actionKey,
+    ).not.toBe('errors.duplicateRun.action');
+  });
+
+  it('says what to do about a run recorded before runs kept what they created, as of a run whose journal is gone', () => {
+    expect(
+      forge(
+        'This run was recorded before Forge kept what a run created: its records cannot be removed from the history.',
+        'NOT_RECORDED',
+      ),
+    ).toEqual({
+      code: 'NOT_RECORDED',
+      explanationKey: 'errors.notRecorded.explanation',
+      actionKey: 'errors.journalGone.action',
+      severity: 'warning',
+    });
+  });
+
+  // The panel never meets it: the command line alone refuses a resume for
+  // the rows a call under way may have left, and says so with its flag.
+  it('keeps no wording of a refusal only the command line makes', () => {
+    expect(forge('200 row(s) may already be in DEV.', 'RESUME_UNCERTAIN')).toBeNull();
+  });
+
   it('reads the message as before when the code the error carries is not a refusal of its own', () => {
     // A run that failed once it had started is sent as EXECUTE_ERROR: what
     // stopped it is in its message.
@@ -631,6 +711,25 @@ describe('translateError in every other module', () => {
       expect({ code, known: isCataloguedErrorCode(code) }).toEqual({ code, known: true });
     }
     expect(isCataloguedErrorCode('constructor')).toBe(false);
+  });
+
+  /*
+   * A read of a large table meets both, and neither was catalogued: the
+   * banner showed the platform's English with a search of Salesforce Help.
+   */
+  it('says what to do about a query the org stopped for its time, or refused for its size', () => {
+    expect(translateError('QUERY_TIMEOUT: Your query request was running for too long.')).toEqual({
+      code: 'QUERY_TIMEOUT',
+      explanationKey: 'errors.queryTimeout.explanation',
+      actionKey: 'errors.queryTimeout.action',
+      severity: 'error',
+      docUrl: helpSearchUrlOf('QUERY_TIMEOUT'),
+      docKind: 'search',
+    });
+    expect(
+      translateError('OPERATION_TOO_LARGE: exceeded 100000 distinct ids', { module: 'forge' })
+        ?.actionKey,
+    ).toBe('errors.operationTooLarge.action');
   });
 
   it('explains Autopilot’s own reasons for holding a record back', () => {

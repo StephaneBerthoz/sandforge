@@ -423,13 +423,15 @@ export interface ForgePreviewResponse extends BaseMessage {
  * `forge:preview:error`. Extension -> WebView.
  *
  * Dual emission path (see ForgeHandler.handleForgePreview): domain failures
- * (unknown key prefix, record not found) are posted via buildResponse with
- * only `{ message }`; unexpected failures go through sendHandlerError which
- * also sets `code` / `retryable`.
+ * are posted via buildResponse with their code (`UNKNOWN_KEY_PREFIX`, no
+ * object of the org has ids so prefixed; `RECORD_NOT_FOUND`, the org holds
+ * no record of the id the user connected there can see) and the name of the
+ * org the record was looked for in; unexpected failures go through
+ * sendHandlerError which sets `code` / `retryable`.
  */
 export interface ForgePreviewErrorMessage extends BaseMessage {
   type: 'forge:preview:error';
-  payload: { message: string; code?: string; retryable?: boolean };
+  payload: { message: string; code?: string; retryable?: boolean; orgName?: string };
 }
 
 /** `forge:discover:response`. Extension -> WebView. The discovered dependency graph. */

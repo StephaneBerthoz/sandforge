@@ -5471,6 +5471,54 @@ describe('ForgeHandler', () => {
       expect(response.payload.estimatedSize).toBe(0);
     });
 
+    /*
+     * "Record not found: 003…" said nothing of the org it was looked for in:
+     * a record pasted from another org than the source picked read as gone.
+     */
+    it('names the org a record was looked for in, and says it by a code the panel can word', async () => {
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        () =>
+          ({ orgType: 'Sandbox', alias: 'UAT' }) as unknown as ReturnType<
+            HandlerDeps['orgManager']['getOrg']
+          >,
+      );
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [{ name: 'Account', label: 'Account', keyPrefix: '001' }],
+        }),
+        limitInfo: {},
+      } as never);
+      mockQueryFallback.mockResolvedValue([]);
+
+      await handler.handle(
+        buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' }),
+      );
+      await handler.handle(
+        buildMsg('forge:preview', { recordId: '00Qxx000003DGb1', orgId: 'org-1' }),
+      );
+
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'forge:preview:error')
+        .map((m) => m.payload);
+      expect(errors).toEqual([
+        {
+          code: 'RECORD_NOT_FOUND',
+          orgName: 'UAT',
+          message:
+            'Record 001xx000003DGb1 is not in UAT, or the user connected there cannot see it: ' +
+            'the record is read from the source org picked.',
+        },
+        {
+          code: 'UNKNOWN_KEY_PREFIX',
+          orgName: 'UAT',
+          message:
+            'No object of UAT has ids starting "00Q": the record is read from the source org picked.',
+        },
+      ]);
+    });
+
     it('refuses a record id carrying a quote before any query is built', async () => {
       // The Id lands inside a quoted SOQL literal. This suite used to stub the
       // escaping out, so nothing here showed a quote could not break out.

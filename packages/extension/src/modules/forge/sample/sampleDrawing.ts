@@ -542,16 +542,30 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   const left = input.sourceRequestsLeft;
   if (left !== undefined && reader.requests + scan > Math.floor(API_BUDGET_NEAR_SHARE * left)) {
     const estimate = reader.requests + scan;
+    // Marked as the drawing's, with its share and how it drew: the page said
+    // it as a run past all the source has left, and offered the newest
+    // records to a draw that took them already.
     throw new ForgeRunGateError(
       API_BUDGET_EXCEEDED,
       `Drawing the sample reads about ${estimate} requests of the source, more than a tenth ` +
         `of the ${left} it has left today. Nothing was written, and no id was read past the ` +
-        'counts. Draw the most recent records (--fit-draw recent), or narrow the large ' +
-        'objects (--filter).',
+        'counts. ' +
+        (options.draw === 'uniform'
+          ? 'Draw the most recent records (--fit-draw recent), or narrow the large objects ' +
+            '(--filter).'
+          : 'Narrow the large objects (--filter), or draw it once the source has more to spare.'),
       undefined,
       undefined,
       undefined,
-      { api: { kind: 'requests', org: 'source', estimate, remaining: left } },
+      {
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate,
+          remaining: left,
+          drawing: { share: API_BUDGET_NEAR_SHARE, draw: options.draw },
+        },
+      },
     );
   }
 

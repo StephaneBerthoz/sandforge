@@ -186,6 +186,33 @@ describe('forge run gate stops', () => {
     ).toEqual({ code: 'STORAGE_EXCEEDED' });
   });
 
+  /*
+   * A sample's drawing stops past a tenth of what the source has left: read
+   * without its mark, the page said it as a run past all of it.
+   */
+  it('keeps the mark of a stop of a sample’s drawing: the share it may read, and how it drew', () => {
+    const api = {
+      kind: 'requests',
+      org: 'source',
+      estimate: 3,
+      remaining: 20,
+      drawing: { share: 0.1, draw: 'uniform' },
+    } as const;
+    expect(forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', api })?.api).toEqual(api);
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { ...api, drawing: { share: 2, draw: 'uniform' } },
+      }),
+    ).toBeNull();
+    expect(
+      forgeRunGateStopOf({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { ...api, drawing: { share: 0.1, draw: 'oldest' } },
+      }),
+    ).toBeNull();
+  });
+
   it('reads a refusal for an object read whole: the bound and each object past it', () => {
     const readBound = {
       bound: 50_000,

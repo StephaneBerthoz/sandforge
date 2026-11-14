@@ -138,6 +138,13 @@ export interface ForgeRunGateStop {
     org: 'source' | 'target';
     estimate: number;
     remaining: number;
+    /**
+     * Of a sample refused as its plan was drawn: the share of `remaining`
+     * the drawing may read (a tenth), past which it stopped, and how it drew.
+     * Absent, the run was refused past all that is left. The newest roots
+     * first read fewer requests than roots spread over the org.
+     */
+    drawing?: { share: number; draw: 'uniform' | 'recent' };
   };
   /**
    * For a clone of the whole org refused for an object it reads whole: the
@@ -213,6 +220,12 @@ const stopSchema = z.object({
       org: z.enum(['source', 'target']),
       estimate: z.number().int().nonnegative(),
       remaining: z.number().int(),
+      drawing: z
+        .object({
+          share: z.number().positive().max(1),
+          draw: z.enum(['uniform', 'recent']),
+        })
+        .optional(),
     })
     .optional(),
   // Bounded as a message is: the page names each object, and a forged one

@@ -192,7 +192,7 @@ describe('forge:open-record', () => {
 
   it('refuses a run the history no longer holds', async () => {
     await handler.handle(request({ forgeId: 'forge-gone', recordId: '001000000000101AAA' }));
-    refusedWith('NOT_FOUND');
+    refusedWith('RUN_NOT_IN_HISTORY');
   });
 
   it('refuses a run recorded before the history kept the org it wrote to', async () => {

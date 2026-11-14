@@ -344,6 +344,32 @@ describe('drawing a sample of the whole org', () => {
     expect(org.sent.every(({ soql }) => soql.startsWith('SELECT COUNT() FROM'))).toBe(true);
   });
 
+  /*
+   * The page said the run's stop as one past all the source has left: "about
+   * 3 of its API requests, and it has 20 left today". What the drawing stops
+   * at is a tenth of them, and the stop said nothing of it.
+   */
+  it('marks a stop of the drawing with the share it may read, and how it drew, and offers the newest only to a spread draw', async () => {
+    const uniform = drawSampleOfTheOrg(inputOf(orgOf(150, 1), { sourceRequestsLeft: 20 }));
+    await expect(uniform).rejects.toMatchObject({
+      api: { estimate: 3, remaining: 20, drawing: { share: 0.1, draw: 'uniform' } },
+      message: expect.stringContaining('Draw the most recent records (--fit-draw recent)'),
+    });
+
+    const recent = drawSampleOfTheOrg(
+      inputOf(orgOf(150, 1), {
+        sourceRequestsLeft: 20,
+        options: { seed: 1, draw: 'recent', parents: 'all', children: 100, floor: 1 },
+      }),
+    );
+    await expect(recent).rejects.toMatchObject({
+      api: { drawing: { share: 0.1, draw: 'recent' } },
+    });
+    await expect(recent).rejects.not.toMatchObject({
+      message: expect.stringContaining('--fit-draw recent'),
+    });
+  });
+
   it('reads a relation in lists, never counted by parent, where the describe says the org will not count the object’s ids', async () => {
     const draw = async (aggregatable: boolean | undefined) => {
       const org = orgOf(150, 1);

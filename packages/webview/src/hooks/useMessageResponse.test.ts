@@ -1024,8 +1024,8 @@ describe('useMessageResponse', () => {
       expect(result.current.error).toBe(
         'The seed was refused before it wrote anything. Single emails these records would make ' +
           'my-dev-org send: about 225, with 15 of 15 left today. Lower the record counts, set ' +
-          'Contact to 0, turn off “Contact_Welcome” and “Welcome Email”, or give yourself the ' +
-          'permission that keeps them quiet.',
+          'Contact to 0, turn off “Contact_Welcome” and “Welcome Email”, or tick Mute the ' +
+          "target's automation for this run: for the run alone, it gives you the bypasses they test.",
       );
 
       // Without its figures, the host's own words.
