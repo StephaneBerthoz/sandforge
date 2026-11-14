@@ -10,7 +10,7 @@ records, and clean up the records nobody needs, from a single tabbed page.
 1. Pick the org in the list at the top of the page, then open the Anonymize tab.
 2. Pick a template in Select a template; its card lists each field it masks.
 3. Click Preview: the first records show Original beside Masked, and nothing is written.
-4. Click Apply, leave Keep the values first ticked, type the org's name, then click Confirm.
+4. Click Apply, tick Keep the values first and, if shown, Mask in slices, type the org's name, Confirm.
 5. To empty objects or the whole org, open Cleanup: its preview says what goes before any delete.
 
 **Tip:** Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back.
@@ -29,7 +29,10 @@ records, and clean up the records nobody needs, from a single tabbed page.
    are listed
 3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
 4. Before masking, leave **Keep the values first, so Restore can put them back** ticked in
-   Apply's confirmation, or start with a backup: without either, the mask cannot be undone
+   Apply's confirmation, or start with a backup: without either, the mask cannot be undone.
+   An object holding more records than one backup does is masked in slices, each backed up
+   just before it is masked, once **Mask in slices** is ticked there too
+   ([Masking in slices](#masking-in-slices))
 
 ## Features
 
@@ -48,6 +51,22 @@ Take a copy of the objects an Anonymize writes over:
   records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless
   you set it, from 100 to 1,000,000). There is no object picker and no
   incremental mode -- each backup is a new copy
+- **Back up in slices.** When an object the tab reads holds more records than
+  one backup does -- the masking check of the template picked plans it in
+  more than one slice, or the latest backup of it stopped at the cap -- the
+  tab offers **Back up in slices**, unticked. Ticked, **Create Backup** backs
+  up each object in slices of the cap's records, consecutive by `Id`, each
+  slice a backup of its own: an object past the cap, or past 1,000,000, is
+  held whole, up to 2,000 slices. The slices make a set, listed on one row
+  here and in Restore, restored whole or a slice at a time, and deleted whole
+  (see [Restoring and keeping a set](#restoring-and-keeping-a-set)). A slice
+  the org will not read in time (`QUERY_TIMEOUT`, `OPERATION_TOO_LARGE`) is
+  read again halved, three times at most and never under 100 records; past
+  that, past 2,000 slices, or on any other failure, the backup stops there. A backup in slices stopped part way --
+  that, or a cancel -- keeps the slices it took, says so, and holds part of
+  its objects; it is not resumed: take another. The panel offers no filter:
+  `sandforge backup` holds an object to one with `--where <Object>:<clause>`
+  ([In slices from the command line](#in-slices-from-the-command-line))
 - A classic encrypted field (`encryptedstring`) is not kept when the user
   SandForge connects as lacks View Encrypted Data, which the API answers
   masked: the Backup tab names it per object, and a restore leaves it as the
@@ -65,13 +84,16 @@ Take a copy of the objects an Anonymize writes over:
 - A backup that reached the cap on an object says so in the Backup and
   Restore tabs and in Apply's restore check, per object: the records it read,
   the records the object held, and that it stopped at the cap. A restore of
-  it brings back those records only
+  it brings back those records only. Of an object past 1,000,000 records,
+  which no backup holds whole, the tab names **Back up in slices** instead
+  of the setting
 - One-click backup creation from the Backup Panel
 - A backup is listed in Live Operations while it reads, and the Backup tab
   offers **Cancel run** meanwhile. It stops between two pages when either
   cancels it, the window closes or the extension deactivates, and what it
   wrote is removed, so a stopped run leaves no half-saved backup -- run it
-  again for a complete one
+  again for a complete one. A backup in slices keeps the slices it took
+  before the cancel, as said above
 - A backup whose read the org fails part-way keeps the records it read,
   listed as failed and partial with the object it stopped on and each object
   it never reached, which it holds none of -- the Backup and Restore tabs and
@@ -91,7 +113,10 @@ Take a copy of the objects an Anonymize writes over:
   that setting existed is kept until you delete it: the retention counts from
   the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
   one, or every backup of the org; disconnecting an org asks whether its
-  backups go with it, and an erasure offers to delete those taken before it
+  backups go with it, and an erasure offers to delete those taken before it.
+  A set of slices is never one of the ten: it goes whole, its age counted
+  from when it last moved, and a slice is never deleted alone (see
+  [Restoring and keeping a set](#restoring-and-keeping-a-set))
 
 ### Restore
 
@@ -110,7 +135,9 @@ Restore data from a previously saved backup:
   since the backup get its values back, whoever changed them — of a Sync run's
   backup, that the records changed since the run are left as they are
 - A restore puts the whole backup back: there is no choice of records, objects
-  or moment in time, only of which backup
+  or moment in time, only of which backup -- of a set of slices, of every
+  slice or one of them (see
+  [Restoring and keeping a set](#restoring-and-keeping-a-set))
 - The backup a Sync run kept of the records it wrote over is listed here too,
   marked as the run's and saying that removing the run in Sync puts the values
   back as well. Restored from here, a record the run's calls kept in more than
@@ -191,7 +218,10 @@ your own:
   every record a run masks: the restore check marks, per object, a backup
   that stopped at the cap or on a failed read and names the setting that
   raises the cap, and Apply's confirmation names, per object, the records a
-  restore of the latest backup can never bring back
+  restore of the latest backup can never bring back. An object holding more
+  records than one backup does is planned there in slices, which keep a
+  backup of every record a run masks (see
+  [Masking in slices](#masking-in-slices))
 - **What a run reads and writes.** It reads the `Id` and the fields the
   template names. It writes those fields where they hold a value, and nothing
   else of the record: an empty field stays empty rather than being given a
@@ -201,12 +231,19 @@ your own:
   first, so Restore can put them back**, ticked unless you untick it, as the
   command line always does: before its first write, the run takes a backup of
   the fields it masks, held to the records it masks, listed with the backups.
-  It writes nothing unless that backup holds every record it would mask --
-  one stopped at the cap refuses the run, `SNAPSHOT_NOT_TAKEN`, and the tab
-  says how to mask without one. Its result points to the backup, and **Open
+  It writes nothing unless that backup holds every record it would mask. An
+  object holding more records than the cap is masked in slices once the
+  confirmation's **Mask in slices** box is ticked too, each slice backed up
+  just before it is masked (see [Masking in slices](#masking-in-slices));
+  asked without slices, such a run is refused before Production Guard is
+  asked, `SNAPSHOT_NOT_TAKEN`, nothing masked, and the tab names the box. A
+  backup that cannot be taken refuses the run too, under the same code,
+  nothing masked, and the tab says how to mask without one. Its result points to the backup, and **Open
   in Restore** opens the Restore tab on it. Unticked, the confirmation names
-  instead the records a restore of the latest backup can never bring back. A
-  resume takes no backup: the run it resumes took one
+  instead the records a restore of the latest backup can never bring back,
+  and nothing is masked in slices. A resume takes no backup: the run it
+  resumes took one -- a run in slices resumed backs up each slice it has
+  left
 - **Every field of the template, or nothing.** Once the records are counted,
   and before Production Guard is asked, a run looks up every field its
   template names on the objects that hold records. A describe lists only what
@@ -270,7 +307,10 @@ your own:
   pseudonym as on the objects masked once. Apply still masks every record. A
   run that leaves nothing unmasked forgets where the last one stopped; a
   template whose rules changed since cannot be resumed, nor can a run the org
-  refused more than 2,000 records of -- Apply masks those
+  refused more than 2,000 records of -- Apply masks those. A run in slices
+  resumes its set instead, with **Resume the run in slices**, whatever the
+  org refused, and Apply waits for it (see
+  [Stopped, resumed, given up](#stopped-resumed-given-up))
 - **What the templates that ship write.** Sandbox Data Scrub replaces a
   website with `https://example.com`. HIPAA Health Data keeps the first three
   characters of a postal code, the region a ZIP code's first three digits
@@ -342,7 +382,238 @@ your own:
   window generates when it starts and never writes down, so two runs in one
   window mask a record identically and the next window masks it differently.
   A resume in another window masks what the first run left with that window's
-  key, and still gives none of the names the first run made up.
+  key, and still gives none of the names the first run made up. A run in
+  slices alone keeps its key, until its set ends, so that its resume in any
+  window masks as it did (see
+  [Stopped, resumed, given up](#stopped-resumed-given-up)).
+
+### Masking in slices
+
+A backup holds at most `sandforge.backup.maxRecordsPerObject` records of an
+object, 50,000 unless you set it and 1,000,000 at most, and so does the backup
+a masking run keeps first. An object holding more is masked in slices: up to
+that many records each, consecutive by `Id`, each backed up just before it is
+masked, and masked from that backup's file rather than from a fresh read of
+the org, so that a record created after its slice was backed up is never
+masked without a copy. The slices of a run make a set, which Restore puts back
+whole or a slice at a time. The run writes over REST, 200 records a call, and
+sends no Bulk API batch.
+
+#### Asking for it
+
+- **Apply's restore check plans it.** When an object the template masks
+  holds more records than one backup does, the check adds an **In slices**
+  column, each object's slices, and what the run would take:
+  its requests -- the backups' pages and the org's clock before each slice,
+  the updates, the reads of what an active duplicate rule wrote after each
+  slice, and the counts of records created during the run -- against what
+  the org has left today, unless that could not be read, said to fit, to
+  come close, or to pass it, which is no refusal: the run then goes as far as
+  the day allows, stops between two slices, and Resume carries on; no Bulk
+  API batch; the disk the slices'
+  backups take on this machine, and what is free there; and about how long it
+  runs. An object the org gives up counting (`QUERY_TIMEOUT`,
+  `OPERATION_TOO_LARGE`) is planned on the org's own figure of its records,
+  said to be approximate: a run in slices reads by `Id`, and needs a count
+  only to plan
+- **The confirmation asks for it.** With **Keep the values first** ticked,
+  Apply's confirmation shows that plan above a box, **Mask in slices, each
+  backed up just before it is masked**, unticked: **Confirm** waits until it
+  is ticked, and names the objects that need it. The confirmation says too
+  that a slice that cannot be backed up whole stops the run there, the slices
+  before it staying masked with their backups, and what the run's hold on the
+  org covers (below). Unticked **Keep the values first** takes no backup and
+  no slice: the run masks every record with no way back, as before
+- **Refused before Production Guard is asked**, nothing masked: an object
+  that would take more than 2,000 slices (`SLICES_EXCEEDED`), with the
+  setting to raise; a disk that has less free than the plan's backups take
+  and a tenth more (`SLICE_DISK_SHORT`), with what makes room; a run of the
+  template still open on the org (`SLICE_RUN_OPEN`, below). Then the run reads
+  what the org runs, asks Production Guard on every record it would mask,
+  and takes its mute's lease, as any masking does
+
+#### What a run in slices does
+
+- **A slice after the other.** For each object, then each slice, the run
+  checks that the slice would not take the org past 95% of its daily API
+  requests, the rest being its integrations', and that the disk has room for
+  it; reads the org's clock; backs the slice up, page after page as a backup
+  reads;
+  then masks its records from that backup, 200 a call. The progress says the
+  slice and its step: _Backing up Contact, slice 2 of about 4_, then _Masking
+  Contact, slice 2 of about 4: 412,000 of 1,000,000 records_. The slices'
+  backups are not listed one by one in the activity feed or in Live
+  Operations: the run is, with its progress
+- **Each slice, its own duplicate rules and people.** As a slice ends, the
+  run reads what the active duplicate rules wrote for its records (see
+  [Anonymize](#anonymize)), then forgets the people it made up for them,
+  keeping how many times each name was given: what it holds in memory is one
+  slice, never the object
+- **A slice the org will not read in time** (`QUERY_TIMEOUT`,
+  `OPERATION_TOO_LARGE`) is read again halved, three times at most and never
+  under 100 records, and the size it was read with is kept with the slice and
+  shown beside its records. Past that, the run stops there,
+  `SLICE_READ_TOO_HEAVY`, nothing of that slice masked, and names a filter on
+  an indexed field from the command line, or a lower setting. A slice whose
+  backup fails for any other reason stops the run the same way. Either way,
+  the slice's backup is not kept, and the next run takes the slice again
+- **Deleted since its backup.** A record the org answers as deleted
+  (`ENTITY_IS_DELETED`) when its slice masks it is counted as deleted since,
+  neither refused nor left; a restore brings it back from the recycle bin, as
+  it does any record deleted since a backup
+- **Created during the run.** Once every object was read to its end, the run
+  counts the records created since it began, by the org's clock, in a range
+  a slice had masked, and past the last slice: no backup holds them, and they
+  were not masked. The result says how many, the run ends partial, and Resume
+  masks them, each such range a slice of its own, marked late, backed up
+  first. A count the org refuses is said with the object, as records that may
+  have been left
+- **What it says at the end.** One row per slice -- the records its backup
+  holds, masked, refused, deleted since, and its state -- then the records
+  created during the run, and **Open the set in Restore**. A run that left
+  nothing ends its set, and forgets its key. The audit trail records each run
+  once, its details naming the set, the records a slice holds and the slices
+  that run masked, and the page notifies how the run ended
+
+#### Stopped, resumed, given up
+
+- **Left open.** A run stopped part way -- cancelled, the org's day, a slice
+  not backed up, the disk, the window closed -- leaves its set open on this
+  machine. While it is, Apply of that template on that org is greyed, the
+  reason beside it, whatever objects or filter it would be given; a
+  pipeline's Anonymize step with that template is refused too
+  (`SLICE_RUN_OPEN`)
+- **Resume the run in slices** carries it on, in this order: the records of
+  an update whose answer never came, read back by `Id` as any resume reads
+  them; the records the org refused, which each slice keeps beside its
+  backup, however many; the rest of the slice it stopped in, from its
+  backup's file past the last record it handled; then the records created
+  late and the slices it did not reach, each slice backed up first. A run
+  whose template's rules changed since cannot be resumed: the tab then
+  offers Abandon alone
+- **Its key.** The run hashes, and draws its people, with a key kept in the
+  editor's secret storage until the set is done, given up or removed: a
+  resume, in another window too, gives the same address the same digest
+  and the same record the same person. The key adds nothing to what the
+  machine holds already: the slices' backups hold the values unencrypted. A
+  resume that does not find that key is refused (`SLICE_KEY_LOST`), nothing
+  masked: give the set up, restore it if its values are wanted back, and
+  mask again
+- **Abandon the run** asks first, then gives the set up: nothing more is
+  masked, and no resume carries it on. The slices it masked stay masked,
+  each with its backup, which Restore puts back until the retention removes
+  them; the records no slice reached keep their values. Its key and its
+  checkpoint go: a new Apply masks with another key, and the same address
+  gets another digest. Abandon writes nothing to the org, and is refused
+  while the run still goes in this window
+- **Its hold on the org lives in this window alone.** From its first backup
+  to its end, the run holds the org's backups and restores in this window, so
+  that no restore writes the values back over a slice said masked: another
+  backup or restore of the org started there is refused. The hold is kept in
+  memory, by this window: a restore from the command line or from another
+  window is not held off. Start none until the run ends
+
+#### Restoring and keeping a set
+
+- **One row a set.** Backup lists a set on one row, whatever its slices --
+  what took it, a masking run or a backup, when, its slices and records --
+  with the way to it in Restore. Restore lists it on one row too, with any
+  filter it was held to and where it stands, **Open**, **Done** or **Given
+  up**, and shows its slices, each with its records and state: opened on the
+  set a masking run's **Open the set in Restore** names
+- **Restore all** puts back every slice not restored yet, **Restore slice
+  _k_** that slice alone, again if it was. The question names the org, each
+  object with its records, what the org runs as they are written back, and
+  about two requests per 200 records, no Bulk API batch. Each slice then goes
+  back in order, from its own backup, the way a backup's restore goes -- the
+  records deleted since brought back from the recycle bin, only the rows that
+  differ written -- under one read of what the org runs, one Production
+  Guard question and one mute for the whole. Stopped part way, the same
+  **Restore all** carries on from the first slice not restored; with **Write
+  every row of the backup back** ticked, it puts every slice back again. A
+  set whose every slice was put back already says when, and writes nothing
+- **A masking set still open is not restored**: resumed, its run would mask
+  again what a restore puts back. Resume it to its end, or abandon it, first
+- **Retention.** A set is never one of the ten backups of an org
+  `sandforge.backup.maxCount` keeps: it goes whole -- its slices, its
+  manifest and its key together -- once `sandforge.backup.maxAgeDays` days
+  passed since it last moved. An open set goes too, which ends its run: the
+  next Resume says there is nothing to resume. **Delete the set** deletes it
+  whole; a slice is never deleted alone (`SLICE_DELETE_ALONE`)
+- **No export.** **Export** on the Backup tab writes a backup that is no set;
+  nothing writes a set's slices to one file
+- **Apply's restore check reads no set.** The latest backup it counts, and
+  the records the confirmation says a restore could never bring back, are of
+  a backup that is no set: a backup in slices is not counted there
+- **The editor and the command line keep their own.** As their backups, the
+  panel's sets live in the editor's storage, the command line's in its store:
+  a set taken by one is not listed by the other, and a run is resumed, given
+  up and restored where it began
+
+#### In slices from the command line
+
+`sandforge dataops anonymize --slices` masks in slices of `--max-records`
+records, 50,000 unless given, from 100 to 1,000,000, and
+`sandforge backup --slices` backs up in slices of that many:
+
+```sh
+npx sandforge dataops anonymize --org <alias> --object Contact --template tpl-ccpa-california --slices --dry-run
+npx sandforge dataops anonymize --org <alias> --object Contact --template tpl-ccpa-california --slices --max-requests 200000 --yes
+npx sandforge dataops anonymize --org <alias> --object Contact --template tpl-ccpa-california --resume --yes
+npx sandforge dataops anonymize --org <alias> --object Contact --template tpl-ccpa-california --abandon
+npx sandforge dataops anonymize --org <alias> --restore <set> --slice 2 --yes
+npx sandforge backup --org <alias> --object Contact --where "Contact:CreatedDate >= 2025-01-01T00:00:00Z" --slices
+```
+
+- **Without `--slices`**, a run whose object holds more than `--max-records`
+  is refused before Production Guard is asked, exit `1`, and names
+  `--slices` with the slices it would take; its dry run says so, exit `1`
+- **`--dry-run` with `--slices`** says each object's slices, then the run's
+  requests against what the org has left today -- it fits, it comes near, or
+  about how many slices go today, the rest left to `--resume` --, no Bulk API
+  batch, the disk in the store with what is free there, and the time. What a
+  run would be refused for -- more than 2,000 slices, the disk, a set left
+  open -- ends it on exit `1`
+- **`--max-requests <n>`**, with `--slices`, stops the run between two
+  slices before the next would send more, exit `3`; 95% of the org's daily
+  API requests stops it the same way. On a resume, it is given with
+  `--slices` again
+- **`--resume`** carries on the set of the template left open, with the same
+  object and filter, `--slices` or not: in this process or another, on the
+  same store, with the key the store keeps in `keys/`, one file per set that
+  only its owner reads, removed once the set is done, given up or removed
+- **`--abandon`** gives the set up, after a question unless `--yes`, and
+  writes nothing to the org
+- **`--restore <set>`** puts back every slice not put back yet, in their
+  order, and the same line after a stop puts back the rest; `--slice <k[,k]>`
+  those slices alone, again if they were; `--rewrite-all` every slice again.
+  `sandforge backup --restore` takes a set the same way
+- **`sandforge backup --where <Object>:<clause>`**, with `--object`, holds an
+  object to a SOQL condition, read up to the first colon, one per object. The
+  snapshot holds the records under it, not the object, and its listing says
+  the filter; a masking run's check counts it only for a run under that same
+  filter. `--list` names a set on one line, whatever its slices, with when the
+  retention removes it; `--delete <set>` deletes it whole, its key with it,
+  and refuses a slice alone
+- **Exit codes**: `0` every record masked, `1` refused before anything was
+  written, `3` partial -- slices not reached, `--max-requests` or the org's
+  day, records refused or created during the run --, `130`, `143` or `129`
+  stopped by a signal, the set left open for `--resume`. A backup in slices
+  stopped short ends on `3`, its set holding part of its objects
+
+#### Where slices are not
+
+- **A pipeline's Anonymize step masks no slices**: an object past what one
+  backup holds refuses it before its first write, naming the panel and
+  `--slices`, and a run of its template in slices left open refuses it too.
+  A pipeline's Backup step backs up no slices either: past the cap, it keeps
+  the records up to it, as before
+- **`sandforge.yaml`** masks in slices with `slices: true`, `maxRecords` and
+  `maxRequests` on a mask resource ([A mask
+  resource](../environments.md#a-mask-resource)). Its apply never resumes or
+  gives up a set left open: the plan blocks the resource until
+  `sandforge dataops anonymize --resume`, or `--abandon`, run on the
+  resource's store with its object and rules, ends the set
 
 ### Compliance (GDPR/CCPA)
 
@@ -766,6 +1037,9 @@ as a Rewind step's; an Approval step stands for none of them (see
 - Leave **Keep the values first, so Restore can put them back** ticked in Apply's
   confirmation, or create a backup before running anonymization: the mask is
   applied in place and, without either, cannot be undone
+- An object holding more records than one backup does is no reason to untick
+  it: tick **Mask in slices** as well, and each slice is backed up just
+  before it is masked
 - A backup can only be restored into the org it was taken from, so keep one
   backup per org rather than one per project
 - Check the KPI row for the backups this machine keeps of the org, and those a

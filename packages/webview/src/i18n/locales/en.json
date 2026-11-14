@@ -3881,7 +3881,7 @@
       "step1": "Pick the org in the list at the top of the page, then open the Anonymize tab.",
       "step2": "Pick a template in Select a template; its card lists each field it masks.",
       "step3": "Click Preview: the first records show Original beside Masked, and nothing is written.",
-      "step4": "Click Apply, leave Keep the values first ticked, type the org's name, then click Confirm.",
+      "step4": "Click Apply, tick Keep the values first and, if shown, Mask in slices, type the org's name, Confirm.",
       "step5": "To empty objects or the whole org, open Cleanup: its preview says what goes before any delete.",
       "tip": "Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back."
     },
