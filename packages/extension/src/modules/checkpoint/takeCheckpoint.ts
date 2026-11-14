@@ -50,6 +50,14 @@
  *   records to files, read through the records, and each file a link names,
  *   read by its id (`checkpointFiles.ts`). A file another user owns is seen
  *   no other way by a user without Query All Files (P-A7).
+ * - The replay annex follows them, before T1 (`replay/replayAnnex.ts`): the
+ *   org's record types and queues, its standard price book when the catalog
+ *   is held, and the users the records name, read from the snapshot. A
+ *   checkpoint holds no setup, and its records name these by ids another org
+ *   does not have: the annex is what a replay there finds them by once this
+ *   org is gone. A part the org will not answer is named, and the take goes
+ *   on. The org's data storage, from the day's limits, and its Staging mark
+ *   are kept with the org: a replay masks what may be production's records.
  * - T1 follows every read. What moved between T0 and T1 after its object was
  *   read is counted, the warning the take ends with: each record is held as it
  *   was read, and a rewind treats what moved since as changed since.
@@ -89,6 +97,7 @@ import {
   type CheckpointScopeCustomSetting,
   type CheckpointScopeFiles,
   type CheckpointScopeMode,
+  type CheckpointReplayAnnexSummary,
   type CheckpointScopeObject,
   type CheckpointTakePhase,
   type CheckpointTakeRequests,
@@ -181,6 +190,16 @@ import {
   type TakenObject,
 } from './rewindEstimate.js';
 import { SnapshotIndex, snapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
+import {
+  annexCalls,
+  hasPersonAccounts,
+  holdsCatalog,
+  namedUsersOf,
+  readReplayAnnexOfOrg,
+  userLookupsOf,
+  writeReplayAnnex,
+  type AnnexAsk,
+} from './replay/replayAnnex.js';
 
 // ─── Limits and figures ──────────────────────────────────────────────────────
 
@@ -935,6 +954,18 @@ interface Plan {
   refusal?: CheckpointRefusal;
 }
 
+/**
+ * What the replay annex of a take of these objects asks beside the users
+ * their records name: the column of person account types of an org that
+ * has them, the standard price book of a checkpoint that holds the catalog.
+ */
+function annexAskOf(objects: readonly Planned[]): AnnexAsk {
+  return {
+    personAccounts: hasPersonAccounts(objects.map(({ describe }) => describe)),
+    catalog: holdsCatalog(objects.map(({ scoped }) => scoped.objectApiName)),
+  };
+}
+
 /** The rows a page of the snapshot reads, as its handler reads the org's kind. */
 function pageRowsOf(registered: OrgTypeAndEdition | undefined): number {
   const developmentTier = registered?.orgType === 'Sandbox' || registered?.orgType === 'Scratch';
@@ -1036,6 +1067,7 @@ async function planOf(
       pageRows: pageRowsOf(request.registered),
       leftOut,
       printsBytes: (await compressedFieldPrints(prints)).length,
+      annexCalls: annexCalls(annexAskOf(objects)),
     }),
   );
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
@@ -1789,6 +1821,15 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
         ...(request.scratchExpiresAt !== undefined
           ? { scratchExpiresAt: request.scratchExpiresAt }
           : {}),
+        // Read from the day's limits, no request more: what tells a copy of
+        // production's records from a developer's sandbox to a replay.
+        ...(budget.dataStorageMaxMB !== undefined
+          ? { dataStorageMaxMB: budget.dataStorageMaxMB }
+          : {}),
+        // Org Manager's mark is of a sandbox alone (`guardTierOf`).
+        ...(request.registered?.staging === true && guard.org.sandbox
+          ? { staging: true as const }
+          : {}),
       },
       takenBy: {
         userId,
@@ -1844,8 +1885,17 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       reader,
       report,
     );
+    report(88, `Reading the record types, users and queues ${request.orgName} names`);
+    const replayAnnex = await replayAnnexOf(
+      folder,
+      snapshotId,
+      plan,
+      reader,
+      organizationId,
+      signal,
+    );
 
-    report(88, 'Reading the time on the org');
+    report(89, 'Reading the time on the org');
     count.enter('stability');
     const takenAt = await org.serverTime();
     report(90, `Checking what changed in ${request.orgName} while it was read`);
@@ -1875,6 +1925,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       expiresAt: expiresAtFor(now(), keepDays),
       status: 'ready',
       ...(files !== undefined ? { files } : {}),
+      replayAnnex,
     };
     const checkpoint: OrgCheckpoint = { ...ready, bytes: await bytesKept(folder, ready) };
     await store.write(checkpoint);
@@ -1997,6 +2048,43 @@ async function snapshotOf(
     ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
   });
   return { records: kept, files: held };
+}
+
+/**
+ * The replay annex of the take, read once its snapshot is indexed and before
+ * T1, then written into the checkpoint's folder (`replay/replayAnnex.ts`):
+ * the users its records name by a lookup a replay sets, read from the
+ * snapshot, then the org's record types, queues and standard price book with
+ * those users, five statements a call. A part the org will not answer is
+ * named in it, and the take goes on: the checkpoint rewinds its org as
+ * ever, and a replay gives that part the other org's defaults.
+ *
+ * @returns What `checkpoint.json` counts of it.
+ */
+async function replayAnnexOf(
+  folder: CheckpointFolder,
+  snapshotId: string,
+  plan: Plan,
+  reader: CompositeReader,
+  organizationId: string,
+  signal: AbortSignal | undefined,
+): Promise<CheckpointReplayAnnexSummary> {
+  const users = await namedUsersOf(
+    folder,
+    snapshotId,
+    plan.objects.map(({ scoped, describe, capture }) => ({
+      objectApiName: scoped.objectApiName,
+      userLookups: userLookupsOf(describe, capture.fields),
+    })),
+  );
+  const annex = await readReplayAnnexOfOrg({
+    reader,
+    organizationId,
+    users,
+    ...annexAskOf(plan.objects),
+    ...(signal !== undefined ? { signal } : {}),
+  });
+  return writeReplayAnnex(folder, annex);
 }
 
 /**

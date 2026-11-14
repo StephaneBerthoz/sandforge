@@ -217,6 +217,87 @@ export const checkpointBeforeRunSchema = z.object({
   tool: z.enum(['panel', 'cli']),
 });
 
+// ─── What a checkpoint keeps to be replayed in another org (replay.json.gz) ──
+
+/** A Salesforce id of 15 or 18 characters that begins with `prefix`: what a file that travels may name. */
+function recordIdOf(prefix: string, what: string) {
+  return z
+    .string()
+    .regex(new RegExp(`^${prefix}[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$`), `Not ${what}`);
+}
+
+/** The parts of a replay annex: `CheckpointReplayAnnexPart`. */
+export const checkpointReplayAnnexPartSchema = z.enum([
+  'recordTypes',
+  'users',
+  'queues',
+  'standardPricebook',
+]);
+
+/** A developer name, or a namespace: letters, digits and underscores, a letter first. */
+const developerNameSchema = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Not a developer name')
+  .max(80);
+
+/**
+ * `replay.json.gz` once inflated: `CheckpointReplayAnnex`
+ * (`types/checkpoint.types.ts`), pinned by the types' test. Every id is
+ * checked for its kind, as a file another machine exported may name any:
+ * a replay reads the other org by them.
+ */
+export const checkpointReplayAnnexSchema = z.object({
+  version: z.literal(1),
+  organizationId: checkpointOrganizationIdSchema,
+  recordTypes: z
+    .array(
+      z.object({
+        id: recordIdOf('012', 'a record type Id'),
+        sobjectType: apiNameSchema,
+        developerName: developerNameSchema,
+        namespacePrefix: developerNameSchema.max(15).optional(),
+        name: z.string().min(1).max(255),
+        isActive: z.boolean(),
+        isPersonType: z.boolean().optional(),
+      }),
+    )
+    .max(100_000),
+  users: z
+    .array(
+      z.object({
+        id: userIdSchema,
+        username: z.string().min(1).max(255),
+        name: z.string().max(255),
+        isActive: z.boolean(),
+        userType: z.string().min(1).max(80),
+      }),
+    )
+    .max(1_000_000),
+  queues: z
+    .array(
+      z.object({
+        id: recordIdOf('00G', 'a queue Id'),
+        developerName: developerNameSchema,
+        name: z.string().max(255),
+        sobjectTypes: z.array(apiNameSchema).max(10_000),
+      }),
+    )
+    .max(100_000),
+  standardPricebookId: recordIdOf('01s', 'a price book Id').optional(),
+  unread: z
+    .array(z.object({ part: checkpointReplayAnnexPartSchema, reason: z.string().min(1).max(500) }))
+    .max(4),
+});
+
+/** What `checkpoint.json` counts of its replay annex: `CheckpointReplayAnnexSummary`. */
+export const checkpointReplayAnnexSummarySchema = z.object({
+  recordTypes: countSchema,
+  users: countSchema,
+  queues: countSchema,
+  standardPricebook: z.boolean(),
+  unread: z.array(checkpointReplayAnnexPartSchema).min(1).max(4).optional(),
+});
+
 /** `checkpoint.json`, version 1. */
 export const orgCheckpointSchema = z
   .object({
@@ -232,6 +313,10 @@ export const orgCheckpointSchema = z
       organizationType: z.string().min(1).max(120),
       tier: checkpointOrgTierSchema,
       scratchExpiresAt: z.union([z.iso.date(), instantSchema]).optional(),
+      // Absent from a checkpoint taken before 1.81, which SandForge 1.80
+      // reads all the same, dropping both.
+      dataStorageMaxMB: countSchema.optional(),
+      staging: z.literal(true).optional(),
     }),
     takenBy: z.object({
       userId: userIdSchema,
@@ -295,6 +380,9 @@ export const orgCheckpointSchema = z
     // Set on a checkpoint a run took of what it writes before its first
     // write; one taken by hand, or by an earlier version, has none.
     beforeRun: checkpointBeforeRunSchema.optional(),
+    // Absent from a checkpoint taken before 1.81, and dropped by SandForge
+    // 1.80, which reads the checkpoint all the same.
+    replayAnnex: checkpointReplayAnnexSummarySchema.optional(),
   })
   // T1 follows every read of the take, and the rewind's deletions keep every
   // record created before it: a T1 before T0 would move that boundary back
@@ -342,11 +430,13 @@ export const checkpointArchiveVersionsSchema = z
  */
 export const checkpointArchiveHeaderSchema = z.object({
   format: z.literal('sandforge-checkpoint'),
-  formatVersion: z.literal(1),
+  formatVersion: z.union([z.literal(1), z.literal(2)]),
   checkpointFormat: z.literal(1),
   sandforgeVersion: sandforgeVersionSchema,
   organizationId: checkpointOrganizationIdSchema,
   orgTier: checkpointOrgTierSchema,
+  dataStorageMaxMB: countSchema.optional(),
+  staging: z.literal(true).optional(),
   checkpointId: checkpointIdSchema,
   takenAt: instantSchema,
   records: countSchema,
@@ -363,6 +453,40 @@ export const checkpointArchiveHeaderSchema = z.object({
     .int()
     .min(4096)
     .max(16 * 1024 * 1024),
+});
+
+// ─── A replay into another org ───────────────────────────────────────────────
+
+/**
+ * What a replay is asked, from a page or a command line:
+ * `CheckpointReplayChoices` (`types/checkpoint.types.ts`), pinned by the
+ * types' test. Strict: a choice this SandForge does not know is refused, not
+ * dropped, as a replay that ignored one would do other than asked.
+ */
+export const checkpointReplayChoicesSchema = z.strictObject({
+  owners: z.enum(['same', 'me']),
+  ownerMap: z
+    .record(userIdSchema, userIdSchema)
+    .refine((map) => Object.keys(map).length <= 10_000, 'Too many users mapped')
+    .optional(),
+  customSettings: z.boolean(),
+  mask: z.boolean(),
+  contactPoints: z.enum(['neutralized', 'kept']),
+  objects: z.array(apiNameSchema).max(10_000),
+  excluded: z.array(apiNameSchema).max(10_000),
+  link: z
+    .array(
+      z.strictObject({
+        objectApiName: apiNameSchema,
+        fields: z.array(apiNameSchema).min(1).max(10),
+      }),
+    )
+    .max(100)
+    .refine(
+      (links) => new Set(links.map((link) => link.objectApiName)).size === links.length,
+      'An object is linked twice',
+    ),
+  noRealData: z.literal(true).optional(),
 });
 
 // ─── The rewinds of an org (<store>/<org>/rewinds.ndjson) ────────────────────

@@ -646,7 +646,8 @@ describe('a .sfcheckpoint file', () => {
 
     expect(read.header).toMatchObject({
       format: 'sandforge-checkpoint',
-      formatVersion: 1,
+      // The take kept a replay annex, which the file carries.
+      formatVersion: 2,
       checkpointFormat: 1,
       sandforgeVersion: '1.70.0',
       organizationId: organizationKey(ORG_ID),
@@ -842,14 +843,14 @@ describe('an import refused, nothing kept', () => {
     const t = await taken();
     const file = join(t.dir, `newer${ARCHIVE_EXTENSION}`);
     for (const formats of [
-      { formatVersion: 2, checkpointFormat: 1 },
+      { formatVersion: 3, checkpointFormat: 1 },
       { formatVersion: 1, checkpointFormat: 2 },
     ]) {
       writeFileSync(
         file,
         `${JSON.stringify({
           format: 'sandforge-checkpoint',
-          sandforgeVersion: '1.80.0',
+          sandforgeVersion: '1.90.0',
           ...formats,
           cipher: 'xchacha20',
         })}\nrest`,
@@ -858,7 +859,7 @@ describe('an import refused, nothing kept', () => {
         refusal: {
           code: 'IMPORT_VERSION',
           message:
-            `This file was made by SandForge 1.80.0, with checkpoint format ` +
+            `This file was made by SandForge 1.90.0, with checkpoint format ` +
             `${formats.checkpointFormat} in file format ${formats.formatVersion}, which this ` +
             'SandForge does not read: update SandForge, then import it. Nothing was imported.',
         },

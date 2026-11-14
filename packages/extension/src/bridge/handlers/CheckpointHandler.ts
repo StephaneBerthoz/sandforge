@@ -33,7 +33,7 @@ import type {
 } from '@sandforge/shared';
 import {
   CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
-  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
+  CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
   auditMutedOf,
   isDevelopmentOrg,
   pipelineCheckpointStepConfigSchema,
@@ -654,6 +654,8 @@ function archiveSummaryOf(header: CheckpointArchiveHeader): CheckpointArchiveSum
     objects: header.objects,
     files: header.files,
     bytes: header.bytes,
+    ...(header.dataStorageMaxMB !== undefined ? { dataStorageMaxMB: header.dataStorageMaxMB } : {}),
+    ...(header.staging === true ? { staging: header.staging } : {}),
   };
 }
 
@@ -691,7 +693,8 @@ function holderWords(holder: OrgLockHolder): string {
  * - `checkpoint:list` — the checkpoints kept on this machine, of one org or
  *   of all, read from the store alone, never from the org. An org's are those
  *   of every Organization Id its registered entry was: a sandbox refreshed
- *   since lists those of the org before, which can only be deleted.
+ *   since lists those of the org before, which no longer rewind it and are
+ *   replayed in another org.
  * - `checkpoint:scope` — what a take would hold and cost, read from the org's
  *   describes and counts, nothing kept (`scopeCheckpoint`).
  * - `checkpoint:take` — the take (`takeCheckpoint`), under the id of its
@@ -737,7 +740,7 @@ function holderWords(holder: OrgLockHolder): string {
  * Import… pick the file in the window's dialogs (`infraServices.checkpointFiles`).
  *
  * - `checkpoint:export` — the checkpoint refused, before anything is asked,
- *   when it can only be deleted; then the save dialog, the file written, and
+ *   when its take is under way or failed; then the save dialog, the file written, and
  *   the key answered once, with the file's name alone.
  * - `checkpoint:import-read` — the open dialog, the file's header, and the
  *   registered orgs of its Organization Id, each asked live whether it lets
@@ -953,7 +956,8 @@ export class CheckpointHandler implements DomainHandler {
 
   /**
    * How many checkpoints this machine keeps of the org a sandbox was before
-   * the refresh `refresh` reports: they can only be deleted now.
+   * the refresh `refresh` reports: they no longer rewind it, and are replayed
+   * in another org.
    */
   async keptBefore(refresh: DetectedSandboxRefresh): Promise<number> {
     const before =
@@ -1525,8 +1529,10 @@ export class CheckpointHandler implements DomainHandler {
    * Export a kept checkpoint to a `.sfcheckpoint` file (`checkpointArchive.ts`),
    * encrypted under the key given — a CI step's — or under one drawn here,
    * which the answer carries once and nothing keeps. The org is not
-   * contacted. Refused for a checkpoint that can only be deleted, as a
-   * preview refuses it, and for a file there already. Recorded in the audit
+   * contacted. Refused for a checkpoint whose take is under way or failed,
+   * and for a file there already; one of a sandbox refreshed since, or of a
+   * scratch org expired, is exported all the same: it no longer rewinds its
+   * org, and a teammate replays it in another. Recorded in the audit
    * trail (`checkpoint_export`) with its counts and its org, never the
    * file's path nor the key, which no log line names either.
    */
@@ -1724,7 +1730,8 @@ export class CheckpointHandler implements DomainHandler {
                 message:
                   `The sandbox this file's checkpoint was taken of was refreshed on ` +
                   `${refreshed.slice(0, 10)}: ${nameOf(org)} is another org now, and the ` +
-                  'checkpoint can no longer be rewound to. Nothing was imported.',
+                  `checkpoint can no longer be rewound to. ${CHECKPOINT_REPLAY_FOR_ANOTHER_ORG} ` +
+                  'Nothing was imported.',
               }
             : guarded.refusal;
         return { refusal, header, orgId };
@@ -1753,7 +1760,7 @@ export class CheckpointHandler implements DomainHandler {
 
   /**
    * Export… on the page: the checkpoint refused, before the save dialog
-   * asks anything, when it can only be deleted; then the dialog, the file
+   * asks anything, when its take is under way or failed; then the dialog, the file
    * written by {@link exportCheckpoint}, and the key drawn for it answered
    * once, with the file's name alone. A file there already is one the person
    * confirmed to replace in the dialog: the new one is written beside it and
@@ -2048,8 +2055,8 @@ export class CheckpointHandler implements DomainHandler {
       if (err instanceof OrgConnectionError && err.code === 'SCRATCH_ORG_EXPIRED') {
         throw new Refused(
           'SCRATCH_EXPIRED',
-          `${nameOf(org)} is a scratch org that has expired: its checkpoints can only be deleted. ` +
-            CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
+          `${nameOf(org)} is a scratch org that has expired: its checkpoints no longer rewind it. ` +
+            CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
         );
       }
       throw err;
@@ -2265,7 +2272,8 @@ export class CheckpointHandler implements DomainHandler {
    * Refuse to preview, rewind to or undo a rewind of a checkpoint that cannot
    * be: one whose take is under way, never ended or failed, one of the org a
    * sandbox was before its refresh, and one of a scratch org that has expired.
-   * Each can only be deleted; none of these reads the org.
+   * None of these reads the org. An export refuses the first two alone: the
+   * last two no longer rewind their org, and are replayed in another.
    */
   private usable(
     m: CheckpointModules,
@@ -2281,19 +2289,21 @@ export class CheckpointHandler implements DomainHandler {
           : `The take of checkpoint '${checkpoint.name}' failed: it can only be deleted.`,
       );
     }
+    if (act === 'export') return;
     const refreshed = this.refreshedAt(checkpoint.org.organizationId);
     if (refreshed !== undefined) {
       throw new Refused(
         'OTHER_ORG',
         `This sandbox was refreshed on ${refreshed.slice(0, 10)}: ${kept} is another org now, ` +
-          'and this checkpoint is of the org before it. It can only be deleted.',
+          'and this checkpoint is of the org before it, which it no longer rewinds. ' +
+          CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
       );
     }
     if (m.scratchOrgExpired(checkpoint.org, Date.now())) {
       throw new Refused(
         'SCRATCH_EXPIRED',
-        `${kept} is a scratch org that has expired: its checkpoints can only be deleted. ` +
-          CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
+        `${kept} is a scratch org that has expired: its checkpoints no longer rewind it. ` +
+          CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
       );
     }
   }

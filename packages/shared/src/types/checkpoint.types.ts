@@ -114,6 +114,23 @@ export interface CheckpointOrg {
    * instant. Absent for any other org.
    */
   scratchExpiresAt?: string;
+  /**
+   * The org's data storage, in MB, as its `/limits` said it at the take
+   * (`DataStorageMB.Max`). Nothing the org says names a sandbox's license,
+   * and this does, as Salesforce documents it: 200 MB for a Developer
+   * sandbox, 1 GB for a Developer Pro, 5 GB for a Partial Copy, production's
+   * own for a Full sandbox. Past a Developer Pro's, the checkpoint may hold
+   * production's records, and a replay into another org masks them. Absent
+   * from a checkpoint taken before 1.81, and when the org did not say.
+   */
+  dataStorageMaxMB?: number;
+  /**
+   * Set when the org was marked Staging in Org Manager when it was taken: a
+   * sandbox that holds real data, which a replay into another org masks. The
+   * mark is the panel's: a take from the command line, or before 1.81, has
+   * none.
+   */
+  staging?: true;
 }
 
 /**
@@ -412,6 +429,100 @@ export interface OrgCheckpoint {
   importedFrom?: CheckpointImportedFrom;
   /** Set on a checkpoint a run took of what it writes before its first write: see {@link CheckpointBeforeRun}. */
   beforeRun?: CheckpointBeforeRun;
+  /**
+   * What its replay annex holds, counts alone: see
+   * {@link CheckpointReplayAnnexSummary}. Absent from a checkpoint taken
+   * before 1.81, which a replay sets up again without it.
+   */
+  replayAnnex?: CheckpointReplayAnnexSummary;
+}
+
+// ─── What a checkpoint keeps to be replayed in another org (replay.json.gz) ──
+
+/**
+ * The parts of a checkpoint's replay annex, each read on its own at the take:
+ * one the org would not answer is named, never guessed, and the others are
+ * kept.
+ */
+export type CheckpointReplayAnnexPart = 'recordTypes' | 'users' | 'queues' | 'standardPricebook';
+
+/**
+ * A record type of the org, as the annex keeps it: what a replay finds it by
+ * in another org, its developer name and its namespace, never its label,
+ * which two types of one object may share.
+ */
+export interface CheckpointReplayRecordType {
+  id: string;
+  sobjectType: string;
+  developerName: string;
+  /** The managed package it belongs to; absent for the org's own. */
+  namespacePrefix?: string;
+  name: string;
+  isActive: boolean;
+  /**
+   * Whether it is a person account's type. Absent when the org has no person
+   * accounts, whose record types do not have the field.
+   */
+  isPersonType?: boolean;
+}
+
+/**
+ * A user a record of the checkpoint names, by its owner or another lookup to
+ * a user: what a replay finds the same person by in another org, a sandbox's
+ * suffix taken off the username.
+ */
+export interface CheckpointReplayUser {
+  id: string;
+  username: string;
+  name: string;
+  isActive: boolean;
+  /** `Standard`, `AutomatedProcess`, …: only a standard user owns a replayed record. */
+  userType: string;
+}
+
+/** A queue of the org, and the objects whose records it may own. */
+export interface CheckpointReplayQueue {
+  id: string;
+  developerName: string;
+  name: string;
+  sobjectTypes: string[];
+}
+
+/**
+ * `replay.json.gz`, in a checkpoint's folder from 1.81 on: what the take read
+ * of the org beside its records, between T0 and T1, so that the checkpoint
+ * sets its records up again in another org once its own is gone — refreshed,
+ * expired, a teammate's. A checkpoint holds no user, record type or queue,
+ * which are setup, and a replay finds them in the other org by what this
+ * keeps of them. It holds the names and usernames of the users its records
+ * name: personal data, kept and exported as the records are.
+ */
+export interface CheckpointReplayAnnex {
+  version: 1;
+  /** The org it was read of: the checkpoint's own, which a hierarchy setting's org-wide row names. */
+  organizationId: string;
+  recordTypes: CheckpointReplayRecordType[];
+  users: CheckpointReplayUser[];
+  queues: CheckpointReplayQueue[];
+  /** The org's standard price book; absent when it was not asked, or the org has none. */
+  standardPricebookId?: string;
+  /** The parts the org did not answer, with its words. */
+  unread: Array<{ part: CheckpointReplayAnnexPart; reason: string }>;
+}
+
+/**
+ * What a checkpoint's replay annex holds, as its `checkpoint.json` counts it:
+ * enough to say, without opening it, what a replay will find by name and
+ * what it will give the defaults of the other org instead.
+ */
+export interface CheckpointReplayAnnexSummary {
+  recordTypes: number;
+  users: number;
+  queues: number;
+  /** Whether it holds the org's standard price book. */
+  standardPricebook: boolean;
+  /** The parts the org did not answer; absent when it answered every one asked. */
+  unread?: CheckpointReplayAnnexPart[];
 }
 
 // ─── A checkpoint as a file that leaves the machine (.sfcheckpoint) ──────────
@@ -425,15 +536,31 @@ export interface OrgCheckpoint {
  */
 export interface CheckpointArchiveHeader {
   format: 'sandforge-checkpoint';
-  /** The layout of the file: its header, blocks and entries. */
-  formatVersion: 1;
+  /**
+   * The layout of the file: its header, blocks and entries. 2 for a file
+   * that carries its checkpoint's replay annex (`replay.json.gz`): SandForge
+   * 1.80 refuses an entry of a path it does not know, so such a file says it
+   * was made by a newer SandForge before any key is asked. 1 for any other.
+   */
+  formatVersion: 1 | 2;
   /** The version of the `checkpoint.json` it holds. */
   checkpointFormat: 1;
   /** The SandForge that exported it. */
   sandforgeVersion: string;
-  /** The org it is a checkpoint of: an import into any other is refused. */
+  /**
+   * The org it is a checkpoint of: an import into any other is refused, and
+   * a replay into it, which a rewind does instead.
+   */
   organizationId: string;
   orgTier: CheckpointOrgTier;
+  /**
+   * The org's data storage as the take read it ({@link CheckpointOrg.dataStorageMaxMB}),
+   * and its Staging mark ({@link CheckpointOrg.staging}): a replay of a file
+   * received knows, before any key, that it sets up real data only masked.
+   * Absent when the checkpoint does not say; SandForge 1.80 drops both.
+   */
+  dataStorageMaxMB?: number;
+  staging?: true;
   checkpointId: string;
   takenAt: ISODateString;
   /** Records it holds, every object together. */
@@ -473,7 +600,186 @@ export type CheckpointArchiveSummary = Pick<
   | 'objects'
   | 'files'
   | 'bytes'
+  | 'dataStorageMaxMB'
+  | 'staging'
 >;
+
+// ─── A replay into another org ───────────────────────────────────────────────
+
+/**
+ * Whom a replay gives its records to: their owner when the other org holds
+ * the same active standard user — by its id, or with the annex by its
+ * username without a sandbox's suffix — else the user who replays (`same`);
+ * or the user who replays, always (`me`).
+ */
+export type CheckpointReplayOwners = 'same' | 'me';
+
+/**
+ * An object whose records a replay links to the records the other org
+ * already holds with the same values of `fields`, instead of creating them:
+ * `--link Account=AccountNumber`.
+ */
+export interface CheckpointReplayLink {
+  objectApiName: string;
+  fields: string[];
+}
+
+/** What a replay is asked, each choice with its default as the command line and the page offer it. */
+export interface CheckpointReplayChoices {
+  owners: CheckpointReplayOwners;
+  /**
+   * Users of the checkpoint's org and the active users of the other org that
+   * own their records there, by id: `--owner-map`. Absent unless given.
+   */
+  ownerMap?: Record<string, string>;
+  /** Whether the custom settings the checkpoint holds are set up too, never over a row there. */
+  customSettings: boolean;
+  /** Whether personal data is masked: required of real data, a Partial Copy's, a Full's, a Staging's. */
+  mask: boolean;
+  /** Emails and phone numbers made unreachable (`neutralized`), or kept as they are. */
+  contactPoints: 'neutralized' | 'kept';
+  /** The objects replayed, by API name; empty for every object the checkpoint holds. */
+  objects: string[];
+  /** Objects left out of those. */
+  excluded: string[];
+  link: CheckpointReplayLink[];
+  /**
+   * Declared, and kept in the audit trail, of a sandbox's checkpoint that
+   * does not say its license — taken before 1.81: it holds no real data.
+   */
+  noRealData?: true;
+}
+
+/** Why records of an object a checkpoint holds are not replayed. */
+export type CheckpointReplayNotReplayedReason =
+  /** Files, attachments and documents: a checkpoint keeps no file's content. */
+  | 'fileContentNotKept'
+  /** The other org has no such object: deploy it, or leave it out. */
+  | 'notInTarget'
+  /** The other org creates none of its records itself. */
+  | 'notCreateable'
+  /** Left out as asked. */
+  | 'excluded';
+
+/** Why a lookup of replayed records is emptied rather than set. */
+export type CheckpointReplayLookupEmptiedReason =
+  /** Its object is held by the checkpoint and not replayed: add it. */
+  | 'objectNotReplayed'
+  /** Its object is not held by the checkpoint, and the other org holds no record of that id. */
+  | 'objectNotHeld'
+  /** A user the other org has no active standard user for, on a lookup that may be empty. */
+  | 'userNotInTarget';
+
+/** Why records are refused before anything is written, each with the path that lifts it. */
+export type CheckpointReplayRefusedReason =
+  /** A required lookup to a record neither replayed nor in the other org. */
+  | 'requiredLookupMissing'
+  /** A parent of theirs was refused: an orphan is never written. */
+  | 'parentRefused'
+  /** Person accounts, which the other org has not turned on. */
+  | 'personAccountsUnsupported'
+  /** A currency the other org has not activated. */
+  | 'inactiveCurrency'
+  /** A record type the other org has, and does not let its user create records of. */
+  | 'recordTypeUnavailable';
+
+/**
+ * What a replay would do, and did, beyond what its load counts: every record
+ * that does not go across as it was, said with why, so that a success hides
+ * nothing.
+ */
+export interface CheckpointReplaySummary {
+  records: {
+    toCreate: number;
+    /** Records the other org holds under the same Id — a sandbox copied from the same production — linked, not changed. */
+    linkedById: number;
+    /** Records the other org holds with the same values of the fields a link names, linked, not created. */
+    linkedByKey: number;
+    refusedBeforeWrite: number;
+  };
+  owners: {
+    kept: number;
+    toRunningUser: number;
+    reasons: { notInTarget: number; inactive: number; queueMissing: number };
+  };
+  recordTypes: Array<{
+    object: string;
+    recordType: string;
+    outcome: 'byName' | 'byId' | 'default';
+    records: number;
+  }>;
+  notReplayed: Array<{
+    object: string;
+    records: number;
+    reason: CheckpointReplayNotReplayedReason;
+  }>;
+  lookupsEmptied: Array<{
+    field: string;
+    records: number;
+    reason: CheckpointReplayLookupEmptiedReason;
+  }>;
+  refused: Array<{
+    object: string;
+    records: number;
+    reason: CheckpointReplayRefusedReason;
+    /** What lifts it, as a person reads it. */
+    path?: string;
+  }>;
+  /** Fields the checkpoint holds that the other org's objects do not have: left out. */
+  fieldsNotInTarget: Array<{ object: string; fields: string[] }>;
+  /** Of the custom settings, when asked: rows set up, and rows the other org already had, kept. */
+  customSettings?: { inserted: number; alreadyThere: number };
+  currencies: {
+    refused: Array<{ code: string; records: number }>;
+    /** Set when the other org has one currency: amounts are kept as they are, in its currency. */
+    singleCurrencyTarget?: true;
+  };
+  /** Where the standard price book's entries were told from: the annex, the entries themselves, or neither. */
+  standardPricebook?: 'annex' | 'deduced' | 'ambiguous' | 'none';
+  masked: {
+    fields: string[];
+    /** Free-text fields the masking does not read: they go as they are. */
+    unmaskedFreeText?: string[];
+  };
+  contactPoints: 'neutralized' | 'kept';
+  /** Archived tasks and events replayed, which the other org holds live. */
+  archivedActivities?: number;
+  /**
+   * The parts of the annex the checkpoint lacks — all of them for one taken
+   * before 1.81 — whose records a replay gives the other org's defaults.
+   */
+  degraded: CheckpointReplayAnnexPart[];
+  /** Created and modified dates and users are the replay's own: the platform sets them. */
+  auditDates: 'new';
+}
+
+/**
+ * Why a replay is refused before anything is written, the source of its
+ * checkpoint asked, never contacted:
+ *
+ * - `REPLAY_SAME_ORG`: the other org is the checkpoint's own, which a rewind
+ *   brings back instead;
+ * - `REPLAY_REAL_DATA`: the checkpoint is of a Partial Copy, a Full or a
+ *   Staging sandbox, replayed only masked;
+ * - `REPLAY_COPY_UNKNOWN`: of a sandbox taken before 1.81, whose license it
+ *   does not say: masked, or declared to hold no real data;
+ * - `REPLAY_TOO_MANY`: more records than a replay sets up at once: fewer objects;
+ * - `REPLAY_NOTHING`: nothing left to replay, every object left out or empty;
+ * - `REPLAY_CHECKPOINT_UNUSABLE`: a take under way, failed, or a file damaged.
+ */
+export type CheckpointReplayRefusalCode =
+  | 'REPLAY_SAME_ORG'
+  | 'REPLAY_REAL_DATA'
+  | 'REPLAY_COPY_UNKNOWN'
+  | 'REPLAY_TOO_MANY'
+  | 'REPLAY_NOTHING'
+  | 'REPLAY_CHECKPOINT_UNUSABLE';
+
+/** A replay refused, with the words a person reads. */
+export interface CheckpointReplayRefusal {
+  code: CheckpointReplayRefusalCode;
+  message: string;
+}
 
 // ─── Listing, scope and estimates ────────────────────────────────────────────
 

@@ -344,9 +344,9 @@ describe('guardCheckpoint: the org the checkpoint was taken of', () => {
           message:
             'DEV-SB is another org than the one this checkpoint was taken of: its Organization ' +
             "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
-            'org before it, and can only be deleted. A checkpoint returns the org it was taken ' +
-            'of to a moment, and no other org: data to set up again in another org is frozen as ' +
-            'a Frozen Dataset while its org lives. No record was read or written.',
+            'org before it, and no longer rewinds. A checkpoint returns the org it was taken ' +
+            'of to a moment; replayed in another org, it sets its records up there again, with ' +
+            'new Ids, without its own org. No record was read or written.',
         },
       });
       expect(asked.some((soql) => soql.includes('UserPermissionAccess'))).toBe(false);
@@ -769,8 +769,9 @@ describe('guardCheckpoint: an import of another machine’s checkpoint', () => {
         message:
           'DEV-SB is another org than the one this file holds a checkpoint of: it is imported ' +
           'for the org it was taken of alone, under any alias of it. A checkpoint returns the ' +
-          'org it was taken of to a moment, and no other org: data to set up again in another ' +
-          'org is frozen as a Frozen Dataset while its org lives. Nothing was imported.',
+          'org it was taken of to a moment; replayed in another org, it sets its records up ' +
+          'there again, with new Ids, without its own org. Replay the file in DEV-SB instead. ' +
+          'Nothing was imported.',
       },
     });
     expect(asked.some((soql) => soql.includes('UserPermissionAccess'))).toBe(false);

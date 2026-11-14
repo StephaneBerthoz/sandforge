@@ -457,6 +457,12 @@ export interface TakeEstimateInput {
    * write, made from the describes it already read. Absent, not counted.
    */
   printsBytes?: number;
+  /**
+   * The calls the take's replay annex sends once the snapshot is read
+   * (`annexCalls`, `replay/replayAnnex.ts`): its record types, queues,
+   * standard price book and the users its records name. Absent, none.
+   */
+  annexCalls?: number;
 }
 
 /**
@@ -582,7 +588,10 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *   of which org the snapshot is of; then the links of each object's records
  *   to files, five objects at a time, a page of a statement each call — read
  *   by lists of 200 records' ids where the org would not count them — and
- *   the files they name, read by lists of 200 ids, five lists a call;
+ *   the files they name, read by lists of 200 ids, five lists a call; then
+ *   the replay annex, five statements a call: the record types, the queues
+ *   and the objects they take, the standard price book of a checkpoint that
+ *   holds the catalog, and the users the records name, 200 a statement;
  * - `stability`: T1, each object's newest stamp, five a call, three calls in
  *   flight, and, for each object stamped since the change reads' start, its
  *   records stamped since and those deleted since, read as the bin is, then
@@ -598,7 +607,8 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *
  * Not known before the take reads them, and left out: what moves while the
  * take runs, and what the five minutes before T0 moved of an object that
- * held no record when it was counted; the files a link names that another
+ * held no record when it was counted; the users the records name past the
+ * first 200, a statement each 200 more; the files a link names that another
  * link of the same file names too, which the estimate takes for one each;
  * and the rows a write moved between two column groups, read again.
  *
@@ -635,13 +645,14 @@ export function takeEstimate(
     oneRowCalls(callsFor(moved.length, QUERIES_PER_COMPOSITE)),
   );
   const snapshot = pages + reads + (pages > 0 ? SNAPSHOT_ORG_REQUESTS : 0);
+  const annex = input.annexCalls ?? 0;
   const requestsByPhase: Record<CheckpointTakePhase, number> = {
     guard: TAKE_GUARD_REQUESTS,
     scope: TAKE_SCOPE_REQUESTS + describeCalls + describedAlone,
     start: TAKE_START_REQUESTS,
     counts,
     bin: bin.apiRequests,
-    snapshot: snapshot + files.apiRequests,
+    snapshot: snapshot + files.apiRequests + annex,
     stability: STABILITY_CLOCK_REQUESTS + fiveAtATime.apiRequests + changes.apiRequests,
   };
   return {
@@ -650,7 +661,7 @@ export function takeEstimate(
     requestsByPhase,
     seconds: Math.ceil(
       describeCalls * SECONDS_PER_DESCRIBE_CALL +
-        (describedAlone + countedApart) * SECONDS_PER_SMALL_CALL +
+        (describedAlone + countedApart + annex) * SECONDS_PER_SMALL_CALL +
         countedTogether.seconds +
         fiveAtATime.seconds +
         bin.seconds +
@@ -2156,6 +2167,13 @@ export interface CheckpointBudget extends ApiBudget {
    * is held to it (`fileStorageRefusal`).
    */
   fileStorage?: { max: number; remaining: number };
+  /**
+   * Its data storage, in MB, read from the same answer; absent when it does
+   * not say. What tells a Partial Copy or a Full sandbox, which may hold
+   * production's records, from a developer's: a take keeps it, and a replay
+   * of the checkpoint in another org reads it.
+   */
+  dataStorageMaxMB?: number;
 }
 
 /** What `/limits` says of an org's file storage, when it says it. */
@@ -2163,11 +2181,17 @@ const fileStorageSchema = z
   .object({ FileStorageMB: z.object({ Max: z.number(), Remaining: z.number() }).loose() })
   .loose();
 
+/** What `/limits` says of an org's data storage, when it says it. */
+const dataStorageSchema = z
+  .object({ DataStorageMB: z.object({ Max: z.number().int().nonnegative() }).loose() })
+  .loose();
+
 /**
  * The requests the org has left today, read once, before anything else of
  * the act: an act that cannot tell does not run, as one that runs the org out
- * of them stops its integrations too. Its daily email limits and its file
- * storage are read from the same answer, no request more.
+ * of them stops its integrations too. Its daily email limits, its file
+ * storage and its data storage are read from the same answer, no request
+ * more.
  *
  * @throws When the org does not say, naming it.
  */
@@ -2189,6 +2213,7 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
     emails = { unread: extractErrorMessage(err) };
   }
   const files = fileStorageSchema.safeParse(answer);
+  const data = dataStorageSchema.safeParse(answer);
   return {
     ...budget,
     emails,
@@ -2200,6 +2225,7 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
           },
         }
       : {}),
+    ...(data.success ? { dataStorageMaxMB: data.data.DataStorageMB.Max } : {}),
   };
 }
 

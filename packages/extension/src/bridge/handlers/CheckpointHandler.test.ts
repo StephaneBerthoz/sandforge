@@ -623,9 +623,9 @@ describe('CheckpointHandler — the take', () => {
     expect(answerOf(h, 'wv-take-1').payload).toMatchObject({
       code: 'SCRATCH_EXPIRED',
       message:
-        'DEV-SB is a scratch org that has expired: its checkpoints can only be deleted. A ' +
-        'checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
-        'up again in another org is frozen as a Frozen Dataset while its org lives.',
+        'DEV-SB is a scratch org that has expired: its checkpoints no longer rewind it. A ' +
+        'checkpoint returns the org it was taken of to a moment; replayed in another org, it ' +
+        'sets its records up there again, with new Ids, without its own org.',
     });
   });
 });
@@ -1282,6 +1282,62 @@ describe('CheckpointHandler — the preview', () => {
     expect(answerOf(h, 'wv-preview-1').payload).toMatchObject({
       code: 'OTHER_ORG',
       retryable: false,
+    });
+  });
+});
+
+describe('CheckpointHandler — a checkpoint that no longer rewinds its org', () => {
+  it('says of the org before a refresh that it no longer rewinds, and that it replays in another org', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+
+    const { message } = answerOf(h, 'wv-preview-1').payload as { message: string };
+    expect(message).toContain('which it no longer rewinds');
+    expect(message).toContain('replayed in another org, it sets its records up there again');
+    expect(message).not.toContain('can only be deleted');
+  });
+
+  it('exports it, refreshed or expired, without contacting any org: a teammate replays it in another', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-refreshed-export-'));
+    dirs.push(dir);
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    const refreshed = await h.handler.exportCheckpoint({
+      checkpointId,
+      out: join(dir, 'refreshed.sfcheckpoint'),
+      sandforgeVersion: '1.81.0',
+    });
+    await h.store.update(checkpointId, (checkpoint) => ({
+      ...checkpoint,
+      org: { ...checkpoint.org, tier: 'scratch', scratchExpiresAt: '2026-10-01' },
+    }));
+    const expired = await h.handler.exportCheckpoint({
+      checkpointId,
+      out: join(dir, 'expired.sfcheckpoint'),
+      sandforgeVersion: '1.81.0',
+    });
+
+    expect(refreshed).toMatchObject({ exported: true, header: { checkpointId } });
+    expect(expired).toMatchObject({ exported: true, header: { checkpointId } });
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('keeps it until it is deleted, so the sweep does not take it before it is replayed', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+    await h.send('wv-keep-1', 'checkpoint:keep', { checkpointId, keep: true });
+
+    expect(answerOf(h, 'wv-keep-1')).toMatchObject({
+      type: 'checkpoint:keep:response',
+      payload: { checkpoint: { expiresAt: null } },
     });
   });
 });
@@ -3058,7 +3114,8 @@ describe('CheckpointHandler — Export… and Import… on the page', () => {
       token: expect.any(String),
       fileName: 'before-uat.sfcheckpoint',
       summary: {
-        formatVersion: 1,
+        // It carries the replay annex its take kept.
+        formatVersion: 2,
         checkpointFormat: 1,
         sandforgeVersion: '1.71.0',
         // In its 18-character form, its last three letters the org's own checksum.

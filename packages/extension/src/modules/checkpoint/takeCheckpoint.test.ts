@@ -18,6 +18,7 @@ import {
   binFileOf,
   indexFileOf,
   openCheckpointStore,
+  replayAnnexFileOf,
   type CheckpointFolder,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
@@ -738,15 +739,20 @@ describe('takeCheckpoint — what it keeps', () => {
     const [entry] = await h.store.list({ organizationId: ORG_ID, now: MACHINE_NOW });
     expect(entry).toMatchObject({ checkpointId: checkpoint.checkpointId, valid: true });
     expect(h.org.requests).toBe(asked);
-    // Nothing of the take is left in its folder beside the checkpoint's own parts.
+    // Nothing of the take is left in its folder beside the checkpoint's own
+    // parts, its replay annex among them, its owner's alone.
     expect(readdirSync(folder.dir).sort()).toEqual([
       'backups',
       'bin',
       'checkpoint.json',
       'fingerprints.json.gz',
       'index',
+      'replay.json.gz',
       'snapshots.json',
     ]);
+    if (process.platform !== 'win32') {
+      expect(statSync(replayAnnexFileOf(folder)).mode & 0o777).toBe(0o600);
+    }
   });
 });
 
@@ -1392,6 +1398,8 @@ describe('scopeCheckpoint', () => {
         ...(records > 0 ? { stampedSince: 0 } : {}),
       })),
       pageRows: 2_000,
+      // The replay annex: record types, queues and the users named, one call.
+      annexCalls: 1,
     });
     expect(cost).toEqual({ ...expected, apiRequestsLeft: 14_000 });
     // Its disk counts, beside the rows, what checkpoint.json lists of the
@@ -1464,8 +1472,9 @@ describe('takeCheckpoint — the requests it sends', () => {
         // four objects holding records, in two calls.
         counts: 1 + 2,
         bin: 1,
-        // Four objects of a page each, and which org the snapshot is of.
-        snapshot: 5,
+        // Four objects of a page each, which org the snapshot is of, and
+        // the replay annex: its record types, queues and users in one call.
+        snapshot: 5 + 1,
         // T1 and one composite of checks: nothing moved.
         stability: 2,
       },
@@ -1503,7 +1512,8 @@ describe('takeCheckpoint — the requests it sends', () => {
     const statements = h.sent.filter(({ soql }) => soql.includes('FROM Account WHERE Id IN ('));
     expect(statements.length).toBeGreaterThan(2 * 2 * 4);
     expect(outcome.requests?.byPhase.snapshot).toBe(
-      3 + statements.length + 1 + 3, // its pages, its reads by id, the org, the other objects
+      // its pages, its reads by id, the org, the other objects, the replay annex
+      3 + statements.length + 1 + 3 + 1,
     );
     expect(differing(outcome)).toEqual({});
   });
@@ -1683,8 +1693,9 @@ describe('takeCheckpoint — what it reads past a page, priced before it reads i
       // Three pages of the bin's ids, the first with the other objects'.
       bin: 1 + 2,
       // The contacts in four pages of 1,000 rows, the three other objects
-      // holding records a page each, which org the snapshot is of.
-      snapshot: 4 + 3 + 1,
+      // holding records a page each, which org the snapshot is of, and the
+      // replay annex in one call.
+      snapshot: 4 + 3 + 1 + 1,
       // T1, the checks, the contacts' moved and deleted reads — their first
       // pages in one call, then one more page of 2,000 ids — and their count.
       stability: 1 + 1 + (1 + 1) + 1,

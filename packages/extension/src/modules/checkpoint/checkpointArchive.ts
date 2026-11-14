@@ -47,6 +47,22 @@
  * the last rewind, how long it is kept and what it takes here — which the
  * import sets for its own.
  *
+ * File format 2 is format 1 with one more file, the checkpoint's replay
+ * annex (`replay.json.gz`, taken from 1.81 on), and the org's data storage
+ * and Staging mark in the header. SandForge 1.80 refuses an entry of a path
+ * it does not know as a file changed since its export, so a file that
+ * carries the annex says format 2, which 1.80 tells before any key as made
+ * by a newer SandForge, to update. A checkpoint without an annex leaves in
+ * format 1, which 1.80 imports as ever: what this SandForge adds to its
+ * `checkpoint.json` or its header, 1.80 drops.
+ *
+ * A file a teammate sends, with its key, is imported for a replay in another
+ * org without the org of the checkpoint being asked anything, which may be
+ * gone: the key is the teammate's consent. It is kept apart, in a store of
+ * its own inside the store's folder ({@link receivedStoreRootOf}), which the
+ * store's list, its sweep and its rewinds never read: a checkpoint no org
+ * let in is never rewound from.
+ *
  * The key is drawn at random, 256 bits shown once as 52 letters and digits in
  * groups of four, and kept nowhere: a phrase a person chooses is weak against
  * a file anyone may copy, and a key drawn so needs no stretching. Each file's
@@ -86,17 +102,21 @@ import {
   CHECKPOINT_FILE_MODE,
   CHECKPOINT_FILE_PATH,
   CheckpointStoreError,
+  REPLAY_ANNEX_PATH,
   expiresAtFor,
   exportedFileIn,
   exportedFilesOf,
   isExportedPath,
   makePrivateDir,
+  openCheckpointStore,
   organizationKey,
   readFieldPrints,
+  storeRefusalWords,
   type CheckpointFolder,
   type ExportedFile,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
+import { readReplayAnnex, replayAnnexSummaryOf } from './replay/replayAnnex.js';
 import { snapshotIndexBytes, writeSnapshotIndex } from './snapshotIndex.js';
 
 // ─── Figures ─────────────────────────────────────────────────────────────────
@@ -114,8 +134,8 @@ export const ARCHIVE_CHUNK_BYTES = 1024 * 1024;
 /** The formats of `checkpoint.json` this SandForge imports: its own, and the older ones it reads. */
 const CHECKPOINT_FORMATS_READ: ReadonlySet<number> = new Set([1]);
 
-/** The layouts of the file itself this SandForge reads. */
-const FORMAT_VERSIONS_READ: ReadonlySet<number> = new Set([1]);
+/** The layouts of the file itself this SandForge reads: 2 carries the replay annex. */
+const FORMAT_VERSIONS_READ: ReadonlySet<number> = new Set([1, 2]);
 
 /** Bytes of the key a person is given. */
 const KEY_BYTES = 32;
@@ -417,16 +437,23 @@ export async function exportCheckpointArchive(
     if (listed.path === CHECKPOINT_FILE_PATH) continue;
     entries.push({ ...listed, sha256: await sha256Of(listed.file, listed.bytes) });
   }
+  // Read through its schema before it leaves: an annex this machine could
+  // not replay would be refused whole on the teammate's.
+  const carriesAnnex = entries.some((entry) => entry.path === REPLAY_ANNEX_PATH);
+  if (carriesAnnex) await readReplayAnnex(folder);
 
   const salt = randomBytes(32);
   const prefix = randomBytes(8);
+  const { dataStorageMaxMB, staging } = checkpoint.org;
   const header: CheckpointArchiveHeader = {
     format: 'sandforge-checkpoint',
-    formatVersion: 1,
+    formatVersion: carriesAnnex ? 2 : 1,
     checkpointFormat: 1,
     sandforgeVersion: request.sandforgeVersion,
     organizationId: organizationKey(checkpoint.org.organizationId),
     orgTier: checkpoint.org.tier,
+    ...(dataStorageMaxMB !== undefined ? { dataStorageMaxMB } : {}),
+    ...(staging === true ? { staging } : {}),
     checkpointId: checkpoint.checkpointId,
     takenAt: checkpoint.takenAt,
     records: recordsOf(checkpoint),
@@ -792,6 +819,7 @@ async function importOrRefuse(request: ArchiveImportRequest): Promise<ArchiveImp
         takenOn: request.takenOn,
         now,
       });
+      await checkAnnex(staging, checkpoint, header);
       await makePrivateDir(staging.indexDir);
       for (const object of checkpoint.objects) {
         const index = await writeSnapshotIndex(
@@ -1169,4 +1197,119 @@ function importedCheckpointOf(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The replay annex a file wrote into `folder`, held to what the file says
+ * of it: there in a file of format 2 and in no other, read through its
+ * schema, of the checkpoint's org, and counted as its `checkpoint.json`
+ * counts it when it does — a checkpoint SandForge 1.80 rewrote has lost the
+ * counts, and keeps its annex.
+ *
+ * @throws The refusal of a file changed or damaged since it was exported.
+ */
+async function checkAnnex(
+  folder: CheckpointFolder,
+  checkpoint: OrgCheckpoint,
+  header: CheckpointArchiveHeader,
+): Promise<void> {
+  const annex = await readReplayAnnex(folder);
+  if (annex === undefined) {
+    if (header.formatVersion === 2) throw damaged('says it carries a replay annex, and holds none');
+    return;
+  }
+  if (header.formatVersion !== 2) {
+    throw damaged('carries a replay annex, which its file format does not');
+  }
+  if (organizationKey(annex.organizationId) !== organizationKey(checkpoint.org.organizationId)) {
+    throw damaged('holds the replay annex of another org');
+  }
+  const counted = checkpoint.replayAnnex;
+  const held = replayAnnexSummaryOf(annex);
+  if (
+    counted !== undefined &&
+    (counted.recordTypes !== held.recordTypes ||
+      counted.users !== held.users ||
+      counted.queues !== held.queues ||
+      counted.standardPricebook !== held.standardPricebook)
+  ) {
+    throw damaged('holds another replay annex than its checkpoint counts');
+  }
+}
+
+// ─── A file received, to replay ──────────────────────────────────────────────
+
+/** The folder, inside a store's, that the checkpoints of files received to replay are kept in. */
+const RECEIVED_FOLDER = '.received';
+
+/**
+ * Where the checkpoints of `.sfcheckpoint` files received to be replayed are
+ * kept: a store of their own inside the folder of the store at `storeRoot`.
+ * Its name is no Organization Id, so that store's list, its sweep and its
+ * rewinds never read it.
+ */
+export function receivedStoreRootOf(storeRoot: string): string {
+  return join(storeRoot, RECEIVED_FOLDER);
+}
+
+/** What an import of a file received to replay is asked. */
+export interface ReceivedImportRequest {
+  /** The folder of the store the file's checkpoint is kept beside: {@link receivedStoreRootOf} of it. */
+  storeRoot: string;
+  /** The folder of the locks: the user's own unless a test names another. */
+  locksDir?: string;
+  file: string;
+  key: Buffer;
+  /** Days it is kept; 0 keeps it until it is deleted. */
+  keepDays: number;
+  /** This machine and process. */
+  takenOn: CheckpointTakenOn;
+  now?: Date;
+  /** Bytes the disk has free; read from the system unless a test says. */
+  freeBytes?: (dir: string) => Promise<number | undefined>;
+}
+
+/**
+ * Keep the checkpoint of a `.sfcheckpoint` file a teammate sent, with its
+ * key, to replay it in another org: decrypted into the store of files
+ * received ({@link receivedStoreRootOf}), never into the store this machine
+ * rewinds from. No org is asked: the org of the checkpoint may be gone, and
+ * the key is its sender's consent. Every other check of an import holds —
+ * the file's format, the key before a block is read, each block, each file,
+ * the disk, the annex, the index held to the counts — and a file received
+ * twice is kept once. A file of either format is read: one a 1.80 exported
+ * holds no annex, and its replay is made without it.
+ *
+ * @returns How the import ended, with the store it is kept in when it was.
+ * @throws When the folder of files received cannot be used — another user
+ *   owns it, it is a file, it cannot be made — saying why and what lifts it,
+ *   as a store refused is said.
+ */
+export async function importReceivedArchive(
+  request: ReceivedImportRequest,
+): Promise<ArchiveImported & { store?: OrgCheckpointStore }> {
+  const read = await readArchiveHeader(request.file);
+  if ('refusal' in read) return { imported: false, refusal: read.refusal };
+  const root = receivedStoreRootOf(request.storeRoot);
+  const opened = openCheckpointStore({
+    root,
+    ...(request.locksDir !== undefined ? { locksDir: request.locksDir } : {}),
+  });
+  if ('refusal' in opened) {
+    throw new Error(
+      `The checkpoints of files received cannot be kept in ${root}: ` +
+        `${storeRefusalWords(opened.refusal, root, 'Another store')} ${NOTHING_IMPORTED}`,
+    );
+  }
+  const imported = await importCheckpointArchive({
+    store: opened.store,
+    file: request.file,
+    read: read.read,
+    key: request.key,
+    keepDays: request.keepDays,
+    takenOn: request.takenOn,
+    ...(request.now !== undefined ? { now: request.now } : {}),
+    ...(request.freeBytes !== undefined ? { freeBytes: request.freeBytes } : {}),
+  });
+  return imported.imported ? { ...imported, store: opened.store } : imported;
 }

@@ -254,6 +254,27 @@ export const CHECKPOINT_FROZEN_FOR_ANOTHER_ORG =
   'A checkpoint returns the org it was taken of to a moment, and no other org: data to set up ' +
   'again in another org is frozen as a Frozen Dataset while its org lives.';
 
+/**
+ * What sets a checkpoint's records up again in another org, which a rewind
+ * never does: said where a checkpoint no longer returns its org to a moment
+ * — its sandbox refreshed, its scratch org expired — and where a file is
+ * imported for another org. The Frozen Dataset it sent to before needs the
+ * org alive; a replay needs the checkpoint alone.
+ */
+export const CHECKPOINT_REPLAY_FOR_ANOTHER_ORG =
+  'A checkpoint returns the org it was taken of to a moment; replayed in another org, it sets ' +
+  'its records up there again, with new Ids, without its own org.';
+
+/**
+ * The most records a replay of a checkpoint sets up in another org at once,
+ * every object together: past it, the replay is refused (`REPLAY_TOO_MANY`)
+ * and names the objects to leave out. A replay loads as a Frozen Dataset
+ * does, which holds what it writes in memory; this bound is to be measured
+ * against the loader's heap at 50,000, 100,000 and 200,000 records, and is
+ * the largest of them until it is.
+ */
+export const REPLAY_MAX_RECORDS = 200_000;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

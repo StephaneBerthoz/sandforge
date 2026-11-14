@@ -13,6 +13,12 @@ import type {
   CheckpointOrgTier,
   CheckpointReadMode,
   CheckpointRefusalCode,
+  CheckpointReplayAnnex,
+  CheckpointReplayAnnexPart,
+  CheckpointReplayAnnexSummary,
+  CheckpointReplayChoices,
+  CheckpointReplayRefusal,
+  CheckpointReplayRefusalCode,
   CheckpointScopeMode,
   CheckpointStatus,
   CheckpointTakeRequests,
@@ -36,6 +42,10 @@ import {
   checkpointObjectAccessSchema,
   checkpointOrgTierSchema,
   checkpointReadModeSchema,
+  checkpointReplayAnnexPartSchema,
+  checkpointReplayAnnexSchema,
+  checkpointReplayAnnexSummarySchema,
+  checkpointReplayChoicesSchema,
   checkpointScopeModeSchema,
   checkpointStatusSchema,
   orgCheckpointSchema,
@@ -122,6 +132,46 @@ describe('the header of a checkpoint file', () => {
     expectTypeOf<
       z.infer<typeof checkpointArchiveHeaderSchema>
     >().toEqualTypeOf<CheckpointArchiveHeader>();
+  });
+
+  it('is of file format 1, or 2 for a file that carries its replay annex', () => {
+    expectTypeOf<CheckpointArchiveHeader['formatVersion']>().toEqualTypeOf<1 | 2>();
+    expectTypeOf<CheckpointArchiveHeader['checkpointFormat']>().toEqualTypeOf<1>();
+  });
+});
+
+describe('what a checkpoint keeps to be replayed in another org', () => {
+  it('reads exactly the annex and the summary the types declare', () => {
+    expectTypeOf<
+      z.infer<typeof checkpointReplayAnnexSchema>
+    >().toEqualTypeOf<CheckpointReplayAnnex>();
+    expectTypeOf<
+      z.infer<typeof checkpointReplayAnnexSummarySchema>
+    >().toEqualTypeOf<CheckpointReplayAnnexSummary>();
+    expectTypeOf<OrgCheckpoint['replayAnnex']>().toEqualTypeOf<
+      CheckpointReplayAnnexSummary | undefined
+    >();
+    expectTypeOf<
+      z.infer<typeof checkpointReplayAnnexPartSchema>
+    >().toEqualTypeOf<CheckpointReplayAnnexPart>();
+  });
+
+  it('says of the org its data storage and its Staging mark, each absent from a checkpoint taken before', () => {
+    expectTypeOf<OrgCheckpoint['org']['dataStorageMaxMB']>().toEqualTypeOf<number | undefined>();
+    expectTypeOf<OrgCheckpoint['org']['staging']>().toEqualTypeOf<true | undefined>();
+  });
+
+  it('reads exactly the choices a replay is asked', () => {
+    expectTypeOf<
+      z.infer<typeof checkpointReplayChoicesSchema>
+    >().toEqualTypeOf<CheckpointReplayChoices>();
+  });
+
+  it('is refused under codes of its own, apart from the codes of a rewind', () => {
+    expectTypeOf<CheckpointReplayRefusal['code']>().toEqualTypeOf<CheckpointReplayRefusalCode>();
+    expectTypeOf<
+      Extract<CheckpointReplayRefusalCode, CheckpointRefusalCode>
+    >().toEqualTypeOf<never>();
   });
 });
 

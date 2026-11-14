@@ -19,6 +19,9 @@
  *   bin/<Object>.ids       the ids in the recycle bin when the take began
  *   files/                 the links of its files to its records, and each
  *                          file's latest version and size (`checkpointFiles.ts`)
+ *   replay.json.gz         the record types, users and queues its records name,
+ *                          and the standard price book: what a replay in another
+ *                          org finds them by there (`replay/replayAnnex.ts`)
  *   previews/<previewId>/  one preview's spooled reads, kept a day
  *   rewinds/<rewindId>/    one rewind's journal, kept while it can be undone
  * ```
@@ -120,6 +123,13 @@ const PLAIN_FINGERPRINTS_FILE = 'fingerprints.json';
 
 /** The file its snapshot's DataOps metadata is kept in, in its folder. */
 const SNAPSHOTS_FILE = 'snapshots.json';
+
+/**
+ * The file a checkpoint taken from 1.81 on keeps what a replay in another
+ * org needs beside its records in (`replay/replayAnnex.ts`): a gzip of the
+ * JSON whole.
+ */
+const REPLAY_ANNEX_FILE = 'replay.json.gz';
 
 /** An object's API name, as the index and bin files of one are named by. */
 const OBJECT_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -269,6 +279,15 @@ export function filesLinksFileOf(folder: Pick<CheckpointFolder, 'filesDir'>): st
   return join(folder.filesDir, 'links.ndjson');
 }
 
+/**
+ * Where a checkpoint keeps its replay annex: the record types, users and
+ * queues its records name, and its org's standard price book. Absent from a
+ * checkpoint taken before 1.81.
+ */
+export function replayAnnexFileOf(folder: Pick<CheckpointFolder, 'dir'>): string {
+  return join(folder.dir, REPLAY_ANNEX_FILE);
+}
+
 // ─── What an export carries ──────────────────────────────────────────────────
 
 /**
@@ -280,6 +299,10 @@ export function filesLinksFileOf(folder: Pick<CheckpointFolder, 'filesDir'>): st
  * - `checkpoint.json`, the field prints, `snapshots.json`, the values in
  *   `backups/`, the ids that were in the recycle bin in `bin/`, the files'
  *   annex in `files/`;
+ * - the replay annex, `replay.json.gz`, of a checkpoint taken from 1.81 on:
+ *   what a replay of it in another org finds its users, record types and
+ *   queues by there. SandForge 1.80 refuses a path it does not know, so an
+ *   export that carries it is of file format 2 (`checkpointArchive.ts`);
  * - in `index/`, the records a rewind made again and those the org answered
  *   are no longer in the recycle bin: what the org became, which no read of
  *   it tells again (P11);
@@ -299,7 +322,11 @@ const EXPORTED_PATHS: readonly RegExp[] = [
   /^bin\/[A-Za-z][A-Za-z0-9_]{0,79}\.ids$/,
   /^files\/(?:links|documents)\.ndjson(?:\.gz)?$/,
   /^index\/(?:recreated|notInBin)\.ndjson$/,
+  /^replay\.json\.gz$/,
 ];
+
+/** The path of a checkpoint's replay annex an export carries in it. */
+export const REPLAY_ANNEX_PATH = REPLAY_ANNEX_FILE;
 
 /** The folders of a checkpoint the paths of {@link EXPORTED_PATHS} are in, the folder itself first. */
 const EXPORTED_FOLDERS = ['', 'backups', 'bin', 'files', 'index'] as const;

@@ -71,7 +71,7 @@
 
 import type { Connection } from 'jsforce';
 import {
-  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
+  CHECKPOINT_REPLAY_FOR_ANOTHER_ORG,
   isDevelopmentOrg,
   type CheckpointOrgTier,
   type CheckpointRefusal,
@@ -469,10 +469,12 @@ export async function guardCheckpoint(
       request.act === 'import'
         ? `${orgName} is another org than the one this file holds a checkpoint of: it is ` +
             `imported for the org it was taken of alone, under any alias of it. ` +
-            `${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG} Nothing was imported.`
+            `${CHECKPOINT_REPLAY_FOR_ANOTHER_ORG} Replay the file in ${orgName} instead. ` +
+            'Nothing was imported.'
         : `${orgName} is another org than the one this checkpoint was taken of: its Organization ` +
             "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
-            `org before it, and can only be deleted. ${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG} ${NOTHING_DONE}`,
+            `org before it, and no longer rewinds. ${CHECKPOINT_REPLAY_FOR_ANOTHER_ORG} ` +
+            NOTHING_DONE,
     );
   }
 
