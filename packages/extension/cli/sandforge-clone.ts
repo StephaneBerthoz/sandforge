@@ -52,7 +52,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { join as joinPath, resolve as resolvePath, sep } from 'node:path';
+import { basename, dirname, join as joinPath, resolve as resolvePath, sep } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
@@ -102,6 +102,9 @@ import type {
   ForgeRemovalLeftCount,
   ForgeRemovalSpan,
   ForgeRunObjectRecords,
+  ForgeSampleDraw,
+  ForgeSampleOptions,
+  ForgeSamplingProgress,
   ForgeSweepClasses,
   ForgeSweepLeftClass,
   ForgeSweepListing,
@@ -112,10 +115,15 @@ import type {
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   RecordTypeGiven,
+  WholeOrgSample,
+  WholeOrgSampleDropReason,
+  WholeOrgSampleResult,
+  WholeOrgSampleWholeReason,
   WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  FORGE_SAMPLE_DEFAULTS,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   FORGE_READ_CEILING_PER_OBJECT,
   adminChangesOf,
@@ -191,11 +199,26 @@ import type {
   ExecutionSummary,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  ForgeSampleStream,
   ForgeWriteBoundary,
   ForgeWriteGateAnswer,
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
+import {
+  SAMPLE_PLAN_MAX_AGE_MS,
+  SamplePlan,
+  SamplePlanError,
+  adoptSamplePlan,
+  dryRunPlanDirOf,
+  lastDryRunPlan,
+  removeSamplePlan,
+  runPlanDirOf,
+  sweepSamplePlans,
+} from '../src/modules/forge/sample/samplePlanStore.js';
+import type { SampleBudgetTerms } from '../src/modules/forge/sample/sampleDrawing.js';
+import { automationRoomOf, type RoomPerRecord } from '../src/modules/forge/fitBudget.js';
+import { sampleBudgetTermsOf } from '../src/modules/forge/sample/sampleBudget.js';
 import {
   RecordTypeMapper,
   namespaceMismatchWarning,
@@ -330,6 +353,11 @@ import {
   CHECKPOINT_REFUSED,
   formatMB,
   readBoundStopOf,
+  SAMPLE_PLAN_GONE,
+  SAMPLE_PLAN_MISMATCH,
+  sampleGateErrorOf,
+  sampleGateStopOf,
+  sampleStorageUnreadStopOf,
   wholeOrgDryRunOf,
   wholeOrgFilesOf,
   wholeOrgLeftOutOf,
@@ -394,7 +422,11 @@ import {
   unnamedUncertainRows,
   type InFlightReconciliation,
 } from '../src/modules/forge/ForgeInFlight.js';
-import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
+import {
+  forgeRunFingerprint,
+  sameRunSetup,
+  sampleFingerprintOf,
+} from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import {
@@ -592,6 +624,27 @@ export interface CliArgs {
    * may then be there twice. Without it, such a resume is refused.
    */
   writeUncertain: boolean;
+  /**
+   * A sample of the whole org that fits the target rather than every record
+   * (`--fit share` and its `--fit-*` flags); undefined copies every record.
+   */
+  sample?: CliSample;
+}
+
+/** A sample of the whole org as the line asks it: see {@link sampleArgsOf}. */
+export interface CliSample {
+  /**
+   * The options as the line gives them, `--max-total` among them — its
+   * default too, which bounds the sample as it bounds any run — and the
+   * folder of the plan `--fit-plan` replays, resolved.
+   */
+  options: ForgeSampleOptions;
+  /**
+   * Whether `--max-total` was given rather than left at its default: a
+   * target that would not say its storage is drawn against the records
+   * asked, never against a default nobody asked for.
+   */
+  maxTotalGiven: boolean;
 }
 
 /** The flags that read a run's choices from a file. */
@@ -607,7 +660,8 @@ Usage:
     --object <ApiName> [--where <condition>] [--object <ApiName> [--where <condition>]]... \\
     --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
-    --depth all --source <alias> --target <alias> [--dry-run] [--yes] [options]
+    --depth all --source <alias> --target <alias> [--fit share] [--dry-run] [--yes]
+    [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
       [--mute-automation] [--leave-undeletable] [--json]
@@ -736,6 +790,72 @@ Clone the whole org, in place of --record:
   --no-anonymize         with --depth all, copy the personal data as the source
                          holds it, a production org's too
   --yes                  with --depth all, write without the question
+
+Copy a sample of the whole org that fits the target, with --depth all:
+  --fit share            rather than every record, a sample: roots drawn of
+                         each object, each with its children and the records
+                         it names, none without a record it cannot be written
+                         without; the largest share of the roots that fits
+                         what the target has left — 80 % of the data storage
+                         its /limits say, half a MB off for their rounding,
+                         less what its automation still running creates
+                         under the records — and --max-total, its default
+                         of 10000 too: raise it to take more. Small parents,
+                         the price catalog when it fits a quarter of that,
+                         and the reference data go whole. Drawn before the
+                         gate, from ids and lookups alone, the plan is kept
+                         on disk, the ids of each object and no value: a dry
+                         run's in forge-samples/ under the journal directory
+                         for a day, a run's beside its journal. The gate
+                         counts the plan, and the run writes its records and
+                         no other: a lookup to a record outside it is written
+                         empty and said, a record gone from the source since
+                         is said apart, one whose parent changed since is
+                         held back and failed. The dry run says the sample
+                         (sample:), per object what it keeps and how, what
+                         goes whole (whole:), the roots set aside (heavy
+                         roots set aside:), what it leaves out and why (not
+                         in the sample:), the lookups left empty (left
+                         empty:) and its plan (sample plan: <folder>); with
+                         --json under wholeOrg.sample, a run's under sample,
+                         and what it wrote of the plan under result.sample.
+                         Not with --files or --list-objects.
+  --fit-within <MB>      take no more than this many MB of the target
+  --fit-seed <n>         the seed the roots are drawn by        (default: 1)
+                         The same seed and setup draw the same records.
+  --fit-draw uniform|recent
+                         uniform spreads the roots over each object, reading
+                         the id of every root; recent takes the newest by
+                         creation date, reading only those it keeps
+                                                           (default: uniform)
+  --fit-parents all|required
+                         all copies a record outside the sample that an
+                         optional lookup names, without its children;
+                         required writes such a lookup empty  (default: all)
+  --fit-children <n>|all most children a record brings through each relation,
+                         the newest; a master record brings every detail
+                                                              (default: 100)
+  --fit-whole <Object>   copy this object whole (repeatable)
+  --fit-floor <n>        roots kept of each object whatever the share
+                                                                (default: 1)
+  --fit-plan <folder>    write the records of the plan a dry run drew, as its
+                         line sample plan: printed it, within a day: refused
+                         when drawn of another org or with other flags, or
+                         changed since (SAMPLE_PLAN_MISMATCH), or not there
+                         (SAMPLE_PLAN_GONE), exit 2. The run moves it beside
+                         its journal; one that writes nothing puts it back.
+                         Not with --resume, which writes the plan its journal
+                         names: gone, SAMPLE_PLAN_GONE, exit 2.
+                         Refused, exit 1: a target that would not say its
+                         storage, with neither --fit-within nor --max-total
+                         (SAMPLE_STORAGE_UNREAD); the objects copied whole
+                         and the floors alone past what it may take, the
+                         heaviest named (SAMPLE_CANNOT_FIT); more than a
+                         million records to hold (SAMPLE_TOO_LARGE); the
+                         roots' ids past a tenth of the source's requests
+                         left today (API_BUDGET_EXCEEDED); a target that has
+                         less room than the plan was fitted to: simulate
+                         again (STORAGE_EXCEEDED).
 
 Options:
   --depth <mode>         direct | full | custom | all    (default: custom)
@@ -1149,9 +1269,13 @@ Exit codes:
      requests than it has left today (nothing is written or deleted then);
      a clone of the whole org nobody answered the question of
      (CONFIRMATION_UNAVAILABLE) or that was declined (WRITE_DECLINED), or
-     whose dry run says a real run would be refused
+     whose dry run says a real run would be refused; a sample of it that
+     could not be drawn (SAMPLE_STORAGE_UNREAD, SAMPLE_CANNOT_FIT,
+     SAMPLE_TOO_LARGE)
   2  a bad command line, or a summary --remove cannot take a run back from, or
-     a file beside it that is not what a removal kept there
+     a file beside it that is not what a removal kept there; the plan of a
+     sample --fit-plan gives or --resume takes up gone, or drawn of another
+     org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH)
   3  the run was partial and --fail-on-partial was given, or was a clone of
      the whole org; the removal left
      records of the run in the org: kept, or refused, or found neither in the
@@ -1211,6 +1335,7 @@ const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
   objectSoqlFilters: '--filter',
   fieldMappings: '--map',
   soqlQuery: '--object',
+  sample: '--fit',
 };
 
 /** The keys of a Forge config `--config` takes: what decides, leaves out, filters and maps. */
@@ -1493,7 +1618,17 @@ export function wholeOrgRunConfig(args: CliArgs): ForgeConfig {
     ...(args.applyAssignmentRules ? { applyAssignmentRules: true } : {}),
     ...(args.dryRun ? { dryRun: true } : {}),
     ...args.decisions,
+    // A sample rather than every record, its options as the line gives them;
+    // the plan it replays is the run's to hand over, a path of this machine.
+    ...(args.sample ? { sample: sampleOptionsOfTheLine(args.sample) } : {}),
   };
+}
+
+/** The options of the line's sample, without the folder of the plan it replays. */
+function sampleOptionsOfTheLine(sample: CliSample): ForgeSampleOptions {
+  const options = { ...sample.options };
+  delete options.plan;
+  return options;
 }
 
 /**
@@ -1502,7 +1637,8 @@ export function wholeOrgRunConfig(args: CliArgs): ForgeConfig {
  * — every node read page by page and written ten thousand rows at a time as
  * Bulk API jobs, no cap on any object — the objects it reads whole held to
  * `--max-records-per-object`. The journal and the gate are added as for any
- * run. Exported so it can be tested.
+ * run. Of a sample (`--fit share`), how it is drawn or taken up, which the
+ * run reads its records by (`sample`). Exported so it can be tested.
  */
 export function wholeOrgOptions(
   args: CliArgs,
@@ -1510,6 +1646,7 @@ export function wholeOrgOptions(
   graph: ForgeGraph,
   recordTypeMappings: RecordTypeMapping[],
   personalFieldsOf: (fields: PIIFieldInfo[]) => string[],
+  sample?: ForgeSampleStream,
 ): ExecuteOptions {
   const options =
     forgeExecuteOptions(
@@ -1522,6 +1659,7 @@ export function wholeOrgOptions(
         stream: {
           wholeReadBound: args.readCeiling,
           ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+          ...(sample ? { sample } : {}),
         },
       },
       personalFieldsOf,
@@ -1594,6 +1732,21 @@ export function readChoicesFile(
 }
 
 /**
+ * The flags that set how a sample of the whole org is drawn, beside
+ * `--fit share` itself, which asks for one: each goes with it alone.
+ */
+const SAMPLE_FLAGS = [
+  '--fit-within',
+  '--fit-seed',
+  '--fit-draw',
+  '--fit-parents',
+  '--fit-children',
+  '--fit-whole',
+  '--fit-floor',
+  '--fit-plan',
+] as const;
+
+/**
  * What the line of a clone reads; a removal's and a verification's read their
  * own (`REMOVE_FLAGS`, `VERIFY_FLAGS`).
  */
@@ -1647,6 +1800,9 @@ const CLONE_FLAGS: CommandFlags = {
     '--remap-csv',
     '--max-file-size',
     '--audit',
+    // A sample of the whole org's own, refused with any other depth below.
+    '--fit',
+    ...SAMPLE_FLAGS,
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
@@ -1665,7 +1821,11 @@ const NOT_WITH_THE_WHOLE_ORG: ReadonlyArray<readonly [string, string]> = [
   ],
   ['--custom-depth', 'it walks no depth'],
   ['--max-nodes', 'it takes every object it can, and is refused past 1950 rather than cut'],
-  ['--max', 'it copies every row of what it takes: --filter narrows an object'],
+  [
+    '--max',
+    'it copies every row of what it takes: --filter narrows an object, and --fit share copies ' +
+      'a sample of the org that fits the target, none of its records without those they name',
+  ],
   ['--expand-orphans', 'every parent it reaches is in the org it copies'],
   ['--rehearse', 'a rehearsal holds every row it prepares'],
   ['--upsert', 'its writes go as Bulk API jobs that insert'],
@@ -1697,6 +1857,175 @@ function wholeOrgArgs(has: (flag: string) => boolean, wholeOrg: boolean): void {
     );
   }
   process.exit(2);
+}
+
+/** The flags of a sample given once at most: each sets one option. */
+const SAMPLE_FLAGS_ONCE: readonly string[] = SAMPLE_FLAGS.filter((flag) => flag !== '--fit-whole');
+
+/** The most records a sample takes of each object whatever its share (`--fit-floor`), as a config takes it. */
+const SAMPLE_FLOOR_MOST = 10_000;
+
+/** The most children a record brings through a relation (`--fit-children`), as a config takes it. */
+const SAMPLE_CHILDREN_MOST = 1_000_000;
+
+/** The most MB a sample may be asked to take (`--fit-within`), as a config takes it. */
+const SAMPLE_WITHIN_MOST_MB = 1_000_000;
+
+/** The file of a plan's folder that says what it holds: what `--fit-plan` may name besides the folder. */
+const SAMPLE_MANIFEST = 'sample.json';
+
+/**
+ * The sample of the whole org the line asks (`--fit share` and its `--fit-*`
+ * flags), or nothing when it asks none; exits 2, nothing reached, on a line
+ * that does not read: a `--fit-*` flag without `--fit share`, `--fit share`
+ * without `--depth all` — a walk reads what it reaches —, with `--files`,
+ * whose files no sample copies yet, or with `--list-objects`, which draws
+ * nothing; `--fit-plan` with `--resume`, which writes the plan its journal
+ * names; an object asked whole and left out at once; a flag given twice, or
+ * a value out of its range. Each in its words. Exported so it can be tested.
+ *
+ * `--max-total` is a bound of the sample as of any run, its default too: a
+ * sample past it would be refused at its gate, so none is drawn past it.
+ */
+export function sampleArgsOf(
+  args: readonly string[],
+  run: {
+    wholeOrg: boolean;
+    maxTotal: number;
+    maxTotalGiven: boolean;
+    excludedObjects: readonly string[];
+  },
+): CliSample | undefined {
+  const refuse = (line: string): never => {
+    process.stderr.write(`${line}\n`);
+    return process.exit(2);
+  };
+  const values = (flag: string): string[] =>
+    args.flatMap((arg, i) => (arg === flag && i + 1 < args.length ? [args[i + 1]] : []));
+  const asked = (flag: string): boolean => args.includes(flag);
+  const fitted = SAMPLE_FLAGS.filter((flag) => asked(flag));
+  if (!asked('--fit')) {
+    if (fitted.length === 0) return undefined;
+    return refuse(
+      `${fitted.join(', ')} ${fitted.length === 1 ? 'goes' : 'go'} with --depth all --fit share: ` +
+        `${fitted.length === 1 ? 'it sets' : 'they set'} how a sample of the whole org is drawn, ` +
+        'and the line asks for none.',
+    );
+  }
+  const share = values('--fit');
+  if (share.length !== 1 || share[0] !== 'share') {
+    return refuse(`--fit takes share, once, not "${share.join(' ')}".`);
+  }
+  if (!run.wholeOrg) {
+    return refuse(
+      '--fit share goes with --depth all: it copies a sample of the whole org that fits the ' +
+        'target. A clone of a record or of tables reads what it reaches: --max caps each object.',
+    );
+  }
+  if (asked('--files')) {
+    return refuse(
+      '--fit share copies no files yet: leave out --files, or leave out --fit share to copy ' +
+        'every record of the org with its files.',
+    );
+  }
+  if (asked('--list-objects')) {
+    return refuse(
+      '--list-objects lists the objects of the graph and draws no sample: leave out --fit share.',
+    );
+  }
+  if (asked('--fit-plan') && asked('--resume')) {
+    return refuse(
+      '--fit-plan does not go with --resume: a run taken up writes the plan its journal names, ' +
+        'the one it began with.',
+    );
+  }
+  for (const flag of SAMPLE_FLAGS_ONCE) {
+    if (values(flag).length > 1) refuse(`${flag} is given twice: give it once.`);
+  }
+  const one = (flag: string): string | undefined => values(flag)[0];
+  const options: ForgeSampleOptions = { maxTotal: run.maxTotal };
+  const within = one('--fit-within');
+  if (within !== undefined) {
+    const mb = Number(within);
+    if (!/^\d+(?:\.\d+)?$/.test(within) || mb <= 0 || mb > SAMPLE_WITHIN_MOST_MB) {
+      refuse(
+        `--fit-within takes a number of MB above 0, up to ${SAMPLE_WITHIN_MOST_MB}, not "${within}".`,
+      );
+    }
+    options.withinMB = mb;
+  }
+  const seed = one('--fit-seed');
+  if (seed !== undefined) {
+    if (!/^\d{1,15}$/.test(seed)) {
+      refuse(`--fit-seed takes a whole number, 0 or more, not "${seed}".`);
+    }
+    options.seed = Number(seed);
+  }
+  const draw = one('--fit-draw');
+  if (draw !== undefined) {
+    if (draw !== 'uniform' && draw !== 'recent') {
+      refuse(
+        `--fit-draw takes uniform, the roots spread over each object by the seed, or recent, ` +
+          `the newest by their creation date, not "${draw}".`,
+      );
+    }
+    options.draw = draw as ForgeSampleDraw;
+  }
+  const parents = one('--fit-parents');
+  if (parents !== undefined) {
+    if (parents !== 'all' && parents !== 'required') {
+      refuse(
+        `--fit-parents takes all, the records an optional lookup names copied without their ` +
+          `children, or required, such a lookup left empty, not "${parents}".`,
+      );
+    }
+    options.parents = parents as 'all' | 'required';
+  }
+  const children = one('--fit-children');
+  if (children !== undefined) {
+    const n = Number(children);
+    if (children === 'all') options.children = 'all';
+    else if (/^\d{1,7}$/.test(children) && n >= 1 && n <= SAMPLE_CHILDREN_MOST) {
+      options.children = n;
+    } else {
+      refuse(
+        `--fit-children takes a whole number of children from 1 to ${SAMPLE_CHILDREN_MOST}, or ` +
+          `all, not "${children}".`,
+      );
+    }
+  }
+  const whole: string[] = [];
+  for (const name of values('--fit-whole')) {
+    if (!API_NAME_RE.test(name)) {
+      refuse(`Invalid --fit-whole value "${name}" (must match SObject API name pattern)`);
+    }
+    if (!whole.includes(name)) whole.push(name);
+  }
+  const both = whole.filter((name) => run.excludedObjects.includes(name));
+  if (both.length > 0) {
+    refuse(
+      `--fit-whole and --exclude-object both name ${both.join(', ')}: the sample would copy ` +
+        'whole an object the run leaves out. Give each to one of them.',
+    );
+  }
+  if (whole.length > 0) options.whole = whole;
+  const floor = one('--fit-floor');
+  if (floor !== undefined) {
+    const n = Number(floor);
+    if (!/^\d{1,5}$/.test(floor) || n > SAMPLE_FLOOR_MOST) {
+      refuse(
+        `--fit-floor takes a whole number of records from 0 to ${SAMPLE_FLOOR_MOST}, not "${floor}".`,
+      );
+    }
+    options.floor = n;
+  }
+  const plan = one('--fit-plan');
+  if (plan !== undefined) {
+    // The folder its dry run printed, or the manifest in it.
+    const given = resolvePath(plan);
+    options.plan = basename(given) === SAMPLE_MANIFEST ? dirname(given) : given;
+  }
+  return { options, maxTotalGiven: run.maxTotalGiven };
 }
 
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
@@ -2026,6 +2355,14 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     has('--keep-contact-points') || template?.config.keepContactPoints === true;
   const files = fileCopyArgs(args, anonymize);
   const decisions = runDecisionsOf(fileChoices);
+  // A sample of the whole org rather than every record, read once the bound
+  // on the records and the objects left out are.
+  const sample = sampleArgsOf(args, {
+    wholeOrg,
+    maxTotal,
+    maxTotalGiven: maxTotalRaw !== undefined,
+    excludedObjects,
+  });
 
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
@@ -2056,6 +2393,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     objectSoqlFilters,
     fieldMappings,
     ...decisions,
+    ...(sample ? { sample: sample.options } : {}),
   });
   if (!checked.success) {
     for (const issue of checked.error.issues) {
@@ -2114,6 +2452,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     audit: auditArg(args),
     resume: resumeArg(args),
     writeUncertain: writeUncertainArg(args),
+    ...(sample ? { sample } : {}),
   };
 }
 
@@ -2263,9 +2602,27 @@ export function resumedJournalPath(value: string, journals: ForgeRunJournal): st
  * orgs, the record, and every flag and choice that changes what it reads,
  * decides or writes — not the diagnostic's pages, which change none of it.
  * Exported so it can be tested.
+ *
+ * Of a sample (`--fit share`), its options as they apply, the source by its
+ * own id — a plan holds the ids of one org, whatever alias reaches it — and
+ * the SHA-256 of the plan a run replays (`--fit-plan`), never its folder: a
+ * run of every record keeps the fingerprint its journals were begun with.
+ *
+ * @param sample.sourceOrgId - The source's own id, read of its Organization.
+ * @param sample.planSha256 - Of a run that writes a plan a dry run drew, its SHA-256.
  */
-export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, unknown> {
+export function cliRunSetup(
+  args: CliArgs,
+  targetOrgId: string,
+  sample: { sourceOrgId?: string; planSha256?: string } = {},
+): Record<string, unknown> {
   return {
+    ...(args.sample
+      ? {
+          sample: sampleFingerprintOf(args.sample.options, sample.planSha256),
+          ...(sample.sourceOrgId ? { sourceOrgId: sample.sourceOrgId.slice(0, 15) } : {}),
+        }
+      : {}),
     source: args.source,
     targetOrgId: targetOrgId.slice(0, 15),
     record: args.record,
@@ -2302,11 +2659,26 @@ export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, 
  * one, or nothing when it can: no journal there, one that does not say how
  * its run was set up, a run that ended, another target, another setup.
  * Exported so it can be tested.
+ *
+ * A run of a sample of the whole org names its plan in its journal: taken up,
+ * it writes that plan's records after where it stopped, and none other. So a
+ * line that asks a sample of a run that copied every record, or none of a run
+ * that copied a sample, is refused (`SAMPLE_PLAN_MISMATCH`), and so is a plan
+ * no longer on this machine, or no longer as it was written
+ * (`SAMPLE_PLAN_GONE`): the records it was to write cannot be taken up. A
+ * run that wrote the plan of a dry run was set up with that plan's SHA-256,
+ * which its setup is then taken with (`sample.setupWith`).
  */
 export async function resumeRefusal(
   journals: ForgeRunJournal,
   journalPath: string,
-  run: { target: string; targetOrgId: string; graph: ForgeGraph; setup: unknown },
+  run: {
+    target: string;
+    targetOrgId: string;
+    graph: ForgeGraph;
+    setup: unknown;
+    sample?: { asked: boolean; setupWith: (planSha256: string) => unknown };
+  },
 ): Promise<{ code: string; message: string } | undefined> {
   const head = await journals.headAt(journalPath);
   if (!head) {
@@ -2336,7 +2708,43 @@ export async function resumeRefusal(
         'taken up there only. Nothing was written.',
     };
   }
-  if (!sameRunSetup(head.resume.fingerprint, run.graph, run.setup)) {
+  let setup = run.setup;
+  const named = samplePlanNamedAt(journals, journalPath);
+  const asked = run.sample?.asked === true;
+  if (named === undefined && asked) {
+    return {
+      code: SAMPLE_PLAN_MISMATCH,
+      message:
+        `--resume ${journalPath}: the run to take up copied every record of the whole org, not ` +
+        'a sample: take it up without --fit share and its --fit-* flags. Nothing was written.',
+    };
+  }
+  if (named !== undefined && !asked) {
+    return {
+      code: SAMPLE_PLAN_MISMATCH,
+      message:
+        `--resume ${journalPath}: the run to take up copied a sample of the whole org: take it ` +
+        'up with --fit share and the --fit-* flags it ran with. Nothing was written.',
+    };
+  }
+  if (named !== undefined && run.sample) {
+    let plan: SamplePlan;
+    try {
+      plan = await SamplePlan.open(named.dir, { sha256: named.sha256 });
+    } catch (err: unknown) {
+      const stop = sampleGateErrorOf(err, 'resume');
+      if (!stop) throw err;
+      return {
+        code: stop.code,
+        message: stop.message.replace(
+          / Nothing was written\.$/,
+          ` It was in ${named.dir}. Nothing was written.`,
+        ),
+      };
+    }
+    if (plan.manifest.drawnBy === 'dryRun') setup = run.sample.setupWith(plan.sha256);
+  }
+  if (!sameRunSetup(head.resume.fingerprint, run.graph, setup)) {
     return {
       code: 'RESUME_CHANGED',
       message:
@@ -2345,6 +2753,22 @@ export async function resumeRefusal(
     };
   }
   return undefined;
+}
+
+/**
+ * The plan of a sample the journal at `journalPath` names (`ForgeRunStore.samplePlan`),
+ * read and let go; nothing for a run that copied every record.
+ */
+function samplePlanNamedAt(
+  journals: ForgeRunJournal,
+  journalPath: string,
+): { dir: string; sha256: string } | undefined {
+  const store = journals.openAt(journalPath);
+  try {
+    return store.samplePlan;
+  } finally {
+    store.close();
+  }
 }
 
 /**
@@ -2521,6 +2945,44 @@ function fileCopyArgs(args: readonly string[], anonymize: boolean): CliArgs['fil
     process.exit(2);
   }
   return { maxFileSizeMB, acceptedAsIs };
+}
+
+/**
+ * The fields of a raw describe as the executor reads them (`deps.describeFields`),
+ * as the extension's own describe gives them (`forgeComposition`). Exported so
+ * the field reading can be tested.
+ */
+export function fieldInfosOf(meta: DescribeSObjectResult): FieldInfo[] {
+  const controllers = controllersOf(meta.fields);
+  return meta.fields.map<FieldInfo>((f) => ({
+    name: f.name,
+    type: f.type,
+    queryable: true,
+    createable: f.createable ?? false,
+    isReference: f.type === 'reference',
+    referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+    nillable: f.nillable ?? true,
+    picklistValues: (f.picklistValues ?? [])
+      .filter((p) => p?.active !== false && typeof p?.value === 'string')
+      .map((p) => p.value as string),
+    restrictedPicklist: f.restrictedPicklist === true,
+    ...(f.controllerName ? { controllerName: f.controllerName } : {}),
+    defaultedOnCreate: f.defaultedOnCreate === true,
+    // What --upsert matches by. Left out, no field was a key, and every
+    // --upsert run inserted, as the extension's describe never did.
+    externalId: f.externalId === true,
+    updateable: f.updateable !== false,
+    // What an email address or a phone number is neutralized within.
+    ...(f.length > 0 ? { length: f.length } : {}),
+    // What a dry run checks each row against, as the extension does.
+    ...fieldBoundsOf(f, controllers),
+    // Whether the org groups, orders and aggregates by the field: what the
+    // reads of a sample ask before a GROUP BY or an ORDER BY. Left out, a
+    // sample's count of feed items by their parent was sent, and refused.
+    ...(typeof f.groupable === 'boolean' ? { groupable: f.groupable } : {}),
+    ...(typeof f.sortable === 'boolean' ? { sortable: f.sortable } : {}),
+    ...(typeof f.aggregatable === 'boolean' ? { aggregatable: f.aggregatable } : {}),
+  }));
 }
 
 /** Shape a raw describe for the discovery service; exported so the field reading can be tested. */
@@ -3440,6 +3902,8 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // Past the bound, the ids are in the run's journal, which the document
     // names: --remove and --verify read them from there.
     ...(summary.remapInJournal ? { remapInJournal: true as const } : {}),
+    // Of a sample of the whole org, per object what the run wrote of its plan.
+    ...(summary.sample ? { sample: sampleResultJson(summary.sample) } : {}),
   };
 }
 
@@ -3815,15 +4279,31 @@ export function wholeOrgQuestionWords(
   question: WholeOrgConfirmation,
   plan: Pick<WritePlan, 'totalRows' | 'objects'>,
   target: string,
+  sample?: WholeOrgSample,
 ): string {
   const { source, bulk } = question;
   const objects = plan.objects.filter(({ rows }) => rows > 0).length;
   const managed = question.managedPackages ?? [];
   const personal = question.personalAsIs ?? [];
   const fields = personal.reduce((sum, { fields: names }) => sum + names.length, 0);
+  // A sample says it is one, what it keeps of the source and of the target,
+  // how its roots were drawn, and when and by what its plan was: a sample
+  // taken for every record of the org is not what was asked.
+  const said = question.sample;
+  const ofTheSample =
+    said && sample
+      ? `a sample of ${source}: ${plan.totalRows} record(s) of ${objects} object(s) ` +
+        `(of ${said.sourceRows} in ${source}) into ${target}, about ` +
+        `${formatMB(said.storageMB)} MB` +
+        (heldToBytes(sample.budget) ? ` of the ${formatMB(said.budgetMB)} MB it may take` : '') +
+        `; ${drawWords(said)}, ${percentOf(said.share)} % of the roots; drawn at ` +
+        `${said.drawnAt} by ${said.drawnBy === 'dryRun' ? 'a dry run' : 'this run'}; ` +
+        `${bulk?.jobs ?? 0} Bulk API job(s) among them`
+      : undefined;
   const parts = [
-    `${plan.totalRows} record(s) of ${objects} object(s) of ${source} into ${target}, ` +
-      `${bulk?.jobs ?? 0} Bulk API job(s) among them`,
+    ofTheSample ??
+      `${plan.totalRows} record(s) of ${objects} object(s) of ${source} into ${target}, ` +
+        `${bulk?.jobs ?? 0} Bulk API job(s) among them`,
     `about ${question.targetApi.estimate} of ${target}'s API requests` +
       (bulk?.batches ? ` and ${bulk.batches.estimate} of its Bulk API batches` : '') +
       ` and ${question.sourceApi.estimate} of ${source}'s`,
@@ -3869,6 +4349,498 @@ export function wholeOrgMaxTotalRefusal(rows: number, max: number): string {
     '--max-total holds it to: give --max-total the count its dry run says, or leave objects ' +
     'out (--exclude-object) or narrow them (--filter).'
   );
+}
+
+// ─── A sample of the whole org (--fit share) ────────────────────────────────
+
+/** The size the documentation gives most records: what a sample's room is counted in, its storage unread. */
+const DOCUMENTED_RECORD_BYTES = 2 * 1024;
+
+/**
+ * What a sample of the whole org may take, read of the target once before
+ * anything is drawn (`ForgeSampleStream.budget`): the terms the panel draws
+ * it against (`sampleBudgetTermsOf`) — the least of the MB asked
+ * (`--fit-within`) and 80 % of what the target says it has left once half a
+ * MB is off for its rounding, the target's room before the MB asked, which
+ * the objects copied whole and the roots set aside are weighed against, and
+ * what the target's automation that still runs creates under each record —
+ * and the records asked (`--max-total`, its default too), the command
+ * line's own bound. Exported so it can be tested.
+ *
+ * A target that would not say its storage is drawn against the MB asked, or
+ * the records asked alone — given, never a default nobody asked for: with
+ * neither, there is nothing to hold the sample to, and nothing is drawn.
+ *
+ * @param input.automation - What still runs creates under one record of
+ *   each object the run writes (`automationRoomOf`).
+ * @throws {ForgeRunGateError} `SAMPLE_STORAGE_UNREAD`, the storage unread and
+ *   neither `--fit-within` nor `--max-total` given.
+ */
+export function sampleBudgetOf(input: {
+  storage: DataStorage | { unread: string };
+  sample: CliSample;
+  target: string;
+  automation?: readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
+}): SampleBudgetTerms {
+  const { storage, sample, target } = input;
+  const { withinMB } = sample.options;
+  const maxTotal = sample.options.maxTotal ?? DEFAULT_MAX_TOTAL;
+  const unread = sampleStorageUnreadStopOf({
+    storage,
+    bounds: {
+      ...(withinMB !== undefined ? { withinMB } : {}),
+      ...(sample.maxTotalGiven ? { maxTotal } : {}),
+    },
+    target,
+  });
+  if (unread) throw ForgeRunGateError.of(unread);
+  const automation = input.automation ? { automation: input.automation } : {};
+  const terms = sampleBudgetTermsOf({
+    storage,
+    ...(withinMB !== undefined ? { withinMB } : {}),
+    ...automation,
+  });
+  if (terms) return { ...terms, budget: { ...terms.budget, maxTotal } };
+  // The storage unread and no MB asked: held to the records asked alone, no
+  // byte bound ever holds it, and its room is those records at the size most
+  // records take; what the automation creates under each is kept as ever.
+  const room = sampleBudgetTermsOf({ storage: { maxMB: 0, remainingMB: 0 }, ...automation });
+  return {
+    budget: { bytes: Number.MAX_SAFE_INTEGER, maxTotal, limitedBy: 'maxTotal' },
+    bytesLimit: 'within',
+    roomBytes: maxTotal * DOCUMENTED_RECORD_BYTES,
+    ...(room?.automationBytes ? { automationBytes: room.automationBytes } : {}),
+  };
+}
+
+/** Whether a sample was held to bytes: what the target says it has left, or the MB asked. */
+function heldToBytes(budget: WholeOrgSample['budget']): boolean {
+  return budget.remainingMB !== undefined || budget.withinMB !== undefined;
+}
+
+/** A share of each object's roots as a percentage, two figures. */
+function percentOf(share: number): string {
+  return String(Number((share * 100).toPrecision(2)));
+}
+
+/** How a sample's roots were drawn, as its lines say it. */
+function drawWords(sample: Pick<WholeOrgSample, 'seed' | 'draw'>): string {
+  // The newest are read by their creation date: an org's ids follow it
+  // within a load only, not from one load to the next.
+  return sample.draw === 'recent'
+    ? 'the newest by creation date'
+    : `seed ${sample.seed}, spread over the org`;
+}
+
+/** What held a sample, past which the next share would not fit, as its lines say it. */
+function sampleLimitWords(
+  sample: Pick<WholeOrgSample, 'budget'>,
+  source: string,
+  target: string,
+): string {
+  const { budget } = sample;
+  switch (budget.limitedBy) {
+    case 'storage':
+      return `limited by the data storage ${target} has left`;
+    case 'within':
+      return `limited by --fit-within ${budget.withinMB ?? ''}`.trimEnd();
+    case 'maxTotal':
+      return `limited by --max-total ${budget.maxTotal ?? DEFAULT_MAX_TOTAL}`;
+    case 'targetRequests':
+      return `limited by the daily API requests ${target} has left`;
+    case 'bulkBatches':
+      return `limited by the daily Bulk API batches ${target} has left`;
+    case 'sourceRequests':
+      return `limited by the daily API requests ${source} has left`;
+    case 'whole':
+      return 'every record of the org fits: leave out --fit share to copy the whole org';
+  }
+}
+
+/** What a sample may take of the target, as its first line says it. */
+function sampleBudgetWords(sample: WholeOrgSample, target: string): string {
+  const { budget } = sample;
+  const takes = `about ${formatMB(sample.storageBytes / BYTES_PER_MB)} MB`;
+  if (!heldToBytes(budget)) {
+    return (
+      `${takes}, held to ${budget.maxTotal ?? DEFAULT_MAX_TOTAL} records (--max-total): ` +
+      `${target} would not say its data storage`
+    );
+  }
+  const may = `${takes} of the ${formatMB(budget.bytes / BYTES_PER_MB)} MB the sample may take`;
+  if (budget.remainingMB === undefined) {
+    return `${may} (--fit-within ${budget.withinMB}; ${target} would not say its data storage)`;
+  }
+  const terms = [
+    `${percentOf(budget.share ?? 0)} % of the ${budget.remainingMB} MB ${target} has left` +
+      (budget.maxMB !== undefined ? ` of ${budget.maxMB} MB` : ''),
+    ...(budget.roundingMB !== undefined ? [`${budget.roundingMB} MB off for rounding`] : []),
+    ...(budget.automationMB !== undefined && budget.automationMB > 0
+      ? [`${formatMB(budget.automationMB)} MB for what its automation creates`]
+      : []),
+    ...(budget.withinMB !== undefined ? [`--fit-within ${budget.withinMB}`] : []),
+  ];
+  return `${may} (${terms.join(', ')})`;
+}
+
+/** Why a sample copies an object whole, as its lines say it. */
+const WHOLE_WORDS: Readonly<Record<WholeOrgSampleWholeReason, string>> = {
+  referenceData: 'reference data, matched by name',
+  catalog: 'the price catalog',
+  smallParent: 'a small parent',
+  asked: '--fit-whole',
+};
+
+/** Why a sample leaves records out that its draw reached, as its lines say it. */
+function droppedWords(reason: WholeOrgSampleDropReason, source: string, target: string): string {
+  switch (reason) {
+    case 'noParentInSource':
+      return `a lookup they may not leave empty names a record ${source} does not hold`;
+    case 'outsideFilter':
+      return "a lookup they may not leave empty names a record outside its object's filter";
+    case 'excludedObject':
+      return 'a lookup they may not leave empty names a record of an object left out';
+    case 'withoutParent':
+      return 'a record they cannot be written without is left out itself';
+    case 'heldBack':
+      return 'their record type is closed to the user the run writes as';
+    case 'recordTypeNotInTarget':
+      return `their record type is one ${target} has none of`;
+  }
+}
+
+/** How the records a sample keeps of an object came in, as its lines say it. */
+function keptWords(
+  object: WholeOrgSample['objects'][number],
+  whole: WholeOrgSample['whole'],
+): string {
+  if (object.whole) {
+    const why = whole.find((entry) => entry.objectApiName === object.objectApiName)?.why;
+    return `copied whole${why ? ` (${WHOLE_WORDS[why]})` : ''}`;
+  }
+  return `${object.roots} drawn, ${object.below} under a parent, ${object.asParents} as parents`;
+}
+
+/**
+ * What a sample of the whole org says at its gate, its dry run's as its
+ * run's, before the lines of any clone of the whole org: what it keeps of
+ * the source, how its roots were drawn and what share of them, what it may
+ * take of the target and what held it; per object what it keeps and how
+ * each record came in, and the children the cap on each relation left; the
+ * objects copied whole and why; the objects whose newest were read by their
+ * ids; the roots set aside, by id, and the relation that swells each; the
+ * records its draw reached and left out, never sent, and why; the lookups
+ * written empty; the objects it keeps none of, never said empty; and its
+ * plan on disk, and the requests drawing it sent the source. Exported so it
+ * can be tested.
+ *
+ * @param run.dryRun - Whether the lines are a dry run's, whose plan a run may write (`--fit-plan`).
+ * @param run.replayed - Whether the plan was a dry run's the line gave (`--fit-plan`).
+ */
+export function sampleLines(
+  sample: WholeOrgSample,
+  run: { source: string; target: string; dryRun: boolean; replayed?: boolean },
+): string[] {
+  const { source, target } = run;
+  const sourceRows =
+    sample.objects.reduce((sum, object) => sum + object.sourceRows, 0) +
+    sample.noRecordDrawn.reduce((sum, object) => sum + object.sourceRows, 0);
+  const lines = [
+    `sample: ${sample.rows} of ${sourceRows} record(s) of ${source}, of ${sample.objects.length} ` +
+      `object(s): ${percentOf(sample.share)} % of the roots of each object ` +
+      `(${drawWords(sample)}), with the records they reach and name; ` +
+      `${sampleBudgetWords(sample, target)}; ${sampleLimitWords(sample, source, target)}`,
+  ];
+  for (const object of sample.objects) {
+    const cut = (object.childrenCut ?? []).map(({ field, rows }) => `${field} ${rows}`);
+    lines.push(
+      `  ${object.objectApiName}: ${object.kept} of ${object.sourceRows} ` +
+        `(${keptWords(object, sample.whole)})` +
+        (cut.length > 0
+          ? `; left by the cap of ${sample.children} children a record, by the lookup naming ` +
+            `their parent: ${cut.join(', ')}`
+          : ''),
+    );
+  }
+  if (sample.whole.length > 0) {
+    lines.push(
+      `whole: ${sample.whole.map(({ objectApiName, why }) => `${objectApiName} (${WHOLE_WORDS[why]})`).join(', ')}`,
+    );
+  }
+  if (sample.newestByIds && sample.newestByIds.length > 0) {
+    lines.push(
+      'newest by the order of their ids, the org sorting none of their creation dates — ids ' +
+        `follow it within a load only: ${sample.newestByIds.join(', ')}`,
+    );
+  }
+  if (sample.heavyRoots.length > 0) {
+    lines.push(
+      'heavy roots set aside, each bringing in more than a tenth of what the sample may take:',
+    );
+    for (const { objectApiName, id, rows, relation } of sample.heavyRoots) {
+      lines.push(
+        `  ${objectApiName} ${id}: ${rows} record(s) through ${relation.objectApiName}.${relation.field}`,
+      );
+    }
+  }
+  if (sample.dropped.length > 0) {
+    lines.push('not in the sample, never sent:');
+    for (const { objectApiName, rows, reason } of sample.dropped) {
+      lines.push(`  ${objectApiName}: ${rows}, ${droppedWords(reason, source, target)}`);
+    }
+  }
+  if (sample.leftEmpty.length > 0) {
+    lines.push('left empty, their record outside the sample:');
+    for (const { objectApiName, field, rows } of sample.leftEmpty) {
+      lines.push(`  ${objectApiName}.${field}: ${rows} record(s)`);
+    }
+  }
+  if (sample.noRecordDrawn.length > 0) {
+    lines.push(`no record drawn, ${source} holding some:`);
+    for (const { objectApiName, sourceRows: rows } of sample.noRecordDrawn) {
+      lines.push(`  ${objectApiName}: ${rows} in ${source}`);
+    }
+  }
+  const { plan } = sample;
+  const by =
+    plan.drawnBy === 'run'
+      ? 'by this run'
+      : !run.dryRun
+        ? 'by a dry run, written by this run (--fit-plan)'
+        : run.replayed === true
+          ? 'by a dry run, said again by this one (--fit-plan)'
+          : 'by this dry run';
+  lines.push(
+    `sample plan: ${plan.path} (sha256 ${plan.sha256}, drawn ${plan.drawnAt} ${by})`,
+    `  drawing it sent ${sample.planRequests.source} request(s) to ${source}` +
+      (run.dryRun && plan.drawnBy === 'dryRun'
+        ? `; --fit-plan ${plan.path} writes these records, within a day`
+        : ''),
+  );
+  return lines;
+}
+
+/**
+ * What `--json` gives of a sample of the whole org (`wholeOrg.sample` of a
+ * dry run, `sample` of a run), each key always in its place: how it was
+ * drawn, what it may take — `bytes` null when no byte bound held it, the
+ * target unread and no MB asked —, what it keeps per object and how, the
+ * objects copied whole, the roots set aside, the records left out, the
+ * lookups written empty, the objects it keeps none of, the requests drawing
+ * it sent the source, and its plan on disk. Exported so it can be tested.
+ */
+export function sampleJson(sample: WholeOrgSample) {
+  const { budget, plan } = sample;
+  return {
+    seed: sample.seed,
+    draw: sample.draw,
+    share: sample.share,
+    floor: sample.floor,
+    parents: sample.parents,
+    children: sample.children,
+    budget: {
+      bytes: heldToBytes(budget) ? budget.bytes : null,
+      ...(budget.remainingMB !== undefined ? { remainingMB: budget.remainingMB } : {}),
+      ...(budget.maxMB !== undefined ? { maxMB: budget.maxMB } : {}),
+      ...(budget.share !== undefined ? { share: budget.share } : {}),
+      ...(budget.roundingMB !== undefined ? { roundingMB: budget.roundingMB } : {}),
+      ...(budget.automationMB !== undefined ? { automationMB: budget.automationMB } : {}),
+      ...(budget.withinMB !== undefined ? { withinMB: budget.withinMB } : {}),
+      ...(budget.maxTotal !== undefined ? { maxTotal: budget.maxTotal } : {}),
+      limitedBy: budget.limitedBy,
+    },
+    rows: sample.rows,
+    storageBytes: sample.storageBytes,
+    objects: sample.objects.map((object) => ({
+      objectApiName: object.objectApiName,
+      sourceRows: object.sourceRows,
+      kept: object.kept,
+      roots: object.roots,
+      below: object.below,
+      asParents: object.asParents,
+      ...(object.whole ? { whole: true as const } : {}),
+      ...(object.childrenCut && object.childrenCut.length > 0
+        ? { childrenCut: object.childrenCut.map(({ field, rows }) => ({ field, rows })) }
+        : {}),
+    })),
+    whole: sample.whole.map(({ objectApiName, why }) => ({ objectApiName, why })),
+    heavyRoots: sample.heavyRoots.map(({ objectApiName, id, rows, relation }) => ({
+      objectApiName,
+      id,
+      rows,
+      relation: { objectApiName: relation.objectApiName, field: relation.field },
+    })),
+    dropped: sample.dropped.map(({ objectApiName, rows, reason }) => ({
+      objectApiName,
+      rows,
+      reason,
+    })),
+    leftEmpty: sample.leftEmpty.map(({ objectApiName, field, rows }) => ({
+      objectApiName,
+      field,
+      rows,
+    })),
+    noRecordDrawn: sample.noRecordDrawn.map(({ objectApiName, sourceRows }) => ({
+      objectApiName,
+      sourceRows,
+    })),
+    ...(sample.newestByIds && sample.newestByIds.length > 0
+      ? { newestByIds: [...sample.newestByIds] }
+      : {}),
+    planRequests: { source: sample.planRequests.source },
+    plan: {
+      path: plan.path,
+      sha256: plan.sha256,
+      drawnAt: plan.drawnAt,
+      drawnBy: plan.drawnBy,
+      ...(plan.drawnAgain ? { drawnAgain: plan.drawnAgain } : {}),
+    },
+  };
+}
+
+/**
+ * What `--json` gives under `result.sample` of a run of a sample of the
+ * whole org: how it was drawn and its plan's SHA-256, and per object what
+ * its plan kept and what the run wrote of it — `written` (or linked),
+ * `goneSinceTheSample` (no longer in the source, no failure) and
+ * `changedSinceTheSample` (held back, a failure) —, then the lookups it
+ * wrote empty. Exported so it can be tested.
+ */
+export function sampleResultJson(result: WholeOrgSampleResult) {
+  return {
+    seed: result.seed,
+    draw: result.draw,
+    share: result.share,
+    sha256: result.sha256,
+    drawnAt: result.drawnAt,
+    objects: result.objects.map((object) => ({
+      objectApiName: object.objectApiName,
+      sourceRows: object.sourceRows,
+      kept: object.kept,
+      roots: object.roots,
+      below: object.below,
+      asParents: object.asParents,
+      ...(object.whole ? { whole: true as const } : {}),
+      written: object.written,
+      goneSinceTheSample: object.goneSinceTheSample,
+      changedSinceTheSample: object.changedSinceTheSample,
+    })),
+    ...(result.leftEmpty && result.leftEmpty.length > 0
+      ? {
+          leftEmpty: result.leftEmpty.map(({ objectApiName, field, rows }) => ({
+            objectApiName,
+            field,
+            rows,
+          })),
+        }
+      : {}),
+  };
+}
+
+/**
+ * What a run of a sample of the whole org says it wrote of its plan, per
+ * object, after its summary: the records written of those the sample kept
+ * and how they came in, of what the source holds; those gone from the source
+ * since the plan, no failure; those held back because a record they cannot
+ * be written without changed since, each a failure; and the lookups written
+ * empty. Exported so it can be tested.
+ */
+export function sampleResultLines(result: WholeOrgSampleResult, source: string): string[] {
+  const lines = [
+    `sample (${drawWords(result)}, ${percentOf(result.share)} % of the roots of each object; ` +
+      `plan sha256 ${result.sha256}, drawn ${result.drawnAt}):`,
+  ];
+  for (const object of result.objects) {
+    const how = object.whole
+      ? 'copied whole'
+      : `${object.roots} drawn, ${object.below} under a parent, ${object.asParents} as parents`;
+    lines.push(
+      `  ${object.objectApiName}: ${object.written} written of ${object.kept} in the sample ` +
+        `(${how}) of ${object.sourceRows} in ${source}` +
+        (object.goneSinceTheSample > 0
+          ? `; ${object.goneSinceTheSample} gone from ${source} since the sample, not written`
+          : '') +
+        (object.changedSinceTheSample > 0
+          ? `; ${object.changedSinceTheSample} changed since the sample: a record they cannot ` +
+            'be written without is no longer the one the plan named, held back (failed)'
+          : ''),
+    );
+  }
+  for (const { objectApiName, field, rows } of result.leftEmpty ?? []) {
+    lines.push(`  left empty, their record outside the sample: ${objectApiName}.${field} ${rows}`);
+  }
+  return lines;
+}
+
+/**
+ * What drawing a sample of the whole org reads of the source before a row is
+ * read, said before it begins, from discovery's counts: of each object it
+ * takes, one count of its roots and the pages of their ids — every root's
+ * spread over the org, those it may keep of the newest. An object's roots
+ * are some of its rows: the figure is the most these reads take. The records
+ * the roots reach and name are read on top, and the plan says what it sent
+ * once drawn. Exported so it can be tested.
+ */
+export function sampleReadsLine(
+  graph: Pick<ForgeGraph, 'nodes'>,
+  options: Pick<ForgeSampleOptions, 'draw' | 'maxTotal'>,
+  source: string,
+): string {
+  const draw = options.draw ?? FORGE_SAMPLE_DEFAULTS.draw;
+  const most = options.maxTotal ?? DEFAULT_MAX_TOTAL;
+  let requests = 0;
+  for (const node of graph.nodes) {
+    if (!node.included || node.recordCount <= 0) continue;
+    const rows = draw === 'uniform' ? node.recordCount : Math.min(node.recordCount, most);
+    const pages = Math.ceil(rows / SAMPLE_ID_PAGE);
+    // The newest are read a page at a time, and past the first, the rest of a
+    // page's last second may be read again apart (`rootScanRequestsOf`).
+    requests += 1 + pages + (draw === 'uniform' ? 0 : Math.max(0, pages - 1));
+  }
+  return (
+    `sample: drawing it reads at most about ${requests} request(s) of ${source} for the ` +
+    `roots, by discovery's counts (${draw === 'uniform' ? "every root's id, spread over the org" : 'the newest by creation date, those it may keep'}); ` +
+    'the records they reach and name are read on top, and said once drawn'
+  );
+}
+
+/** Ids a page of the org's cursor holds, as a draw reads the roots' ids. */
+const SAMPLE_ID_PAGE = 2_000;
+
+/** What the drawing of a sample says as each of its steps begins. */
+const SAMPLING_WORDS: Readonly<Record<ForgeSamplingProgress['step'], string>> = {
+  counting: 'counting the roots of each object',
+  drawing: 'reading the ids of the roots',
+  closing: 'closing the sample over the records they reach and name',
+  fitting: 'cutting it to what the target may take',
+  saving: 'keeping its plan',
+};
+
+/**
+ * Say each step of the drawing of a sample as it begins, once: its reads
+ * take minutes on a large org, and said nothing, the command read as hung.
+ * Exported so it can be tested.
+ */
+export function samplingProgressPrinter(
+  say: (line: string) => void,
+): (progress: ForgeSamplingProgress) => void {
+  let step: ForgeSamplingProgress['step'] | undefined;
+  return (progress) => {
+    if (progress.step === step) return;
+    step = progress.step;
+    say(`sampling: ${SAMPLING_WORDS[progress.step]}… (${progress.requests} request(s) so far)`);
+  };
+}
+
+/**
+ * The exit code of a sample refused before its first write: 2 for a plan
+ * the line gave or its journal names that cannot be written — gone, or
+ * another than this run's (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`), a
+ * line to give otherwise; 1 for one the orgs refuse — a storage unread, a
+ * sample that cannot fit, too large to draw. Exported so it can be tested.
+ */
+export function sampleRefusalExit(code: string): number {
+  return code === SAMPLE_PLAN_GONE || code === SAMPLE_PLAN_MISMATCH ? 2 : 1;
 }
 
 /**
@@ -8826,6 +9798,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let mutedAutomation: MutedAutomation | undefined;
   const recordClone = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) => {
     if (targetOrgId === undefined || args.dryRun || args.listObjects || args.rehearse) return;
+    // Of a sample, how it was drawn and what it keeps, once its gate saw it.
+    const fit = audit?.fit();
     recordCliRun(args.audit, audited, {
       action: 'forge_execute',
       module: 'forge',
@@ -8833,6 +9807,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       orgId: targetOrgId,
       ...run,
       ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
+      ...(fit ? { fit } : {}),
     });
   };
   /** The target as its Organization record says it is, once typed. */
@@ -8857,8 +9832,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // anonymized unless told otherwise: the source is typed for it, from its
   // Organization record, as the target is. A copy of a whole production
   // otherwise landed with every name, address and number it holds.
+  /** The source's own id, of a clone of the whole org: what a sample's plan is drawn of. */
+  let sourceSalesforceId: string | undefined;
   if (wholeOrg) {
     const typed = await typeOrg(conns.get(args.source)!);
+    sourceSalesforceId = typed.id;
     const production = productionRefusal(args.source, typed, 'clone') !== undefined;
     if (production && !args.anonymizeGiven) {
       args = { ...args, anonymize: true };
@@ -9218,12 +10196,91 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.exit(1);
   }
 
+  /**
+   * End a sample refused before the target's automation is read, nothing
+   * written: its line names its code, with --json the summary on stdout
+   * carries it, and the exit is the code's (`sampleRefusalExit`): 2 for a
+   * plan to give otherwise, 1 for what the orgs refuse.
+   */
+  const refuseTheSample = (refused: RunRefusal): never => {
+    recordClone({ outcome: 'stopped', code: refused.code, context: runAudit().context() });
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+            apiRequests: cloneApiRequestsJson(
+              { target: sentOf(args.target), source: sentOf(args.source) },
+              {},
+              discoveryRequests,
+            ),
+          },
+          refused,
+        ),
+      );
+    }
+    return process.exit(sampleRefusalExit(refused.code));
+  };
+  // A sample of the whole org (--fit share): its plans go under the journal
+  // directory, a dry run's in forge-samples/ for a day, a run's beside its
+  // journal. Each is the setup it is drawn for by a fingerprint of its own —
+  // the run's, the plan it replays aside —, the target typed for it by a dry
+  // run too: a dry run's plan is taken up only by the run of the same setup,
+  // into the same org.
+  const storagePath = journalDirOf();
+  let drawFingerprint = '';
+  /** The plan of a dry run the line replays (`--fit-plan`), opened and held to its setup. */
+  let replayed: SamplePlan | undefined;
+  if (args.sample) {
+    const sampleTarget = targetOrgId ?? (await typeOrg(conns.get(args.target)!)).id;
+    const sampleSetup = { ...(sourceSalesforceId ? { sourceOrgId: sourceSalesforceId } : {}) };
+    drawFingerprint = forgeRunFingerprint(graph, cliRunSetup(args, sampleTarget, sampleSetup));
+    // The plans of dry runs a day old or more hold a production's ids no run
+    // takes up any longer: they go first.
+    await sweepSamplePlans(storagePath, new Date()).catch(() => 0);
+    const planDir = args.sample.options.plan;
+    if (planDir !== undefined) {
+      try {
+        replayed = await SamplePlan.open(planDir, {
+          sourceOrgId: args.source,
+          fingerprint: drawFingerprint,
+        });
+        if (replayed.ageMs(new Date()) >= SAMPLE_PLAN_MAX_AGE_MS) {
+          throw new SamplePlanError('gone', 'The plan of this sample is a day old or more.');
+        }
+      } catch (err: unknown) {
+        const stop = sampleGateErrorOf(err, 'replay');
+        if (!stop) throw err;
+        refuseTheSample({
+          code: stop.code,
+          message: stop.message.replace(
+            / Nothing was written\.$/,
+            ` Given: ${planDir}. Nothing was written.`,
+          ),
+        });
+      }
+    }
+  }
+
   // The journal of a run that writes, which says how it was set up: a run
   // taken up from one is refused before anything more is read when its org or
   // its setup is not the run's it takes up.
-  const journals = !args.dryRun && !args.rehearse ? nodeRunJournal(journalDirOf()) : undefined;
+  const journals = !args.dryRun && !args.rehearse ? nodeRunJournal(storagePath) : undefined;
+  /** The setup the journal is begun with, of a sample the plan it writes when it replays one. */
+  const setupOfTheRun = (orgId: string, planSha256?: string): Record<string, unknown> =>
+    cliRunSetup(args, orgId, {
+      ...(sourceSalesforceId ? { sourceOrgId: sourceSalesforceId } : {}),
+      ...(planSha256 ? { planSha256 } : {}),
+    });
   const fingerprint =
-    targetOrgId !== undefined ? forgeRunFingerprint(graph, cliRunSetup(args, targetOrgId)) : '';
+    targetOrgId !== undefined
+      ? forgeRunFingerprint(graph, setupOfTheRun(targetOrgId, replayed?.sha256))
+      : '';
   let journalPath: string | undefined;
   /** How the part the run takes up ended: said again of this part when it writes nothing. */
   let resumedEnd: { status: ForgeRunPartEnd; forgeId: string } | undefined;
@@ -9235,13 +10292,22 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let muteAutomation = args.muteAutomation;
   if (journals && targetOrgId !== undefined && args.resume) {
     journalPath = resumedJournalPath(args.resume, journals);
+    const resumedOrg = targetOrgId;
     const refusal = await resumeRefusal(journals, journalPath, {
       target: args.target,
       targetOrgId,
       graph,
-      setup: cliRunSetup(args, targetOrgId),
+      setup: setupOfTheRun(targetOrgId),
+      sample: {
+        asked: args.sample !== undefined,
+        setupWith: (planSha256) => setupOfTheRun(resumedOrg, planSha256),
+      },
     });
     if (refusal) {
+      // A sample's own, by its code; the others as they always were.
+      if (refusal.code === SAMPLE_PLAN_GONE || refusal.code === SAMPLE_PLAN_MISMATCH) {
+        refuseTheSample(refusal);
+      }
       recordClone({ outcome: 'stopped', code: refusal.code, context: runAudit().context() });
       process.stderr.write(`${refusal.message}\n`);
       process.exit(2);
@@ -9463,7 +10529,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * (`apiRequests`). Refused past --max-total, its storage or a mute, a clone
    * said a sentence on stderr and left stdout empty.
    */
-  const endRefused = (refused: RunRefusal, also: readonly RunRefusal[] = []): never => {
+  const endRefused = (
+    refused: RunRefusal,
+    also: readonly RunRefusal[] = [],
+    exitCode = 1,
+  ): never => {
     for (const refusal of [refused, ...also]) process.stderr.write(`${refusedLine(refusal)}\n`);
     if (args.json) {
       process.stdout.write(
@@ -9481,7 +10551,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         ),
       );
     }
-    return process.exit(1);
+    return process.exit(exitCode);
   };
   if (muteAutomation) {
     if (!args.muteAutomation) {
@@ -9720,33 +10790,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         })),
       );
     },
-    describeFields: async (orgId, name) => {
-      const meta = await describe(orgId, name);
-      const controllers = controllersOf(meta.fields);
-      return meta.fields.map<FieldInfo>((f) => ({
-        name: f.name,
-        type: f.type,
-        queryable: true,
-        createable: f.createable ?? false,
-        isReference: f.type === 'reference',
-        referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
-        nillable: f.nillable ?? true,
-        picklistValues: (f.picklistValues ?? [])
-          .filter((p) => p?.active !== false && typeof p?.value === 'string')
-          .map((p) => p.value as string),
-        restrictedPicklist: f.restrictedPicklist === true,
-        ...(f.controllerName ? { controllerName: f.controllerName } : {}),
-        defaultedOnCreate: f.defaultedOnCreate === true,
-        // What --upsert matches by. Left out, no field was a key, and every
-        // --upsert run inserted, as the extension's describe never did.
-        externalId: f.externalId === true,
-        updateable: f.updateable !== false,
-        // What an email address or a phone number is neutralized within.
-        ...(f.length > 0 ? { length: f.length } : {}),
-        // What a dry run checks each row against, as the extension does.
-        ...fieldBoundsOf(f, controllers),
-      }));
-    },
+    describeFields: async (orgId, name) => fieldInfosOf(await describe(orgId, name)),
     isObjectCreatable: async (orgId, name) => (await describe(orgId, name)).createable !== false,
     // The key prefix a duplicate's id must carry, and the record types the
     // running user may use, from the describe already cached for the object.
@@ -9998,6 +11042,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * --json under `wholeOrg`.
    */
   let wholeOrgSaid: { dry?: WholeOrgDryRun; question: WholeOrgConfirmation } | undefined;
+  /** Of a sample of the whole org, what its plan drew, as its gate said it. */
+  let sampleSaid: WholeOrgSample | undefined;
   /**
    * Of a clone of the whole org, the checkpoint first's scope, read at the
    * gate as for any run before its requests are counted with the run's.
@@ -10064,6 +11110,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
     }
     const plan = wholeOrgWritePlanOf(boundary.objects, measures);
+    // Of a sample, what its plan drew: the counts above are the plan's.
+    const sampled = measures.sample?.report;
+    if (sampled) {
+      sampleSaid = sampled;
+      runAudit().sampled(sampled);
+    }
     const checkpointFailed = await scopeCheckpointFirst(boundary, plan);
     const updatedAfterInsert = [...updatedNames];
     let dry: WholeOrgDryRun | undefined;
@@ -10086,6 +11138,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         mute: muteLeaseRequests(mute?.plan),
         deliverability: emails?.ofRun.read?.requests ?? 0,
         sentBefore: sentBeforeTheGate,
+        ...(sampled ? { sample: sampled } : {}),
         target: { org: args.target, limits: targetConn },
         source: { org: args.source, limits: connOf(conns, args.source) },
       });
@@ -10102,6 +11155,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           : limits.dailyApiRequests;
       storageCheck = storageCheckOf(plan, limits);
       const overStorage = storageRefusal(storageCheck, args.target);
+      // A sample is held to what the target has left now by the terms it was
+      // fitted to: refused, never cut, when the target moved since its plan.
+      const sampleStop = sampled
+        ? sampleGateStopOf({ sample: sampled, storage: limits, target: args.target })
+        : undefined;
       const filesOf = wholeOrgFilesOf(measures.files, limits, args.target);
       files = filesOf.files;
       const sourceBudget = await readApiBudget(connOf(conns, args.source)).catch(unreadOf);
@@ -10126,7 +11184,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
       priced = { api: requests.api, wholeOrg: requests.wholeOrg };
       stops = [
-        ...(overStorage !== undefined && storageCheck.verdict === 'exceeds'
+        ...(sampleStop ? [sampleStop] : []),
+        ...(sampleStop === undefined &&
+        overStorage !== undefined &&
+        storageCheck.verdict === 'exceeds'
           ? [
               {
                 code: 'STORAGE_EXCEEDED' as const,
@@ -10155,12 +11216,23 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         plan,
         budget: priced,
         ...(files ? { files } : {}),
+        ...(sampled ? { sample: sampled, now: Date.now() } : {}),
       }),
       discovery: discoveryRequests,
     };
     pricedAtTheGate = { target: priced.api, source: priced.wholeOrg.source };
     wholeOrgSaid = { ...(dry ? { dry } : {}), question };
     say('');
+    if (sampled) {
+      for (const line of sampleLines(sampled, {
+        source: args.source,
+        target: args.target,
+        dryRun: boundary.dryRun === true,
+        replayed: args.sample?.options.plan !== undefined,
+      })) {
+        say(line);
+      }
+    }
     for (const line of writePlanLines(plan, storageCheck, args.target)) say(line);
     for (const line of wholeOrgGateLines(
       question,
@@ -10228,7 +11300,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         : new ForgeRunGateError(first.code as ForgeRunGateErrorCode, words(first.message));
     }
     allowedAtTheGate = splitAllowanceAnswerOf(priced.api);
-    await askTheWholeOrg(question, plan);
+    await askTheWholeOrg(question, plan, sampled);
   };
   /**
    * What the command line set that narrows a clone of the whole org, as its
@@ -10245,8 +11317,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * to answer it, refused (`CONFIRMATION_UNAVAILABLE`), and declined
    * (`WRITE_DECLINED`), nothing written either way.
    */
-  const askTheWholeOrg = async (question: WholeOrgConfirmation, plan: WritePlan): Promise<void> => {
-    const what = wholeOrgQuestionWords(question, plan, args.target);
+  const askTheWholeOrg = async (
+    question: WholeOrgConfirmation,
+    plan: WritePlan,
+    sample?: WholeOrgSample,
+  ): Promise<void> => {
+    const what = wholeOrgQuestionWords(question, plan, args.target, sample);
     if (args.yes) {
       say(`  --yes: written without the question: ${what}`);
       runAudit().confirm('volume');
@@ -10486,6 +11562,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         }
       : {}),
     graph: graphJson(graph, plan),
+    // Of a sample of the whole org, what its plan drew, as its gate said it;
+    // what the run wrote of it is in result.sample.
+    ...(sampleSaid ? { sample: sampleJson(sampleSaid) } : {}),
     // What the target runs on the objects the run writes, read before the
     // run: flows, triggers, processes and workflow rules per object, what of
     // them sends messages or runs after commit, the assignment and duplicate
@@ -10573,6 +11652,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       removalRisks,
       targetGaps: gapsWithAnswers(targetGaps, gapDecisions),
       wholeOrg: {
+        // Of a sample, what its plan drew, said before the rest: the counts
+        // below are the plan's.
+        ...(dry.sample ? { sample: sampleJson(dry.sample) } : {}),
         wouldInsert: dry.wouldInsert,
         totalRows: dry.totalRows,
         requests: { target: dry.targetRequests, source: dry.sourceRequests },
@@ -10675,6 +11757,25 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const journalPart = (): number | undefined =>
     journalStore && journalStore.partCount > 0 ? journalStore.partCount - 1 : undefined;
   /**
+   * Of a run of a sample that wrote nothing, its plan let go with its
+   * journal: the dry run's it took up put back where it was given, for
+   * --fit-plan to write it again — a run refused at its gate, or declined at
+   * its question, would otherwise have spent it —, one it drew removed.
+   */
+  const releaseThePlan = async (): Promise<void> => {
+    if (!args.sample || args.dryRun || args.resume || journalId === undefined) return;
+    const dir = runPlanDirOf(storagePath, journalId);
+    if (replayed && existsSync(dir) && !existsSync(replayed.dir)) {
+      try {
+        renameSync(dir, replayed.dir);
+        return;
+      } catch {
+        // Not put back: removed below, as one the run drew.
+      }
+    }
+    await removeSamplePlan(dir);
+  };
+  /**
    * Say in the journal how the part ended, once the run is over: a part that
    * wrote nothing — stopped at its gate — taken up from another leaves that
    * one's end, and a run of its own that wrote nothing leaves no journal.
@@ -10688,6 +11789,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       else if (!wrote && !args.resume) {
         rmSync(path, { force: true });
         rmSync(path.replace(/\.ndjson$/, '.end.json'), { force: true });
+        await releaseThePlan();
       } else await journals.stopAt(path, status, `${journalId ?? 'run'}#${journalPart() ?? 0}`);
     } catch (err: unknown) {
       process.stderr.write(
@@ -10695,6 +11797,79 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       );
     }
   };
+
+  // A sample of the whole org, drawn before the run's gate or taken up: a dry
+  // run keeps the plan it draws in forge-samples/ for a day, a run beside its
+  // journal, where the dry run's it was given goes first (--fit-plan).
+  let sampleStream: ForgeSampleStream | undefined;
+  if (args.sample) {
+    const sample = args.sample;
+    let plan = replayed;
+    if (replayed && !args.dryRun && journalId !== undefined) {
+      try {
+        plan = await adoptSamplePlan(replayed, storagePath, journalId);
+      } catch (err: unknown) {
+        await endJournal('failure', false);
+        process.stderr.write(
+          `The plan of --fit-plan ${replayed.dir} could not be moved beside the run's journal ` +
+            `(${extractErrorMessage(err)}): keep it in ${joinPath(storagePath, 'forge-samples')}, ` +
+            'where its dry run put it. Nothing was written.\n',
+        );
+        process.exit(1);
+      }
+    }
+    if (plan) {
+      say(
+        `sample: takes up the plan ${plan.dir}, drawn ${plan.manifest.drawnAt}: no root is ` +
+          'drawn again',
+      );
+    } else if (args.resume) {
+      say('sample: the run taken up goes on with the plan its journal names');
+    } else {
+      say(sampleReadsLine(graph, sample.options, args.source));
+      const earlier = args.dryRun
+        ? undefined
+        : await lastDryRunPlan(storagePath, drawFingerprint, new Date()).catch(() => undefined);
+      if (earlier instanceof SamplePlan) {
+        say(
+          `  a dry run drew a plan of this setup at ${earlier.manifest.drawnAt}: this run draws ` +
+            `its own; --fit-plan ${earlier.dir} writes that one's records instead`,
+        );
+      }
+    }
+    // What the target's automation that still runs creates under each record
+    // the sample keeps, taken off what it may take as it is cut.
+    const room = automationRoomOf(
+      { firing: stillRunningOf(gated, undefined, runWrites).firing },
+      (objectApiName, act) => runWrites(objectApiName, act),
+    ).perRecord;
+    // What the source has left today: reading the roots' ids past a tenth of
+    // it is refused before one is read.
+    const sourceBudget =
+      plan || args.resume
+        ? undefined
+        : await readApiBudget(connOf(conns, args.source)).catch(unreadOf);
+    sampleStream = {
+      options: sampleOptionsOfTheLine(sample),
+      budget: async () =>
+        sampleBudgetOf({
+          storage: await readDataStorage(targetConn).catch(unreadOf),
+          sample,
+          target: args.target,
+          automation: room,
+        }),
+      keepAt:
+        args.dryRun || journalId === undefined
+          ? dryRunPlanDirOf(storagePath, drawFingerprint)
+          : runPlanDirOf(storagePath, journalId),
+      fingerprint: drawFingerprint,
+      ...(plan ? { plan } : {}),
+      ...(sourceBudget && 'remaining' in sourceBudget
+        ? { sourceRequestsLeft: sourceBudget.remaining }
+        : {}),
+      onProgress: samplingProgressPrinter(say),
+    };
+  }
 
   let summary: ExecutionSummary;
   const outcomeLine = objectOutcomePrinter(graph);
@@ -10823,8 +11998,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             // each table read and written page by page; a clone of the whole
             // org as the panel's run of the whole org.
             ...(wholeOrg
-              ? wholeOrgOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
-                  discovery.personalFields(fields),
+              ? wholeOrgOptions(
+                  args,
+                  runConfig,
+                  graph,
+                  recordTypeMappings,
+                  (fields) => discovery.personalFields(fields),
+                  sampleStream,
                 )
               : args.tables
                 ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
@@ -10886,7 +12066,14 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // gate under the gate's code, or for its files under theirs, as the panel
     // records the files it was not to copy; stopped by Ctrl-C, partial once
     // it wrote; failed otherwise, with what it wrote before it threw.
-    const gate = err instanceof ForgeRunGateError ? err : undefined;
+    // A sample refused as it was drawn or taken up, nothing written, is a
+    // refusal of the gate under its code: its exit says what to do.
+    const gate =
+      err instanceof ForgeRunGateError
+        ? err
+        : args.sample
+          ? sampleGateErrorOf(err, args.resume ? 'resume' : 'draw')
+          : undefined;
     const filesRefused = err instanceof ForgeFilesRefusedError ? err : undefined;
     const refusedBefore = gate ?? filesRefused;
     const stoppedPartial = refusedBefore ? undefined : partialSummaryOf(err);
@@ -10930,6 +12117,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       endRefused(
         { code: refusedBefore.code, message: refusedBefore.message },
         gate ? alsoRefusedAtGate : [],
+        sampleRefusalExit(refusedBefore.code),
       );
     }
     const partial = stoppedPartial;
@@ -11022,6 +12210,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
     for (const line of summaryLines(summary, args.dryRun, args.readCeiling, muteAssigns)) {
       console.log(line);
+    }
+    if (summary.sample) {
+      console.log('');
+      for (const line of sampleResultLines(summary.sample, args.source)) console.log(line);
     }
     console.log(`\ndone in ${elapsed}ms`);
   }

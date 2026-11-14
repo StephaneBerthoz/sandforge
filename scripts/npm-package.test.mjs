@@ -156,3 +156,31 @@ test('the guides give the package first and the checkout second, at the Node the
   const own = read('packages', 'cli', 'README.md');
   assert.ok(own.includes(floor) && own.includes(npx), 'the package README says otherwise');
 });
+
+test('the packaged clone says how to copy a sample of the whole org, each flag of it, and refuses one alone on 2', () => {
+  const help = runBin(built.out, ['sandforge', 'clone', '--help'], { node });
+  assert.equal(help.code, 0, help.stderr);
+  for (const flag of [
+    '--fit share',
+    '--fit-within <MB>',
+    '--fit-seed <n>',
+    '--fit-draw uniform|recent',
+    '--fit-parents all|required',
+    '--fit-children <n>|all',
+    '--fit-whole <Object>',
+    '--fit-floor <n>',
+    '--fit-plan <folder>',
+    'SAMPLE_PLAN_GONE',
+    'SAMPLE_STORAGE_UNREAD',
+  ]) {
+    assert.ok(help.stdout.includes(flag), `sandforge clone --help does not say ${flag}`);
+  }
+  // A flag of a sample without --fit share is refused before any org is reached.
+  const alone = runBin(
+    built.out,
+    ['sandforge', 'clone', '--depth', 'all', '--source', 'S', '--target', 'T', '--fit-seed', '3'],
+    { node },
+  );
+  assert.equal(alone.code, 2, alone.stderr);
+  assert.match(alone.stderr, /--fit-seed goes with --depth all --fit share/);
+});
