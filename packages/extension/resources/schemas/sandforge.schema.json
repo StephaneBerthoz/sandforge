@@ -133,6 +133,27 @@
           },
           "markdownDescription": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default.",
           "description": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default."
+        },
+        "maxTotal": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000,
+          "markdownDescription": "The most records each checkpoint holds, all objects together, 1 to 1,000,000; `500,000` by default. A take past it is refused before it reads a record, the apply with it; an object past it alone is left out, named.",
+          "description": "The most records each checkpoint holds, all objects together, 1 to 1,000,000; `500,000` by default. A take past it is refused before it reads a record, the apply with it; an object past it alone is left out, named."
+        },
+        "excludeObjects": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "markdownDescription": "Objects the checkpoints leave out, by API name, each once, as `Task`: what a take past `maxTotal` can do without. A rewind does not touch them. 500 at most; none by default.",
+            "description": "Objects the checkpoints leave out, by API name, each once, as `Task`: what a take past `maxTotal` can do without. A rewind does not touch them. 500 at most; none by default."
+          },
+          "markdownDescription": "Objects the checkpoints leave out, by API name, each once, as `Task`: what a take past `maxTotal` can do without. A rewind does not touch them. 500 at most; none by default.",
+          "description": "Objects the checkpoints leave out, by API name, each once, as `Task`: what a take past `maxTotal` can do without. A rewind does not touch them. 500 at most; none by default."
         }
       },
       "additionalProperties": false,
@@ -639,6 +660,27 @@
                 "maximum": 4294967295,
                 "markdownDescription": "The seed the draws are made with, 0 to 4,294,967,295: the same seed writes the same names, companies, values and children per parent again. Without it, the run draws one, and the state keeps it.",
                 "description": "The seed the draws are made with, 0 to 4,294,967,295: the same seed writes the same names, companies, values and children per parent again. Without it, the run draws one, and the state keeps it."
+              },
+              "fit": {
+                "anyOf": [
+                  { "type": "string", "const": "share" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "withinMB": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1000000,
+                        "markdownDescription": "The most MB the seed may take, above 0 and up to 1,000,000, whatever the target has left.",
+                        "description": "The most MB the seed may take, above 0 and up to 1,000,000, whatever the target has left."
+                      }
+                    },
+                    "required": ["withinMB"],
+                    "additionalProperties": false
+                  }
+                ],
+                "markdownDescription": "`share`: seed the largest share of every count that fits the data storage the target has left, as `sandforge seed --fit share` does — each object about that share of its records, at least one, the plan saying the counts. `{ withinMB: <MB> }`: the same, within that many MB whatever the target has left. Without it, a seed past what the target has left is refused.",
+                "description": "`share`: seed the largest share of every count that fits the data storage the target has left, as `sandforge seed --fit share` does — each object about that share of its records, at least one, the plan saying the counts. `{ withinMB: <MB> }`: the same, within that many MB whatever the target has left. Without it, a seed past what the target has left is refused."
               }
             },
             "required": ["kind"],

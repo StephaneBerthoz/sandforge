@@ -21,6 +21,7 @@ import {
 import type { SfLocation } from './sfEnvironment.js';
 import { readOutputFiles } from './sfOutputFiles.js';
 import { logger } from '../../logger.js';
+import { proxiedConnection } from './proxiedConnection.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
@@ -666,9 +667,8 @@ export type OrgKindReader = (
  * that is not a sandbox. Two queries of the org signed in to, and of no other.
  */
 async function readKindFromTheOrg(session: OrgSession): Promise<TypedTarget> {
-  // Lazy boundary — see jsforceEntry.ts.
-  const { jsforce } = await import('./jsforceEntry.js');
-  const conn = new jsforce.Connection({
+  // Lazy boundary — see jsforceEntry.ts, which proxiedConnection imports.
+  const conn = await proxiedConnection({
     instanceUrl: session.instanceUrl,
     accessToken: session.accessToken,
     ...(session.apiVersion ? { version: session.apiVersion } : {}),

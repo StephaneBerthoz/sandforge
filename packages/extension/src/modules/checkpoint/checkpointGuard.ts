@@ -71,6 +71,7 @@
 
 import type { Connection } from 'jsforce';
 import {
+  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
   isDevelopmentOrg,
   type CheckpointOrgTier,
   type CheckpointRefusal,
@@ -81,6 +82,8 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   isProductionTarget,
   typeTarget,
+  untypedCauseOf,
+  untypedWords,
   type TypedTarget,
 } from '../../core/precheck/orgKindLive.js';
 import { coversAnyObject, grantsOf, type ObjectGrants } from './checkpointAccess.js';
@@ -445,6 +448,16 @@ export async function guardCheckpoint(
   try {
     org = await typeTarget(conn);
   } catch (err: unknown) {
+    // A session to renew, an org to wait for, a permission to give: said, not
+    // taken for a production org that nothing lifts.
+    const cause = untypedCauseOf(err);
+    if (cause !== undefined) {
+      return refused(
+        'ORG_UNTYPED',
+        `${untypedWords(orgName, err, cause)} SandForge takes a checkpoint of no org it cannot ` +
+          `tell from a production one. ${NOTHING_DONE}`,
+      );
+    }
     const why = err instanceof Error ? err.message : String(err);
     return productionRefusal(orgName, `it did not say what org it is (${why})`);
   }
@@ -455,11 +468,11 @@ export async function guardCheckpoint(
       'OTHER_ORG',
       request.act === 'import'
         ? `${orgName} is another org than the one this file holds a checkpoint of: it is ` +
-            'imported for the org it was taken of alone, under any alias of it. Nothing was ' +
-            'imported.'
+            `imported for the org it was taken of alone, under any alias of it. ` +
+            `${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG} Nothing was imported.`
         : `${orgName} is another org than the one this checkpoint was taken of: its Organization ` +
             "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
-            `org before it, and can only be deleted. ${NOTHING_DONE}`,
+            `org before it, and can only be deleted. ${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG} ${NOTHING_DONE}`,
     );
   }
 

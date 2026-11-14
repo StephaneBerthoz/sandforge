@@ -389,6 +389,14 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           {why}
         </p>
       )}
+      {(entry.why === 'refreshed' || entry.why === 'scratchExpired') && (
+        <p
+          className="text-xs text-text-secondary"
+          data-testid={`checkpoint-frozen-${entry.checkpointId}`}
+        >
+          {t('checkpoint.list.frozenInstead')}
+        </p>
+      )}
       {usable && (
         <RowLines
           entry={{ ...entry, checkpoint }}
@@ -414,7 +422,8 @@ interface RowLinesProps {
  * The lines beneath a checkpoint that can be rewound to, only those that
  * apply, each with what it offers: it was taken object by object, holding
  * only what its user saw whole; it expires within days, and Keep keeps
- * it; records deleted before a date can no longer come back with their Id,
+ * it; its scratch org expires within days, which no Keep outlives, and a
+ * Frozen Dataset keeps its data for another org; records deleted before a date can no longer come back with their Id,
  * once it is older than the recycle bin's fifteen days; the org's last
  * rewind was made to it, and Undo takes it back until a date, sooner if the
  * bin fills. Every date is the store's, so the list, Home and the command
@@ -434,7 +443,25 @@ const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) =>
   const rewoundAt = checkpoint.lastRewind?.endedAt;
   const rewoundOn = rewoundAt ? formatStoredDate(rewoundAt, (d) => formatDate(d)) : null;
   const perObject = takenPerObject(checkpoint);
-  if (!perObject && expiresIn === null && reachSince === null && undoUntil === null) return null;
+  // The day a scratch org goes is a day it lives through whole: read as this
+  // machine's midnight, so no time zone moves it to the day before.
+  const scratchDay = checkpoint.org.scratchExpiresAt;
+  const scratchGoes =
+    entry.scratchExpiresSoon && scratchDay !== undefined
+      ? formatStoredDate(
+          /^\d{4}-\d{2}-\d{2}$/.test(scratchDay) ? `${scratchDay}T00:00:00` : scratchDay,
+          (d) => formatDate(d),
+        )
+      : null;
+  if (
+    !perObject &&
+    expiresIn === null &&
+    scratchGoes === null &&
+    reachSince === null &&
+    undoUntil === null
+  ) {
+    return null;
+  }
   return (
     <div className="flex flex-col gap-1 text-xs text-text-primary">
       {perObject && (
@@ -458,6 +485,18 @@ const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) =>
           >
             {t('checkpoint.list.keepIt')}
           </Button>
+        </p>
+      )}
+      {scratchGoes !== null && (
+        <p
+          className="flex items-start gap-2"
+          data-testid={`checkpoint-scratch-expires-${checkpointId}`}
+        >
+          <AlertTriangle
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warning"
+            aria-hidden="true"
+          />
+          <span>{t('checkpoint.list.scratchExpiresSoon', { date: scratchGoes })}</span>
         </p>
       )}
       {reachSince !== null && (

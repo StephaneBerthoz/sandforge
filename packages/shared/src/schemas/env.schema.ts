@@ -248,12 +248,39 @@ const targetsSchema = strictObject('targets', {
 
 const orgRoleSchema = strictObject('an org role', { alias: aliasValueSchema });
 
+/**
+ * The most records a checkpoint of the file may be asked to hold: what a
+ * checkpoint holds of one object at most, the bound the Checkpoints page
+ * holds its Records at most to.
+ */
+export const ENV_CHECKPOINT_MAX_TOTAL = 1_000_000;
+
 const checkpointSettingsSchema = strictObject('checkpoint', {
   /** Take a checkpoint before the first write; `destroy --rewind` returns to it. */
   before: z.boolean().optional(),
   /** Take one, under this name, once applied; `reset` rewinds to it. */
   after: z.union([z.literal(false), envNameSchema]).optional(),
   ignoreFields: checkpointIgnoredFieldsSchema.optional(),
+  /**
+   * The records each checkpoint holds at most, all objects together: the
+   * take's `--max-total`. A take past its limit was refused with nothing in
+   * the file to answer it.
+   */
+  maxTotal: z.number().int().positive().max(ENV_CHECKPOINT_MAX_TOTAL).optional(),
+  /** Objects the checkpoints leave out, by API name: the take's `--exclude-object`. */
+  excludeObjects: z.array(apiNameSchema).min(1).max(500).optional(),
+}).superRefine((settings, ctx) => {
+  const seen = new Set<string>();
+  (settings.excludeObjects ?? []).forEach((object, index) => {
+    if (seen.has(object)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['excludeObjects', index],
+        message: `${object} is listed twice: an object is left out once`,
+      });
+    }
+    seen.add(object);
+  });
 });
 
 // ─── The file: the seed kind ─────────────────────────────────────────────────
@@ -390,6 +417,25 @@ const commonResourceShape = {
   accept: strictObject('accept', { automation: z.boolean().optional() }).optional(),
 };
 
+/**
+ * The most MB a fit may be held to: the bound the seed's `--fit-within`
+ * and the clone's take.
+ */
+const FIT_WITHIN_MOST_MB = 1_000_000;
+
+/** A fit's `withinMB`: no more than that many MB, whatever the target has left. */
+const fitWithinSchema = z.number().positive().max(FIT_WITHIN_MOST_MB);
+
+/**
+ * A seed fitted to the target's data storage, as `sandforge seed --fit share`
+ * seeds it: the largest share of every count that fits, or of what fits
+ * within `withinMB` (`--fit-within`).
+ */
+const seedFitSchema = z.union(
+  [z.literal('share'), strictObject('fit', { withinMB: fitWithinSchema })],
+  { error: 'fit is share, or { withinMB: <MB> }' },
+);
+
 export const envSeedResourceSchema = strictObject('a seed resource', {
   kind: z.literal('seed'),
   ...commonResourceShape,
@@ -408,6 +454,12 @@ export const envSeedResourceSchema = strictObject('a seed resource', {
     .min(0)
     .max(2 ** 32 - 1)
     .optional(),
+  /**
+   * Seed the largest share of every count that fits the target: `share`, or
+   * `{ withinMB }`. A seed past the target's storage was refused naming
+   * `--fit share`, which the file could not say.
+   */
+  fit: seedFitSchema.optional(),
 }).superRefine((resource, ctx) => {
   if (resource.template === undefined && resource.objects === undefined) {
     ctx.addIssue({

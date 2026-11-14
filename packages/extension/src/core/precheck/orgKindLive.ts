@@ -14,6 +14,8 @@
 
 import type { Connection } from 'jsforce';
 import { orgTypeOf, orgTypeToGuardTier } from '@sandforge/shared';
+import { isAuthError } from '../common/isAuthError.js';
+import { isNetworkError } from '../common/isNetworkError.js';
 
 /** An org as a live read types it: a sandbox, or not and its edition. */
 export interface TypedTarget {
@@ -51,6 +53,68 @@ export async function typeTarget(conn: Pick<Connection, 'query'>): Promise<Typed
 export function isProductionTarget(org: TypedTarget): boolean {
   const orgType = orgTypeOf({ isSandbox: org.sandbox, edition: org.edition });
   return orgTypeToGuardTier(orgType, org.edition) === 'production';
+}
+
+/**
+ * Whether the org refused its Organization record to the user the session
+ * signs in as: no access to the object, or an object the user's profile does
+ * not show at all. Reading it takes View Setup and Configuration.
+ */
+export function organizationRefused(err: unknown): boolean {
+  const { errorCode, statusCode } = (typeof err === 'object' && err !== null ? err : {}) as {
+    errorCode?: unknown;
+    statusCode?: unknown;
+  };
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    statusCode === 403 ||
+    (typeof errorCode === 'string' && /^INSUFFICIENT_ACCESS/.test(errorCode)) ||
+    /\bINSUFFICIENT_ACCESS/.test(message) ||
+    ((errorCode === 'INVALID_TYPE' || /\bINVALID_TYPE\b/.test(message)) &&
+      /\bOrganization\b/.test(message))
+  );
+}
+
+/**
+ * Why an org could not be typed, where something lifts it: the session was
+ * refused, the org did not answer, or its user may not read the Organization
+ * record. Undefined for an org that answered and said nothing of itself,
+ * which is taken for a production org.
+ */
+export type UntypedCause = 'auth' | 'network' | 'organizationRefused';
+
+/** The cause of a failed {@link typeTarget}, when one lifts it. */
+export function untypedCauseOf(err: unknown): UntypedCause | undefined {
+  if (isAuthError(err)) return 'auth';
+  if (isNetworkError(err)) return 'network';
+  if (organizationRefused(err)) return 'organizationRefused';
+  return undefined;
+}
+
+/**
+ * What lets an org that could not be typed be typed, in words the page and a
+ * command line both read: a guard that said "a production org, or cannot be
+ * told from one … nothing lifts this" of an expired session sent the person
+ * looking for a production org that was not there.
+ */
+export function untypedWords(orgName: string, err: unknown, cause: UntypedCause): string {
+  const why = err instanceof Error ? err.message : String(err);
+  switch (cause) {
+    case 'auth':
+      return (
+        `${orgName} refused the session SandForge holds for it (${why}): reconnect it — ` +
+        `Reconnect on the Organizations page, or "sf org login web --alias ${orgName}" for a ` +
+        'command line — then try again.'
+      );
+    case 'network':
+      return `${orgName} did not answer (${why}): try again once it answers.`;
+    case 'organizationRefused':
+      return (
+        `${orgName} would not show its Organization record (${why}): reading it takes the View ` +
+        'Setup and Configuration permission, which the user SandForge connects as lacks: give ' +
+        'it to them, or connect as a user who has it.'
+      );
+  }
 }
 
 /** The path of a SOAP endpoint: the partner API's, the Metadata API's, any other. */

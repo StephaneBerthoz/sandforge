@@ -60,6 +60,10 @@ export interface EnvCheckpointSettings {
   after?: false | string;
   /** Fields the checkpoints do not compare, as `Case.Last_Touched__c`. */
   ignoreFields?: string[];
+  /** The records each checkpoint holds at most, all objects together: the take's `--max-total`. */
+  maxTotal?: number;
+  /** Objects the checkpoints leave out, by API name: the take's `--exclude-object`. */
+  excludeObjects?: string[];
 }
 
 /** Acceptances a resource carries, reviewed in the file: CI has nobody to ask. */
@@ -145,6 +149,8 @@ export interface EnvSeedResource {
   locale?: string;
   /** The draws; recorded in the state when left out. */
   seed?: number;
+  /** Seed the largest share of every count that fits the target, within `withinMB` when given. */
+  fit?: 'share' | { withinMB: number };
 }
 
 /**
@@ -296,6 +302,8 @@ export interface EnvSeedRun {
   seed?: number;
   /** Record types by object, by DeveloperName. */
   recordTypes?: Record<string, string[]>;
+  /** The fit the file asks: `--fit share`, and `--fit-within` when it gives `withinMB`. */
+  fit?: { withinMB?: number };
   acceptAutomation: boolean;
   /**
    * The relations whose parents are the records another resource created,

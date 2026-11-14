@@ -57,6 +57,7 @@ import { endWith, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf } from './invocation.js';
 
 const HELP = `sandforge backup — take and restore DataOps snapshots, without the editor.
 
@@ -390,7 +391,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       objects?: Array<{ objectApiName: string; recordCount?: number }>;
     }>(`backup:${args.restoreId}`);
     if (!meta) {
-      process.stderr.write(`No snapshot "${args.restoreId}" in ${args.storeDir}.\n`);
+      // Said with where it looked alone, the store a CI job's cache restores
+      // under another name read as a snapshot lost.
+      process.stderr.write(
+        `No snapshot "${args.restoreId}" in ${args.storeDir}. "${commandOf('backup')} --list ` +
+          `--org ${args.org} --store ${args.storeDir}" names those it keeps; a snapshot taken ` +
+          'with another --store, or with SANDFORGE_JOURNAL_DIR set otherwise, is restored with ' +
+          'that --store. Nothing was written.\n',
+      );
       process.exit(1);
     }
     // What the org runs as the restore brings records back from the recycle
@@ -591,9 +599,46 @@ export function snapshotTaken(payload: TakenSnapshot): { line: string; exitCode:
       (o.stoppedAt !== undefined ? ` (${o.stoppedAt})` : ''),
   );
   return {
-    line: `${head} (partial: ${objects.join(', ') || 'an object holds fewer records than the org'})`,
+    line:
+      `${head} (partial: ${objects.join(', ') || 'an object holds fewer records than the org'})` +
+      partialWords(short),
     exitCode: PARTIAL_EXIT,
   };
+}
+
+/** The most records of one object a snapshot reads, whatever `--max-records` asks. */
+const SNAPSHOT_OBJECT_MOST = 1_000_000;
+
+/**
+ * What takes the rest of each object a snapshot holds part of: `--max-records`
+ * as high as the org's count, up to what a snapshot reads of one object;
+ * past it, nothing does, said so with where a copy is kept; and a run again
+ * for an object a stopped or failed run never reached. It said "partial" and
+ * nothing more.
+ */
+function partialWords(short: NonNullable<TakenSnapshot['objects']>): string {
+  const capped = short.filter((o) => o.stoppedAt === 'cap' && o.orgCount !== undefined);
+  const raisable = capped.filter((o) => (o.orgCount ?? 0) <= SNAPSHOT_OBJECT_MOST);
+  const past = capped.filter((o) => (o.orgCount ?? 0) > SNAPSHOT_OBJECT_MOST);
+  const words: string[] = [];
+  if (raisable.length > 0) {
+    const most = Math.max(...raisable.map((o) => o.orgCount ?? 0));
+    words.push(
+      `--max-records ${most} takes ${raisable.map((o) => o.objectApiName).join(', ')} whole`,
+    );
+  }
+  if (past.length > 0) {
+    const names = past.map((o) => o.objectApiName).join(', ');
+    words.push(
+      `No snapshot holds more than ${SNAPSHOT_OBJECT_MOST} records of one object: ${names} ` +
+        `${past.length === 1 ? 'is' : 'are'} not whole, and a restore puts back only what it ` +
+        'holds; Data Export, in Setup, or a Bulk API query keeps a copy of it',
+    );
+  }
+  if (short.some((o) => o.stoppedAt === 'not_reached' || o.stoppedAt === 'failure')) {
+    words.push('Run it again for an object not reached');
+  }
+  return words.length > 0 ? `. ${words.join('. ')}` : '';
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

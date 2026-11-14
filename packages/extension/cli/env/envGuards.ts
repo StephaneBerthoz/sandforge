@@ -35,11 +35,16 @@
  */
 
 import type { EnvState, EnvTargetKind, EnvTargets } from '@sandforge/shared';
-import { isProductionTarget, type TypedTarget } from '../../src/core/precheck/orgKindLive.js';
+import {
+  isProductionTarget,
+  untypedCauseOf,
+  type TypedTarget,
+} from '../../src/core/precheck/orgKindLive.js';
 import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import type { EnvStateError } from './envState.js';
 import { envLockRefusal, type EnvLockHolder } from './envLock.js';
 import { commandOf } from '../invocation.js';
+import { untypedTargetRefusal } from '../targetKind.js';
 
 /**
  * The code an apply or a destroy is refused with when the state changed
@@ -51,6 +56,11 @@ export const STATE_MOVED = 'STATE_MOVED';
 export type EnvRefusalCode =
   | typeof STATE_MOVED
   | 'PRODUCTION'
+  /**
+   * The org could not be typed for a cause something lifts — a sign-in to
+   * renew, an org that did not answer, View Setup to give — said with it.
+   */
+  | 'UNTYPED'
   | 'PROTECTED'
   | 'KIND'
   | 'NOT_LISTED'
@@ -116,15 +126,32 @@ export function sameOrganization(a: string, b: string): boolean {
  * Edition org, or refused as a production org — one typed so live, or one
  * that would not say what it is.
  *
- * @param typed - What the org's Organization record said, or why it said nothing.
+ * @param typed - What the org's Organization record said, or why it said nothing:
+ *   the error itself, when there is one, tells a sign-in to renew, an org that
+ *   did not answer and a permission to give from an org that said nothing.
  * @param session - Whether the `sf` CLI shows it as a scratch org, and its user.
  */
 export function envTargetOf(
   alias: string,
-  typed: TypedTarget | { unread: string },
+  typed: TypedTarget | { unread: string; error?: unknown },
   session: { scratch?: true; username: string },
 ): { target: EnvTarget } | { refusal: EnvRefusal } {
   if ('unread' in typed) {
+    // "No flag lifts this" was said of an expired sign-in too, which one
+    // command lifts: what lifts each cause is said in the clone's words.
+    if (typed.error !== undefined && untypedCauseOf(typed.error) !== undefined) {
+      return {
+        refusal: {
+          code: 'UNTYPED',
+          message: untypedTargetRefusal(alias, typed.error, {
+            tool: 'sandforge env',
+            action: 'write',
+            readOnly: 'plan',
+          }),
+          exit: 1,
+        },
+      };
+    }
     return {
       refusal: {
         code: 'PRODUCTION',

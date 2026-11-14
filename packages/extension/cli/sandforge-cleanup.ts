@@ -122,6 +122,8 @@ Options:
   --objects <a,b,c>     Comma-separated object API names. Defaults to a
                         whitelist of common Forge targets.
   --max <n>             Max records to delete per object (default: 200).
+                        Past it, the rest is left, named per object, and the
+                        cleanup exits 3: run it again, or give a higher --max.
   --dry-run             Print counts and what the target runs as they would
                         go, don't delete.
 ${dataOpsAutomationHelp('deleted', '--dry-run')}  --json                print per object the records found, deleted and
@@ -145,7 +147,8 @@ or the cleanup was refused for what the target runs as it deletes, without
 --accept-emails (EMAILS_NOT_ACCEPTED), more emails than it has left today
 (EMAILS_EXCEEDED), or a mute refused — a --dry-run that saw a real run would be
 refused among them; 2 a bad command line; 3 the target refused to delete some
-of the records found.
+of the records found, or an object holds more than --max of them, the rest
+left (with --dry-run too).
 `;
 
 /** What the line reads. */
@@ -286,7 +289,11 @@ export function sinceClause(since: string): string {
   );
 }
 
-/** The query of one object: what the user created from the start of `since`, at most `cap`. */
+/**
+ * The query of one object: what the user created from the start of `since`,
+ * at most `cap`. The cleanup asks one row past `--max`, which tells an object
+ * that holds more from one that holds exactly as many.
+ */
 export function cleanupSoql(
   objectName: string,
   since: string,
@@ -311,6 +318,8 @@ export interface CleanupObject {
   reasons?: string[];
   /** The target has no such object: passed over. */
   notPresent?: true;
+  /** It holds more than `--max` of them: the rest is left. */
+  pastMax?: true;
   /** Why the object could not be read or deleted. */
   error?: string;
 }
@@ -340,7 +349,7 @@ function reasonsOf(answers: readonly DeleteAnswer[]): string[] {
  */
 export function cleanupExitCode(objects: readonly CleanupObject[]): number {
   if (objects.some((o) => o.error !== undefined)) return FAILED_EXIT;
-  if (objects.some((o) => o.failed > 0)) return RECORDS_LEFT_EXIT;
+  if (objects.some((o) => o.failed > 0 || o.pastMax === true)) return RECORDS_LEFT_EXIT;
   return 0;
 }
 
@@ -357,7 +366,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The session every headless tool shares. This script used to read its own
   // from `sf org display`, whose token CLI 2.150 prints as "[REDACTED] …":
   // every run sent that sentence as the token.
-  const org = await loadOrg(args.target);
+  // A refusal of sf — an alias it does not know, a sign-in to renew — said as
+  // it is: it was printed after "FATAL:" as a fault, frames and all.
+  let org: Awaited<ReturnType<typeof loadOrg>>;
+  try {
+    org = await loadOrg(args.target);
+  } catch (err: unknown) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(FAILED_EXIT);
+  }
   const conn = makeConn(org);
   // Refused on a production org, or one that will not say what it is, before
   // a record is read: the cleanup deleted on whatever org --target named. No
@@ -400,14 +417,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           query: async (q) => conn.query<{ Id: string }>(q),
           queryMore: async (url) => conn.queryMore<{ Id: string }>(url),
         },
-        cleanupSoql(objectName, args.sinceSoql, userId, args.max),
+        cleanupSoql(objectName, args.sinceSoql, userId, args.max + 1),
       );
-      const ids = records.map((r) => r.Id);
+      // One row past --max says the object holds more: the cleanup took the
+      // first --max of them, said nothing of the rest, and exited 0.
+      const ids = records.slice(0, args.max).map((r) => r.Id);
+      if (records.length > args.max) outcome.pastMax = true;
       outcome.found = ids.length;
       // A record found is said once: by the dry run here, by its delete below.
       if (ids.length === 0) say(`  ${objectName.padEnd(40)} 0`);
       else if (args.dryRun) say(`  ${objectName.padEnd(40)} ${ids.length}  [dry-run]`);
       if (ids.length > 0) found.set(objectName, ids);
+      if (outcome.pastMax) {
+        say(
+          `  ${objectName.padEnd(40)} more past --max ${args.max} left: run it again, or give a ` +
+            'higher --max',
+        );
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Object missing on this sandbox — passed over.
@@ -531,6 +557,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           found: foundTotal,
           deleted,
           failed,
+          ...(objects.some((o) => o.pastMax === true)
+            ? { pastMax: objects.filter((o) => o.pastMax === true).map((o) => o.objectApiName) }
+            : {}),
           elapsedMs,
         },
         null,
@@ -539,9 +568,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
     return;
   }
+  const pastMax = objects.filter((o) => o.pastMax === true).length;
   console.log(
     `\n${args.dryRun ? 'would delete' : 'deleted'} ${args.dryRun ? foundTotal : deleted} record(s)` +
-      `${failed > 0 ? `, ${failed} refused` : ''} in ${elapsedMs}ms`,
+      `${failed > 0 ? `, ${failed} refused` : ''}` +
+      `${pastMax > 0 ? `; ${pastMax} object(s) hold more past --max ${args.max}` : ''} in ${elapsedMs}ms`,
   );
 }
 

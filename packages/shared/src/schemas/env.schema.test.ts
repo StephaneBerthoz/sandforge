@@ -238,6 +238,19 @@ describe('the file', () => {
   });
 });
 
+describe('a seed resource fitted to the target', () => {
+  it('takes fit: share, or fit with the MB it is held within, and nothing else', () => {
+    expect(refusalsOf(exampleWith(['resources', 'accounts', 'fit'], 'share'))).toEqual([]);
+    expect(refusalsOf(exampleWith(['resources', 'accounts', 'fit'], { withinMB: 50 }))).toEqual([]);
+    for (const fit of ['all', { withinMB: 0 }, { withinMB: 50, share: true }, true]) {
+      expect(
+        refusalsOf(exampleWith(['resources', 'accounts', 'fit'], fit)),
+        JSON.stringify(fit),
+      ).toEqual([expect.stringMatching(/^resources\.accounts\.fit/)]);
+    }
+  });
+});
+
 describe('a mask resource, and the masking sets it names', () => {
   /** The example with a masking set of contact points, and a mask resource beside its seeds. */
   const withMask = (
@@ -313,6 +326,27 @@ describe('a mask resource, and the masking sets it names', () => {
     ]);
     expect(refusalsOf(withMask({ rules: 'r', object: 'Contact' }, { r: { rules: [] } }))).toEqual([
       'masking.r.rules: A rule set holds one rule at least',
+    ]);
+  });
+
+  it('takes the limit of the checkpoints and the objects they leave out, which answer a take past its limit', () => {
+    const checkpoint = (settings: Record<string, unknown>) =>
+      exampleWith(['checkpoint'], { after: 'baseline', ...settings });
+
+    expect(
+      refusalsOf(checkpoint({ maxTotal: 1_000_000, excludeObjects: ['Task', 'ns__Log__c'] })),
+    ).toEqual([]);
+    expect(refusalsOf(checkpoint({ maxTotal: 0 }))).toEqual([
+      expect.stringMatching(/^checkpoint\.maxTotal: /),
+    ]);
+    expect(refusalsOf(checkpoint({ maxTotal: 1_000_001 }))).toEqual([
+      expect.stringMatching(/^checkpoint\.maxTotal: /),
+    ]);
+    expect(refusalsOf(checkpoint({ excludeObjects: ['Task', 'Task'] }))).toEqual([
+      'checkpoint.excludeObjects.1: Task is listed twice: an object is left out once',
+    ]);
+    expect(refusalsOf(checkpoint({ excludeObjects: ['not an object'] }))).toEqual([
+      expect.stringMatching(/^checkpoint\.excludeObjects\.0: /),
     ]);
   });
 

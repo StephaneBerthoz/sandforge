@@ -8,6 +8,7 @@ import type {
   RewindUndoCannot,
   RewindUndoCannotReason,
 } from '@sandforge/shared';
+import { CHECKPOINT_OBJECT_ROWS_MAX } from '../../utils/checkpointLimits';
 
 /**
  * Days a checkpoint is kept unless its owner keeps it until they delete it:
@@ -15,6 +16,21 @@ import type {
  * OrgCheckpointStore), which the take asks for by number.
  */
 export const CHECKPOINT_KEEP_DAYS = 30;
+
+/**
+ * Records a take holds at most, all objects together, unless Records at
+ * most says another number: the take's own default (`DEFAULT_MAX_TOTAL` in
+ * the extension's takeCheckpoint), which the page sends only when changed.
+ */
+export const CHECKPOINT_MAX_TOTAL = 500_000;
+
+/** Records at most as typed, as a take is asked it: a whole number up to {@link CHECKPOINT_OBJECT_ROWS_MAX}, else undefined. */
+export function takeLimitOf(typed: string): number | undefined {
+  const trimmed = typed.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const limit = Number(trimmed);
+  return limit >= 1 && limit <= CHECKPOINT_OBJECT_ROWS_MAX ? limit : undefined;
+}
 
 /**
  * Why Undo couldn't bring back records a rewind deletes, as an entry of a

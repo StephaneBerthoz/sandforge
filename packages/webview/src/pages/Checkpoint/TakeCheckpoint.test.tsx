@@ -223,6 +223,86 @@ describe('TakeCheckpoint', () => {
     expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
   });
 
+  it('holds the take to Records at most, asks its scope under the limit typed, and words a take past it with the field', () => {
+    renderTake();
+    answerScope();
+    const field = screen.getByTestId('checkpoint-take-limit');
+    expect(field).toHaveValue(500_000);
+    fireEvent.change(field, { target: { value: '1000' } });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(host.current?.lastPayload('checkpoint:scope')).toEqual({
+      orgId: 'org-dev',
+      mode: 'everything',
+      maxTotal: 1000,
+    });
+    answerScope({
+      refusal: {
+        code: 'TOO_MANY_RECORDS',
+        message:
+          'The objects this checkpoint would keep hold 2424 records in DEV-SB, past its limit of ' +
+          '1000: pick fewer objects. No record was read.',
+      },
+    });
+    // The extension's English said "raise the limit", and the page had nothing to raise.
+    expect(screen.getByTestId('checkpoint-refusal').textContent).toBe(
+      'The objects this checkpoint would keep hold 2,424 records, past Records at most (1,000): ' +
+        'pick fewer objects, or raise it, up to 1,000,000. No record was read.',
+    );
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+
+    fireEvent.change(field, { target: { value: '2000000' } });
+    expect(screen.getByText('A whole number of records, from 1 to 1,000,000.')).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+  });
+
+  it('takes under the limit typed', () => {
+    renderTake();
+    fireEvent.change(screen.getByTestId('checkpoint-take-limit'), {
+      target: { value: '750000' },
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    answerScope();
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).toMatchObject({ maxTotal: 750_000 });
+  });
+
+  it('names what holds an object past the limit, and says frankly that none holds one past a million', () => {
+    renderTake();
+    answerScope({
+      leftOut: [
+        {
+          objectApiName: 'Account',
+          code: 'pastTheLimit',
+          records: 600_000,
+          limit: 500_000,
+          reason: 'Account has 600000 records, past the limit.',
+        },
+        {
+          objectApiName: 'Task',
+          code: 'pastTheLimit',
+          records: 2_000_000,
+          limit: 1_000_000,
+          reason: 'Task has 2000000 records, past the limit.',
+        },
+      ],
+    });
+    const rows = within(screen.getByTestId('checkpoint-left-out'))
+      .getAllByRole('listitem')
+      .map((row) => row.textContent);
+    expect(rows).toEqual([
+      "Account — Account has 600,000 records, past the checkpoint's limit of 500,000 for one " +
+        'object: left out of the checkpoint, as part of it would be taken for all of it. Records ' +
+        'at most set to 600,000 or more holds it.',
+      'Task — Task has 2,000,000 records, more than any checkpoint holds of one object ' +
+        '(1,000,000): left out of the checkpoint, and a rewind to it does not touch Task. Data ' +
+        'Export, in Setup, or a Bulk API query keeps a copy of it.',
+    ]);
+  });
+
   it('says the refusal alone of a take refused before its scope is read, and no cost of it', () => {
     // As a Standard User, the page said "about 0 API requests of the 0 left
     // today" and "0 objects · about 0 records" with the refusal, an estimate
@@ -777,10 +857,10 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
               objectApiName: 'Case',
               code: 'pastTheLimit',
               reason:
-                "Case has 2500000 records, past the checkpoint's limit of 2000000 for one object: " +
+                "Case has 600000 records, past the checkpoint's limit of 500000 for one object: " +
                 'left out of the checkpoint, as part of it would be taken for all of it.',
-              records: 2_500_000,
-              limit: 2_000_000,
+              records: 600_000,
+              limit: 500_000,
             },
           ],
         }),
@@ -793,8 +873,9 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
       expect(items[1]).toBe(
         `Lead — ${fr.checkpointNotes.leftOut.unreadable} (OPERATION_TOO_LARGE)`,
       );
-      expect(items[2]).toContain(`Case a ${formatNumber(2_500_000)} enregistrements`);
-      expect(items[2]).toContain(`la limite de ${formatNumber(2_000_000)}`);
+      expect(items[2]).toContain(`Case a ${formatNumber(600_000)} enregistrements`);
+      expect(items[2]).toContain(`la limite de ${formatNumber(500_000)}`);
+      expect(items[2]).toContain(`Enregistrements au plus à ${formatNumber(600_000)} ou plus`);
     } finally {
       await act(() => i18n.changeLanguage('en'));
     }

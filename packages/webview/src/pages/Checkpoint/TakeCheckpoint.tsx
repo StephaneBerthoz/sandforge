@@ -35,6 +35,7 @@ import {
 } from '../../utils/formatters';
 import {
   CHECKPOINT_KEEP_DAYS,
+  CHECKPOINT_MAX_TOTAL,
   CHECKPOINT_NAME_MAX,
   heldPerObject,
   isCheckpointName,
@@ -43,7 +44,9 @@ import {
   recordsHeld,
   refusedBeforeScope,
   roughSeconds,
+  takeLimitOf,
 } from './checkpointFacts';
+import { CHECKPOINT_OBJECT_ROWS_MAX } from '../../utils/checkpointLimits';
 import { orgDisplayName } from '@sandforge/shared';
 
 /** What `checkpoint:scope` answers. */
@@ -136,20 +139,28 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
   const settledSettings = useSettled(settings, PICKS_SETTLE_MS);
   // Named only once one is picked: a scope that names none is the one of 1.69.
   const withSettings = settledSettings.length > 0 ? { customSettings: settledSettings } : {};
+  // Records at most: sent only when it is not the take's own default, so a
+  // scope asked as before is asked the same; a number it cannot be keeps the
+  // last scope and holds the button.
+  const [limitTyped, setLimitTyped] = useState(String(CHECKPOINT_MAX_TOTAL));
+  const limit = takeLimitOf(limitTyped);
+  const settledLimit = useSettled(limit, PICKS_SETTLE_MS);
+  const askedLimit = settledLimit ?? CHECKPOINT_MAX_TOTAL;
+  const withLimit = askedLimit !== CHECKPOINT_MAX_TOTAL ? { maxTotal: askedLimit } : {};
 
   const everything = useBridgeQuery<ScopeAnswer>(
     'checkpoint:scope',
-    { orgId: org.id, mode: 'everything' },
+    { orgId: org.id, mode: 'everything', ...withLimit },
     { timeoutMs: SCOPE_TIMEOUT_MS },
   );
   const everythingWithSettings = useBridgeQuery<ScopeAnswer>(
     'checkpoint:scope',
-    { orgId: org.id, mode: 'everything', ...withSettings },
+    { orgId: org.id, mode: 'everything', ...withSettings, ...withLimit },
     { timeoutMs: SCOPE_TIMEOUT_MS, skip: mode !== 'everything' || settledSettings.length === 0 },
   );
   const pickedScope = useBridgeQuery<ScopeAnswer>(
     'checkpoint:scope',
-    { orgId: org.id, mode: 'picked', objects: settledPicks, ...withSettings },
+    { orgId: org.id, mode: 'picked', objects: settledPicks, ...withSettings, ...withLimit },
     { timeoutMs: SCOPE_TIMEOUT_MS, skip: mode !== 'picked' || settledPicks.length === 0 },
   );
 
@@ -221,8 +232,15 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
   const leftOutForRights = answer?.leftOut.filter(leftOutForAccess) ?? [];
   const leftOutOtherwise = answer?.leftOut.filter((object) => !leftOutForAccess(object)) ?? [];
   const nameValid = isCheckpointName(name);
+  // The scope said is of the limit typed once it has settled, never of an earlier one.
+  const limitSettled = limit !== undefined && settledLimit === limit;
   const canTake =
-    answer !== null && answer.refusal === undefined && nameValid && !take.loading && !taken;
+    answer !== null &&
+    answer.refusal === undefined &&
+    nameValid &&
+    limitSettled &&
+    !take.loading &&
+    !taken;
 
   const startTake = (): void => {
     if (!canTake) return;
@@ -232,6 +250,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
       mode,
       ...(mode === 'picked' ? { objects: picked } : {}),
       ...(settings.length > 0 ? { customSettings: settings } : {}),
+      ...withLimit,
       keepDays: keep ? 0 : CHECKPOINT_KEEP_DAYS,
     });
   };
@@ -333,6 +352,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             </p>
             {leftOutOtherwise.length > 0 && (
               <LeftOut
+                raisable
                 objects={leftOutOtherwise}
                 summary={t('checkpoint.take.seeLeftOut', {
                   count: leftOutOtherwise.length,
@@ -354,10 +374,13 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             )}
           </fieldset>
 
+          <LimitField typed={limitTyped} valid={limit !== undefined} onType={setLimitTyped} />
+
           <BeforeItRuns
             orgName={orgName}
             username={org.username}
             answer={answer}
+            limit={askedLimit}
             perObject={perObject}
             keep={keep}
             reading={
@@ -649,12 +672,25 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
   );
 };
 
-/** Objects a scope leaves out, folded under `summary`, each with why. */
+/** Whether a higher Records at most holds an object the scope left out for its size. */
+function heldHigher(object: ScopeAnswer['leftOut'][number]): boolean {
+  return (
+    object.code === 'pastTheLimit' &&
+    object.records !== undefined &&
+    object.records <= CHECKPOINT_OBJECT_ROWS_MAX
+  );
+}
+
+/**
+ * Objects a scope leaves out, folded under `summary`, each with why; with
+ * `raisable`, an object past the limit says the Records at most that holds it.
+ */
 const LeftOut: React.FC<{
   objects: ScopeAnswer['leftOut'];
   summary: string;
   testId: string;
-}> = ({ objects, summary, testId }) => {
+  raisable?: boolean;
+}> = ({ objects, summary, testId, raisable = false }) => {
   const { t } = useTranslation();
   return (
     <details className="text-xs text-text-primary" data-testid={testId}>
@@ -665,10 +701,54 @@ const LeftOut: React.FC<{
             <span className="font-mono">{object.objectApiName}</span>
             {' — '}
             {leftOutWords(t, object)}
+            {raisable &&
+              heldHigher(object) &&
+              ` ${t('checkpoint.take.limitHolds', { records: formatNumber(object.records ?? 0) })}`}
           </li>
         ))}
       </ul>
     </details>
+  );
+};
+
+/** Props for Records at most. */
+interface LimitFieldProps {
+  typed: string;
+  valid: boolean;
+  onType: (typed: string) => void;
+}
+
+/**
+ * The records the take holds at most, all objects together: past it, the
+ * take is refused before it reads any; an object past it alone is left out,
+ * named. The command line's `--max-total`, bounded at what a checkpoint
+ * holds of one object.
+ */
+const LimitField: React.FC<LimitFieldProps> = ({ typed, valid, onType }) => {
+  const { t } = useTranslation();
+  const inputId = useId();
+  return (
+    <Input
+      id={inputId}
+      type="number"
+      inputMode="numeric"
+      min={1}
+      max={CHECKPOINT_OBJECT_ROWS_MAX}
+      step={1}
+      label={t('checkpoint.take.limit')}
+      value={typed}
+      onChange={(event) => onType(event.target.value)}
+      hint={t('checkpoint.take.limitHint', {
+        standard: formatNumber(CHECKPOINT_MAX_TOTAL),
+        most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
+      })}
+      error={
+        valid
+          ? undefined
+          : t('checkpoint.take.limitRule', { most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX) })
+      }
+      data-testid="checkpoint-take-limit"
+    />
   );
 };
 
@@ -787,6 +867,8 @@ interface BeforeItRunsProps {
   username: string;
   /** The scope of the current choice, once answered. */
   answer: ScopeAnswer | null;
+  /** Records at most, as the scope was asked it. */
+  limit: number;
   /** Its user has no View All Data and Modify All Data: it holds what they hold whole, per object. */
   perObject: boolean;
   keep: boolean;
@@ -813,6 +895,7 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
   orgName,
   username,
   answer,
+  limit,
   perObject,
   keep,
   reading,
@@ -883,15 +966,25 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
       left: formatNumber(answer.estimate.apiRequestsLeft),
       size: formatFileSize(answer.estimate.bytes),
     };
+    // Past Records at most, said with the field: the extension's English
+    // leaves each surface to name what raises its limit.
+    const refusal =
+      answer.refusal?.code === 'TOO_MANY_RECORDS'
+        ? t('checkpoint.take.tooManyRecords', {
+            records: formatNumber(answer.estimate.records),
+            limit: formatNumber(limit),
+            most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
+          })
+        : answer.refusal?.message;
     body = (
       <div className="flex flex-col gap-1.5 text-xs text-text-primary">
-        {answer.refusal && (
+        {refusal !== undefined && (
           <p
             role="alert"
             className="font-medium text-text-primary"
             data-testid="checkpoint-refusal"
           >
-            {answer.refusal.message}
+            {refusal}
           </p>
         )}
         <p data-testid="checkpoint-cost">

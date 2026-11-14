@@ -507,6 +507,12 @@ export interface CheckpointListEntry {
    */
   expiresSoon?: true;
   /**
+   * Set when the scratch org it is of expires within three days: its
+   * checkpoints then can only be deleted, whatever Keep says, and a Frozen
+   * Dataset frozen before keeps its data for another org.
+   */
+  scratchExpiresSoon?: true;
+  /**
    * Records deleted before this date can't come back with their Id: set once
    * the checkpoint is older than the recycle bin's 15 days.
    */
@@ -633,6 +639,12 @@ export interface CheckpointEstimate {
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
+  /**
+   * The org could not be typed, for a cause something lifts: its session was
+   * refused, it did not answer, or its user may not read the Organization
+   * record. Not `PRODUCTION`: the message says what lifts it.
+   */
+  | 'ORG_UNTYPED'
   | 'OTHER_ORG'
   | 'SCRATCH_EXPIRED'
   | 'PERMISSIONS'

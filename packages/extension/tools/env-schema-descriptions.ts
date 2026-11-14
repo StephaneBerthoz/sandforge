@@ -177,6 +177,14 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Fields the checkpoints neither compare nor write back, each once and named with its ' +
     'object, as `Case.Last_Touched__c`: what your automation sets on every save. {maxItems} ' +
     'at most; none by default.',
+  'checkpoint.maxTotal':
+    'The most records each checkpoint holds, all objects together, 1 to {maximum}; ' +
+    '`500,000` by default. A take past it is refused before it reads a record, the apply ' +
+    'with it; an object past it alone is left out, named.',
+  'checkpoint.excludeObjects':
+    'Objects the checkpoints leave out, by API name, each once, as `Task`: what a take past ' +
+    '`maxTotal` can do without. A rewind does not touch them. {maxItems} at most; none by ' +
+    'default.',
   masking:
     'Named sets of DataOps rules, which a mask resource names by the set’s name. A name is ' +
     'lower-case letters, digits and dashes, and none is shaped like a secret. None by default.',
@@ -384,6 +392,14 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The country the names, addresses and phone numbers are drawn for: ' +
     `${either(SEED_LOCALES)}. Without it, the org’s default locale, or the nearest SandForge ` +
     'has names for.',
+  'resources.<name>{seed}.fit':
+    '`share`: seed the largest share of every count that fits the data storage the target has ' +
+    'left, as `sandforge seed --fit share` does — each object about that share of its ' +
+    'records, at least one, the plan saying the counts. `{ withinMB: <MB> }`: the same, ' +
+    'within that many MB whatever the target has left. Without it, a seed past what the ' +
+    'target has left is refused.',
+  'resources.<name>{seed}.fit{object}.withinMB':
+    'The most MB the seed may take, above 0 and up to {maximum}, whatever the target has left.',
   'resources.<name>{seed}.seed':
     'The seed the draws are made with, {minimum} to {maximum}: the same seed writes the same ' +
     'names, companies, values and children per parent again. Without it, the run draws one, ' +

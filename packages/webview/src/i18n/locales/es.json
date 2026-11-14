@@ -7382,7 +7382,9 @@
         "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
         "scratchExpired": "Esta scratch org caducó: sus puntos de control solo se pueden eliminar."
       },
+      "frozenInstead": "Un punto de control devuelve la org de la que se tomó a un momento, y ninguna otra org: los datos que se quieren volver a montar en otra org se congelan como Dataset congelado mientras su org existe.",
       "expiresSoon": "Caduca {{when}}",
+      "scratchExpiresSoon": "Esta scratch org caduca el {{date}}: sus puntos de control solo podrán eliminarse entonces, y Conservar no los conserva. Para volver a montar sus datos en otra org, congélelos antes como Dataset congelado: un Dataset congelado se carga en cualquier sandbox u org Developer Edition.",
       "keepIt": "Conservar",
       "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver con su Id: la papelera los guarda 15 días, menos si se llena. Un retroceso los crea de nuevo, con Id nuevos.",
       "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
@@ -7488,7 +7490,12 @@
         "seeLeftOut_other": "Ver los {{formatted}} objetos que se dejan fuera por los permisos de {{user}}, y por qué",
         "cannotPick": "no se puede elegir",
         "settings": "{{user}} no tiene View All Data y Modify All Data: una configuración personalizada marcada hace rechazar la creación, porque ningún permiso sobre un objeto prueba quién ve y escribe cada fila."
-      }
+      },
+      "limit": "Registros como máximo",
+      "limitHint": "Por encima de este número de registros en total, la creación se rechaza antes de leer ninguno: {{standard}} salvo que lo cambie, {{most}} como máximo.",
+      "limitRule": "Un número entero de registros, de 1 a {{most}}.",
+      "tooManyRecords": "Los objetos que guardaría este punto de control contienen {{records}} registros, por encima de Registros como máximo ({{limit}}): elija menos objetos, o súbalo, hasta {{most}}. No se leyó ningún registro.",
+      "limitHolds": "Con Registros como máximo en {{records}} o más se guarda."
     },
     "preview": {
       "title": "Retroceder {{org}} a «{{name}}» ({{date}})",
@@ -7978,6 +7985,7 @@
       "noRecycleBin": "Se deja fuera: la org elimina sus registros definitivamente, sin papelera, así que nada indicaría que uno se eliminó desde entonces, ni lo recuperaría.",
       "unreadable": "Se deja fuera: la org se niega a leerlo entero.",
       "pastTheLimit": "{{object}} tiene {{records}} registros, por encima del límite de {{limit}} del punto de control para un objeto: se deja fuera, porque una parte pasaría por el todo.",
+      "pastEveryCheckpoint": "{{object}} tiene {{records}} registros, más de lo que ningún punto de control guarda de un objeto ({{most}}): se deja fuera, y una vuelta a él no toca {{object}}. La exportación de datos, en Configuración, o una consulta de Bulk API guarda una copia.",
       "noViewAll": "Sin View All Data y Modify All Data, un objeto solo se guarda con View All y Modify All sobre él, y el usuario con el que se conecta SandForge no tiene ninguno de los dos sobre este: un registro que no ve parecería eliminado desde entonces.",
       "noModifyAll": "Sin View All Data y Modify All Data, un objeto solo se guarda con View All y Modify All sobre él, y el usuario con el que se conecta SandForge tiene View All sobre este, no Modify All: un retroceso no podría restablecer lo que otros cambiaron.",
       "activities": "Sin View All Data y Modify All Data, las tareas y eventos se dejan fuera: Salesforce no tiene View All para las actividades, y una actividad privada no vinculada a ningún registro queda fuera de la vista.",

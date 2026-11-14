@@ -2124,7 +2124,12 @@ const BUDGET_WORDS: Readonly<Record<BudgetedAct, { what: string; then: string; d
   },
   rewind: {
     what: 'This rewind',
-    then: 'Rewind once the org has requests to spare — the limit is counted over the last 24 hours.',
+    // A rewind limited to some objects reads and writes theirs alone: the
+    // way through a day's limit that does not wait for it.
+    then:
+      'Rewind once the org has requests to spare — the limit is counted over the last 24 ' +
+      'hours — or rewind fewer of its objects at a time, which sends only theirs (the objects ' +
+      'ticked in the preview, or --object on a command line).',
     done: 'No record was read or written.',
   },
   undo: {

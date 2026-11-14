@@ -441,8 +441,11 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).not.toContain('sooner if the recycle bin fills');
     expect(DOC).toContain("A preview's reads are kept a day.");
     expect(DOC).toContain(
-      "more records than the take's limit (500,000 unless the command line names another)",
+      "more records than the take's limit (500,000 unless **Records at most** or the command " +
+        "line's `--max-total` names another, a million at most on the page)",
     );
+    // Past a million records of one object, no limit holds it: said so.
+    expect(DOC).toContain('one past a million records is held by no checkpoint');
   });
 
   it('says a checkpoint past the recycle bin’s days loses only the Ids of what was deleted before a date, the rest of a rewind unbound by it', () => {

@@ -14,6 +14,7 @@ import * as live from '../src/core/precheck/orgKindLive.js';
 import { SfSessionError } from './sfFailure.js';
 import { setDefaults as setRequestDefaults } from 'jsforce/lib/request';
 import { countRequests, loadOrg, makeConn, proxyFor } from './sfSession.js';
+import { proxyFor as panelProxyFor } from '../src/core/connection/proxyFor.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);
 
@@ -224,6 +225,10 @@ describe('loadOrg', () => {
 });
 
 describe('the proxy a connection goes through', () => {
+  it('is the rule the panel reads too: one rule for the scripts and the panel', () => {
+    expect(proxyFor).toBe(panelProxyFor);
+  });
+
   it('takes HTTPS_PROXY for an https instance, HTTP_PROXY failing it, and none NO_PROXY names', () => {
     const at = 'https://acme.my.salesforce.com';
     expect(proxyFor(at, {})).toBeUndefined();

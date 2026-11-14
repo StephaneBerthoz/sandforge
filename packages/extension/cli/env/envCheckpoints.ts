@@ -35,6 +35,7 @@
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  ENV_CHECKPOINT_MAX_TOTAL,
   checkpointIdSchema,
   type EnvCheckpointRefusal,
   type EnvCheckpointStep,
@@ -96,21 +97,52 @@ function baseOf(input: CheckpointLineBase): string[] {
   return ['--org', valueOf('--org', input.org), '--store', valueOf('--store', input.store)];
 }
 
-/** The fields not compared, one `--ignore-field` each, as the file lists them. */
-function ignoredOf(fields: readonly string[] | undefined): string[] {
-  return (fields ?? []).flatMap((field) => ['--ignore-field', valueOf('--ignore-field', field)]);
+/**
+ * What the file's `checkpoint` gives each take, its estimate too: the fields
+ * not compared, the records it holds at most, the objects it leaves out.
+ */
+export interface EnvTakeSettings {
+  ignoreFields?: readonly string[];
+  maxTotal?: number;
+  excludeObjects?: readonly string[];
+}
+
+/** The file's settings of its takes, those it gives alone. */
+export function takeSettingsOf(file: Pick<EnvFile, 'name' | 'checkpoint'>): EnvTakeSettings {
+  const { ignoreFields, maxTotal, excludeObjects } = file.checkpoint ?? {};
+  return {
+    ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+    ...(maxTotal !== undefined ? { maxTotal } : {}),
+    ...(excludeObjects !== undefined ? { excludeObjects } : {}),
+  };
+}
+
+/**
+ * The settings on the line: one `--ignore-field` per field not compared, the
+ * limit as `--max-total`, one `--exclude-object` per object left out.
+ */
+function settingsOf(input: EnvTakeSettings): string[] {
+  return [
+    ...(input.ignoreFields ?? []).flatMap((field) => [
+      '--ignore-field',
+      valueOf('--ignore-field', field),
+    ]),
+    ...(input.maxTotal !== undefined ? ['--max-total', String(input.maxTotal)] : []),
+    ...(input.excludeObjects ?? []).flatMap((object) => [
+      '--exclude-object',
+      valueOf('--exclude-object', object),
+    ]),
+  ];
 }
 
 /** The line of a take's estimate: what it would hold and cost, nothing read or kept. */
-export function checkpointEstimateLine(
-  input: CheckpointLineBase & { ignoreFields?: readonly string[] },
-): string[] {
-  return ['take', ...baseOf(input), ...ignoredOf(input.ignoreFields), '--estimate', '--json'];
+export function checkpointEstimateLine(input: CheckpointLineBase & EnvTakeSettings): string[] {
+  return ['take', ...baseOf(input), ...settingsOf(input), '--estimate', '--json'];
 }
 
 /** The line of a take, under its name, kept as long as the environment needs it. */
 export function checkpointTakeLine(
-  input: CheckpointLineBase & { name: string; keepDays: number; ignoreFields?: readonly string[] },
+  input: CheckpointLineBase & EnvTakeSettings & { name: string; keepDays: number },
 ): string[] {
   return [
     'take',
@@ -119,9 +151,29 @@ export function checkpointTakeLine(
     valueOf('--name', input.name),
     '--keep-days',
     String(input.keepDays),
-    ...ignoredOf(input.ignoreFields),
+    ...settingsOf(input),
     '--json',
   ];
+}
+
+/**
+ * A take's refusal as the file answers it: past its limit, the keys that
+ * raise it or narrow it, where the checkpoint script names its own flag,
+ * which the environment gives it from them. Any other refusal as it came.
+ */
+export function envTakeRefusal(refusal: EnvCheckpointRefusal): EnvCheckpointRefusal {
+  if (refusal.code !== 'TOO_MANY_RECORDS') return refusal;
+  const cut = refusal.message.indexOf(': pick fewer objects');
+  const said =
+    cut === -1
+      ? refusal.message.replace(/\s*No record was read\.$/, '')
+      : refusal.message.slice(0, cut);
+  return {
+    ...refusal,
+    message:
+      `${said}: leave objects out with checkpoint.excludeObjects, or raise checkpoint.maxTotal ` +
+      `in the file, ${ENV_CHECKPOINT_MAX_TOTAL.toLocaleString('en-US')} at most. No record was read.`,
+  };
 }
 
 /** The line of a preview: what a rewind to the checkpoint would do, nothing written. */
@@ -394,11 +446,11 @@ export function estimateReadOf(run: CommandRun): CheckpointEstimateRead {
   const read = answerOf(run, readCheckpointEstimate);
   if ('unread' in read) return read;
   const answer = read.answer;
-  if (!('estimate' in answer)) return { refusal: answer.refusal };
+  if (!('estimate' in answer)) return { refusal: envTakeRefusal(answer.refusal) };
   const { records, apiRequests, seconds, bytes } = answer.estimate;
   return {
     estimate: { records, apiRequests, seconds, bytes },
-    ...(answer.refusal !== undefined ? { refusal: answer.refusal } : {}),
+    ...(answer.refusal !== undefined ? { refusal: envTakeRefusal(answer.refusal) } : {}),
   };
 }
 
@@ -558,8 +610,7 @@ export async function takeEnvCheckpoint(
     org: CheckpointOrg;
     step: EnvCheckpointStep;
     name: string;
-    ignoreFields?: readonly string[];
-  },
+  } & EnvTakeSettings,
   signal: AbortSignal,
 ): Promise<CheckpointTaken> {
   deps.say(`checkpoint ${STEP_WORDS[input.step]}: taking '${input.name}'`);
@@ -571,6 +622,8 @@ export async function takeEnvCheckpoint(
       name: input.name,
       keepDays: checkpointKeepDays(input.org.kind),
       ...(input.ignoreFields !== undefined ? { ignoreFields: input.ignoreFields } : {}),
+      ...(input.maxTotal !== undefined ? { maxTotal: input.maxTotal } : {}),
+      ...(input.excludeObjects !== undefined ? { excludeObjects: input.excludeObjects } : {}),
     }),
     signal,
   );
@@ -590,7 +643,7 @@ export async function takeEnvCheckpoint(
   }
   const refusal =
     answer !== undefined && 'refusal' in answer
-      ? `${answer.refusal.code}: ${answer.refusal.message}`
+      ? `${answer.refusal.code}: ${envTakeRefusal(answer.refusal).message}`
       : 'unread' in read
         ? read.unread
         : `exit ${ran.code}`;

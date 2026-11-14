@@ -337,6 +337,7 @@ export function dryRunLineOf(
           ...(resource.run.recordTypes !== undefined
             ? { recordTypes: resource.run.recordTypes }
             : {}),
+          ...(resource.run.fit !== undefined ? { fit: resource.run.fit } : {}),
         }),
       };
     }
@@ -486,6 +487,7 @@ export function applyLineOf(
           ...(resource.run.recordTypes !== undefined
             ? { recordTypes: resource.run.recordTypes }
             : {}),
+          ...(resource.run.fit !== undefined ? { fit: resource.run.fit } : {}),
         }),
       };
     case 'forge': {

@@ -29,6 +29,8 @@ import { spooledRows } from './orgStreams.js';
 import {
   CheckpointTakeStopped,
   DEFAULT_MAX_TOTAL,
+  OBJECT_ROWS_MAX,
+  pastTheLimit,
   scopeCheckpoint,
   takeCheckpoint,
   takeOrgOf,
@@ -950,6 +952,11 @@ describe('takeCheckpoint — refused before anything is read', () => {
     const refused = await takeCheckpoint(h.deps, request({ maxTotal: 35 }));
     expect(refused).toMatchObject({ taken: false, refusal: { code: 'TOO_MANY_RECORDS' } });
     expect(refused.taken ? '' : refused.refusal.message).toContain('hold 38 records');
+    // Said by every surface, a run's checkpoint first among them, which has no
+    // limit of its own to raise: each surface that has one names it itself.
+    expect(refused.taken ? '' : refused.refusal.message).toMatch(
+      /past its limit of 35: pick fewer objects\. No record was read\.$/,
+    );
     expect(readsRecords(h.org.asked)).toEqual([]);
     expect(h.sent).toEqual([]);
     expect(checkpointFolders(h.root)).toEqual([]);
@@ -2284,6 +2291,26 @@ describe('takeCheckpoint — a take before a run', () => {
     ).rejects.toThrow();
     expect(h.org.asked).toEqual([]);
     expect(checkpointFolders(h.root)).toEqual([]);
+  });
+});
+
+describe('pastTheLimit', () => {
+  it('says an object past the limit asked is held under a higher one', () => {
+    expect(pastTheLimit('Account', 32, 20).reason).toBe(
+      "Account has 32 records, past the checkpoint's limit of 20 for one object: left out of " +
+        'the checkpoint, as part of it would be taken for all of it.',
+    );
+  });
+
+  it('says frankly that no checkpoint holds an object past a million records, and where a copy of it is kept', () => {
+    const out = pastTheLimit('Task', OBJECT_ROWS_MAX + 1, OBJECT_ROWS_MAX);
+
+    expect(out).toMatchObject({ code: 'pastTheLimit', records: 1_000_001, limit: 1_000_000 });
+    expect(out.reason).toBe(
+      'Task has 1000001 records, more than any checkpoint holds of one object (1000000): left ' +
+        'out of the checkpoint, and a rewind to it does not touch Task. Data Export, in Setup, ' +
+        'or a Bulk API query keeps a copy of it.',
+    );
   });
 });
 

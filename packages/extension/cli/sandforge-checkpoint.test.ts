@@ -13,6 +13,7 @@ import {
   defaultName,
   invalidRefusal,
   listEntryJson,
+  listLines,
   orgDiffers,
   parseArgs,
   previewExitCode,
@@ -29,6 +30,7 @@ import {
   scopeJson,
   scopeLines,
   takeLines,
+  takeRefusalWords,
   undoLine,
   undoLines,
 } from './sandforge-checkpoint.js';
@@ -606,7 +608,12 @@ describe('resolveCheckpoint', () => {
 
   it('says when nothing matches', () => {
     expect(resolveCheckpoint(all, [], 'latest', 'EMPTY')).toEqual({
-      none: 'No checkpoint of EMPTY is kept on this machine.',
+      none:
+        'No checkpoint of EMPTY is kept in the folder read. "pnpm exec tsx ' +
+        'packages/extension/cli/sandforge-checkpoint.ts list --org EMPTY" names those it holds. ' +
+        'One kept in another folder is read with --store <folder>, or with SANDFORGE_JOURNAL_DIR ' +
+        'set as when it was taken — in a CI job, a folder its cache restores; one taken on ' +
+        'another machine comes here by export there, then import here.',
     });
     expect(resolveCheckpoint(all, ofOrg, 'nightly', 'DEV-SB')).toMatchObject({
       none: expect.stringContaining("named 'nightly'") as unknown,
@@ -631,12 +638,42 @@ describe('invalidRefusal', () => {
     ).toEqual({
       code: 'SCRATCH_EXPIRED',
       message:
-        "The scratch org of checkpoint 'Before UAT' has expired: its checkpoints can only be deleted.",
+        "The scratch org of checkpoint 'Before UAT' has expired: its checkpoints can only be " +
+        'deleted. A checkpoint returns the org it was taken of to a moment, and no other org: ' +
+        'data to set up again in another org is frozen as a Frozen Dataset while its org lives ' +
+        '(sandforge frozen select, then extract).',
     });
     expect(
       invalidRefusal(entry('ck-20261022-160000-cccc', ORG_A, of, { valid: false, why: 'taking' }))
         ?.code,
     ).toBe('TAKING');
+  });
+});
+
+describe('listLines', () => {
+  it('warns before a scratch org expires, and names what keeps an org’s data for another where a checkpoint can only be deleted', () => {
+    const of = { alias: 'DEV-SB', username: 'u@example.com', scratchExpiresAt: '2026-10-24' };
+    const lines = listLines(
+      [
+        entry('ck-20261022-160000-cccc', ORG_A, of, { scratchExpiresSoon: true }),
+        entry('ck-20261021-160000-dddd', ORG_A, of, { valid: false, why: 'refreshed' }),
+      ],
+      '/store',
+    );
+
+    expect(lines).toContain(
+      '  its scratch org expires on 2026-10-24: its checkpoints then can only be deleted, ' +
+        'whatever --keep-days said. To set up its data again in another org, freeze it as a ' +
+        'Frozen Dataset before (sandforge frozen select, then extract)',
+    );
+    expect(lines).toContain(
+      '  A checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
+        'up again in another org is frozen as a Frozen Dataset while its org lives (sandforge ' +
+        'frozen select, then extract).',
+    );
+    expect(
+      listEntryJson(entry('ck-20261022-160000-cccc', ORG_A, of, { scratchExpiresSoon: true })),
+    ).toMatchObject({ scratchExpiresSoon: true });
   });
 });
 
@@ -655,6 +692,7 @@ describe('listEntryJson', () => {
       bytes: 2048,
       expiresAt: '2026-11-21T14:05:31.000Z',
       expiresSoon: false,
+      scratchExpiresSoon: false,
       binReachSince: null,
       valid: true,
     });
@@ -668,6 +706,7 @@ describe('listEntryJson', () => {
       bytes: null,
       expiresAt: null,
       expiresSoon: false,
+      scratchExpiresSoon: false,
       binReachSince: null,
       valid: false,
       why: 'damaged',
@@ -2527,6 +2566,56 @@ describe('files', () => {
     expect(lines.filter((line) => line.includes('— Left out'))).toEqual([]);
     // The answer in --json keeps each reason whole: it is read on its own there.
     expect(scopeJson(scope).leftOut).toEqual(scope.leftOut);
+  });
+
+  it('names --max-total where a take is past its limit, and what holds an object past it, or that none does past a million', () => {
+    const scope = {
+      mode: 'everything' as const,
+      objects: [],
+      leftOut: [
+        {
+          objectApiName: 'Account',
+          code: 'pastTheLimit' as const,
+          records: 600_000,
+          limit: 500_000,
+          reason:
+            "Account has 600000 records, past the checkpoint's limit of 500000 for one object: " +
+            'left out of the checkpoint, as part of it would be taken for all of it.',
+        },
+        {
+          objectApiName: 'Task',
+          code: 'pastTheLimit' as const,
+          records: 2_000_000,
+          limit: 1_000_000,
+          reason:
+            'Task has 2000000 records, more than any checkpoint holds of one object (1000000): ' +
+            'left out of the checkpoint, and a rewind to it does not touch Task. Data Export, in ' +
+            'Setup, or a Bulk API query keeps a copy of it.',
+        },
+      ],
+      estimate,
+      refusal: {
+        code: 'TOO_MANY_RECORDS' as const,
+        message:
+          'The objects this checkpoint would keep hold 700000 records in DEV-SB, past its limit ' +
+          'of 500000: pick fewer objects. No record was read.',
+      },
+    };
+
+    const lines = scopeLines('DEV-SB', scope);
+
+    expect(lines).toContain(
+      "  left out: Account — Account has 600000 records, past the checkpoint's limit of 500000 " +
+        'for one object: left out of the checkpoint, as part of it would be taken for all of it. ' +
+        '--max-total 600000 or more holds it.',
+    );
+    expect(lines.find((line) => line.startsWith('  left out: Task'))).not.toContain('--max-total');
+    expect(lines).toContain(
+      'refused: The objects this checkpoint would keep hold 700000 records in DEV-SB, past its ' +
+        'limit of 500000: pick fewer objects, or raise the limit with --max-total <n> (500,000 ' +
+        'unless given). No record was read.',
+    );
+    expect(takeRefusalWords(scope.refusal).message).toBe(lines.at(-1)?.replace(/^refused: /, ''));
   });
 
   it('says before a take the files it keeps, the objects of files added to those picked, and what a user without Query All Files does not see; and answers them in --json', () => {

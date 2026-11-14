@@ -88,6 +88,8 @@ import {
   type EnvStepDeps,
 } from './envApply.js';
 import { EnvStateError } from './envState.js';
+import { envRunsKept } from './envRecover.js';
+import { commandOf } from '../invocation.js';
 
 /** What a destroy is given beside its plan. */
 export interface EnvDestroyInput {
@@ -137,8 +139,23 @@ export async function destroyEnvironment(
     exitCode: FAILED_EXIT,
   });
   if (input.state === undefined) {
+    // "There is nothing to take back", exit 0, was said with the records of
+    // an apply still in the org, its state lost with a cache the job did not
+    // restore: the runs the journal directory keeps rebuild it.
+    if (await envRunsKept(deps, { resolved, target })) {
+      return refused(
+        `This machine keeps no state of ${env} on ${target.alias}, but keeps runs of it: the ` +
+          'records they wrote are still in the org, and destroy reaches only what a state ' +
+          `names. "${commandOf('env')} state recover --file <file> --org ${target.alias}" ` +
+          'rebuilds the state from them; then destroy again. Nothing was deleted.',
+        ['NO_STATE'],
+      );
+    }
     deps.say(
-      `this machine keeps no state of ${env} on ${target.alias}: there is nothing to take back`,
+      `this machine keeps no state of ${env} on ${target.alias}, nor any run of it: nothing ` +
+        'applied from here is left to take back. Records an apply from another machine or a CI ' +
+        'job left are not known here: restore its journal directory (SANDFORGE_JOURNAL_DIR), ' +
+        'then destroy again',
     );
     return {
       result: { plan, steps: [], status: 'success', state: { serial: 0 } },

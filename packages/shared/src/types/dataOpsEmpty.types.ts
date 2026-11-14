@@ -283,6 +283,11 @@ export type DataOpsEmptyAccess =
 export type DataOpsEmptyRefusalCode =
   /** A production org, by the registry or by what the org says: nothing lifts it. */
   | 'PRODUCTION'
+  /**
+   * The org could not be typed, for a cause something lifts: a session to
+   * renew, an org that did not answer, View Setup to give. The message says which.
+   */
+  | 'ORG_UNTYPED'
   /** A sandbox marked Staging, which an emptying of the whole org never reaches. */
   | 'STAGING_ORG'
   /** Something else of this machine writes to the org, or holds its lock. */

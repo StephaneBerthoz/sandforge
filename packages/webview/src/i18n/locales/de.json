@@ -7382,7 +7382,9 @@
         "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
         "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte können nur gelöscht werden."
       },
+      "frozenInstead": "Ein Prüfpunkt setzt die Org, von der er stammt, auf einen Zeitpunkt zurück, und keine andere Org: Daten, die in einer anderen Org wieder eingerichtet werden sollen, werden als Eingefrorenes Dataset eingefroren, solange ihre Org besteht.",
       "expiresSoon": "Läuft {{when}} ab",
+      "scratchExpiresSoon": "Diese Scratch-Org läuft am {{date}} ab: Ihre Prüfpunkte können dann nur noch gelöscht werden, und Aufbewahren bewahrt sie nicht auf. Um ihre Daten in einer anderen Org wieder einzurichten, frieren Sie sie vorher als Eingefrorenes Dataset ein: Ein Eingefrorenes Dataset lässt sich in jede Sandbox oder Developer-Edition-Org laden.",
       "keepIt": "Aufbewahren",
       "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr mit ihrer Id zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt. Ein Zurücksetzen legt sie mit neuen Ids neu an.",
       "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
@@ -7488,7 +7490,12 @@
         "seeLeftOut_other": "Die {{formatted}} wegen der Berechtigungen von {{user}} ausgelassenen Objekte und die Gründe anzeigen",
         "cannotPick": "kann nicht ausgewählt werden",
         "settings": "{{user}} hat View All Data und Modify All Data nicht: Eine angehakte benutzerdefinierte Einstellung lässt die Erstellung ablehnen, da keine Berechtigung auf einem Objekt belegt, wer jede Zeile sieht und schreibt."
-      }
+      },
+      "limit": "Höchstens Datensätze",
+      "limitHint": "Über diese Zahl an Datensätzen insgesamt hinaus wird die Erstellung abgelehnt, bevor einer gelesen wird: {{standard}}, sofern nicht geändert, höchstens {{most}}.",
+      "limitRule": "Eine ganze Zahl an Datensätzen, von 1 bis {{most}}.",
+      "tooManyRecords": "Die Objekte, die dieser Prüfpunkt behalten würde, enthalten {{records}} Datensätze, über Höchstens Datensätze ({{limit}}): Wählen Sie weniger Objekte, oder erhöhen Sie den Wert bis {{most}}. Es wurde kein Datensatz gelesen.",
+      "limitHolds": "Mit Höchstens Datensätze ab {{records}} wird es behalten."
     },
     "preview": {
       "title": "{{org}} auf „{{name}}“ zurücksetzen ({{date}})",
@@ -7978,6 +7985,7 @@
       "noRecycleBin": "Ausgelassen: Die Org löscht seine Datensätze endgültig, ohne Papierkorb, also würde nichts zeigen, dass einer seitdem gelöscht wurde, und nichts ihn zurückholen.",
       "unreadable": "Ausgelassen: Die Org verweigert es, es vollständig zu lesen.",
       "pastTheLimit": "{{object}} hat {{records}} Datensätze, über dem Limit des Prüfpunkts von {{limit}} für ein Objekt: ausgelassen, da ein Teil davon als das Ganze gelten würde.",
+      "pastEveryCheckpoint": "{{object}} hat {{records}} Datensätze, mehr als ein Prüfpunkt von einem Objekt behält ({{most}}): ausgelassen, und ein Zurücksetzen darauf berührt {{object}} nicht. Der Datenexport im Setup oder eine Bulk-API-Abfrage bewahrt eine Kopie davon.",
       "noViewAll": "Ohne View All Data und Modify All Data wird ein Objekt nur mit View All und Modify All darauf gehalten, und der Benutzer, als der SandForge sich verbindet, hat auf diesem keines von beiden: Ein Datensatz, den er nicht sieht, gälte als seitdem gelöscht.",
       "noModifyAll": "Ohne View All Data und Modify All Data wird ein Objekt nur mit View All und Modify All darauf gehalten, und der Benutzer, als der SandForge sich verbindet, hat auf diesem View All, nicht Modify All: Ein Zurücksetzen könnte nicht wiederherstellen, was andere geändert haben.",
       "activities": "Ohne View All Data und Modify All Data werden Aufgaben und Ereignisse ausgelassen: Salesforce hat kein View All für Aktivitäten, und eine private, mit keinem Datensatz verknüpfte Aktivität bleibt unsichtbar.",

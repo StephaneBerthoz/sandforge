@@ -270,6 +270,41 @@ describe('guardCheckpoint: never a production org', () => {
     );
   });
 
+  it('says what lets an org it could not type be checked — a session to renew, an org to wait for, View Setup — rather than call it a production org', async () => {
+    const failing = (err: Error) =>
+      ({
+        query: vi.fn(async () => Promise.reject(err)),
+        queryMore: vi.fn(),
+      }) as unknown as Parameters<typeof guardCheckpoint>[0];
+
+    const expired = await guardCheckpoint(
+      failing(
+        Object.assign(new Error('Session expired or invalid'), { errorCode: 'INVALID_SESSION_ID' }),
+      ),
+      asking('take', DEVELOPER),
+    );
+    const silent = await guardCheckpoint(
+      failing(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })),
+      asking('rewind', SANDBOX),
+    );
+
+    expect(expired).toEqual({
+      allowed: false,
+      refusal: {
+        code: 'ORG_UNTYPED',
+        message:
+          'DEV-SB refused the session SandForge holds for it (Session expired or invalid): ' +
+          'reconnect it — Reconnect on the Organizations page, or "sf org login web --alias ' +
+          'DEV-SB" for a command line — then try again. SandForge takes a checkpoint of no org ' +
+          'it cannot tell from a production one. No record was read or written.',
+      },
+    });
+    expect(silent).toMatchObject({ allowed: false, refusal: { code: 'ORG_UNTYPED' } });
+    expect(silent.allowed === false && silent.refusal.message).toMatch(
+      /^DEV-SB did not answer \(socket hang up\): try again once it answers\./,
+    );
+  });
+
   it('refuses a production org at a take, a preview, a rewind and an undo alike, even with the override Production Guard holds for a delete there', async () => {
     const productionGuard = new ProductionGuard();
     productionGuard.setProductionOverride(ORG_ID, true);
@@ -309,7 +344,9 @@ describe('guardCheckpoint: the org the checkpoint was taken of', () => {
           message:
             'DEV-SB is another org than the one this checkpoint was taken of: its Organization ' +
             "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
-            'org before it, and can only be deleted. No record was read or written.',
+            'org before it, and can only be deleted. A checkpoint returns the org it was taken ' +
+            'of to a moment, and no other org: data to set up again in another org is frozen as ' +
+            'a Frozen Dataset while its org lives. No record was read or written.',
         },
       });
       expect(asked.some((soql) => soql.includes('UserPermissionAccess'))).toBe(false);
@@ -731,7 +768,9 @@ describe('guardCheckpoint: an import of another machine’s checkpoint', () => {
         code: 'OTHER_ORG',
         message:
           'DEV-SB is another org than the one this file holds a checkpoint of: it is imported ' +
-          'for the org it was taken of alone, under any alias of it. Nothing was imported.',
+          'for the org it was taken of alone, under any alias of it. A checkpoint returns the ' +
+          'org it was taken of to a moment, and no other org: data to set up again in another ' +
+          'org is frozen as a Frozen Dataset while its org lives. Nothing was imported.',
       },
     });
     expect(asked.some((soql) => soql.includes('UserPermissionAccess'))).toBe(false);

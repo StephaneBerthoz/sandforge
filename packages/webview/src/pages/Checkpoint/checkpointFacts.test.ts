@@ -11,6 +11,7 @@ import {
   recordsHeld,
   refusedBeforeScope,
   roughSeconds,
+  takeLimitOf,
   takenPerObject,
   undoCannotReasonOf,
   usableCheckpoints,
@@ -120,8 +121,11 @@ describe('checkpointFacts', () => {
     const said: Record<string, string> = en.checkpointNotes.leftOut;
     expect(words.size).toBeGreaterThan(20);
     for (const [reason, first] of words) expect(said[reason], reason).toContain(first);
-    // What the take counts past its limit, worded by itself, and nothing the extension no longer gives.
-    expect(Object.keys(said).sort()).toEqual([...words.keys(), 'pastTheLimit'].sort());
+    // What the take counts past its limit, worded by itself — past what any
+    // checkpoint holds of one object apart —, and nothing the extension no longer gives.
+    expect(Object.keys(said).sort()).toEqual(
+      [...words.keys(), 'pastTheLimit', 'pastEveryCheckpoint'].sort(),
+    );
   });
 
   it('says a scope is held per object when an object is held so, or one is left out for its user’s permissions alone', () => {
@@ -144,6 +148,15 @@ describe('checkpointFacts', () => {
       takenPerObject({ takenBy: { ...takenBy, viewAllData: false, modifyAllData: false } }),
     ).toBe(true);
     expect(takenPerObject({ takenBy: { ...takenBy, modifyAllData: false } })).toBe(true);
+  });
+
+  it('reads Records at most as a whole number from 1 to a million, and nothing else', () => {
+    expect(takeLimitOf('500000')).toBe(500_000);
+    expect(takeLimitOf(' 1000000 ')).toBe(1_000_000);
+    expect(takeLimitOf('1')).toBe(1);
+    for (const typed of ['', '0', '1000001', '12.5', '-3', '1e5', 'ten']) {
+      expect(takeLimitOf(typed), typed).toBeUndefined();
+    }
   });
 
   it('says an estimate of time to ten seconds under a minute and to the minute above', () => {

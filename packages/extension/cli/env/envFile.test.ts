@@ -633,6 +633,16 @@ describe('a forge resource in the file', () => {
     expect(read.runs['accounts']?.kind).toBe('seed');
   });
 
+  it('refuses depth: all with the command that clones the whole org, or a sample of it that fits', () => {
+    expect(refusedWith(withForge({ depth: 'all' }))).toEqual([
+      'resources.cloned.depth: depth: all clones the whole org, which a resource of the file ' +
+        'does not take: a resource clones a record or tables. "pnpm exec tsx ' +
+        'packages/extension/cli/sandforge-clone.ts --depth all --source <alias> --target ' +
+        '<alias> --fit share --dry-run" says the sample of it that fits the target; without ' +
+        '--dry-run it copies it.',
+    ]);
+  });
+
   it('resolves its source’s alias, and keeps what the plan read of the source with it', () => {
     const resource = forgeResolved(withForge()).resources[0];
 

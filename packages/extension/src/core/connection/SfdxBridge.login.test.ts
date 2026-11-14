@@ -15,6 +15,8 @@ const jsforceConnection = vi.hoisted(() => ({
 }));
 
 vi.mock('./jsforceEntry.js', () => ({
+  // The transport a direct connection is given: none of its requests run here.
+  HttpProxyTransport: class {},
   jsforce: {
     Connection: class {
       constructor(options: unknown) {

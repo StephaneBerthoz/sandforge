@@ -7382,7 +7382,9 @@
         "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and can only be deleted.",
         "scratchExpired": "This scratch org has expired: its checkpoints can only be deleted."
       },
+      "frozenInstead": "A checkpoint returns the org it was taken of to a moment, and no other org: data to set up again in another org is frozen as a Frozen Dataset while its org lives.",
       "expiresSoon": "Expires {{when}}",
+      "scratchExpiresSoon": "This scratch org expires on {{date}}: its checkpoints can then only be deleted, and Keep does not keep them. To set up its data again in another org, freeze it as a Frozen Dataset before then: a Frozen Dataset loads into any sandbox or Developer Edition org.",
       "keepIt": "Keep",
       "binReach": "Records deleted before {{date}} cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.",
       "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
@@ -7488,7 +7490,12 @@
         "seeLeftOut_other": "See the {{formatted}} objects left out for the permissions of {{user}}, and why",
         "cannotPick": "can't be picked",
         "settings": "{{user}} doesn't have View All Data and Modify All Data: a custom setting ticked refuses the take, as no permission on an object proves who sees and writes every row."
-      }
+      },
+      "limit": "Records at most",
+      "limitHint": "Past this many records in all, the take is refused before it reads any: {{standard}} unless changed, {{most}} at most.",
+      "limitRule": "A whole number of records, from 1 to {{most}}.",
+      "tooManyRecords": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}): pick fewer objects, or raise it, up to {{most}}. No record was read.",
+      "limitHolds": "Records at most set to {{records}} or more holds it."
     },
     "preview": {
       "title": "Rewind {{org}} to “{{name}}” ({{date}})",
@@ -7978,6 +7985,7 @@
       "noRecycleBin": "Left out: the org deletes its records for good, with no recycle bin, so nothing would tell one deleted since, nor bring it back.",
       "unreadable": "Left out: the org refuses to read it whole.",
       "pastTheLimit": "{{object}} has {{records}} records, past the checkpoint's limit of {{limit}} for one object: left out of the checkpoint, as part of it would be taken for all of it.",
+      "pastEveryCheckpoint": "{{object}} has {{records}} records, more than any checkpoint holds of one object ({{most}}): left out of the checkpoint, and a rewind to it does not touch {{object}}. Data Export, in Setup, or a Bulk API query keeps a copy of it.",
       "noViewAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has neither on this one: a record they cannot see would read as deleted since.",
       "noModifyAll": "Without View All Data and Modify All Data, an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.",
       "activities": "Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.",

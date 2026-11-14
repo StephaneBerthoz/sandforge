@@ -1484,7 +1484,9 @@ describe('the budget gate', () => {
         message:
           'This rewind takes about 64 API requests; DEV-SB has 50 of its 15000 left today. ' +
           'Rewind once the org has requests to spare — the limit is counted over the last 24 ' +
-          'hours. No record was read or written.',
+          'hours — or rewind fewer of its objects at a time, which sends only theirs (the ' +
+          'objects ticked in the preview, or --object on a command line). No record was read ' +
+          'or written.',
       },
     });
   });
@@ -1518,7 +1520,9 @@ describe('the budget gate', () => {
     expect(budgetRefusal('rewind', { run: 9, deliverability: 2 }, budget, 'DEV-SB')?.message).toBe(
       'This rewind takes about 11 API requests (2 of them to read whether DEV-SB delivers its ' +
         'emails); DEV-SB has 10 of its 15000 left today. Rewind once the org has requests to ' +
-        'spare — the limit is counted over the last 24 hours. No record was read or written.',
+        'spare — the limit is counted over the last 24 hours — or rewind fewer of its objects ' +
+        'at a time, which sends only theirs (the objects ticked in the preview, or --object on ' +
+        'a command line). No record was read or written.',
     );
     expect(
       budgetRefusal('rewind', { run: 9, deliverability: 1 }, budget, 'DEV-SB'),

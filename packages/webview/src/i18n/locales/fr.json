@@ -7382,7 +7382,9 @@
         "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
         "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne peuvent qu'être supprimés."
       },
+      "frozenInstead": "Un point de contrôle ramène l'org dont il a été pris à un moment donné, et aucune autre org : les données à remettre en place dans une autre org se figent en Jeu de données figé tant que leur org existe.",
       "expiresSoon": "Expire {{when}}",
+      "scratchExpiresSoon": "Cette scratch org expire le {{date}} : ses points de contrôle ne pourront alors qu'être supprimés, et Conserver ne les conserve pas. Pour remettre ses données en place dans une autre org, figez-les avant en Jeu de données figé : un Jeu de données figé se charge dans toute sandbox ou org Developer Edition.",
       "keepIt": "Conserver",
       "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir avec leur Id : la corbeille les garde 15 jours, moins si elle se remplit. Un retour arrière les recrée, avec de nouveaux Id.",
       "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
@@ -7488,7 +7490,12 @@
         "seeLeftOut_other": "Voir les {{formatted}} objets laissés de côté pour les autorisations de {{user}}, et pourquoi",
         "cannotPick": "ne peut pas être choisi",
         "settings": "{{user}} n'a pas View All Data et Modify All Data : un paramètre personnalisé coché fait refuser la création, car aucune autorisation sur un objet ne prouve qui voit et écrit chaque ligne."
-      }
+      },
+      "limit": "Enregistrements au plus",
+      "limitHint": "Au-delà de ce nombre d'enregistrements en tout, la création est refusée avant d'en lire un seul : {{standard}} sauf changement, {{most}} au plus.",
+      "limitRule": "Un nombre entier d'enregistrements, de 1 à {{most}}.",
+      "tooManyRecords": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}) : choisissez moins d'objets, ou relevez-le, jusqu'à {{most}}. Aucun enregistrement n'a été lu.",
+      "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde."
     },
     "preview": {
       "title": "Faire revenir {{org}} à « {{name}} » ({{date}})",
@@ -7978,6 +7985,7 @@
       "noRecycleBin": "Laissé de côté : l'org supprime ses enregistrements définitivement, sans corbeille, donc rien ne dirait qu'un enregistrement a été supprimé depuis, ni ne le rétablirait.",
       "unreadable": "Laissé de côté : l'org refuse de le lire en entier.",
       "pastTheLimit": "{{object}} a {{records}} enregistrements, au-delà de la limite de {{limit}} du point de contrôle pour un objet : laissé de côté, car une partie passerait pour le tout.",
+      "pastEveryCheckpoint": "{{object}} a {{records}} enregistrements, plus qu'aucun point de contrôle n'en garde pour un objet ({{most}}) : laissé de côté, et un retour à ce point ne touche pas {{object}}. L'exportation de données, dans Configuration, ou une requête Bulk API en garde une copie.",
       "noViewAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte n'a ni l'un ni l'autre sur celui-ci : un enregistrement qu'il ne voit pas passerait pour supprimé depuis.",
       "noModifyAll": "Sans View All Data et Modify All Data, un objet n'est gardé qu'avec View All et Modify All dessus, et l'utilisateur sous lequel SandForge se connecte a View All sur celui-ci, pas Modify All : un retour arrière ne pourrait pas rétablir ce que d'autres ont changé.",
       "activities": "Sans View All Data et Modify All Data, les tâches et événements sont laissés de côté : Salesforce n'a pas de View All pour les activités, et une activité privée liée à aucun enregistrement reste hors de vue.",

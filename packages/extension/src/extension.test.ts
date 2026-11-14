@@ -81,6 +81,8 @@ vi.mock('child_process', () => {
 });
 
 vi.mock('./core/connection/jsforceEntry.js', () => ({
+  // The transport a direct connection is given: none of its requests run here.
+  HttpProxyTransport: class {},
   jsforce: {
     Connection: class {
       constructor(private readonly options: { instanceUrl: string }) {}

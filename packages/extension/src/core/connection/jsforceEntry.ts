@@ -17,3 +17,6 @@
  * only fail in a packaged VSIX.
  */
 export { default as jsforce } from 'jsforce';
+// The transport a connection that goes around the proxy jsforce took from the
+// environment is given (`proxiedConnection.ts`): jsforce exports it nowhere else.
+export { HttpProxyTransport } from 'jsforce/lib/transport';

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -621,6 +621,7 @@ describe('sandforge-checkpoint list', () => {
         bytes: checkpoint.bytes,
         expiresAt: checkpoint.expiresAt,
         expiresSoon: false,
+        scratchExpiresSoon: false,
         binReachSince: null,
         valid: true,
       },
@@ -631,6 +632,37 @@ describe('sandforge-checkpoint list', () => {
     expect(h.connected.length).toBe(before.connected);
     expect(h.org.requests + h.org.soapCalls).toBe(before.requests);
     expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('names what lifts a store it cannot use: another folder with --store', async () => {
+    const h = harness();
+    const file = join(h.storeDir, 'not-a-folder');
+    writeFileSync(file, 'x');
+
+    const { code, stderr, stdout } = await h.runIn(file, 'list', '--json');
+
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      `The checkpoints cannot be kept in ${file}: it is a file, not a folder. --store <folder> ` +
+        'names a folder for them, or move the file away.\n',
+    );
+    expect(JSON.parse(stdout)).toMatchObject({ refusal: { code: 'STORE_REFUSED' } });
+  });
+
+  it('says where a checkpoint it does not find may be kept, and how each place is read', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+
+    const { code, stderr } = await h.run('preview', '--org', 'DEV-SB', '--checkpoint', 'nightly');
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("No checkpoint of DEV-SB named 'nightly' is kept in the folder read.");
+    expect(stderr).toContain(
+      '"pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts list --org DEV-SB" names ' +
+        'those it holds. One kept in another folder is read with --store <folder>, or with ' +
+        'SANDFORGE_JOURNAL_DIR set as when it was taken — in a CI job, a folder its cache ' +
+        'restores; one taken on another machine comes here by export there, then import here.',
+    );
   });
 
   it('removes the checkpoints past their date as it starts, naming each', async () => {

@@ -43,6 +43,8 @@ import {
   previewDirOf,
   rewindDirOf,
   scratchOrgExpired,
+  scratchOrgExpiresSoon,
+  storeRefusalWords,
   type CheckpointStoreOptions,
   type OrgCheckpointStore,
   type OrgLockSelf,
@@ -256,6 +258,29 @@ describe('openCheckpointStore', () => {
           uid: () => undefined,
         }),
     ).toBe(true);
+  });
+});
+
+describe('storeRefusalWords', () => {
+  it('names what moves the store where its own folder is refused, and what frees the locks where theirs is', () => {
+    const root = '/journal/checkpoints';
+    expect(
+      storeRefusalWords(
+        { reason: 'cannotMake', path: root, detail: 'EACCES' },
+        root,
+        '--store <folder>',
+      ),
+    ).toBe('it could not be made (EACCES). --store <folder> names a folder this user can write.');
+    expect(
+      storeRefusalWords(
+        { reason: 'otherOwner', path: '/home/u/.sandforge/locks' },
+        root,
+        '--store',
+      ),
+    ).toBe(
+      'the folder of every org’s lock, whatever the store, is owned by another user of this ' +
+        'machine: run as its owner, or remove it.',
+    );
   });
 });
 
@@ -657,6 +682,37 @@ describe('expiry', () => {
       'ck-20261022-100000-cccc': undefined,
     });
     expect(expiresSoon({ expiresAt: iso(NOW.getTime() - 1) }, NOW.getTime())).toBe(false);
+  });
+
+  it('warns three days before the scratch org of a checkpoint expires, whose checkpoints then can only be deleted', async () => {
+    const store = storeIn();
+    const scratch = (checkpointId: string, scratchExpiresAt: string | undefined) =>
+      checkpointOf({
+        checkpointId,
+        org: {
+          ...checkpointOf().org,
+          tier: 'scratch',
+          ...(scratchExpiresAt !== undefined ? { scratchExpiresAt } : {}),
+        },
+      });
+    // The command line's date is a day the org lives through whole: 2026-10-24 ends with it.
+    await kept(store, scratch('ck-20261022-100000-aaaa', '2026-10-24'));
+    await kept(store, scratch('ck-20261022-100000-bbbb', '2026-10-26'));
+    await kept(store, scratch('ck-20261022-100000-cccc', undefined));
+
+    const soon = Object.fromEntries(
+      (await store.list({ now: NOW })).map((entry) => [
+        entry.checkpointId,
+        entry.scratchExpiresSoon,
+      ]),
+    );
+
+    expect(soon).toEqual({
+      'ck-20261022-100000-aaaa': true,
+      'ck-20261022-100000-bbbb': undefined,
+      'ck-20261022-100000-cccc': undefined,
+    });
+    expect(scratchOrgExpiresSoon({ scratchExpiresAt: '2026-10-21' }, NOW.getTime())).toBe(false);
   });
 
   it('keeps a checkpoint until its owner deletes it, or gives it back thirty days from now', async () => {

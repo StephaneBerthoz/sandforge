@@ -81,6 +81,7 @@ import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import {
   defaultCheckpointStoreRoot,
   openCheckpointStore,
+  storeRefusalWords,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { copySandboxRefusal } from '../src/modules/dataops/empty/emptyCopySandbox.js';
 import {
@@ -509,12 +510,45 @@ const FLAG_OF_CODE: Readonly<Record<string, string>> = {
   PEOPLE_ACTIVE: '--accept-people-active',
 };
 
-/** A refusal in the command line's words: the flag that accepts it named, where one does. */
-export function refusalWords(refusal: DataOpsEmptyRefusal): DataOpsEmptyRefusal {
+/** The codes only the checkpoint taken first refuses with: no refusal of the emptying's own has them. */
+const CHECKPOINT_FIRST_CODES: ReadonlySet<string> = new Set(['TOO_MANY_RECORDS', 'NOTHING_HELD']);
+
+/**
+ * A refusal in the command line's words: the flag that accepts it named,
+ * where one does; and for the checkpoint taken first, what this command has
+ * to answer it — fewer objects, or no checkpoint. The checkpoint's own words
+ * said "raise the limit", and this command has no limit to raise.
+ *
+ * @param checkpoint - The refusal the dry run said of the checkpoint taken
+ *   first: one of the same code and words is its, whatever the code.
+ */
+export function refusalWords(
+  refusal: DataOpsEmptyRefusal,
+  checkpoint?: Pick<DataOpsEmptyRefusal, 'code' | 'message'>,
+): DataOpsEmptyRefusal {
+  const ofCheckpoint =
+    CHECKPOINT_FIRST_CODES.has(refusal.code) ||
+    (checkpoint !== undefined &&
+      checkpoint.code === refusal.code &&
+      checkpoint.message === refusal.message);
+  if (ofCheckpoint) return { ...refusal, message: checkpointFirstWords(refusal.message) };
   const flag = FLAG_OF_CODE[refusal.code];
   return flag && !refusal.message.includes(flag)
     ? { ...refusal, message: `${refusal.message} (${flag} accepts it)` }
     : refusal;
+}
+
+/** The checkpoint taken first's refusal, as this command answers it. */
+function checkpointFirstWords(message: string): string {
+  const said = message
+    .replace(/\s*No record was read( or written)?\.$/, '')
+    .replace(/: pick fewer objects\.$/, '.')
+    .replace(/\.$/, '');
+  return (
+    `The checkpoint first was refused: ${said.charAt(0).toLowerCase()}${said.slice(1)}. Empty ` +
+    'fewer objects (--objects, or --exclude-object with --org), or leave out ' +
+    '--checkpoint-first to empty without one.'
+  );
 }
 
 /** What no undo brings back of one object, and why, as a line says it. */
@@ -652,7 +686,7 @@ export function previewLines(target: string, answer: EmptyPreviewAnswer): string
     const { estimate, objects, refusal } = answer.checkpoint;
     lines.push(
       refusal
-        ? `checkpoint first: refused (${refusal.code}): ${refusal.message}`
+        ? `checkpoint first: refused (${refusal.code}): ${checkpointFirstWords(refusal.message)}`
         : `checkpoint first: ${count(objects.length)} object(s), about ${count(estimate.records)} ` +
             `record(s) and ${count(estimate.apiRequests)} API request(s), taken before the first delete`,
     );
@@ -899,7 +933,11 @@ function stopOf(answer: PanelAnswer, what: string, stoppedBy?: StopSignal): Stop
   if (stoppedBy !== undefined && code === 'CANCELLED') {
     return new Stop({ code, message }, stopExitCode(stoppedBy));
   }
-  return new Stop(refusalWords({ code, message }), FAILED_EXIT, also.map(refusalWords));
+  return new Stop(
+    refusalWords({ code, message }),
+    FAILED_EXIT,
+    also.map((each) => refusalWords(each)),
+  );
 }
 
 /**
@@ -975,16 +1013,20 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
   let hostWiring: Pick<PanelHostWiring, 'orgRegistry' | 'orgManager'> | undefined;
   let lastStep: string | undefined;
   try {
+    const checkpointRoot = deps.checkpointRoot ?? defaultCheckpointStoreRoot();
     const opened = openCheckpointStore({
-      root: deps.checkpointRoot ?? defaultCheckpointStoreRoot(),
+      root: checkpointRoot,
       ...(deps.locksDir !== undefined ? { locksDir: deps.locksDir } : {}),
     });
     if ('refusal' in opened) {
+      // The store is the journal directory's: SANDFORGE_JOURNAL_DIR moves it,
+      // as it moves the journals of every command.
       throw new Stop({
         code: 'STORE_REFUSED',
         message:
-          `The org's lock and a checkpoint taken first cannot be kept in ${opened.refusal.path} ` +
-          `(${opened.refusal.reason}). Nothing was read or deleted.`,
+          `The org's lock and a checkpoint taken first cannot be kept in ${opened.refusal.path}: ` +
+          `${storeRefusalWords(opened.refusal, checkpointRoot, 'SANDFORGE_JOURNAL_DIR=<folder>')} ` +
+          'Nothing was read or deleted.',
       });
     }
     const store = opened.store;
@@ -1131,7 +1173,9 @@ export async function main(argv: string[] = process.argv, deps: EmptyCliDeps = {
     if (previewed.outcome !== 'answered') throw stopOf(previewed, 'The dry run');
     const preview = payloadOf(previewed) as unknown as EmptyPreviewAnswer;
     for (const line of previewLines(args.target, preview)) say(line);
-    const refusals = preview.refusals.map(refusalWords);
+    const refusals = preview.refusals.map((each) =>
+      refusalWords(each, preview.checkpoint?.refusal),
+    );
     const summary = {
       dryRun: args.dryRun,
       previewId: preview.previewId,

@@ -33,6 +33,7 @@ import type {
 } from '@sandforge/shared';
 import {
   CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
+  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
   auditMutedOf,
   isDevelopmentOrg,
   pipelineCheckpointStepConfigSchema,
@@ -2047,7 +2048,8 @@ export class CheckpointHandler implements DomainHandler {
       if (err instanceof OrgConnectionError && err.code === 'SCRATCH_ORG_EXPIRED') {
         throw new Refused(
           'SCRATCH_EXPIRED',
-          `${nameOf(org)} is a scratch org that has expired: its checkpoints can only be deleted.`,
+          `${nameOf(org)} is a scratch org that has expired: its checkpoints can only be deleted. ` +
+            CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
         );
       }
       throw err;
@@ -2290,7 +2292,8 @@ export class CheckpointHandler implements DomainHandler {
     if (m.scratchOrgExpired(checkpoint.org, Date.now())) {
       throw new Refused(
         'SCRATCH_EXPIRED',
-        `${kept} is a scratch org that has expired: its checkpoints can only be deleted.`,
+        `${kept} is a scratch org that has expired: its checkpoints can only be deleted. ` +
+          CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
       );
     }
   }

@@ -326,6 +326,38 @@ describe('CheckpointList', () => {
     expect(onKeep).toHaveBeenCalledWith(ID, true);
   });
 
+  it('warns, before its scratch org expires, that its checkpoints will only be deleted, and what keeps its data for another org', () => {
+    renderList([
+      listEntry(
+        readyCheckpoint({
+          org: { ...readyCheckpoint().org, tier: 'scratch', scratchExpiresAt: '2026-10-24' },
+        }),
+        { scratchExpiresSoon: true },
+      ),
+    ]);
+    expect(screen.getByTestId(`checkpoint-scratch-expires-${ID}`).textContent).toBe(
+      'This scratch org expires on Oct 24, 2026: its checkpoints can then only be deleted, and ' +
+        'Keep does not keep them. To set up its data again in another org, freeze it as a ' +
+        'Frozen Dataset before then: a Frozen Dataset loads into any sandbox or Developer ' +
+        'Edition org.',
+    );
+  });
+
+  it.each([
+    ['refreshed', { refreshedAt: '2026-10-15T12:00:00.000Z' }],
+    ['scratchExpired', {}],
+  ] as const)(
+    'names a Frozen Dataset for the data of a %s checkpoint’s org, which a checkpoint never replays elsewhere',
+    (why, more) => {
+      const entry = listEntry(readyCheckpoint(), { valid: false, why, ...more });
+      renderList([entry]);
+      expect(screen.getByTestId(`checkpoint-frozen-${entry.checkpointId}`).textContent).toBe(
+        'A checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
+          'up again in another org is frozen as a Frozen Dataset while its org lives.',
+      );
+    },
+  );
+
   it('says from which date records deleted can no longer come back, once the store says so', () => {
     renderList([listEntry(readyCheckpoint(), { binReachSince: '2026-10-07T14:06:03.000Z' })]);
     expect(screen.getByTestId(`checkpoint-bin-reach-${ID}`).textContent).toBe(

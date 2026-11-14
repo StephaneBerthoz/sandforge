@@ -4,6 +4,7 @@ import type { SfdxBridge } from './SfdxBridge';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { connectionCheck } from './connectionChecks.js';
 import { withDeadline } from './ConnectionHelper.js';
+import { proxiedConnection } from './proxiedConnection.js';
 
 /**
  * Longest a username and password sign-in may wait for Salesforce: jsforce has
@@ -103,9 +104,8 @@ export class AuthProvider {
    * Returns org identity info if successful.
    */
   async validateConnection(accessToken: string, instanceUrl: string): Promise<OrgIdentity> {
-    // Lazy boundary — see jsforceEntry.ts.
-    const { jsforce } = await import('./jsforceEntry.js');
-    const conn = new jsforce.Connection({ accessToken, instanceUrl });
+    // Lazy boundary — see jsforceEntry.ts, which proxiedConnection imports.
+    const conn = await proxiedConnection({ accessToken, instanceUrl });
     // Counted with the connection checks: the org counts them against its day.
     const { identity, orgResult } = await connectionCheck(conn, async () => ({
       identity: await conn.identity(),
@@ -177,9 +177,8 @@ export class AuthProvider {
     }
 
     try {
-      // Lazy boundary — see jsforceEntry.ts.
-      const { jsforce } = await import('./jsforceEntry.js');
-      const conn = new jsforce.Connection({ loginUrl: credentials.loginUrl });
+      // Lazy boundary — see jsforceEntry.ts, which proxiedConnection imports.
+      const conn = await proxiedConnection({ loginUrl: credentials.loginUrl });
       const userInfo = await withDeadline(
         conn.login(credentials.username, credentials.password + (credentials.securityToken ?? '')),
         PASSWORD_LOGIN_TIMEOUT_MS,

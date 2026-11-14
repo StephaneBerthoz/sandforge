@@ -622,7 +622,10 @@ describe('CheckpointHandler — the take', () => {
 
     expect(answerOf(h, 'wv-take-1').payload).toMatchObject({
       code: 'SCRATCH_EXPIRED',
-      message: 'DEV-SB is a scratch org that has expired: its checkpoints can only be deleted.',
+      message:
+        'DEV-SB is a scratch org that has expired: its checkpoints can only be deleted. A ' +
+        'checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
+        'up again in another org is frozen as a Frozen Dataset while its org lives.',
     });
   });
 });

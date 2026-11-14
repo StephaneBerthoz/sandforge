@@ -447,11 +447,31 @@ export function scratchOrgExpired(
   org: Pick<OrgCheckpoint['org'], 'scratchExpiresAt'>,
   now: number,
 ): boolean {
+  const ends = scratchOrgEnds(org);
+  return ends !== undefined && ends <= now;
+}
+
+/** When the scratch org a checkpoint is of goes: the end of its last day, or the instant given. */
+function scratchOrgEnds(org: Pick<OrgCheckpoint['org'], 'scratchExpiresAt'>): number | undefined {
   const expires = org.scratchExpiresAt;
-  if (expires === undefined) return false;
+  if (expires === undefined) return undefined;
   const at = Date.parse(expires);
-  if (!Number.isFinite(at)) return false;
-  return /^\d{4}-\d{2}-\d{2}$/.test(expires) ? at + DAY_MS <= now : at <= now;
+  if (!Number.isFinite(at)) return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(expires) ? at + DAY_MS : at;
+}
+
+/**
+ * Whether the scratch org a checkpoint is of expires within
+ * {@link EXPIRY_WARNING_DAYS}, and has not yet. Its checkpoints then can only
+ * be deleted, and no Keep keeps them: the list says so while the org lives,
+ * and what keeps its data for another org, a Frozen Dataset.
+ */
+export function scratchOrgExpiresSoon(
+  org: Pick<OrgCheckpoint['org'], 'scratchExpiresAt'>,
+  now: number,
+): boolean {
+  const ends = scratchOrgEnds(org);
+  return ends !== undefined && ends > now && ends - now <= EXPIRY_WARNING_DAYS * DAY_MS;
 }
 
 // ─── The store ───────────────────────────────────────────────────────────────
@@ -483,6 +503,46 @@ export interface CheckpointStoreRefusal {
   path: string;
   /** What the system said, when it could not be made. */
   detail?: string;
+}
+
+/**
+ * Why a store's folder cannot be used, and what lifts it, as a person reads
+ * it after "cannot be kept in <folder>: ". `how` names the checkpoints'
+ * folder another way where the command reads it — `--store <folder>` for the
+ * checkpoint command, `SANDFORGE_JOURNAL_DIR` where it is the journal
+ * directory's — which moves the store and never the folder of the locks,
+ * `~/.sandforge/locks` for every store of the user.
+ *
+ * @param root - The store's own folder, which `how` moves.
+ */
+export function storeRefusalWords(
+  refusal: CheckpointStoreRefusal,
+  root: string,
+  how: string,
+): string {
+  const detail = refusal.detail !== undefined ? ` (${refusal.detail})` : '';
+  if (refusal.path === root) {
+    switch (refusal.reason) {
+      case 'otherOwner':
+        return (
+          'another user of this machine owns it, and could read and replace the checkpoints in ' +
+          `it. ${how} names a folder of your own.`
+        );
+      case 'notAFolder':
+        return `it is a file, not a folder. ${how} names a folder for them, or move the file away.`;
+      case 'cannotMake':
+        return `it could not be made${detail}. ${how} names a folder this user can write.`;
+    }
+  }
+  const locks = 'the folder of every org’s lock, whatever the store';
+  switch (refusal.reason) {
+    case 'otherOwner':
+      return `${locks}, is owned by another user of this machine: run as its owner, or remove it.`;
+    case 'notAFolder':
+      return `${locks}, is a file, not a folder: move the file away.`;
+    case 'cannotMake':
+      return `${locks}, could not be made${detail}: make it a folder this user can write.`;
+  }
 }
 
 /** What a store is opened with. */
@@ -1166,6 +1226,7 @@ async function entryOf(
   }
   const entry: CheckpointListEntry = { ...base, checkpoint, valid: true };
   if (expiresSoon(checkpoint, now)) entry.expiresSoon = true;
+  if (scratchOrgExpiresSoon(checkpoint.org, now)) entry.scratchExpiresSoon = true;
   const since = binReachSince(checkpoint, now);
   if (since !== undefined) entry.binReachSince = since;
   const rewind = checkpoint.lastRewind;

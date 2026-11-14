@@ -80,7 +80,12 @@ import { SEED_RUNS_DIR } from '../../src/modules/seed/SeedRunCreations.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, worstExit } from '../exitCodes.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
-import { deleteEnvCheckpoint, takeEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
+import {
+  deleteEnvCheckpoint,
+  takeEnvCheckpoint,
+  takeSettingsOf,
+  withCheckpoint,
+} from './envCheckpoints.js';
 import type { EnvFileResolved, EnvFileResource } from './envFile.js';
 import {
   checkpointActRefusal,
@@ -1208,7 +1213,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
     let began = 0;
     const checkpoints: EnvCheckpointStepResult[] = [];
     const org = { alias: target.alias, kind: target.kind };
-    const ignoreFields = resolved.checked.file.checkpoint?.ignoreFields;
+    const settings = takeSettingsOf(resolved.checked.file);
 
     // Before the first write, or nothing is written: an environment applied
     // without it would leave destroy --rewind nothing to return to.
@@ -1219,7 +1224,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           org,
           step: 'before',
           name: beforeTake.name,
-          ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+          ...settings,
         },
         stop.signal,
       );
@@ -1463,7 +1468,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           org,
           step: 'after',
           name: afterTake.name,
-          ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+          ...settings,
         },
         stop.signal,
       );

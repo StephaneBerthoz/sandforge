@@ -34,6 +34,7 @@ vi.mock('./sfSession.js', async (importOriginal) => {
 import type { Connection } from 'jsforce';
 import { execFileSync } from 'node:child_process';
 import { loadOrg, makeConn } from './sfSession.js';
+import { SfSessionError } from './sfFailure.js';
 import { cleanupExitCode, cleanupSoql, main, sinceClause } from './sandforge-cleanup';
 
 const mockExecFileSync = vi.mocked(execFileSync);
@@ -120,8 +121,9 @@ describe('sandforge-cleanup', () => {
       argv('--since', 'last_n_days:7', '--max', '50', '--objects', 'Case,Contact', '--dry-run'),
     );
 
-    expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toContain('sf org display reached');
+    // Said as the refusal it is, exit 1: it was thrown to the line that prints FATAL.
+    expect(result).toBe(1);
+    expect(stderr).toContain('sf org display reached');
     expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 
@@ -311,8 +313,9 @@ describe('sandforge-cleanup', () => {
 
       const reads = asked.filter((soql) => soql.startsWith('SELECT Id FROM Case'));
       expect(reads).toEqual([
-        "SELECT Id FROM Case WHERE CreatedDate >= 2026-10-01T00:00:00Z AND CreatedById = '005000000000001AAA' LIMIT 200",
-        "SELECT Id FROM Case WHERE CreatedDate >= YESTERDAY AND CreatedById = '005000000000001AAA' LIMIT 200",
+        // One past --max, 200 by default: it tells an object that holds more.
+        "SELECT Id FROM Case WHERE CreatedDate >= 2026-10-01T00:00:00Z AND CreatedById = '005000000000001AAA' LIMIT 201",
+        "SELECT Id FROM Case WHERE CreatedDate >= YESTERDAY AND CreatedById = '005000000000001AAA' LIMIT 201",
       ]);
     });
 
@@ -427,6 +430,101 @@ describe('sandforge-cleanup', () => {
         deleted: 1,
         failed: 1,
       });
+    });
+  });
+
+  describe('past --max, and a refusal of sf', () => {
+    let realLoadOrg: typeof loadOrg;
+    let realMakeConn: typeof makeConn;
+    let printed: string[];
+
+    beforeEach(async () => {
+      ({ loadOrg: realLoadOrg, makeConn: realMakeConn } =
+        await vi.importActual<typeof import('./sfSession.js')>('./sfSession.js'));
+      printed = [];
+      vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+        printed.push(String(line));
+      });
+    });
+
+    afterEach(() => {
+      vi.mocked(loadOrg).mockImplementation(realLoadOrg);
+      vi.mocked(makeConn).mockImplementation(realMakeConn);
+    });
+
+    /** An org holding `held` cases of the user, answering each query to its LIMIT as Salesforce does. */
+    function holding(held: number) {
+      const ids = Array.from({ length: held }, (_, i) => `500${String(i).padStart(12, '0')}AAA`);
+      const destroyed = vi.fn(async (sent: string[]) =>
+        sent.map((id) => ({ id, success: true, errors: [] })),
+      );
+      const conn = {
+        query: vi.fn(async (soql: string) => {
+          if (soql.includes(' FROM User ')) return { records: [{ Id: '005000000000001AAA' }] };
+          if (soql.includes('FROM Organization')) {
+            return { records: [{ Id: '00D000000000001AAA', IsSandbox: true }] };
+          }
+          const limit = Number(/ LIMIT (\d+)$/.exec(soql)?.[1] ?? held);
+          return { records: ids.slice(0, limit).map((Id) => ({ Id })), done: true };
+        }),
+        queryMore: vi.fn(),
+        sobject: () => ({ destroy: destroyed }),
+      };
+      vi.mocked(loadOrg).mockResolvedValue({
+        alias: 'TGT',
+        username: 'user@example.com',
+        instanceUrl: 'https://tgt.example.com',
+        accessToken: 'token',
+      });
+      vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
+      return { destroyed };
+    }
+
+    it('deletes --max of them, says the rest is left, and exits 3, where it said nothing and exited 0', async () => {
+      const { destroyed } = holding(5);
+
+      await run(argv('--objects', 'Case', '--max', '3', '--json'));
+
+      expect(process.exitCode).toBe(3);
+      process.exitCode = undefined;
+      expect(destroyed.mock.calls[0]?.[0]).toHaveLength(3);
+      expect(JSON.parse(stdout)).toMatchObject({
+        objects: [{ objectApiName: 'Case', found: 3, deleted: 3, failed: 0, pastMax: true }],
+        pastMax: ['Case'],
+      });
+    });
+
+    it('says so on a dry run too, and exits 3; a cleanup that found no more than --max exits 0', async () => {
+      holding(5);
+      await run(argv('--objects', 'Case', '--max', '3', '--dry-run'));
+      expect(process.exitCode).toBe(3);
+      process.exitCode = undefined;
+      expect(printed).toContain(`  ${'Case'.padEnd(40)} 3  [dry-run]`);
+      expect(printed).toContain(
+        `  ${'Case'.padEnd(40)} more past --max 3 left: run it again, or give a higher --max`,
+      );
+
+      holding(3);
+      await run(argv('--objects', 'Case', '--max', '3'));
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it('says a refusal of sf without FATAL and the frames of a fault, and exits 1', async () => {
+      vi.mocked(loadOrg).mockRejectedValue(
+        new SfSessionError(
+          'TGT',
+          'sf does not know TGT: "sf org list" names the orgs it knows; "sf org login web --alias ' +
+            'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdxurl").',
+        ),
+      );
+
+      expect(await run(argv('--objects', 'Case'))).toBe(1);
+
+      expect(stderr).toBe(
+        'sf does not know TGT: "sf org list" names the orgs it knows; "sf org login web --alias ' +
+          'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdxurl"). Nothing was ' +
+          'read from TGT.\n',
+      );
     });
   });
 

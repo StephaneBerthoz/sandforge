@@ -13,6 +13,7 @@ import { OrgConnectionError } from './OrgConnectionError.js';
 import { sfChildEnv } from './sfEnvironment.js';
 import { expiredScratchDate } from '@sandforge/shared';
 import { logger } from '../../logger.js';
+import { proxiedConnection } from './proxiedConnection.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -407,8 +408,7 @@ export async function connectionAnnouncing(
   session: { instanceUrl: string; accessToken?: string | null; version?: string },
   client: string,
 ): Promise<Connection> {
-  const { jsforce } = await import('./jsforceEntry.js');
-  return new jsforce.Connection({
+  return proxiedConnection({
     instanceUrl: session.instanceUrl,
     accessToken: session.accessToken ?? undefined,
     version: session.version,
@@ -427,8 +427,7 @@ export async function sessionConnection(session: {
   accessToken: string;
   version?: string;
 }): Promise<Connection> {
-  const { jsforce } = await import('./jsforceEntry.js');
-  return new jsforce.Connection({
+  return proxiedConnection({
     instanceUrl: session.instanceUrl,
     accessToken: session.accessToken,
     version: session.version,
@@ -466,8 +465,8 @@ export async function getJsforceConnection(
   orgManager: OrgManager,
 ): Promise<Connection> {
   // Lazy boundary: keeps jsforce and its 107-package cluster out of the
-  // activation path. See jsforceEntry.ts for why the named export matters.
-  const { jsforce } = await import('./jsforceEntry.js');
+  // activation path (`proxiedConnection` imports it). See jsforceEntry.ts for
+  // why the named export matters.
 
   const uid = orgId as UUID;
 
@@ -490,14 +489,14 @@ export async function getJsforceConnection(
   const pooledIsFresh = Date.now() - (lastValidatedAt.get(orgId) ?? 0) < POOL_REVALIDATE_AFTER_MS;
   if (pooled && pooled.active && pooled.accessToken === credentials.accessToken && pooledIsFresh) {
     pooled.lastUsedAt = Date.now();
-    return new jsforce.Connection({
+    return proxiedConnection({
       instanceUrl: pooled.instanceUrl,
       accessToken: pooled.accessToken,
       version: apiVersion,
     });
   }
 
-  const conn = new jsforce.Connection({
+  const conn = await proxiedConnection({
     instanceUrl: credentials.instanceUrl,
     accessToken: credentials.accessToken,
     version: apiVersion,
@@ -559,7 +558,7 @@ export async function getJsforceConnection(
           );
         }
 
-        const refreshedConn = new jsforce.Connection({
+        const refreshedConn = await proxiedConnection({
           instanceUrl,
           accessToken: fresh.accessToken,
           version: apiVersion,

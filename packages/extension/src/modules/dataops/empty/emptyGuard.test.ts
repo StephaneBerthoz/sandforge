@@ -55,15 +55,44 @@ describe('guardEmpty', () => {
     expect(!result.allowed && result.refusal.message).toContain('edition Unlimited Edition');
   });
 
-  it('takes an org that will not say what it is for a production org', async () => {
-    const { conn } = orgAnswering(() => new Error('INVALID_SESSION_ID: Session expired'));
+  it('takes an org that answered and will not say what it is for a production org', async () => {
+    const { conn } = orgAnswering(() => []);
     const result = await guardEmpty(conn, {
       orgName: 'dev',
       registered: { orgType: 'Sandbox' },
       mode: 'objects',
     });
     expect(!result.allowed && result.refusal.code).toBe('PRODUCTION');
-    expect(!result.allowed && result.refusal.message).toContain('Session expired');
+    expect(!result.allowed && result.refusal.message).toContain('gave no Organization record');
+  });
+
+  it('says what lets an org it could not type be read — a session to renew, View Setup — rather than call it a production org nothing lifts', async () => {
+    // An expired session was refused as "a production org, or cannot be told
+    // from one … nothing lifts this": a Reconnect lifted it.
+    const expired = await guardEmpty(
+      orgAnswering(() => new Error('INVALID_SESSION_ID: Session expired or invalid')).conn,
+      { orgName: 'dev', registered: { orgType: 'Sandbox' }, mode: 'objects' },
+    );
+    const hidden = await guardEmpty(
+      orgAnswering(() => new Error('INSUFFICIENT_ACCESS: insufficient access rights on object id'))
+        .conn,
+      { orgName: 'dev', registered: { orgType: 'Sandbox' }, mode: 'objects' },
+    );
+
+    expect(expired).toEqual({
+      allowed: false,
+      refusal: {
+        code: 'ORG_UNTYPED',
+        message:
+          'dev refused the session SandForge holds for it (INVALID_SESSION_ID: Session expired ' +
+          'or invalid): reconnect it — Reconnect on the Organizations page, or "sf org login web ' +
+          '--alias dev" for a command line — then try again. SandForge empties no org it cannot ' +
+          'tell from a production one. No record was read or deleted.',
+      },
+    });
+    expect(!hidden.allowed && hidden.refusal.code).toBe('ORG_UNTYPED');
+    expect(!hidden.allowed && hidden.refusal.message).toContain('View Setup and Configuration');
+    expect(!hidden.allowed && hidden.refusal.message).not.toContain('nothing lifts this');
   });
 
   it('lets a Developer Edition org through, its edition read live', async () => {

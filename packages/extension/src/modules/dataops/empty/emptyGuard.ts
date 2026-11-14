@@ -53,6 +53,8 @@ import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import {
   isProductionTarget,
   typeTarget,
+  untypedCauseOf,
+  untypedWords,
   type TypedTarget,
 } from '../../../core/precheck/orgKindLive.js';
 import type { EmptyMode } from './emptyScope.js';
@@ -111,6 +113,20 @@ export async function guardEmpty(
   try {
     org = await typeTarget(conn);
   } catch (err: unknown) {
+    // A session to renew, an org to wait for, a permission to give: said, not
+    // taken for a production org that nothing lifts.
+    const cause = untypedCauseOf(err);
+    if (cause !== undefined) {
+      return {
+        allowed: false,
+        refusal: {
+          code: 'ORG_UNTYPED',
+          message:
+            `${untypedWords(orgName, err, cause)} SandForge empties no org it cannot tell from a ` +
+            `production one. ${NOTHING_READ}`,
+        },
+      };
+    }
     return productionRefusal(
       orgName,
       `it did not say what org it is (${extractErrorMessage(err)})`,

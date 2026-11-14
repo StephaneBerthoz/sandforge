@@ -448,7 +448,7 @@ describe('destroy', () => {
     expect(await statusesKept()).toEqual({ accounts: 'destroyed', contacts: 'destroyed' });
   });
 
-  it('with no state, takes nothing back and reaches nothing, exit 0', async () => {
+  it('with no state and no run of it kept, reaches nothing, says what it cannot know, exit 0', async () => {
     const from = world.calls.length;
 
     const outcome = await destroy();
@@ -456,8 +456,31 @@ describe('destroy', () => {
     expect(outcome.exitCode).toBe(0);
     expect(world.calls.length).toBe(from);
     expect(said).toContain(
-      'this machine keeps no state of case-flow on TGT: there is nothing to take back',
+      'this machine keeps no state of case-flow on TGT, nor any run of it: nothing applied from ' +
+        'here is left to take back. Records an apply from another machine or a CI job left are ' +
+        'not known here: restore its journal directory (SANDFORGE_JOURNAL_DIR), then destroy ' +
+        'again',
     );
+  });
+
+  it('with no state but runs of it kept, refuses, names state recover, and leaves the records to it, exit 1', async () => {
+    await applied();
+    // The state lost — a cache restored without it — the runs' summaries kept.
+    await store.setAside(ORG_ID, 'case-flow');
+    const from = world.calls.length;
+
+    const outcome = await destroy();
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.result).toMatchObject({ status: 'failure', refusalCodes: ['NO_STATE'] });
+    expect(outcome.result.refusal).toBe(
+      'This machine keeps no state of case-flow on TGT, but keeps runs of it: the records they ' +
+        'wrote are still in the org, and destroy reaches only what a state names. "pnpm exec tsx ' +
+        'packages/extension/cli/sandforge-env.ts state recover --file <file> --org TGT" rebuilds ' +
+        'the state from them; then destroy again. Nothing was deleted.',
+    );
+    expect(world.calls.length).toBe(from);
+    expect(world.records('Account')).toHaveLength(2);
   });
 
   it('refuses while another apply holds the org', async () => {

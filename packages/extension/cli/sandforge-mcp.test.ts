@@ -2093,3 +2093,46 @@ describe('sandforge-mcp: a checkpoint before a run', () => {
     await c.close();
   });
 });
+
+describe('sandforge-mcp: what the tools reach', () => {
+  it('takes a checkpoint under the limit asked, as --max-total, up to a million records', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('checkpoint_take', { org: 'DEV', estimate: true, maxTotal: 750_000 });
+    for (const maxTotal of [0, 1_000_001, 1.5]) {
+      const refused = await c.call('checkpoint_take', { org: 'DEV', maxTotal });
+      expect(refused.isError, String(maxTotal)).toBe(true);
+    }
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-checkpoint',
+        args: ['take', '--org', 'DEV', '--max-total', '750000', '--estimate', '--json'],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('tells the model what no tool does — a clone of the whole org or of tables, a sample, Compare, Backup — and the command that does it', async () => {
+    const c = client();
+    const answer = await c.request('initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+    const said = String(answer.result?.instructions);
+
+    for (const command of [
+      'pnpm exec tsx packages/extension/cli/sandforge-clone.ts --depth all --fit share',
+      'pnpm exec tsx packages/extension/cli/sandforge-clone.ts --object',
+      'pnpm exec tsx packages/extension/cli/sandforge-compare.ts',
+      'pnpm exec tsx packages/extension/cli/sandforge-backup.ts',
+    ]) {
+      expect(said).toContain(command);
+    }
+    expect(said).toContain('sandforge.yaml');
+    await c.close();
+  });
+});

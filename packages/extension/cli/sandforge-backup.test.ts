@@ -576,6 +576,34 @@ describe('against an org', () => {
     });
   });
 
+  it('names where a snapshot it does not find may be: --list of this store, or another --store', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const { upsert } = orgOf(contactsOf(2));
+      let stderr = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+        stderr += chunk;
+        return true;
+      }) as never);
+      vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+        throw new Error(`exit ${code}`);
+      }) as never);
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      await expect(
+        main(argv('--org', 'ORG', '--restore', 'op-404', '--store', store, '--yes')),
+      ).rejects.toThrow('exit 1');
+
+      expect(upsert).not.toHaveBeenCalled();
+      expect(stderr).toBe(
+        `No snapshot "op-404" in ${store}. "pnpm exec tsx packages/extension/cli/` +
+          `sandforge-backup.ts --list --org ORG --store ${store}" names those it keeps; a ` +
+          'snapshot taken with another --store, or with SANDFORGE_JOURNAL_DIR set otherwise, is ' +
+          'restored with that --store. Nothing was written.\n',
+      );
+    });
+  });
+
   it('lists the snapshots as JSON with --json, where it printed nothing', async () => {
     await inStore(async (store) => {
       orgIs('Developer Edition');
@@ -717,9 +745,41 @@ describe('what a snapshot taken says', () => {
         ],
       }),
     ).toEqual({
-      line: 'snapshot op-2: 100 record(s) (partial: Contact 100 of 150 (cap))',
+      line:
+        'snapshot op-2: 100 record(s) (partial: Contact 100 of 150 (cap)). --max-records 150 ' +
+        'takes Contact whole',
       exitCode: 3,
     });
+  });
+
+  it('says frankly that no snapshot holds an object past a million records, and where a copy of it is kept', () => {
+    expect(
+      snapshotTaken({
+        operationId: 'op-3',
+        totalRecords: 1_000_000,
+        partial: true,
+        objects: [
+          {
+            objectApiName: 'EmailMessage',
+            recordCount: 1_000_000,
+            truncated: true,
+            orgCount: 2_400_000,
+            stoppedAt: 'cap',
+          },
+          {
+            objectApiName: 'Case',
+            recordCount: 0,
+            truncated: true,
+            stoppedAt: 'not_reached',
+          },
+        ],
+      }).line,
+    ).toBe(
+      'snapshot op-3: 1000000 record(s) (partial: EmailMessage 1000000 of 2400000 (cap), Case 0 of ? ' +
+        '(not_reached)). No snapshot holds more than 1000000 records of one object: EmailMessage is not ' +
+        'whole, and a restore puts back only what it holds; Data Export, in Setup, or a Bulk API ' +
+        'query keeps a copy of it. Run it again for an object not reached',
+    );
   });
 
   it('lists each snapshot with what it holds', () => {

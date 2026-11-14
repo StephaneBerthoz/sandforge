@@ -63,6 +63,11 @@ import {
 /** The script a `seed` resource runs. */
 export const SEED_SCRIPT = 'sandforge-seed' satisfies RunnableScript;
 
+/** What answers a seed past the target's storage in the file. */
+const SEED_FIT_IN_THE_FILE =
+  'In the file: fit: share seeds the largest share of each count that fits, fit: { withinMB: ' +
+  '<MB> } no more than that; or lower each object’s count.';
+
 // ─── The resource, converted ─────────────────────────────────────────────────
 
 /**
@@ -165,6 +170,9 @@ function seedRunOf(
       ...(resource.locale !== undefined ? { locale: resource.locale } : {}),
       ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
       ...(Object.keys(recordTypes).length > 0 ? { recordTypes } : {}),
+      ...(resource.fit !== undefined
+        ? { fit: resource.fit === 'share' ? {} : { withinMB: resource.fit.withinMB } }
+        : {}),
       acceptAutomation: resource.accept?.automation === true,
       ...(draws.length > 0 ? { draws } : {}),
     },
@@ -387,6 +395,9 @@ export function seedWritten(run: EnvSeedRun): Record<string, unknown> {
     // gives them: what they draw changes with that resource, whose
     // fingerprint the resource's is chained to.
     draws: run.draws,
+    // Only when the file asks one: a file written before fit keeps the
+    // fingerprint its state holds, and is not replaced for nothing.
+    ...(run.fit !== undefined ? { fit: run.fit } : {}),
   };
 }
 
@@ -455,6 +466,8 @@ export interface SeedRunLine {
   locale?: string;
   /** Record types by object, by DeveloperName: `EnvSeedRun.recordTypes`. */
   recordTypes?: Readonly<Record<string, readonly string[]>>;
+  /** The fit the file asks: `EnvSeedRun.fit`. */
+  fit?: { withinMB?: number };
 }
 
 /** What a run and its dry run are given alike: the same records, planned then written. */
@@ -472,6 +485,13 @@ function seedRunSwitches(input: SeedRunLine): string[] {
       '--record-type',
       valueOf('--record-type', `${object}=${names.join(',')}`),
     ]),
+    ...(input.fit !== undefined
+      ? [
+          '--fit',
+          'share',
+          ...(input.fit.withinMB !== undefined ? ['--fit-within', String(input.fit.withinMB)] : []),
+        ]
+      : []),
   ];
 }
 
@@ -797,7 +817,13 @@ export function seedDryRunCount(
         }
       : { object: result.objectApiName, wouldCreate: result.recordsCreated };
   });
-  const refusal = answer.storage.refusal ?? answer.apiRequests.refusal ?? answer.emails.refusal;
+  // A seed past the target's storage, in the file's words beside the seed's:
+  // it named --fit share, which the file says as fit.
+  const said = answer.storage.refusal ?? answer.apiRequests.refusal ?? answer.emails.refusal;
+  const refusal =
+    said !== undefined && said === answer.storage.refusal
+      ? `${said} ${SEED_FIT_IN_THE_FILE}`
+      : said;
   const notes = answer.result.objectResults.flatMap((result) =>
     result.writtenByThePlatform !== undefined
       ? [linkedToThePlatformNote(result.objectApiName, result.writtenByThePlatform.records)]
@@ -810,7 +836,7 @@ export function seedDryRunCount(
     apiRequests: answer.apiRequests.estimate,
     storageBytes: answer.storage.bytes,
     emails: answer.emails.checks.map((check) => ({ limit: check.limit, emails: check.emails })),
-    ...(refusal !== undefined ? { refusal, ...codedFor(refusal) } : {}),
+    ...(refusal !== undefined && said !== undefined ? { refusal, ...codedFor(said) } : {}),
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

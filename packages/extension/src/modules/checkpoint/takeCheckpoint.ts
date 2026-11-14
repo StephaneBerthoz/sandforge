@@ -190,9 +190,10 @@ export const DEFAULT_MAX_TOTAL = 500_000;
 /**
  * The most rows a snapshot reads of one object: the bound DataOps holds
  * `sandforge.backup.maxRecordsPerObject` to. An object past it, or past the
- * take's own limit, is left out before reading, never read in part.
+ * take's own limit, is left out before reading, never read in part. No limit
+ * a take is given lifts it: an object past it is held by no checkpoint.
  */
-const OBJECT_ROWS_MAX = 1_000_000;
+export const OBJECT_ROWS_MAX = 1_000_000;
 
 /** The least that setting takes: a limit under it still reads that many rows of an object. */
 const SNAPSHOT_CAP_MIN = 100;
@@ -487,8 +488,14 @@ function leftOutOf(out: ScopeLeftOut): CheckpointLeftOutObject {
   };
 }
 
-/** An object left out for its size, as a person reads it. */
-function pastTheLimit(
+/**
+ * An object left out for its size, as a person reads it. Past the limit the
+ * take was given, a higher one holds it, which each surface names in its own
+ * words; past {@link OBJECT_ROWS_MAX}, none does, and the reason says so
+ * rather than leave a rewind to be trusted with an object it never reads.
+ * Exported so it can be tested.
+ */
+export function pastTheLimit(
   objectApiName: string,
   records: number,
   limit: number,
@@ -499,8 +506,12 @@ function pastTheLimit(
     records,
     limit,
     reason:
-      `${objectApiName} has ${records} records, past the checkpoint's limit of ${limit} for ` +
-      'one object: left out of the checkpoint, as part of it would be taken for all of it.',
+      records > OBJECT_ROWS_MAX
+        ? `${objectApiName} has ${records} records, more than any checkpoint holds of one ` +
+          `object (${OBJECT_ROWS_MAX}): left out of the checkpoint, and a rewind to it does not ` +
+          `touch ${objectApiName}. Data Export, in Setup, or a Bulk API query keeps a copy of it.`
+        : `${objectApiName} has ${records} records, past the checkpoint's limit of ${limit} for ` +
+          'one object: left out of the checkpoint, as part of it would be taken for all of it.',
   };
 }
 
@@ -1036,6 +1047,10 @@ async function planOf(
     prints,
     ...(linkable !== undefined ? { linkable } : {}),
   };
+  // Said alike by every surface, a run's checkpoint first among them, which
+  // has no limit of its own to raise: "raise the limit" sent the page, which
+  // had no field for it, and a run, which has none, looking for one. A
+  // surface that takes a limit names it beside this, by the code.
   if (cost.records > maxTotal) {
     return {
       ...plan,
@@ -1043,8 +1058,7 @@ async function planOf(
         code: 'TOO_MANY_RECORDS',
         message:
           `The objects this checkpoint would keep hold ${cost.records} records in ` +
-          `${request.orgName}, past its limit of ${maxTotal}: pick fewer objects, or raise the ` +
-          `limit. ${NOTHING_READ}`,
+          `${request.orgName}, past its limit of ${maxTotal}: pick fewer objects. ${NOTHING_READ}`,
       },
     };
   }

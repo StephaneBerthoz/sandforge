@@ -55,7 +55,7 @@ import {
 } from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
-import { nameOf } from './invocation.js';
+import { commandOf, nameOf } from './invocation.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -111,9 +111,20 @@ export const INSTRUCTIONS =
   'to that write, after a dry run, a preview or a plan has said what it would do. The ' +
   'acceptances (acceptAutomation and the others) are theirs to give too. A production org is ' +
   "refused by every tool that writes to an org. Each answer carries the script's own JSON, its " +
-  'exit code and its lines.';
+  'exit code and its lines. No tool clones the whole org, a sample of it that fits the target ' +
+  `(${commandOf('clone')} --depth all --fit share, its --dry-run first), or whole tables ` +
+  `(${commandOf('clone')} --object <ApiName> --where <condition>), nor compares two orgs ` +
+  `(${commandOf('compare')}) or takes a DataOps snapshot (${commandOf('backup')}): give the ` +
+  'person the command to run in a terminal, or a sandforge.yaml resource that env_plan and ' +
+  'env_apply run.';
 
 // ─── The tools ───────────────────────────────────────────────────────────────
+
+/**
+ * The most records `checkpoint_take` may be asked to hold: what a checkpoint
+ * holds of one object, the bound the Checkpoints page holds its field to.
+ */
+const CHECKPOINT_MAX_TOTAL_MOST = 1_000_000;
 
 /** The scripts of this folder a tool runs. */
 export type Script =
@@ -990,6 +1001,17 @@ export const TOOLS: readonly ServedTool[] = [
         .max(500)
         .optional()
         .describe('The objects to keep, by API name (default: every object people work in).'),
+      maxTotal: z
+        .number()
+        .int()
+        .min(1)
+        .max(CHECKPOINT_MAX_TOTAL_MOST)
+        .optional()
+        .describe(
+          'The most records it holds, all objects together (default 500,000, a million at ' +
+            'most): past it, it is refused before reading any, the refusal naming --max-total, ' +
+            'which this sets.',
+        ),
       estimate: z
         .boolean()
         .optional()
@@ -1003,6 +1025,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.name !== undefined ? ['--name', args.name] : []),
         ...(args.objects ?? []).flatMap((object) => ['--object', object]),
+        ...(args.maxTotal !== undefined ? ['--max-total', String(args.maxTotal)] : []),
         ...(args.estimate === true ? ['--estimate'] : []),
         '--json',
       ],

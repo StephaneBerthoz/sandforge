@@ -77,6 +77,7 @@ import {
   type RewindUndoCannotReason,
   type RunDeliverability,
   type SalesforceOrg,
+  CHECKPOINT_FROZEN_FOR_ANOTHER_ORG,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type {
@@ -99,6 +100,7 @@ import {
   DEFAULT_KEEP_DAYS,
   defaultCheckpointStoreRoot,
   openCheckpointStore,
+  storeRefusalWords,
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
@@ -122,7 +124,11 @@ import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { REWIND_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/rewindOrg.js';
 import { UNDO_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/undoCheckpoint.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
-import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
+import {
+  DEFAULT_MAX_TOTAL,
+  OBJECT_ROWS_MAX,
+  takeOrgOf,
+} from '../src/modules/checkpoint/takeCheckpoint.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 import { setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
@@ -132,6 +138,7 @@ import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 import { SfSessionError } from './sfFailure.js';
+import { commandOf, nameOf } from './invocation.js';
 
 // The counts the bounds of a rewind are read by (`rewindBounds.ts`), which
 // the lines of this command are made of too.
@@ -965,6 +972,20 @@ export function checkpointsOf(
   return entries.filter((entry) => orgs.some((id) => sameOrganization(id, entry.organizationId)));
 }
 
+/**
+ * Where a checkpoint the command did not find may be kept, and how each place
+ * is read: "No checkpoint … is kept on this machine" was said of one kept in
+ * another folder, or on the CI runner whose cache was not restored.
+ */
+function notKeptWords(orgName: string): string {
+  return (
+    `"${commandOf('checkpoint')} list --org ${orgName}" names those it holds. One kept in ` +
+    'another folder is read with --store <folder>, or with SANDFORGE_JOURNAL_DIR set as when ' +
+    'it was taken — in a CI job, a folder its cache restores; one taken on another machine ' +
+    'comes here by export there, then import here.'
+  );
+}
+
 /** Which checkpoint `--checkpoint` means, or why none or more than one. */
 export type Resolution =
   | { entry: CheckpointListEntry }
@@ -987,16 +1008,26 @@ export function resolveCheckpoint(
 ): Resolution {
   if (checkpointIdSchema.safeParse(asked).success) {
     const entry = all.find((candidate) => candidate.checkpointId === asked);
-    return entry ? { entry } : { none: `No checkpoint ${asked} is kept on this machine.` };
+    return entry
+      ? { entry }
+      : { none: `No checkpoint ${asked} is kept in the folder read. ${notKeptWords(orgName)}` };
   }
   if (asked === 'latest') {
     const entry = ofOrg[0];
-    return entry ? { entry } : { none: `No checkpoint of ${orgName} is kept on this machine.` };
+    return entry
+      ? { entry }
+      : {
+          none: `No checkpoint of ${orgName} is kept in the folder read. ${notKeptWords(orgName)}`,
+        };
   }
   const named = ofOrg.filter((entry) => entry.checkpoint?.name === asked);
   if (named.length === 1) return { entry: named[0] };
   if (named.length === 0) {
-    return { none: `No checkpoint of ${orgName} named '${asked}' is kept on this machine.` };
+    return {
+      none:
+        `No checkpoint of ${orgName} named '${asked}' is kept in the folder read. ` +
+        notKeptWords(orgName),
+    };
   }
   return {
     ambiguous:
@@ -1030,17 +1061,28 @@ export function invalidRefusal(entry: CheckpointListEntry): CheckpointRefusalLik
         code: 'OTHER_ORG',
         message:
           `This sandbox was refreshed${entry.refreshedAt ? ` on ${entry.refreshedAt.slice(0, 10)}` : ''}: ` +
-          `it is another org now, and the checkpoint ${name} is of the org before it. It can only be deleted.`,
+          `it is another org now, and the checkpoint ${name} is of the org before it. It can only be deleted. ` +
+          FROZEN_WORDS,
       };
     case 'scratchExpired':
       return {
         code: 'SCRATCH_EXPIRED',
-        message: `The scratch org of checkpoint ${name} has expired: its checkpoints can only be deleted.`,
+        message:
+          `The scratch org of checkpoint ${name} has expired: its checkpoints can only be deleted. ` +
+          FROZEN_WORDS,
       };
     default:
       return { code: 'INVALID', message: `The checkpoint ${name} cannot be previewed.` };
   }
 }
+
+/**
+ * What keeps an org's data for another org, on this command line: a Frozen
+ * Dataset, frozen while the org lives.
+ */
+const FROZEN_WORDS = `${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG.replace(/\.$/, '')} (${nameOf(
+  'sandforge-frozen',
+)} select, then extract).`;
 
 /** A refusal said by the command line, beside the ones the extension answers with. */
 export interface CheckpointRefusalLike {
@@ -1098,8 +1140,14 @@ const SAID_LEFT_OUT = /^Left out(?::\s*|\s+(?=as asked\b))/;
  */
 function leftOutLines(leftOut: readonly CheckpointLeftOutObject[]): string[] {
   const byReason = new Map<string, string[]>();
-  for (const { objectApiName, reason } of leftOut) {
-    byReason.set(reason, [...(byReason.get(reason) ?? []), objectApiName]);
+  for (const { objectApiName, reason, code, records } of leftOut) {
+    // Past the limit the take was given, the flag that holds the object; past
+    // what any checkpoint holds, the reason says there is none.
+    const said =
+      code === 'pastTheLimit' && records !== undefined && records <= OBJECT_ROWS_MAX
+        ? `${reason} --max-total ${records} or more holds it.`
+        : reason;
+    byReason.set(said, [...(byReason.get(said) ?? []), objectApiName]);
   }
   return [...byReason].map(
     ([reason, objects]) => `  left out: ${someOf(objects)} — ${reason.replace(SAID_LEFT_OUT, '')}`,
@@ -1178,6 +1226,16 @@ export function listLines(entries: readonly CheckpointListEntry[], store: string
           ? `refreshed on ${entry.refreshedAt.slice(0, 10)}: `
           : '';
       lines.push(`  ${refreshed}${WHY_WORDS[entry.why ?? ''] ?? 'it cannot be previewed'}`);
+      if (entry.why === 'refreshed' || entry.why === 'scratchExpired')
+        lines.push(`  ${FROZEN_WORDS}`);
+    }
+    if (entry.scratchExpiresSoon && c.org.scratchExpiresAt !== undefined) {
+      lines.push(
+        `  its scratch org expires on ${c.org.scratchExpiresAt.slice(0, 10)}: its checkpoints ` +
+          'then can only be deleted, whatever --keep-days said. To set up its data again in ' +
+          `another org, freeze it as a Frozen Dataset before (${nameOf('sandforge-frozen')} ` +
+          'select, then extract)',
+      );
     }
     if (entry.expiresSoon && c.expiresAt !== null) {
       lines.push(
@@ -1210,6 +1268,7 @@ export function listEntryJson(entry: CheckpointListEntry): Record<string, unknow
     bytes: c?.bytes ?? null,
     expiresAt: c ? c.expiresAt : null,
     expiresSoon: entry.expiresSoon === true,
+    scratchExpiresSoon: entry.scratchExpiresSoon === true,
     binReachSince: entry.binReachSince ?? null,
     ...(c?.lastRewind
       ? { lastRewind: { ...c.lastRewind, undoable: entry.undo !== undefined } }
@@ -1250,6 +1309,22 @@ export function scopeJson(scope: ScopeAnswer): Record<string, unknown> {
 }
 
 /**
+ * A take's refusal in the command line's words: past its limit, the flag
+ * that raises it, which the extension's words leave to each surface — a
+ * run's checkpoint first has none. Exported so it can be tested.
+ */
+export function takeRefusalWords<T extends CheckpointRefusalLike>(refusal: T): T {
+  if (refusal.code !== 'TOO_MANY_RECORDS') return refusal;
+  const raise =
+    `, or raise the limit with --max-total <n> (${DEFAULT_MAX_TOTAL.toLocaleString('en-US')} ` +
+    'unless given)';
+  return {
+    ...refusal,
+    message: refusal.message.replace(/: pick fewer objects\./, `: pick fewer objects${raise}.`),
+  };
+}
+
+/**
  * The lines `take --estimate` prints. A take refused before its scope was
  * read prints the refusal alone: run as a Standard User, it printed "would
  * keep 0 objects … about 0 API requests of the 0 left today" above it, an
@@ -1275,7 +1350,7 @@ export function scopeLines(orgName: string, scope: ScopeAnswer): string[] {
     ...withParentLine(scope.objects),
     ...(scope.files ? scopeFilesLines(scope.files) : []),
     ...customSettingsLines(scope),
-    ...(scope.refusal ? [`refused: ${scope.refusal.message}`] : []),
+    ...(scope.refusal ? [`refused: ${takeRefusalWords(scope.refusal).message}`] : []),
   ];
 }
 
@@ -3132,14 +3207,9 @@ export async function main(
     ...(deps.locksDir !== undefined ? { locksDir: deps.locksDir } : {}),
   });
   if ('refusal' in opened) {
-    const { reason, path } = opened.refusal;
     const message =
-      reason === 'otherOwner'
-        ? `The checkpoints cannot be kept in ${path}: another user of this machine owns it, and ` +
-          'could read and replace the checkpoints in it. Name a folder of your own with --store.'
-        : reason === 'notAFolder'
-          ? `The checkpoints cannot be kept in ${path}: it is a file, not a folder.`
-          : `The checkpoints cannot be kept in ${path}: it could not be made${opened.refusal.detail ? ` (${opened.refusal.detail})` : ''}.`;
+      `The checkpoints cannot be kept in ${opened.refusal.path}: ` +
+      storeRefusalWords(opened.refusal, args.storeRoot, '--store <folder>');
     process.stderr.write(`${message}\n`);
     answerJson({ refusal: { code: 'STORE_REFUSED', message } });
     endWith(FAILED_EXIT);
@@ -3588,7 +3658,7 @@ async function take(
       objects: answered.objects,
       leftOut: answered.leftOut,
       estimate: answered.estimate,
-      ...(answered.refusal ? { refusal: answered.refusal } : {}),
+      ...(answered.refusal ? { refusal: takeRefusalWords(answered.refusal) } : {}),
       ...(answered.files ? { files: answered.files } : {}),
       ...(answered.customSettings ? { customSettings: answered.customSettings } : {}),
     };
@@ -3615,7 +3685,7 @@ async function take(
       }),
   );
   if (answer.outcome !== 'answered') {
-    const refusal = refusalOfAnswer(answer, 'The take');
+    const refusal = takeRefusalWords(refusalOfAnswer(answer, 'The take'));
     if (stoppedBy !== undefined && refusal.code === 'CANCELLED') {
       throw new Stop(refusal, stopExitCode(stoppedBy));
     }
@@ -3652,7 +3722,9 @@ async function remove(
   if (targets.length === 0) {
     throw new Stop({
       code: 'NOT_FOUND',
-      message: `No checkpoint of ${args.org} is kept on this machine. Nothing was deleted.`,
+      message:
+        `No checkpoint of ${args.org} is kept in the folder read. ${notKeptWords(args.org)} ` +
+        'Nothing was deleted.',
     });
   }
   const named = (entry: CheckpointListEntry): string =>
@@ -3726,8 +3798,8 @@ function sameOrgOrStop(
     code: 'OTHER_ORG',
     message: takenUnder
       ? `${alias} answers as another org than the one '${checkpoint.name}' was taken of: a ` +
-        'sandbox refreshed since is another org, and this checkpoint can only be deleted. No ' +
-        'record was read.'
+        'sandbox refreshed since is another org, and this checkpoint can only be deleted. ' +
+        `${FROZEN_WORDS} No record was read.`
       : `'${checkpoint.name}' is a checkpoint of ${orgOf(checkpoint)}, not of ${alias}: ` +
         `${verb} with --org ${orgOf(checkpoint)}. No record was read.`,
   });

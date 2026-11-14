@@ -63,10 +63,12 @@ function boundaryBreaches(file, source) {
 test('nothing outside the boundary loads jsforce, and the boundary is loaded by its external name', () => {
   const files = sourceFiles(SRC);
   // Positive control: the walk reads the files that use the boundary properly.
-  const helper = readFileSync(join(BOUNDARY_DIR, 'ConnectionHelper.ts'), 'utf8');
+  // Every connection of the panel is built by proxiedConnection, which reads
+  // the proxy NO_PROXY leaves.
+  const helper = readFileSync(join(BOUNDARY_DIR, 'proxiedConnection.ts'), 'utf8');
   assert.ok(
     helper.includes("import('./jsforceEntry.js')"),
-    'ConnectionHelper.ts no longer loads ./jsforceEntry.js — re-point this gate',
+    'proxiedConnection.ts no longer loads ./jsforceEntry.js — re-point this gate',
   );
   const breaches = files.flatMap((file) => boundaryBreaches(file, readFileSync(file, 'utf8')));
   assert.deepEqual(

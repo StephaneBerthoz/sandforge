@@ -7382,7 +7382,9 @@
         "refreshedUndated": "{{org}} foi atualizada desde então: este ponto de verificação é da org de antes da atualização, e só pode ser excluído.",
         "scratchExpired": "Esta scratch org expirou: seus pontos de verificação só podem ser excluídos."
       },
+      "frozenInstead": "Um ponto de verificação devolve a org de que foi tirado a um momento, e nenhuma outra org: os dados a montar de novo em outra org são congelados como Dataset congelado enquanto a org deles existe.",
       "expiresSoon": "Expira {{when}}",
+      "scratchExpiresSoon": "Esta scratch org expira em {{date}}: seus pontos de verificação só poderão então ser excluídos, e Guardar não os guarda. Para montar seus dados de novo em outra org, congele-os antes como Dataset congelado: um Dataset congelado é carregado em qualquer sandbox ou org Developer Edition.",
       "keepIt": "Guardar",
       "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar com o seu Id: a lixeira os guarda por 15 dias, menos se encher. Um retrocesso os recria, com Ids novos.",
       "rewound": "Retrocesso feito em {{date}}: pode ser desfeito até {{until}}, antes se a lixeira encher.",
@@ -7488,7 +7490,12 @@
         "seeLeftOut_other": "Ver os {{formatted}} objetos deixados de fora pelas permissões de {{user}}, e por quê",
         "cannotPick": "não pode ser escolhido",
         "settings": "{{user}} não tem View All Data e Modify All Data: uma configuração personalizada marcada faz a criação ser recusada, pois nenhuma permissão em um objeto prova quem vê e grava cada linha."
-      }
+      },
+      "limit": "Registros no máximo",
+      "limitHint": "Acima deste número de registros no total, a criação é recusada antes de ler qualquer um: {{standard}} se não for alterado, {{most}} no máximo.",
+      "limitRule": "Um número inteiro de registros, de 1 a {{most}}.",
+      "tooManyRecords": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}): escolha menos objetos, ou aumente-o, até {{most}}. Nenhum registro foi lido.",
+      "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado."
     },
     "preview": {
       "title": "Retroceder {{org}} para “{{name}}” ({{date}})",
@@ -7978,6 +7985,7 @@
       "noRecycleBin": "Deixado de fora: a org exclui seus registros definitivamente, sem lixeira, então nada indicaria que um foi excluído desde então, nem o recuperaria.",
       "unreadable": "Deixado de fora: a org se recusa a lê-lo por inteiro.",
       "pastTheLimit": "{{object}} tem {{records}} registros, acima do limite de {{limit}} do ponto de verificação para um objeto: deixado de fora, pois uma parte passaria pelo todo.",
+      "pastEveryCheckpoint": "{{object}} tem {{records}} registros, mais do que qualquer ponto de verificação guarda de um objeto ({{most}}): deixado de fora, e voltar a ele não toca em {{object}}. A Exportação de dados, em Configuração, ou uma consulta da Bulk API guarda uma cópia.",
       "noViewAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta não tem nenhum dos dois neste: um registro que ele não vê pareceria excluído desde então.",
       "noModifyAll": "Sem View All Data e Modify All Data, um objeto só é guardado com View All e Modify All nele, e o usuário com que o SandForge se conecta tem View All neste, não Modify All: um retrocesso não poderia restaurar o que outros alteraram.",
       "activities": "Sem View All Data e Modify All Data, tarefas e eventos são deixados de fora: o Salesforce não tem View All para atividades, e uma atividade privada ligada a nenhum registro fica fora de vista.",

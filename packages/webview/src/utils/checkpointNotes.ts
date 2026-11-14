@@ -4,6 +4,7 @@ import type {
   RunCheckpointCreator,
   RunCheckpointObjectNote,
 } from '@sandforge/shared';
+import { CHECKPOINT_OBJECT_ROWS_MAX } from './checkpointLimits';
 import { formatNumber } from './formatters';
 
 /**
@@ -63,10 +64,17 @@ interface LeftOutSaid {
  */
 export function leftOutWords(t: TFunction, object: LeftOutSaid): string {
   if (object.code === undefined) return object.reason;
-  const why = t(LEFT_OUT_KEYS[object.code], {
+  // Past what any checkpoint holds of one object, no limit lifts it: said so,
+  // with where a copy of it is kept, rather than as a limit to raise.
+  const key =
+    object.code === 'pastTheLimit' && (object.records ?? 0) > CHECKPOINT_OBJECT_ROWS_MAX
+      ? 'checkpointNotes.leftOut.pastEveryCheckpoint'
+      : LEFT_OUT_KEYS[object.code];
+  const why = t(key, {
     object: object.objectApiName,
     records: formatNumber(object.records ?? 0),
     limit: formatNumber(object.limit ?? 0),
+    most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
   });
   return object.detail === undefined ? why : `${why} (${object.detail})`;
 }

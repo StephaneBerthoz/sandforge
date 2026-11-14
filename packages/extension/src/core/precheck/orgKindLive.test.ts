@@ -2,7 +2,13 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
-import { countRequests, isProductionTarget, typeTarget } from './orgKindLive.js';
+import {
+  countRequests,
+  isProductionTarget,
+  typeTarget,
+  untypedCauseOf,
+  untypedWords,
+} from './orgKindLive.js';
 
 const ORG_ID = '00D000000000001AAA';
 const RECORD_ID = '001000000000001AAA';
@@ -48,6 +54,46 @@ describe('what an org says it is, read live', () => {
       false,
     );
     expect(isProductionTarget({ id: ORG_ID, sandbox: true })).toBe(false);
+  });
+});
+
+describe('why an org could not be typed', () => {
+  const failing = (message: string, more: Record<string, unknown> = {}) =>
+    Object.assign(new Error(message), more);
+
+  it('tells a session refused, an org that did not answer and a record the user may not read from an org that said nothing', () => {
+    expect(
+      untypedCauseOf(failing('Session expired or invalid', { errorCode: 'INVALID_SESSION_ID' })),
+    ).toBe('auth');
+    expect(untypedCauseOf(failing('socket hang up', { code: 'ECONNRESET' }))).toBe('network');
+    expect(
+      untypedCauseOf(
+        failing('INSUFFICIENT_ACCESS: insufficient access rights on object id', {
+          errorCode: 'INSUFFICIENT_ACCESS',
+        }),
+      ),
+    ).toBe('organizationRefused');
+    expect(
+      untypedCauseOf(failing("INVALID_TYPE: sObject type 'Organization' is not supported.")),
+    ).toBe('organizationRefused');
+    expect(untypedCauseOf(failing('The org gave no Organization record'))).toBeUndefined();
+  });
+
+  it('says what lets each cause be typed, in words both the page and a command line read', () => {
+    const refused = failing('Session expired or invalid', { errorCode: 'INVALID_SESSION_ID' });
+    expect(untypedWords('DEV-SB', refused, 'auth')).toBe(
+      'DEV-SB refused the session SandForge holds for it (Session expired or invalid): ' +
+        'reconnect it — Reconnect on the Organizations page, or "sf org login web --alias ' +
+        'DEV-SB" for a command line — then try again.',
+    );
+    expect(untypedWords('DEV-SB', failing('socket hang up'), 'network')).toBe(
+      'DEV-SB did not answer (socket hang up): try again once it answers.',
+    );
+    expect(untypedWords('DEV-SB', failing('INSUFFICIENT_ACCESS'), 'organizationRefused')).toBe(
+      'DEV-SB would not show its Organization record (INSUFFICIENT_ACCESS): reading it takes ' +
+        'the View Setup and Configuration permission, which the user SandForge connects as ' +
+        'lacks: give it to them, or connect as a user who has it.',
+    );
   });
 });
 

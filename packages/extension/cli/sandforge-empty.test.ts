@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -341,6 +341,41 @@ describe('sandforge-empty: the line', () => {
       'Wait. (--accept-people-active accepts it)',
     );
     expect(refusalWords({ code: 'OPEN_RUN', message: 'Resume it.' }).message).toBe('Resume it.');
+  });
+
+  it('answers a refused checkpoint first with what this command has: fewer objects, or no checkpoint', () => {
+    const past = {
+      code: 'TOO_MANY_RECORDS',
+      message:
+        'The objects this checkpoint would keep hold 700000 records in dev, past its limit of ' +
+        '500000: pick fewer objects. No record was read.',
+    };
+    const budget = { code: 'API_BUDGET', message: 'This checkpoint takes about 900 API requests.' };
+
+    expect(refusalWords(past).message).toBe(
+      'The checkpoint first was refused: the objects this checkpoint would keep hold 700000 ' +
+        'records in dev, past its limit of 500000. Empty fewer objects (--objects, or ' +
+        '--exclude-object with --org), or leave out --checkpoint-first to empty without one.',
+    );
+    // A refusal both the checkpoint and the emptying meet is the checkpoint's when it is the one it said.
+    expect(refusalWords(budget, budget).message).toMatch(
+      /^The checkpoint first was refused: this checkpoint takes about 900 API requests\. Empty fewer/,
+    );
+    expect(refusalWords(budget).message).toBe(budget.message);
+  });
+
+  it('names the folder the checkpoints move to where it cannot keep them: SANDFORGE_JOURNAL_DIR', async () => {
+    const h = harness({ org: withEmptyObjects() });
+    writeFileSync(join(h.dir, 'checkpoints'), 'x');
+
+    const { code, stderr } = await h.run('--target', 'DEV', '--objects', 'Contact', '--dry-run');
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      `The org's lock and a checkpoint taken first cannot be kept in ${join(h.dir, 'checkpoints')}: ` +
+        'it is a file, not a folder. SANDFORGE_JOURNAL_DIR=<folder> names a folder for them, or ' +
+        'move the file away. Nothing was read or deleted.',
+    );
   });
 
   it('ends a run 0 done, 3 partial, 1 failed, and with the stop’s code when one stopped it', () => {

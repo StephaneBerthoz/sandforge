@@ -25,6 +25,7 @@ import { isAuthError } from '../src/core/common/isAuthError.js';
 import { isNetworkError } from '../src/core/common/isNetworkError.js';
 import {
   isProductionTarget,
+  organizationRefused,
   typeTarget,
   type TypedTarget,
 } from '../src/core/precheck/orgKindLive.js';
@@ -62,26 +63,6 @@ export function productionTargetRefusal(
   return (
     `${alias} is a production org (its Organization record says ${said}): ${what}; ` +
     `${command.readOnly}, which only reads, runs against it.`
-  );
-}
-
-/**
- * Whether the org refused its Organization record to the user the session
- * signs in as: no access to the object, or an object the user's profile does
- * not show at all. Reading it takes View Setup and Configuration.
- */
-function organizationRefused(err: unknown): boolean {
-  const { errorCode, statusCode } = (typeof err === 'object' && err !== null ? err : {}) as {
-    errorCode?: unknown;
-    statusCode?: unknown;
-  };
-  const message = err instanceof Error ? err.message : String(err);
-  return (
-    statusCode === 403 ||
-    (typeof errorCode === 'string' && /^INSUFFICIENT_ACCESS/.test(errorCode)) ||
-    /\bINSUFFICIENT_ACCESS/.test(message) ||
-    ((errorCode === 'INVALID_TYPE' || /\bINVALID_TYPE\b/.test(message)) &&
-      /\bOrganization\b/.test(message))
   );
 }
 

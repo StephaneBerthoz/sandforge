@@ -144,6 +144,7 @@ import {
   envCheckpointStoreOf,
   estimateReadOf,
   rewindPreviewLines,
+  takeSettingsOf,
   type CheckpointEstimateRead,
   type RewindPreview,
 } from './env/envCheckpoints.js';
@@ -928,11 +929,11 @@ async function prepare(
       FAILED_EXIT,
     );
   }
-  let typedTarget: TypedTarget | { unread: string };
+  let typedTarget: TypedTarget | { unread: string; error: unknown };
   try {
     typedTarget = await typeTarget(reached.conn);
   } catch (err: unknown) {
-    typedTarget = { unread: err instanceof Error ? err.message : String(err) };
+    typedTarget = { unread: err instanceof Error ? err.message : String(err), error: err };
   }
   const typedOrg = envTargetOf(alias, typedTarget, reached.session);
   if ('refusal' in typedOrg) throw stopWith(typedOrg.refusal);
@@ -1522,13 +1523,12 @@ async function estimateCheckpoints(
     return undefined;
   }
   say('checkpoint: estimating what a take of the org costs');
-  const ignoreFields = file.checkpoint?.ignoreFields;
   const ran = await prepared.runner(
     CHECKPOINT_SCRIPT,
     checkpointEstimateLine({
       org: prepared.target.alias,
       store: envCheckpointStoreOf(prepared.journalDir),
-      ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+      ...takeSettingsOf(file),
     }),
     signal,
   );

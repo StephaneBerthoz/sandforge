@@ -61,11 +61,35 @@ describe('a production org', () => {
     expect(envTargetOf('TGT', { id: ORG, sandbox: false }, SESSION)).toMatchObject({
       refusal: { code: 'PRODUCTION', message: expect.stringContaining('and no edition') },
     });
-    expect(envTargetOf('TGT', { unread: 'INVALID_SESSION_ID' }, SESSION)).toMatchObject({
+    expect(envTargetOf('TGT', { unread: 'MALFORMED_QUERY' }, SESSION)).toMatchObject({
       refusal: {
         code: 'PRODUCTION',
-        message: expect.stringContaining('TGT did not say what org it is (INVALID_SESSION_ID)'),
+        message: expect.stringContaining('TGT did not say what org it is (MALFORMED_QUERY)'),
       },
+    });
+  });
+
+  it('says what lets an org it could not type be read — the sign-in to renew, the org to wait for, View Setup — and no flag it lacks', () => {
+    const expired = Object.assign(new Error('Session expired or invalid'), {
+      errorCode: 'INVALID_SESSION_ID',
+    });
+    const typed = envTargetOf('TGT', { unread: expired.message, error: expired }, SESSION);
+
+    expect(typed).toEqual({
+      refusal: {
+        code: 'UNTYPED',
+        message:
+          'TGT refused the session sf gave for it (Session expired or invalid), and sandforge ' +
+          'env writes to no org it cannot tell from a production one. "sf org display ' +
+          '--target-org TGT" says what sf holds for it; "sf org login web --alias TGT" signs in ' +
+          'again (in a CI job, "sf org login jwt" or "sf org login sfdxurl"); then run the ' +
+          'command again. Nothing was written.',
+        exit: 1,
+      },
+    });
+    const silent = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+    expect(envTargetOf('TGT', { unread: silent.message, error: silent }, SESSION)).toMatchObject({
+      refusal: { code: 'UNTYPED', message: expect.stringMatching(/^TGT did not answer/) },
     });
   });
 });

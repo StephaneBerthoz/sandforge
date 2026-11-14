@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
+import type { EnvSeedResource } from '@sandforge/shared';
 
 vi.mock('../../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -47,6 +48,8 @@ import {
   seedPreviewLine,
   seedRemoveLine,
   seedRunCount,
+  seedRunOfResource,
+  seedWritten,
   type SeedRunAnswer,
 } from './seed.js';
 
@@ -178,6 +181,58 @@ describe('a seed resource’s lines', () => {
         ),
       ),
     ).toMatchObject({ locale: 'de_DE', recordTypes: { Asset: ['Hardware'] }, dryRun: true });
+  });
+
+  it('gives a run and its dry run the fit the file asks, as the seed reads --fit share and --fit-within', () => {
+    const fitted = { target: 'TGT', templateFile, runId: RUN_ID, fit: { withinMB: 50 } };
+
+    expect(parseArgs(seedLine(seedApplyLine(fitted)))).toMatchObject({
+      fit: { share: true, withinMB: 50 },
+      dryRun: false,
+    });
+    expect(parseArgs(seedLine(seedDryRunLine({ ...fitted, fit: {} })))).toMatchObject({
+      fit: { share: true },
+      dryRun: true,
+    });
+    expect(
+      parseArgs(seedLine(seedDryRunLine({ target: 'TGT', templateFile, runId: RUN_ID }))).fit,
+    ).toBeUndefined();
+  });
+
+  it('carries the file’s fit into the run, and into its fingerprint only when the file gives one', () => {
+    const resource: EnvSeedResource = {
+      kind: 'seed',
+      objects: [
+        {
+          object: 'Account',
+          count: 500,
+          fields: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Pool' } }],
+        },
+      ],
+    };
+    const plain = seedRunOfResource('pool', 'accounts', resource, new Date(0));
+    const shared = seedRunOfResource(
+      'pool',
+      'accounts',
+      { ...resource, fit: 'share' },
+      new Date(0),
+    );
+    const within = seedRunOfResource(
+      'pool',
+      'accounts',
+      { ...resource, fit: { withinMB: 20 } },
+      new Date(0),
+    );
+    if (!('run' in plain) || !('run' in shared) || !('run' in within)) {
+      throw new Error(JSON.stringify([plain, shared, within].filter((each) => !('run' in each))));
+    }
+
+    expect(plain.run.fit).toBeUndefined();
+    expect(shared.run.fit).toEqual({});
+    expect(within.run.fit).toEqual({ withinMB: 20 });
+    // A file written before fit keeps the fingerprint its state holds.
+    expect(seedWritten(plain.run)).not.toHaveProperty('fit');
+    expect(seedWritten(within.run)).toMatchObject({ fit: { withinMB: 20 } });
   });
 
   it('gives a dry run the same template and id, and --dry-run', () => {
@@ -379,6 +434,34 @@ describe('what a seed’s dry run counts, as the plan reads it', () => {
     result,
   });
 
+  it('answers a seed past the target’s storage with the keys of the file: fit, or lower counts', () => {
+    const refused = seedDryRunCount({
+      ...answer({
+        operationId: 'dry',
+        status: 'success',
+        objectResults: [],
+        totalRecordsCreated: 0,
+        totalRecordsFailed: 0,
+      }),
+      storage: {
+        bytes: 9_000_000,
+        verdict: 'exceeds',
+        estimateMB: 9,
+        refusal:
+          'The records to write take about 9 MB, and TGT has 5 MB left of 5 MB: leave objects ' +
+          'out, lower the records per object, or free data storage in TGT.',
+      },
+      wouldBeRefusedCodes: ['SEED_STORAGE_EXCEEDED'],
+    });
+
+    expect(refused.refusal).toBe(
+      'The records to write take about 9 MB, and TGT has 5 MB left of 5 MB: leave objects ' +
+        'out, lower the records per object, or free data storage in TGT. In the file: fit: ' +
+        'share seeds the largest share of each count that fits, fit: { withinMB: <MB> } no ' +
+        'more than that; or lower each object’s count.',
+    );
+  });
+
   it('is the refusal a run would meet when the seed refused it before its first write, in the seed’s words', () => {
     const refused = answer({
       operationId: 'x',
@@ -445,7 +528,9 @@ describe('what a seed’s dry run counts, as the plan reads it', () => {
     };
 
     expect(seedDryRunCount(refused)).toMatchObject({
-      refusal: storage,
+      refusal: expect.stringMatching(
+        /^The records take 6 MB, and TGT has 5 MB left\. In the file: fit: share/,
+      ),
       refusalCodes: ['SEED_STORAGE_EXCEEDED'],
     });
     expect(

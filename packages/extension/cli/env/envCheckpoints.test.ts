@@ -35,6 +35,7 @@ import {
   rewindRanOf,
   rewindUndoOf,
   takeEnvCheckpoint,
+  takeSettingsOf,
   undoLine,
   withCheckpoint,
 } from './envCheckpoints.js';
@@ -144,6 +145,24 @@ describe('the lines of the checkpoint script', () => {
     });
   });
 
+  it('gives an estimate and a take the file’s limit and the objects it leaves out', () => {
+    const settings = takeSettingsOf({
+      name: 'pool',
+      checkpoint: { maxTotal: 800_000, excludeObjects: ['Task', 'Event'] },
+    });
+    expect(settings).toEqual({ maxTotal: 800_000, excludeObjects: ['Task', 'Event'] });
+
+    expect(
+      parseCheckpointArgs(argv(checkpointEstimateLine({ ...base, ...settings }))),
+    ).toMatchObject({ take: { maxTotal: 800_000, excluded: ['Task', 'Event'] }, estimate: true });
+    expect(
+      parseCheckpointArgs(
+        argv(checkpointTakeLine({ ...base, name: 'pool before', keepDays: 30, ...settings })),
+      ),
+    ).toMatchObject({ take: { maxTotal: 800_000, excluded: ['Task', 'Event'] } });
+    expect(takeSettingsOf({ name: 'pool' })).toEqual({});
+  });
+
   it('gives a preview, a rewind and its dry run, and a deletion lines it reads, the checkpoint named by its id', () => {
     expect(
       parseCheckpointArgs(argv(checkpointPreviewLine({ ...base, checkpoint: CK }))),
@@ -247,6 +266,27 @@ describe('the steps a plan lists', () => {
     expect(estimateReadOf(ran(1, { mode: 'everything', refusal }))).toEqual({ refusal });
     expect(estimateReadOf(ran(1, undefined, 'it could not reach the org\n'))).toEqual({
       unread: 'exit 1: it could not reach the org',
+    });
+  });
+
+  it('answers a take past its limit with the keys of the file, not the flag of the script', () => {
+    const refusal = {
+      code: 'TOO_MANY_RECORDS',
+      message:
+        'The objects this checkpoint would keep hold 700000 records in pool-1, past its limit of ' +
+        '500000: pick fewer objects, or raise the limit with --max-total <n> (500,000 unless ' +
+        'given). No record was read.',
+    };
+    const read = estimateReadOf(ran(1, { mode: 'everything', refusal }));
+
+    expect(read).toEqual({
+      refusal: {
+        code: 'TOO_MANY_RECORDS',
+        message:
+          'The objects this checkpoint would keep hold 700000 records in pool-1, past its limit ' +
+          'of 500000: leave objects out with checkpoint.excludeObjects, or raise ' +
+          'checkpoint.maxTotal in the file, 1,000,000 at most. No record was read.',
+      },
     });
   });
 
