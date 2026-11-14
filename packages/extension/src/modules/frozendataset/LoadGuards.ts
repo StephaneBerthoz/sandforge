@@ -71,31 +71,8 @@ export function datasetRecordCount(dataset: FrozenDataset): number {
  * refusal; resolves when the load may proceed.
  */
 export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
-  // 1. Development orgs only: a sandbox, a scratch org, or a Developer
-  //    Edition org, which the caller takes for the development org it is.
-  // A sandbox marked Staging is one: it holds real data, which is why a load
-  // never goes there. Said "no sandbox", it sent the user looking for an
-  // org type it had all along.
-  if (input.orgTier === 'staging') {
-    throw new LoadGuardError(
-      'non-sandbox',
-      `Refusing frozen-dataset load on ${input.orgId}: it is a sandbox marked Staging, which ` +
-        'holds real data, and a load never goes into one. Remediation: pick another sandbox, ' +
-        'or, if this one holds no real data, untick Staging in its Edit dialog on the ' +
-        'Organizations page.',
-      { orgId: input.orgId, tier: input.orgTier },
-    );
-  }
-  if (input.orgTier !== 'development' && input.orgTier !== 'scratch') {
-    throw new LoadGuardError(
-      'non-sandbox',
-      `Refusing frozen-dataset load on ${input.orgTier} org ${input.orgId}: loads go into ` +
-        'sandboxes and Developer Edition orgs only. Remediation: target a Developer/Scratch ' +
-        'sandbox or a Developer Edition org — deploy the required configuration THERE; ' +
-        'never run DML against a shared or source org.',
-      { orgId: input.orgId, tier: input.orgTier },
-    );
-  }
+  // 1. Development orgs only.
+  assertLoadTier(input);
 
   // 2a. Configured protected environments (shared orgs — the source is never a target).
   if (input.protectedOrgIds?.includes(input.orgId)) {
@@ -138,6 +115,40 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
       'Refusing frozen-dataset load: the dataset contains zero records. Remediation: ' +
         're-run the selection/extraction with a coverage matrix that matches the source ' +
         'data, then freeze a new dataset version.',
+    );
+  }
+}
+
+/**
+ * The first entry guard alone: a sandbox, a scratch org, or a Developer
+ * Edition org, which the caller takes for the development org it is — never
+ * one marked Staging. What a replay of a checkpoint asks of its target before
+ * it reads anything of it.
+ *
+ * @throws {LoadGuardError} `non-sandbox`, of any other org.
+ */
+export function assertLoadTier(input: Pick<LoadGuardInput, 'orgId' | 'orgTier'>): void {
+  // A sandbox marked Staging is one: it holds real data, which is why a load
+  // never goes there. Said "no sandbox", it sent the user looking for an
+  // org type it had all along.
+  if (input.orgTier === 'staging') {
+    throw new LoadGuardError(
+      'non-sandbox',
+      `Refusing frozen-dataset load on ${input.orgId}: it is a sandbox marked Staging, which ` +
+        'holds real data, and a load never goes into one. Remediation: pick another sandbox, ' +
+        'or, if this one holds no real data, untick Staging in its Edit dialog on the ' +
+        'Organizations page.',
+      { orgId: input.orgId, tier: input.orgTier },
+    );
+  }
+  if (input.orgTier !== 'development' && input.orgTier !== 'scratch') {
+    throw new LoadGuardError(
+      'non-sandbox',
+      `Refusing frozen-dataset load on ${input.orgTier} org ${input.orgId}: loads go into ` +
+        'sandboxes and Developer Edition orgs only. Remediation: target a Developer/Scratch ' +
+        'sandbox or a Developer Edition org — deploy the required configuration THERE; ' +
+        'never run DML against a shared or source org.',
+      { orgId: input.orgId, tier: input.orgTier },
     );
   }
 }

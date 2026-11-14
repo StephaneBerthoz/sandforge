@@ -3091,7 +3091,8 @@
       "checkpoint_undo": "Zurücksetzen rückgängig machen",
       "checkpoint_export": "Export eines Prüfpunkts",
       "checkpoint_import": "Import eines Prüfpunkts",
-      "checkpoint_take": "Erstellung eines Prüfpunkts"
+      "checkpoint_take": "Erstellung eines Prüfpunkts",
+      "checkpoint_replay": "Wiedergabe eines Prüfpunkts"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",
@@ -3171,7 +3172,8 @@
       "generator": "Generierte Daten",
       "csv": "CSV-Datei",
       "backup": "Sicherung",
-      "dataset": "Eingefrorenes Dataset"
+      "dataset": "Eingefrorenes Dataset",
+      "checkpoint": "Prüfpunkt"
     },
     "object": "Objekt",
     "nodeCount_one": "{{count}} Knoten",

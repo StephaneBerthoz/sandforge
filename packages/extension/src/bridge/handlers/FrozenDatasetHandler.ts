@@ -1,9 +1,13 @@
+import { existsSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
+  AuditAction,
   AuditObjectCounts,
   AuditOutcome,
+  CheckpointReplayAnnex,
+  CheckpointReplayChoices,
   ForgeAutomationWrite,
   ForgeConfig,
   ForgeGraph,
@@ -22,6 +26,10 @@ import type {
   FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenRemovalPreview,
+  FrozenReplayInfo,
+  FrozenReplayLoadConfig,
+  FrozenReplayRef,
+  FrozenReplayRequest,
   FrozenReloadSweep,
   FrozenReloadSweepListing,
   FrozenRemovalResult,
@@ -34,6 +42,7 @@ import type {
   GuardDecision,
   MutedAutomation,
   MutePlan,
+  OrgCheckpoint,
   RunCheckpointEstimate,
   RunCheckpointInfo,
   RunCheckpointRequest,
@@ -164,7 +173,7 @@ import {
   frozenRemovePreviewPayloadSchema,
   frozenRemoveSweepPayloadSchema,
   frozenRulesClearPayloadSchema,
-  frozenVerifyPayloadSchema,
+  frozenVerifyReplayPayloadSchema,
 } from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -212,6 +221,7 @@ import {
   SasPathGuard,
   SasReferenceIdMappingStore,
   ScopedDossierHealthChecker,
+  assertLoadTier,
   TargetRecordTypeIdResolver,
   VolumetryBudgetExceededError,
   buildFrozenManifest,
@@ -260,6 +270,7 @@ import {
   type PersonContactLink,
   type RecordedLoad,
   type RuleSchemaField,
+  type SasReferenceIdMappingStoreOptions,
   type TargetOrgAccess,
 } from '../../modules/frozendataset/index.js';
 import {
@@ -279,6 +290,32 @@ import {
   type LoadRequestsInput,
 } from '../../modules/frozendataset/loadRequests.js';
 import { loadAutomationOf } from '../../modules/frozendataset/loadAutomation.js';
+import {
+  CheckpointStoreError,
+  defaultCheckpointStoreRoot,
+  openCheckpointStore,
+  organizationKey,
+  type CheckpointFolder,
+  type OrgCheckpointStore,
+} from '../../modules/checkpoint/OrgCheckpointStore.js';
+import { receivedStoreRootOf } from '../../modules/checkpoint/checkpointArchive.js';
+import { readReplayAnnex } from '../../modules/checkpoint/replay/replayAnnex.js';
+import {
+  convertCheckpoint,
+  type ReplayConversion,
+  type ReplayTarget,
+} from '../../modules/checkpoint/replay/checkpointToDataset.js';
+import {
+  COMMAND_LINE_REPLAY_WORDS,
+  replayAuditDetails,
+  replaySourceRefusal,
+  type ReplayGuardTarget,
+} from '../../modules/checkpoint/replay/replaySourceGuard.js';
+import {
+  ReplayStore,
+  defaultReplayStoreRoot,
+  type ReplayFolder,
+} from '../../modules/checkpoint/replay/replayStore.js';
 
 /**
  * The writer of a preview: it writes nothing, and says so if a write ever
@@ -466,6 +503,8 @@ function loadStorageRefusal(input: {
   storage: DataStorage | { unread: string };
   purged?: LoadRequestsInput['purged'];
   target: string;
+  /** Said of a replay of a checkpoint, whose way out is fewer objects: it has no pilot. */
+  replay?: boolean;
 }): { message: string; storage: FrozenLoadStorage } | undefined {
   if ('unread' in input.storage) return undefined;
   const bytes = input.dataset.objects.reduce(
@@ -489,6 +528,17 @@ function loadStorageRefusal(input: {
     freedBytes > 0
       ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB ?? 0)} MB first`
       : '';
+  if (input.replay === true) {
+    return {
+      storage,
+      message:
+        `The replay was refused before it wrote anything: the checkpoint's records take about ` +
+        `${megabytesWords(storage.estimateMB)} MB of data storage, and ${input.target} has ` +
+        `${remainingMB} MB left of ${maxMB} MB${freed}. To replay part of it, ` +
+        `${COMMAND_LINE_REPLAY_WORDS.fewerObjects}; or free data storage in ${input.target}. ` +
+        'Nothing was written.',
+    };
+  }
   return {
     storage,
     message:
@@ -499,6 +549,34 @@ function loadStorageRefusal(input: {
       `selection and a new extraction; or free data storage in ${input.target}. Nothing was ` +
       'written.',
   };
+}
+
+/** A response's part that says a replay, when there is one to say. */
+function replayPart(info: FrozenReplayInfo | undefined): { replay?: FrozenReplayInfo } {
+  return info ? { replay: info } : {};
+}
+
+/**
+ * The records a replay's load found in the target and linked rather than
+ * created, but for the standard price book, which a replay never makes: by
+ * the keys its links name, or a catalogue's natural key. What the platform
+ * wrote itself with a record the load inserted is no record of the
+ * checkpoint linked.
+ */
+function linkedOfReport(
+  report: Pick<FrozenLoadReport, 'perObject'>,
+  dataset: Pick<FrozenDataset, 'standardPricebook'>,
+): number {
+  let linked = 0;
+  for (const object of report.perObject) {
+    const own = object.reused - (object.writtenByThePlatform ?? 0);
+    const book =
+      dataset.standardPricebook !== undefined && object.objectApiName === 'Pricebook2' && own > 0
+        ? 1
+        : 0;
+    linked += own - book;
+  }
+  return linked;
 }
 
 /** The checkpoint a load scoped before its gate on the API requests, to be taken after it. */
@@ -1245,6 +1323,183 @@ async function frozenCarried(
   } catch {
     return undefined;
   }
+}
+
+// ── What a load sets up: the project's dataset, or a checkpoint replayed ──
+
+/**
+ * What a load sets up, and where what it wrote is kept: the Frozen project's
+ * dataset and its sas, or a checkpoint replayed into another org
+ * (`sandforge checkpoint replay`), which keeps what its loads wrote in the
+ * folder of the checkpoint's replays (`ReplayStore`), reads no configuration
+ * of the project and saves none. The load, its preview, its verification and
+ * its removal are the same; only this changes.
+ */
+interface LoadSource {
+  /** The configuration the load reads: the project's, or the one a replay is given for its load alone. */
+  config: FrozenProjectConfig;
+  /** The folder its mapping and counting contract are kept in, outside any repository. */
+  sasDir(guard: SasPathGuard): string;
+  /** The store of what its loads wrote into the org the request names. */
+  mappingStore(guard: SasPathGuard): SasReferenceIdMappingStore;
+  /**
+   * What it loads, and what the audit trail calls it: the dataset with its
+   * manifest and folder, or the checkpoint converted (`convertCheckpoint`).
+   */
+  read(guard: SasPathGuard): Promise<{
+    dataset: FrozenDataset;
+    manifest?: FrozenManifest;
+    datasetDir?: string;
+    label: string;
+  }>;
+  /** Set for a checkpoint replayed. */
+  replay?: ReplayLoad;
+}
+
+/** A checkpoint replayed into the org a request names: see {@link LoadSource}. */
+interface ReplayLoad {
+  /** The folder of the checkpoint's replays, outside the checkpoint's own. */
+  folder: ReplayFolder;
+  /** The other org, as it answered once connected. */
+  target: ReplayTargetIdentity;
+  /** Where the counting contract of its loads into the other org is. */
+  contractPath: string;
+  /** The checkpoint, its folder and its annex: read for a load, its preview and its verification. */
+  checkpoint?: {
+    checkpoint: OrgCheckpoint;
+    folder: CheckpointFolder;
+    annex: CheckpointReplayAnnex | undefined;
+  };
+  choices?: CheckpointReplayChoices;
+  /** The checkpoint converted and the other org as read for it, once read. */
+  converted?: { conversion: ReplayConversion; target: ReplayTarget };
+}
+
+/** The other org of a replay, as the guard knows it once connected, and as its conversion reads it. */
+interface ReplayTargetIdentity extends ReplayGuardTarget {
+  organizationId: string;
+  /** The user the replay writes as. */
+  runningUserId: string;
+  tier: 'sandbox' | 'scratch' | 'developer';
+}
+
+/**
+ * A replay refused before anything is written, and before the other org is
+ * read when the refusal is the checkpoint's: its code, and what it names for
+ * a page to word it in its own language.
+ */
+class ReplayRefused extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly params: Readonly<Record<string, string | number>> = {},
+  ) {
+    super(message);
+    this.name = 'ReplayRefused';
+  }
+}
+
+/**
+ * The mapping of a checkpoint's replays into one org: its file named by the
+ * Organization Id the org answered with, as the command line and the panel
+ * both find it (`ReplayStore`), its loads told of under the id the request
+ * registers the org by — what a removal, a verification and a reload connect
+ * to the org with, and compare the request's org to.
+ */
+class ReplayMappingStore extends SasReferenceIdMappingStore {
+  constructor(
+    dir: string,
+    options: SasReferenceIdMappingStoreOptions,
+    private readonly registeredAs: string,
+  ) {
+    super(dir, options);
+  }
+
+  override async recorded(): Promise<RecordedLoad | undefined> {
+    const load = await super.recorded();
+    return load && { ...load, orgId: this.registeredAs };
+  }
+
+  override async recordedLoads(): Promise<RecordedLoad[]> {
+    return (await super.recordedLoads()).map((load) => ({ ...load, orgId: this.registeredAs }));
+  }
+}
+
+/**
+ * Where a replay finds its checkpoint and keeps what it wrote: see
+ * {@link FrozenDatasetHandler.setReplayStores}.
+ */
+export interface FrozenReplayStores {
+  /** The stores a checkpoint replayed is looked for in, in order: this machine's, then the files received. */
+  checkpoints(): OrgCheckpointStore[];
+  replays: ReplayStore;
+}
+
+/**
+ * This machine's stores: `checkpoints/` and the files received beside it,
+ * opened only where they are — a replay makes no store — and `replays/`.
+ */
+function machineReplayStores(): FrozenReplayStores {
+  const root = defaultCheckpointStoreRoot();
+  return {
+    checkpoints: () =>
+      [root, receivedStoreRootOf(root)].flatMap((dir) => {
+        if (!existsSync(dir)) return [];
+        const opened = openCheckpointStore({ root: dir });
+        return 'store' in opened ? [opened.store] : [];
+      }),
+    replays: new ReplayStore({ root: defaultReplayStoreRoot() }),
+  };
+}
+
+/**
+ * The configuration of a replay's load: the one it is given, its links
+ * (`--link Object=Field`) among the identity keys, and nothing of the
+ * project's — a replay loads no pilot, so it has no root object.
+ */
+function replayConfigOf(
+  given: FrozenReplayLoadConfig | undefined,
+  choices: Pick<CheckpointReplayChoices, 'link'> | undefined,
+): FrozenProjectConfig {
+  const links = Object.fromEntries(
+    (choices?.link ?? []).map((link) => [link.objectApiName, [...link.fields]]),
+  );
+  const identityKeys = { ...given?.identityKeys, ...links };
+  return {
+    rootObject: '',
+    axes: [],
+    edgeCases: [],
+    ...given,
+    ...(Object.keys(identityKeys).length > 0 ? { identityKeys } : {}),
+  };
+}
+
+/**
+ * What the entries of a removal and of a sweep say of the loads they take
+ * back: their module, and the mark of the sas the loads wrote to, which
+ * tells them from the loads of another sas (`otherSasRunsOf`): a replay's
+ * folder, or the project's sas, unless told.
+ */
+interface RemovalAudit {
+  module: 'frozen' | 'checkpoint';
+  sasMark?: string;
+}
+
+/** The {@link RemovalAudit} of a source's loads. */
+function removalAuditOf(source: Pick<LoadSource, 'replay'>): RemovalAudit {
+  return source.replay
+    ? { module: 'checkpoint', sasMark: sasMarkOf(source.replay.folder.dir) }
+    : { module: 'frozen' };
+}
+
+/** What a load's entries in the audit trail are recorded as: a Frozen load, or a replay. */
+function auditedAs(source: Pick<LoadSource, 'replay'>): {
+  action: AuditAction;
+  module: 'frozen' | 'checkpoint';
+} {
+  return source.replay
+    ? { action: 'checkpoint_replay', module: 'checkpoint' }
+    : { action: 'frozen_load', module: 'frozen' };
 }
 
 /**
@@ -2150,6 +2405,9 @@ export class FrozenDatasetHandler implements DomainHandler {
     // the same: take the load back first.
     if (err instanceof ReloadTakesAlongError) return REPLACE_LEAVES_RECORDS;
     if (err instanceof TimeoutError) return 'TIMEOUT';
+    if (err instanceof ReplayRefused) return err.code;
+    // A replay's checkpoint or folder named by an id of another shape.
+    if (err instanceof CheckpointStoreError && err.code === 'invalid') return 'INVALID_PAYLOAD';
     return fallback;
   }
 
@@ -2162,6 +2420,7 @@ export class FrozenDatasetHandler implements DomainHandler {
    * for any other error.
    */
   private errorDetailOf(err: unknown): Record<string, unknown> | undefined {
+    if (err instanceof ReplayRefused) return { params: err.params };
     if (err instanceof RulesFileMissingError) return { rulesPath: err.rulesPath };
     if (err instanceof LoadGuardError) return { guard: err.code, ...err.params };
     if (err instanceof VolumetryBudgetExceededError) {
@@ -2238,6 +2497,12 @@ export class FrozenDatasetHandler implements DomainHandler {
     emails?: Pick<LoadEmails, 'run'>;
     orgId: string;
     operation: string;
+    /**
+     * The requests a replay's reads of the target took before its load: the
+     * target counts them minutes late (`/limits`), and its daily ones are
+     * spent all the same.
+     */
+    replayReads?: number;
   }): Promise<FrozenLoadApiRequests> {
     const budget = await readApiBudget(input.conn).catch((err: unknown) => ({
       unread: extractErrorMessage(err),
@@ -2245,16 +2510,17 @@ export class FrozenDatasetHandler implements DomainHandler {
     const duplicateRules = duplicateRulesOf(input.read);
     const check = apiBudgetCheckOf(
       {
-        run: loadRequestsEstimate({
-          inserts: input.dataset.objects.map((object) => ({
-            objectApiName: object.objectApiName,
-            rows: object.records.length,
-          })),
-          ...(input.purged ? { purged: input.purged } : {}),
-          threshold: robustnessConfigOf(this.deps).bulk.threshold,
-          ...(duplicateRules ? { duplicateRules } : {}),
-          automationRead: automationReadRequests(input.read),
-        }),
+        run:
+          loadRequestsEstimate({
+            inserts: input.dataset.objects.map((object) => ({
+              objectApiName: object.objectApiName,
+              rows: object.records.length,
+            })),
+            ...(input.purged ? { purged: input.purged } : {}),
+            threshold: robustnessConfigOf(this.deps).bulk.threshold,
+            ...(duplicateRules ? { duplicateRules } : {}),
+            automationRead: automationReadRequests(input.read),
+          }) + (input.replayReads ?? 0),
         ...checkpointPartOf(input.checkpoint),
         ...mutePartOf(input.plan),
         ...deliverabilityPartOf(input.emails?.run.ofRun),
@@ -2315,6 +2581,375 @@ export class FrozenDatasetHandler implements DomainHandler {
       return null;
     }
     return config;
+  }
+
+  // ── The source of a load: the project's dataset, or a checkpoint replayed ──
+
+  /**
+   * Where a replay finds its checkpoint and keeps what it wrote, in place of
+   * this machine's stores: a command line's `--store`, a test's folder.
+   */
+  setReplayStores(stores: FrozenReplayStores): void {
+    this.replayStores = stores;
+  }
+
+  /** See {@link setReplayStores}: this machine's stores until set. */
+  private replayStores?: FrozenReplayStores;
+
+  private replayStoresInUse(): FrozenReplayStores {
+    this.replayStores ??= machineReplayStores();
+    return this.replayStores;
+  }
+
+  /**
+   * What a request's load sets up and where what it wrote is kept: the
+   * project's dataset and sas, from its saved configuration, or the checkpoint
+   * `replay` names (see {@link replaySourceOf}). Answered on the request's
+   * error channel, and undefined, when there is none: no configuration saved,
+   * or a replay refused.
+   *
+   * @param reads - What a replay is read for: its checkpoint, to be loaded,
+   *   previewed or verified; or the mapping of its loads alone, to be removed
+   *   — the checkpoint perhaps deleted since.
+   * @param onRefused - Told the code of a replay refused, for a load to record.
+   */
+  private async sourceOf(
+    msg: InboundRequest,
+    request: { targetOrgId: string; replay?: FrozenReplayRequest; pilot?: boolean },
+    errorType: string,
+    reads: 'checkpoint' | 'mapping',
+    onRefused?: (code: string) => void,
+  ): Promise<LoadSource | undefined> {
+    if (request.replay === undefined) {
+      const config = this.requireConfig(msg, errorType);
+      return config ? this.datasetSource(config, request.targetOrgId) : undefined;
+    }
+    try {
+      if (request.pilot === true) {
+        throw new ReplayRefused(
+          'REPLAY_NO_PILOT',
+          'A replay loads no pilot: preview it, then replay it whole. Nothing was read or written.',
+        );
+      }
+      return await this.replaySourceOf(request.targetOrgId, request.replay, reads);
+    } catch (err: unknown) {
+      const code = this.errorCodeFor(err, 'REPLAY_ERROR');
+      onRefused?.(code);
+      const detail = this.errorDetailOf(err);
+      sendHandlerError(this.deps, msg.type, errorType, msg, err, {
+        code,
+        retryable: err instanceof TimeoutError,
+        ...(detail ? { extraPayload: detail } : {}),
+      });
+      return undefined;
+    }
+  }
+
+  /** The project's dataset and sas, as its saved configuration names them. */
+  private datasetSource(config: FrozenProjectConfig, targetOrgId: string): LoadSource {
+    const sasDir = (guard: SasPathGuard): string =>
+      guard.assertOutsideRepo(this.resolveSasDir(config));
+    return {
+      config,
+      sasDir,
+      mappingStore: (guard) => this.mappingStoreFor(sasDir(guard), targetOrgId, guard),
+      read: async (guard) => {
+        const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
+        const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
+        return { dataset, manifest, datasetDir, label: manifest.version };
+      },
+    };
+  }
+
+  /**
+   * A checkpoint replayed into the org a request names, its own org never
+   * asked: the target's tier first — never a production org nor a sandbox
+   * marked Staging, before anything of it is read —, then which org it is,
+   * then, to be loaded, previewed or verified, the checkpoint as this machine
+   * keeps it and the replay's guards (`replaySourceRefusal`): the
+   * checkpoint's own org, real data unmasked, too many records. Its
+   * conversion is read with the source (`LoadSource.read`), the other org
+   * read for it as the load reads it. Everything its loads write is kept in
+   * the folder of the checkpoint's replays, under the Organization Id the
+   * other org answered with.
+   */
+  private async replaySourceOf(
+    targetOrgId: string,
+    request: FrozenReplayRequest,
+    reads: 'checkpoint' | 'mapping',
+  ): Promise<LoadSource> {
+    assertLoadTier({ orgId: targetOrgId, orgTier: this.targetTier(targetOrgId) });
+    const stores = this.replayStoresInUse();
+    const folder = stores.replays.folderOf(request.organizationId, request.checkpointId);
+    const target = await this.replayTargetOf(targetOrgId);
+    const targetKey = organizationKey(target.organizationId);
+    const replay: ReplayLoad = {
+      folder,
+      target,
+      contractPath: stores.replays.contractPathOf(folder, targetKey),
+    };
+    const mappingStore = (guard: SasPathGuard): SasReferenceIdMappingStore =>
+      new ReplayMappingStore(
+        folder.dir,
+        { guard, orgId: targetKey, organizationId: target.organizationId },
+        targetOrgId,
+      );
+    if (reads === 'mapping') {
+      return {
+        config: replayConfigOf(request.config, undefined),
+        sasDir: () => folder.dir,
+        mappingStore,
+        read: () => Promise.reject(new Error('A removal of a replay reads no checkpoint')),
+        replay,
+      };
+    }
+    const kept = await this.replayedCheckpointOf(stores, request);
+    // A verification is of the replay as it was asked last, unless told.
+    const choices =
+      request.choices ??
+      (await stores.replays.read(folder))?.targets.find((each) => each.organizationId === targetKey)
+        ?.choices;
+    if (choices === undefined) {
+      throw new ReplayRefused(
+        'NO_LOAD',
+        `No replay of checkpoint ${request.checkpointId} into ${target.name} is recorded on this ` +
+          'machine: replay it there first, then verify. Nothing was read or written.',
+        { checkpoint: request.checkpointId, target: target.name },
+      );
+    }
+    const refused = replaySourceRefusal({
+      checkpoint: kept.checkpoint,
+      checkpointId: request.checkpointId,
+      choices,
+      target,
+    });
+    if (refused) throw new ReplayRefused(refused.code, refused.message, refused.params);
+    if (kept.checkpoint === undefined) {
+      throw new ReplayRefused('REPLAY_CHECKPOINT_UNUSABLE', 'The checkpoint does not read.');
+    }
+    const checkpoint = kept.checkpoint;
+    replay.checkpoint = { checkpoint, folder: kept.folder, annex: kept.annex };
+    replay.choices = choices;
+    return {
+      config: replayConfigOf(request.config, choices),
+      sasDir: () => folder.dir,
+      mappingStore,
+      read: async () => {
+        replay.converted ??= await this.convertReplay(replay, choices, targetOrgId);
+        return { dataset: replay.converted.conversion.dataset, label: checkpoint.name };
+      },
+      replay,
+    };
+  }
+
+  /**
+   * The checkpoint a replay names, as one of {@link FrozenReplayStores} keeps
+   * it, with its annex: undefined for one taken before 1.81. A checkpoint
+   * whose file does not read is told by its folder alone, which the replay's
+   * guard refuses; one whose annex does not read is refused here.
+   */
+  private async replayedCheckpointOf(
+    stores: FrozenReplayStores,
+    request: FrozenReplayRef,
+  ): Promise<{
+    checkpoint?: OrgCheckpoint;
+    folder: CheckpointFolder;
+    annex: CheckpointReplayAnnex | undefined;
+  }> {
+    for (const store of stores.checkpoints()) {
+      const read = (await store.checkpointsOf(request.organizationId)).find(
+        (each) => each.folder.checkpointId === request.checkpointId,
+      );
+      if (read === undefined) continue;
+      if (read.checkpoint === undefined) return { folder: read.folder, annex: undefined };
+      try {
+        return {
+          checkpoint: read.checkpoint,
+          folder: read.folder,
+          annex: await readReplayAnnex(read.folder),
+        };
+      } catch (err: unknown) {
+        if (!(err instanceof CheckpointStoreError)) throw err;
+        throw new ReplayRefused(
+          'REPLAY_CHECKPOINT_UNUSABLE',
+          `${err.message}: what checkpoint '${read.checkpoint.name}' says of its record types, ` +
+            'users and catalogue cannot be told. Nothing was read or written.',
+          { checkpoint: read.checkpoint.name, why: 'damaged' },
+        );
+      }
+    }
+    throw new ReplayRefused(
+      'CHECKPOINT_NOT_FOUND',
+      `No checkpoint ${request.checkpointId} of org ${request.organizationId} is kept on this ` +
+        'machine: import its file first, or name one the checkpoint list shows. Nothing was ' +
+        'read or written.',
+      { checkpoint: request.checkpointId },
+    );
+  }
+
+  /**
+   * The other org of a replay, as it answers once connected: its Organization
+   * Id, the user the replay writes as, and what tells it for the sandbox a
+   * checkpoint was of, refreshed since — its username, its My Domain, the
+   * Organization Ids its registered entry had before a refresh the panel saw.
+   */
+  private async replayTargetOf(targetOrgId: string): Promise<ReplayTargetIdentity> {
+    const access = this.buildTargetOrgAccess();
+    const name = this.orgNameOf(targetOrgId);
+    const [row] = await access.query(targetOrgId, 'SELECT Id FROM Organization');
+    if (typeof row?.Id !== 'string') {
+      throw new Error(`${name} did not say which org it is: nothing was read or written.`);
+    }
+    const organizationId = row.Id;
+    const runningUserId = await access.userId?.(targetOrgId);
+    if (runningUserId === undefined) {
+      throw new Error(`${name} did not say which user the replay writes as.`);
+    }
+    const org = this.deps.orgManager.getOrg(targetOrgId);
+    const detector = this.deps.sandboxRefreshes;
+    const former = [
+      org?.orgId,
+      detector?.organizationIdOf(targetOrgId),
+      ...(detector?.refreshesOf(targetOrgId).map((refresh) => refresh.previousOrganizationId) ??
+        []),
+    ].filter(
+      (id): id is string =>
+        typeof id === 'string' && id.slice(0, 15) !== organizationId.slice(0, 15),
+    );
+    return {
+      name,
+      organizationId,
+      runningUserId,
+      ...(org?.username ? { username: org.username } : {}),
+      ...(org?.instanceUrl ? { instanceUrl: org.instanceUrl } : {}),
+      formerOrganizationIds: [...new Set(former)],
+      tier:
+        org?.orgType === 'Sandbox'
+          ? 'sandbox'
+          : org?.orgType === 'Scratch'
+            ? 'scratch'
+            : 'developer',
+    };
+  }
+
+  /**
+   * The checkpoint converted for the other org (`convertCheckpoint`), read
+   * through the access the load reads it with: refused when the owners
+   * chosen are users it will not give records to.
+   */
+  private async convertReplay(
+    replay: ReplayLoad,
+    choices: CheckpointReplayChoices,
+    targetOrgId: string,
+  ): Promise<{ conversion: ReplayConversion; target: ReplayTarget }> {
+    const kept = replay.checkpoint;
+    if (kept === undefined) throw new Error('The checkpoint of the replay was not read');
+    const converted = await convertCheckpoint({
+      folder: kept.folder,
+      checkpoint: kept.checkpoint,
+      annex: kept.annex,
+      choices,
+      access: this.buildTargetOrgAccess(),
+      orgId: targetOrgId,
+      organizationId: replay.target.organizationId,
+      runningUserId: replay.target.runningUserId,
+      tier: replay.target.tier,
+      ...(replay.target.username !== undefined ? { username: replay.target.username } : {}),
+      targetName: replay.target.name,
+    });
+    if ('refusal' in converted) {
+      throw new ReplayRefused(converted.refusal.code, converted.refusal.message, {
+        users: converted.refusal.users.join(', '),
+      });
+    }
+    return { conversion: converted.conversion, target: converted.target };
+  }
+
+  /**
+   * What a replay says beside its plan or its report (`FrozenReplayInfo`):
+   * the records the other org links by their keys counted apart from those
+   * it creates.
+   */
+  private replayInfoOf(
+    replay: ReplayLoad,
+    linkedByKey: number,
+    storage?: FrozenReplayInfo['storage'],
+  ): FrozenReplayInfo | undefined {
+    const kept = replay.checkpoint;
+    const converted = replay.converted;
+    if (kept === undefined || converted === undefined || replay.choices === undefined) {
+      return undefined;
+    }
+    const { checkpoint } = kept;
+    const { summary, filesLeft } = converted.conversion;
+    return {
+      checkpoint: {
+        checkpointId: checkpoint.checkpointId,
+        name: checkpoint.name,
+        organizationId: checkpoint.org.organizationId,
+        ...(checkpoint.org.alias !== undefined ? { alias: checkpoint.org.alias } : {}),
+        takenAt: checkpoint.takenAt,
+        tier: checkpoint.org.tier,
+        annex: kept.annex !== undefined,
+      },
+      target: {
+        organizationId: organizationKey(replay.target.organizationId),
+        name: replay.target.name,
+      },
+      choices: replay.choices,
+      summary: {
+        ...summary,
+        records: {
+          ...summary.records,
+          toCreate: Math.max(0, summary.records.toCreate - linkedByKey),
+          linkedByKey,
+        },
+      },
+      filesLeft: filesLeft.map(({ objectApiName, name }) => ({
+        objectApiName,
+        ...(name !== undefined ? { name } : {}),
+      })),
+      ...(storage ? { storage } : {}),
+      requests: converted.target.requests,
+    };
+  }
+
+  /**
+   * The data storage a replay's records take against what the other org has
+   * left, as its load's gate counts them, and the refusal its replay would
+   * meet past it (`FROZEN_STORAGE_EXCEEDED`): said by its dry run, which a
+   * Frozen preview does not say. Undefined when the org would not say.
+   */
+  private async replayStorageOf(input: {
+    conn: LimitsTransport;
+    dataset: FrozenDataset;
+    purged?: LoadRequestsInput['purged'];
+    targetOrgId: string;
+  }): Promise<FrozenReplayInfo['storage']> {
+    const limits = await readDataStorage(input.conn).catch(() => undefined);
+    if (limits === undefined) return undefined;
+    const over = loadStorageRefusal({
+      dataset: input.dataset,
+      storage: limits,
+      ...(input.purged ? { purged: input.purged } : {}),
+      target: this.orgNameOf(input.targetOrgId),
+      replay: true,
+    });
+    const MB = 1024 * 1024;
+    const estimateMB =
+      over?.storage.estimateMB ??
+      input.dataset.objects.reduce(
+        (sum, object) =>
+          sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
+        0,
+      ) / MB;
+    return {
+      estimateMB,
+      remainingMB: limits.remainingMB,
+      maxMB: limits.maxMB,
+      ...(over?.storage.freedMB !== undefined ? { freedMB: over.storage.freedMB } : {}),
+      ...(over ? { refusal: { code: FROZEN_STORAGE_EXCEEDED, message: over.message } } : {}),
+    };
   }
 
   // ── frozen:select ──────────────────────────────────────────────────────
@@ -2959,14 +3594,27 @@ export class FrozenDatasetHandler implements DomainHandler {
   private async handleLoad(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(frozenLoadPayloadSchema, msg, 'frozen:load:error', this.deps);
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:load:error');
-    if (!config) return;
+    // A replay refused before it started — its checkpoint, its target, the
+    // data it holds — is recorded as one a check of its own stopped.
+    const source = await this.sourceOf(msg, parsed, 'frozen:load:error', 'checkpoint', (code) =>
+      recordWriteRun(this.deps, {
+        action: 'checkpoint_replay',
+        module: 'checkpoint',
+        operationId: msg.id,
+        orgId: parsed.targetOrgId,
+        outcome: 'stopped',
+        code,
+      }),
+    );
+    if (!source) return;
+    const { config } = source;
+    const audited = auditedAs(source);
+    const replay = source.replay;
     const productionGuard = this.deps.infraServices?.productionGuard;
     if (!productionGuard) {
       // No run was minted: the request's id stands in, as for a guard refusal.
       recordWriteRun(this.deps, {
-        action: 'frozen_load',
-        module: 'frozen',
+        ...audited,
         operationId: msg.id,
         orgId: parsed.targetOrgId,
         outcome: 'stopped',
@@ -2985,15 +3633,14 @@ export class FrozenDatasetHandler implements DomainHandler {
     // A reload takes the loads before it back whole, or does not start:
     // nothing purged, nothing inserted. Refused so, it is recorded as a load
     // a check of its own stopped before it started.
-    const replaced = await this.replaceRefusal(parsed, config);
+    const replaced = await this.replaceRefusal(parsed, source);
     const notReplaced = replaced && 'error' in replaced ? replaced : undefined;
     /** What the purge takes along that came with the loads' records: said with it. */
     const purgeTakesAlong = replaced && 'cameAlong' in replaced ? replaced.cameAlong : undefined;
     if (notReplaced) {
       if (notReplaced.code === REPLACE_LEAVES_RECORDS) {
         recordWriteRun(this.deps, {
-          action: 'frozen_load',
-          module: 'frozen',
+          ...audited,
           operationId: msg.id,
           orgId: parsed.targetOrgId,
           outcome: 'stopped',
@@ -3012,11 +3659,15 @@ export class FrozenDatasetHandler implements DomainHandler {
     // as Live Operations' does. Minted here, it was an id the page never saw,
     // and the Load tab could not stop the load it started.
     const operationId = msg.id;
-    const description = parsed.pilot ? 'Pilot load (one root folder)' : 'Loading frozen dataset';
-    sendOperationStarted(this.deps, operationId, 'frozen', description);
+    const description = replay
+      ? `Replaying checkpoint '${replay.checkpoint?.checkpoint.name ?? ''}'`
+      : parsed.pilot
+        ? 'Pilot load (one root folder)'
+        : 'Loading frozen dataset';
+    sendOperationStarted(this.deps, operationId, audited.module, description);
     // Listed in Live Operations while it runs, where Cancel reaches the
     // registry's controller below, as a Sync or a Seed run is.
-    this.liveTracker?.register(operationId, 'frozen', description);
+    this.liveTracker?.register(operationId, audited.module, description);
     /** Whether the load's end was posted: the verification chained after it cannot post another. */
     let ended = false;
     /** Whether the verification chained after it runs: its steps are no step of the load's in Live Operations. */
@@ -3033,7 +3684,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     // The registry attaches its own handlers; this only prevents an unhandled
     // rejection when no registry has been injected.
     tracked.catch(() => {});
-    this.registry?.register(operationId, 'frozen', description, tracked, abortController);
+    this.registry?.register(operationId, audited.module, description, tracked, abortController);
 
     // Throttle load progress events to ~10/s (same rationale as forge).
     const throttledProgress = throttleProgress((event: FrozenLoadProgressEvent) => {
@@ -3088,19 +3739,28 @@ export class FrozenDatasetHandler implements DomainHandler {
             ).emails,
           )
         : {};
+      // A replay says what its checkpoint's org was, whether it masked, and
+      // the declaration that lifted a refusal on the person's word alone.
+      const replaySaid =
+        replay?.checkpoint && replay.choices
+          ? {
+              replayCheckpoint: replay.checkpoint.checkpoint.checkpointId,
+              ...replayAuditDetails(replay.checkpoint.checkpoint, replay.choices, replay.target),
+            }
+          : {};
       const details = {
         ...(marked ? { sas: sasMark, startedAt, ...(lastWriteAt ? { lastWriteAt } : {}) } : {}),
         ...emailsSaid,
+        ...replaySaid,
       };
       recordWriteRun(this.deps, {
-        action: 'frozen_load',
-        module: 'frozen',
+        ...audited,
         operationId,
         orgId: parsed.targetOrgId,
         outcome,
         guard: guardDecision,
         objects,
-        source: { origin: 'dataset', label: datasetLabel },
+        source: { origin: replay ? 'checkpoint' : 'dataset', label: datasetLabel },
         carried,
         ...(code ? { code } : {}),
         ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
@@ -3125,11 +3785,10 @@ export class FrozenDatasetHandler implements DomainHandler {
 
     try {
       const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const sasDir = source.sasDir(guard);
       sasMark = sasMarkOf(sasDir);
-      const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
-      const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
-      datasetLabel = manifest.version;
+      const { dataset, manifest, datasetDir, label } = await source.read(guard);
+      datasetLabel = label;
 
       const orgAccess = this.buildTargetOrgAccess();
       const conn = await getJsforceConnection(
@@ -3156,7 +3815,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const mockDetector = config.mockDetection
         ? new CustomMetadataCalloutMockDetector(orgAccess, config.mockDetection)
         : { areCalloutsMocked: async (): Promise<boolean> => true };
-      const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const mappingStore = source.mappingStore(guard);
       const targetClock = removalOrg(conn, 'frozen:load');
 
       const loader = new FrozenDatasetLoader({
@@ -3203,6 +3862,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           signal: abortController.signal,
           guard: productionGuard,
           operationId,
+          audit: removalAuditOf(source),
         });
         for (const { sweep } of sweeps) await sweep.ask();
       }
@@ -3350,6 +4010,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             storage: limits,
             ...(purged ? { purged } : {}),
             target: this.orgNameOf(parsed.targetOrgId),
+            ...(replay ? { replay: true } : {}),
           });
       if (overStorage) {
         throw new LoadStorageStop(overStorage.message, overStorage.storage, parsed.targetOrgId);
@@ -3364,9 +4025,20 @@ export class FrozenDatasetHandler implements DomainHandler {
         emails,
         orgId: parsed.targetOrgId,
         operation: `frozen:load ${operationId}`,
+        ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
       });
       if (apiJudged.refused) {
         throw new LoadBudgetStop(apiJudged.refused.message, apiJudged, parsed.targetOrgId);
+      }
+      // A replay keeps what it was asked once every gate let it through,
+      // before anything is taken for it: what lists it, and the folder its
+      // mapping goes in, outside the checkpoint's own.
+      if (replay?.checkpoint && replay.choices) {
+        await this.replayStoresInUse().replays.record(
+          replay.checkpoint.checkpoint,
+          { organizationId: replay.target.organizationId, name: replay.target.name },
+          replay.choices,
+        );
       }
       // The checkpoint, taken after the cost its preview said and before the
       // lease and the first write: refused, failed or stopped, the load
@@ -3397,6 +4069,14 @@ export class FrozenDatasetHandler implements DomainHandler {
           pilot: parsed.pilot ? {} : undefined,
           ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
           ...(parsed.maxRecords !== undefined ? { maxRecords: parsed.maxRecords } : {}),
+          // A replay links what its links name from its first load, and files
+          // its contract under the Organization Id its target answered with.
+          ...(replay
+            ? {
+                linkByKeys: true,
+                contractOrgId: organizationKey(replay.target.organizationId),
+              }
+            : {}),
           onProgress: (event) => throttledProgress(event),
           onGuardDecision: (decision) => {
             guardDecision = strongerDecision(guardDecision, decision);
@@ -3453,12 +4133,14 @@ export class FrozenDatasetHandler implements DomainHandler {
       // was to. Said after it, a load whose two opportunity products the
       // platform deleted once written ended a success, exit 0, above
       // "verification: FAILED". Posted after the load's end, as it was.
-      const manifestPath = path.join(datasetDir, 'manifest.json');
+      // A replay has no manifest to write the verdict into.
+      const manifestPath =
+        datasetDir !== undefined ? path.join(datasetDir, 'manifest.json') : undefined;
       verifying = true;
       const verified = await this.verifyLoad({
         orgId: parsed.targetOrgId,
         contractPath: report.contractPath,
-        manifestPath,
+        ...(manifestPath !== undefined ? { manifestPath } : {}),
         dataset,
         mappingStore,
         config,
@@ -3481,15 +4163,19 @@ export class FrozenDatasetHandler implements DomainHandler {
         await frozenCarried(dataset, mappingStore),
       );
 
-      const lastRun: FrozenLastRun = {
-        contractPath: report.contractPath,
-        datasetDir,
-        manifestPath,
-        targetOrgId: parsed.targetOrgId,
-        status,
-        at: new Date().toISOString(),
-      };
-      this.recordLastRun(lastRun);
+      // A replay's last load is read from its mapping, never from the
+      // project's: kept here, it would stand for the project's dataset.
+      if (datasetDir !== undefined && manifestPath !== undefined) {
+        const lastRun: FrozenLastRun = {
+          contractPath: report.contractPath,
+          datasetDir,
+          manifestPath,
+          targetOrgId: parsed.targetOrgId,
+          status,
+          at: new Date().toISOString(),
+        };
+        this.recordLastRun(lastRun);
+      }
 
       const info = toLoadReportInfo(report);
       // Said only of an object the purge did delete records of: one it never
@@ -3516,6 +4202,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(automationJudged ? { automation: automationJudged } : {}),
           ...(apiJudged ? { apiRequests: apiJudged } : {}),
         },
+        ...(replay ? replayPart(this.replayInfoOf(replay, linkedOfReport(report, dataset))) : {}),
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { status });
@@ -3619,6 +4306,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // the gate on the emails, and the one on the API requests.
       const refusedFirst =
         isMuteRefusedError(err) ||
+        err instanceof ReplayRefused ||
         err instanceof RemovalStopped ||
         err instanceof LoadEmailsStop ||
         err instanceof LoadAutomationStop ||
@@ -3961,9 +4649,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:load:preview:error');
-    if (!config) return;
-    const replaced = await this.replaceRefusal(parsed, config, parsed.goneFirst);
+    const source = await this.sourceOf(msg, parsed, 'frozen:load:preview:error', 'checkpoint');
+    if (!source) return;
+    const { config, replay } = source;
+    const replaced = await this.replaceRefusal(parsed, source, parsed.goneFirst);
     const notReplaced = replaced && 'error' in replaced ? replaced : undefined;
     if (notReplaced) {
       sendHandlerError(
@@ -3978,9 +4667,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
     try {
       const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
-      const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
+      const sasDir = source.sasDir(guard);
+      const { dataset, manifest } = await source.read(guard);
       const orgAccess = this.buildTargetOrgAccess();
       const conn = await getJsforceConnection(
         parsed.targetOrgId,
@@ -3996,7 +4684,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           ? new CustomMetadataCalloutMockDetector(orgAccess, config.mockDetection)
           : { areCalloutsMocked: async (): Promise<boolean> => true },
         recordTypeResolver: new TargetRecordTypeIdResolver(orgAccess),
-        mappingStore: this.mappingStoreFor(sasDir, parsed.targetOrgId, guard),
+        mappingStore: source.mappingStore(guard),
         config: this.toLoadConfig(config),
         sasGuard: guard,
         serverTime: () => targetClock.serverTime(),
@@ -4038,6 +4726,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         reload: parsed.reload,
         pilot: parsed.pilot ? {} : undefined,
         ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
+        ...(replay ? { linkByKeys: true } : {}),
       });
       // Asked for the checkpoint first, the preview says what it would hold
       // and cost, and the refusal a load would meet: Frozen has no question
@@ -4062,15 +4751,33 @@ export class FrozenDatasetHandler implements DomainHandler {
       // refused would have a plan apply what it cannot.
       // So are the API requests it would take of the target, counted as its
       // gate counts them, the checkpoint said above among them.
+      const store = source.mappingStore(guard);
       const { emails, automation, apiRequests } = await this.previewWhatRuns({
         conn,
         orgId: parsed.targetOrgId,
         dataset,
-        store: this.mappingStoreFor(sasDir, parsed.targetOrgId, guard),
+        store,
         config,
         parsed,
         ...(checkpoint ? { checkpoint } : {}),
+        ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
       });
+      // A replay says what does not go across as it was, and the data
+      // storage its records take, with the refusal its replay would meet.
+      const replayInfo = replay
+        ? this.replayInfoOf(
+            replay,
+            plan.perObject.reduce((sum, object) => sum + object.reusedByKeys, 0),
+            await this.replayStorageOf({
+              conn,
+              dataset,
+              ...(parsed.reload === true
+                ? { purged: await this.purgedOf(store, config).catch(() => []) }
+                : {}),
+              targetOrgId: parsed.targetOrgId,
+            }),
+          )
+        : undefined;
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:load:preview:response', {
           plan: {
@@ -4080,6 +4787,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ...(automation ? { automation } : {}),
             ...(apiRequests ? { apiRequests } : {}),
           },
+          ...replayPart(replayInfo),
         }),
       );
     } catch (err: unknown) {
@@ -4114,6 +4822,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     };
     /** What the checkpoint asked first would take, as the preview scoped it. */
     checkpoint?: Pick<RunCheckpointEstimate, 'estimate'>;
+    /** The requests a replay's reads of the target took: see `loadApiCheck`. */
+    replayReads?: number;
   }): Promise<{
     emails?: FrozenLoadEmailsInfo;
     automation?: FrozenLoadAutomationInfo;
@@ -4175,6 +4885,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(emails ? { emails } : {}),
         orgId: input.orgId,
         operation: 'frozen:load:preview',
+        ...(input.replayReads !== undefined ? { replayReads: input.replayReads } : {}),
       }).catch((err: unknown) => {
         logger.warn(
           `Frozen preview: the API requests could not be judged (${extractErrorMessage(err)})`,
@@ -4198,18 +4909,20 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   private async handleVerify(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
-      frozenVerifyPayloadSchema,
+      frozenVerifyReplayPayloadSchema,
       msg,
       'frozen:verify:error',
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:verify:error');
-    if (!config) return;
+    const source = await this.sourceOf(msg, parsed, 'frozen:verify:error', 'checkpoint');
+    if (!source) return;
+    const { config, replay } = source;
     // The last load into the org asked about: a load into another org since
-    // leaves it its contract, its mapping and its dataset.
-    const lastRun = this.lastRunOf(parsed.targetOrgId);
-    if (!lastRun) {
+    // leaves it its contract, its mapping and its dataset. A replay's is
+    // read from its own mapping and contract, in the folder of its replays.
+    const lastRun = replay ? undefined : this.lastRunOf(parsed.targetOrgId);
+    if (!replay && !lastRun) {
       sendHandlerError(
         this.deps,
         'frozen:verify',
@@ -4230,43 +4943,60 @@ export class FrozenDatasetHandler implements DomainHandler {
 
     try {
       const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      // The sas first: the last load's contract is in the sas it wrote to,
-      // and still there unless that sas was moved, emptied or replaced. With
-      // `sasDir` set to another since, every refusal below described that
-      // other sas's mapping — a refresh, a removal, no mapping at all — and a
-      // sas moved there rather than copied ended on the contract it took with
-      // it, as a file that could not be read. Told by its folder: a load
-      // recorded when the sas kept one contract for every org names that one.
-      const sasChanged =
-        path.dirname(lastRun.contractPath) !==
-        path.dirname(countingContractPath(guard, sasDir, parsed.targetOrgId));
-      const contractThere = await pathExists(lastRun.contractPath);
-      if (sasChanged || !contractThere) {
-        const loadSas = path.dirname(lastRun.contractPath);
-        let message: string;
-        if (!sasChanged) {
-          message = `The sas changed since the last load: ${sasDir} no longer holds the counting contract the last load wrote there. Load the dataset again, then verify.`;
-        } else if (contractThere) {
-          message = `The sas directory changed since the last load: its counting contract is in ${loadSas}, and the mapping read is the one in ${sasDir}. Set sasDir back to the sas the load wrote to, or load the dataset again, then verify.`;
-        } else {
-          message = `The sas directory changed since the last load: the load wrote to ${loadSas}, which no longer holds its counting contract, and the mapping read is the one in ${sasDir}. Move the sas back to ${loadSas} and set sasDir to it, or load the dataset again, then verify.`;
-        }
-        // With the folders, for the panel to say the same in its words.
+      const contractPath = lastRun?.contractPath ?? replay?.contractPath ?? '';
+      if (replay && !(await pathExists(contractPath))) {
         sendHandlerError(
           this.deps,
           'frozen:verify',
           'frozen:verify:error',
           msg,
-          new Error(message),
-          {
-            code: 'SAS_CHANGED',
-            extraPayload: { sasDir, loadSas, sasMoved: sasChanged, contractThere },
-          },
+          new Error(
+            `No replay of this checkpoint into ${replay.target.name} wrote its counting contract on ` +
+              'this machine: replay it there, then verify.',
+          ),
+          { code: 'NO_LOAD' },
         );
         return;
       }
-      const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      if (lastRun) {
+        const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+        // The sas first: the last load's contract is in the sas it wrote to,
+        // and still there unless that sas was moved, emptied or replaced. With
+        // `sasDir` set to another since, every refusal below described that
+        // other sas's mapping — a refresh, a removal, no mapping at all — and a
+        // sas moved there rather than copied ended on the contract it took with
+        // it, as a file that could not be read. Told by its folder: a load
+        // recorded when the sas kept one contract for every org names that one.
+        const sasChanged =
+          path.dirname(lastRun.contractPath) !==
+          path.dirname(countingContractPath(guard, sasDir, parsed.targetOrgId));
+        const contractThere = await pathExists(lastRun.contractPath);
+        if (sasChanged || !contractThere) {
+          const loadSas = path.dirname(lastRun.contractPath);
+          let message: string;
+          if (!sasChanged) {
+            message = `The sas changed since the last load: ${sasDir} no longer holds the counting contract the last load wrote there. Load the dataset again, then verify.`;
+          } else if (contractThere) {
+            message = `The sas directory changed since the last load: its counting contract is in ${loadSas}, and the mapping read is the one in ${sasDir}. Set sasDir back to the sas the load wrote to, or load the dataset again, then verify.`;
+          } else {
+            message = `The sas directory changed since the last load: the load wrote to ${loadSas}, which no longer holds its counting contract, and the mapping read is the one in ${sasDir}. Move the sas back to ${loadSas} and set sasDir to it, or load the dataset again, then verify.`;
+          }
+          // With the folders, for the panel to say the same in its words.
+          sendHandlerError(
+            this.deps,
+            'frozen:verify',
+            'frozen:verify:error',
+            msg,
+            new Error(message),
+            {
+              code: 'SAS_CHANGED',
+              extraPayload: { sasDir, loadSas, sasMoved: sasChanged, contractThere },
+            },
+          );
+          return;
+        }
+      }
+      const mappingStore = source.mappingStore(guard);
       // Verified against a sandbox refreshed since the load, every record
       // would read as missing, and the verdict would blame the load.
       if (await mappingStore.isStale()) {
@@ -4327,7 +5057,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // command line both offer. It said to load the dataset again, and a load
       // that is not a reload writes it again beside what the stopped load
       // wrote, which stays in the org.
-      if (!contractCountsLoad(readCountingContract(guard, lastRun.contractPath), last)) {
+      if (!contractCountsLoad(readCountingContract(guard, contractPath), last)) {
         sendHandlerError(
           this.deps,
           'frozen:verify',
@@ -4340,11 +5070,15 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return;
       }
-      const { dataset } = await this.readFrozenDataset(lastRun.datasetDir, guard);
+      // A replay's records are told by its checkpoint converted again, as the
+      // replay asked: its person accounts' contacts are checked with them.
+      const { dataset } = lastRun
+        ? await this.readFrozenDataset(lastRun.datasetDir, guard)
+        : await source.read(guard);
       await this.runVerification(msg, {
         orgId: parsed.targetOrgId,
-        contractPath: lastRun.contractPath,
-        manifestPath: lastRun.manifestPath,
+        contractPath,
+        ...(lastRun ? { manifestPath: lastRun.manifestPath } : {}),
         dataset,
         mappingStore,
         config,
@@ -4373,7 +5107,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private async verifyLoad(args: {
     orgId: string;
     contractPath: string;
-    manifestPath: string;
+    /** The manifest the verdict is written into: none for a replay. */
+    manifestPath?: string;
     dataset: FrozenDataset;
     mappingStore: SasReferenceIdMappingStore;
     config: FrozenProjectConfig;
@@ -4392,7 +5127,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         mapping,
         mandatoryLookups: args.config.mandatoryLookups,
         presenceKeys: args.config.presenceKeys,
-        manifestPath: args.manifestPath,
+        ...(args.manifestPath !== undefined ? { manifestPath: args.manifestPath } : {}),
         author: 'sandforge',
         onProgress: args.onProgress,
       });
@@ -4466,17 +5201,15 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:remove:error');
-    if (!config) return;
+    const source = await this.sourceOf(msg, parsed, 'frozen:remove:error', 'mapping');
+    if (!source) return;
     const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
 
     let store: SasReferenceIdMappingStore;
     let recorded: RecordedLoad[];
     let load: RecordedLoad | undefined;
     try {
-      const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      store = source.mappingStore(new SasPathGuard());
       recorded = await store.recordedLoads();
       load = loadToRemove(recorded);
     } catch (err: unknown) {
@@ -4519,6 +5252,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         alongside: parsed.sweep === true ? loadsSweptWith(recorded, load) : [],
         muteAutomation: parsed.muteAutomation === true,
         pending,
+        audit: removalAuditOf(source),
       });
     } finally {
       this.removing.delete(claim);
@@ -4549,12 +5283,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:remove:automation:error');
-    if (!config) return;
+    const source = await this.sourceOf(msg, parsed, 'frozen:remove:automation:error', 'mapping');
+    if (!source) return;
+    const { config } = source;
     try {
-      const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const store = source.mappingStore(new SasPathGuard());
       let steps: ForgeRemovalSteps;
       /** The purge's own steps, said apart from what the reload's sweep deletes. */
       let purge: ForgeRemovalSteps | undefined;
@@ -4657,8 +5390,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:remove:preview:error');
-    if (!config) return;
+    const source = await this.sourceOf(msg, parsed, 'frozen:remove:preview:error', 'mapping');
+    if (!source) return;
     const fail = (err: unknown, code: string, retryable = false): void =>
       sendHandlerError(
         this.deps,
@@ -4672,9 +5405,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         },
       );
     try {
-      const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const store = source.mappingStore(new SasPathGuard());
       const load = loadToRemove(await store.recordedLoads());
       const refused = removalRefusalOf(load, parsed);
       if (refused || !load) {
@@ -4855,7 +5586,7 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   private async replaceRefusal(
     request: { targetOrgId: string; reload?: boolean; pilot?: boolean; sweep?: boolean },
-    config: FrozenProjectConfig,
+    source: Pick<LoadSource, 'mappingStore'>,
     goneFirst: readonly string[] = [],
   ): Promise<
     | { error: unknown; code: string; retryable: boolean }
@@ -4866,9 +5597,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     let refusal: string | undefined;
     const cameAlong: NonNullable<FrozenLoadReportInfo['purge']['cameAlong']> = {};
     try {
-      const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const store = this.mappingStoreFor(sasDir, request.targetOrgId, guard);
+      const store = source.mappingStore(new SasPathGuard());
       const loads = await store.recordedLoads();
       if (loads.length === 0 || (await store.isStale())) return undefined;
       if (loads.some((load) => !load.created)) {
@@ -4968,9 +5697,12 @@ export class FrozenDatasetHandler implements DomainHandler {
       muteAutomation: boolean;
       /** The hold a cancel of the removal before it started reaches. */
       pending?: PendingStart;
+      /** What its entries say of the load: a Frozen load's unless told. */
+      audit?: RemovalAudit;
     },
   ): Promise<void> {
     const { store, load, plan, includeChanged, sweep, pending } = args;
+    const audit: RemovalAudit = args.audit ?? { module: 'frozen' };
     const orgId = load.orgId;
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
@@ -4981,7 +5713,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!productionGuard) {
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId: msg.id,
         orgId,
         outcome: 'stopped',
@@ -5009,7 +5741,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // No removal started: recorded under the id of the request, which a removal runs under.
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId: msg.id,
         orgId,
         outcome: 'stopped',
@@ -5042,7 +5774,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       if (!pending?.signal.aborted) return false;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId: msg.id,
         orgId,
         outcome: 'stopped',
@@ -5071,7 +5803,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     } catch (err: unknown) {
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId: msg.id,
         orgId,
         outcome: 'failure',
@@ -5086,7 +5818,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (stale) {
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId: msg.id,
         orgId,
         outcome: 'stopped',
@@ -5146,6 +5878,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             includeChanged,
             sweepLate: args.sweepLate === true,
             sweepUntied: args.sweepUntied === true,
+            audit,
             signal: abortController.signal,
             guard: productionGuard,
             operationId,
@@ -5168,6 +5901,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             includeChanged,
             sweepLate: args.sweepLate === true,
             sweepUntied: args.sweepUntied === true,
+            audit,
             signal: abortController.signal,
             guard: productionGuard,
             // One entry per load swept, apart in the audit trail.
@@ -5309,7 +6043,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       if (total > 0) {
         recordWriteRun(this.deps, {
           action: 'cleanup_delete',
-          module: 'frozen',
+          module: audit.module,
           operationId,
           orgId,
           outcome: removalAuditOutcome({ status: ownStatus }),
@@ -5403,7 +6137,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         isMuteRefusedError(error) || error instanceof RemovalStopped ? error : undefined;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
-        module: 'frozen',
+        module: audit.module,
         operationId,
         orgId,
         outcome: stopped ? 'stopped' : 'failure',
@@ -5439,6 +6173,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       signal: AbortSignal;
       guard: ProductionGuard;
       operationId: string;
+      /** What the sweeps' entries say of the loads: a Frozen load's unless told. */
+      audit?: RemovalAudit;
     } & ReloadSweepAsked,
   ): Promise<SweepOfALoad[]> {
     if (await context.store.isStale()) return [];
@@ -5474,6 +6210,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           muted: () => undefined,
           sweptWith,
           judged,
+          ...(context.audit ? { audit: context.audit } : {}),
         }),
       });
     }
@@ -5528,6 +6265,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     sweptWith: ReadonlySet<string>;
     /** How the run it is asked with judges what it did: a reload's (`reloadSweepJudged`). */
     judged?: (result: ForgeSweepResult) => ForgeSweepResult;
+    /** What its entry says of the load: a Frozen load's unless told. */
+    audit?: RemovalAudit;
   }): Promise<RemovalSweep> {
     const { conn, load } = context;
     return removalSweepOf({
@@ -5538,6 +6277,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           context.signal,
           context.store,
           context.sweptWith,
+          context.audit?.sasMark,
         ),
       org: sweepOrgOf(conn, 'frozen:remove sweep', context.signal),
       options: {
@@ -5560,7 +6300,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         const muted = context.muted();
         recordWriteRun(this.deps, {
           action: 'cleanup_delete',
-          module: 'frozen',
+          module: context.audit?.module ?? 'frozen',
           operationId: `${context.operationId}-sweep`,
           orgId: load.orgId,
           outcome: result.status === 'refused' ? 'stopped' : result.status,
@@ -5597,6 +6337,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     signal?: AbortSignal,
     store?: Pick<SasReferenceIdMappingStore, 'recordedLoads'>,
     sweptWith: ReadonlySet<string> = new Set(),
+    /** The mark of the sas the load wrote to: the project's unless given. */
+    sasMark: string | undefined = this.sasMarkInUse(),
   ): Promise<SweepInput> {
     const created = loadCreatedRecords(load);
     const reader = this.targetAutomation;
@@ -5615,7 +6357,13 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
     const writtenBetween = load.writtenBetween ?? (await seedWrittenBetween(org, created, signal));
     // The sweep takes only what is tied to the load's records.
-    const { ties, sweptAlong } = await this.tiesOfLoad(load, writtenBetween, store, sweptWith);
+    const { ties, sweptAlong } = await this.tiesOfLoad(
+      load,
+      writtenBetween,
+      store,
+      sweptWith,
+      sasMark,
+    );
     const remap = new Set(
       [...load.mapping.values(), ...sweptAlong].map((recordId) => recordId.slice(0, 15)),
     );
@@ -5677,6 +6425,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     writtenBetween: SweepInput['writtenBetween'],
     store: Pick<SasReferenceIdMappingStore, 'recordedLoads'> | undefined,
     sweptWith: ReadonlySet<string>,
+    sasMark: string | undefined,
   ): Promise<{ ties: SweepTies; sweptAlong: string[] }> {
     const others: LocalRun[] = [];
     const sweptAlong: string[] = [];
@@ -5698,7 +6447,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     // does not know: the audit trail records them with the sas they wrote to.
     others.push(
       ...otherSasRunsOf(this.auditedLoadsInto(load.orgId), {
-        sasMark: this.sasMarkInUse(),
+        sasMark,
         own: recorded.filter((other) => other.orgId === load.orgId),
       }),
     );
@@ -5730,8 +6479,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
-    const config = this.requireConfig(msg, 'frozen:remove:sweep:error');
-    if (!config) return;
+    const source = await this.sourceOf(msg, parsed, 'frozen:remove:sweep:error', 'mapping');
+    if (!source) return;
     const refuse = (message: string, code: string): void =>
       sendHandlerError(
         this.deps,
@@ -5742,11 +6491,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         { code },
       );
     try {
-      const guard = new SasPathGuard();
-      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const store = source.mappingStore(new SasPathGuard());
       if (parsed.reload === true) {
-        await this.listReloadSweeps(msg, store, parsed);
+        await this.listReloadSweeps(msg, store, parsed, removalAuditOf(source).sasMark);
         return;
       }
       const recorded = await store.recordedLoads();
@@ -5781,7 +6528,14 @@ export class FrozenDatasetHandler implements DomainHandler {
           const listOf = async (swept: RecordedLoad): Promise<ForgeSweepListing> =>
             listSweep(
               org,
-              await this.sweepInputOfLoad(org, swept, undefined, store, sweptWith),
+              await this.sweepInputOfLoad(
+                org,
+                swept,
+                undefined,
+                store,
+                sweptWith,
+                removalAuditOf(source).sasMark,
+              ),
               swept.removalSpans,
             );
           const others: FrozenReloadSweepListing[] = [];
@@ -5817,6 +6571,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     msg: InboundRequest,
     store: SasReferenceIdMappingStore,
     request: { targetOrgId: string; loadedAt: string },
+    /** The mark of the sas the loads wrote to: the project's unless given. */
+    sasMark?: string,
   ): Promise<void> {
     // A target refreshed since took the loads' records with it, and leaves a
     // sweep nothing to take: said as such, not as another load recorded since,
@@ -5855,7 +6611,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             loadedAt: load.endedAt,
             listing: await listSweep(
               org,
-              await this.sweepInputOfLoad(org, load, undefined, store, sweptWith),
+              await this.sweepInputOfLoad(org, load, undefined, store, sweptWith, sasMark),
               load.removalSpans,
             ),
           });

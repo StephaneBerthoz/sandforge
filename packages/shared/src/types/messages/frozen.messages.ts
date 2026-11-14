@@ -1,5 +1,10 @@
 import type { BaseMessage } from './base.messages.js';
-import type { RunCheckpointRequest } from '../checkpoint.types.js';
+import type {
+  CheckpointOrgTier,
+  CheckpointReplayChoices,
+  CheckpointReplaySummary,
+  RunCheckpointRequest,
+} from '../checkpoint.types.js';
 import type { ForgeSweepListing, ForgeTargetAutomation } from '../forge.types.js';
 import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
 import type {
@@ -79,9 +84,99 @@ export interface FrozenLoadRequest extends BaseMessage {
   payload: FrozenLoadOptionsPayload;
 }
 
+/**
+ * A checkpoint replayed into another org, which a load sets up in place of
+ * the Frozen project's dataset (`sandforge checkpoint replay`): named by the
+ * Organization Id of the org it was taken of and its id, as this machine
+ * keeps it. What its loads wrote is kept apart from the project's sas, in
+ * the folder of the checkpoint's replays, and no configuration of the
+ * project is read or saved.
+ */
+export interface FrozenReplayRef {
+  /** The Organization Id of the org the checkpoint was taken of. */
+  organizationId: string;
+  checkpointId: string;
+}
+
+/**
+ * What a replay's load is configured with, beside its choices
+ * (`--replay-config`): the load's part of the Frozen project's
+ * configuration, read for this replay alone.
+ */
+export type FrozenReplayLoadConfig = Pick<
+  FrozenProjectConfig,
+  | 'requiredFieldDefaults'
+  | 'requiredLookupPlaceholders'
+  | 'picklistRules'
+  | 'defaultPicklistRule'
+  | 'identityKeys'
+  | 'undeletableObjects'
+  | 'duplicateErrorPatterns'
+  | 'mockDetection'
+  | 'protectedOrgIds'
+>;
+
+/** A replay a load, its preview or its verification is asked of. */
+export interface FrozenReplayRequest extends FrozenReplayRef {
+  /**
+   * What the replay is asked. Required of a load and of its preview; a
+   * verification takes those of the last replay into the target unless given.
+   */
+  choices?: CheckpointReplayChoices;
+  config?: FrozenReplayLoadConfig;
+}
+
+/**
+ * What a replay says beside its load's plan or report: the checkpoint, the
+ * other org, and every record that does not go across as it was, so that a
+ * success hides nothing.
+ */
+export interface FrozenReplayInfo {
+  checkpoint: {
+    checkpointId: string;
+    name: string;
+    organizationId: string;
+    alias?: string;
+    takenAt: string;
+    tier: CheckpointOrgTier;
+    /** Whether its take kept the annex a replay reads (1.81 and later). */
+    annex: boolean;
+  };
+  /** The other org, by the Organization Id it answered with and the name it is given. */
+  target: { organizationId: string; name: string };
+  choices: CheckpointReplayChoices;
+  summary: CheckpointReplaySummary;
+  /**
+   * Each file left where it was, by its object and its title or name: a
+   * checkpoint keeps no file's content. Never by its id, which names a record
+   * of the checkpoint's org: no source id crosses the bridge.
+   */
+  filesLeft: Array<{ objectApiName: string; name?: string }>;
+  /**
+   * The data storage its records take against what the other org has left,
+   * and the refusal a replay would meet past it. Absent when the org would
+   * not say.
+   */
+  storage?: {
+    estimateMB: number;
+    remainingMB: number;
+    maxMB: number;
+    freedMB?: number;
+    refusal?: { code: string; message: string };
+  };
+  /** The requests its reads of the other org took, before the load's own. */
+  requests: number;
+}
+
 /** What a load, or its preview, is asked with. */
 export interface FrozenLoadOptionsPayload {
   targetOrgId: string;
+  /**
+   * A checkpoint replayed in place of the project's dataset: see
+   * {@link FrozenReplayRequest}. Its choices are required, and it loads no
+   * pilot.
+   */
+  replay?: FrozenReplayRequest;
   pilot?: boolean;
   reload?: boolean;
   writeEncrypted?: boolean;
@@ -157,7 +252,8 @@ export interface FrozenLoadPreviewRequest extends BaseMessage {
  */
 export interface FrozenVerifyRequest extends BaseMessage {
   type: 'frozen:verify';
-  payload: { targetOrgId: string };
+  /** `replay`: the last replay of a checkpoint into the org, verified against its own contract. */
+  payload: { targetOrgId: string; replay?: FrozenReplayRequest };
 }
 
 /**
@@ -205,6 +301,8 @@ export interface FrozenRemoveRequest extends BaseMessage {
      * delete to the end of the removal.
      */
     muteAutomation?: boolean;
+    /** A replay's load, removed from the mapping of the checkpoint's replays: the checkpoint need not be kept. */
+    replay?: FrozenReplayRef;
   };
 }
 
@@ -228,6 +326,8 @@ export interface FrozenRemoveAutomationRequest extends BaseMessage {
     sweptObjects?: string[];
     /** Read for a reload's purge, not for a removal of this load. */
     reload?: boolean;
+    /** A replay's load, read from the mapping of the checkpoint's replays. */
+    replay?: FrozenReplayRef;
   };
 }
 
@@ -249,6 +349,8 @@ export interface FrozenRemoveSweepRequest extends BaseMessage {
      * (`FrozenReloadSweepListing`), whichever of them `loadedAt` names.
      */
     reload?: boolean;
+    /** A replay's load, read from the mapping of the checkpoint's replays. */
+    replay?: FrozenReplayRef;
   };
 }
 
@@ -266,6 +368,8 @@ export interface FrozenRemovePreviewRequest extends BaseMessage {
     loadedAt: string;
     /** Count the records modified since the load among those a removal deletes. */
     includeChanged?: boolean;
+    /** A replay's load, read from the mapping of the checkpoint's replays. */
+    replay?: FrozenReplayRef;
   };
 }
 
@@ -377,13 +481,15 @@ export interface FrozenManifestGetResponse extends BaseMessage {
 /** `frozen:load:response`. Extension -> WebView. */
 export interface FrozenLoadResponse extends BaseMessage {
   type: 'frozen:load:response';
-  payload: { report: FrozenLoadReportInfo };
+  /** `replay`: what a replay of a checkpoint did beside the load's report. */
+  payload: { report: FrozenLoadReportInfo; replay?: FrozenReplayInfo };
 }
 
 /** `frozen:load:preview:response`. Extension -> WebView. What the load would do. */
 export interface FrozenLoadPreviewResponse extends BaseMessage {
   type: 'frozen:load:preview:response';
-  payload: { plan: FrozenLoadPlanInfo };
+  /** `replay`: what a replay of a checkpoint would do beside the load's plan. */
+  payload: { plan: FrozenLoadPlanInfo; replay?: FrozenReplayInfo };
 }
 
 /**

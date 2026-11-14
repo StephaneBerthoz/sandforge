@@ -179,21 +179,6 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
 const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
-  // Wave 58: the checkpoint replay's conversion, guard and store land before the
-  // Frozen join (J3) and the command line (J4) import them; whichever zone does
-  // removes these three entries, which this audit refuses once reached.
-  {
-    path: 'packages/extension/src/modules/checkpoint/replay/checkpointToDataset.ts',
-    reason: 'imported by the replay load (wave 58, J3)',
-  },
-  {
-    path: 'packages/extension/src/modules/checkpoint/replay/replaySourceGuard.ts',
-    reason: 'imported by the replay load (wave 58, J3)',
-  },
-  {
-    path: 'packages/extension/src/modules/checkpoint/replay/replayStore.ts',
-    reason: 'imported by the replay load and command line (wave 58, J3 and J4)',
-  },
   // The core of the sample's new draws — strata, and the window, filter and
   // strata resolved against the run — lands before the drawing of a sample
   // imports it (wave 58, E4), which removes these two entries.

@@ -2902,7 +2902,8 @@
       "checkpoint_undo": "巻き戻しを元に戻す操作",
       "checkpoint_export": "チェックポイントのエクスポート",
       "checkpoint_import": "チェックポイントのインポート",
-      "checkpoint_take": "チェックポイントの取得"
+      "checkpoint_take": "チェックポイントの取得",
+      "checkpoint_replay": "チェックポイントの再生"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",
@@ -2970,7 +2971,8 @@
       "generator": "生成データ",
       "csv": "CSV ファイル",
       "backup": "バックアップ",
-      "dataset": "凍結データセット"
+      "dataset": "凍結データセット",
+      "checkpoint": "チェックポイント"
     },
     "object": "オブジェクト",
     "nodeCount_other": "{{count}}個のノード",

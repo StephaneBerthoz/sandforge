@@ -277,11 +277,16 @@ export const CHECKPOINT_REPLAY_FOR_ANOTHER_ORG =
  * The most records a replay of a checkpoint sets up in another org at once,
  * every object together: past it, the replay is refused (`REPLAY_TOO_MANY`)
  * and names the objects to leave out. A replay loads as a Frozen Dataset
- * does, which holds what it writes in memory; this bound is to be measured
- * against the loader's heap at 50,000, 100,000 and 200,000 records, and is
- * the largest of them until it is.
+ * does, which holds what it writes in memory: measured on records of forty
+ * fields, its conversion, dry run and load held some 4 KB a record live —
+ * 195 MB at 50,000, 389 MB at 100,000, 779 MB at 200,000, and 966 MB with the
+ * garbage not yet collected. Held to 100,000, records twice as wide stay
+ * under a gigabyte of a process an editor shares with other extensions; and
+ * a Developer sandbox's 200 MB of data storage, some 100,000 records at
+ * Salesforce's 2 KB a record, replays whole. A Developer Pro's replays in
+ * parts.
  */
-export const REPLAY_MAX_RECORDS = 200_000;
+export const REPLAY_MAX_RECORDS = 100_000;
 
 /** Module names */
 export const MODULE_NAMES = [

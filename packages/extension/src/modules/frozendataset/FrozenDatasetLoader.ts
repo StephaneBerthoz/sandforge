@@ -285,6 +285,21 @@ export interface FrozenLoadOptions {
   /** Pilot mode: load ONE root folder (~2 min smoke test) before the full load. */
   pilot?: { rootReferenceId?: string };
   /**
+   * Link, on a first load too, each record the target already holds under
+   * the identity keys the configuration names (`identityKeys`), instead of
+   * inserting it: what a replay of a checkpoint asked to link records by
+   * their fields (`--link Account=AccountNumber`) does from its first load.
+   * Only a reload looks records up by them otherwise.
+   */
+  linkByKeys?: boolean;
+  /**
+   * The org the counting contract is filed under in the sas, and names: the
+   * load's `orgId` unless given. A replay files it under the Organization Id
+   * its target answered with, as it files its mapping, so that the command
+   * line and the panel, which register the org under different ids, find it.
+   */
+  contractOrgId?: string;
+  /**
    * Write the fields the target encrypts as the dataset holds them, though
    * its manifest does not say its extraction left out the encrypted fields it
    * read masked (`ManifestCoverage.encryptedNotKept`). Left out otherwise,
@@ -1773,7 +1788,7 @@ export class FrozenDatasetLoader {
      */
     const reusedByKeys = new Set<string>();
 
-    if (options.reload) {
+    if (options.reload || options.linkByKeys) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
       // Open until its reads are done: one that throws ends it failed, with
       // why. See `running.endOpenLine`.
@@ -2050,18 +2065,19 @@ export class FrozenDatasetLoader {
       reused,
       accountKindOf,
     );
-    const keyed = options.reload
-      ? await this.reuseByKeysAsWritten(
-          orgId,
-          loading,
-          alignment.objectResults,
-          alignedByObject,
-          ranks,
-          mapping,
-          reused,
-          accountKindOf,
-        )
-      : { linked: [], said: [], leftEmpty: [] };
+    const keyed =
+      options.reload || options.linkByKeys
+        ? await this.reuseByKeysAsWritten(
+            orgId,
+            loading,
+            alignment.objectResults,
+            alignedByObject,
+            ranks,
+            mapping,
+            reused,
+            accountKindOf,
+          )
+        : { linked: [], said: [], leftEmpty: [] };
     for (const key of [...kept.linked, ...keyed.linked]) reusedByKeys.add(key);
     const said = [...kept.said, ...keyed.said];
     emit({
@@ -6121,7 +6137,7 @@ export class FrozenDatasetLoader {
     }
     return writeCountingContract(this.sasGuard, options.sasDir, {
       version: 1,
-      orgId: options.orgId,
+      orgId: options.contractOrgId ?? options.orgId,
       datasetVersion: working.datasetVersion,
       writtenAt: clock.now().toISOString(),
       loadStartedAt: clock.startedAt.toISOString(),

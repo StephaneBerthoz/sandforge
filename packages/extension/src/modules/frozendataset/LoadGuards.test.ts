@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertLoadGuards,
+  assertLoadTier,
   CustomMetadataCalloutMockDetector,
   LoadGuardError,
   datasetRecordCount,
@@ -144,6 +145,28 @@ describe('assertLoadGuards', () => {
     );
     expect(error).toBeInstanceOf(LoadGuardError);
     expect((error as LoadGuardError).code).toBe('empty-dataset');
+  });
+});
+
+describe('assertLoadTier', () => {
+  it('lets a sandbox, a scratch org or a Developer Edition org through, and refuses the rest as the entry guards do', () => {
+    expect(() => assertLoadTier({ orgId: 'org-dev', orgTier: 'development' })).not.toThrow();
+    expect(() => assertLoadTier({ orgId: 'org-scratch', orgTier: 'scratch' })).not.toThrow();
+    for (const orgTier of ['production', 'staging'] as const) {
+      const error = (() => {
+        try {
+          assertLoadTier({ orgId: 'org-x', orgTier });
+          return undefined;
+        } catch (err: unknown) {
+          return err;
+        }
+      })();
+      expect(error).toBeInstanceOf(LoadGuardError);
+      expect(error).toMatchObject({
+        code: 'non-sandbox',
+        params: { orgId: 'org-x', tier: orgTier },
+      });
+    }
   });
 });
 

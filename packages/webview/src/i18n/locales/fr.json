@@ -3091,7 +3091,8 @@
       "checkpoint_undo": "Annulation d'un retour arrière",
       "checkpoint_export": "Export d'un point de contrôle",
       "checkpoint_import": "Import d'un point de contrôle",
-      "checkpoint_take": "Prise d'un point de contrôle"
+      "checkpoint_take": "Prise d'un point de contrôle",
+      "checkpoint_replay": "Rejeu d'un point de contrôle"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",
@@ -3171,7 +3172,8 @@
       "generator": "Données générées",
       "csv": "Fichier CSV",
       "backup": "Sauvegarde",
-      "dataset": "Jeu de données figé"
+      "dataset": "Jeu de données figé",
+      "checkpoint": "Point de contrôle"
     },
     "object": "Objet",
     "nodeCount_one": "{{count}} nœud",

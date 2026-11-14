@@ -58,7 +58,8 @@ export type AuditAction =
   | 'checkpoint_rewind'
   | 'checkpoint_undo'
   | 'checkpoint_export'
-  | 'checkpoint_import';
+  | 'checkpoint_import'
+  | 'checkpoint_replay';
 
 /**
  * How a recorded run ended. `stopped` is a run stopped before it wrote
@@ -446,9 +447,10 @@ export interface AnalyticsTimeSeries {
 /**
  * Where the records of a run came from, when a lineage names its source.
  * `org` is another org; the others are what the run read instead of one: a
- * seed generator, a CSV file, a backup, a frozen dataset.
+ * seed generator, a CSV file, a backup, a frozen dataset, a checkpoint
+ * replayed without its org.
  */
-export type LineageOrigin = 'org' | 'generator' | 'csv' | 'backup' | 'dataset';
+export type LineageOrigin = 'org' | 'generator' | 'csv' | 'backup' | 'dataset' | 'checkpoint';
 
 /** Data lineage node — tracks data flow through the system */
 export interface LineageNode {

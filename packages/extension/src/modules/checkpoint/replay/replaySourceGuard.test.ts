@@ -286,7 +286,7 @@ describe('a checkpoint that cannot be replayed', () => {
     const many = checkpointOf(
       {},
       {
-        objects: checkpointOf().objects.map((object) => ({ ...object, records: 120_000 })),
+        objects: checkpointOf().objects.map((object) => ({ ...object, records: 60_000 })),
       },
     );
     const ask = (choices: Partial<CheckpointReplayChoices>) =>
@@ -300,7 +300,7 @@ describe('a checkpoint that cannot be replayed', () => {
     const refused = ask({});
     expect(refused).toMatchObject({
       code: 'REPLAY_TOO_MANY',
-      params: { records: 240_000, max: REPLAY_MAX_RECORDS },
+      params: { records: 120_000, max: REPLAY_MAX_RECORDS },
     });
     expect(refused?.message).toContain('--objects A,B');
     expect(refused?.message).toContain('--exclude-object X');

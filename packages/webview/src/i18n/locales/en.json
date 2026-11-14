@@ -3091,7 +3091,8 @@
       "checkpoint_undo": "Rewind undo",
       "checkpoint_export": "Checkpoint export",
       "checkpoint_import": "Checkpoint import",
-      "checkpoint_take": "Checkpoint take"
+      "checkpoint_take": "Checkpoint take",
+      "checkpoint_replay": "Checkpoint replay"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",
@@ -3171,7 +3172,8 @@
       "generator": "Generated data",
       "csv": "CSV file",
       "backup": "Backup",
-      "dataset": "Frozen dataset"
+      "dataset": "Frozen dataset",
+      "checkpoint": "Checkpoint"
     },
     "object": "Object",
     "nodeCount_one": "{{count}} node",

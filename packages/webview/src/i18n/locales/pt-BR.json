@@ -3091,7 +3091,8 @@
       "checkpoint_undo": "Desfazer um retrocesso",
       "checkpoint_export": "Exportação de um ponto de verificação",
       "checkpoint_import": "Importação de um ponto de verificação",
-      "checkpoint_take": "Criação de um ponto de verificação"
+      "checkpoint_take": "Criação de um ponto de verificação",
+      "checkpoint_replay": "Reprodução de um ponto de verificação"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",
@@ -3171,7 +3172,8 @@
       "generator": "Dados gerados",
       "csv": "Arquivo CSV",
       "backup": "Backup",
-      "dataset": "Dataset congelado"
+      "dataset": "Dataset congelado",
+      "checkpoint": "Ponto de verificação"
     },
     "object": "Objeto",
     "nodeCount_one": "{{count}} nó",

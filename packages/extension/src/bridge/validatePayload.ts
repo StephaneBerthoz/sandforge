@@ -1459,8 +1459,50 @@ export const frozenExtractPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
   author: z.string().min(1).max(120).optional(),
 });
+// A replay names its checkpoint, and is asked, in the words of the checkpoint's own schemas.
+import { checkpointOrganizationIdSchema, checkpointReplayChoicesSchema } from '@sandforge/shared';
+
+/**
+ * A checkpoint replayed in place of the project's dataset: the Organization
+ * Id of the org it was taken of and its id, each of the one shape that names
+ * a folder of this machine and nothing else.
+ */
+const frozenReplayRefSchema = z
+  .object({ organizationId: checkpointOrganizationIdSchema, checkpointId: checkpointIdSchema })
+  .strict();
+
+/** The load's part of the project's configuration a replay may be given, for its load alone. */
+const frozenReplayLoadConfigSchema = frozenProjectConfigPayloadSchema
+  .pick({
+    requiredFieldDefaults: true,
+    requiredLookupPlaceholders: true,
+    picklistRules: true,
+    defaultPicklistRule: true,
+    identityKeys: true,
+    undeletableObjects: true,
+    duplicateErrorPatterns: true,
+    mockDetection: true,
+    protectedOrgIds: true,
+  })
+  .strict();
+
+/** A replay loaded or previewed: its checkpoint, what it is asked, and its load's configuration. */
+const frozenReplayLoadSchema = frozenReplayRefSchema
+  .extend({
+    choices: checkpointReplayChoicesSchema,
+    config: frozenReplayLoadConfigSchema.optional(),
+  })
+  .strict();
+
+/** A replay verified: the choices of its last replay into the org, unless given. */
+const frozenReplayVerifySchema = frozenReplayLoadSchema
+  .extend({ choices: checkpointReplayChoicesSchema.optional() })
+  .strict();
+
 export const frozenLoadPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
+  // A checkpoint replayed in place of the project's dataset.
+  replay: frozenReplayLoadSchema.optional(),
   pilot: z.boolean().optional(),
   reload: z.boolean().optional(),
   writeEncrypted: z.boolean().optional(),
@@ -1485,6 +1527,10 @@ export const frozenLoadPayloadSchema = z.object({
   goneFirst: z.array(recordIdSchema).max(1_000_000).optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
+/** A verification, of the last load into the org or of the last replay of a checkpoint into it. */
+export const frozenVerifyReplayPayloadSchema = frozenVerifyPayloadSchema.extend({
+  replay: frozenReplayVerifySchema.optional(),
+});
 // The load is named — its org, when it wrote its last record — never its
 // records: what is removed is what the sas mapping says the load created.
 export const frozenRemovePayloadSchema = z.object({
@@ -1496,6 +1542,8 @@ export const frozenRemovePayloadSchema = z.object({
   ...sweepClassesShape,
   // Mute what the removal fires, what its sweep deletes included, through the target's own bypass.
   muteAutomation: z.boolean().optional(),
+  // A replay's load, named by its checkpoint: what it wrote is in the mapping of its replays.
+  replay: frozenReplayRefSchema.optional(),
 });
 // What a sweep asked with a load's removal would take: the load, named as for its removal.
 export const frozenRemoveSweepPayloadSchema = z.object({
@@ -1503,6 +1551,7 @@ export const frozenRemoveSweepPayloadSchema = z.object({
   loadedAt: z.string().min(1).max(64),
   // Listed for a reload's purge: the sweep of each load it replaces.
   reload: z.boolean().optional(),
+  replay: frozenReplayRefSchema.optional(),
 });
 // What the target runs as a load's removal takes it back: the load, named as for its removal.
 export const frozenRemoveAutomationPayloadSchema = z.object({
@@ -1512,12 +1561,14 @@ export const frozenRemoveAutomationPayloadSchema = z.object({
   sweptObjects: sweptObjectsSchema.optional(),
   // Read for a reload's purge, not for a removal of this load.
   reload: z.boolean().optional(),
+  replay: frozenReplayRefSchema.optional(),
 });
 // What a removal of a load would do, read and nothing written: the load, named as for its removal.
 export const frozenRemovePreviewPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
   includeChanged: z.boolean().optional(),
+  replay: frozenReplayRefSchema.optional(),
 });
 
 // ── checkpoint:* payload schemas ────────────────────────────────────────────

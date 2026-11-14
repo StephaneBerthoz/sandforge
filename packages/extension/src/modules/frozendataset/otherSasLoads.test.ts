@@ -140,6 +140,20 @@ describe('auditedLoadsOf', () => {
       { endedAt: END },
     ]);
   });
+
+  it('reads a replay of a checkpoint, which loads as a Frozen load does, as a load of its own folder', () => {
+    expect(
+      auditedLoadsOf([
+        {
+          action: 'checkpoint_replay',
+          outcome: 'partial',
+          timestamp: END,
+          details: { sas: 'sha256:r', startedAt: START },
+        },
+        { action: 'checkpoint_replay', outcome: 'stopped', timestamp: END, details: {} },
+      ]),
+    ).toEqual([{ sas: 'sha256:r', startedAt: START, endedAt: END }]);
+  });
 });
 
 describe('the index of the command line’s loads', () => {

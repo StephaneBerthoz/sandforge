@@ -192,14 +192,19 @@ export function indexedLoadsOf(journalDir: string, organizationId: string): Mark
 
 /**
  * The loads the audit trail records into an org that wrote: Frozen loads
- * whose run went on past their checks, with the mark, the start and the last
- * write they left. A load stopped before it wrote is no run of any window.
+ * and replays of a checkpoint, which load as they do, whose run went on past
+ * their checks, with the mark, the start and the last write they left. A
+ * load stopped before it wrote is no run of any window.
  */
 export function auditedLoadsOf(
   entries: ReadonlyArray<Pick<AuditLogEntry, 'action' | 'outcome' | 'timestamp' | 'details'>>,
 ): MarkedLoad[] {
   return entries
-    .filter((entry) => entry.action === 'frozen_load' && entry.outcome !== 'stopped')
+    .filter(
+      (entry) =>
+        (entry.action === 'frozen_load' || entry.action === 'checkpoint_replay') &&
+        entry.outcome !== 'stopped',
+    )
     .map((entry) => {
       const sas = entry.details?.sas;
       const startedAt = entry.details?.startedAt;

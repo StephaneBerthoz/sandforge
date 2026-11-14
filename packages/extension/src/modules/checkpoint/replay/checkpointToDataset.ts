@@ -632,9 +632,13 @@ export async function readReplayTarget(read: ReplayTargetRead): Promise<ReplayTa
   // first, and every one when any is there — a sandbox copied from the same
   // production holds them all, any other org none.
   const sameIds = new Set<string>();
+  // Each list grown in place: copied at each key, a checkpoint of fifty
+  // thousand records of one object took fourteen seconds to convert.
   const byObject = new Map<string, string[]>();
   for (const [key, objectApiName] of survey.heldBy) {
-    byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), key]);
+    const keys = byObject.get(objectApiName);
+    if (keys) keys.push(key);
+    else byObject.set(objectApiName, [key]);
   }
   const probe = async (objectApiName: string, keys: readonly string[]): Promise<number> => {
     let found = 0;
@@ -1237,7 +1241,9 @@ export async function checkpointToDataset(
   const dependents = new Map<string, Draft[]>();
   for (const draft of drafts) {
     for (const parent of draft.pointsAt.values()) {
-      dependents.set(parent, [...(dependents.get(parent) ?? []), draft]);
+      const children = dependents.get(parent);
+      if (children) children.push(draft);
+      else dependents.set(parent, [draft]);
     }
   }
   const waiting = drafts.filter((draft) => draft.refused !== undefined);
