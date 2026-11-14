@@ -827,10 +827,14 @@ export async function planRunFiles(input: {
           'the target.',
       );
     }
+    // What frees the record: a removal forgets the files it deleted
+    // (`SyncConfigStore.forgetFiles`), which the next run may copy again.
     if (mapFull > 0) {
       notes.push(
         `${mapFull} file(s) were not copied: this configuration keeps the record of ` +
-          `${SYNC_FILE_MAP_MAX} copied files at most, which it holds already.`,
+          `${SYNC_FILE_MAP_MAX} copied files at most, which it holds already. Removing an ` +
+          'earlier run of it frees the entries of the files that run copied: Remove what this ' +
+          'run created on its History entry, or --remove on the command line.',
       );
     }
     plan.objects.set(name, {

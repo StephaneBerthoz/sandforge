@@ -58,6 +58,7 @@ const OBJECTS: QuickSyncFlowState = {
   isExecuting: false,
   runOperationId: null,
   error: null,
+  errorCode: null,
   muteAutomation: false,
   checkpointFirst: false,
   stoppedCheckpoint: undefined,

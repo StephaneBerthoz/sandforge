@@ -82,6 +82,17 @@ describe('SyncOpsHandler — the field types a run judges before its first write
     );
   });
 
+  it('names leaving the field out among the ways, as Exclude on Field Mapping', async () => {
+    // A field the target holds as another type is often one the run needs
+    // not copy at all: the refusal offered a mapping or a transform, never
+    // the exclusion the Field Mapping step offers beside them.
+    await expect(check(configOf())).rejects.toThrow(
+      'Map each field onto a field of a compatible type, convert the value with a transform, ' +
+        'or leave the field out: Exclude as its mapping on the Field Mapping step, or in ' +
+        "the object's excludedFields in a saved configuration.",
+    );
+  });
+
   it("lets an SFDMU import's run go when its query does not select that field", async () => {
     await expect(check(configOf('SELECT Id, Name FROM Account'))).resolves.toBeUndefined();
   });

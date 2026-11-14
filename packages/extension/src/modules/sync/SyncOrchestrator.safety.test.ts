@@ -411,6 +411,30 @@ describe('SyncOrchestrator — before the first write', () => {
     expect(target.insert).not.toHaveBeenCalled();
   });
 
+  it('says what gets a count Salesforce gave up on through: an indexed filter, a date range, View All Data', async () => {
+    // A COUNT() over a large object, with a filter on a field no index
+    // holds, runs past the org's time: the run was refused with the code
+    // alone, and run again it was refused again.
+    const target = targetOrg();
+    const { writeGate } = gate();
+
+    const run = orchestrator(target, sourceOrg(), {
+      writeGate,
+      countSource: async () => {
+        throw new Error('QUERY_TIMEOUT: Your query request was running for too long.');
+      },
+    }).execute(config());
+
+    await expect(run).rejects.toThrow(
+      'The records to write could not be counted (QUERY_TIMEOUT: Your query request was ' +
+        'running for too long.), so nothing was written. Salesforce gave up on the count: ' +
+        'filter the object on an indexed field (CreatedDate, SystemModstamp, Id, Name or an ' +
+        'External ID) or on a narrower range of CreatedDate, then run it again. A user with ' +
+        'View All Data reads the source without its sharing, which is what slows such a count most.',
+    );
+    expect(target.insert).not.toHaveBeenCalled();
+  });
+
   /** The target's describes, as a user without Create on Contact reads them. */
   const contactsClosed = async (object: string): Promise<TargetWriteFields> =>
     object === 'Contact'

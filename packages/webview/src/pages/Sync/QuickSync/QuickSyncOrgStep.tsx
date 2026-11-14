@@ -76,6 +76,13 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
         />
       </div>
 
+      {/* Next stays off for one org on both sides: said, as it was not. */}
+      {sourceOrgId !== '' && sourceOrgId === targetOrgId && (
+        <p className="text-xs text-status-warning" role="status" data-testid="quick-sync-same-org">
+          {t('sync.sameOrgWarning')}
+        </p>
+      )}
+
       {(sourceOrg || targetOrg) && (
         <div className="flex flex-wrap items-center gap-3" data-testid="quick-sync-org-badges">
           {sourceOrg && <OrgBadge org={sourceOrg} />}

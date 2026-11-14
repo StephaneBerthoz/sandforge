@@ -2466,6 +2466,18 @@ describe('SyncOpsHandler', () => {
     ) => Promise<Record<string, unknown>[]>;
 
     /**
+     * The settings the handler reads: a batch of 200, and the read bound
+     * `sandforge.sync.maxRecordsPerObject` as the test sets it, its default
+     * when the test sets none.
+     */
+    function settingsAsked(readCap: unknown) {
+      return function (key: string, fallback: unknown): unknown {
+        if (key === 'sync.maxRecordsPerObject') return readCap ?? fallback;
+        return 200;
+      };
+    }
+
+    /**
      * Run `sync:execute` and hand back the `querySource` closure the handler
      * built for the orchestrator — the code under test.
      */
@@ -2479,6 +2491,7 @@ describe('SyncOpsHandler', () => {
     async function captureQueryFns(
       sourceType: string,
       targetType: string = sourceType,
+      readCap?: unknown,
     ): Promise<{ querySource: QueryFn; queryTarget: QueryFn }> {
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation(function (
         id: string,
@@ -2489,9 +2502,7 @@ describe('SyncOpsHandler', () => {
       });
       let both: { querySource: QueryFn; queryTarget: QueryFn } | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(function () {
-          return 200;
-        }),
+        getSandforgeSetting: vi.fn(settingsAsked(readCap)),
         syncOrchestrator: vi.fn(function (d: unknown) {
           both = d as { querySource: QueryFn; queryTarget: QueryFn };
           return {
@@ -2513,15 +2524,13 @@ describe('SyncOpsHandler', () => {
       return both;
     }
 
-    async function captureQuerySource(orgType: string): Promise<QueryFn> {
+    async function captureQuerySource(orgType: string, readCap?: unknown): Promise<QueryFn> {
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
         orgType,
       });
       let captured: { querySource: QueryFn } | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(function () {
-          return 200;
-        }),
+        getSandforgeSetting: vi.fn(settingsAsked(readCap)),
         syncOrchestrator: vi.fn(function (d: unknown) {
           captured = d as { querySource: QueryFn };
           return {
@@ -2618,9 +2627,7 @@ describe('SyncOpsHandler', () => {
         | { countSource?: (orgId: string, o: ReturnType<typeof accountConfig>) => Promise<number> }
         | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(function () {
-          return 200;
-        }),
+        getSandforgeSetting: vi.fn(settingsAsked(undefined)),
         syncOrchestrator: vi.fn(function (d: unknown) {
           captured = d as typeof captured;
           return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
@@ -2742,41 +2749,71 @@ describe('SyncOpsHandler', () => {
       );
     });
 
-    it('caps the PRODUCTION side of a sandbox -> production sync', async () => {
-      // The regression this pins: the tier was read from the source alone and
-      // the same closure served both reads. Harmless while every read carried
-      // a LIMIT — but once the cap became conditional it inverted the
-      // protection, and the production TARGET was read with no cap at all,
-      // against the very org whose API budget the cap exists to protect.
-      const conn = createOrgConnection(100_000, 2_000);
-      mockGetConn.mockResolvedValue(conn as never);
-
-      const { querySource, queryTarget } = await captureQueryFns('Sandbox', 'Production');
-
-      const fromTarget = await queryTarget('tgt-org', accountConfig());
-      expect(fromTarget).toHaveLength(500);
-      expect(conn.query).toHaveBeenLastCalledWith(expect.stringContaining('LIMIT 500'));
-
-      // And the sandbox source is still read in full, to the end of the cursor.
-      const fromSource = await querySource('src-org', accountConfig());
-      expect(fromSource.length).toBeGreaterThan(500);
-    });
-
-    it('keeps the conservative production cap — and announces it', async () => {
-      const conn = createOrgConnection(100_000, 2_000);
+    it('reads a production-tier source past 500 records, with no LIMIT, to the bound of the setting', async () => {
+      // A production org, a Developer Edition among them, was read under
+      // `LIMIT 500` with no order: 500 records of no particular kind, under a
+      // notice whose two ways out lifted nothing. The run's gate holds what it
+      // spends of the target's requests; the setting bounds what it holds.
+      const conn = createOrgConnection(1_200, 2_000);
       mockGetConn.mockResolvedValue(conn as never);
 
       const querySource = await captureQuerySource('Production');
       const records = await querySource('src-org', accountConfig());
 
-      // The 500-record production cap is a deliberate guard on a business
-      // org's API budget: it stays, server-side.
-      expect(conn.query.mock.calls[0][0]).toContain('LIMIT 500');
-      expect(records).toHaveLength(500);
-      // What changes is that the user is told the sync is partial.
+      expect(records).toHaveLength(1_200);
+      expect(conn.query.mock.calls[0][0]).not.toMatch(/\bLIMIT\b/i);
+      expect(notifications()).toHaveLength(0);
+    });
+
+    it('reads both sides of a sandbox -> production sync to the same bound, the production target included', async () => {
+      // The tier was read from the source alone once, and the production
+      // TARGET read with no bound at all: each side is held to the setting.
+      const conn = createOrgConnection(100_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const { querySource, queryTarget } = await captureQueryFns('Sandbox', 'Production', 1_000);
+
+      expect(await queryTarget('tgt-org', accountConfig())).toHaveLength(1_000);
+      expect(await querySource('src-org', accountConfig())).toHaveLength(1_000);
+      for (const [soql] of conn.query.mock.calls) expect(String(soql)).not.toMatch(/\bLIMIT\b/i);
+    });
+
+    it('stops at sandforge.sync.maxRecordsPerObject, and says how to read the rest or copy a sample', async () => {
+      const conn = createOrgConnection(3_542, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Production', 1_000);
+      const records = await querySource('src-org', accountConfig());
+
+      expect(records).toHaveLength(1_000);
       const warned = notifications().filter((n) => n.level === 'warning');
       expect(warned).toHaveLength(1);
-      expect(warned[0].message).toContain('production-tier query cap');
+      expect(warned[0].message).toContain('only 1000 record(s) were read from the source');
+      expect(warned[0].message).toContain('1000 records (sandforge.sync.maxRecordsPerObject)');
+      // What lifts it, and what else gets a copy that fits: never a filter
+      // or a split run offered against a cap they cannot lift.
+      expect(warned[0].message).toContain(
+        'raise the sandforge.sync.maxRecordsPerObject setting (50000 at most)',
+      );
+      expect(warned[0].message).toContain('a filter on CreatedDate, one range per run');
+      expect(warned[0].message).toContain(
+        'Forge, with Depth ALL and Records per object set to A sample that fits the target',
+      );
+      expect(warned[0].message).not.toContain('split the run');
+    });
+
+    it('holds a hand-edited setting past 50 000 to 50 000', async () => {
+      const conn = createOrgConnection(60_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox', 900_000);
+      const records = await querySource('src-org', accountConfig());
+
+      expect(records).toHaveLength(50_000);
+      const [warned] = notifications().filter((n) => n.level === 'warning');
+      // Nothing to raise past the most a run holds: only the slices and the sample.
+      expect(warned.message).not.toContain('raise');
+      expect(warned.message).toContain('a filter on CreatedDate');
     });
 
     it('names the fields from the describe, never sending the FIELDS(ALL) the org refuses without a LIMIT of 200', async () => {
@@ -2849,23 +2886,20 @@ describe('SyncOpsHandler', () => {
         }
       });
 
-      it('copies the 500 rows of a production-tier source, not 200, and says the cap cut it', async () => {
+      it('copies every row of a production-tier source in column groups, not 200, and says nothing of a cap', async () => {
         const conn = wideOrgConnection(2_000);
         mockGetConn.mockResolvedValue(conn as never);
 
         const querySource = await captureQuerySource('Production');
         const records = await querySource('src-org', accountConfig());
 
-        expect(records).toHaveLength(500);
-        expect(records[499]?.['Custom_Field_699__c']).toBe('v');
-        expect(conn.query.mock.calls[0][0]).toMatch(/ LIMIT 500$/);
+        expect(records).toHaveLength(2_000);
+        expect(records[1_999]?.['Custom_Field_699__c']).toBe('v');
+        expect(conn.query.mock.calls[0][0]).not.toMatch(/\bLIMIT\b/);
         expect(conn.query.mock.calls.some(([soql]) => String(soql).includes('FIELDS('))).toBe(
           false,
         );
-        const warned = notifications().filter((n) => n.level === 'warning');
-        expect(warned).toHaveLength(1);
-        expect(warned[0].message).toContain('500 record(s)');
-        expect(warned[0].message).toContain('production-tier query cap');
+        expect(notifications().filter((n) => n.level === 'warning')).toHaveLength(0);
       });
     });
   });

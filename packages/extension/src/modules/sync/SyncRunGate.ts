@@ -988,7 +988,9 @@ export function syncGateStops(
       message:
         `The records to write take about ${formatMB(storage.estimateMB)} MB of data storage, ` +
         `and ${input.org} has ${storage.remainingMB} MB left of ${storage.maxMB} MB: leave ` +
-        `objects out, narrow their filters, or free data storage in ${input.org}. Nothing was ` +
+        `objects out, narrow their filters, or free data storage in ${input.org}. To copy a ` +
+        `sample of the source that fits ${input.org} instead, use Forge with Depth ALL and a ` +
+        'sample that fits the target (sandforge clone --depth all --fit share). Nothing was ' +
         'written.',
     });
   }
@@ -1171,11 +1173,19 @@ export function unwritableRefusal(
       ),
     )
     .join('; ');
+  // An object the target has not is deployed from the source, which no
+  // access gives it: the refusal named only the access and leaving it out.
+  const absent = unwritable.filter(({ why }) => why === 'notInTarget');
+  const deploy =
+    absent.length > 0
+      ? ` Where ${org} has not ${namesOf(absent)}, Compare deploys ${absent.length === 1 ? 'it' : 'them'} ` +
+        'from the source: tick Data Model, compare, then Deploy from Diff.'
+      : '';
   return (
     `${org} would take no record of ${unwritable.length === 1 ? 'one object' : `${unwritable.length} objects`} ` +
     `the sync writes — ${named}.` +
     (held !== '' ? ` Left out, ${pronoun === 'it' ? 'it holds' : 'they hold'} back ${held}.` : '') +
-    ` Leave ${pronoun} out of the run, ${way}. Nothing was written.`
+    ` Leave ${pronoun} out of the run, ${way}.${deploy} Nothing was written.`
   );
 }
 

@@ -1355,6 +1355,7 @@
     "title": "Sync Data",
     "selectOrgs": "Select Orgs",
     "selectOrgsDesc": "Choose source and target orgs",
+    "sameOrgWarning": "Source and target are the same org: pick another org as the target to go on.",
     "configureObjects": "Configure Objects",
     "fieldMapping": "Field Mapping",
     "transforms": "Transforms",
@@ -1373,7 +1374,8 @@
       "insertsSaved": "Saved: each run of this configuration leaves as they are the records an earlier run copied, and inserts the others.",
       "insertsUnsaved": "Not saved: each run inserts every record it reads again. Save the configuration, and its runs leave what an earlier run copied as it is.",
       "overwriteKept": "What an update or an upsert writes over is read from the target org first and kept on this machine: removing the run puts back the values the records held.",
-      "encrypted": "{{object}}: {{fields}}, encrypted, are masked for the user SandForge reads the source org as, who lacks View Encrypted Data. The run leaves them out of every record rather than copy the masks; grant that permission to copy their values."
+      "encrypted": "{{object}}: {{fields}}, encrypted, are masked for the user SandForge reads the source org as, who lacks View Encrypted Data. The run leaves them out of every record rather than copy the masks; grant that permission to copy their values.",
+      "readCap": "Each object is read up to {{cap}} records, from either org, as sandforge.sync.maxRecordsPerObject sets it (50,000 at most): one holding more is copied in part, and the run says so. To copy part of a larger org that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target."
     },
     "configSaved": "Configuration saved. A schedule can now run it.",
     "execute": "Execute",
@@ -1662,12 +1664,13 @@
       "notWritten_one": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "notWritten_other": "Of the {{total}} a run counts from the source, {{count}} would not be written: held back or refused, as each object says. What follows is measured on all of them.",
       "unwritable": {
-        "notInTarget": "{{object}} ({{rows}} records): the target org has no such object, or the user the run writes as cannot see it. None of its records can be written.",
+        "notInTarget": "{{object}} ({{rows}} records): the target org has no such object, or the user the run writes as cannot see it. None of its records can be written. If the target has not the object, Compare deploys it from the source: tick Data Model, compare, then Deploy from Diff.",
         "notCreateable": "{{object}} ({{rows}} records): the user the run writes as may not create its records in the target org. None of them can be written.",
         "notUpdateable": "{{object}} ({{rows}} records): the user the run writes as may not edit its records in the target org. None of them can be written.",
         "unread": "{{object}} ({{rows}} records): the target org did not describe it, so none of its records would be sent.",
         "notAKey": "{{object}} ({{rows}} records): its upsert matches on {{key}}, neither an External ID nor an idLookup field in the target org. None of them can be written.",
-        "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused."
+        "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused.",
+        "openCompare": "Open Compare"
       },
       "heldBack": {
         "leftOut_one": "{{object}} ({{count}} record): held back, not written — its {{field}} names a {{parent}} record left out, and written without it, it would stand without its {{parent}}.",
@@ -1960,7 +1963,7 @@
       "noQuery": "Left out: it has no query, and SFDMU leaves such an object out.",
       "unknownOperation": "Left out: “{{detail}}” is no operation of SFDMU's, which reads it as Readonly.",
       "deletesElsewhere": "Left out: {{detail}} deletes in the source org or along a hierarchy, and Sync does neither.",
-      "mockAllFields": "Left out: SFDMU writes fake values into all its fields. Sync has none, and would copy the real ones.",
+      "mockAllFields": "Left out: SFDMU writes fake values into all its fields. Sync writes no fake values, and would copy the real ones. To copy the object, name in the export's mockFields only the fields to keep out: Sync leaves those out of the write.",
       "duplicate": "A later entry of this object, {{detail}}, was left out: a Sync configuration holds an object once. Import that entry on its own to run it.",
       "delete": "{{detail}} works differently here. SFDMU deletes what its query selects in the target. Sync deletes, into the recycle bin, the target records that hold the ids it reads in the source. Open in Sync says what each object does above Run the sync: read it before you run it.",
       "updateKey": "SFDMU finds each record to update by {{detail}}. Sync updates by the source record's Id, which another org does not hold: set the operation to upsert on an External ID.",
@@ -1969,12 +1972,14 @@
       "unusableKey": "Its key {{detail}} is not carried: Sync matches on one field of the object, not on a composite key or a parent's field. An upsert has to name one on its row.",
       "fieldMappingOff": "useFieldMapping is off: SFDMU ignores its field mappings ({{detail}}), and so did this import.",
       "valueRows": "These rows of ValueMapping.csv are not applied, as a value mapping rule maps one exact value to another, with no regular expression, no eval and no empty value (#N/A, null, NULL, undefined), which SFDMU writes as an empty field: {{detail}}.",
-      "notMaster": "master is false: SFDMU copies only the records the other objects need. Sync has no such narrowing and reads every record its filter selects.",
-      "limit": "LIMIT {{detail}} is not carried: Sync reads every record its filter selects.",
+      "notMaster": "master is false: SFDMU copies only the records the other objects need. Sync has no such narrowing and reads every record its filter selects. Autopilot copies only the records the objects you tick point at: leave this object unticked there, and tick those that point at it.",
+      "limit": "LIMIT {{detail}} is not carried: Sync reads every record its filter selects. To read part of it, set a filter on its row, a range of CreatedDate for instance; to copy a sample of the source that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
       "queryClause": "“{{detail}}” in its query is not carried: Sync does not run the query.",
       "queryUnread": "Its query could not be read, so no filter comes from it: Sync reads every record of the object. Set a filter on its row.",
       "whereRefused": "Its WHERE does more than filter, with a subquery for instance, and Sync refuses it: rewrite it on its row, or the save is refused.",
-      "deleteOldData": "deleteOldData is not carried: the target's old records are not deleted first.",
+      "deleteOldData": "deleteOldData is not carried: the target's old records are not deleted first. To start from an empty object, empty it first in DataOps → Cleanup → Empty objects, then run the sync.",
+      "emptyFirst": "Empty these objects in the target first",
+      "emptyFirstPickTarget": "Pick the target org under Run it from Sync to empty these objects there.",
       "mockFields": "SFDMU writes fake values into {{detail}}. Sync has none: these fields are left out of the write rather than copied with their real values. A required one fails the record; take it out of mockFields to copy it.",
       "nameDiffers": "The file names it {{detail}}, and its query selects this object: SFDMU goes by the query, and so did this import.",
       "settings": "Not carried: {{detail}}. Sync does not read these settings of the export.",
@@ -6675,6 +6680,7 @@
     "selectOrgs": "Select source and target orgs",
     "selectObjects": "Select objects to sync",
     "suggestedObjects": "Suggested objects",
+    "notInSource": "{{object}} is not among the objects the source org lets SandForge read and create.",
     "addParent": "Add parent {{parent}} for {{child}}?",
     "preview": "Preview",
     "totalRecords": "Total records",
@@ -6699,7 +6705,13 @@
     "openHistory": "See this run in History",
     "againInserts": "Run again, a Quick Sync inserts these records a second time: remove what this run created first, or upsert them on an External ID in the full wizard.",
     "syncInto": "Sync into {{target}}",
-    "insertsNeutralized": "Inserts every record; emails and phone numbers are neutralized."
+    "insertsNeutralized": "Inserts every record; emails and phone numbers are neutralized.",
+    "refusal": {
+      "storage": "The sync was refused before it wrote anything: its records take more data storage than the target org has left. Quick Sync has no filter: leave objects out here, or open them in the wizard, where each object takes a filter. To copy part of the source that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target. Or free data storage in the target org: DataOps → Cleanup → Empty objects deletes what it holds of these objects.",
+      "openInWizard": "Open in the wizard",
+      "openForge": "Open Forge",
+      "emptyFirst": "Empty these objects in the target"
+    }
   },
   "pagination": {
     "navigation": "Pagination",
@@ -7240,7 +7252,7 @@
     },
     "syncStorageExceeded": {
       "explanation": "The sync was refused before it wrote anything: its records take more data storage than the target org has left.",
-      "action": "Simulate it to see the figures, then leave objects out, narrow their filters, or free data storage in the target org."
+      "action": "Simulate it to see the figures, then leave objects out, narrow their filters, or free data storage in the target org. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target."
     },
     "syncEmailsExceeded": {
       "explanation": "The sync was refused before it wrote anything: its records would make the target org's automation send more emails than it has left today, and each record past them would be refused.",
@@ -7248,7 +7260,7 @@
     },
     "syncTargetUnwritable": {
       "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, the user the sync writes as may not see, create or edit it there, or its upsert matches on a field the target org matches none on.",
-      "action": "Leave those objects out of the run, give the user the sync writes as access to an object it may not write in the target org, or match an upsert on an External ID field of that org: the message says which each object needs. Started from the page, the sync asks whether to leave them out and writes the rest."
+      "action": "Leave those objects out of the run, give the user the sync writes as access to an object it may not write in the target org, deploy from the source with Compare an object the target org has not, or match an upsert on an External ID field of that org: the message says which each object needs. Started from the page, the sync asks whether to leave them out and writes the rest."
     },
     "apiBudgetExceeded": {
       "explanation": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through, its records refused with REQUEST_LIMIT_EXCEEDED.",

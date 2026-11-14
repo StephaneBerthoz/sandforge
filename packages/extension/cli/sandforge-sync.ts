@@ -75,6 +75,8 @@ import type {
   SyncWriteCheck,
 } from '@sandforge/shared';
 import {
+  FILE_COPY_CEILING_MB,
+  SYNC_FILES_MAX_RUN_MB,
   fieldlessTransformRefusal,
   fieldlessTransformRules,
   guardTierOf,
@@ -198,6 +200,13 @@ import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import {
+  SYNC_READ_CAP_DEFAULT,
+  SYNC_READ_CAP_MAX,
+  SYNC_READ_CAP_MIN,
+  readCutRemedy,
+} from '../src/modules/sync/syncReadCap.js';
+import { commandOf } from './invocation.js';
+import {
   toolingQueriesOver,
   toolingValidationRules,
 } from '../src/modules/forge/TargetGapReader.js';
@@ -309,12 +318,23 @@ Options:
   --dry-run              simulate: read both orgs and say what the run
                          would insert, update, skip or refuse, writing
                          nothing                           (default: off)
+  --max-records-per-object <n>
+                         the most records of one object the run reads, from
+                         1 to 50000; an object with more is read up to it, and
+                         the run says so on stderr and under readCut with
+                         --json, and ends partial      (default: 50000)
   --files                copy the files of the records each object writes:
                          Salesforce Files and legacy attachments, 10 MB each
-                         and 100 MB a run at most, as a configuration that
+                         and 100 MB a run at most unless --max-file-mb and
+                         --max-run-mb say otherwise, as a configuration that
                          copies files does. The command keeps no record of
                          the files it copied: run again, it copies them
                          again                             (default: off)
+  --max-file-mb <n>      with --files, the largest file copied, from 1 to 35;
+                         a larger one is left out and counted (default: 10)
+  --max-run-mb <n>       with --files, the most a run copies, from 1 to 2000;
+                         the files past it are left out and counted
+                                                           (default: 100)
   --keep-contact-points  write emails and phone numbers as read. Without
                          it, as in the panel, every address is written
                          under .invalid and every phone number as a
@@ -332,7 +352,8 @@ Options:
                          line names: refused (CODE): ..., each other reason
                          of its gate under "alsoRefused", on a line of its own.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
-                         the target refused others        (default: off)
+                         the target refused others, or read an object up to
+                         --max-records-per-object         (default: off)
   --mute-automation      mute the target's automation for the run through
                          its own bypass: assign the user the run writes as,
                          for the run alone, the permission sets holding the
@@ -377,9 +398,9 @@ Run a saved configuration:
                          the panel keeps them beside it: give every run of it
                          the same directory, and --remove too. A later run
                          points a lookup at the copy an earlier run wrote.
-  --object, --where, --operation, --batch-size, --files and
-  --keep-contact-points come from the file (keepContactPoints), and are refused
-  with it. A legacy attachment the source changed since it was copied is
+  --object, --where, --operation, --batch-size, --files, --max-file-mb,
+  --max-run-mb and --keep-contact-points come from the file (files,
+  keepContactPoints), and are refused with it. A legacy attachment the source changed since it was copied is
   replaced, its earlier copy deleted, on a sandbox or a Developer Edition org,
   as in the panel; a production org keeps the copy.
 
@@ -534,7 +555,8 @@ stopped on an error (its file keeps what it created); 2 a bad command line,
 or a summary or a file --remove cannot take a run back from; 3 the removal
 left records of the run in the target, or its sweep was refused or did not
 take all it was asked to (a --sweep-untied refused included), or the run was
-partial and --fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a
+partial — records refused, or an object read up to --max-records-per-object —
+and --fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a
 SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps what it
 created.
 `;
@@ -556,6 +578,16 @@ interface CliArgs {
   dryRun: boolean;
   /** Copy the files of the records each object writes. */
   files: boolean;
+  /** With `files`: the largest file copied, in MB (`--max-file-mb`). undefined = the panel's 10. */
+  maxFileMB?: number;
+  /** With `files`: the most a run copies, in MB (`--max-run-mb`). undefined = the panel's 100. */
+  maxRunMB?: number;
+  /**
+   * The most records of one object the run reads (`--max-records-per-object`),
+   * from 1 to {@link SYNC_READ_CAP_MAX}: past it the object is read in part,
+   * said on stderr and under `readCut`, and the run ends partial.
+   */
+  maxRecordsPerObject: number;
   /** Write emails and phone numbers as read rather than neutralized. */
   keepContactPoints: boolean;
   json: boolean;
@@ -587,6 +619,8 @@ const CONFIG_FILE_SETTINGS: readonly string[] = [
   '--operation',
   '--batch-size',
   '--files',
+  '--max-file-mb',
+  '--max-run-mb',
   '--keep-contact-points',
 ];
 
@@ -623,11 +657,46 @@ const RUN_FLAGS: CommandFlags = {
     '--operation',
     '--where',
     '--batch-size',
+    '--max-records-per-object',
+    '--max-file-mb',
+    '--max-run-mb',
     '--config-file',
     '--store',
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
+
+/**
+ * A whole number the line gives a flag, within its bounds, or the line is
+ * refused, exit 2, before any org is reached; `fallback` when not given.
+ */
+function boundedFlag(
+  given: string | undefined,
+  flag: string,
+  bounds: { min: number; max: number },
+  fallback: number,
+): number;
+function boundedFlag(
+  given: string | undefined,
+  flag: string,
+  bounds: { min: number; max: number },
+): number | undefined;
+function boundedFlag(
+  given: string | undefined,
+  flag: string,
+  bounds: { min: number; max: number },
+  fallback?: number,
+): number | undefined {
+  if (given === undefined) return fallback;
+  const value = Number(given);
+  if (!/^\d+$/.test(given) || value < bounds.min || value > bounds.max) {
+    process.stderr.write(
+      `${flag} takes a whole number from ${bounds.min} to ${bounds.max}, not "${given}".\n`,
+    );
+    process.exit(2);
+  }
+  return value;
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -654,6 +723,14 @@ export function parseArgs(argv: string[]): CliArgs {
   // --dry-run, said and not taken.
   const checkpointFirst = checkpointFirstArgs(args);
   const asked = checkpointFirst !== undefined ? { checkpointFirst } : {};
+  // The bound of every read of the run, from the line or the default: the
+  // panel's setting, sandforge.sync.maxRecordsPerObject.
+  const maxRecordsPerObject = boundedFlag(
+    get('--max-records-per-object'),
+    '--max-records-per-object',
+    { min: SYNC_READ_CAP_MIN, max: SYNC_READ_CAP_MAX },
+    SYNC_READ_CAP_DEFAULT,
+  );
 
   const source = get('--source');
   const target = get('--target');
@@ -685,6 +762,7 @@ export function parseArgs(argv: string[]): CliArgs {
       batchSize: 200,
       dryRun: has('--dry-run'),
       files: false,
+      maxRecordsPerObject,
       keepContactPoints: false,
       json: has('--json'),
       failOnPartial: has('--fail-on-partial'),
@@ -717,7 +795,7 @@ export function parseArgs(argv: string[]): CliArgs {
     // The panel's boundary: the command took User, a history or a file
     // object as it took any other.
     if (syncCannotCopy(objectApiName)) {
-      process.stderr.write(`${cannotCopyMessage(objectApiName)}\n`);
+      process.stderr.write(`${cannotCopyMessage(objectApiName, 'give --files')}\n`);
       process.exit(2);
     }
     if (externalIdField !== undefined && !API_NAME_RE.test(externalIdField)) {
@@ -753,6 +831,22 @@ export function parseArgs(argv: string[]): CliArgs {
     process.exit(2);
   }
 
+  // The two caps of a run that copies files, as the panel's configuration
+  // sets them: the command copied 10 MB a file and 100 MB a run, whatever
+  // the files.
+  if (!has('--files') && (has('--max-file-mb') || has('--max-run-mb'))) {
+    process.stderr.write('--max-file-mb and --max-run-mb go with --files.\n');
+    process.exit(2);
+  }
+  const maxFileMB = boundedFlag(get('--max-file-mb'), '--max-file-mb', {
+    min: 1,
+    max: FILE_COPY_CEILING_MB,
+  });
+  const maxRunMB = boundedFlag(get('--max-run-mb'), '--max-run-mb', {
+    min: 1,
+    max: SYNC_FILES_MAX_RUN_MB,
+  });
+
   return {
     source,
     target,
@@ -762,6 +856,9 @@ export function parseArgs(argv: string[]): CliArgs {
     batchSize,
     dryRun: has('--dry-run'),
     files: has('--files'),
+    ...(maxFileMB !== undefined ? { maxFileMB } : {}),
+    ...(maxRunMB !== undefined ? { maxRunMB } : {}),
+    maxRecordsPerObject,
     keepContactPoints: has('--keep-contact-points'),
     json: has('--json'),
     failOnPartial: has('--fail-on-partial'),
@@ -802,8 +899,11 @@ export function buildConfig(args: CliArgs): SyncConfig {
     enableRollback: false,
     createdAt: now,
     updatedAt: now,
-    // The panel's defaults for a configuration that copies files.
-    ...(args.files ? { files: { maxFileSizeMB: 10, maxRunMB: 100 } } : {}),
+    // The panel's defaults for a configuration that copies files, unless the
+    // line gives others.
+    ...(args.files
+      ? { files: { maxFileSizeMB: args.maxFileMB ?? 10, maxRunMB: args.maxRunMB ?? 100 } }
+      : {}),
     // Absent, the run neutralizes emails and phone numbers, as the panel's does.
     ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
   };
@@ -887,6 +987,7 @@ export function cliFileDeps(
   targetConn: Connection,
   store?: SyncFileStore,
   deletes = false,
+  bound: number = SYNC_READ_CAP_DEFAULT,
 ): SyncFileDeps {
   const pagesOf = (conn: Connection) => ({
     query: async (q: string) => conn.query<Record<string, unknown>>(q),
@@ -905,7 +1006,8 @@ export function cliFileDeps(
       [config.sourceOrgId]: fileOrg(sourceConn),
       [config.targetOrgId]: fileOrg(targetConn),
     }),
-    // The ids the object's read returns, asked for alone, with its filter.
+    // The ids the object's read returns, asked for alone, with its filter
+    // and to its bound.
     sourceIds: async (objectConfig, changedSince) => {
       const object = objectConfig.objectApiName;
       if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
@@ -913,6 +1015,7 @@ export function cliFileDeps(
       const { records } = await queryAllPages(
         pagesOf(sourceConn),
         `SELECT Id FROM ${object}${clause ? ` WHERE ${clause}` : ''}`,
+        bound,
       );
       return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
     },
@@ -957,9 +1060,19 @@ export function cliAllowsDeletes(org: TypedTarget): boolean {
  * query, the fields are read in column groups (`readColumnsApart`): named in
  * one statement, an object of hundreds of fields was refused with a 414 or a
  * 431.
- * Exported so the read can be tested.
+ * Read up to `bound` records (`--max-records-per-object`): the command read
+ * 50 000 and stopped without a word, its run then said a success. Exported so
+ * the read can be tested.
+ *
+ * @param bound - The most records of one object the read holds.
+ * @param onCut - Told of an object the bound stopped the read of short, with
+ *   the records read: what the run's summary says of it.
  */
-export function buildQueryFn(conn: Connection) {
+export function buildQueryFn(
+  conn: Connection,
+  bound: number = SYNC_READ_CAP_DEFAULT,
+  onCut?: (objectApiName: string, read: number) => void,
+) {
   return async (
     _orgId: string,
     objectConfig: SyncObjectConfig,
@@ -985,22 +1098,70 @@ export function buildQueryFn(conn: Connection) {
     const records = await readColumnsApart(
       `SELECT ${(fields.length > 0 ? fields : ['Id']).join(', ')} FROM ${object}${where}`,
       async (statement) => {
-        const paged = await queryAllPages(pages, statement);
+        const paged = await queryAllPages(pages, statement, bound);
         truncated ||= paged.truncated;
         return paged.records;
       },
     );
-    if (truncated) read?.onBoundReached?.();
+    if (truncated) {
+      read?.onBoundReached?.();
+      onCut?.(object, records.length);
+    }
     return records;
   };
+}
+
+/** An object whose read the bound stopped short, as the summary says it. */
+export interface ReadCut {
+  objectApiName: string;
+  /** The records read. */
+  read: number;
+  /** The bound the read stopped at (`--max-records-per-object`). */
+  bound: number;
+}
+
+/**
+ * What the command says of each object whose read of the source the bound
+ * stopped short, a line each, on stderr: that the run copied part of it, and
+ * how to read the rest or copy a sample of the source that fits the target,
+ * as a command that runs where this one does. The command cut a read at
+ * 50 000 without a word and said the run a success.
+ */
+export function readCutLines(
+  cuts: readonly ReadCut[],
+  orgs: { source: string; target: string },
+): string[] {
+  const sample =
+    `${commandOf('clone')} --depth all --source ${orgs.source} --target ${orgs.target} ` +
+    '--fit share --dry-run';
+  return cuts.map(
+    (cut) =>
+      `${cut.objectApiName}: the read of the source stopped at ${cut.read} records ` +
+      `(--max-records-per-object ${cut.bound}): this run copied part of the object. ` +
+      readCutRemedy('source', cut.bound, { raise: '--max-records-per-object', sample }),
+  );
+}
+
+/**
+ * How a run ends once its reads are counted in: a success whose read of an
+ * object a bound stopped short copied part of what it was asked, and is
+ * partial — exit 3 under `--fail-on-partial`. A failure stays one.
+ */
+export function statusWithReadCuts(
+  status: 'success' | 'partial' | 'failure',
+  cuts: readonly ReadCut[],
+): 'success' | 'partial' | 'failure' {
+  return status === 'success' && cuts.length > 0 ? 'partial' : status;
 }
 
 /**
  * What the records each object's read returns are counted with before the
  * first write, as the panel counts them: `COUNT()` under the same filter,
- * and on a delta read the same bound.
+ * and on a delta read the same bound; no further than the read goes.
+ *
+ * @param bound - The most records the read holds (`--max-records-per-object`).
  */
-export function cliCountFn(conn: Connection) {
+export function cliCountFn(conn: Connection, bound?: number) {
   return async (
     _orgId: string,
     objectConfig: SyncObjectConfig,
@@ -1009,8 +1170,10 @@ export function cliCountFn(conn: Connection) {
     const object = objectConfig.objectApiName;
     if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
     const clause = sourceReadWhere(objectConfig.where, read?.changedSince);
-    return (await conn.query(`SELECT COUNT() FROM ${object}${clause ? ` WHERE ${clause}` : ''}`))
-      .totalSize;
+    const { totalSize } = await conn.query(
+      `SELECT COUNT() FROM ${object}${clause ? ` WHERE ${clause}` : ''}`,
+    );
+    return bound === undefined ? totalSize : Math.min(totalSize, bound);
   };
 }
 
@@ -2359,7 +2522,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   let fileDeps: SyncFileDeps | undefined;
   if (config.files !== undefined) {
     const deletes = typed ? cliAllowsDeletes(typed) : false;
-    fileDeps = cliFileDeps(config, sourceConn, targetConn, saved?.fileStore(), deletes);
+    fileDeps = cliFileDeps(
+      config,
+      sourceConn,
+      targetConn,
+      saved?.fileStore(),
+      deletes,
+      args.maxRecordsPerObject,
+    );
     if (args.dryRun && fileDeps.deleteFromTarget) {
       fileDeps = {
         ...fileDeps,
@@ -2369,6 +2539,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       };
     }
   }
+
+  /** The objects of the source whose read `--max-records-per-object` stopped short. */
+  const readCuts = new Map<string, ReadCut>();
+  /** Said on stderr, a line each, whatever the output: a pipeline's log keeps stderr. */
+  const sayReadCuts = (): void => {
+    const lines = readCutLines([...readCuts.values()], args);
+    if (lines.length > 0) process.stderr.write(`${lines.join('\n')}\n`);
+  };
+  const readCutJson = (): { readCut?: ReadCut[] } =>
+    readCuts.size > 0 ? { readCut: [...readCuts.values()] } : {};
 
   const orchestrator = new SyncOrchestrator({
     ...(args.dryRun ? {} : { creations: recorder }),
@@ -2413,8 +2593,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     conflictResolver: new ConflictResolver(),
     fieldMapping: new FieldMappingService(),
     transformPipeline: new TransformPipeline(),
-    querySource: buildQueryFn(sourceConn),
-    queryTarget: buildQueryFn(targetConn),
+    // Each to the bound of the line, the objects of the source it cut short
+    // kept for the summary.
+    querySource: buildQueryFn(sourceConn, args.maxRecordsPerObject, (objectApiName, read) => {
+      readCuts.set(objectApiName, { objectApiName, read, bound: args.maxRecordsPerObject });
+    }),
+    queryTarget: buildQueryFn(targetConn, args.maxRecordsPerObject),
     // An encrypted field the source's user reads masked is left out of every
     // record, as the panel leaves it out.
     maskedSourceFields: maskedEncryptedFields(
@@ -2449,7 +2633,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     queryTargetRows: targetRows,
     // What it writes, counted before the first write and held to the gate,
     // and what an earlier run of a saved configuration copied, left as it is.
-    countSource: cliCountFn(sourceConn),
+    countSource: cliCountFn(sourceConn, args.maxRecordsPerObject),
     countPersonAccounts: cliPersonAccountsFn(sourceConn),
     readSourceIds: cliSourceIdsFn(sourceConn),
     writeGate,
@@ -2542,9 +2726,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       emailsRefused,
     ].filter((reason): reason is RunRefusal => reason !== undefined);
     const elapsed = Date.now() - t0;
+    // An object the bound cut short, which a real run would copy in part.
+    sayReadCuts();
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...readCutJson(), ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }
@@ -2676,6 +2862,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ? (typed?.id ?? (await organizationIdOf(targetConn)))
       : undefined;
   const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
+  // The objects it copied in part, the bound having cut their read: said,
+  // and the run partial.
+  sayReadCuts();
+  const ended = statusWithReadCuts(result.status, [...readCuts.values()]);
 
   if (args.json) {
     process.stdout.write(
@@ -2691,6 +2881,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           startedAt,
           finishedAt: new Date().toISOString(),
           result,
+          // Each object whose read the bound stopped short: copied in part.
+          ...readCutJson(),
           // The checkpoint it took of what it writes before its first write
           // (--checkpoint-first): kept, or deleted once it wrote nothing.
           ...(checkpointInfo ? { checkpoint: checkpointInfo } : {}),
@@ -2719,12 +2911,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       )}\n`,
     );
     if (interrupted) process.exit(stopExitCode(interrupted));
-    endWith(runExitCode(result.status, args.failOnPartial));
+    endWith(runExitCode(ended, args.failOnPartial));
     return;
   }
 
   const objects = (result as { objectResults?: unknown[] }).objectResults ?? [];
-  log(`\nstatus:  ${(result as { status?: string }).status ?? 'unknown'}`);
+  // Partial when the bound cut a read, as the exit code takes it.
+  log(`\nstatus:  ${ended}`);
   for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   for (const entry of objects as Array<Record<string, unknown>>) {
     log(`  ${objectCountsLine(entry as Partial<SyncObjectResult> & { objectApiName: string })}`);
@@ -2808,8 +3001,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   log(`\ndone in ${elapsedMs}ms`);
   if (interrupted) process.exit(stopExitCode(interrupted));
-  // A run whose every record the target refused exited 0, as one that wrote them all.
-  endWith(runExitCode(result.status, args.failOnPartial));
+  // A run whose every record the target refused exited 0, as one that wrote
+  // them all; and one that read part of an object, as one that read it whole.
+  endWith(runExitCode(ended, args.failOnPartial));
 }
 
 // ─── --remove ────────────────────────────────────────────────────────────────

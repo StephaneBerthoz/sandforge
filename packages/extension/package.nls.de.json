@@ -48,6 +48,7 @@
   "config.seed.defaultBatchSize.description": "Standard-Batchgröße für Seed-Datenvorgänge",
   "config.sync.defaultBatchSize.description": "Standard-Batchgröße für Sync-Datenvorgänge",
   "config.sync.maxConcurrentOps.description": "Maximale Anzahl gleichzeitiger Sync-Vorgänge",
+  "config.sync.maxRecordsPerObject.description": "Höchstzahl der Datensätze eines Objekts, die eine Synchronisierung aus einer der beiden Orgs liest, Produktions-Orgs und Developer Editions eingeschlossen (Standard und Höchstwert 50.000: ein Lauf hält alles, was er von einem Objekt liest). Ein Objekt mit mehr Datensätzen wird bis zu dieser Zahl gelesen, und der Lauf meldet es, mit dem Weg zum Rest: ein Filter auf CreatedDate, ein Bereich pro Lauf, oder eine Stichprobe über die Tiefe ALL von Forge. Was ein Lauf von den täglichen API-Anfragen der Ziel-Org verbraucht, begrenzt seine Prüfung vor dem Schreiben.",
   "config.ai.enabled.description": "KI-Assistent aktivieren (erfordert API-Schlüssel in den Secrets)",
   "config.ai.provider.description": "KI-Anbieter. Nur `anthropic` ist implementiert und daher die einzige Auswahl. Nennt settings.json einen anderen Anbieter, lässt SandForge die KI ausgeschaltet und sendet nichts.",
   "config.ai.model.description": "KI-Modell, das alle KI-Funktionen von SandForge verwenden: Assistenten-Chat, NL2SOQL, Pipeline-Entwürfe, Fehlerbehebung, Seed-Personas und KI-Feldregeln von Seed.",

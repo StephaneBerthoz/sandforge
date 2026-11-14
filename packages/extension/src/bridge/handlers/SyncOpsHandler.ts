@@ -69,11 +69,7 @@ import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
-import {
-  queryAllPages,
-  FORGE_QUERY_MAX_RECORDS,
-  FORGE_QUERY_MAX_PAGES,
-} from '../../modules/forge/queryAllPages.js';
+import { queryAllPages, FORGE_QUERY_MAX_PAGES } from '../../modules/forge/queryAllPages.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
   validatePayload,
@@ -92,7 +88,11 @@ import { SyncRunFailure, SyncRunRefused } from '../../modules/sync/SyncRunFailur
 import { describeCached } from '../../core/connection/describeCache.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
-import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
+import {
+  PANEL_READ_CUT_WORDS,
+  readCutRemedy,
+  syncReadCapOf,
+} from '../../modules/sync/syncReadCap.js';
 import { isNetworkError } from '../../core/common/isNetworkError.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
@@ -551,6 +551,16 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /**
+   * `sandforge.sync.maxRecordsPerObject`: the most records of one object a
+   * run reads, of either org, within the bounds a run holds (`syncReadCapOf`).
+   */
+  private readCap(): number {
+    return syncReadCapOf(
+      this.deps.services?.getSandforgeSetting?.<unknown>('sync.maxRecordsPerObject', undefined),
+    );
+  }
+
+  /**
    * What a run of `config` is held to before its first write, and a
    * simulation of it measured by (`SyncRunGate`): its records against the
    * target's data storage, its daily emails, whether the target delivers them
@@ -579,13 +589,11 @@ export class SyncOpsHandler implements DomainHandler {
     const guard = this.deps.infraServices?.productionGuard;
     const emailsAnswer = syncEmailsAnswerOf(policy);
     // Of a bidirectional run, what the target holds of each object it reads
-    // whole there, counted under the cap the read of a production org keeps to.
-    const tier = resolveOrgTier(target?.orgType === 'Sandbox' || target?.orgType === 'Scratch');
+    // whole there, counted under the bound its read keeps to.
+    const readCap = this.readCap();
     const countTarget = wholeTargetCount(config, async (soql) => {
       const { totalSize } = await targetConn.query(soql);
-      return tier === 'production'
-        ? Math.min(totalSize, getQueryLimits(tier).defaultQueryLimit)
-        : totalSize;
+      return Math.min(totalSize, readCap);
     });
     return syncWriteGate(
       {
@@ -1234,10 +1242,13 @@ export class SyncOpsHandler implements DomainHandler {
       mismatches.length > MAX_REPORTED_FIELD_MISMATCHES
         ? ` and ${mismatches.length - MAX_REPORTED_FIELD_MISMATCHES} more`
         : '';
+    // Leaving the field out is a way too, the one a run that need not copy
+    // the field takes, and the refusal never named it.
     throw new Error(
       `Field types do not match between the orgs, so the sync was not started and nothing ` +
-        `was written: ${named}${more}. Map each field onto a field of a compatible type, or ` +
-        `convert the value with a transform.`,
+        `was written: ${named}${more}. Map each field onto a field of a compatible type, ` +
+        `convert the value with a transform, or leave the field out: Exclude as its mapping ` +
+        `on the Field Mapping step, or in the object's excludedFields in a saved configuration.`,
     );
   }
 
@@ -1413,9 +1424,11 @@ export class SyncOpsHandler implements DomainHandler {
       const { order } = orderSyncObjects(config.objects, lookups);
       // And what Review warns of: the encrypted fields a run leaves out.
       const encrypted = await this.encryptedMaskedOf(config, timeoutMs).catch(() => []);
+      // And the bound each object is read to, which Review says before a run.
       const response = buildResponse(this.deps, msg, 'sync:write-order:response', {
         order,
         ...(encrypted.length > 0 ? { encrypted } : {}),
+        readCap: this.readCap(),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -1766,22 +1779,14 @@ export class SyncOpsHandler implements DomainHandler {
     );
 
     /**
-     * Query limits, resolved PER ORG.
-     *
-     * This used to resolve the tier from the source alone and hand the same
-     * closure to both reads. Harmless while every read carried a LIMIT; the
-     * moment the cap became conditional it inverted the protection it exists
-     * for — on a sandbox -> production sync the source is a sandbox, so the
-     * production TARGET was read with no cap at all, against the very org
-     * whose API budget the cap protects.
+     * The most records of one object either read holds, whichever org it is
+     * of: the setting, read once for the run. A production source, a
+     * Developer Edition among them, was read under `LIMIT 500`, and a
+     * production target too once the tier was read per org; a sandbox to
+     * 50 000 with no setting. What a run spends of the target's daily
+     * requests is held by its gate (`SyncRunGate`, API_BUDGET_EXCEEDED).
      */
-    const limitsFor = (
-      orgId: string,
-    ): { tier: ReturnType<typeof resolveOrgTier>; limits: ReturnType<typeof getQueryLimits> } => {
-      const org = this.deps.orgManager.getOrg(orgId);
-      const tier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
-      return { tier, limits: getQueryLimits(tier) };
-    };
+    const readCap = this.readCap();
 
     // Build query functions with retry wrapping and dynamic limits
     const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
@@ -1793,7 +1798,7 @@ export class SyncOpsHandler implements DomainHandler {
         read?: SourceRead,
       ): Promise<Record<string, unknown>[]> => {
         const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
-        // What follows the field list: the filter, the order, the cap.
+        // What follows the field list: the filter and the order.
         let tail = '';
         // The boundary refuses a WHERE that does more than filter; checked
         // again here because this is where it becomes query text, and a
@@ -1812,30 +1817,14 @@ export class SyncOpsHandler implements DomainHandler {
         if (objectConfig.orderBy) {
           tail += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
         }
-        // This query used to end in a bare
-        // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
-        // page only — 2 000 rows from a sandbox source, 500 from a
-        // production one. On the 100 000-record orgs this product targets
-        // that copies 2 % of the object and reports a completed sync.
-        //
-        // Two changes, and only these two:
-        //  - the read follows the cursor to the end (`queryAllPages`, the
-        //    same bounded helper Forge uses);
-        //  - when a bound cuts the read short the user is told, on the
-        //    notification channel and in the log. A bounded sync is a
-        //    legitimate outcome; a silently partial one is the defect.
-        //
-        // The production cap stays. `queryLimits` keeps a production source
-        // conservative on purpose — a sandbox refresh must not spend a
-        // business org's daily API budget — so a production-tier run is
-        // still capped server-side at `defaultQueryLimit` and now announces
-        // the cut instead of hiding it. Sandbox and scratch sources, where
-        // the 100 000-row clone actually happens, read every page up to
-        // FORGE_QUERY_MAX_RECORDS / FORGE_QUERY_MAX_PAGES.
-        const { tier, limits } = limitsFor(orgId);
-        if (tier === 'production') {
-          tail += ` LIMIT ${limits.defaultQueryLimit}`;
-        }
+        // This query used to end in a bare `LIMIT` and read the first page
+        // only — 2 000 rows from a sandbox source, 500 from a production one.
+        // On the 100 000-record orgs this product targets that copied 2 % of
+        // the object and reported a completed sync. The read follows the
+        // cursor (`queryAllPages`, the bounded helper Forge uses) to the
+        // setting's bound, whatever the org; when the bound cuts it short the
+        // user is told, on the notification channel and in the log. A bounded
+        // sync is a legitimate outcome; a silently partial one is the defect.
         let boundCutTheRead = false;
         const retryResult = await queryRetryOp.execute(async () => {
           boundCutTheRead = false;
@@ -1847,7 +1836,7 @@ export class SyncOpsHandler implements DomainHandler {
           // (414 or 431), and which on a production-tier source it cut to 200 rows
           // under `FIELDS(ALL)` again, with no word of it. Too long for one
           // query, the fields are read in column groups (`readColumnsApart`),
-          // the first with the filter, the order and the cap; the others by
+          // the first with the filter and the order, to the bound; the others by
           // the ids it returned.
           const described = (await conn.describe(safeObj)).fields.map((field) => field.name);
           const fields = described.length > 0 ? described : ['Id'];
@@ -1859,7 +1848,7 @@ export class SyncOpsHandler implements DomainHandler {
           return readColumnsApart(
             `SELECT ${fields.join(', ')} FROM ${safeObj}${tail}`,
             async (statement) => {
-              const paged = await queryAllPages<Record<string, unknown>>(pages, statement);
+              const paged = await queryAllPages<Record<string, unknown>>(pages, statement, readCap);
               boundCutTheRead ||= paged.truncated;
               return paged.records;
             },
@@ -1870,14 +1859,13 @@ export class SyncOpsHandler implements DomainHandler {
         }
         checkApiLimits(conn.limitInfo, `sync:execute query ${safeObj}`);
         const records = retryResult.result ?? [];
-        const tierCapReached = tier === 'production' && records.length >= limits.defaultQueryLimit;
-        if (boundCutTheRead || tierCapReached) {
+        if (boundCutTheRead) {
           // A delta configuration keeps the object's watermark where it was:
           // what the bound left unread is read by the next run.
           read?.onBoundReached?.();
-          const bound = tierCapReached
-            ? `${limits.defaultQueryLimit} records (production-tier query cap)`
-            : `${FORGE_QUERY_MAX_RECORDS} records / ${FORGE_QUERY_MAX_PAGES} pages`;
+          const bound =
+            `${readCap} records (sandforge.sync.maxRecordsPerObject) / ` +
+            `${Math.max(FORGE_QUERY_MAX_PAGES, Math.ceil(readCap / 200))} pages`;
           // The same closure reads both orgs, and a short read means
           // different things on each: on the source it means part of the
           // object is not copied, on the target it means conflict detection
@@ -1893,13 +1881,16 @@ export class SyncOpsHandler implements DomainHandler {
             `[WARN] sync:execute ${safeObj} (${side}): read stopped at ${records.length} ` +
               `record(s) — bound: ${bound}. ${consequence}.`,
           );
+          // What lifts the bound, and what copies part of the source that
+          // fits: a filter or a split run was offered against a cap neither
+          // lifted.
           sendNotification(
             this.deps,
             'warning',
             'Sync',
             `${safeObj}: only ${records.length} record(s) were read from the ${side} ` +
               `(bound: ${bound}) — ${consequence}. ` +
-              `Narrow it with a WHERE filter, or split the run.`,
+              readCutRemedy(side, readCap, PANEL_READ_CUT_WORDS),
           );
         }
         return records;
@@ -1907,11 +1898,10 @@ export class SyncOpsHandler implements DomainHandler {
 
     // What the Grappe threshold is measured against: the rows the read above
     // would return, counted with the same filter before the run writes. The
-    // read stops at a bound — the query limit on a production source,
-    // FORGE_QUERY_MAX_RECORDS elsewhere — so the count stops there too, and a
+    // read stops at the setting's bound, so the count stops there too, and a
     // run is never reported past the rows it will actually read.
     const countSource = async (
-      orgId: string,
+      _orgId: string,
       objectConfig: import('@sandforge/shared').SyncObjectConfig,
       read?: SourceRead,
     ): Promise<number> => {
@@ -1922,11 +1912,7 @@ export class SyncOpsHandler implements DomainHandler {
         soql += ` WHERE ${where}`;
       }
       const { totalSize } = await sourceConn.query(soql);
-      const { tier, limits } = limitsFor(orgId);
-      return Math.min(
-        totalSize,
-        tier === 'production' ? limits.defaultQueryLimit : FORGE_QUERY_MAX_RECORDS,
-      );
+      return Math.min(totalSize, readCap);
     };
     // Of an account's or a contact's records under the filter, the person
     // accounts': an org without them has no such field, and holds none.
@@ -2029,9 +2015,7 @@ export class SyncOpsHandler implements DomainHandler {
       const where = sourceReadWhere(objectConfig.where, changedSince);
       if (where) soql += ` WHERE ${where}`;
       if (objectConfig.orderBy) soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
-      const { tier, limits } = limitsFor(config.sourceOrgId);
-      if (tier === 'production') soql += ` LIMIT ${limits.defaultQueryLimit}`;
-      const { records } = await queryAllPages(fileOrg(sourceConn).pages, soql);
+      const { records } = await queryAllPages(fileOrg(sourceConn).pages, soql, readCap);
       return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
     };
     const files: SyncFileDeps = {

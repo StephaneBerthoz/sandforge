@@ -282,6 +282,8 @@ export interface SyncPageData {
   writeOrderUnread: boolean;
   /** Per object, the encrypted fields the source's user reads masked, which a run leaves out. */
   writeOrderEncrypted: SyncEncryptedFieldsMasked[];
+  /** The most records of one object a run reads, as the extension said it with the order. */
+  writeOrderReadCap: number | undefined;
   /**
    * Whether the configuration on screen copies files and is not saved: the
    * extension refuses a run and a simulation of it, so neither is sent.
@@ -295,6 +297,15 @@ export interface SyncPageData {
   transformsNeedField: boolean;
   /** Apply a pre-built sync template to populate wizard state. */
   handleApplyTemplate: (template: SyncTemplateConfig) => void;
+  /**
+   * Take what a Quick Sync picked onto the first step: its two orgs, and each
+   * of its objects as an insert, which takes a filter there.
+   */
+  handleTakeQuickSync: (pick: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    objects: string[];
+  }) => void;
   /** Whether the wizard can advance to the next step. */
   canGoNext: () => boolean;
   /** Whether the sync has completed with results. */
@@ -1007,6 +1018,36 @@ export function useSyncPageData(): SyncPageData {
     [setConflictStrategy, setMode],
   );
 
+  /*
+   * What a Quick Sync picked, opened here: Back to wizard left the pair and
+   * the objects behind, and a Quick Sync refused for the storage was told to
+   * narrow filters it did not have. Its objects go in as Quick Sync writes
+   * them, inserts with no key, on a full run; the wizard's own mappings and
+   * rules, of other objects, go.
+   */
+  const handleTakeQuickSync = useCallback(
+    (pick: { sourceOrgId: string; targetOrgId: string; objects: string[] }) => {
+      setOpenedConfig(null);
+      setSourceOrgId(pick.sourceOrgId);
+      setTargetOrgId(pick.targetOrgId);
+      setMode('full');
+      setObjectEntries(
+        pick.objects.map((objectApiName) => ({
+          objectApiName,
+          operation: 'insert' as SyncOperation,
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        })),
+      );
+      setMappingsByObject({});
+      setMappedObject(pick.objects[0] ?? '');
+      setTransforms([]);
+      setCurrentStep(0);
+    },
+    [setMode],
+  );
+
   /** The wizard's state as the one config shape both the run and the store take. */
   const buildConfig = (id: string, name: string, description: string): SyncConfig => ({
     id,
@@ -1057,6 +1098,7 @@ export function useSyncPageData(): SyncPageData {
   const writeOrderQuery = useBridgeQuery<{
     order: SyncWriteOrder;
     encrypted?: SyncEncryptedFieldsMasked[];
+    readCap?: number;
   }>(
     'sync:write-order',
     { config: openedSaved ?? writeOrderConfig },
@@ -1405,9 +1447,11 @@ export function useSyncPageData(): SyncPageData {
     writeOrderLoading: writeOrderQuery.loading,
     writeOrderUnread: writeOrderQuery.error !== null,
     writeOrderEncrypted: writeOrderQuery.data?.encrypted ?? [],
+    writeOrderReadCap: writeOrderQuery.data?.readCap,
     filesNeedSave,
     transformsNeedField,
     handleApplyTemplate,
+    handleTakeQuickSync,
     canGoNext,
     isFinished,
     overallPercent,

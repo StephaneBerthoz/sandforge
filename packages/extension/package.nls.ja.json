@@ -48,6 +48,7 @@
   "config.seed.defaultBatchSize.description": "Seed データ操作の既定のバッチサイズ",
   "config.sync.defaultBatchSize.description": "Sync データ操作の既定のバッチサイズ",
   "config.sync.maxConcurrentOps.description": "同時同期操作の最大数",
+  "config.sync.maxRecordsPerObject.description": "同期が 1 つのオブジェクトから読み取るレコードの最大数。どちらの組織からの読み取りにも、本番組織と Developer Edition にも適用されます (既定値かつ上限 50,000: 実行はオブジェクトから読み取ったものをすべて保持します)。これより多いレコードを持つオブジェクトはこの数まで読み取られ、実行はその旨と残りの読み取り方を示します: CreatedDate のフィルターで 1 回の実行に 1 つの範囲を読むか、Forge の深さ ALL でサンプルをコピーします。実行がターゲット組織の 1 日の API リクエストをどれだけ使うかは、書き込み前のチェックが制限します。",
   "config.ai.enabled.description": "AI アシスタントを有効にする（シークレットに API キーが必要）",
   "config.ai.provider.description": "AI プロバイダー。実装済みは `anthropic` のみのため、選択肢はこれだけです。settings.json で別のプロバイダーを指定した場合、SandForge は AI を無効のままにし、何も送信しません。",
   "config.ai.model.description": "SandForge のすべての AI 機能で使用する AI モデル。アシスタントのチャット、NL2SOQL、パイプラインの下書き、エラー解決、Seed のペルソナと Seed の AI 項目ルール。",

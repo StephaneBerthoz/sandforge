@@ -224,6 +224,50 @@ describe('QuickSyncObjectStep', () => {
     ).not.toBeNull();
   });
 
+  it('finds by search an object of the source that is none of the five suggestions', () => {
+    // The search looked among the five suggestions alone: Invoice__c, which
+    // the handler had read from the source's catalogue, was nowhere to type.
+    mockUseBridgeQuery.mockReturnValue({
+      data: {
+        suggestions: mockSuggestions,
+        availableObjects: ['Account', 'Contact', 'Invoice__c', 'Invoice_Line__c'],
+      },
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const onAddObject = vi.fn();
+    render(
+      <QuickSyncObjectStep
+        {...defaultProps}
+        selectedObjects={['Account']}
+        onAddObject={onAddObject}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('quick-sync-object-search'), {
+      target: { value: 'invoice' },
+    });
+
+    expect(screen.getByTestId('search-result-Invoice__c')).toBeDefined();
+    expect(screen.getByTestId('search-result-Invoice_Line__c')).toBeDefined();
+    fireEvent.click(screen.getByTestId('search-result-Invoice__c'));
+    expect(onAddObject).toHaveBeenCalledWith('Invoice__c');
+  });
+
+  it('says why a struck suggestion cannot be picked', () => {
+    render(<QuickSyncObjectStep {...defaultProps} />);
+
+    const chip = screen.getByTestId('suggestion-chip-Case');
+    expect(chip.getAttribute('title')).toBe(
+      'Case is not among the objects the source org lets SandForge read and create.',
+    );
+    expect(chip.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('button', { name: /Case is not among the objects/ })).toBe(chip);
+    fireEvent.click(chip);
+    expect(defaultProps.onAddObject).not.toHaveBeenCalled();
+  });
+
   it('next button disabled when no objects selected', () => {
     render(<QuickSyncObjectStep {...defaultProps} canGoNext={false} />);
 

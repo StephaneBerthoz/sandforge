@@ -1355,6 +1355,7 @@
     "title": "Synchroniser les données",
     "selectOrgs": "Sélectionner les orgs",
     "selectOrgsDesc": "Choisissez les orgs source et cible",
+    "sameOrgWarning": "La source et la cible sont la même org : choisissez une autre org comme cible pour continuer.",
     "configureObjects": "Configurer les objets",
     "fieldMapping": "Mapping de champs",
     "transforms": "Transformations",
@@ -1373,7 +1374,8 @@
       "insertsSaved": "Enregistrée : chaque exécution de cette configuration laisse tels quels les enregistrements qu'une exécution précédente a copiés, et insère les autres.",
       "insertsUnsaved": "Non enregistrée : chaque exécution insère de nouveau chaque enregistrement qu'elle lit. Enregistrez la configuration, et ses exécutions laissent tel quel ce qu'une exécution précédente a copié.",
       "overwriteKept": "Ce qu'une mise à jour ou un upsert écrase est d'abord lu dans l'org cible et conservé sur cette machine : supprimer l'exécution remet en place les valeurs que les enregistrements avaient.",
-      "encrypted": "{{object}} : {{fields}}, chiffrés, sont masqués pour l'utilisateur avec lequel SandForge lit l'org source, qui n'a pas l'autorisation View Encrypted Data. L'exécution les laisse hors de chaque enregistrement plutôt que de copier les masques ; accordez cette autorisation pour copier leurs valeurs."
+      "encrypted": "{{object}} : {{fields}}, chiffrés, sont masqués pour l'utilisateur avec lequel SandForge lit l'org source, qui n'a pas l'autorisation View Encrypted Data. L'exécution les laisse hors de chaque enregistrement plutôt que de copier les masques ; accordez cette autorisation pour copier leurs valeurs.",
+      "readCap": "Chaque objet est lu jusqu'à {{cap}} enregistrements, dans l'une ou l'autre org, comme le règle sandforge.sync.maxRecordsPerObject (50 000 au plus) : un objet qui en a davantage est copié en partie, et l'exécution le dit. Pour copier une partie d'une org plus grande qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible."
     },
     "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
     "execute": "Exécuter",
@@ -1662,12 +1664,13 @@
       "notWritten_one": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne serait pas écrit : retenu ou refusé, comme chaque objet le dit. La suite est mesurée sur tous.",
       "notWritten_other": "Sur les {{total}} qu'une exécution compte dans la source, {{count}} ne seraient pas écrits : retenus ou refusés, comme chaque objet le dit. La suite est mesurée sur tous.",
       "unwritable": {
-        "notInTarget": "{{object}} ({{rows}} enregistrements) : l'org cible n'a pas cet objet, ou l'utilisateur avec lequel l'exécution écrit ne le voit pas. Aucun de ses enregistrements ne peut être écrit.",
+        "notInTarget": "{{object}} ({{rows}} enregistrements) : l'org cible n'a pas cet objet, ou l'utilisateur avec lequel l'exécution écrit ne le voit pas. Aucun de ses enregistrements ne peut être écrit. Si la cible n'a pas l'objet, Comparaison le déploie depuis la source : cochez Modèle de données, comparez, puis Déployer depuis le diff.",
         "notCreateable": "{{object}} ({{rows}} enregistrements) : l'utilisateur avec lequel l'exécution écrit ne peut pas en créer dans l'org cible. Aucun ne peut être écrit.",
         "notUpdateable": "{{object}} ({{rows}} enregistrements) : l'utilisateur avec lequel l'exécution écrit ne peut pas les modifier dans l'org cible. Aucun ne peut être écrit.",
         "unread": "{{object}} ({{rows}} enregistrements) : l'org cible ne l'a pas décrit, donc aucun de ses enregistrements ne serait envoyé.",
         "notAKey": "{{object}} ({{rows}} enregistrements) : son upsert s'appuie sur {{key}}, qui n'est ni un ID externe ni un champ idLookup dans l'org cible. Aucun ne peut être écrit.",
-        "hint": "Lancée depuis la page, l'exécution demande s'il faut laisser ces objets de côté et écrit le reste ; une exécution planifiée et la ligne de commande sont refusées."
+        "hint": "Lancée depuis la page, l'exécution demande s'il faut laisser ces objets de côté et écrit le reste ; une exécution planifiée et la ligne de commande sont refusées.",
+        "openCompare": "Ouvrir Comparaison"
       },
       "heldBack": {
         "leftOut_one": "{{object}} ({{count}} enregistrement) : retenu, non écrit — son {{field}} désigne un enregistrement {{parent}} laissé de côté, et écrit sans lui, il resterait sans son {{parent}}.",
@@ -1960,7 +1963,7 @@
       "noQuery": "Laissé de côté : il n'a pas de query, et SFDMU laisse de côté un tel objet.",
       "unknownOperation": "Laissé de côté : « {{detail}} » n'est pas une opération de SFDMU, qui le lit comme Readonly.",
       "deletesElsewhere": "Laissé de côté : {{detail}} supprime dans l'org source ou le long d'une hiérarchie, et Sync ne fait ni l'un ni l'autre.",
-      "mockAllFields": "Laissé de côté : SFDMU écrit des valeurs factices dans tous ses champs. Sync n'en a pas, et copierait les vraies.",
+      "mockAllFields": "Laissé de côté : SFDMU écrit des valeurs factices dans tous ses champs. Sync n'écrit aucune valeur factice, et copierait les vraies. Pour copier l'objet, ne nommez dans les mockFields de l'export que les champs à laisser de côté : Sync les laisse hors de l'écriture.",
       "duplicate": "Une entrée suivante de cet objet, {{detail}}, a été laissée de côté : une configuration Sync contient un objet une seule fois. Importez cette entrée seule pour l'exécuter.",
       "delete": "{{detail}} n'agit pas de la même façon ici. SFDMU supprime ce que sa query sélectionne dans la cible. Sync supprime, vers la corbeille, les enregistrements de la cible qui portent les ids lus dans la source. Ouvrir dans Sync dit ce que fait chaque objet au-dessus de Lancer la synchronisation : lisez-le avant de l'exécuter.",
       "updateKey": "SFDMU retrouve chaque enregistrement à mettre à jour par {{detail}}. Sync met à jour par l'Id de l'enregistrement source, qu'une autre org ne possède pas : passez l'opération en upsert sur un External ID.",
@@ -1969,12 +1972,14 @@
       "unusableKey": "Sa clé {{detail}} n'est pas reprise : Sync fait correspondre sur un seul champ de l'objet, pas sur une clé composite ni sur un champ d'un parent. Un upsert doit en nommer un sur sa ligne.",
       "fieldMappingOff": "useFieldMapping est désactivé : SFDMU ignore ses mappings de champs ({{detail}}), et cet import aussi.",
       "valueRows": "Ces lignes de ValueMapping.csv ne sont pas appliquées, car une règle de mapping de valeurs associe une valeur exacte à une autre, sans expression régulière, sans eval et sans valeur vide (#N/A, null, NULL, undefined), que SFDMU écrit comme un champ vide : {{detail}}.",
-      "notMaster": "master vaut false : SFDMU ne copie que les enregistrements dont les autres objets ont besoin. Sync n'a pas cette restriction et lit tous les enregistrements que son filtre sélectionne.",
-      "limit": "LIMIT {{detail}} n'est pas repris : Sync lit tous les enregistrements que son filtre sélectionne.",
+      "notMaster": "master vaut false : SFDMU ne copie que les enregistrements dont les autres objets ont besoin. Sync n'a pas cette restriction et lit tous les enregistrements que son filtre sélectionne. Autopilot ne copie que les enregistrements vers lesquels pointent les objets que vous cochez : laissez cet objet décoché là-bas, et cochez ceux qui pointent vers lui.",
+      "limit": "LIMIT {{detail}} n'est pas repris : Sync lit tous les enregistrements que son filtre sélectionne. Pour en lire une partie, mettez un filtre sur sa ligne, une plage de CreatedDate par exemple ; pour copier un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
       "queryClause": "« {{detail}} » dans sa query n'est pas repris : Sync n'exécute pas la query.",
       "queryUnread": "Sa query n'a pas pu être lue, et aucun filtre n'en vient : Sync lit tous les enregistrements de l'objet. Posez un filtre sur sa ligne.",
       "whereRefused": "Son WHERE fait plus que filtrer, par exemple avec une sous-requête, et Sync le refuse : réécrivez-le sur sa ligne, sinon l'enregistrement de la configuration sera refusé.",
-      "deleteOldData": "deleteOldData n'est pas repris : les anciens enregistrements de la cible ne sont pas supprimés d'abord.",
+      "deleteOldData": "deleteOldData n'est pas repris : les anciens enregistrements de la cible ne sont pas supprimés d'abord. Pour partir d'un objet vide, videz-le d'abord dans DataOps → Nettoyage → Vider des objets, puis lancez la synchronisation.",
+      "emptyFirst": "Vider d'abord ces objets dans la cible",
+      "emptyFirstPickTarget": "Choisissez l'org cible sous L'exécuter depuis Sync pour y vider ces objets.",
       "mockFields": "SFDMU écrit des valeurs factices dans {{detail}}. Sync n'en a pas : ces champs sont laissés hors de l'écriture plutôt que copiés avec leurs vraies valeurs. Un champ obligatoire fait échouer l'enregistrement ; retirez-le de mockFields pour le copier.",
       "nameDiffers": "Le fichier le nomme {{detail}}, et sa query sélectionne cet objet : SFDMU suit la query, et cet import aussi.",
       "settings": "Non repris : {{detail}}. Sync ne lit pas ces réglages de l'export.",
@@ -6675,6 +6680,7 @@
     "selectOrgs": "Sélectionnez les orgs source et cible",
     "selectObjects": "Sélectionnez les objets à synchroniser",
     "suggestedObjects": "Objets suggérés",
+    "notInSource": "{{object}} ne fait pas partie des objets que l'org source laisse SandForge lire et créer.",
     "addParent": "Ajouter le parent {{parent}} pour {{child}} ?",
     "preview": "Aperçu",
     "totalRecords": "Total enregistrements",
@@ -6699,7 +6705,13 @@
     "openHistory": "Voir cette exécution dans l'historique",
     "againInserts": "Relancé, un Sync rapide insère ces enregistrements une seconde fois : retirez d'abord ce que cette exécution a créé, ou faites un upsert sur un ID externe dans l'assistant complet.",
     "syncInto": "Synchroniser vers {{target}}",
-    "insertsNeutralized": "Insère chaque enregistrement ; les e-mails et les numéros de téléphone sont neutralisés."
+    "insertsNeutralized": "Insère chaque enregistrement ; les e-mails et les numéros de téléphone sont neutralisés.",
+    "refusal": {
+      "storage": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste à l'org cible. Sync rapide n'a pas de filtre : retirez des objets ici, ou ouvrez-les dans l'assistant, où chaque objet prend un filtre. Pour copier une partie de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible. Ou libérez du stockage de données dans l'org cible : DataOps → Nettoyage → Vider des objets supprime ce qu'elle contient de ces objets.",
+      "openInWizard": "Ouvrir dans l'assistant",
+      "openForge": "Ouvrir Forge",
+      "emptyFirst": "Vider ces objets dans la cible"
+    }
   },
   "pagination": {
     "navigation": "Pagination",
@@ -7240,7 +7252,7 @@
     },
     "syncStorageExceeded": {
       "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste dans l'org cible.",
-      "action": "Simulez-la pour voir les chiffres, puis retirez des objets, resserrez leurs filtres, ou libérez du stockage de données dans l'org cible."
+      "action": "Simulez-la pour voir les chiffres, puis retirez des objets, resserrez leurs filtres, ou libérez du stockage de données dans l'org cible. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible."
     },
     "syncEmailsExceeded": {
       "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements feraient envoyer à l'automatisation de l'org cible plus d'e-mails qu'il ne lui en reste aujourd'hui, et chaque enregistrement au-delà serait refusé.",
@@ -7248,7 +7260,7 @@
     },
     "syncTargetUnwritable": {
       "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : l'org cible n'accepterait aucun enregistrement d'un objet qu'elle écrit. Elle n'a pas cet objet, l'utilisateur avec lequel la synchronisation écrit ne peut pas le voir, le créer ou le modifier, ou son upsert s'appuie sur un champ sur lequel l'org cible n'en fait aucun.",
-      "action": "Laissez ces objets hors de l'exécution, donnez à l'utilisateur avec lequel la synchronisation écrit l'accès à un objet qu'il ne peut pas écrire dans l'org cible, ou faites porter un upsert sur un ID externe de cette org : le message dit ce qu'il faut à chaque objet. Lancée depuis la page, la synchronisation demande s'il faut les laisser de côté et écrit le reste."
+      "action": "Laissez ces objets hors de l'exécution, donnez à l'utilisateur avec lequel la synchronisation écrit l'accès à un objet qu'il ne peut pas écrire dans l'org cible, déployez depuis la source avec Comparaison un objet que l'org cible n'a pas, ou faites porter un upsert sur un ID externe de cette org : le message dit ce qu'il faut à chaque objet. Lancée depuis la page, la synchronisation demande s'il faut les laisser de côté et écrit le reste."
     },
     "apiBudgetExceeded": {
       "explanation": "L'exécution a été refusée avant d'écrire quoi que ce soit : elle prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêtée en cours de route, ses enregistrements refusés avec REQUEST_LIMIT_EXCEEDED.",

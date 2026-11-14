@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useAppStore } from '../../stores/useAppStore';
 import { DATA_STORAGE_NOT_TOLD, type SyncWriteCheck } from '@sandforge/shared';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
@@ -140,11 +141,38 @@ describe('SyncWriteCheckCard', () => {
     );
     expect(screen.getByTestId('sync-write-check-unwritable-Invoice__c').textContent).toBe(
       'Invoice__c (8 records): the target org has no such object, or the user the run writes as ' +
-        'cannot see it. None of its records can be written.',
+        'cannot see it. None of its records can be written. If the target has not the object, ' +
+        'Compare deploys it from the source: tick Data Model, compare, then Deploy from Diff.',
     );
     expect(screen.getByTestId('sync-write-check').textContent).toContain(
       'Started from the page, the run asks whether to leave these objects out and writes the rest',
     );
+  });
+
+  it('opens Compare for an object the target has not, and for none other', () => {
+    useAppStore.setState({ currentRoute: 'sync', navigationIntent: null });
+    const { unmount } = render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [{ objectApiName: 'Case', rows: 120, why: 'notCreateable' }],
+        }}
+      />,
+    );
+    expect(screen.queryByTestId('sync-write-check-open-compare')).toBeNull();
+    unmount();
+
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [{ objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' }],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('sync-write-check-open-compare'));
+
+    expect(useAppStore.getState().currentRoute).toBe('compare');
   });
 
   it('counts what a simulation found the run would write, and says what of the count it would not', () => {

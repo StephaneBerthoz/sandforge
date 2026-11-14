@@ -48,6 +48,7 @@
   "config.seed.defaultBatchSize.description": "Default batch size for Seed data operations",
   "config.sync.defaultBatchSize.description": "Default batch size for Sync data operations",
   "config.sync.maxConcurrentOps.description": "Maximum concurrent sync operations",
+  "config.sync.maxRecordsPerObject.description": "Most records of one object a sync reads, from either org, production orgs and Developer Editions included (default and most 50,000: a run holds every record it reads of an object). An object with more is read up to this number, and the run says so with how to read the rest: a filter on CreatedDate, one range per run, or a sample from Forge's Depth ALL. What a run spends of the target's daily API requests is held by its gate.",
   "config.ai.enabled.description": "Enable AI Assistant (requires API key in secrets)",
   "config.ai.provider.description": "AI provider. Only `anthropic` is implemented, so it is the only choice. If settings.json names another provider, SandForge keeps AI off and sends nothing.",
   "config.ai.model.description": "AI model used by every SandForge AI feature: assistant chat, NL2SOQL, pipeline drafts, error resolution, Seed personas and Seed AI field rules.",

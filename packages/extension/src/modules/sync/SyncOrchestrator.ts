@@ -53,6 +53,7 @@ import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 import type { SyncCountedObject, SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { lookupsOf, orderSyncObjects, type WriteLookup } from './syncWriteOrder.js';
+import { heavyReadAdvice } from './syncReadCap.js';
 import { heldBackOf, type SyncHeldBackObject } from './syncHeldBack.js';
 import {
   REFUSED_BY_THE_TARGET,
@@ -1263,7 +1264,11 @@ export class SyncOrchestrator {
       this.deps.writeGate !== undefined,
     );
     if (this.deps.writeGate && 'unread' in counts) {
-      const message = `The records to write could not be counted (${counts.unread}), so nothing was written.`;
+      // A count Salesforce gave up on is refused again as it is: said with
+      // what gets it through.
+      const message =
+        `The records to write could not be counted (${counts.unread}), so nothing was written.` +
+        heavyReadAdvice(counts.unread);
       throw new SyncRunFailure(message, {
         ...buildResult(config.id, operationId, [], startTime, 'failure'),
         error: message,
@@ -2723,7 +2728,9 @@ export class SyncOrchestrator {
     // What the gate reads of an object, which the simulation then takes, as the run does.
     const gateReads: GateReads | undefined = deltaLoad === undefined ? new Map() : undefined;
     const counts = gate ? await this.countRun(config, ordered, deltaLoad, true) : undefined;
-    if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
+    if (gate && counts && 'unread' in counts) {
+      writeCheckUnread = `${counts.unread}${heavyReadAdvice(counts.unread)}`;
+    }
     if (gate && counts && 'counted' in counts) {
       try {
         // With the requests a run sends to read back the record types the

@@ -117,8 +117,11 @@ export class QuickSyncHandler implements DomainHandler {
 
       const suggestions = this.suggester.suggest(availableObjects, payload.alreadySelected ?? []);
 
+      // The whole list, which the search finds in: it was computed and
+      // thrown away, and the search looked among the five suggestions.
       const response = buildResponse(this.deps, msg, 'quicksync:suggest-objects:response', {
         suggestions,
+        availableObjects: [...availableObjects].sort((a, b) => a.localeCompare(b)),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);

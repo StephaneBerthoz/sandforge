@@ -1234,4 +1234,46 @@ describe('each object carries its own field mappings', () => {
       [],
     );
   });
+
+  it('takes what a Quick Sync picked onto its first step: the pair, and each object as an insert to filter', () => {
+    // Back to wizard left the pair and the objects behind, and a Quick Sync
+    // refused for the storage was told to narrow filters it did not have.
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleAddObject('Lead');
+      result.current.handleAddMapping('Name', 'Name');
+      result.current.setCurrentStep(2);
+    });
+
+    act(() => {
+      result.current.handleTakeQuickSync({
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        objects: ['Account', 'Contact'],
+      });
+    });
+
+    expect(result.current.sourceOrgId).toBe('src');
+    expect(result.current.targetOrgId).toBe('tgt');
+    expect(result.current.currentStep).toBe(0);
+    expect(result.current.mode).toBe('full');
+    expect(result.current.objectEntries).toEqual([
+      {
+        objectApiName: 'Account',
+        operation: 'insert',
+        externalIdField: '',
+        batchSize: 200,
+        where: '',
+      },
+      {
+        objectApiName: 'Contact',
+        operation: 'insert',
+        externalIdField: '',
+        batchSize: 200,
+        where: '',
+      },
+    ]);
+    expect(result.current.mappings).toEqual([]);
+    expect(result.current.transforms).toEqual([]);
+  });
 });

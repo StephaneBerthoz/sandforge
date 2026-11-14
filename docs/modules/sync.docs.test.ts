@@ -450,4 +450,19 @@ describe('docs/modules/sync.md', () => {
     );
     expect(DOC).toContain('`sandforge sync --config-file`, which exits 2. It is not saved either.');
   });
+
+  it('says every org is read to the setting’s bound, a production org past 500, and how a run says a cut', () => {
+    // Positive control: the panel reads the bound from the setting and sends
+    // no LIMIT, and the command line takes it as a flag and ends partial.
+    expect(SYNC_HANDLER).toContain("'sync.maxRecordsPerObject'");
+    expect(SYNC_HANDLER).not.toContain('defaultQueryLimit');
+    expect(SYNC_CLI).toContain("'--max-records-per-object'");
+    expect(SYNC_CLI).toContain('statusWithReadCuts(result.status');
+
+    expect(DOC).toContain(
+      'A full run reads every object whole, as its filter allows, up to `sandforge.sync.maxRecordsPerObject` records of each',
+    );
+    expect(DOC).toContain('a production org or a Developer Edition is read as a sandbox is');
+    expect(DOC).toContain('`--fail-on-partial` exits `3` on such a run');
+  });
 });

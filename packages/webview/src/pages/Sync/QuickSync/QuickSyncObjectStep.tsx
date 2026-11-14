@@ -56,8 +56,12 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [relationshipBanner, setRelationshipBanner] = useState<RelationshipBanner | null>(null);
 
-  // Fetch smart object suggestions (handler payload: { orgId, alreadySelected })
-  const suggestionsQuery = useBridgeQuery<{ suggestions: SmartObjectSuggestion[] }>(
+  // Fetch smart object suggestions (handler payload: { orgId, alreadySelected }),
+  // with every object of the source the handler read, which the search finds.
+  const suggestionsQuery = useBridgeQuery<{
+    suggestions: SmartObjectSuggestion[];
+    availableObjects?: string[];
+  }>(
     'quicksync:suggest-objects',
     { orgId: sourceOrgId, alreadySelected: selectedObjects },
     { skip: !sourceOrgId },
@@ -73,12 +77,16 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
     [suggestionsQuery.data],
   );
 
-  // Available objects from suggestions for the search dropdown
+  /*
+   * What the search finds: every object of the source the handler read from
+   * its catalogue. It looked among the five suggestions alone, so an object
+   * of the org's own was nowhere to pick, though the handler had read it.
+   */
+  const catalogue = suggestionsQuery.data?.availableObjects;
   const availableForSearch = useMemo(() => {
-    return suggestions
-      .filter((s) => s.isAvailable && !selectedObjects.includes(s.objectApiName))
-      .map((s) => s.objectApiName);
-  }, [suggestions, selectedObjects]);
+    const names = catalogue ?? suggestions.filter((s) => s.isAvailable).map((s) => s.objectApiName);
+    return names.filter((name) => !selectedObjects.includes(name));
+  }, [catalogue, suggestions, selectedObjects]);
 
   const filteredObjects = useMemo(() => {
     if (!searchTerm) return availableForSearch;
@@ -139,6 +147,11 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
         <div className="flex flex-wrap gap-2">
           {suggestions.slice(0, 5).map((s) => {
             const isSelected = selectedObjects.includes(s.objectApiName);
+            /* A struck chip says why: kept in the tab order, as a disabled
+               button is not, so the reason is read out and shown on hover. */
+            const why = s.isAvailable
+              ? undefined
+              : t('quickSync.notInSource', { object: s.objectApiName });
             return (
               <button
                 key={s.objectApiName}
@@ -149,12 +162,14 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                     handleAddObject(s.objectApiName);
                   }
                 }}
-                disabled={!s.isAvailable}
+                aria-disabled={why !== undefined ? true : undefined}
+                title={why}
+                aria-label={why}
                 data-testid={`suggestion-chip-${s.objectApiName}`}
               >
                 <Badge
-                  variant={isSelected ? 'info' : s.isAvailable ? 'default' : 'default'}
-                  className={`cursor-pointer ${!s.isAvailable ? 'line-through' : ''}`}
+                  variant={isSelected ? 'info' : 'default'}
+                  className={s.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed line-through'}
                 >
                   {s.label}
                 </Badge>

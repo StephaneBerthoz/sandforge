@@ -361,6 +361,13 @@
           "maximum": 10,
           "description": "%config.sync.maxConcurrentOps.description%"
         },
+        "sandforge.sync.maxRecordsPerObject": {
+          "type": "integer",
+          "default": 50000,
+          "minimum": 1,
+          "maximum": 50000,
+          "description": "%config.sync.maxRecordsPerObject.description%"
+        },
         "sandforge.ai.enabled": {
           "type": "boolean",
           "default": false,

@@ -18,6 +18,39 @@ const ENTRIES = [
 ];
 
 describe('SyncReviewObjects', () => {
+  it('says the bound each object is read to, and what lifts it or copies a part that fits', () => {
+    // A production source was read 500 records at most, of no particular
+    // kind, and nothing before the run said so.
+    render(
+      <SyncReviewObjects
+        entries={ENTRIES}
+        order={null}
+        orderLoading={false}
+        orderUnread={false}
+        saved={false}
+        readCap={1_000}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-review-read-cap').textContent).toBe(
+      'Each object is read up to 1,000 records, from either org, as sandforge.sync.maxRecordsPerObject sets it (50,000 at most): one holding more is copied in part, and the run says so. To copy part of a larger org that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target.',
+    );
+  });
+
+  it('says no bound before the extension has said it', () => {
+    render(
+      <SyncReviewObjects
+        entries={ENTRIES}
+        order={null}
+        orderLoading={false}
+        orderUnread={false}
+        saved={false}
+      />,
+    );
+
+    expect(screen.queryByTestId('sync-review-read-cap')).toBeNull();
+  });
+
   it('lists the objects in the order the run writes them, with why one moved', () => {
     render(
       <SyncReviewObjects

@@ -1355,6 +1355,7 @@
     "title": "Daten synchronisieren",
     "selectOrgs": "Orgs auswählen",
     "selectOrgsDesc": "Quell- und Ziel-Org wählen",
+    "sameOrgWarning": "Quelle und Ziel sind dieselbe Org: Wählen Sie eine andere Org als Ziel, um fortzufahren.",
     "configureObjects": "Objekte konfigurieren",
     "fieldMapping": "Feld-Zuordnung",
     "transforms": "Transformationen",
@@ -1373,7 +1374,8 @@
       "insertsSaved": "Gespeichert: Jeder Lauf dieser Konfiguration lässt die Datensätze, die ein früherer Lauf kopiert hat, wie sie sind, und fügt die anderen ein.",
       "insertsUnsaved": "Nicht gespeichert: Jeder Lauf fügt jeden gelesenen Datensatz erneut ein. Speichern Sie die Konfiguration, dann lassen ihre Läufe, was ein früherer Lauf kopiert hat, wie es ist.",
       "overwriteKept": "Was ein Update oder ein Upsert überschreibt, wird zuerst aus der Ziel-Org gelesen und auf diesem Rechner aufbewahrt: Das Entfernen des Laufs stellt die Werte wieder her, die die Datensätze hatten.",
-      "encrypted": "{{object}}: {{fields}} sind verschlüsselt und für den Benutzer, mit dem SandForge die Quell-Org liest, maskiert, da ihm die Berechtigung View Encrypted Data fehlt. Der Lauf lässt sie aus jedem Datensatz weg, statt die Masken zu kopieren; erteilen Sie diese Berechtigung, um ihre Werte zu kopieren."
+      "encrypted": "{{object}}: {{fields}} sind verschlüsselt und für den Benutzer, mit dem SandForge die Quell-Org liest, maskiert, da ihm die Berechtigung View Encrypted Data fehlt. Der Lauf lässt sie aus jedem Datensatz weg, statt die Masken zu kopieren; erteilen Sie diese Berechtigung, um ihre Werte zu kopieren.",
+      "readCap": "Jedes Objekt wird aus beiden Orgs bis zu {{cap}} Datensätze gelesen, wie sandforge.sync.maxRecordsPerObject es festlegt (höchstens 50.000): Eines mit mehr wird teilweise kopiert, und der Lauf meldet es. Um einen Teil einer größeren Org zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt."
     },
     "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
     "execute": "Ausführen",
@@ -1662,12 +1664,13 @@
       "notWritten_one": "Von den {{total}}, die ein Lauf in der Quelle zählt, würde {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
       "notWritten_other": "Von den {{total}}, die ein Lauf in der Quelle zählt, würden {{count}} nicht geschrieben: zurückgehalten oder abgelehnt, wie jedes Objekt sagt. Das Folgende ist auf alle bezogen.",
       "unwritable": {
-        "notInTarget": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat kein solches Objekt, oder der Benutzer, mit dem der Lauf schreibt, kann es nicht sehen. Keiner seiner Datensätze kann geschrieben werden.",
+        "notInTarget": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat kein solches Objekt, oder der Benutzer, mit dem der Lauf schreibt, kann es nicht sehen. Keiner seiner Datensätze kann geschrieben werden. Hat das Ziel das Objekt nicht, stellt Vergleich es aus der Quelle bereit: Datenmodell ankreuzen, vergleichen, dann Aus Diff bereitstellen.",
         "notCreateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf in der Ziel-Org keine Datensätze davon erstellen. Keiner kann geschrieben werden.",
         "notUpdateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf seine Datensätze in der Ziel-Org nicht bearbeiten. Keiner kann geschrieben werden.",
         "unread": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat es nicht beschrieben, daher würde keiner seiner Datensätze gesendet.",
         "notAKey": "{{object}} ({{rows}} Datensätze): Sein Upsert gleicht über {{key}} ab, weder eine externe ID noch ein idLookup-Feld in der Ziel-Org. Keiner davon kann geschrieben werden.",
-        "hint": "Von der Seite gestartet, fragt der Lauf, ob diese Objekte ausgelassen werden sollen, und schreibt den Rest; ein geplanter Lauf und die Befehlszeile werden abgelehnt."
+        "hint": "Von der Seite gestartet, fragt der Lauf, ob diese Objekte ausgelassen werden sollen, und schreibt den Rest; ein geplanter Lauf und die Befehlszeile werden abgelehnt.",
+        "openCompare": "Vergleich öffnen"
       },
       "heldBack": {
         "leftOut_one": "{{object}} ({{count}} Datensatz): zurückgehalten, nicht geschrieben — sein {{field}} nennt einen ausgelassenen {{parent}}-Datensatz, und ohne ihn geschrieben, stünde er ohne sein {{parent}}.",
@@ -1960,7 +1963,7 @@
       "noQuery": "Ausgelassen: Es hat keine Query, und SFDMU lässt ein solches Objekt aus.",
       "unknownOperation": "Ausgelassen: „{{detail}}“ ist keine Operation von SFDMU, das es als Readonly liest.",
       "deletesElsewhere": "Ausgelassen: {{detail}} löscht in der Quell-Org oder entlang einer Hierarchie, und Sync tut beides nicht.",
-      "mockAllFields": "Ausgelassen: SFDMU schreibt Fantasiewerte in alle seine Felder. Sync hat keine und würde die echten kopieren.",
+      "mockAllFields": "Ausgelassen: SFDMU schreibt Fantasiewerte in alle seine Felder. Sync schreibt keine Fantasiewerte und würde die echten kopieren. Um das Objekt zu kopieren, nennen Sie in den mockFields des Exports nur die Felder, die wegbleiben sollen: Sync lässt sie beim Schreiben weg.",
       "duplicate": "Ein späterer Eintrag dieses Objekts, {{detail}}, wurde ausgelassen: Eine Sync-Konfiguration enthält ein Objekt nur einmal. Importieren Sie diesen Eintrag einzeln, um ihn auszuführen.",
       "delete": "{{detail}} wirkt hier anders. SFDMU löscht, was seine Query im Ziel auswählt. Sync löscht in den Papierkorb die Datensätze des Ziels, die die in der Quelle gelesenen IDs tragen. In Sync öffnen zeigt über Synchronisierung starten, was jedes Objekt tut: Lesen Sie es vor der Ausführung.",
       "updateKey": "SFDMU findet jeden zu aktualisierenden Datensatz über {{detail}}. Sync aktualisiert über die Id des Quelldatensatzes, die eine andere Org nicht hat: Stellen Sie die Operation auf Upsert über eine External ID.",
@@ -1969,12 +1972,14 @@
       "unusableKey": "Sein Schlüssel {{detail}} wird nicht übernommen: Sync gleicht über ein einzelnes Feld des Objekts ab, nicht über einen zusammengesetzten Schlüssel oder ein Feld eines übergeordneten Objekts. Ein Upsert muss eines in seiner Zeile benennen.",
       "fieldMappingOff": "useFieldMapping ist aus: SFDMU ignoriert seine Feldzuordnungen ({{detail}}), und dieser Import auch.",
       "valueRows": "Diese Zeilen von ValueMapping.csv werden nicht angewendet, denn eine Wertezuordnungsregel ordnet einen exakten Wert einem anderen zu, ohne regulären Ausdruck, ohne eval und ohne leeren Wert (#N/A, null, NULL, undefined), den SFDMU als leeres Feld schreibt: {{detail}}.",
-      "notMaster": "master ist false: SFDMU kopiert nur die Datensätze, die die anderen Objekte brauchen. Sync kennt diese Einschränkung nicht und liest jeden Datensatz, den sein Filter auswählt.",
-      "limit": "LIMIT {{detail}} wird nicht übernommen: Sync liest jeden Datensatz, den sein Filter auswählt.",
+      "notMaster": "master ist false: SFDMU kopiert nur die Datensätze, die die anderen Objekte brauchen. Sync kennt diese Einschränkung nicht und liest jeden Datensatz, den sein Filter auswählt. Autopilot kopiert nur die Datensätze, auf die die angekreuzten Objekte verweisen: Lassen Sie dieses Objekt dort unangekreuzt, und kreuzen Sie die an, die darauf verweisen.",
+      "limit": "LIMIT {{detail}} wird nicht übernommen: Sync liest jeden Datensatz, den sein Filter auswählt. Um einen Teil davon zu lesen, setzen Sie einen Filter in seiner Zeile, zum Beispiel einen Bereich von CreatedDate; um eine Stichprobe der Quelle zu kopieren, die in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt.",
       "queryClause": "„{{detail}}“ in seiner Query wird nicht übernommen: Sync führt die Query nicht aus.",
       "queryUnread": "Seine Query ließ sich nicht lesen, daher kommt von ihr kein Filter: Sync liest jeden Datensatz des Objekts. Setzen Sie einen Filter in seiner Zeile.",
       "whereRefused": "Sein WHERE tut mehr als filtern, etwa mit einer Unterabfrage, und Sync lehnt es ab: Schreiben Sie es in seiner Zeile um, sonst wird das Speichern abgelehnt.",
-      "deleteOldData": "deleteOldData wird nicht übernommen: Die alten Datensätze des Ziels werden nicht vorher gelöscht.",
+      "deleteOldData": "deleteOldData wird nicht übernommen: Die alten Datensätze des Ziels werden nicht vorher gelöscht. Um mit einem leeren Objekt zu beginnen, leeren Sie es zuerst unter DataOps → Bereinigung → Objekte leeren und starten Sie dann die Synchronisierung.",
+      "emptyFirst": "Diese Objekte zuerst im Ziel leeren",
+      "emptyFirstPickTarget": "Wählen Sie unter Aus Sync ausführen die Ziel-Org, um diese Objekte dort zu leeren.",
       "mockFields": "SFDMU schreibt Fantasiewerte in {{detail}}. Sync hat keine: Diese Felder bleiben beim Schreiben außen vor, statt mit ihren echten Werten kopiert zu werden. Ein Pflichtfeld lässt den Datensatz scheitern; nehmen Sie es aus mockFields heraus, um es zu kopieren.",
       "nameDiffers": "Die Datei nennt es {{detail}}, und seine Query wählt dieses Objekt aus: SFDMU folgt der Query, und dieser Import auch.",
       "settings": "Nicht übernommen: {{detail}}. Sync liest diese Einstellungen des Exports nicht.",
@@ -6675,6 +6680,7 @@
     "selectOrgs": "Quell- und Ziel-Orgs auswählen",
     "selectObjects": "Objekte zum Synchronisieren auswählen",
     "suggestedObjects": "Vorgeschlagene Objekte",
+    "notInSource": "{{object}} gehört nicht zu den Objekten, die die Quell-Org SandForge lesen und anlegen lässt.",
     "addParent": "Übergeordnetes Objekt {{parent}} für {{child}} hinzufügen?",
     "preview": "Vorschau",
     "totalRecords": "Datensätze gesamt",
@@ -6699,7 +6705,13 @@
     "openHistory": "Diesen Lauf im Verlauf ansehen",
     "againInserts": "Erneut gestartet, fügt ein Schnell-Sync diese Datensätze ein zweites Mal ein: Entfernen Sie zuerst, was dieser Lauf erstellt hat, oder führen Sie im vollständigen Assistenten einen Upsert über eine externe ID aus.",
     "syncInto": "In {{target}} synchronisieren",
-    "insertsNeutralized": "Fügt jeden Datensatz ein; E-Mail-Adressen und Telefonnummern werden neutralisiert."
+    "insertsNeutralized": "Fügt jeden Datensatz ein; E-Mail-Adressen und Telefonnummern werden neutralisiert.",
+    "refusal": {
+      "storage": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als der Ziel-Org bleibt. Schnell-Sync hat keinen Filter: Lassen Sie hier Objekte weg, oder öffnen Sie sie im Assistenten, wo jedes Objekt einen Filter erhält. Um einen Teil der Quelle zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt. Oder geben Sie Datenspeicher in der Ziel-Org frei: DataOps → Bereinigung → Objekte leeren löscht, was sie von diesen Objekten enthält.",
+      "openInWizard": "Im Assistenten öffnen",
+      "openForge": "Forge öffnen",
+      "emptyFirst": "Diese Objekte im Ziel leeren"
+    }
   },
   "pagination": {
     "navigation": "Seitennavigation",
@@ -7240,7 +7252,7 @@
     },
     "syncStorageExceeded": {
       "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist.",
-      "action": "Simulieren Sie sie, um die Zahlen zu sehen, und lassen Sie dann Objekte weg, grenzen Sie ihre Filter ein oder geben Sie Datenspeicher in der Ziel-Org frei."
+      "action": "Simulieren Sie sie, um die Zahlen zu sehen, und lassen Sie dann Objekte weg, grenzen Sie ihre Filter ein oder geben Sie Datenspeicher in der Ziel-Org frei. Um stattdessen eine Stichprobe der Quelle zu kopieren, die in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt."
     },
     "syncEmailsExceeded": {
       "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze würden die Automatisierung der Ziel-Org mehr E-Mails senden lassen, als ihr heute bleiben, und jeder Datensatz darüber hinaus würde abgelehnt.",
@@ -7248,7 +7260,7 @@
     },
     "syncTargetUnwritable": {
       "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas schrieb: Die Ziel-Org würde keinen Datensatz eines Objekts annehmen, das sie schreibt. Sie hat das Objekt nicht, der Benutzer, mit dem die Synchronisierung schreibt, darf es dort nicht sehen, erstellen oder bearbeiten, oder sein Upsert gleicht über ein Feld ab, über das die Ziel-Org keinen Upsert abgleicht.",
-      "action": "Lassen Sie diese Objekte aus dem Lauf heraus, geben Sie dem Benutzer, mit dem die Synchronisierung schreibt, Zugriff auf ein Objekt, das er in der Ziel-Org nicht schreiben darf, oder lassen Sie einen Upsert über eine externe ID dieser Org abgleichen: Die Meldung sagt, was jedes Objekt braucht. Von der Seite gestartet, fragt die Synchronisierung, ob sie sie auslassen soll, und schreibt den Rest."
+      "action": "Lassen Sie diese Objekte aus dem Lauf heraus, geben Sie dem Benutzer, mit dem die Synchronisierung schreibt, Zugriff auf ein Objekt, das er in der Ziel-Org nicht schreiben darf, stellen Sie ein Objekt, das die Ziel-Org nicht hat, mit Vergleich aus der Quelle bereit, oder lassen Sie einen Upsert über eine externe ID dieser Org abgleichen: Die Meldung sagt, was jedes Objekt braucht. Von der Seite gestartet, fragt die Synchronisierung, ob sie sie auslassen soll, und schreibt den Rest."
     },
     "apiBudgetExceeded": {
       "explanation": "Der Lauf wurde abgelehnt, bevor er etwas schrieb: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben, seine Datensätze mit REQUEST_LIMIT_EXCEEDED abgelehnt.",

@@ -480,7 +480,32 @@ describe('unwritableRefusal', () => {
 
     expect(said).toContain(
       'Leave them out of the run, give the user SandForge writes as access to Invoice__c and ' +
-        'Case in TGT, or match Account on an External ID field of TGT. Nothing was written.',
+        'Case in TGT, or match Account on an External ID field of TGT.',
     );
+    expect(said).toMatch(/Nothing was written\.$/);
+  });
+
+  it('names the deploy Compare makes of an object the target has not, beside the access', () => {
+    const said = unwritableRefusal(
+      [
+        { objectApiName: 'Invoice__c', rows: 2, why: 'notInTarget' },
+        { objectApiName: 'Case', rows: 4, why: 'notCreateable' },
+      ],
+      'TGT',
+    );
+
+    expect(said).toContain(
+      'Where TGT has not Invoice__c, Compare deploys it from the source: tick Data Model, ' +
+        'compare, then Deploy from Diff. Nothing was written.',
+    );
+  });
+
+  it('names no deploy where the target holds every object', () => {
+    const said = unwritableRefusal(
+      [{ objectApiName: 'Case', rows: 4, why: 'notCreateable' }],
+      'TGT',
+    );
+
+    expect(said).not.toContain('Compare');
   });
 });

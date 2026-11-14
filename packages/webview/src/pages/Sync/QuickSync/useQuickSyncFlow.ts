@@ -35,6 +35,12 @@ export interface QuickSyncFlowState {
   /** Error message if any step failed. */
   error: string | null;
   /**
+   * The code the error came with, which the flow words a refusal by: the
+   * gate's refusals offered Simulate and filters Quick Sync does not have.
+   * Null for an error with none.
+   */
+  errorCode: string | null;
+  /**
    * Whether the run mutes the target's automation through its own bypass, as
    * the box beside Go is left: off unless ticked, and not kept across a
    * reload, as nothing of a run under way is.
@@ -125,7 +131,13 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
    * permanent spinner on the preview screen while no operation was running.
    */
   const [isExecuting, setIsExecuting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorValue] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  /** The error, and the code it came with: none for one of the flow's own, or a clear. */
+  const setError = useCallback((message: string | null, code: string | null = null) => {
+    setErrorValue(message);
+    setErrorCode(message === null ? null : code);
+  }, []);
   const [muteAutomation, setMuteAutomation] = useState(false);
   const [checkpointFirst, setCheckpointFirst] = useState(false);
   /** The boxes as Go found them: the run is sent once its configuration is prepared. */
@@ -169,9 +181,15 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
       setPreview(previewMutation.data.preview);
     }
     if (previewMutation.error) {
-      setError(previewMutation.error);
+      setError(previewMutation.error, previewMutation.errorCode ?? null);
     }
-  }, [previewMutation.data, previewMutation.error, setPreview, setError]);
+  }, [
+    previewMutation.data,
+    previewMutation.error,
+    previewMutation.errorCode,
+    setPreview,
+    setError,
+  ]);
 
   // Keep the latest sync mutate in a ref: `useBridgeMutation`'s mutate is not
   // guaranteed stable, and the relay effect must fire only when the prepared
@@ -193,10 +211,10 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   // Prepare-step failures surface on quicksync:error
   useEffect(() => {
     if (prepareMutation.error) {
-      setError(prepareMutation.error);
+      setError(prepareMutation.error, prepareMutation.errorCode ?? null);
       setIsExecuting(false);
     }
-  }, [prepareMutation.error, setError, setIsExecuting]);
+  }, [prepareMutation.error, prepareMutation.errorCode, setError, setIsExecuting]);
 
   // Sync execution mutation response into state
   useEffect(() => {
@@ -206,10 +224,18 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
       setStep('results');
     }
     if (syncMutation.error) {
-      setError(syncMutation.error);
+      setError(syncMutation.error, syncMutation.errorCode ?? null);
       setIsExecuting(false);
     }
-  }, [syncMutation.data, syncMutation.error, setResult, setIsExecuting, setStep, setError]);
+  }, [
+    syncMutation.data,
+    syncMutation.error,
+    syncMutation.errorCode,
+    setResult,
+    setIsExecuting,
+    setStep,
+    setError,
+  ]);
 
   /*
    * The objects picked are the source's: another source empties them, and
@@ -350,6 +376,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     isExecuting,
     runOperationId: syncMutation.loading ? syncMutation.requestId : null,
     error,
+    errorCode,
     muteAutomation,
     checkpointFirst,
     stoppedCheckpoint,

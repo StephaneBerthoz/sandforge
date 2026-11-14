@@ -430,6 +430,37 @@ describe('SyncPage', () => {
     expect(labels.some((label) => label?.includes('[SBX]'))).toBe(false);
   });
 
+  it('says why Next stays off when the source and the target are the same org', () => {
+    // Next was greyed with no word: the user saw two orgs picked and a
+    // button that would not go.
+    useOrgStore.setState({ orgs: mockOrgs });
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-1',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    render(<SyncPage />);
+
+    expect(screen.getByTestId('sync-same-org').textContent).toBe(
+      'Source and target are the same org: pick another org as the target to go on.',
+    );
+    expect(screen.getByTestId('sync-wizard-next').getAttribute('aria-disabled')).toBe('true');
+  });
+
   it('should disable next when no orgs selected', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);

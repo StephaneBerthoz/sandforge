@@ -2,6 +2,7 @@ import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SyncEncryptedFieldsMasked, SyncWriteOrder } from '@sandforge/shared';
 import { listWords } from '../../utils/listWords';
+import { formatNumber } from '../../utils/formatters';
 import type { ObjectSetEntry } from './ObjectSetEditor';
 
 /** Props for {@link SyncReviewObjects}. */
@@ -21,6 +22,12 @@ export interface SyncReviewObjectsProps {
    * the run leaves out, as the extension read them with the order.
    */
   encrypted?: readonly SyncEncryptedFieldsMasked[];
+  /**
+   * The most records of one object a run reads, of either org, as the
+   * extension said it with the order (`sandforge.sync.maxRecordsPerObject`).
+   * Absent until it answers.
+   */
+  readCap?: number;
 }
 
 /** The objects in the order a run writes them, those the order does not name after it, as listed. */
@@ -55,6 +62,7 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
   orderUnread,
   saved,
   encrypted = [],
+  readCap,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -145,6 +153,13 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
           {t('sync.reviewObjects.encrypted', { object: objectApiName, fields: fields.join(', ') })}
         </p>
       ))}
+      {/* The bound of each read, said before the run: a production source
+          was read 500 records at most, of no particular kind, unsaid. */}
+      {readCap !== undefined && (
+        <p className="text-xs text-text-secondary" data-testid="sync-review-read-cap">
+          {t('sync.reviewObjects.readCap', { cap: formatNumber(readCap) })}
+        </p>
+      )}
       {inserts && (
         <p
           className={saved ? 'text-xs text-text-secondary' : 'text-xs text-status-warning'}

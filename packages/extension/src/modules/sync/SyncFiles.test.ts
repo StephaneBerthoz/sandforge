@@ -302,7 +302,7 @@ describe('planRunFiles — refusals before anything is written', () => {
     });
   });
 
-  it('copies no new file past the record a configuration keeps, and says why', async () => {
+  it('copies no new file past the record a configuration keeps, and says why and what frees it', async () => {
     const full: SyncCopiedFile[] = Array.from({ length: SYNC_FILE_MAP_MAX }, (_, n) =>
       copied({ sourceId: fakeId('069', 1000 + n) }),
     );
@@ -340,7 +340,9 @@ describe('planRunFiles — refusals before anything is written', () => {
     expect(files?.files).toEqual([]);
     expect(files?.outcome.pastRunCap).toBe(1);
     expect(files?.notes).toEqual([
-      `1 file(s) were not copied: this configuration keeps the record of ${SYNC_FILE_MAP_MAX} copied files at most, which it holds already.`,
+      `1 file(s) were not copied: this configuration keeps the record of ${SYNC_FILE_MAP_MAX} copied files at most, which it holds already. ` +
+        'Removing an earlier run of it frees the entries of the files that run copied: ' +
+        'Remove what this run created on its History entry, or --remove on the command line.',
     ]);
   });
 

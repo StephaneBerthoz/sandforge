@@ -11,6 +11,7 @@ import { syncConfigSchema } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { Select } from '../../components/ui/Select';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
@@ -305,6 +306,22 @@ export const MigrationPage: React.FC = () => {
   const workingObjects = workingConfig ? configObjects(workingConfig) : [];
   const problem = workingConfig ? editProblem(workingConfig) : null;
   const importNotes = successResult?.notes ?? [];
+  /** The objects whose old records SFDMU deletes first (`deleteOldData`), which Sync does not. */
+  const emptiedFirst = importNotes.flatMap((note) =>
+    note.code === 'deleteOldData' && note.object !== undefined ? [note.object] : [],
+  );
+  const emptyFirstHintId = useId();
+  const selectOrg = useOrgStore((s) => s.selectOrg);
+  /**
+   * Open DataOps → Cleanup → Empty objects on the run's target, these objects
+   * picked, the target selected there as everywhere.
+   */
+  const emptyFirst = (): void => {
+    if (runTargetOrgId === '') return;
+    selectOrg(runTargetOrgId);
+    sendBridgeMessage('org:select', { orgId: runTargetOrgId });
+    navigate('dataops', { targetOrgId: runTargetOrgId, emptyObjects: emptiedFirst });
+  };
 
   /** Replace the copy's objects, every other key of the config as imported. */
   const writeObjects = (objects: Array<Record<string, unknown>>): void => {
@@ -610,6 +627,33 @@ export const MigrationPage: React.FC = () => {
                       </li>
                     ))}
                   </ul>
+                  {/* What SFDMU's deleteOldData did first, done by hand: Empty
+                      objects on the run's target, these objects picked. The
+                      note said it was not carried, and nothing more. */}
+                  {emptiedFirst.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="self-start"
+                        disabled={runTargetOrgId === ''}
+                        aria-describedby={runTargetOrgId === '' ? emptyFirstHintId : undefined}
+                        onClick={emptyFirst}
+                        data-testid="migration-empty-first"
+                      >
+                        {t('migration.notes.emptyFirst')}
+                      </Button>
+                      {runTargetOrgId === '' && (
+                        <p
+                          id={emptyFirstHintId}
+                          className="text-xs text-text-secondary"
+                          data-testid="migration-empty-first-hint"
+                        >
+                          {t('migration.notes.emptyFirstPickTarget')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               <div

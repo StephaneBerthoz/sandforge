@@ -344,9 +344,11 @@ export const SyncPage: React.FC = () => {
     writeOrderLoading,
     writeOrderUnread,
     writeOrderEncrypted,
+    writeOrderReadCap,
     filesNeedSave,
     transformsNeedField,
     handleApplyTemplate,
+    handleTakeQuickSync,
     canGoNext,
     isFinished,
     overallPercent,
@@ -544,6 +546,12 @@ export const SyncPage: React.FC = () => {
             onPairChange={(source, target) =>
               setQuickSyncPair({ sourceOrgId: source, targetOrgId: target })
             }
+            // What it picked, onto the wizard's first step, where each object
+            // takes a filter: Back to wizard leaves them behind.
+            onOpenInWizard={(pick) => {
+              handleTakeQuickSync(pick);
+              setQuickSyncActive(false);
+            }}
             // The run's entry on the History tab: what it wrote, and its removal.
             onOpenHistory={(operationId) => {
               useSyncHistoryStore.getState().openRun(operationId);
@@ -581,6 +589,16 @@ export const SyncPage: React.FC = () => {
                     placeholder={t('sync.target')}
                   />
                 </div>
+                {/* Next stays off for one org on both sides: said, as it was not. */}
+                {sourceOrgId !== '' && sourceOrgId === targetOrgId && (
+                  <p
+                    className="text-xs text-status-warning"
+                    role="status"
+                    data-testid="sync-same-org"
+                  >
+                    {t('sync.sameOrgWarning')}
+                  </p>
+                )}
                 {/* Full or delta. The Mode dropdown offered "incremental",
                   "delta" and "cdc" while every run was a full sync; a delta
                   run now reads each object from its last good run, so it is
@@ -948,6 +966,7 @@ export const SyncPage: React.FC = () => {
                   orderUnread={writeOrderUnread}
                   saved={configSaved}
                   encrypted={writeOrderEncrypted}
+                  {...(writeOrderReadCap !== undefined ? { readCap: writeOrderReadCap } : {})}
                 />
                 <SankeyFlow
                   nodes={buildSankeyNodes(objectEntries, mappings)}
@@ -1028,6 +1047,7 @@ export const SyncPage: React.FC = () => {
                     orderUnread={writeOrderUnread}
                     saved
                     encrypted={writeOrderEncrypted}
+                    {...(writeOrderReadCap !== undefined ? { readCap: writeOrderReadCap } : {})}
                   />
                 )}
                 {!busy && openedUnread && (

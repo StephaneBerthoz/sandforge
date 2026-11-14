@@ -106,6 +106,39 @@ describe('QuickSyncOrgStep', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('says why Next stays off when the same org is both source and target', () => {
+    render(
+      <QuickSyncOrgStep
+        sourceOrgId="org-2"
+        targetOrgId="org-2"
+        onSourceChange={vi.fn()}
+        onTargetChange={vi.fn()}
+        onNext={vi.fn()}
+        canGoNext={false}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-sync-same-org').textContent).toBe(
+      'Source and target are the same org: pick another org as the target to go on.',
+    );
+    expect((screen.getByTestId('quick-sync-org-next') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('says nothing of the pair while two orgs are picked', () => {
+    render(
+      <QuickSyncOrgStep
+        sourceOrgId="org-1"
+        targetOrgId="org-2"
+        onSourceChange={vi.fn()}
+        onTargetChange={vi.fn()}
+        onNext={vi.fn()}
+        canGoNext={true}
+      />,
+    );
+
+    expect(screen.queryByTestId('quick-sync-same-org')).toBeNull();
+  });
+
   it('next button enabled and calls onNext when orgs are valid', () => {
     const onNext = vi.fn();
     render(

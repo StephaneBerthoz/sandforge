@@ -4,6 +4,7 @@ import { useQuickSyncFlow } from './useQuickSyncFlow';
 import { QuickSyncOrgStep } from './QuickSyncOrgStep';
 import { QuickSyncObjectStep } from './QuickSyncObjectStep';
 import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
+import { QuickSyncRefusal, type QuickSyncPick } from './QuickSyncRefusal';
 import { Badge } from '../../../components/ui/Badge';
 import { Icon } from '../../../components/ui/Icon';
 import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
@@ -24,6 +25,11 @@ export interface QuickSyncFlowProps {
    * header names while the flow is open, in place of the wizard's pair.
    */
   onPairChange?: (sourceOrgId: string, targetOrgId: string) => void;
+  /**
+   * Open what the flow picked in the wizard — the pair, the objects — where
+   * each object takes a filter: Back to wizard left them behind.
+   */
+  onOpenInWizard?: (pick: QuickSyncPick) => void;
 }
 
 /**
@@ -36,6 +42,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
   onBack,
   onOpenHistory,
   onPairChange,
+  onOpenInWizard,
 }) => {
   const { t } = useTranslation();
   const flow = useQuickSyncFlow();
@@ -182,15 +189,19 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({
         )}
       </div>
 
-      {/* Error display: an alert, said when it appears wherever the focus is. */}
+      {/* Error display: an alert, said when it appears wherever the focus is,
+          with what this flow can do about it. */}
       {state.error && (
-        <div
-          role="alert"
-          className="text-xs text-status-error p-2 rounded-sm bg-(--sf-error-bg)"
-          data-testid="quick-sync-error"
-        >
-          {state.error}
-        </div>
+        <QuickSyncRefusal
+          message={state.error}
+          code={state.errorCode}
+          pick={{
+            sourceOrgId: state.sourceOrgId,
+            targetOrgId: state.targetOrgId,
+            objects: state.selectedObjects,
+          }}
+          onOpenInWizard={onOpenInWizard ?? (() => onBack())}
+        />
       )}
       {/* What became of the checkpoint a stopped run took first. */}
       <RewindBeforeRun

@@ -6,6 +6,8 @@ import {
   type SyncWriteOrder,
 } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { useAppStore } from '../../stores/useAppStore';
 import { formatNumber } from '../../utils/formatters';
 import { listWords } from '../../utils/listWords';
 
@@ -36,6 +38,7 @@ export interface SyncWriteCheckCardProps {
  */
 export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, unread, order }) => {
   const { t } = useTranslation();
+  const navigate = useAppStore((s) => s.navigate);
   if (!check && unread === undefined && !order) return null;
   const limitWords = (limit: 'SingleEmail' | 'DailyWorkflowEmails'): string =>
     limit === 'SingleEmail' ? t('common.emailLimit.single') : t('common.emailLimit.workflow');
@@ -250,6 +253,19 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
               })}
               {(check.unwritable ?? []).length > 0 && (
                 <p className="text-text-secondary">{t('sync.writeCheck.unwritable.hint')}</p>
+              )}
+              {/* An object the target has not is deployed from the source,
+                  which no access gives it: the way there, beside the words. */}
+              {(check.unwritable ?? []).some(({ why }) => why === 'notInTarget') && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => navigate('compare')}
+                  data-testid="sync-write-check-open-compare"
+                >
+                  {t('sync.writeCheck.unwritable.openCompare')}
+                </Button>
               )}
               {check.aboveRecords !== undefined && (
                 <p className="text-text-secondary">

@@ -96,6 +96,36 @@ describe('QuickSyncHandler', () => {
     expect(accountSugg?.isAlreadySelected).toBe(true);
   });
 
+  it('answers every object of the org a sync may read and create, which the search finds in', async () => {
+    // The list was computed and thrown away: the search looked among the
+    // five suggestions alone.
+    mockGetConn.mockResolvedValue({
+      describeGlobal: vi.fn().mockResolvedValue({
+        sobjects: [
+          { name: 'Invoice__c', createable: true, queryable: true },
+          { name: 'Account', createable: true, queryable: true },
+          { name: 'AccountHistory', createable: false, queryable: true },
+        ],
+      }),
+      limitInfo: undefined,
+    } as never);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-catalogue',
+        type: 'quicksync:suggest-objects',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', alreadySelected: [] },
+      }),
+    );
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { availableObjects?: string[] };
+    };
+    expect(response.payload.availableObjects).toEqual(['Account', 'Invoice__c']);
+  });
+
   it('handles quicksync:preview and returns preview data', async () => {
     mockGetConn.mockResolvedValue({
       query: vi.fn().mockResolvedValue({ totalSize: 250 }),

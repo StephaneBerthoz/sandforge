@@ -48,6 +48,7 @@
   "config.seed.defaultBatchSize.description": "Tamaño de lote predeterminado para operaciones de datos de Seed",
   "config.sync.defaultBatchSize.description": "Tamaño de lote predeterminado para operaciones de datos de Sync",
   "config.sync.maxConcurrentOps.description": "Número máximo de operaciones de sincronización simultáneas",
+  "config.sync.maxRecordsPerObject.description": "Número máximo de registros de un objeto que lee una sincronización, de cualquiera de las dos orgs, orgs de producción y Developer Edition incluidas (50.000 por defecto y como máximo: una ejecución guarda todo lo que lee de un objeto). Un objeto con más registros se lee hasta este número, y la ejecución lo indica, con la forma de leer el resto: un filtro sobre CreatedDate, un rango por ejecución, o una muestra con la profundidad ALL de Forge. Lo que una ejecución gasta de las solicitudes de API diarias del destino lo controla su verificación previa.",
   "config.ai.enabled.description": "Habilitar el Asistente IA (requiere clave de API en los secretos)",
   "config.ai.provider.description": "Proveedor de IA. Solo `anthropic` está implementado, por lo que es la única opción. Si settings.json indica otro proveedor, SandForge mantiene la IA desactivada y no envía nada.",
   "config.ai.model.description": "Modelo de IA usado por todas las funciones de IA de SandForge: chat del asistente, NL2SOQL, borradores de pipeline, resolución de errores, personas de Seed y reglas de campo de IA de Seed.",

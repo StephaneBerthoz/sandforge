@@ -376,6 +376,8 @@ describe('a Sync run held to what the target has left, before its first write', 
       cycles: [],
     });
     expect(answer.payload).not.toHaveProperty('encrypted');
+    // The bound each object is read to, which Review says before a run.
+    expect(answer.payload.readCap).toBe(50_000);
   });
 
   describe('of a configuration that runs both ways', () => {
@@ -407,21 +409,20 @@ describe('a Sync run held to what the target has left, before its first write', 
       expect(bothWays).toBe((oneWay ?? 0) + 1 + 1 + 1);
     });
 
-    it('prices a sandbox’s read page by page, and a production org’s as far as the cap its read keeps to', async () => {
+    it('prices the read of a production org page by page, as a sandbox’s, as far as the bound of the setting', async () => {
       mockOrgs(3_000);
       const oneWay = await estimateOf('source_to_target', 'sim-one-way');
-      // 500 at most from a production org: one page.
-      expect(await estimateOf('bidirectional', 'sim-production')).toBe((oneWay ?? 0) + 1 + 1 + 1);
+      // A production org was read 500 at most, in one page: it is read as a
+      // sandbox is, 3,000 in three pages of 1,000.
+      expect(await estimateOf('bidirectional', 'sim-production')).toBe((oneWay ?? 0) + 1 + 1 + 3);
 
-      vi.mocked(deps.orgManager.getOrg).mockImplementation(
-        (orgId: string) =>
-          ({ orgType: 'Sandbox', alias: orgId === 'tgt-org' ? 'TRAP' : 'SOURCE' }) as never,
-      );
-      const sandboxOneWay = await estimateOf('source_to_target', 'sim-sandbox-one-way');
-      // 3,000 a sandbox reads whole: three pages of 1,000.
-      expect(await estimateOf('bidirectional', 'sim-sandbox')).toBe(
-        (sandboxOneWay ?? 0) + 1 + 1 + 3,
-      );
+      // Bound at 1,000 by sandforge.sync.maxRecordsPerObject: one page.
+      (
+        deps.services as unknown as { getSandforgeSetting: (k: string, f: unknown) => unknown }
+      ).getSandforgeSetting = (key, fallback) =>
+        key === 'sync.maxRecordsPerObject' ? 1_000 : fallback;
+      const boundOneWay = await estimateOf('source_to_target', 'sim-bound-one-way');
+      expect(await estimateOf('bidirectional', 'sim-bound')).toBe((boundOneWay ?? 0) + 1 + 1 + 1);
     });
   });
 

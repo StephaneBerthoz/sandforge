@@ -366,6 +366,50 @@ describe('MigrationPage — what the import did not carry over', () => {
     if (detail !== undefined) expect(text).toContain(detail);
   });
 
+  it('says, of what is not carried, what the product does instead', () => {
+    // The notes said what was not carried, and nothing of what to do.
+    imported([
+      { code: 'limit', object: 'Contact', detail: '10' },
+      { code: 'notMaster', object: 'Account' },
+      { code: 'deleteOldData', object: 'Case' },
+      { code: 'mockAllFields', object: 'Lead' },
+    ]);
+
+    const [limit, notMaster, deleteOldData, mockAll] = within(screen.getByTestId('migration-notes'))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent ?? '');
+    expect(limit).toContain('set a filter on its row, a range of CreatedDate for instance');
+    expect(limit).toContain('Forge with Depth ALL and Records per object set to A sample');
+    expect(notMaster).toContain('Autopilot copies only the records the objects you tick point at');
+    expect(deleteOldData).toContain('DataOps → Cleanup → Empty objects');
+    // An honest note: never "copy, then mask", which writes the real values first.
+    expect(mockAll).toContain("name in the export's mockFields only the fields to keep out");
+    expect(mockAll).not.toMatch(/mask/i);
+  });
+
+  it('opens Empty objects on the run’s target with the objects SFDMU would empty first', () => {
+    imported([
+      { code: 'deleteOldData', object: 'Case' },
+      { code: 'deleteOldData', object: 'Contact' },
+    ]);
+
+    const empty = screen.getByTestId('migration-empty-first') as HTMLButtonElement;
+    expect(empty.disabled).toBe(true);
+    expect(screen.getByTestId('migration-empty-first-hint').textContent).toBe(
+      'Pick the target org under Run it from Sync to empty these objects there.',
+    );
+
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+    fireEvent.click(screen.getByTestId('migration-empty-first'));
+
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'dataops',
+      targetOrgId: 'org-b',
+      emptyObjects: ['Case', 'Contact'],
+    });
+    expect(useOrgStore.getState().selectedOrgId).toBe('org-b');
+  });
+
   it('shows nothing of the kind when the import carried everything', () => {
     imported([]);
 

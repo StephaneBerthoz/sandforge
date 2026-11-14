@@ -543,6 +543,25 @@ describe('useQuickSyncFlow', () => {
     expect(result.current.state.isExecuting).toBe(false);
   });
 
+  it('keeps the code a refusal came with, which the flow words it by', () => {
+    // Shown as raw text, a refusal of the run's gate offered filters Quick
+    // Sync does not have, and no hint was drawn under any other.
+    Object.assign(mockSyncState, {
+      error: 'The sync was refused before it wrote anything.',
+      errorCode: 'SYNC_STORAGE_EXCEEDED',
+    });
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    expect(result.current.state.errorCode).toBe('SYNC_STORAGE_EXCEEDED');
+  });
+
+  it('keeps no code for an error that came with none', () => {
+    mockPrepareState.error = 'Quick Sync failed';
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    expect(result.current.state.errorCode).toBeNull();
+  });
+
   it('walks the whole wizard chain: preview → execute → relay → result', () => {
     persistedValues = { quickSyncDraft: filledDraft, quickSyncStep: 'objects' };
     const { result, rerender } = renderHook(() => useQuickSyncFlow());

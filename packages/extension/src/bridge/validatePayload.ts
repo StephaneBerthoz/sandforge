@@ -185,8 +185,17 @@ export function syncCannotCopy(objectApiName: string): boolean {
   return isNeverCopiedWhenPicked(objectApiName);
 }
 
-/** Why the sync boundary refuses `objectApiName`, in the words a person reads. */
-export function cannotCopyMessage(objectApiName: string): string {
+/**
+ * Why the sync boundary refuses `objectApiName`, in the words a person reads.
+ *
+ * @param filesOption - How the surface the words are read on copies the files
+ *   of the records: the panel's box, or the command line's `--files`, which
+ *   was told of a box it does not have.
+ */
+export function cannotCopyMessage(
+  objectApiName: string,
+  filesOption = 'turn on "Copy the files of these records"',
+): string {
   // Files travel with the records they hang on, never as an object of their
   // own: copied as rows, their content is the address the API reads it from,
   // and Bulk API 2.0 refuses base64 past 200 rows.
@@ -194,8 +203,7 @@ export function cannotCopyMessage(objectApiName: string): string {
     return (
       `Sync copies files with the records they hang on, not as an object of their own: ` +
       `"${objectApiName}" keeps its content in a file body. Remove it from this ` +
-      `configuration and turn on "Copy the files of these records" instead; the sync was ` +
-      `not started.`
+      `configuration and ${filesOption} instead; the sync was not started.`
     );
   }
   return (

@@ -4,6 +4,7 @@ import {
   parseArgs,
   buildConfig,
   buildQueryFn,
+  cliCountFn,
   cliFileDeps,
   contactPointLines,
   deltaLine,
@@ -12,11 +13,14 @@ import {
   objectErrorLines,
   objectPriceLines,
   objectWrittenLines,
+  readCutLines,
   readSavedConfig,
   recordTypeGivenOfObjectsLines,
   simulationLines,
+  statusWithReadCuts,
   writeCheckLines,
 } from './sandforge-sync.js';
+import { commandOf } from './invocation.js';
 import type { RecordTypeGiven } from '@sandforge/shared';
 import { gateSyncWrite, measureSyncWrite } from '../src/modules/sync/SyncRunGate.js';
 
@@ -623,6 +627,139 @@ describe('the files a run copies', () => {
       kind: 'stored',
       map: { version: 1, entries: [{ ...entry, targetId: '069000000000008AAA' }] },
     });
+  });
+});
+
+describe('the bound a read stops at, and what the command says of it', () => {
+  /** An org of `total` accounts that pages its answer by `page`, and names every row. */
+  function pagedConn(total: number, page: number) {
+    const rows = (from: number) =>
+      Array.from({ length: Math.max(0, Math.min(page, total - from)) }, (_, i) => ({
+        Id: `001${String(from + i).padStart(12, '0')}AAA`,
+      }));
+    const answer = (from: number) => {
+      const next = from + page;
+      return {
+        records: rows(from),
+        done: next >= total,
+        ...(next >= total ? {} : { nextRecordsUrl: `/next-${next}` }),
+        totalSize: total,
+      };
+    };
+    return {
+      query: vi.fn(async () => answer(0)),
+      queryMore: vi.fn(async (url: string) => answer(Number(url.split('-')[1]))),
+      sobject: () => ({ describe: async () => ({ fields: [{ name: 'Id', type: 'id' }] }) }),
+    };
+  }
+
+  it('reads 50 000 records of an object unless --max-records-per-object says another bound', () => {
+    expect(parseArgs(argv(...MINIMAL)).maxRecordsPerObject).toBe(50_000);
+    expect(
+      parseArgs(argv(...MINIMAL, '--max-records-per-object', '1000')).maxRecordsPerObject,
+    ).toBe(1_000);
+  });
+
+  it('refuses a bound that is no whole number from 1 to 50 000, before any org is reached', () => {
+    for (const bad of ['0', '50001', '1.5', 'all']) {
+      const { code, message } = refuse(...MINIMAL, '--max-records-per-object', bad);
+      expect(code).toBe(2);
+      expect(message).toContain('--max-records-per-object takes a whole number from 1 to 50000');
+    }
+  });
+
+  it('stops the read at the bound, and tells the run which object it cut and where', async () => {
+    const conn = pagedConn(3_542, 2_000);
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+    const cut = vi.fn();
+    const onBoundReached = vi.fn();
+
+    const rows = await buildQueryFn(conn as unknown as Connection, 1_000, cut)('SRC', account, {
+      onBoundReached,
+    });
+
+    expect(rows).toHaveLength(1_000);
+    expect(cut).toHaveBeenCalledWith('Account', 1_000);
+    expect(onBoundReached).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing of an object read to its end', async () => {
+    const conn = pagedConn(900, 2_000);
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+    const cut = vi.fn();
+
+    expect(
+      await buildQueryFn(conn as unknown as Connection, 1_000, cut)('SRC', account),
+    ).toHaveLength(900);
+    expect(cut).not.toHaveBeenCalled();
+  });
+
+  it('counts an object no further than the bound its read keeps to', async () => {
+    const conn = { query: vi.fn(async () => ({ totalSize: 3_542, records: [], done: true })) };
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+
+    expect(await cliCountFn(conn as unknown as Connection, 1_000)('SRC', account)).toBe(1_000);
+    expect(await cliCountFn(conn as unknown as Connection)('SRC', account)).toBe(3_542);
+  });
+
+  it('names the bound, the slices that read the rest, and the clone of a sample that fits, as a command that runs', () => {
+    const [line] = readCutLines([{ objectApiName: 'Contact', read: 1_000, bound: 1_000 }], {
+      source: 'SRC',
+      target: 'TGT',
+    });
+
+    expect(line).toContain(
+      'Contact: the read of the source stopped at 1000 records (--max-records-per-object 1000)',
+    );
+    expect(line).toContain('raise --max-records-per-object (50000 at most)');
+    expect(line).toContain('a filter on CreatedDate, one range per run');
+    expect(line).toContain(
+      `${commandOf('clone')} --depth all --source SRC --target TGT --fit share --dry-run`,
+    );
+    expect(line).not.toMatch(/(^|[^/])sandforge-clone\b/);
+  });
+
+  it('takes a run whose read a bound cut as partial: exit 3 under --fail-on-partial', () => {
+    const cut = [{ objectApiName: 'Contact', read: 1_000, bound: 1_000 }];
+    expect(statusWithReadCuts('success', cut)).toBe('partial');
+    expect(statusWithReadCuts('success', [])).toBe('success');
+    expect(statusWithReadCuts('failure', cut)).toBe('failure');
+  });
+});
+
+describe('the files options of the command line', () => {
+  it('copies files under the bounds the line gives, the panel’s by default', () => {
+    expect(
+      buildConfig(
+        parseArgs(argv(...MINIMAL, '--files', '--max-file-mb', '25', '--max-run-mb', '500')),
+      ).files,
+    ).toEqual({ maxFileSizeMB: 25, maxRunMB: 500 });
+  });
+
+  it('refuses a file bound without --files, or past what a run takes', () => {
+    expect(refuse(...MINIMAL, '--max-file-mb', '20').message).toContain(
+      '--max-file-mb and --max-run-mb go with --files',
+    );
+    const big = refuse(...MINIMAL, '--files', '--max-file-mb', '36');
+    expect(big.code).toBe(2);
+    expect(big.message).toContain('--max-file-mb takes a whole number from 1 to 35');
+    const run = refuse(...MINIMAL, '--files', '--max-run-mb', '2001');
+    expect(run.code).toBe(2);
+    expect(run.message).toContain('--max-run-mb takes a whole number from 1 to 2000');
+  });
+
+  it('names --files, not a box of the panel, for an object that keeps its content in a file body', () => {
+    const { code, message } = refuse(
+      '--source',
+      'S',
+      '--target',
+      'T',
+      '--object',
+      'ContentVersion',
+    );
+    expect(code).toBe(2);
+    expect(message).toContain('--files');
+    expect(message).not.toContain('Copy the files of these records');
   });
 });
 

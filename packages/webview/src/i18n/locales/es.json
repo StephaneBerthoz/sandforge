@@ -1355,6 +1355,7 @@
     "title": "Sincronizar datos",
     "selectOrgs": "Seleccionar Orgs",
     "selectOrgsDesc": "Elija las orgs origen y destino",
+    "sameOrgWarning": "El origen y el destino son la misma org: elija otra org como destino para continuar.",
     "configureObjects": "Configurar objetos",
     "fieldMapping": "Mapeo de campos",
     "transforms": "Transformaciones",
@@ -1373,7 +1374,8 @@
       "insertsSaved": "Guardada: cada ejecución de esta configuración deja como están los registros que copió una ejecución anterior e inserta los demás.",
       "insertsUnsaved": "Sin guardar: cada ejecución vuelve a insertar cada registro que lee. Guarde la configuración, y sus ejecuciones dejarán como está lo que copió una ejecución anterior.",
       "overwriteKept": "Lo que una actualización o un upsert sobrescribe se lee primero de la org de destino y se conserva en este equipo: eliminar la ejecución restablece los valores que tenían los registros.",
-      "encrypted": "{{object}}: {{fields}}, cifrados, aparecen enmascarados para el usuario con el que SandForge lee la org de origen, que no tiene el permiso View Encrypted Data. La ejecución los deja fuera de cada registro en lugar de copiar las máscaras; conceda ese permiso para copiar sus valores."
+      "encrypted": "{{object}}: {{fields}}, cifrados, aparecen enmascarados para el usuario con el que SandForge lee la org de origen, que no tiene el permiso View Encrypted Data. La ejecución los deja fuera de cada registro en lugar de copiar las máscaras; conceda ese permiso para copiar sus valores.",
+      "readCap": "Cada objeto se lee hasta {{cap}} registros, de cualquiera de las dos orgs, según lo fija sandforge.sync.maxRecordsPerObject (50.000 como máximo): uno con más se copia en parte, y la ejecución lo indica. Para copiar una parte de una org más grande que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino."
     },
     "configSaved": "Configuración guardada. Ya puede ejecutarla una programación.",
     "execute": "Ejecutar",
@@ -1662,12 +1664,13 @@
       "notWritten_one": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribiría: retenido o rechazado, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "notWritten_other": "De los {{total}} que una ejecución cuenta en el origen, {{count}} no se escribirían: retenidos o rechazados, como dice cada objeto. Lo que sigue se mide sobre todos.",
       "unwritable": {
-        "notInTarget": "{{object}} ({{rows}} registros): la org de destino no tiene ese objeto, o el usuario con el que escribe la ejecución no puede verlo. No se puede escribir ninguno de sus registros.",
+        "notInTarget": "{{object}} ({{rows}} registros): la org de destino no tiene ese objeto, o el usuario con el que escribe la ejecución no puede verlo. No se puede escribir ninguno de sus registros. Si el destino no tiene el objeto, Comparación lo despliega desde el origen: marque Modelo de datos, compare y luego Desplegar desde diff.",
         "notCreateable": "{{object}} ({{rows}} registros): el usuario con el que escribe la ejecución no puede crear sus registros en la org de destino. No se puede escribir ninguno.",
         "notUpdateable": "{{object}} ({{rows}} registros): el usuario con el que escribe la ejecución no puede editar sus registros en la org de destino. No se puede escribir ninguno.",
         "unread": "{{object}} ({{rows}} registros): la org de destino no lo describió, así que no se enviaría ninguno de sus registros.",
         "notAKey": "{{object}} ({{rows}} registros): su upsert coincide por {{key}}, que no es un ID externo ni un campo idLookup en la org de destino. No se puede escribir ninguno.",
-        "hint": "Iniciada desde la página, la ejecución pregunta si dejar fuera estos objetos y escribe el resto; una ejecución programada y la línea de comandos se rechazan."
+        "hint": "Iniciada desde la página, la ejecución pregunta si dejar fuera estos objetos y escribe el resto; una ejecución programada y la línea de comandos se rechazan.",
+        "openCompare": "Abrir Comparación"
       },
       "heldBack": {
         "leftOut_one": "{{object}} ({{count}} registro): retenido, no escrito — su {{field}} nombra un registro de {{parent}} que se deja fuera, y escrito sin él, quedaría sin su {{parent}}.",
@@ -1960,7 +1963,7 @@
       "noQuery": "Se deja fuera: no tiene query, y SFDMU deja fuera un objeto así.",
       "unknownOperation": "Se deja fuera: «{{detail}}» no es una operación de SFDMU, que lo lee como Readonly.",
       "deletesElsewhere": "Se deja fuera: {{detail}} elimina en la org de origen o a lo largo de una jerarquía, y Sync no hace ninguna de las dos cosas.",
-      "mockAllFields": "Se deja fuera: SFDMU escribe valores ficticios en todos sus campos. Sync no los tiene y copiaría los reales.",
+      "mockAllFields": "Se deja fuera: SFDMU escribe valores ficticios en todos sus campos. Sync no escribe valores ficticios y copiaría los reales. Para copiar el objeto, nombre en los mockFields de la exportación solo los campos que deben quedar fuera: Sync los deja fuera de la escritura.",
       "duplicate": "Una entrada posterior de este objeto, {{detail}}, se dejó fuera: una configuración de Sync contiene un objeto una sola vez. Importe esa entrada por separado para ejecutarla.",
       "delete": "{{detail}} no actúa igual aquí. SFDMU elimina lo que su query selecciona en el destino. Sync elimina, a la papelera, los registros del destino que tienen los ids leídos en el origen. Abrir en Sync dice lo que hace cada objeto encima de Ejecutar la sincronización: léalo antes de ejecutarlo.",
       "updateKey": "SFDMU encuentra cada registro que actualizar por {{detail}}. Sync actualiza por el Id del registro de origen, que otra org no tiene: cambie la operación a upsert sobre un External ID.",
@@ -1969,12 +1972,14 @@
       "unusableKey": "Su clave {{detail}} no se traslada: Sync empareja por un solo campo del objeto, no por una clave compuesta ni por un campo de un padre. Un upsert debe indicar uno en su fila.",
       "fieldMappingOff": "useFieldMapping está desactivado: SFDMU ignora sus asignaciones de campos ({{detail}}), y esta importación también.",
       "valueRows": "Estas filas de ValueMapping.csv no se aplican, porque una regla de asignación de valores asocia un valor exacto a otro, sin expresión regular, sin eval y sin valor vacío (#N/A, null, NULL, undefined), que SFDMU escribe como un campo vacío: {{detail}}.",
-      "notMaster": "master es false: SFDMU solo copia los registros que necesitan los demás objetos. Sync no tiene esa restricción y lee todos los registros que selecciona su filtro.",
-      "limit": "LIMIT {{detail}} no se traslada: Sync lee todos los registros que selecciona su filtro.",
+      "notMaster": "master es false: SFDMU solo copia los registros que necesitan los demás objetos. Sync no tiene esa restricción y lee todos los registros que selecciona su filtro. Autopilot solo copia los registros a los que apuntan los objetos que marque: deje este objeto sin marcar allí, y marque los que apuntan a él.",
+      "limit": "LIMIT {{detail}} no se traslada: Sync lee todos los registros que selecciona su filtro. Para leer una parte, ponga un filtro en su fila, un rango de CreatedDate por ejemplo; para copiar una muestra del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino.",
       "queryClause": "«{{detail}}» de su query no se traslada: Sync no ejecuta la query.",
       "queryUnread": "Su query no se pudo leer, así que no viene ningún filtro de ella: Sync lee todos los registros del objeto. Ponga un filtro en su fila.",
       "whereRefused": "Su WHERE hace algo más que filtrar, por ejemplo con una subconsulta, y Sync lo rechaza: reescríbalo en su fila, o el guardado se rechazará.",
-      "deleteOldData": "deleteOldData no se traslada: los registros antiguos del destino no se eliminan antes.",
+      "deleteOldData": "deleteOldData no se traslada: los registros antiguos del destino no se eliminan antes. Para empezar con un objeto vacío, vacíelo primero en DataOps → Limpieza → Vaciar objetos y luego ejecute la sincronización.",
+      "emptyFirst": "Vaciar primero estos objetos en el destino",
+      "emptyFirstPickTarget": "Elija la org de destino en Ejecutarla desde Sync para vaciar allí estos objetos.",
       "mockFields": "SFDMU escribe valores ficticios en {{detail}}. Sync no los tiene: estos campos quedan fuera de la escritura en lugar de copiarse con sus valores reales. Un campo obligatorio hace fallar el registro; quítelo de mockFields para copiarlo.",
       "nameDiffers": "El archivo lo llama {{detail}}, y su query selecciona este objeto: SFDMU sigue la query, y esta importación también.",
       "settings": "No se traslada: {{detail}}. Sync no lee estos ajustes de la exportación.",
@@ -6675,6 +6680,7 @@
     "selectOrgs": "Seleccione las orgs de origen y destino",
     "selectObjects": "Seleccione los objetos a sincronizar",
     "suggestedObjects": "Objetos sugeridos",
+    "notInSource": "{{object}} no está entre los objetos que la org de origen deja leer y crear a SandForge.",
     "addParent": "¿Agregar el padre {{parent}} para {{child}}?",
     "preview": "Vista previa",
     "totalRecords": "Total de registros",
@@ -6699,7 +6705,13 @@
     "openHistory": "Ver esta ejecución en el historial",
     "againInserts": "Si se vuelve a ejecutar, un Sync rápido inserta estos registros una segunda vez: elimine primero lo que creó esta ejecución, o haga un upsert sobre un ID externo en el asistente completo.",
     "syncInto": "Sincronizar en {{target}}",
-    "insertsNeutralized": "Inserta cada registro; los correos y los números de teléfono se neutralizan."
+    "insertsNeutralized": "Inserta cada registro; los correos y los números de teléfono se neutralizan.",
+    "refusal": {
+      "storage": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino. Sync rápido no tiene filtro: quite objetos aquí, o ábralos en el asistente, donde cada objeto admite un filtro. Para copiar una parte del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino. O libere almacenamiento de datos en la org de destino: DataOps → Limpieza → Vaciar objetos elimina lo que contiene de estos objetos.",
+      "openInWizard": "Abrir en el asistente",
+      "openForge": "Abrir Forge",
+      "emptyFirst": "Vaciar estos objetos en el destino"
+    }
   },
   "pagination": {
     "navigation": "Paginación",
@@ -7240,7 +7252,7 @@
     },
     "syncStorageExceeded": {
       "explanation": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino.",
-      "action": "Simúlela para ver las cifras y luego quite objetos, restrinja sus filtros o libere almacenamiento de datos en la org de destino."
+      "action": "Simúlela para ver las cifras y luego quite objetos, restrinja sus filtros o libere almacenamiento de datos en la org de destino. Para copiar en su lugar una muestra del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino."
     },
     "syncEmailsExceeded": {
       "explanation": "La sincronización se rechazó antes de escribir nada: sus registros harían que la automatización de la org de destino enviara más correos de los que le quedan hoy, y cada registro pasado ese límite se rechazaría.",
@@ -7248,7 +7260,7 @@
     },
     "syncTargetUnwritable": {
       "explanation": "La sincronización se rechazó antes de escribir nada: la org de destino no aceptaría ningún registro de un objeto que escribe. No tiene el objeto, el usuario con el que escribe la sincronización no puede verlo, crearlo ni editarlo allí, o su upsert coincide por un campo por el que la org de destino no hace ninguno.",
-      "action": "Deje esos objetos fuera de la ejecución, dé al usuario con el que escribe la sincronización acceso a un objeto que no puede escribir en la org de destino, o haga que un upsert coincida por un ID externo de esa org: el mensaje dice lo que necesita cada objeto. Iniciada desde la página, la sincronización pregunta si dejarlos fuera y escribe el resto."
+      "action": "Deje esos objetos fuera de la ejecución, dé al usuario con el que escribe la sincronización acceso a un objeto que no puede escribir en la org de destino, despliegue desde el origen con Comparación un objeto que la org de destino no tiene, o haga que un upsert coincida por un ID externo de esa org: el mensaje dice lo que necesita cada objeto. Iniciada desde la página, la sincronización pregunta si dejarlos fuera y escribe el resto."
     },
     "apiBudgetExceeded": {
       "explanation": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino, con sus registros rechazados con REQUEST_LIMIT_EXCEEDED.",

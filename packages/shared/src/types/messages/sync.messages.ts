@@ -88,11 +88,13 @@ export interface SyncWriteOrderRequest extends BaseMessage {
  * object, the classic encrypted fields the user the source is read as reads
  * masked, lacking View Encrypted Data, which a run leaves out
  * (`SyncObjectResult.encryptedLeftOut`): what Review warns of. Absent when
- * none, or when the source would not say.
+ * none, or when the source would not say. And the most records of one object
+ * a run reads, of either org (`sandforge.sync.maxRecordsPerObject`), which
+ * Review says.
  */
 export interface SyncWriteOrderResponse extends BaseMessage {
   type: 'sync:write-order:response';
-  payload: { order: SyncWriteOrder; encrypted?: SyncEncryptedFieldsMasked[] };
+  payload: { order: SyncWriteOrder; encrypted?: SyncEncryptedFieldsMasked[]; readCap?: number };
 }
 
 /** Pause a running sync before its next object or batch, by the id of the request that started it. */

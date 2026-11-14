@@ -56,10 +56,14 @@ export interface QuickSyncExecuteRequest extends BaseMessage {
   payload: { config: QuickSyncConfig };
 }
 
-/** Response containing the smart object suggestions for the QuickSync wizard. */
+/**
+ * Response containing the smart object suggestions for the QuickSync wizard,
+ * and every object of the org a sync may read and create, which its search
+ * finds: it searched the five suggestions alone.
+ */
 export interface QuickSyncSuggestObjectsResponse extends BaseMessage {
   type: 'quicksync:suggest-objects:response';
-  payload: { suggestions: SmartObjectSuggestion[] };
+  payload: { suggestions: SmartObjectSuggestion[]; availableObjects?: string[] };
 }
 
 /** Response containing the detected parent-dependency suggestions. */

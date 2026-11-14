@@ -739,8 +739,9 @@ describe('gateSyncWrite', () => {
         code: 'SYNC_STORAGE_EXCEEDED',
         message:
           'The records to write take about 5.86 MB of data storage, and TRAP has 4 MB left of ' +
-          '5 MB: leave objects out, narrow their filters, or free data storage in TRAP. Nothing ' +
-          'was written.',
+          '5 MB: leave objects out, narrow their filters, or free data storage in TRAP. To copy ' +
+          'a sample of the source that fits TRAP instead, use Forge with Depth ALL and a sample ' +
+          'that fits the target (sandforge clone --depth all --fit share). Nothing was written.',
       });
     }
     expect(confirm).not.toHaveBeenCalled();
