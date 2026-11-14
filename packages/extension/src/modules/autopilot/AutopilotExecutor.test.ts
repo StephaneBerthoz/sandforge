@@ -8,7 +8,7 @@ import type {
   ApiName,
   ExecutionPlan,
 } from '@sandforge/shared';
-import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
+import { recordWriteHeaders, STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import {
   AutopilotExecutor,
   pageSoql,
@@ -19,7 +19,8 @@ import {
   type InsertFn,
   type UpdateFn,
 } from './AutopilotExecutor.js';
-import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
+import { toSaveOutcomes, type SaveOutcome } from '../../core/common/existingRecordMatch.js';
+import { lockedParentOrg, type LockedParentOrg } from '../../test/lockedParentOrg.js';
 import { accountsOfPersonContactsSoql, type SoqlQuery } from '../../core/common/platformRecords.js';
 import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import {
@@ -4941,5 +4942,172 @@ describe('AutopilotExecutor — emails and phone numbers', () => {
     expect(sent[0].Email).toBe('jane@acme.com');
     expect(sent[0].Phone).toBe('+1 415 555 0100');
     expect(contactPoints).toBeUndefined();
+  });
+});
+
+describe('AutopilotExecutor — records the target refused for a record it could not lock', () => {
+  /** The account the contacts hang from, which another transaction holds in the target. */
+  const HUB = `001${'0'.repeat(11)}9AAA`;
+
+  /** Five contacts of the source, the first three under the held account. */
+  const rows = {
+    Contact: [1, 2, 3, 4, 5].map((n) => ({
+      Id: `003S${n}`,
+      LastName: `Contact ${n}`,
+      ...(n <= 3 ? { AccountId: HUB } : {}),
+    })),
+  };
+
+  /** The insert the panel gives the run, over `org`: its rows stripped, its answers read as the panel reads them. */
+  function insertInto(org: LockedParentOrg): InsertFn {
+    return async (objectApiName, records) => {
+      const cleaned = records.map((record) => {
+        const copy = { ...record };
+        delete copy['Id'];
+        delete copy['attributes'];
+        return copy;
+      });
+      return toSaveOutcomes(
+        await org.connection
+          .sobject(objectApiName)
+          .create(cleaned, { headers: recordWriteHeaders() }),
+        objectApiName,
+      );
+    };
+  }
+
+  /** A run of the contacts into `org`, its waits kept rather than waited out. */
+  async function run(org: LockedParentOrg, onWait?: () => void, signal?: AbortSignal) {
+    const waits: number[] = [];
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert: insertInto(org),
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+        wait: async (ms) => {
+          waits.push(ms);
+          onWait?.();
+        },
+      }),
+    );
+    const result = await executor.execute(wavesOf('Contact'), [], [], countsOf(rows), signal);
+    return { result, waits };
+  }
+
+  it('sends again only the records refused for the lock, writes each once, and says how many went again', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+
+    const { result, waits } = await run(org);
+
+    expect(org.rest.map((call) => call.rows.length)).toEqual([5, 3]);
+    expect(org.rest[1].rows.every((row) => row['AccountId'] === HUB)).toBe(true);
+    expect(org.written).toHaveLength(5);
+    expect(new Set(org.written.map((record) => record.row['LastName'])).size).toBe(5);
+    expect(waits).toHaveLength(1);
+    expect(result).toMatchObject({
+      totalSuccess: 5,
+      totalFailure: 0,
+      completedObjects: ['Contact'],
+    });
+    expect(result.objectOutcomes?.['Contact']).toMatchObject({
+      written: 5,
+      failed: 0,
+      refusals: [],
+      sentAgainForALock: { rows: 3, written: 3, stillLocked: 0 },
+    });
+  });
+
+  it('refuses, saying how many times they went, the records the lock still held after their third send', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+
+    const { result } = await run(org);
+
+    expect(org.rest.map((call) => call.rows.length)).toEqual([5, 3, 3, 3]);
+    const outcome = result.objectOutcomes?.['Contact'];
+    expect(outcome).toMatchObject({
+      written: 2,
+      failed: 3,
+      sentAgainForALock: { rows: 3, written: 0, stillLocked: 3 },
+    });
+    expect(outcome?.refusals).toHaveLength(1);
+    expect(outcome?.refusals[0]).toMatchObject({ statusCode: 'UNABLE_TO_LOCK_ROW', count: 3 });
+    expect(outcome?.refusals[0].message).toContain(
+      'sent again 3 times, waiting longer each time: the target still could not lock a record ' +
+        'the write needed',
+    );
+  });
+
+  it('sends nothing again once the run is stopped', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const controller = new AbortController();
+
+    const { result } = await run(org, () => controller.abort(), controller.signal);
+
+    expect(org.rest).toHaveLength(1);
+    expect(result.objectOutcomes?.['Contact']).toMatchObject({ written: 2, failed: 3 });
+    expect(result.objectOutcomes?.['Contact']?.sentAgainForALock).toBeUndefined();
+    expect(result.objectOutcomes?.['Contact']?.refusals[0].message).not.toContain('sent again');
+  });
+
+  it('counts and maps what the first call wrote when the call sending the locked records again throws', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const into = insertInto(org);
+    let calls = 0;
+    const insert: InsertFn = async (objectApiName, records) => {
+      calls++;
+      if (calls === 2) throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      return into(objectApiName, records);
+    };
+    const executor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert,
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+        wait: async () => {},
+      }),
+    );
+
+    const result = await executor.execute(wavesOf('Contact'), [], [], countsOf(rows));
+
+    expect(org.written).toHaveLength(2);
+    const outcome = result.objectOutcomes?.['Contact'];
+    expect(outcome).toMatchObject({
+      written: 2,
+      failed: 3,
+      sentAgainForALock: { rows: 3, written: 0, stillLocked: 0 },
+    });
+    expect(outcome?.threw).toBeUndefined();
+    expect(outcome?.refusals[0]).toMatchObject({
+      count: 3,
+      message: 'INVALID_SESSION_ID: Session expired or invalid',
+    });
+  });
+
+  it('waits out a pause before it sends them again', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const sentBeforeResume: number[] = [];
+    const executor: AutopilotExecutor = new AutopilotExecutor(
+      makeDeps({
+        query: sourceOf(rows),
+        insert: insertInto(org),
+        remapper: new RecordIdRemapper(),
+        batchSize: 200,
+        wait: async () => {
+          executor.pause();
+          setTimeout(() => {
+            sentBeforeResume.push(org.rest.length);
+            executor.resume();
+          }, 0);
+        },
+      }),
+    );
+
+    const result = await executor.execute(wavesOf('Contact'), [], [], countsOf(rows));
+
+    expect(sentBeforeResume).toEqual([1]);
+    expect(org.rest).toHaveLength(2);
+    expect(result.totalSuccess).toBe(5);
   });
 });

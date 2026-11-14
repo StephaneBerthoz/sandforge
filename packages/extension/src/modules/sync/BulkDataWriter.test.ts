@@ -12,6 +12,7 @@ import {
 } from '../../core/engine/BulkApiManager.js';
 import { DataSync } from './DataSync.js';
 import { duplicateRuleOrg, type DuplicateRuleOrg } from '../../test/duplicateRuleOrg.js';
+import { lockedParentOrg, type LockedParentOrg } from '../../test/lockedParentOrg.js';
 
 /**
  * The streaming path builds its own `ChunkedBulkExecutor`, so the only way to
@@ -1435,5 +1436,189 @@ describe("a Sync run's write of rows a duplicate rule refused in a Bulk API job"
     expect(outcomes.filter((o) => !o.success)).toHaveLength(1);
     expect(outcomes[7].errors[0]).toContain('DUPLICATES_DETECTED');
     expect(created).toHaveLength(200);
+  });
+});
+
+describe("a Sync run's write of rows the target refused for a record it could not lock", () => {
+  /** The account the rows hang from, which another transaction holds. */
+  const HUB = `001${'0'.repeat(11)}9AAA`;
+
+  /** `count` contacts: the first `onHub` under the held account, the others under none. */
+  function contacts(count: number, onHub = count): Record<string, unknown>[] {
+    return Array.from({ length: count }, (_, i) => ({
+      LastName: `Contact ${i}`,
+      ...(i < onHub ? { AccountId: HUB } : {}),
+    }));
+  }
+
+  /** The writer a Sync run builds, over `org`, its waits kept rather than waited out. */
+  function runWriter(org: LockedParentOrg, onWait?: () => void, signal?: AbortSignal) {
+    const waits: number[] = [];
+    const logged: string[] = [];
+    const created: string[] = [];
+    const writer = new BulkDataWriter({
+      connection: org.connection as unknown as Connection,
+      bulkExecutor: new RealBulkApiExecutor(200),
+      bulkManager: new RealBulkApiManager(5),
+      retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+      ...(signal ? { signal } : {}),
+      onProgress: () => {},
+      log: (line) => logged.push(line),
+      wait: async (ms) => {
+        waits.push(ms);
+        onWait?.();
+      },
+      calls: syncWriterCalls({
+        sending: () => {},
+        answered: (_object, ids) => created.push(...ids),
+        writing: () => {},
+      }),
+    });
+    return { writer, waits, logged, created };
+  }
+
+  it('sends again through REST only the rows a Bulk API job refused for the lock, and writes each row once', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const { writer, logged, created } = runWriter(org);
+    const dataSync = new DataSync({
+      insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+      upsert: (objectName, key, records, batchSize) =>
+        writer.upsert(objectName, key, records, batchSize),
+      update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+      delete: (objectName, ids, batchSize) => writer.delete(objectName, ids, batchSize),
+    });
+
+    const result = await dataSync.sync(
+      {
+        objectApiName: 'Contact',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 1,
+      },
+      contacts(250, 150),
+    );
+
+    expect(result.success).toBe(250);
+    expect(result.failed).toBe(0);
+    // The job, then the 150 rows on the account alone, once it was let go.
+    expect(org.jobs.map((job) => job.rows.length)).toEqual([250]);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([150]);
+    expect(org.rest[0].rows.every((row) => row['AccountId'] === HUB)).toBe(true);
+    // Each contact in the target once, and the run's ids for its removal.
+    expect(org.written).toHaveLength(250);
+    expect(new Set(org.written.map((record) => record.row['LastName'])).size).toBe(250);
+    expect(new Set(created).size).toBe(250);
+    expect(logged.join('\n')).toContain(
+      '150 row(s) refused because the target could not lock a record their write needed ' +
+        '(UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: 150 written',
+    );
+  });
+
+  it('sends again the rows a REST call refused for the lock, after a wait that doubles each time', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 3 });
+    const { writer, waits } = runWriter(org);
+
+    const outcomes = await writer.insert('Contact', contacts(150, 40), 200);
+
+    expect(outcomes.every((outcome) => outcome.success)).toBe(true);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([150, 40, 40, 40]);
+    expect(org.written).toHaveLength(150);
+    expect(waits).toHaveLength(3);
+    expect(waits[0]).toBeGreaterThanOrEqual(1_000);
+    expect(waits[0]).toBeLessThanOrEqual(2_000);
+    expect(waits[1]).toBeGreaterThanOrEqual(2_000);
+    expect(waits[1]).toBeLessThanOrEqual(4_000);
+    expect(waits[2]).toBeGreaterThanOrEqual(4_000);
+    expect(waits[2]).toBeLessThanOrEqual(8_000);
+  });
+
+  it('leaves refused, saying how many times they went, the rows the lock still held after their third send', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const { writer, logged } = runWriter(org);
+
+    const outcomes = await writer.insert('Contact', contacts(10, 4), 200);
+
+    expect(org.rest.map((call) => call.rows.length)).toEqual([10, 4, 4, 4]);
+    expect(outcomes.filter((outcome) => outcome.success)).toHaveLength(6);
+    const refused = outcomes.filter((outcome) => !outcome.success);
+    expect(refused).toHaveLength(4);
+    for (const outcome of refused) {
+      expect(outcome.errors[0]).toMatch(/^UNABLE_TO_LOCK_ROW: unable to obtain exclusive access/);
+      expect(outcome.errors[0]).toContain(
+        'sent again 3 times, waiting longer each time: the target still could not lock a record ' +
+          'the write needed',
+      );
+    }
+    expect(logged.join('\n')).toContain('0 written, 4 still refused for the lock');
+  });
+
+  it("sends again the rows a trigger's update refused for the lock it met", async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1, trigger: true });
+    const { writer } = runWriter(org);
+
+    const outcomes = await writer.insert('Contact', contacts(5), 200);
+
+    expect(outcomes.every((outcome) => outcome.success)).toBe(true);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([5, 5]);
+    expect(org.written).toHaveLength(5);
+  });
+
+  it('sends the rows of an update and of a delete refused for the lock again, as those of an insert', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const { writer } = runWriter(org);
+
+    const updated = await writer.update(
+      'Account',
+      [
+        { Id: HUB, Name: 'Hub' },
+        { Id: `001${'0'.repeat(11)}8AAA`, Name: 'Other' },
+      ],
+      200,
+    );
+    const later = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const deleted = await runWriter(later).writer.delete('Account', [HUB], 200);
+
+    expect(updated.every((outcome) => outcome.success)).toBe(true);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([2, 1]);
+    expect(deleted.every((outcome) => outcome.success)).toBe(true);
+    expect(later.rest.map((call) => call.rows.length)).toEqual([1, 1]);
+  });
+
+  it('sends nothing again once the run is cancelled, and says so', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const abort = new AbortController();
+    const { writer, logged } = runWriter(org, () => abort.abort(), abort.signal);
+
+    const outcomes = await writer.insert('Contact', contacts(3), 200);
+
+    expect(org.rest).toHaveLength(1);
+    expect(outcomes.every((outcome) => !outcome.success)).toBe(true);
+    expect(outcomes[0].errors[0]).not.toContain('sent again');
+    expect(logged.join('\n')).toContain('3 not sent again: the run was stopped');
+  });
+
+  it('sends nothing again of a row refused for another reason', async () => {
+    const h = createHarness();
+    h.sobject.create.mockResolvedValueOnce([
+      {
+        success: false,
+        errors: [
+          {
+            statusCode: 'REQUIRED_FIELD_MISSING',
+            message: 'Required fields are missing: [LastName]',
+            fields: ['LastName'],
+          },
+        ],
+      },
+    ]);
+
+    const outcomes = await h.writer.insert('Contact', [{ FirstName: 'Ann' }], 200);
+
+    expect(h.sobject.create).toHaveBeenCalledTimes(1);
+    expect(outcomes[0].success).toBe(false);
   });
 });

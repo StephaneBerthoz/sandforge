@@ -3,6 +3,7 @@ import { seedInsert, STREAMING_THRESHOLD, type SeedInsertConnection } from './se
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import type { BulkJobHandle, BulkJobRecordResult } from '../../core/engine/BulkApiExecutor.js';
+import { lockedParentOrg, type LockedParentOrg } from '../../test/lockedParentOrg.js';
 
 /** `count` records of `object`, each a name of its own. */
 function records(count: number): Record<string, unknown>[] {
@@ -308,5 +309,129 @@ describe('the write path of a seed', () => {
 
     expect(one.errors).toEqual(['REQUIRED_FIELD_MISSING: Name [Name]']);
     expect(lost.errors).toHaveLength(3);
+  });
+});
+
+describe('the write path of a seed, into a target where another transaction holds the parent', () => {
+  /** The account the records hang from, which another transaction holds. */
+  const HUB = `001${'0'.repeat(11)}9AAA`;
+
+  /** `count` contacts: the first `onHub` under the held account, the others under none. */
+  function contacts(count: number, onHub = count): Record<string, unknown>[] {
+    return Array.from({ length: count }, (_, i) => ({
+      LastName: `Contact ${i}`,
+      ...(i < onHub ? { AccountId: HUB } : {}),
+    }));
+  }
+
+  /** The write path over `org`, its waits kept rather than waited out. */
+  function lockedWriter(org: LockedParentOrg, onWait?: () => void, signal?: AbortSignal) {
+    const waits: number[] = [];
+    const created: string[] = [];
+    const stop = signal ?? new AbortController().signal;
+    const insert = seedInsert({
+      conn: org.connection as unknown as SeedInsertConnection,
+      bulkThreshold: 200,
+      bulkManager: new BulkApiManager(5),
+      retry: new RetryableOperation({ retryConfig: { maxRetries: 0 }, signal: stop }),
+      signal: stop,
+      label: 'seed:execute op-1',
+      log: () => {},
+      onProgress: () => {},
+      calls: { sending: () => {}, answered: (_object, ids) => created.push(...ids) },
+      wait: async (ms) => {
+        waits.push(ms);
+        onWait?.();
+      },
+    });
+    return { insert, waits, created };
+  }
+
+  it('sends again through REST only the records a Bulk API job refused for the lock, each created once, and says so', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const { insert, created } = lockedWriter(org);
+
+    const answer = await insert('org', 'Contact', contacts(300, 150), 200);
+
+    expect(org.jobs.map((job) => job.rows.length)).toEqual([300]);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([150]);
+    expect(answer.successIds).toHaveLength(300);
+    expect(answer.errors).toEqual([]);
+    expect(answer.rows?.every((row) => row.id !== undefined)).toBe(true);
+    expect(org.written).toHaveLength(300);
+    expect(new Set(org.written.map((record) => record.row['LastName'])).size).toBe(300);
+    expect(new Set(created).size).toBe(300);
+    expect(answer.notes).toEqual([
+      'Contact: 150 record(s) refused because the target could not lock a record their write ' +
+        'needed (UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: ' +
+        '150 written.',
+    ]);
+  });
+
+  it('sends again the records a REST call refused for the lock, after a wait that doubles each time', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 3 });
+    const { insert, waits } = lockedWriter(org);
+
+    const answer = await insert('org', 'Contact', contacts(150, 40), 200);
+
+    expect(org.rest.map((call) => call.rows.length)).toEqual([150, 40, 40, 40]);
+    expect(answer.successIds).toHaveLength(150);
+    expect(answer.errors).toEqual([]);
+    expect(org.written).toHaveLength(150);
+    expect(waits).toHaveLength(3);
+    expect(waits[2]).toBeGreaterThanOrEqual(4_000);
+  });
+
+  it('sends again the records an upload of more than 10 000 refused for the lock', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 1 });
+    const { insert } = lockedWriter(org);
+
+    const answer = await insert('org', 'Contact', contacts(STREAMING_THRESHOLD + 100, 100), 200);
+
+    expect(org.jobs).toHaveLength(1);
+    expect(org.rest.map((call) => call.rows.length)).toEqual([100]);
+    expect(answer.successIds).toHaveLength(STREAMING_THRESHOLD + 100);
+    expect(answer.errors).toEqual([]);
+    expect(org.written).toHaveLength(STREAMING_THRESHOLD + 100);
+  });
+
+  it('leaves refused, saying how many times they went, the records the lock still held after their third send', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const { insert } = lockedWriter(org);
+
+    const answer = await insert('org', 'Contact', contacts(10, 4), 200);
+
+    expect(org.rest.map((call) => call.rows.length)).toEqual([10, 4, 4, 4]);
+    expect(answer.successIds).toHaveLength(6);
+    expect(answer.errors).toHaveLength(4);
+    for (const error of answer.errors) {
+      expect(error).toMatch(/^UNABLE_TO_LOCK_ROW: unable to obtain exclusive access/);
+      expect(error).toContain('sent again 3 times, waiting longer each time');
+    }
+    expect(answer.notes?.[0]).toContain('0 written, 4 still refused for the lock');
+  });
+
+  it('sends nothing again once the run is cancelled', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const stop = new AbortController();
+    const { insert } = lockedWriter(org, () => stop.abort(), stop.signal);
+
+    const answer = await insert('org', 'Contact', contacts(3), 200);
+
+    expect(org.rest).toHaveLength(1);
+    expect(answer.errors).toHaveLength(3);
+    expect(answer.errors[0]).not.toContain('sent again');
+    expect(answer.notes?.[0]).toContain('3 not sent again: the run was stopped');
+  });
+
+  it('sends nothing again of a call the org failed whole, which the retry of calls covers', async () => {
+    const org = fakeOrg({ failRest: true });
+    const { insert } = writer(org);
+
+    const answer = await insert('org', 'Account', records(3), 200);
+
+    expect(org.restCalls).toHaveLength(1);
+    expect(answer.errors).toHaveLength(3);
+    expect(answer.notes).toBeUndefined();
   });
 });

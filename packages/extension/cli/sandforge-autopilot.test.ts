@@ -110,6 +110,42 @@ describe('sandforge-autopilot — the run summary', () => {
     ]);
   });
 
+  it('prints the records sent again after the target could not lock a record, and how many it then took', () => {
+    const lines = outcomeLines({
+      totalSuccess: 148,
+      totalFailure: 2,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Contact'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Contact: {
+          written: 148,
+          linked: 0,
+          failed: 2,
+          refusals: [
+            {
+              statusCode: 'UNABLE_TO_LOCK_ROW',
+              fields: [],
+              count: 2,
+              message: 'unable to obtain exclusive access to this record — sent again 3 times',
+            },
+          ],
+          sentAgainForALock: { rows: 40, written: 38, stillLocked: 2 },
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Contact'.padEnd(28)} written 148  linked 0  refused 2`,
+      '      UNABLE_TO_LOCK_ROW x2: unable to obtain exclusive access to this record — sent again 3 times',
+      '      40 record(s) refused because the target could not lock a record their write needed ' +
+        '(UNABLE_TO_LOCK_ROW), sent again up to 3 times, waiting longer each time: 38 written, ' +
+        '2 still refused for the lock',
+    ]);
+  });
+
   it('prints the prices left out for their own in the currency written, and linked to it', () => {
     const lines = outcomeLines({
       totalSuccess: 2,

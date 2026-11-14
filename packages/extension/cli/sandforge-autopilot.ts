@@ -87,6 +87,7 @@ import { currencyFieldsOf, describeCurrencyReplaced } from '../src/core/common/r
 import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
 import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
+import { lockedRowsLine } from '../src/core/engine/lockedRows.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js';
 import {
@@ -1547,6 +1548,19 @@ export function outcomeLines(result: ExecutionResult): string[] {
         `refused ${outcome.failed}${notSent > 0 ? `  not sent ${notSent}` : ''}`,
     );
     reasons(outcome.refusals);
+    // Sent again after the target could not lock a record: those it still
+    // refused are among the reasons above, which say how many times they went.
+    const again = outcome.sentAgainForALock;
+    const line =
+      again &&
+      lockedRowsLine('record(s)', {
+        refused: again.rows,
+        sentAgain: again.rows,
+        written: again.written,
+        stillLocked: again.stillLocked,
+        notSentAgain: 0,
+      });
+    if (line) lines.push(`      ${line}`);
     // Its read or write threw part way: failed, beside what went before it.
     if (outcome.threw !== undefined) lines.push(`      FAILED part way: ${outcome.threw}`);
     // Written, and left unfinished by a stop: the panel and the audit said

@@ -8,6 +8,13 @@ import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import { jsforceBulk } from '../../core/engine/jsforceBulk.js';
 import {
+  lockedRowsLine,
+  refusedForALock,
+  sendLockedRowsAgain,
+  waitUnlessStopped,
+  withStillLockedNote,
+} from '../../core/engine/lockedRows.js';
+import {
   bulkSaveErrorDetail,
   duplicateRuleMatchIds,
   existingRecordOf,
@@ -35,6 +42,19 @@ function refusedByDuplicateRule(outcome: OperationOutcome): boolean {
   return (
     !outcome.success && outcome.errors.some((error) => error.startsWith('DUPLICATES_DETECTED'))
   );
+}
+
+/** Whether a row was refused because the target could not lock a record its write needed. */
+function refusedForTheLock(outcome: OperationOutcome): boolean {
+  return !outcome.success && refusedForALock(outcome.errors, outcome.errorDetails);
+}
+
+/** A row still refused for a lock after its last send, saying how many times it went. */
+function stillLocked(outcome: OperationOutcome, times: number): OperationOutcome {
+  const [first, ...rest] = outcome.errors;
+  return first === undefined
+    ? outcome
+    : { ...outcome, errors: [withStillLockedNote(first, times), ...rest] };
 }
 
 /** Minimal shape of a jsforce per-record DML result. */
@@ -137,6 +157,11 @@ export interface BulkDataWriterDeps {
    * thousand rows kept none of them, though the job ran on to its end.
    */
   calls?: WriterCalls;
+  /**
+   * Waits out the delay before the rows the target refused for a lock are
+   * sent again (`lockedRows`). Absent, a timer the run's cancel cuts short.
+   */
+  wait?: (ms: number) => Promise<void>;
 }
 
 /** See {@link BulkDataWriterDeps.calls}. */
@@ -286,8 +311,12 @@ export function syncWriterCalls(
 export class BulkDataWriter {
   private readonly retryOp: RetryableOperation;
 
+  /** Waits out the delay before rows refused for a lock go again: see `BulkDataWriterDeps.wait`. */
+  private readonly wait: (ms: number) => Promise<void>;
+
   /** @param deps - Injected writer dependencies. */
   constructor(private readonly deps: BulkDataWriterDeps) {
+    this.wait = deps.wait ?? ((ms) => waitUnlessStopped(ms, deps.signal));
     this.retryOp = new RetryableOperation({
       retryConfig: deps.retryConfig,
       signal: deps.signal,
@@ -326,11 +355,18 @@ export class BulkDataWriter {
     const jobbed =
       (await this.tryStreaming('insert', objectName, records, undefined, told)) ??
       (await this.tryBulk('insert', objectName, records, undefined, told));
-    if (jobbed) {
-      return this.duplicatesAgain('insert', objectName, records, jobbed, create, failure, told);
-    }
-
-    return this.executeRestBatches('insert', objectName, records, batchSize, create, failure, told);
+    const outcomes = jobbed
+      ? await this.duplicatesAgain('insert', objectName, records, jobbed, create, failure, told)
+      : await this.executeRestBatches(
+          'insert',
+          objectName,
+          records,
+          batchSize,
+          create,
+          failure,
+          told,
+        );
+    return this.locksAgain('insert', objectName, records, outcomes, create, failure, told);
   }
 
   /**
@@ -356,24 +392,32 @@ export class BulkDataWriter {
     const jobbed =
       (await this.tryStreaming('upsert', objectName, records, externalIdField)) ??
       (await this.tryBulk('upsert', objectName, records, externalIdField));
-    if (jobbed) {
-      return this.duplicatesAgain(
-        'upsert',
-        objectName,
-        records,
-        jobbed,
-        upsert,
-        failure,
-        this.deps.calls,
-        externalIdField,
-      );
-    }
-
-    return this.executeRestBatches(
+    const outcomes = jobbed
+      ? await this.duplicatesAgain(
+          'upsert',
+          objectName,
+          records,
+          jobbed,
+          upsert,
+          failure,
+          this.deps.calls,
+          externalIdField,
+        )
+      : await this.executeRestBatches(
+          'upsert',
+          objectName,
+          records,
+          batchSize,
+          upsert,
+          failure,
+          this.deps.calls,
+          externalIdField,
+        );
+    return this.locksAgain(
       'upsert',
       objectName,
       records,
-      batchSize,
+      outcomes,
       upsert,
       failure,
       this.deps.calls,
@@ -408,11 +452,10 @@ export class BulkDataWriter {
     const jobbed =
       (await this.tryStreaming('update', objectName, records)) ??
       (await this.tryBulk('update', objectName, records));
-    if (jobbed) {
-      return this.duplicatesAgain('update', objectName, records, jobbed, update, failure);
-    }
-
-    return this.executeRestBatches('update', objectName, records, batchSize, update, failure);
+    const outcomes = jobbed
+      ? await this.duplicatesAgain('update', objectName, records, jobbed, update, failure)
+      : await this.executeRestBatches('update', objectName, records, batchSize, update, failure);
+    return this.locksAgain('update', objectName, records, outcomes, update, failure);
   }
 
   /**
@@ -430,21 +473,16 @@ export class BulkDataWriter {
     recordIds: string[],
     batchSize: number,
   ): Promise<OperationOutcome[]> {
+    const destroy = (batch: string[]) =>
+      this.deps.connection.sobject(objectName).destroy(batch) as unknown as Promise<
+        JsforceResult[]
+      >;
+    const failure = 'Delete failed after retries';
     const bulkRecords = recordIds.map((id) => ({ Id: id }));
-    const bulked = await this.tryBulk('delete', objectName, bulkRecords);
-    if (bulked) return bulked;
-
-    return this.executeRestBatches(
-      'delete',
-      objectName,
-      recordIds,
-      batchSize,
-      (batch) =>
-        this.deps.connection.sobject(objectName).destroy(batch) as unknown as Promise<
-          JsforceResult[]
-        >,
-      'Delete failed after retries',
-    );
+    const outcomes =
+      (await this.tryBulk('delete', objectName, bulkRecords)) ??
+      (await this.executeRestBatches('delete', objectName, recordIds, batchSize, destroy, failure));
+    return this.locksAgain('delete', objectName, recordIds, outcomes, destroy, failure);
   }
 
   /**
@@ -660,6 +698,66 @@ export class BulkDataWriter {
         (again.length < at.length ? `, ${at.length - again.length} not sent (cancelled)` : ''),
     );
     return merged;
+  }
+
+  /**
+   * The rows the target refused because it could not lock a record their
+   * write needed, sent again through REST, in calls of {@link REST_CALL_MAX},
+   * after a wait that doubles each time, three times at most, and only those
+   * (`sendLockedRowsAgain`): each outcome in its place, but theirs, which the
+   * last send answers. Said in the log with what became of them; a row the
+   * lock still held after its last send says it in its refusal.
+   *
+   * A row refused so was not written, its call or its job's chunk committing
+   * each row on its own: run into a parent other writes held, a Bulk API
+   * job's children of it were refused, and the lock's hint said to run
+   * again, which wrote every other row of an insert a second time. Through
+   * REST, one call after the other, the rows no longer race each other for
+   * the parent as a job's chunks do.
+   *
+   * A cancel that came meanwhile sends nothing more: the rows not sent again
+   * keep the answer they had.
+   */
+  private async locksAgain<T>(
+    operation: BulkOperation,
+    objectName: string,
+    items: T[],
+    outcomes: OperationOutcome[],
+    call: (batch: T[]) => Promise<JsforceResult[]>,
+    failureMessage: string,
+    calls: WriterCalls | undefined = this.deps.calls,
+    externalIdField?: string,
+  ): Promise<OperationOutcome[]> {
+    const again = await sendLockedRowsAgain({
+      outcomes: outcomes.slice(0, items.length),
+      locked: refusedForTheLock,
+      written: (outcome) => outcome.success,
+      send: async (at) => {
+        try {
+          return await this.executeRestBatches(
+            operation,
+            objectName,
+            at.map((i) => items[i]),
+            REST_CALL_MAX,
+            call,
+            failureMessage,
+            calls,
+            externalIdField,
+            at,
+          );
+        } catch (err: unknown) {
+          if (!(err instanceof WriteCancelledError)) throw err;
+          return err.written;
+        }
+      },
+      note: stillLocked,
+      wait: (ms) => this.wait(ms),
+      stopped: () => this.deps.signal?.aborted === true,
+    });
+    const line = lockedRowsLine('row(s)', again);
+    if (line === undefined) return outcomes;
+    this.deps.log(`[INFO] ${operation} ${objectName}: ${line}`);
+    return [...again.outcomes, ...outcomes.slice(items.length)];
   }
 
   /**

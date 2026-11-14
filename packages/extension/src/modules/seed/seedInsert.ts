@@ -17,9 +17,14 @@
  * object held: a seed of 10 500 records took 53 calls where the panel opened
  * one job, and the panel's bulk path, its job limits and its chunked upload
  * were never run outside the editor.
+ *
+ * Whatever the path, the records the org refused because it could not lock
+ * a record their insert needed go again through REST, alone, after a wait
+ * that doubles each time, three times at most (`lockedRows`), and the
+ * object's result says so.
  */
 
-import { recordWriteHeaders } from '@sandforge/shared';
+import { recordWriteHeaders, SF_LIMITS } from '@sandforge/shared';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type {
   BulkApiConnection,
@@ -28,6 +33,13 @@ import type {
 } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import {
+  lockedRowsLine,
+  refusedForALock,
+  sendLockedRowsAgain,
+  waitUnlessStopped,
+  withStillLockedNote,
+} from '../../core/engine/lockedRows.js';
 import type { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import {
   bulkSaveErrorDetail,
@@ -43,6 +55,36 @@ import {
 /** Records of one object past which the write goes as one job uploaded a chunk at a time. */
 export const STREAMING_THRESHOLD = 10_000;
 
+/** The most records one REST call takes: the records refused for a lock go again so. */
+const REST_CALL_MAX = SF_LIMITS.REST_API_BATCH_SIZE;
+
+/**
+ * Whether the org refused a record because it could not lock a record the
+ * insert needed, by an answer of the record's own: a call the org failed
+ * whole is tried again by the run's retry, and its records carry no code.
+ */
+function refusedForTheLock(row: InsertedRow): boolean {
+  return (
+    row.id === undefined &&
+    row.error !== undefined &&
+    (row.errorDetails?.length ?? 0) > 0 &&
+    refusedForALock([row.error], row.errorDetails)
+  );
+}
+
+/** A record still refused for a lock after its last send, saying how many times it went. */
+function stillLocked(row: InsertedRow, times: number): InsertedRow {
+  return row.error === undefined ? row : { ...row, error: withStillLockedNote(row.error, times) };
+}
+
+/** The ids of the records created and the errors of the others, in the order of `rows`. */
+function answeredBy(rows: readonly InsertedRow[]): Pick<InsertResult, 'successIds' | 'errors'> {
+  return {
+    successIds: rows.flatMap((row) => (row.id === undefined ? [] : [row.id])),
+    errors: rows.flatMap((row) => (row.error === undefined ? [] : [row.error])),
+  };
+}
+
 /**
  * What a Bulk API job answered for each record, in the order sent, its
  * refusals read with the code and fields of their `sf__Error`
@@ -50,13 +92,20 @@ export const STREAMING_THRESHOLD = 10_000;
  * named is sent again from. Nothing when the job's answer cannot be laid on
  * the records one for one — a row matched to none, a record written without
  * its id said — or when the cancel aborted it: a row is never sent again on a
- * guess.
+ * guess. An upload of more than {@link STREAMING_THRESHOLD} records is read
+ * so too, its answer saying no failure apart from its outcomes.
  */
-export function bulkRows(result: BulkExecutionResult, sent: number): InsertedRow[] | undefined {
+export function bulkRows(
+  result: Pick<BulkExecutionResult, 'outcomes' | 'unmatchedIds'> & {
+    aborted?: boolean;
+    failures?: BulkExecutionResult['failures'];
+  },
+  sent: number,
+): InsertedRow[] | undefined {
   if (result.aborted || result.outcomes.length !== sent || (result.unmatchedIds?.length ?? 0) > 0) {
     return undefined;
   }
-  if (result.failures.some((failure) => failure.recordIndex < 0)) return undefined;
+  if ((result.failures ?? []).some((failure) => failure.recordIndex < 0)) return undefined;
   const rows: InsertedRow[] = new Array<InsertedRow>(sent);
   for (const outcome of result.outcomes) {
     if (outcome.recordIndex < 0 || outcome.recordIndex >= sent) return undefined;
@@ -110,6 +159,11 @@ export interface SeedInsertDeps {
    * named nowhere, though it wrote all its records.
    */
   calls?: SeedInsertCalls;
+  /**
+   * Waits out the delay before the records the org refused for a lock are
+   * sent again. Absent, a timer the run's cancel cuts short.
+   */
+  wait?: (ms: number) => Promise<void>;
 }
 
 /** See {@link SeedInsertDeps.calls}. */
@@ -177,6 +231,115 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
     return watched;
   };
 
+  /**
+   * Insert `records` through REST, calls of `batchSize` records, each tried
+   * again on what a retry can cure, and answer for each record in order:
+   * what a row refused on fields a validation rule named is sent again
+   * without them from. `stopped` when the cancel came before a call: the
+   * rows are those of the calls before it.
+   */
+  const sendThroughRest = async (
+    objectApiName: string,
+    records: Record<string, unknown>[],
+    batchSize: number,
+  ): Promise<{ rows: InsertedRow[]; stopped?: true }> => {
+    const rows: InsertedRow[] = [];
+    for (let i = 0; i < records.length; i += batchSize) {
+      // A cancel stops the insert before each batch, with what the
+      // batches before it created: the rest of a large object used to be
+      // inserted after the seed was cancelled. The first batch included,
+      // as in the writer Sync writes through: the run looks at the cancel
+      // just before it inserts, and nothing between the two waits today,
+      // but a cancel that came between them would still send a batch.
+      if (signal.aborted) return { rows, stopped: true };
+      const batch = records.slice(i, i + batchSize);
+      deps.calls?.sending(objectApiName, batch.length);
+      const retryResult = await retry.execute(async () => {
+        // Seeded rows are invented and land in an org that may already
+        // hold rows like them — a duplicate rule stops exactly that. Forge
+        // learnt it in 1.25.3 and Sync in 1.28.0; a hundred seeded
+        // contacts were refused here for want of the same header. A
+        // unique index still refuses, which is right.
+        return conn
+          .sobject(objectApiName)
+          .create(batch, { headers: recordWriteHeaders() }) as Promise<
+          Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
+        >;
+      });
+      // The batch failed and the cancel came before it was tried again:
+      // none of it was created, and nothing after it is sent.
+      if (retryResult.cancelled) {
+        deps.calls?.answered(objectApiName, []);
+        return { rows, stopped: true };
+      }
+
+      if (retryResult.success && retryResult.result) {
+        const created: string[] = [];
+        for (const r of retryResult.result) {
+          if (r.success && r.id) {
+            created.push(r.id);
+            rows.push({ id: r.id });
+          } else {
+            const error = recordErrorText(r.errors);
+            rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
+          }
+        }
+        deps.calls?.answered(objectApiName, created);
+      } else {
+        // The whole batch is lost, not one record: the errors are what
+        // SeedOrchestrator reports as recordsFailed, so a single one made a
+        // 180-record wipe-out read as "1 failed".
+        const failMsg = retryResult.error?.message ?? 'Insert failed after retries';
+        for (let k = 0; k < batch.length; k++) rows.push({ error: failMsg });
+        // Answered as Sync's writer answers a call that failed: with nothing created.
+        deps.calls?.answered(objectApiName, []);
+      }
+    }
+    return { rows };
+  };
+
+  const wait = deps.wait ?? ((ms: number) => waitUnlessStopped(ms, signal));
+
+  /**
+   * The records of `rows` the org refused because it could not lock a record
+   * their insert needed, sent again through REST, alone, after a wait that
+   * doubles each time, three times at most (`sendLockedRowsAgain`): each
+   * row's answer in its place, and what the object's result says of them.
+   * A record refused so was not created, its call or its job's chunk
+   * committing each record on its own: a seed of contacts under one account
+   * other writes held had them refused, and the lock's hint said to run
+   * again, which created every other record of the object a second time.
+   */
+  const lockedAgain = async (
+    objectApiName: string,
+    records: Record<string, unknown>[],
+    rows: InsertedRow[],
+    batchSize: number,
+  ): Promise<{ rows: InsertedRow[]; notes: string[] }> => {
+    const size = Math.min(Math.max(1, batchSize), REST_CALL_MAX);
+    const again = await sendLockedRowsAgain<InsertedRow>({
+      outcomes: rows,
+      locked: refusedForTheLock,
+      written: (row) => row.id !== undefined,
+      send: async (at) =>
+        (
+          await sendThroughRest(
+            objectApiName,
+            at.map((i) => records[i]),
+            size,
+          )
+        ).rows,
+      note: stillLocked,
+      wait,
+      stopped: () => signal.aborted,
+    });
+    const line = lockedRowsLine('record(s)', again);
+    return {
+      rows: again.outcomes,
+      notes: line === undefined ? [] : [`${objectApiName}: ${line}.`],
+    };
+  };
+
   return async (_orgId, objectApiName, records, batchSize) => {
     // A job of either kind is not for an object a duplicate rule watches.
     const throughRest =
@@ -216,6 +379,18 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
         records.length,
       );
       deps.calls?.answered(objectApiName, streamResult.aborted ? [] : streamResult.successIds);
+      // Read record by record, as a job's answer is, to send again those
+      // refused for a lock; the rows stay the job's own, as before.
+      const streamed = streamResult.aborted
+        ? undefined
+        : bulkRows(
+            { outcomes: streamResult.outcomes ?? [], unmatchedIds: streamResult.unmatchedIds },
+            records.length,
+          );
+      const locked = streamed && (await lockedAgain(objectApiName, records, streamed, batchSize));
+      if (locked && locked.notes.length > 0) {
+        return { ...answeredBy(locked.rows), notes: locked.notes };
+      }
       return {
         successIds: streamResult.successIds,
         errors: streamResult.errors,
@@ -244,6 +419,10 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectApiName, 'insert', records);
       deps.calls?.answered(objectApiName, bulkResult.aborted ? [] : bulkResult.successIds);
       const rows = bulkRows(bulkResult, records.length);
+      const locked = rows && (await lockedAgain(objectApiName, records, rows, batchSize));
+      if (locked && locked.notes.length > 0) {
+        return { ...answeredBy(locked.rows), rows: locked.rows, notes: locked.notes };
+      }
       return {
         successIds: bulkResult.successIds,
         errors: bulkResult.failures.map((f) => f.error),
@@ -255,76 +434,15 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
     }
 
     // REST API path with retry and batching
-    const successIds: string[] = [];
-    const errors: string[] = [];
-    // What the org answered per record, in order: a row refused on fields
-    // a validation rule named is sent again without them from it.
-    const rows: InsertedRow[] = [];
-
-    for (let i = 0; i < records.length; i += batchSize) {
-      // A cancel stops the insert before each batch, with what the
-      // batches before it created: the rest of a large object used to be
-      // inserted after the seed was cancelled. The first batch included,
-      // as in the writer Sync writes through: the run looks at the cancel
-      // just before it inserts, and nothing between the two waits today,
-      // but a cancel that came between them would still send a batch.
-      if (signal.aborted) {
-        return { successIds, errors, rows, stopped: true };
-      }
-      const batch = records.slice(i, i + batchSize);
-      deps.calls?.sending(objectApiName, batch.length);
-      const retryResult = await retry.execute(async () => {
-        // Seeded rows are invented and land in an org that may already
-        // hold rows like them — a duplicate rule stops exactly that. Forge
-        // learnt it in 1.25.3 and Sync in 1.28.0; a hundred seeded
-        // contacts were refused here for want of the same header. A
-        // unique index still refuses, which is right.
-        return conn
-          .sobject(objectApiName)
-          .create(batch, { headers: recordWriteHeaders() }) as Promise<
-          Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
-        >;
-      });
-      // The batch failed and the cancel came before it was tried again:
-      // none of it was created, and nothing after it is sent.
-      if (retryResult.cancelled) {
-        deps.calls?.answered(objectApiName, []);
-        return { successIds, errors, rows, stopped: true };
-      }
-
-      if (retryResult.success && retryResult.result) {
-        const created: string[] = [];
-        for (const r of retryResult.result) {
-          if (r.success && r.id) {
-            successIds.push(r.id);
-            created.push(r.id);
-            rows.push({ id: r.id });
-          } else {
-            const error = recordErrorText(r.errors);
-            errors.push(error);
-            rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
-          }
-        }
-        deps.calls?.answered(objectApiName, created);
-      } else {
-        // The whole batch is lost, not one record: `errors.length` is what
-        // SeedOrchestrator reports as recordsFailed, so a single push made
-        // a 180-record wipe-out read as "1 failed".
-        const failMsg = retryResult.error?.message ?? 'Insert failed after retries';
-        for (let k = 0; k < batch.length; k++) {
-          errors.push(failMsg);
-          rows.push({ error: failMsg });
-        }
-        // Answered as Sync's writer answers a call that failed: with nothing created.
-        deps.calls?.answered(objectApiName, []);
-      }
-    }
-
+    const sent = await sendThroughRest(objectApiName, records, batchSize);
+    // Cancelled: what the calls before the cancel answered, nothing sent again.
+    if (sent.stopped) return { ...answeredBy(sent.rows), rows: sent.rows, stopped: true };
+    const locked = await lockedAgain(objectApiName, records, sent.rows, batchSize);
+    const notes = [...unreadRulesNote, ...locked.notes];
     return {
-      successIds,
-      errors,
-      rows,
-      ...(unreadRulesNote.length > 0 ? { notes: unreadRulesNote } : {}),
+      ...answeredBy(locked.rows),
+      rows: locked.rows,
+      ...(notes.length > 0 ? { notes } : {}),
     };
   };
 }

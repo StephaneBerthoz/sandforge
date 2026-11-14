@@ -131,6 +131,13 @@ import {
   type PriceCurrencySaid,
 } from '../forge/stages/PriceCurrencies.js';
 import { logger } from '../../logger.js';
+import {
+  lockedRowsLine,
+  refusedForALock,
+  sendLockedRowsAgain,
+  waitUnlessStopped,
+  withStillLockedNote,
+} from '../../core/engine/lockedRows.js';
 
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
@@ -328,6 +335,24 @@ export interface ObjectOutcome {
    * they cost the run nothing it set out to do. Absent when there are none.
    */
   cutSinceFit?: number;
+  /**
+   * Records the target refused because it could not lock a record their
+   * write needed (`UNABLE_TO_LOCK_ROW`), sent again — up to three times,
+   * after a wait that doubles each time — and how many of them it then
+   * took. Those it refused still are among `refusals`, their message saying
+   * how many times they went. Absent when none was sent again.
+   */
+  sentAgainForALock?: SentAgainForALock;
+}
+
+/** See {@link ObjectOutcome.sentAgainForALock}. */
+export interface SentAgainForALock {
+  /** Records sent again, once or more. */
+  rows: number;
+  /** Of them, the records the target took. */
+  written: number;
+  /** Of them, the records the lock still held after their last send. */
+  stillLocked: number;
 }
 
 /**
@@ -506,6 +531,11 @@ export interface AutopilotExecutorDeps {
    * whether it takes the update.
    */
   describeFieldsFixedAtInsert?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * Waits out the delay before the records the target refused for a lock
+   * are sent again. Absent, a timer the run's stop cuts short.
+   */
+  wait?: (ms: number) => Promise<void>;
   /**
    * The object's record types in the TARGET org, as the running user sees
    * them — read from the describe `describeCreateableFields` already made.
@@ -717,6 +747,30 @@ interface ObjectState {
    * where the tally would merge them under their one code and field.
    */
   heldForRecordType: Map<string, UnavailableRecordTypeUse>;
+  /** Records refused for a lock and sent again, and those of them written. */
+  sentAgainForALock: SentAgainForALock;
+}
+
+/**
+ * A record still refused for a lock after its last send, its refusal saying
+ * how many times it went: the message the object's refusals show, and the
+ * error its node names.
+ */
+function stillLocked(outcome: SaveOutcome, times: number): SaveOutcome {
+  const [error, ...errors] = outcome.errors;
+  const [detail, ...details] = outcome.errorDetails ?? [];
+  return {
+    ...outcome,
+    ...(error === undefined ? {} : { errors: [withStillLockedNote(error, times), ...errors] }),
+    ...(detail === undefined
+      ? {}
+      : {
+          errorDetails: [
+            { ...detail, message: withStillLockedNote(detail.message, times) },
+            ...details,
+          ],
+        }),
+  };
 }
 
 /** An object's totals before any of its records is written. */
@@ -731,6 +785,7 @@ function emptyObjectState(): ObjectState {
     defaulted: new Map(),
     cutSinceFit: 0,
     heldForRecordType: new Map(),
+    sentAgainForALock: { rows: 0, written: 0, stillLocked: 0 },
   };
 }
 
@@ -828,6 +883,8 @@ interface ObjectResult {
    * The counts are those of what went before it, in the target and mapped.
    */
   threw?: string;
+  /** See `ObjectOutcome.sentAgainForALock`. */
+  sentAgainForALock: SentAgainForALock;
 }
 
 /** A lookup a written record went in without, owed until the record it points at is in. */
@@ -1556,6 +1613,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             : {}),
           ...(objResult.cutSinceFit > 0 ? { cutSinceFit: objResult.cutSinceFit } : {}),
           ...(objResult.threw !== undefined ? { threw: objResult.threw } : {}),
+          ...(objResult.sentAgainForALock.rows > 0
+            ? { sentAgainForALock: objResult.sentAgainForALock }
+            : {}),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -2029,6 +2089,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
         ...(state.notSent !== undefined ? { notSent: state.notSent } : {}),
         cutSinceFit: state.cutSinceFit,
+        sentAgainForALock: state.sentAgainForALock,
       };
     };
 
@@ -2447,8 +2508,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     const drafts = await this.startAsDrafts(objectApiName, payload);
     // Said only of an object of the target with a type besides Master.
     const givenRule = withoutType.size > 0 ? await this.givenRuleOf(objectApiName) : undefined;
-    const outcomes = await this.deps.insert(objectApiName, payload);
-    state.apiCallsUsed++;
+    const outcomes = await this.insertSendingLocksAgain(objectApiName, payload, state);
 
     const keyPrefix = await this.keyPrefixOf(objectApiName);
     const keyFields = NATURAL_KEYS[objectApiName];
@@ -2529,6 +2589,62 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     this.register(objectApiName, mappings);
+  }
+
+  /**
+   * Insert a batch, then send again the records the target refused because
+   * it could not lock a record their write needed: those alone, after a wait
+   * that doubles each time, three times at most (`sendLockedRowsAgain`), a
+   * pause waited out and a stop sending nothing more. One outcome per record,
+   * in order, a record sent again holding its last; one still refused for
+   * the lock says how many times it went.
+   *
+   * A record refused so was not written, the call committing each record on
+   * its own: contacts written under an account other writes held were
+   * refused, and the lock's hint said to run again. An Autopilot run has no
+   * removal: run again whole, it wrote every other record a second time,
+   * with nothing to take the first ones back.
+   */
+  private async insertSendingLocksAgain(
+    objectApiName: string,
+    payload: Record<string, unknown>[],
+    state: ObjectState,
+  ): Promise<SaveOutcome[]> {
+    const insert = async (records: Record<string, unknown>[]): Promise<SaveOutcome[]> => {
+      state.apiCallsUsed++;
+      return this.deps.insert(objectApiName, records);
+    };
+    const outcomes = await insert(payload);
+    const again = await sendLockedRowsAgain<SaveOutcome>({
+      outcomes: outcomes.slice(0, payload.length),
+      locked: (outcome) =>
+        !outcome.success && refusedForALock(outcome.errors, outcome.errorDetails),
+      written: (outcome) => outcome.success,
+      // A call sent again that throws leaves its records refused with what it
+      // threw, as an update's does: thrown on, it took with it the answers of
+      // the first call, whose records are in the target, uncounted and unmapped.
+      send: (at) =>
+        updateEach(
+          (_objectApiName, records) => insert(records),
+          objectApiName,
+          at.map((i) => payload[i]),
+        ),
+      note: stillLocked,
+      wait: async (ms) => {
+        await this.wait(ms);
+        // A pause holds the records here, as it holds the next batch.
+        await this.checkPause();
+      },
+      stopped: () => this.stopped(),
+    });
+    if (again.refused === 0) return outcomes;
+    state.sentAgainForALock = {
+      rows: state.sentAgainForALock.rows + again.sentAgain,
+      written: state.sentAgainForALock.written + again.written,
+      stillLocked: state.sentAgainForALock.stillLocked + again.stillLocked,
+    };
+    logger.info(`[autopilot] ${objectApiName}: ${lockedRowsLine('record(s)', again) ?? ''}`);
+    return [...again.outcomes, ...outcomes.slice(payload.length)];
   }
 
   /**
@@ -3562,6 +3678,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   /** Whether the run's stop has come. */
   private stopped(): boolean {
     return this.signal?.aborted === true;
+  }
+
+  /** Wait out the delay before records refused for a lock go again: see `AutopilotExecutorDeps.wait`. */
+  private wait(ms: number): Promise<void> {
+    return this.deps.wait ? this.deps.wait(ms) : waitUnlessStopped(ms, this.signal);
   }
 
   /**
