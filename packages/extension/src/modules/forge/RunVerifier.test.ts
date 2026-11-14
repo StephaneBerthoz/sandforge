@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeRunVerification } from '@sandforge/shared';
 import {
+  lookupsLeftEmptyByTheRun,
   RunVerifier,
   verificationTotals,
   writtenWithoutByObject,
@@ -922,5 +923,237 @@ describe('RunVerifier — lookups the target explains', () => {
       expect(counts).toEqual([]);
       expect(verification.verdict).toBe('verified');
     });
+  });
+});
+
+/*
+ * A clone of the whole org of person accounts and synced quotes, taken up and
+ * verified on a scratch org: every record was there, and the verification
+ * said `partial` for two reasons. The opportunity's synced quote, which such
+ * a run leaves empty on purpose and says so, read as a lookup that broke; and
+ * the ten contacts the platform wrote with the run's person accounts, which
+ * the run links to as written with their record, read as ten more contacts
+ * "created during the run by the run's user than the run wrote".
+ */
+describe('RunVerifier — what the run left empty, and what the platform wrote with its records', () => {
+  const RUN_START = '2026-10-01T09:50:00.000Z';
+  const DURING = '2026-10-01T09:55:00.000+0000';
+  const BEFORE = '2026-10-01T08:00:00.000+0000';
+  const stamps = (by: string, at: string) => ({
+    CreatedById: by,
+    CreatedDate: at,
+    LastModifiedDate: BEFORE_END,
+    LastModifiedById: by,
+    SystemModstamp: BEFORE_END,
+  });
+  const ref = (name: string, referenceTo: string[], createable = true) => ({
+    name,
+    type: 'reference',
+    createable,
+    updateable: true,
+    referenceTo,
+  });
+  const AUDIT = [
+    { name: 'Id', type: 'id' },
+    { name: 'CreatedById', type: 'reference', referenceTo: ['User'] },
+    { name: 'CreatedDate', type: 'datetime' },
+  ];
+  const FIELDS = {
+    Account: [...AUDIT, { name: 'Name', type: 'string', createable: true, updateable: true }],
+    Contact: [...AUDIT, ref('AccountId', ['Account'])],
+    // The opportunity's synced quote: set by an update alone, never on insert.
+    Opportunity: [...AUDIT, ref('AccountId', ['Account']), ref('SyncedQuoteId', ['Quote'], false)],
+    Quote: [...AUDIT, ref('OpportunityId', ['Opportunity'])],
+    Task: [...AUDIT, ref('WhatId', ['Opportunity'])],
+  };
+  type Name = keyof typeof FIELDS;
+  type Table = Map<string, Record<string, unknown>>;
+
+  /** The business account, the person account, and their records, by id in each org. */
+  const A1 = { s: sid('001', 1), t: tid('001', 1) };
+  const A2 = { s: sid('001', 2), t: tid('001', 2) };
+  const C1 = { s: sid('003', 1), t: tid('003', 1) };
+  /** The contact the platform wrote with the person account A2. */
+  const PC2 = { s: sid('003', 2), t: tid('003', 2) };
+  const O1 = { s: sid('006', 1), t: tid('006', 1) };
+  const Q1 = { s: sid('0Q0', 1), t: tid('0Q0', 1) };
+  const T1 = { s: sid('00T', 1), t: tid('00T', 1) };
+  /** The task the platform wrote with an email the run created. */
+  const T2 = { s: sid('00T', 2), t: tid('00T', 2) };
+
+  /**
+   * An org of `rows` per object, which also answers what a verification
+   * counts of the run's window: the records of an object a user created
+   * between two dates, those in the recycle bin left out, as `COUNT()` does.
+   */
+  function org(rows: Record<Name, Table>, deleted = new Set<string>()) {
+    const faked = fakeOrg(
+      Object.fromEntries(
+        (Object.keys(FIELDS) as Name[]).map((name) => [
+          name,
+          { fields: FIELDS[name], rows: rows[name], deleted },
+        ]),
+      ),
+    );
+    const answered = faked.query;
+    faked.query = vi.fn(async (soql: string) => {
+      const count =
+        /^SELECT COUNT\(\) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+)$/.exec(
+          soql,
+        );
+      if (!count) return answered(soql);
+      const [, object, user, from, to] = count;
+      const created = [...(rows[object as Name]?.values() ?? [])].filter(
+        (row) =>
+          !deleted.has(String(row.Id)) &&
+          row.CreatedById === user &&
+          Date.parse(String(row.CreatedDate)) >= Date.parse(from) &&
+          Date.parse(String(row.CreatedDate)) <= Date.parse(to),
+      );
+      return { totalSize: created.length, records: [] };
+    });
+    return faked;
+  }
+
+  const table = (...rows: Array<Record<string, unknown>>): Table =>
+    new Map(rows.map((row) => [String(row.Id), row]));
+
+  /**
+   * The source, and the target as the run left it: the accounts, the contact,
+   * the opportunity, its quote and the task the run wrote, as its user during
+   * the run; the person account's contact and the email's task the platform
+   * wrote with them, as the same user in the same window; the opportunity's
+   * synced quote empty. `contacts`: more contacts in the target.
+   */
+  function wholeOrgClone(contacts: Array<Record<string, unknown>> = []) {
+    const run = stamps(RUN_USER, DURING);
+    const source = org({
+      Account: table({ Id: A1.s }, { Id: A2.s }),
+      Contact: table({ Id: C1.s, AccountId: A1.s }, { Id: PC2.s, AccountId: A2.s }),
+      Opportunity: table({ Id: O1.s, AccountId: A1.s, SyncedQuoteId: Q1.s }),
+      Quote: table({ Id: Q1.s, OpportunityId: O1.s }),
+      Task: table({ Id: T1.s, WhatId: O1.s }, { Id: T2.s, WhatId: O1.s }),
+    });
+    const rows: Record<Name, Table> = {
+      Account: table({ Id: A1.t, ...run }, { Id: A2.t, ...run }),
+      Contact: table(
+        { Id: C1.t, AccountId: A1.t, ...run },
+        { Id: PC2.t, AccountId: A2.t, ...run },
+        ...contacts,
+      ),
+      Opportunity: table({ Id: O1.t, AccountId: A1.t, SyncedQuoteId: null, ...run }),
+      Quote: table({ Id: Q1.t, OpportunityId: O1.t, ...run }),
+      Task: table({ Id: T1.t, WhatId: O1.t, ...run }, { Id: T2.t, WhatId: O1.t, ...run }),
+    };
+    const toVerify: RunToVerify = {
+      records: [
+        { objectApiName: 'Task', ids: [T1.t] },
+        { objectApiName: 'Quote', ids: [Q1.t] },
+        { objectApiName: 'Opportunity', ids: [O1.t] },
+        { objectApiName: 'Contact', ids: [C1.t] },
+        { objectApiName: 'Account', ids: [A1.t, A2.t] },
+      ],
+      remapTable: Object.fromEntries([A1, A2, C1, PC2, O1, Q1, T1, T2].map(({ s, t }) => [s, t])),
+      runStartedAt: new Date(RUN_START),
+      runEndedAt: new Date(RUN_END),
+      withTheirRecord: [PC2.s, T2.s],
+      leftEmptyByTheRun: lookupsLeftEmptyByTheRun(true),
+    };
+    return { source, rows, run: toVerify };
+  }
+
+  it('is verified when the run left the synced quote empty as it said, and the platform wrote a contact with its person account and a task with its email', async () => {
+    const { source, rows, run } = wholeOrgClone();
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(verification.verdict).toBe('verified');
+    const opportunity = objectOf(verification, 'Opportunity');
+    expect(opportunity).toMatchObject({
+      linksChecked: 2,
+      linksBroken: 0,
+      linksLeftEmptyByTheRun: 1,
+    });
+    expect(opportunity.explainedLinks).toEqual([
+      { recordId: O1.t, field: 'SyncedQuoteId', expected: Q1.t, found: null, cause: 'run' },
+    ]);
+    // What the platform wrote with the run's records is the run's: expected
+    // there, and never counted past what the run wrote.
+    expect(objectOf(verification, 'Contact')).toMatchObject({ present: 1, withTheirRecord: 1 });
+    expect(objectOf(verification, 'Contact').moreInTheWindow).toBeUndefined();
+    expect(objectOf(verification, 'Task')).toMatchObject({ present: 1, withTheirRecord: 1 });
+    expect(objectOf(verification, 'Task').moreInTheWindow).toBeUndefined();
+    expect(objectOf(verification, 'Account').withTheirRecord).toBeUndefined();
+    expect(verificationTotals(verification)).toMatchObject({
+      linksBroken: 0,
+      linksLeftEmptyByTheRun: 1,
+    });
+  });
+
+  it('keeps as broken the synced quote of a run that does not say it leaves it empty', async () => {
+    const { source, rows, run } = wholeOrgClone();
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(
+      { ...run, leftEmptyByTheRun: lookupsLeftEmptyByTheRun(false) },
+      NO_WAIT,
+    );
+
+    const opportunity = objectOf(verification, 'Opportunity');
+    expect(opportunity).toMatchObject({ linksBroken: 1 });
+    expect(opportunity.linksLeftEmptyByTheRun).toBeUndefined();
+    expect(opportunity.brokenLinks).toEqual([
+      { recordId: O1.t, field: 'SyncedQuoteId', expected: Q1.t, found: null },
+    ]);
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('keeps as broken a lookup the run says it leaves empty that points at another record', async () => {
+    const { source, rows, run } = wholeOrgClone();
+    const another = tid('0Q0', 9);
+    rows.Opportunity.set(O1.t, { ...rows.Opportunity.get(O1.t), SyncedQuoteId: another });
+    rows.Quote.set(another, { Id: another, ...stamps(OTHER_USER, BEFORE) });
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'Opportunity').brokenLinks).toEqual([
+      { recordId: O1.t, field: 'SyncedQuoteId', expected: Q1.t, found: another },
+    ]);
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('still counts a contact the run’s user created in the run’s window past the run’s and the one the platform wrote with its person account', async () => {
+    const { source, rows, run } = wholeOrgClone([
+      { Id: tid('003', 3), AccountId: A1.t, ...stamps(RUN_USER, DURING) },
+    ]);
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'Contact')).toMatchObject({
+      present: 1,
+      withTheirRecord: 1,
+      moreInTheWindow: 1,
+    });
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('counts none of the records the platform wrote with the run’s that are gone since, as the target counts none of them', async () => {
+    const { source, rows, run } = wholeOrgClone();
+
+    // The person account in the recycle bin, and its contact with it.
+    const verification = await new RunVerifier({
+      target: org(rows, new Set([A2.t, PC2.t])),
+      source,
+    }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'Account')).toMatchObject({ present: 1, deleted: 1 });
+    const contact = objectOf(verification, 'Contact');
+    expect(contact.withTheirRecord).toBeUndefined();
+    expect(contact.moreInTheWindow).toBeUndefined();
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('names the lookups a clone of the whole org leaves empty on every record, and none for any other run', () => {
+    expect(lookupsLeftEmptyByTheRun(true)).toEqual({ Opportunity: ['SyncedQuoteId'] });
+    expect(lookupsLeftEmptyByTheRun(false)).toEqual({});
   });
 });

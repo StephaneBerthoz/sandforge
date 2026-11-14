@@ -365,6 +365,46 @@ describe('sandforge-clone --verify', () => {
       expect(verified.leftEmptyByFilter).toEqual(leftEmpty);
     });
 
+    // Verified from its journal on a scratch org, a clone of the whole org of
+    // person accounts and synced quotes was partial with every record there:
+    // its synced quote, left empty as the run said, read as a broken lookup,
+    // and the contacts the platform wrote with its person accounts as ten
+    // created besides.
+    it('hands the verification what a clone of the whole org leaves empty, and what the platform wrote with its records', async () => {
+      const summary = runSummary(
+        { record: undefined, wholeOrg: true, objects: [{ objectApiName: 'Account' }] },
+        {
+          remapTable: {
+            [SRC('001', 1)]: TGT('001', 1),
+            [SRC('003', 1)]: TGT('003', 1),
+            [SRC('001', 2)]: TGT('001', 2),
+            [SRC('003', 2)]: TGT('003', 2),
+          },
+          existingSourceIds: [SRC('001', 2), SRC('003', 2)],
+          withTheirRecordSourceIds: [SRC('003', 2)],
+        },
+      );
+
+      expect(await run(['--verify', file(summary), '--target', 'TGT'])).toBeUndefined();
+
+      const [{ run: verified }] = verifierCalls;
+      expect(verified.leftEmptyByTheRun).toEqual({ Opportunity: ['SyncedQuoteId'] });
+      expect(verified.withTheirRecord).toEqual([SRC('003', 2)]);
+      // The platform's contact is the run's, never among those it created.
+      expect(verified.records).toEqual([
+        { objectApiName: 'Contact', ids: [TGT('003', 1)] },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+    });
+
+    it('hands the verification no lookup left empty by a run of records, which fills them all in', async () => {
+      expect(await run(['--verify', file(runSummary()), '--target', 'TGT'])).toBeUndefined();
+
+      const [{ run: verified }] = verifierCalls;
+      expect(verified.leftEmptyByTheRun).toEqual({});
+      expect(verified.withTheirRecord).toBeUndefined();
+    });
+
     it('reads the source records in the org --source names', async () => {
       await run(['--verify', file(runSummary()), '--target', 'TGT', '--source', 'UAT-COPY']);
       expect(verifierCalls[0].deps.source).toEqual({ org: 'UAT-COPY' });
@@ -637,6 +677,70 @@ describe('sandforge-clone verification lines', () => {
       "  Case: 20 of 20 there; lookups: 20 checked, 16 hold, 3 left empty by the target's lookup filter, as the run said, 1 set by the target's automation during the run",
       `      ${TGT('500', 1)}: AssetId is empty: the target's lookup filter refused ${TGT('02i', 1)}, and the run left it empty`,
       `      ${TGT('500', 2)}: Cloned_Risk__c points at ${TGT('02i', 7)}, which the target's automation created during the run; the run set it to ${TGT('02i', 1)}`,
+    ]);
+  });
+
+  it('counts the lookups the run left empty as it said apart, and the records the platform wrote with its own', () => {
+    const lines = verificationLines(
+      {
+        verdict: 'partial',
+        verifiedAt: '2026-10-01T11:00:00.000Z',
+        attempts: 2,
+        objects: [
+          {
+            objectApiName: 'Opportunity',
+            expected: 24,
+            present: 24,
+            deleted: 0,
+            notVisible: 0,
+            changed: 0,
+            changedRecords: [],
+            deletedIds: [],
+            notVisibleIds: [],
+            linksChecked: 24,
+            linksBroken: 0,
+            brokenLinks: [],
+            linksLeftEmptyByFilter: 0,
+            linksSetByAutomation: 0,
+            linksLeftEmptyByTheRun: 1,
+            explainedLinks: [
+              {
+                recordId: TGT('006', 1),
+                field: 'SyncedQuoteId',
+                expected: TGT('0Q0', 1),
+                found: null,
+                cause: 'run',
+              },
+            ],
+          },
+          {
+            objectApiName: 'Contact',
+            expected: 22,
+            present: 22,
+            deleted: 0,
+            notVisible: 0,
+            changed: 0,
+            changedRecords: [],
+            deletedIds: [],
+            notVisibleIds: [],
+            linksChecked: 0,
+            linksBroken: 0,
+            brokenLinks: [],
+            withTheirRecord: 10,
+            moreInTheWindow: 1,
+          },
+        ],
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'verification: PARTIAL (2 readings of TGT)',
+      '  Opportunity: 24 of 24 there; lookups: 24 checked, 23 hold, 1 left empty by the run, as it said',
+      `      ${TGT('006', 1)}: SyncedQuoteId is empty: left empty by the run, as it said, rather than set to ${TGT('0Q0', 1)}`,
+      '  Contact: 22 of 22 there, and 10 written by the platform with their record; no lookup the run set to check',
+      "      1 more Contact record(s) were created in TGT during the run by the run's user than the run " +
+        "wrote and the platform wrote with its records: the target's automation, another session " +
+        'writing as that user, or a call written twice',
     ]);
   });
 

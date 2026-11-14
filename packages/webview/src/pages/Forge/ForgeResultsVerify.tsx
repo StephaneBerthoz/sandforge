@@ -61,6 +61,11 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
       expected: formatNumber(object.expected),
     }),
   ];
+  // What the platform wrote with the run's records: the run's too.
+  const withTheirRecord = object.withTheirRecord ?? 0;
+  if (withTheirRecord > 0) {
+    parts.push(counted(t, 'forgeRun.verify.withTheirRecord', withTheirRecord));
+  }
   if (object.deleted > 0) parts.push(counted(t, 'forgeRun.verify.deleted', object.deleted));
   if (object.notVisible > 0)
     parts.push(counted(t, 'forgeRun.verify.notVisible', object.notVisible));
@@ -68,18 +73,20 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
   // More records of the object than the run wrote, by its user in its window.
   const more = object.moreInTheWindow ?? 0;
   if (more > 0) parts.push(counted(t, 'forgeRun.verify.moreInTheWindow', more));
-  // The lookups the target explains: counted apart, never as broken.
+  // The lookups the run or the target explains: counted apart, never as broken.
+  const byTheRun = object.linksLeftEmptyByTheRun ?? 0;
   const leftEmpty = object.linksLeftEmptyByFilter ?? 0;
   const byAutomation = object.linksSetByAutomation ?? 0;
+  const explained = byTheRun + leftEmpty + byAutomation;
   if (object.linksUnchecked !== undefined) {
     parts.push(t('forgeRun.verify.linksUnchecked', { reason: object.linksUnchecked }));
   } else if (object.linksChecked === 0) {
     parts.push(t('forgeRun.verify.noLinks'));
-  } else if (object.linksBroken === 0 && leftEmpty + byAutomation === 0) {
+  } else if (object.linksBroken === 0 && explained === 0) {
     parts.push(counted(t, 'forgeRun.verify.linksHold', object.linksChecked));
   } else if (object.linksBroken === 0) {
     parts.push(
-      counted(t, 'forgeRun.verify.linksHoldSome', object.linksChecked - leftEmpty - byAutomation, {
+      counted(t, 'forgeRun.verify.linksHoldSome', object.linksChecked - explained, {
         checked: formatNumber(object.linksChecked),
       }),
     );
@@ -91,6 +98,7 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
     );
   }
   if (object.linksUnchecked === undefined) {
+    if (byTheRun > 0) parts.push(counted(t, 'forgeRun.verify.linksLeftEmptyByTheRun', byTheRun));
     if (leftEmpty > 0) parts.push(counted(t, 'forgeRun.verify.linksLeftEmptyByFilter', leftEmpty));
     if (byAutomation > 0) {
       parts.push(counted(t, 'forgeRun.verify.linksSetByAutomation', byAutomation));
@@ -99,10 +107,14 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
   return parts;
 }
 
-/** Whether a lookup of the verification is one the target explains. */
+/** Whether a lookup of the verification is one the run or the target explains. */
 function explainsAny(verification: ForgeRunVerification): boolean {
   return verification.objects.some(
-    (object) => (object.linksLeftEmptyByFilter ?? 0) + (object.linksSetByAutomation ?? 0) > 0,
+    (object) =>
+      (object.linksLeftEmptyByTheRun ?? 0) +
+        (object.linksLeftEmptyByFilter ?? 0) +
+        (object.linksSetByAutomation ?? 0) >
+      0,
   );
 }
 
@@ -114,6 +126,7 @@ function linkLine(t: TFunction, link: ForgeVerificationLink): string {
     found: link.found ?? '',
     expected: link.expected,
   };
+  if (link.cause === 'run') return t('forgeRun.verify.linkLeftEmptyByTheRun', values);
   if (link.cause === 'lookup-filter') return t('forgeRun.verify.linkLeftEmptyByFilter', values);
   if (link.cause === 'automation') return t('forgeRun.verify.linkSetByAutomation', values);
   return t(

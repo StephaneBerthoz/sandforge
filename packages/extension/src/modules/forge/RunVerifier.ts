@@ -9,14 +9,17 @@
  *   - **links**: on a sample of each object's records, every lookup the run
  *     set from a record it mapped — one whose value in the source names a row
  *     of the run's id map — is read in the target and compared with the id
- *     that row got there;
+ *     that row got there; one the run leaves empty on every record, and
+ *     says so, found empty is counted apart, never as broken;
  *   - **changes since the run**: each record's `LastModifiedDate` against the
  *     target's date of the run's last stamp, as the removal of the run's
  *     records reads it to keep a record changed since;
  *   - **more than the run wrote**: per object, the records the run's user
  *     created in the run's window, counted against those of the run read
- *     back — a resume that wrote again a call under way when its run was
- *     killed left 200 contacts twice, and every one the run named was there;
+ *     back, and those the platform wrote with them, a person account's
+ *     contact among them — a resume that wrote again a call under way when
+ *     its run was killed left 200 contacts twice, and every one the run
+ *     named was there;
  *   - **settling**: the first reading comes after a pause, and readings
  *     repeat until two in a row agree (three at most, two seconds apart, as
  *     Frozen's post-load check does); otherwise the verdict is `unstable`.
@@ -39,6 +42,7 @@ import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import { idLists, orgSession, readRecordsById } from '../dataops/RecordRemoval.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { CLOCK_LEEWAY_MS } from './ForgeRunRemoval.js';
+import { OPPORTUNITY_OBJECT, SYNCED_QUOTE_FIELD } from './stages/SyncedQuoteLines.js';
 
 /** Default pause before the first reading, and between two readings (ms). */
 export const DEFAULT_VERIFY_INTERVAL_MS = 2_000;
@@ -128,6 +132,20 @@ export interface RunToVerify {
     Pick<ForgeLookupsLeftEmpty, 'objectApiName' | 'field' | 'recordIds'>
   >;
   /**
+   * Per object, the lookups the run leaves empty on every record it writes,
+   * and says so ({@link lookupsLeftEmptyByTheRun}): such a lookup found empty
+   * is left empty by the run, not broken.
+   */
+  leftEmptyByTheRun?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The records the platform wrote with one the run created, which the run
+   * linked to and which go with their record — a person account's contact,
+   * the task of an email —, by their source ids, as the run's summary lists
+   * them (`withTheirRecordSourceIds`): the run's user created them in its
+   * window, and they are counted with the run's records, never past them.
+   */
+  withTheirRecord?: readonly string[];
+  /**
    * The target's date of the run's first write (`writtenBetween.first`): with
    * its end, the window in which a record the run's user created, and the
    * run did not, was created by the target's automation. Without it, a lookup
@@ -187,8 +205,12 @@ interface LinkPlan {
 interface Explaining {
   /** The lookups the run left empty on a lookup filter's refusal, by {@link linkKey}. */
   emptiedByFilter: ReadonlySet<string>;
+  /** The lookups the run leaves empty on every record, by object and field: see {@link fieldKey}. */
+  emptiedByTheRun: ReadonlySet<string>;
   /** The records the run created, by their first fifteen characters. */
   createdByRun: ReadonlySet<string>;
+  /** The records the platform wrote with the run's, by their ids in the target. */
+  withTheirRecord: readonly string[];
   /** The run's window by the org's clock, in epoch milliseconds, when it is known. */
   window?: { from: number; to: number };
   /**
@@ -202,6 +224,11 @@ interface Explaining {
 /** One lookup of one record of one object, whichever length its id is written in. */
 function linkKey(objectApiName: string, recordId: string, field: string): string {
   return `${objectApiName}:${recordId.slice(0, 15)}:${field}`;
+}
+
+/** One lookup of one object, on every record of it. */
+function fieldKey(objectApiName: string, field: string): string {
+  return `${objectApiName}.${field}`;
 }
 
 /** One reading of one object. Compared whole across readings. */
@@ -221,6 +248,8 @@ interface ObjectReading {
   linksUnchecked?: string;
   /** Records the run's user created in the run's window: see `ForgeVerificationObject.moreInTheWindow`. */
   createdInTheWindow?: number;
+  /** Records the platform wrote with the run's, read back: see `ForgeVerificationObject.withTheirRecord`. */
+  withTheirRecord: number;
 }
 
 /**
@@ -379,11 +408,26 @@ export class RunVerifier {
     for (const { objectApiName, field, recordIds } of run.leftEmptyByFilter ?? []) {
       for (const id of recordIds) emptiedByFilter.add(linkKey(objectApiName, id, field));
     }
+    const emptiedByTheRun = new Set(
+      Object.entries(run.leftEmptyByTheRun ?? {}).flatMap(([objectApiName, fields]) =>
+        fields.map((field) => fieldKey(objectApiName, field)),
+      ),
+    );
+    const withTheirRecord = [
+      ...new Set(
+        (run.withTheirRecord ?? []).flatMap((sourceId) => {
+          const targetId = run.remapTable[sourceId];
+          return targetId === undefined ? [] : [targetId];
+        }),
+      ),
+    ];
     const from = run.runStartedAt?.getTime() ?? Number.NaN;
     const known = Number.isFinite(from) && Number.isFinite(runEnd);
     const window = { from: from - CLOCK_LEEWAY_MS, to: runEnd + CLOCK_LEEWAY_MS };
     return {
       emptiedByFilter,
+      emptiedByTheRun,
+      withTheirRecord,
       createdByRun: new Set(Object.values(run.remapTable).map(recordKey)),
       ...(known
         ? {
@@ -618,6 +662,38 @@ export class RunVerifier {
     }
   }
 
+  /**
+   * How many of the records the platform wrote with the run's are records of
+   * `object` the target reads back: told by their key prefix, which every id
+   * of an object shares with the run's own of it. Gone since with their
+   * record, a removal's or anyone's, the target counts them no more among
+   * what the run's user created, and neither do they. Unread, none is
+   * counted: the window is counted against the run's records alone.
+   */
+  private async withTheirRecordThere(
+    object: ForgeRunObjectRecords,
+    explaining: Explaining,
+  ): Promise<number> {
+    const prefix = object.ids[0]?.slice(0, 3);
+    if (prefix === undefined) return 0;
+    const own = new Set(object.ids.map(recordKey));
+    const ids = explaining.withTheirRecord.filter(
+      (id) => id.slice(0, 3) === prefix && !own.has(recordKey(id)),
+    );
+    if (ids.length === 0) return 0;
+    try {
+      const rows = await readRecordsById(this.deps.target, object.objectApiName, [], ids);
+      return new Set(
+        rows
+          .map(idOf)
+          .filter((id): id is string => id !== undefined)
+          .map(recordKey),
+      ).size;
+    } catch {
+      return 0;
+    }
+  }
+
   /** One reading of one object's records in the target. */
   private async read(
     run: RunToVerify,
@@ -638,6 +714,7 @@ export class RunVerifier {
       linksChecked: 0,
       broken: [],
       explained: [],
+      withTheirRecord: 0,
       ...(plan?.unchecked !== undefined ? { linksUnchecked: plan.unchecked } : {}),
     };
 
@@ -678,6 +755,7 @@ export class RunVerifier {
       }
     }
     reading.present = read.size + archived;
+    reading.withTheirRecord = await this.withTheirRecordThere(object, explaining);
     if (user !== undefined && explaining.counted) {
       const counted = await this.countInTheWindow(name, user, explaining.counted);
       if (counted !== undefined) reading.createdInTheWindow = counted;
@@ -739,6 +817,14 @@ export class RunVerifier {
               });
               continue;
             }
+            // Left empty by the run on every record of the object, as it
+            // said: counted apart, never broken. One pointing elsewhere is
+            // judged as any other.
+            if (found === null && explaining.emptiedByTheRun.has(fieldKey(name, field))) {
+              reading.linksChecked++;
+              reading.explained.push({ recordId: id, field, expected, found, cause: 'run' });
+              continue;
+            }
             // Written again without the field, the target having refused it:
             // empty on purpose, as the run said.
             if (found === null && leftOut.has(field)) continue;
@@ -794,6 +880,10 @@ export class RunVerifier {
 
 /** One object's result, from the reading the verdict stands on, its lists cut short. */
 function objectResult(reading: ObjectReading): ForgeVerificationObject {
+  const leftByTheRun = reading.explained.filter((l) => l.cause === 'run').length;
+  // What the platform wrote with the run's records is the run's, as created
+  // by its user in its window as the records it wrote.
+  const ofTheRun = reading.present + reading.withTheirRecord;
   return {
     objectApiName: reading.objectApiName,
     expected: reading.expected,
@@ -812,6 +902,7 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
           linksLeftEmptyByFilter: reading.explained.filter((l) => l.cause === 'lookup-filter')
             .length,
           linksSetByAutomation: reading.explained.filter((l) => l.cause === 'automation').length,
+          ...(leftByTheRun > 0 ? { linksLeftEmptyByTheRun: leftByTheRun } : {}),
           explainedLinks: reading.explained.slice(0, NAMED_PER_LIST),
         }
       : {}),
@@ -820,8 +911,9 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
     ...(reading.recycleBinUnread !== undefined
       ? { recycleBinUnread: reading.recycleBinUnread }
       : {}),
-    ...(reading.createdInTheWindow !== undefined && reading.createdInTheWindow > reading.present
-      ? { moreInTheWindow: reading.createdInTheWindow - reading.present }
+    ...(reading.withTheirRecord > 0 ? { withTheirRecord: reading.withTheirRecord } : {}),
+    ...(reading.createdInTheWindow !== undefined && reading.createdInTheWindow > ofTheRun
+      ? { moreInTheWindow: reading.createdInTheWindow - ofTheRun }
       : {}),
   };
 }
@@ -830,10 +922,12 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
  * What the readings come to: `unstable` without two that agreed; `partial`
  * when a record is not there, a lookup does not hold, a part could not be
  * checked, or the run's user created more records of an object in the run's
- * window than the run's read back; `verified` otherwise. A record changed since the run is there, and
+ * window than the run's read back, with what the platform wrote with them;
+ * `verified` otherwise. A record changed since the run is there, and
  * listed: it lowers nothing on its own, a lookup it changed being checked. A
  * lookup the target explains — left empty by its lookup filter, set by its
- * automation — holds as the target took it, and is counted apart.
+ * automation — holds as the target took it, and one the run left empty on
+ * every record, as it said, holds as the run wrote it: each is counted apart.
  */
 function verdictOf(
   stable: boolean,
@@ -860,9 +954,10 @@ function verdictOf(
 export function verificationTotals(verification: ForgeRunVerification): Record<string, number> {
   const sum = (pick: (o: ForgeVerificationObject) => number): number =>
     verification.objects.reduce((total, o) => total + pick(o), 0);
-  // The lookups the target explains, only when there are any.
+  // The lookups the target or the run explains, only when there are any.
   const leftEmpty = sum((o) => o.linksLeftEmptyByFilter ?? 0);
   const byAutomation = sum((o) => o.linksSetByAutomation ?? 0);
+  const byTheRun = sum((o) => o.linksLeftEmptyByTheRun ?? 0);
   return {
     expected: sum((o) => o.expected),
     present: sum((o) => o.present),
@@ -873,8 +968,24 @@ export function verificationTotals(verification: ForgeRunVerification): Record<s
     linksBroken: sum((o) => o.linksBroken),
     ...(leftEmpty > 0 ? { linksLeftEmptyByFilter: leftEmpty } : {}),
     ...(byAutomation > 0 ? { linksSetByAutomation: byAutomation } : {}),
+    ...(byTheRun > 0 ? { linksLeftEmptyByTheRun: byTheRun } : {}),
     attempts: verification.attempts,
   };
+}
+
+/**
+ * Per object, the lookups a run leaves empty on every record it writes, and
+ * says it does: what {@link RunToVerify.leftEmptyByTheRun} takes. A clone of
+ * the whole org leaves an opportunity's synced quote empty
+ * (`ForgeExecutor.withoutSyncedQuotes`): filled in, the target starts the
+ * sync at once and writes the quote's lines over the products the run
+ * copied. Any other run fills it in, and names none.
+ *
+ * @param wholeOrg - Whether the run is a clone of the whole org: a summary's
+ *   `wholeOrg`, a history entry's `config.inputMode` of `org`.
+ */
+export function lookupsLeftEmptyByTheRun(wholeOrg: boolean): Record<string, string[]> {
+  return wholeOrg ? { [OPPORTUNITY_OBJECT]: [SYNCED_QUOTE_FIELD] } : {};
 }
 
 /**

@@ -472,6 +472,7 @@ import {
 } from '../src/modules/forge/rehearsal/rehearse.js';
 import type { ForgeRunVerification } from '@sandforge/shared';
 import {
+  lookupsLeftEmptyByTheRun,
   RunVerifier,
   verificationTotals,
   verifiedOrg,
@@ -9186,14 +9187,17 @@ export function verificationLines(verification: ForgeRunVerification, target: st
       o.deleted > 0 ? `${o.deleted} in the recycle bin` : '',
       o.notVisible > 0 ? `${o.notVisible} neither there nor in the recycle bin, out of sight` : '',
     ].filter(Boolean);
-    // The lookups the target explains, counted apart from those that broke.
+    // The lookups the run or the target explains, counted apart from those that broke.
     const leftEmpty = o.linksLeftEmptyByFilter ?? 0;
     const byAutomation = o.linksSetByAutomation ?? 0;
+    const byTheRun = o.linksLeftEmptyByTheRun ?? 0;
     const explained = [
+      byTheRun > 0 ? `${byTheRun} left empty by the run, as it said` : '',
       leftEmpty > 0 ? `${leftEmpty} left empty by the target's lookup filter, as the run said` : '',
       byAutomation > 0 ? `${byAutomation} set by the target's automation during the run` : '',
     ].filter(Boolean);
-    const held = o.linksChecked - o.linksBroken - leftEmpty - byAutomation;
+    const held = o.linksChecked - o.linksBroken - leftEmpty - byAutomation - byTheRun;
+    const withTheirRecord = o.withTheirRecord ?? 0;
     const links =
       o.linksUnchecked !== undefined
         ? `lookups not checked (${o.linksUnchecked})`
@@ -9209,6 +9213,9 @@ export function verificationLines(verification: ForgeRunVerification, target: st
     lines.push(
       `  ${o.objectApiName}: ${o.present} of ${o.expected} there` +
         (missing.length > 0 ? `, ${missing.join(', ')}` : '') +
+        (withTheirRecord > 0
+          ? `, and ${withTheirRecord} written by the platform with their record`
+          : '') +
         `; ${links}`,
     );
     for (const link of o.brokenLinks) {
@@ -9223,7 +9230,10 @@ export function verificationLines(verification: ForgeRunVerification, target: st
         link.cause === 'automation'
           ? `      ${link.recordId}: ${link.field} points at ${link.found ?? ''}, which the ` +
               `target's automation created during the run; the run set it to ${link.expected}`
-          : `      ${link.recordId}: ${link.field} is empty: the target's lookup filter refused ` +
+          : link.cause === 'run'
+            ? `      ${link.recordId}: ${link.field} is empty: left empty by the run, as it ` +
+              `said, rather than set to ${link.expected}`
+            : `      ${link.recordId}: ${link.field} is empty: the target's lookup filter refused ` +
               `${link.expected}, and the run left it empty`,
       );
     }
@@ -9233,8 +9243,9 @@ export function verificationLines(verification: ForgeRunVerification, target: st
     if ((o.moreInTheWindow ?? 0) > 0) {
       lines.push(
         `      ${o.moreInTheWindow} more ${o.objectApiName} record(s) were created in ${target} ` +
-          "during the run by the run's user than the run wrote: the target's automation, " +
-          'another session writing as that user, or a call written twice',
+          "during the run by the run's user than the run wrote" +
+          (withTheirRecord > 0 ? ' and the platform wrote with its records' : '') +
+          ": the target's automation, another session writing as that user, or a call written twice",
       );
     }
     for (const change of o.changedRecords) {
@@ -9423,6 +9434,14 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
         : {}),
       ...(leftEmpty.success
         ? { leftEmptyByFilter: leftEmpty.data.result.lookupsLeftEmptyByFilter }
+        : {}),
+      // What a clone of the whole org leaves empty and says so, and what the
+      // platform wrote with the run's records: verified from its journal on a
+      // scratch org, the synced quote read as a broken lookup and the person
+      // accounts' contacts as ten created besides, every record there.
+      leftEmptyByTheRun: lookupsLeftEmptyByTheRun(summary.wholeOrg === true),
+      ...(summary.result.withTheirRecordSourceIds
+        ? { withTheirRecord: summary.result.withTheirRecordSourceIds }
         : {}),
     });
   } catch (err: unknown) {

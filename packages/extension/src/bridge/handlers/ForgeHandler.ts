@@ -279,6 +279,7 @@ import {
 } from '../../modules/forge/removalOutcome.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import {
+  lookupsLeftEmptyByTheRun,
   RunVerifier,
   verificationTotals,
   verifiedOrg,
@@ -5900,9 +5901,14 @@ export class ForgeHandler implements DomainHandler {
    * map saved read them from the journal a page at a time
    * (`journalRecordsOf`, `idMapRowsInJournal`), whole only from a journal of
    * 1.50. `gone` when the journal cannot be read.
+   *
+   * @param withTheirRecord - Also name the records the part linked to that
+   *   the platform wrote with one the run created (`idRemapWithTheirRecord`),
+   *   as Verify counts them: the other readers count them from the entry.
    */
   private async withIdsOf(
     entry: ForgeExecutionResult,
+    withTheirRecord = false,
   ): Promise<{ entry: ForgeExecutionResult } | { gone: string }> {
     if (!entry.remapInJournal) return { entry };
     const journal = this.runJournal;
@@ -5926,6 +5932,9 @@ export class ForgeHandler implements DomainHandler {
           idRemapCreated: ids.createdByObject,
           ...(left ? { removalLeft: left } : {}),
           ...(Object.keys(stamps).length > 0 ? { removalStamps: stamps } : {}),
+          ...(withTheirRecord && ids.withTheirRecord
+            ? { idRemapWithTheirRecord: ids.withTheirRecord }
+            : {}),
         },
       };
     } catch (err: unknown) {
@@ -6637,10 +6646,11 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    // The ids of a run past the bound are read from its journal.
+    // The ids of a run past the bound are read from its journal, with what
+    // the platform wrote with its records.
     let withIds = entry;
     if (entry.remapInJournal && forgeRunCountsLeft(entry).length > 0) {
-      const read = await this.withIdsOf(entry);
+      const read = await this.withIdsOf(entry, true);
       if ('gone' in read) {
         refuse(read.gone, JOURNAL_GONE);
         return;
@@ -6707,6 +6717,13 @@ export class ForgeHandler implements DomainHandler {
         // broken lookup, nor one the target's automation set during the run.
         ...(entry.lookupsLeftEmptyByFilter
           ? { leftEmptyByFilter: entry.lookupsLeftEmptyByFilter }
+          : {}),
+        // Nor one a clone of the whole org leaves empty and says so; and what
+        // the platform wrote with the run's records is the run's, never more
+        // than it wrote.
+        leftEmptyByTheRun: lookupsLeftEmptyByTheRun(entry.config?.inputMode === 'org'),
+        ...(withIds.idRemapWithTheirRecord
+          ? { withTheirRecord: withIds.idRemapWithTheirRecord }
           : {}),
       });
       this.saveHistory(

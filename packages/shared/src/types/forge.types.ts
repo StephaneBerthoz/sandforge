@@ -2162,9 +2162,11 @@ export type ForgeVerificationVerdict = 'verified' | 'partial' | 'unstable';
  * `lookup-filter`, it is empty, a lookup filter of the target having refused
  * the record it named, and the run left it so, as it said; `automation`, it
  * points at a record the user the run wrote as created in the target during
- * the run, one the run did not create: the target's automation set it.
+ * the run, one the run did not create: the target's automation set it; `run`,
+ * it is empty, the run leaving that lookup empty on every record, as it said:
+ * a clone of the whole org leaves the quote an opportunity syncs with empty.
  */
-export type ForgeVerificationLinkCause = 'lookup-filter' | 'automation';
+export type ForgeVerificationLinkCause = 'lookup-filter' | 'automation' | 'run';
 
 /** A lookup of a record the run created that no longer points where the run set it. */
 export interface ForgeVerificationLink {
@@ -2254,7 +2256,12 @@ export interface ForgeVerificationObject {
    * the target's automation, not broken.
    */
   linksSetByAutomation?: number;
-  /** The first few of either, each with its cause. */
+  /**
+   * Of the lookups checked, those empty because the run leaves that lookup
+   * empty on every record, and said so: not broken. Absent when none.
+   */
+  linksLeftEmptyByTheRun?: number;
+  /** The first few of them all, each with its cause. */
   explainedLinks?: ForgeVerificationLink[];
   /** Why the object could not be read; nothing of it was judged then. */
   error?: string;
@@ -2263,10 +2270,20 @@ export interface ForgeVerificationObject {
   /** Why the recycle bin could not be read for the records not read back. */
   recycleBinUnread?: string;
   /**
+   * Records of the object the platform wrote with one the run created — a
+   * person account's contact, the task of an email, an opportunity's contact
+   * role —, which the run links to and which go with their record, read back
+   * in the target: the run's as much as those it wrote, created by its user
+   * in its window. Each goes with its record, judged among the run's own: one
+   * not read back lowers nothing. Absent when none was read back.
+   */
+  withTheirRecord?: number;
+  /**
    * Records of the object the user the run wrote as created in the run's
-   * window past those of the run read back: the target's automation, another
-   * session writing as that user — or a call sent twice. A run taken up from
-   * its journal wrote again the call it had under way when it was killed, and
+   * window past those of the run read back, and those the platform wrote with
+   * them (`withTheirRecord`): the target's automation, another session
+   * writing as that user — or a call sent twice. A run taken up from its
+   * journal wrote again the call it had under way when it was killed, and
    * every record the run wrote was there. Absent when none, or when the run's
    * window or user is not known.
    */
