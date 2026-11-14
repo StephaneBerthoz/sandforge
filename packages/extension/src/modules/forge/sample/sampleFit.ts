@@ -27,7 +27,10 @@
  * of the draw: set aside, a room smaller than any root's tenth let every
  * root go, and the run wrote nothing and said it had succeeded. Every other
  * root kept, the roots set aside are what held the sample (`heavyRoots`),
- * never the whole org said to fit beside them.
+ * never the whole org said to fit beside them. Of a draw held to a window or
+ * to filters on its roots (`SampleDraw.restricted`), every root fitting is
+ * every root the draw let in (`draw`): the roots it left out were never
+ * weighed, and the whole org is never said to fit.
  *
  * Nothing is cut, and the sample cannot fit, the heaviest named, when the
  * objects copied whole and the floor of each object do not fit alone; and,
@@ -141,6 +144,12 @@ export interface SampleDraw {
   heldBy: 'storage' | 'within' | 'maxTotal';
   /** The roots of each object kept whatever the share (`--fit-floor`): those at rank 0. */
   floor: number;
+  /**
+   * Set when the roots were drawn among those of a window or filters on the
+   * roots alone: every root of the draw fitting is then held by the draw
+   * (`draw`), never the whole org, which it did not weigh.
+   */
+  restricted?: boolean;
 }
 
 /** What drawing a sample is given: see {@link drawTheSample}. */
@@ -192,6 +201,12 @@ export interface SampleCut {
   partialMasters: WholeOrgSamplePartialMaster[];
   /** Per object, the ids of the plan in our order (`compareIds`); none for an object copied whole and not read. */
   ids: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Per object, the keys (`idKey`) of the roots the cut keeps as roots: not
+   * those it keeps only as a parent or under another root. What a report of
+   * strata counts each value's roots kept by.
+   */
+  rootIds: ReadonlyMap<string, ReadonlySet<string>>;
   /** Per object, the person accounts among its records, and their contacts. */
   personAccounts: ReadonlyMap<string, number>;
   /**
@@ -556,7 +571,9 @@ function cutOf(
   }
   const report = reportAt(closure, state, setAside, input, cut);
   // Every root fits: the whole org, but where roots were set aside, which
-  // alone keep the sample from it — said so, never that every record fits.
+  // alone keep the sample from it — said so, never that every record fits;
+  // and of a draw held to a window or filters on its roots, every root it
+  // let in, the others never weighed.
   const limitedBy: WholeOrgSampleLimit =
     fitting < candidates.length
       ? (brokenAt(items, candidates[fitting], bounds) ?? bounds.bytesLimit)
@@ -564,11 +581,16 @@ function cutOf(
         ? draw.heldBy
         : report.heavyRoots.length > 0
           ? 'heavyRoots'
-          : 'whole';
+          : draw.restricted === true
+            ? 'draw'
+            : 'whole';
   return {
     kind: 'sample',
     // Every root drawn, those set aside apart.
-    share: limitedBy === 'whole' || limitedBy === 'heavyRoots' ? 1 : Math.max(0, cut),
+    share:
+      limitedBy === 'whole' || limitedBy === 'heavyRoots' || limitedBy === 'draw'
+        ? 1
+        : Math.max(0, cut),
     limitedBy,
     wholeOrgFits: wholeOrgFits(closure, input),
     ...report,
@@ -638,6 +660,7 @@ function reportAt(
     return stat;
   };
   const ids = new Map<string, string[]>();
+  const rootIds = new Map<string, Set<string>>();
   const persons = new Map<string, number>();
   const dropped = new Map<
     string,
@@ -680,8 +703,12 @@ function reportAt(
       const stat = statOf(objectApiName);
       stat.kept++;
       const origin = originOf(row);
-      if (origin === 'root') stat.roots++;
-      else if (origin === 'below') stat.below++;
+      if (origin === 'root') {
+        stat.roots++;
+        const kept = rootIds.get(objectApiName) ?? new Set<string>();
+        kept.add(idKey(read.id));
+        rootIds.set(objectApiName, kept);
+      } else if (origin === 'below') stat.below++;
       else if (origin === 'parent') stat.asParents++;
     }
     for (const link of links.linksOf.get(objectApiName) ?? []) {
@@ -771,6 +798,7 @@ function reportAt(
     noRecordDrawn,
     partialMasters: partialMastersOf(links, stats, input.sourceRows),
     ids: new Map([...ids].map(([objectApiName, list]) => [objectApiName, list.sort(compareIds)])),
+    rootIds,
     personAccounts: persons,
     byThePlatform: [...byThePlatform.values()].sort((a, b) =>
       a.objectApiName < b.objectApiName ? -1 : 1,

@@ -27,11 +27,13 @@
  *   them out of its summary past the bound, and an entry never holds more;
  * - of a sample, how it was drawn and what was written of each object — the
  *   seed, the draw, the share, the SHA-256 of its plan, the counts, the
- *   lookups written empty per field —, never
+ *   lookups written empty per field, its window and the objects whose roots
+ *   it filtered or stratified —, never
  *   an id nor the place of its plan, which live and go with the run's
  *   journal; and of the options it was drawn with, none of the plan it was
  *   given: run again from the history, it is drawn again with the same
- *   options, a dry run's plan being a day's at most.
+ *   options — the text of the filters on its roots among them —, a dry
+ *   run's plan being a day's at most.
  */
 
 import type {
@@ -40,6 +42,31 @@ import type {
   ForgeLeftOutReason,
   WholeOrgSampleResult,
 } from '@sandforge/shared';
+
+/**
+ * How a sample's roots were chosen, as the history keeps it: the window and
+ * the names of the objects filtered and the fields stratified, taken one by
+ * one — never a filter's text, which the run's config keeps, nor a value of
+ * a stratum.
+ */
+function rootsKept(
+  roots: NonNullable<WholeOrgSampleResult['roots']>,
+): NonNullable<WholeOrgSampleResult['roots']> {
+  return {
+    ...(roots.window
+      ? {
+          window: {
+            field: roots.window.field,
+            ...(roots.window.from !== undefined ? { from: roots.window.from } : {}),
+            ...(roots.window.to !== undefined ? { to: roots.window.to } : {}),
+            ...(roots.window.lastDays !== undefined ? { lastDays: roots.window.lastDays } : {}),
+          },
+        }
+      : {}),
+    ...(roots.whereObjects ? { whereObjects: [...roots.whereObjects] } : {}),
+    ...(roots.strataFields ? { strataFields: [...roots.strataFields] } : {}),
+  };
+}
 
 /**
  * What the history keeps of a sample's result: the fields its type names,
@@ -57,6 +84,7 @@ function sampleKept(sample: WholeOrgSampleResult): WholeOrgSampleResult {
     ...(sample.drawnBy ? { drawnBy: sample.drawnBy } : {}),
     ...(sample.drawnAgain ? { drawnAgain: sample.drawnAgain } : {}),
     ...(sample.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
+    ...(sample.roots ? { roots: rootsKept(sample.roots) } : {}),
     objects: sample.objects.map((object) => ({
       objectApiName: object.objectApiName,
       sourceRows: object.sourceRows,
@@ -68,6 +96,10 @@ function sampleKept(sample: WholeOrgSampleResult): WholeOrgSampleResult {
       ...(object.childrenCut
         ? { childrenCut: object.childrenCut.map(({ field, rows }) => ({ field, rows })) }
         : {}),
+      ...(object.rootsInTheSource !== undefined
+        ? { rootsInTheSource: object.rootsInTheSource }
+        : {}),
+      ...(object.rootsInTheDraw !== undefined ? { rootsInTheDraw: object.rootsInTheDraw } : {}),
       written: object.written,
       goneSinceTheSample: object.goneSinceTheSample,
       changedSinceTheSample: object.changedSinceTheSample,

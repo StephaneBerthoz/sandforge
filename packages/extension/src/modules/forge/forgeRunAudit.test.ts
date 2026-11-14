@@ -422,6 +422,38 @@ describe('the fit of a sample of the whole org, as the audit trail keeps it', ()
     );
   });
 
+  it('keeps how the roots were chosen by their names alone: the window, the objects filtered and the fields stratified', () => {
+    const fit = forgeSampleAuditFitOf({
+      ...sample,
+      draw: 'oldest',
+      budget: { ...sample.budget, limitedBy: 'draw' },
+      roots: {
+        window: { field: 'LastModifiedDate', from: '2025-01-01T00:00:00Z' },
+        notWindowed: ['Lead'],
+        where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+        strata: [
+          {
+            objectApiName: 'Account',
+            field: 'RecordTypeId',
+            values: [{ value: '012000000000BUSAAA', label: 'Business', roots: 80, kept: 8 }],
+          },
+        ],
+      },
+    });
+
+    expect(fit).toMatchObject({
+      draw: 'oldest',
+      limitedBy: 'draw',
+      roots: {
+        window: { field: 'LastModifiedDate', from: '2025-01-01T00:00:00Z' },
+        whereObjects: ['Account'],
+        strataFields: ['Account.RecordTypeId'],
+      },
+    });
+    expect(JSON.stringify(fit)).not.toMatch(/France|012000000000BUSAAA|Business/);
+    expect(forgeSampleAuditFitOf(sample)).not.toHaveProperty('roots');
+  });
+
   it('is what the run of a sample records with its entry, and nothing for a run of every record', () => {
     const audit = new ForgeRunAudit(CONFIG, { reviewSkipped: false });
     expect(audit.fit()).toBeUndefined();

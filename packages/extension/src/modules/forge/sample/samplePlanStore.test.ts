@@ -222,6 +222,109 @@ describe('the plan of a sample', () => {
     expect((await SamplePlan.open(plan.dir)).manifest.sample.budget.limitedBy).toBe('heavyRoots');
   });
 
+  it('keeps how the roots were chosen, a sample its draw held, and the objects whose oldest were read by their ids', async () => {
+    const chosen: WholeOrgSampleDrawn = {
+      ...DRAWN,
+      draw: 'oldest',
+      share: 1,
+      budget: { ...DRAWN.budget, limitedBy: 'draw' },
+      objects: [
+        { ...DRAWN.objects[0], rootsInTheSource: 900, rootsInTheDraw: 2 },
+        DRAWN.objects[1],
+      ],
+      noRecordDrawn: [{ objectApiName: 'Case', sourceRows: 40, noRootInTheDraw: true }],
+      roots: {
+        window: {
+          field: 'CreatedDate',
+          from: '2026-08-15T09:30:00Z',
+          lastDays: 90,
+        },
+        notWindowed: ['Region__c'],
+        where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+        strata: [
+          {
+            objectApiName: 'Account',
+            field: 'RecordTypeId',
+            values: [
+              { value: '012000000000BUSAAA', label: 'Business', roots: 850, kept: 1 },
+              { value: null, roots: 50, kept: 1 },
+            ],
+          },
+        ],
+      },
+      oldestByIds: ['Lead'],
+    };
+    const plan = await keepSamplePlan(
+      dryRunPlanDirOf(storage, FINGERPRINT),
+      planOf({ sample: chosen, oldestByIds: ['Lead'] }),
+    );
+
+    const { manifest } = await SamplePlan.open(plan.dir);
+    expect(manifest.sample).toEqual(chosen);
+    expect(manifest.oldestByIds).toEqual(['Lead']);
+  });
+
+  it('reads the plan of a sample a 1.80 drew, before its roots could be chosen, as one that chose none', async () => {
+    const kept = await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf());
+    // The manifest as 1.80 wrote it, key for key: no window, filter,
+    // stratum, roots counted apart nor oldest.
+    const written = {
+      version: 1,
+      sourceOrgId: SOURCE,
+      fingerprint: FINGERPRINT,
+      drawnAt: '2026-11-13T14:02:00.000Z',
+      drawnBy: 'dryRun',
+      sha256: kept.sha256,
+      objects: kept.manifest.objects,
+      sample: {
+        seed: 1,
+        draw: 'recent',
+        floor: 1,
+        parents: 'all',
+        children: 100,
+        share: 0.004,
+        budget: {
+          bytes: 3_700_000,
+          remainingMB: 5,
+          maxMB: 5,
+          share: 0.8,
+          roundingMB: 0.5,
+          limitedBy: 'storage',
+        },
+        rows: 5,
+        storageBytes: 10_240,
+        objects: [
+          { objectApiName: 'Account', sourceRows: 900, kept: 2, roots: 2, below: 0, asParents: 0 },
+          {
+            objectApiName: 'Contact',
+            sourceRows: 4_000,
+            kept: 3,
+            roots: 0,
+            below: 3,
+            asParents: 0,
+          },
+        ],
+        whole: [],
+        heavyRoots: [],
+        dropped: [],
+        leftEmpty: [],
+        noRecordDrawn: [{ objectApiName: 'Case', sourceRows: 40 }],
+        planRequests: { source: 31 },
+        newestByIds: ['Region__c'],
+      },
+      newestByIds: ['Region__c'],
+      counts: { personAccounts: {}, byThePlatform: [] },
+    };
+    await writeFile(join(kept.dir, 'sample.json'), `${JSON.stringify(written)}\n`);
+
+    const { manifest } = await SamplePlan.open(kept.dir, { sha256: kept.sha256 });
+    expect(manifest.sample.draw).toBe('recent');
+    expect(manifest.sample.roots).toBeUndefined();
+    expect(manifest.sample.oldestByIds).toBeUndefined();
+    expect(manifest.sample.objects[0]).not.toHaveProperty('rootsInTheDraw');
+    expect(manifest.oldestByIds).toBeUndefined();
+  });
+
   it('gives the ids after the last one a run wrote, whether or not it is the plan’s', async () => {
     const plan = await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf());
 

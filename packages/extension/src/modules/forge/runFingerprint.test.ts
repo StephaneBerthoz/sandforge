@@ -6,6 +6,7 @@ import {
   rootsFingerprintOf,
   sameRunSetup,
   sampleFingerprintOf,
+  sampleOptionsApplied,
 } from './runFingerprint.js';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
@@ -270,5 +271,63 @@ describe('the fingerprint of a sample of the whole org', () => {
   it('keeps the fingerprint of a run of every record as it was', () => {
     expect(forgeRunFingerprint(whole, panel(undefined))).toBe(forgeRunFingerprint(whole, setup));
     expect(sameRunSetup(forgeRunFingerprint(whole, setup), whole, panel(undefined))).toBe(true);
+  });
+
+  /*
+   * Two setups that differ by the roots alone drew different samples under
+   * one fingerprint: a Simulate's plan drawn for one window was taken up by
+   * the run asked another.
+   */
+  it('changes with the window, the filters on the roots and the strata, and keeps the last days as days', () => {
+    const base = forgeRunFingerprint(whole, panel({ withinMB: 3 }));
+    const window = { field: 'CreatedDate', from: '2025-01-01T00:00:00Z' };
+    const fingerprints = [
+      { withinMB: 3, window },
+      { withinMB: 3, window: { ...window, from: '2025-02-01T00:00:00Z' } },
+      { withinMB: 3, window: { ...window, field: 'LastModifiedDate' } },
+      { withinMB: 3, window: { field: 'CreatedDate', lastDays: 30 } },
+      { withinMB: 3, window: { field: 'CreatedDate', lastDays: 90 } },
+      { withinMB: 3, rootWhere: { Account: "BillingCountry = 'France'" } },
+      { withinMB: 3, rootWhere: { Account: "BillingCountry = 'Spain'" } },
+      { withinMB: 3, strata: ['Account.RecordTypeId'] },
+      { withinMB: 3, strata: ['RecordTypeId'] },
+    ].map((sample) => forgeRunFingerprint(whole, panel(sample)));
+
+    expect(new Set([base, ...fingerprints]).size).toBe(fingerprints.length + 1);
+    expect(sampleFingerprintOf({ window: { field: 'CreatedDate', lastDays: 30 } })?.window).toEqual(
+      { field: 'CreatedDate', lastDays: 30 },
+    );
+  });
+
+  it('is the same for the same roots said in another order, the filters’ text trimmed', () => {
+    expect(
+      forgeRunFingerprint(
+        whole,
+        panel({
+          rootWhere: { Lead: "Status = 'New'", Account: "Type = 'Customer'" },
+          strata: ['Lead.Status', 'Account.RecordTypeId'],
+        }),
+      ),
+    ).toBe(
+      forgeRunFingerprint(
+        whole,
+        panel({
+          strata: ['Account.RecordTypeId', 'Lead.Status', 'Account.RecordTypeId'],
+          rootWhere: { Account: "  Type = 'Customer' ", Lead: "Status = 'New'" },
+        }),
+      ),
+    );
+  });
+
+  it('takes a sample of every root as it took it before its roots could be chosen', () => {
+    expect(sampleOptionsApplied({ withinMB: 3, rootWhere: {}, strata: [] })).toEqual({
+      withinMB: 3,
+      seed: 1,
+      draw: 'uniform',
+      parents: 'all',
+      children: 100,
+      floor: 1,
+      whole: [],
+    });
   });
 });

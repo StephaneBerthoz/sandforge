@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FakeSampleSource,
   cascadesTo,
   drawFakeSample,
+  drawRootsOf,
   emptiedOf,
   fakeId,
   lookup,
@@ -11,7 +13,8 @@ import {
   type FakeObject,
   type FakeRecord,
 } from '../../../test/sampleSource';
-import { type drawTheSample, type SampleCut } from './sampleFit';
+import { documentedMeasure, drawTheSample, type SampleCut } from './sampleFit';
+import { sampleLinksOf } from './sampleLinks';
 import { idKey } from './sampleRank';
 
 const KB = 1024;
@@ -123,6 +126,47 @@ describe('drawTheSample: the cut', () => {
     expect(sample.share).toBe(1);
     expect(sample.wholeOrgFits).toBe(true);
     expect(sample.rows).toBe(60);
+  });
+
+  // Every root of a draw held to a window fitting is every root the window
+  // let in: "the whole org fits" of three accounts among twenty would offer
+  // to copy what the draw never weighed.
+  it('says the draw held a sample every root of whose window fits, never the whole org, and keeps those roots as roots', async () => {
+    const objects = accountsAndContacts(20, 2);
+    const source = new FakeSampleSource(objects);
+    const links = sampleLinksOf({
+      objects: source.inputs(),
+      roomBytes: 0,
+      wholeBytes: (_name, rows) => rows * 2 * KB,
+    });
+    const chosen = new Set([A(2), A(7), A(13)]);
+    const draw = drawRootsOf(source, links, {
+      bytes: 10_000 * KB,
+      rootWhere: { Account: (record) => chosen.has(record.id) },
+    });
+    const cutOf = (restricted: boolean) =>
+      drawTheSample({
+        links,
+        reader: source,
+        draw: { ...draw, ...(restricted ? { restricted: true } : {}) },
+        sourceRows: source.sourceRows(),
+        options: { parents: 'all', children: 100 },
+        measure: documentedMeasure,
+        bounds: { bytes: 10_000 * KB, bytesLimit: 'storage' },
+        roomBytes: 100_000 * KB,
+      });
+
+    const sample = sampled(await cutOf(true));
+
+    expect(sample.limitedBy).toBe('draw');
+    expect(sample.share).toBe(1);
+    expect(idsOf(sample, 'Account')).toEqual([A(2), A(7), A(13)]);
+    expect([...(sample.rootIds.get('Account') ?? [])].sort()).toEqual(
+      [A(2), A(7), A(13)].map(idKey).sort(),
+    );
+    expect(sample.rootIds.has('Contact')).toBe(false);
+    // The same draw unmarked says the whole org: the mark is what tells them.
+    expect(sampled(await cutOf(false)).limitedBy).toBe('whole');
   });
 
   it('cuts at a root of its own: the same seed and source keep the same records, read in any order', async () => {

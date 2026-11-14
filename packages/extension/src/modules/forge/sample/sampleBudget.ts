@@ -151,7 +151,12 @@ function objectsOfTheGraph(
  *   against a tenth of what the
  *   source has left, past which the draw is refused; and the seconds it
  *   takes, a page a second. The reads of the records the roots bring in are
- *   said once drawn (`WholeOrgSample.planRequests`).
+ *   said once drawn (`WholeOrgSample.planRequests`). A window or filters on
+ *   the roots add a count of each object they hold, and leave fewer roots
+ *   than discovery counted: the estimate is then at most (`atMost`). An
+ *   object stratified and drawn by date reads a statement per value
+ *   besides, which no count of discovery tells: said once the values are
+ *   counted, as the draw prices itself again before an id is read.
  */
 export function sampleBudgetPreviewOf(input: {
   graph: Pick<ForgeGraph, 'nodes' | 'edges'>;
@@ -189,6 +194,12 @@ export function sampleBudgetPreviewOf(input: {
     const kind = links.classes.get(object.objectApiName);
     return kind?.kind === 'drawn' && kind.rooted;
   });
+  // A window holds the roots of every object, a filter those of its own:
+  // each object so held is counted a second time, without them, for the
+  // roots of the source its report says beside those of the draw.
+  const filtered = new Set(Object.keys(options.rootWhere ?? {}).map((name) => name.toLowerCase()));
+  const restricts = (objectApiName: string): boolean =>
+    options.window !== undefined || filtered.has(objectApiName.toLowerCase());
   const estimate = rooted.reduce((sum, object) => {
     // A record that cannot be written without the record above it always
     // names one: its object has no root, and its count reads none.
@@ -199,6 +210,7 @@ export function sampleBudgetPreviewOf(input: {
     return (
       sum +
       1 +
+      (restricts(object.objectApiName) ? 1 : 0) +
       rootScanRequestsOf(
         { objectApiName: object.objectApiName, rows, exact: false },
         draw,
@@ -206,6 +218,9 @@ export function sampleBudgetPreviewOf(input: {
       )
     );
   }, 0);
+  // Held to a window or filters, the roots of the draw are fewer than the
+  // records discovery counted: what it reads is that at most.
+  const restricted = options.window !== undefined || filtered.size > 0;
   return {
     wholeOrg: storage,
     ...(terms ? { budget: terms.budget } : {}),
@@ -213,6 +228,7 @@ export function sampleBudgetPreviewOf(input: {
     planReads: {
       source: planReadsCheckOf(estimate, input.source),
       seconds: estimate * SECONDS_PER_PAGE,
+      ...(restricted ? { atMost: true as const } : {}),
     },
   };
 }

@@ -65,6 +65,22 @@ describe('what narrows a clone of the whole org', () => {
       },
     });
   });
+
+  it('names the roots a sample draws among with its other options: the window, the filters and the strata', () => {
+    expect(
+      carriedOf({
+        sample: {
+          window: { field: 'CreatedDate', lastDays: 30 },
+          rootWhere: { Account: " BillingCountry = 'France' " },
+          strata: ['Lead.Status', 'Account.RecordTypeId'],
+        },
+      })?.sample,
+    ).toMatchObject({
+      window: { field: 'CreatedDate', lastDays: 30 },
+      rootWhere: { Account: "BillingCountry = 'France'" },
+      strata: ['Account.RecordTypeId', 'Lead.Status'],
+    });
+  });
 });
 
 describe('the stop of a dry run of the whole org at its gate', () => {
@@ -321,6 +337,73 @@ describe('the question of a clone of the whole org', () => {
     });
 
     expect(question.sample?.newestByIds).toEqual(['Region__c', 'Widget__c']);
+  });
+
+  // The question said nothing of the window, the filters on the roots and
+  // the strata a sample was drawn by, nor of the objects whose oldest were
+  // read by their ids: it now says them, and no value of a stratum.
+  it('says of a sample whose roots were chosen its window, its filters, its strata by their values counted, and the oldest read by their ids', () => {
+    const MB = 1024 * 1024;
+    const question = wholeOrgConfirmationOf({
+      run: { source: 'SRC', graph, anonymizePII: true },
+      measures,
+      plan,
+      budget: pricedOfTheDryRun(dry),
+      sample: {
+        seed: 1,
+        draw: 'oldest',
+        floor: 1,
+        parents: 'all',
+        children: 100,
+        share: 1,
+        budget: { bytes: MB, limitedBy: 'draw' },
+        rows: 500,
+        storageBytes: 0.9 * MB,
+        objects: [],
+        whole: [],
+        heavyRoots: [],
+        dropped: [],
+        leftEmpty: [],
+        noRecordDrawn: [],
+        planRequests: { source: 3 },
+        oldestByIds: ['Widget__c'],
+        roots: {
+          window: { field: 'CreatedDate', from: '2026-08-16T10:00:00Z', lastDays: 90 },
+          notWindowed: ['Widget__c'],
+          where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+          strata: [
+            {
+              objectApiName: 'Account',
+              field: 'RecordTypeId',
+              values: [
+                { value: '012000000000BUSAAA', label: 'Business', roots: 80, kept: 8 },
+                { value: null, roots: 20, kept: 2 },
+              ],
+              more: 3,
+            },
+          ],
+        },
+        plan: {
+          path: '/p',
+          sha256: 'e'.repeat(64),
+          drawnAt: '2026-11-14T14:02:00.000Z',
+          drawnBy: 'run',
+        },
+      },
+    });
+
+    expect(question.sample).toMatchObject({
+      draw: 'oldest',
+      limitedBy: 'draw',
+      oldestByIds: ['Widget__c'],
+      roots: {
+        window: { field: 'CreatedDate', from: '2026-08-16T10:00:00Z', lastDays: 90 },
+        where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+        strata: [{ objectApiName: 'Account', field: 'RecordTypeId', values: 5 }],
+        notWindowed: ['Widget__c'],
+      },
+    });
+    expect(JSON.stringify(question)).not.toMatch(/012000000000BUSAAA|Business/);
   });
 
   it('says no sample of a clone of every record', () => {

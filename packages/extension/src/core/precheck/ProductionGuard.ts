@@ -5,6 +5,7 @@ import type {
   ForgeRemovalRisk,
   ForgeSampleDraw,
   ForgeSampleParents,
+  ForgeSampleWindow,
   RunCheckpointEstimate,
   RunDeliverability,
   WholeOrgSampleDrawnAgain,
@@ -556,6 +557,15 @@ export interface WholeOrgCarriedSample {
   children: number | 'all';
   floor: number;
   whole: string[];
+  /**
+   * The roots it draws among, as asked: its window — the last days kept as
+   * days, never the instant they start at —, the filter on the roots of each
+   * object, its text trimmed, and the fields of its strata once each and in
+   * order. Absent when none chooses them.
+   */
+  window?: ForgeSampleWindow;
+  rootWhere?: Record<string, string>;
+  strata?: string[];
 }
 
 /** What the question of a sample of the whole org says of it: see {@link WholeOrgConfirmation.sample}. */
@@ -603,6 +613,20 @@ export interface WholeOrgConfirmationSample {
    * records within a load only. Absent when none.
    */
   newestByIds?: string[];
+  /** The objects whose oldest roots were taken in the order of their ids, likewise. Absent when none. */
+  oldestByIds?: string[];
+  /**
+   * How its roots were chosen, as its question says it: the window, its
+   * instants resolved and its last days kept; the filter on the roots of each
+   * object; and each object stratified, by its field and the values it
+   * counted. Absent of a draw among every root.
+   */
+  roots?: {
+    window?: ForgeSampleWindow;
+    where?: Array<{ objectApiName: string; where: string }>;
+    strata?: Array<{ objectApiName: string; field: string; values: number }>;
+    notWindowed?: string[];
+  };
 }
 
 /**

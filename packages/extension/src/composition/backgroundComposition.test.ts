@@ -995,6 +995,87 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(linesOf(undefined).join('\n')).not.toMatch(/sample/);
   });
 
+  // The question said "spread over the org" of a draw of the oldest, and
+  // nothing of the window, the filters or the strata the roots were chosen by.
+  it('says of a sample whose roots were chosen how it drew them, its window, filters and strata, and that the draw held it', () => {
+    const linesOf = (sample: NonNullable<NonNullable<WriteConfirmation['wholeOrg']>['sample']>) =>
+      runQuestionDetail({
+        ...write,
+        counted: true,
+        wholeOrg: {
+          source: 'PROD',
+          leftOut: 0,
+          sample,
+          targetApi: { estimate: 4, remaining: 9_000, max: 100_000 },
+          sourceApi: { estimate: 4, remaining: 9_000, max: 100_000 },
+          durationSeconds: 6,
+          restObjects: [],
+        },
+      }).split('\n');
+    const chosen = {
+      rows: 10,
+      objects: 1,
+      sourceRows: 100,
+      storageMB: 0.02,
+      budgetMB: 1,
+      seed: 4,
+      share: 1,
+      parents: 'all' as const,
+      children: 100,
+      drawnAt: '2026-11-14T14:02:00.000Z',
+      drawnBy: 'run' as const,
+      draw: 'oldest' as const,
+      limitedBy: 'draw' as const,
+      oldestByIds: ['Widget__c'],
+      roots: {
+        window: {
+          field: 'CreatedDate' as const,
+          from: '2025-01-01T00:00:00Z',
+          to: '2025-07-01T00:00:00Z',
+        },
+        where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+        strata: [{ objectApiName: 'Account', field: 'RecordTypeId', values: 2 }],
+        notWindowed: ['Widget__c'],
+      },
+    };
+
+    expect(linesOf(chosen)).toEqual(
+      expect.arrayContaining([
+        'Drawn with seed 4, the oldest first: 100 % of the roots in the draw of each object, with the records they reach; held by all the roots its window and the filters of its roots let it draw: widen them to take more.',
+        "Roots: created from 2025-01-01T00:00:00Z to before 2025-07-01T00:00:00Z (UTC); Account where BillingCountry = 'France'; stratified: Account by RecordTypeId (2 values).",
+        'No root of these objects is in the draw, the window finding no such date on them: Widget__c.',
+        'Oldest by the order of their ids, having no creation date the org sorts by, which ids follow within a load only: Widget__c.',
+      ]),
+    );
+    expect(linesOf(chosen).join('\n')).not.toMatch(/whole org|every record fits|Newest by/);
+    // The last days, of the last change; strata alone choose no root of the
+    // source out, and say the share of every root.
+    const lastDays = linesOf({
+      ...chosen,
+      draw: 'uniform',
+      limitedBy: 'storage',
+      share: 0.1,
+      roots: { window: { field: 'LastModifiedDate', from: '2026-08-16T10:00:00Z', lastDays: 90 } },
+    });
+    expect(lastDays).toContain(
+      'Roots: last modified in the last 90 days, from 2026-08-16T10:00:00Z (UTC).',
+    );
+    const stratified = linesOf({
+      ...chosen,
+      draw: 'recent',
+      limitedBy: 'storage',
+      share: 0.1,
+      oldestByIds: undefined,
+      roots: { strata: [{ objectApiName: 'Lead', field: 'Status', values: 5 }] },
+    });
+    expect(stratified).toEqual(
+      expect.arrayContaining([
+        'Drawn with seed 4, the newest first: 10 % of the roots of each object, with the records they reach; held by the data storage DEV has left.',
+        'Roots: stratified: Lead by Status (5 values).',
+      ]),
+    );
+  });
+
   it("names in a Sync run's question what it may write over, and that removing it puts that back", () => {
     expect(
       runQuestionDetail({ ...write, module: 'sync', counted: true, overwrites: 2400 }).split('\n'),

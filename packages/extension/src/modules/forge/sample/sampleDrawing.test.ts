@@ -447,3 +447,332 @@ describe('drawing a sample of the whole org', () => {
     ]);
   });
 });
+
+/*
+ * The roots a draw takes, chosen by a window of dates, a filter on the roots
+ * of an object and strata: chosen among the roots alone, the records under
+ * them and above them coming whatever their date or their values.
+ */
+describe('a sample whose roots are chosen', () => {
+  const BUSINESS = '012000000000BUSAAA';
+  const PARTNER = '012000000000PRTAAA';
+  /** Describe types of the fields a stratum or a filter on the roots reads. */
+  const TYPES: Record<string, string> = {
+    Name: 'string',
+    BillingCountry: 'string',
+    RecordTypeId: 'reference',
+    ParentId: 'reference',
+    AccountId: 'reference',
+    CreatedDate: 'datetime',
+  };
+  const COLUMNS: Record<string, string[]> = {
+    Account: [
+      'Id',
+      'Name',
+      'ParentId',
+      'RecordTypeId',
+      'BillingCountry',
+      'CreatedDate',
+      'IsDeleted',
+    ],
+    Contact: ['Id', 'AccountId', 'MailingCountry', 'CreatedDate', 'IsDeleted'],
+    Note__c: ['Id', 'Name', 'IsDeleted'],
+  };
+  /** A moment `minutes` past the start of March of `year`, as the org writes a record's dates. */
+  const madeIn = (year: number, minutes: number): string =>
+    new Date(Date.UTC(year, 2, 1, 0, minutes)).toISOString().replace('Z', '+0000');
+
+  /**
+   * 150 accounts, the first fifty made in 2025, the others in 2026; every
+   * third in France, the others in Germany; every tenth a partner, the
+   * others businesses; the third names the fourth, in Germany, as its
+   * parent. Each has a contact made in 2026, in Spain. Beside them, 150
+   * notes no lookup names, whose describe lists no date.
+   */
+  function orgOfAccounts(): SampleSourceOrg {
+    const org = new SampleSourceOrg();
+    for (const [object, listed] of Object.entries(COLUMNS)) org.columns.set(object, listed);
+    for (let n = 1; n <= 150; n++) {
+      org.add('Account', {
+        Id: fakeId('001', n),
+        Name: `A${n}`,
+        ParentId: n === 3 ? fakeId('001', 4) : null,
+        RecordTypeId: n % 10 === 0 ? PARTNER : BUSINESS,
+        BillingCountry: n % 3 === 0 ? 'France' : 'Germany',
+        CreatedDate: n <= 50 ? madeIn(2025, n) : madeIn(2026, n),
+        IsDeleted: false,
+      });
+      org.add('Contact', {
+        Id: fakeId('003', n),
+        AccountId: fakeId('001', n),
+        MailingCountry: 'Spain',
+        CreatedDate: madeIn(2026, 1_000 + n),
+        IsDeleted: false,
+      });
+      org.add('Note__c', { Id: fakeId('a0N', n), Name: `N${n}`, IsDeleted: false });
+    }
+    return org;
+  }
+
+  const objectsOfAccounts = (withNotes = false): SampleObjectInput[] => [
+    ...OBJECTS(150, 150),
+    ...(withNotes ? [{ objectApiName: 'Note__c', rows: 150, keyPrefix: 'a0N', fields: [] }] : []),
+  ];
+
+  function chosenInput(
+    org: SampleSourceOrg,
+    options: Partial<SampleDrawingInput['options']>,
+    overrides: Partial<SampleDrawingInput> = {},
+  ): SampleDrawingInput {
+    return inputOf(org, {
+      objects: objectsOfAccounts(),
+      fieldsOf: (object) =>
+        org.columns
+          .get(object)
+          ?.map((name) => (TYPES[name] ? { name, type: TYPES[name] } : { name })),
+      options: {
+        seed: 1,
+        draw: 'uniform',
+        parents: 'all',
+        children: 100,
+        floor: 1,
+        ...options,
+      },
+      ...overrides,
+    });
+  }
+
+  const WINDOW_2025 = {
+    field: 'CreatedDate' as const,
+    from: '2025-01-01T00:00:00Z',
+    to: '2026-01-01T00:00:00Z',
+  };
+
+  it('draws only the roots made in the window, brings their contacts whatever their date, and says the draw held it, never the whole org', async () => {
+    const org = orgOfAccounts();
+
+    const drawing = await drawSampleOfTheOrg(chosenInput(org, { window: WINDOW_2025 }));
+
+    if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+    expect(drawing.cut.ids.get('Account')).toEqual(
+      Array.from({ length: 50 }, (_, i) => fakeId('001', i + 1)),
+    );
+    // Made in 2026, each under an account of the window: all of them.
+    expect(drawing.cut.ids.get('Contact')).toHaveLength(50);
+    expect(drawing.cut.limitedBy).toBe('draw');
+    expect(drawing.cut.share).toBe(1);
+    const report = sampleReportOf(
+      { ...drawing, cut: drawing.cut },
+      chosenInput(org, { window: WINDOW_2025 }).options,
+      budgetOf(1_000).budget,
+    );
+    expect(report.budget.limitedBy).toBe('draw');
+    expect(report.roots).toEqual({ window: WINDOW_2025 });
+    expect(report.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      roots: 50,
+      rootsInTheDraw: 50,
+      rootsInTheSource: 150,
+    });
+    // The window is a term of the reads of the roots alone, never of the
+    // contacts read under them.
+    const underTheRoots = org.sent.filter(({ soql }) => soql.includes('AccountId IN'));
+    expect(underTheRoots.length).toBeGreaterThan(0);
+    expect(underTheRoots.some(({ soql }) => soql.includes('CreatedDate >='))).toBe(false);
+    expect(
+      org.sent.some(
+        ({ soql }) => soql.startsWith('SELECT COUNT() FROM Account') && soql.includes('2025-01-01'),
+      ),
+    ).toBe(true);
+  });
+
+  it('draws the roots a filter on them chooses and brings the parent it does not choose, where the same text as a filter leaves the lookup empty', async () => {
+    const french = "BillingCountry = 'France'";
+
+    const chosen = await drawSampleOfTheOrg(
+      chosenInput(orgOfAccounts(), { rootWhere: { Account: french } }),
+    );
+    const filtered = await drawSampleOfTheOrg(
+      chosenInput(orgOfAccounts(), {}, { filterOf: (o) => (o === 'Account' ? french : undefined) }),
+    );
+
+    if (chosen.cut.kind !== 'sample' || filtered.cut.kind !== 'sample') {
+      throw new Error('no sample');
+    }
+    // The fifty in France, and the account in Germany the third names as its parent.
+    expect(chosen.cut.ids.get('Account')).toHaveLength(51);
+    expect(chosen.cut.ids.get('Account')).toContain(fakeId('001', 4));
+    expect(chosen.cut.leftEmpty).toEqual([]);
+    expect(chosen.cut.dropped).toEqual([]);
+    expect(chosen.cut.limitedBy).toBe('draw');
+    expect(chosen.roots).toEqual({ where: [{ objectApiName: 'Account', where: french }] });
+    // As a filter of the object, the parent is outside it: its lookup written empty.
+    expect(filtered.cut.ids.get('Account')).not.toContain(fakeId('001', 4));
+    expect(filtered.cut.leftEmpty).toEqual([
+      { objectApiName: 'Account', field: 'ParentId', rows: 1 },
+    ]);
+  });
+
+  it('refuses a window no root is made in, nothing read past the counts and no plan drawn', async () => {
+    const org = orgOfAccounts();
+
+    const drawn = drawSampleOfTheOrg(
+      chosenInput(org, {
+        window: { field: 'CreatedDate', from: '2020-01-01T00:00:00Z', to: '2021-01-01T00:00:00Z' },
+      }),
+    );
+
+    await expect(drawn).rejects.toBeInstanceOf(ForgeRunGateError);
+    await expect(drawn).rejects.toMatchObject({
+      code: 'SAMPLE_DRAW_EMPTY',
+      sample: { requests: org.requests },
+      message: expect.stringContaining('Widen the window (--fit-window), or draw without them.'),
+    });
+    expect(org.sent.length).toBeGreaterThan(0);
+    expect(org.sent.every(({ soql }) => soql.startsWith('SELECT COUNT() FROM'))).toBe(true);
+  });
+
+  it('refuses a stratum of a text field before any request, with the fields of few values it has', async () => {
+    const org = orgOfAccounts();
+
+    const drawn = drawSampleOfTheOrg(chosenInput(org, { strata: ['Account.Name'] }));
+
+    await expect(drawn).rejects.toMatchObject({
+      code: 'SAMPLE_DRAW_INVALID',
+      sample: { requests: 0 },
+      message: expect.stringContaining('RecordTypeId'),
+    });
+    expect(org.sent).toEqual([]);
+  });
+
+  it('keeps the same share of each record type, the rare one its floor at least, and names each by its label', async () => {
+    const draw = async () => {
+      const org = orgOfAccounts();
+      const drawing = await drawSampleOfTheOrg(
+        chosenInput(
+          org,
+          { strata: ['Account.RecordTypeId'] },
+          {
+            budget: budgetOf(1_000, 40),
+            labelsOf: async (object, field) =>
+              object === 'Account' && field === 'RecordTypeId'
+                ? (value) =>
+                    value === BUSINESS ? 'Business' : value === PARTNER ? 'Partner' : undefined
+                : undefined,
+          },
+        ),
+      );
+      if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+      return { drawing, cut: drawing.cut };
+    };
+
+    const { drawing, cut } = await draw();
+
+    expect(cut.limitedBy).toBe('maxTotal');
+    const accounts = cut.ids.get('Account') ?? [];
+    const partners = accounts.filter((id) => Number(id.slice(3, 15)) % 10 === 0);
+    // Each value keeps the roots ranked within the share, (i + ½)/N, its
+    // floor at least: its part of the share.
+    const keeps = (roots: number): number =>
+      Math.max(
+        1,
+        Array.from({ length: roots }, (_, i) => (i + 0.5) / roots).filter((r) => r <= cut.share)
+          .length,
+      );
+    expect(partners).toHaveLength(keeps(15));
+    expect(accounts.length - partners.length).toBe(keeps(135));
+    expect(drawing.roots?.strata).toEqual([
+      {
+        objectApiName: 'Account',
+        field: 'RecordTypeId',
+        values: [
+          { value: BUSINESS, label: 'Business', roots: 135, kept: keeps(135) },
+          { value: PARTNER, label: 'Partner', roots: 15, kept: keeps(15) },
+        ],
+      },
+    ]);
+    expect(drawing.strataFloors).toEqual({ roots: 2, values: 2 });
+    // Strata keep every root in the draw: no object's roots counted apart.
+    expect(drawing.rootsCounted.size).toBe(0);
+    expect(cut.ids).toEqual((await draw()).cut.ids);
+  });
+
+  it('draws the oldest roots first by the date they were made, and names an object it read by its ids as the oldest, not the newest', async () => {
+    const dated = orgOfAccounts();
+
+    const drawing = await drawSampleOfTheOrg(
+      chosenInput(dated, { draw: 'oldest' }, { budget: budgetOf(1_000, 20) }),
+    );
+
+    if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+    expect(drawing.cut.ids.get('Account')).toEqual(
+      Array.from({ length: 10 }, (_, i) => fakeId('001', i + 1)),
+    );
+    expect(
+      dated.sent.some(({ soql }) => /FROM Account .*ORDER BY CreatedDate ASC, Id ASC/.test(soql)),
+    ).toBe(true);
+    expect(drawing.oldestByIds).toEqual([]);
+
+    const undated = orgOfAccounts();
+    undated.columns.set('Account', ['Id', 'Name', 'ParentId', 'RecordTypeId', 'IsDeleted']);
+    const byIds = await drawSampleOfTheOrg(
+      chosenInput(undated, { draw: 'oldest' }, { budget: budgetOf(1_000, 20) }),
+    );
+    expect(byIds.oldestByIds).toEqual(['Account']);
+    expect(byIds.newestByIds).not.toContain('Account');
+    if (byIds.cut.kind !== 'sample') throw new Error('no sample');
+    const report = sampleReportOf(
+      { ...byIds, cut: byIds.cut },
+      chosenInput(undated, { draw: 'oldest' }).options,
+      budgetOf(1_000).budget,
+    );
+    expect(report.oldestByIds).toEqual(['Account']);
+    expect(report.newestByIds ?? []).not.toContain('Account');
+  });
+
+  it('reads no root of an object the window cannot date, and says it has none in the draw rather than none in the source', async () => {
+    const org = orgOfAccounts();
+
+    const drawing = await drawSampleOfTheOrg(
+      chosenInput(org, { window: WINDOW_2025 }, { objects: objectsOfAccounts(true) }),
+    );
+
+    expect(org.sent.some(({ soql }) => soql.includes('FROM Note__c'))).toBe(false);
+    if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+    const report = sampleReportOf(
+      { ...drawing, cut: drawing.cut },
+      chosenInput(org, { window: WINDOW_2025 }).options,
+      budgetOf(1_000).budget,
+    );
+    expect(report.roots).toEqual({ window: WINDOW_2025, notWindowed: ['Note__c'] });
+    expect(report.noRecordDrawn).toEqual([
+      { objectApiName: 'Note__c', sourceRows: 150, noRootInTheDraw: true },
+    ]);
+  });
+
+  it('offers a draw spread over the org the oldest and fewer roots, and a restricted draw by date narrower ones, when reading the roots costs too much', async () => {
+    const uniform = drawSampleOfTheOrg(
+      chosenInput(orgOfAccounts(), {}, { sourceRequestsLeft: 20 }),
+    );
+    await expect(uniform).rejects.toMatchObject({
+      code: 'API_BUDGET_EXCEEDED',
+      message: expect.stringContaining(
+        'Draw the most recent records (--fit-draw recent) or the oldest (--fit-draw oldest), ' +
+          'draw among fewer roots (--fit-window, --fit-where)',
+      ),
+    });
+
+    const recent = drawSampleOfTheOrg(
+      chosenInput(
+        orgOfAccounts(),
+        { draw: 'recent', window: WINDOW_2025 },
+        { sourceRequestsLeft: 20 },
+      ),
+    );
+    await expect(recent).rejects.toMatchObject({
+      api: { drawing: { share: 0.1, draw: 'recent', restricted: true } },
+      message: expect.stringContaining(
+        'Narrow the window or the filters on the roots (--fit-window, --fit-where)',
+      ),
+    });
+  });
+});

@@ -309,7 +309,9 @@ import {
   SampleRefusedError,
   drawSampleOfTheOrg,
   sampleReportOf,
+  sampleRootsResultOf,
   type SampleBudgetTerms,
+  type SampleDrawOptions,
 } from './sample/sampleDrawing.js';
 import { SampleCancelled, SampleTooLarge } from './sample/sampleClosure.js';
 import type { SampleField, SampleObjectInput } from './sample/sampleLinks.js';
@@ -5108,16 +5110,14 @@ function sampleResultOrNothing(result: WholeOrgSampleResult | undefined): {
   return result ? { sample: result } : {};
 }
 
-/** The options of a sample as they apply: each one left out at its default (`FORGE_SAMPLE_DEFAULTS`). */
-function sampleOptionsOf(sample: ForgeSampleStream): {
-  seed: number;
-  draw: NonNullable<ForgeSampleOptions['draw']>;
-  parents: NonNullable<ForgeSampleOptions['parents']>;
-  children: number | 'all';
-  floor: number;
-  whole?: string[];
-} {
+/**
+ * The options of a sample as they apply: each one left out at its default
+ * (`FORGE_SAMPLE_DEFAULTS`), and the roots it draws among — its window, the
+ * filters on its roots, its strata — as asked, none when none was.
+ */
+function sampleOptionsOf(sample: ForgeSampleStream): SampleDrawOptions {
   const asked = sample.options;
+  const rootWhere = Object.entries(asked.rootWhere ?? {});
   return {
     seed: asked.seed ?? FORGE_SAMPLE_DEFAULTS.seed,
     draw: asked.draw ?? FORGE_SAMPLE_DEFAULTS.draw,
@@ -5125,6 +5125,9 @@ function sampleOptionsOf(sample: ForgeSampleStream): {
     children: asked.children ?? FORGE_SAMPLE_DEFAULTS.children,
     floor: asked.floor ?? FORGE_SAMPLE_DEFAULTS.floor,
     ...(asked.whole && asked.whole.length > 0 ? { whole: [...asked.whole] } : {}),
+    ...(asked.window ? { window: { ...asked.window } } : {}),
+    ...(rootWhere.length > 0 ? { rootWhere: Object.fromEntries(rootWhere) } : {}),
+    ...(asked.strata && asked.strata.length > 0 ? { strata: [...asked.strata] } : {}),
   };
 }
 
@@ -7404,6 +7407,8 @@ export class ForgeExecutor {
       : undefined;
     this.sampling = new AbortController();
     if (this.isAborted) this.sampling.abort();
+    // What a window of the last days counts back from: the start of the draw.
+    const now = Date.now();
     let drawing: Awaited<ReturnType<typeof drawSampleOfTheOrg>>;
     try {
       drawing = await drawSampleOfTheOrg({
@@ -7441,6 +7446,8 @@ export class ForgeExecutor {
             ?.filter((field) => field.queryable)
             .map((field) => ({
               name: field.name,
+              // What a stratum is held to: a picklist, a checkbox, a lookup.
+              ...(field.type !== undefined ? { type: field.type } : {}),
               ...(field.groupable !== undefined ? { groupable: field.groupable } : {}),
               ...(field.sortable !== undefined ? { sortable: field.sortable } : {}),
               ...(field.aggregatable !== undefined ? { aggregatable: field.aggregatable } : {}),
@@ -7463,12 +7470,28 @@ export class ForgeExecutor {
         ...(sample.maxRows !== undefined ? { maxRows: sample.maxRows } : {}),
         ...(priceCurrencyWrittenIn ? { priceCurrencyWrittenIn } : {}),
         ...(averageBytes.size > 0 ? { averageBytes } : {}),
+        now,
+        // A record type of a stratum named by its DeveloperName, as the
+        // source's describe lists it: no request of its own.
+        labelsOf: async (object, field) => {
+          if (field.toLowerCase() !== 'recordtypeid') return undefined;
+          const types = (await this.objectInfoOf(sourceOrgId, object))?.recordTypes ?? [];
+          const names = new Map(
+            types.map((type) => [idKey(type.recordTypeId), type.developerName]),
+          );
+          return (value) => (typeof value === 'string' ? names.get(idKey(value)) : undefined);
+        },
         signal: this.sampling.signal,
         ...(sample.onProgress ? { onProgress: sample.onProgress } : {}),
       });
     } catch (err) {
       if (err instanceof SampleTooLarge) {
-        throw new SampleRefusedError('SAMPLE_TOO_LARGE', err.message);
+        // Fewer roots read fewer records under them: a window, or filters on them.
+        throw new SampleRefusedError(
+          'SAMPLE_TOO_LARGE',
+          `${err.message} Or draw among fewer roots: a window of dates (--fit-window) or a ` +
+            'filter on the roots of the large objects (--fit-where).',
+        );
       }
       if (err instanceof SampleCancelled || this.isAborted) {
         throw new ForgeAbortedError(
@@ -7483,13 +7506,21 @@ export class ForgeExecutor {
         .map((o) => `${o.objectApiName} (${o.rows} records${o.whole ? ', copied whole' : ''})`)
         .join(', ');
       // Without floors, what does not fit is the first root itself: no floor
-      // of 0 to propose, and what the smallest sample takes to say.
+      // of 0 to propose, and what the smallest sample takes to say. Drawn by
+      // strata, each value keeps its floor: those roots said, and fewer strata.
+      const floors = drawing.strataFloors;
       const taken = cut.noRoot
         ? 'the objects copied whole and the first root drawn with the records it brings'
-        : 'the objects copied whole and the roots kept of each object';
+        : floors
+          ? 'the objects copied whole and the roots kept of each object and of each value of ' +
+            `its strata (${floors.roots} roots for the floors of ${floors.values} values)`
+          : 'the objects copied whole and the roots kept of each object';
       const ways = cut.noRoot
         ? 'Leave objects out (--exclude-object)'
-        : 'Keep no root of each object (--fit-floor 0), leave objects out (--exclude-object)';
+        : floors
+          ? 'Keep no root of each object and value (--fit-floor 0), stratify fewer objects ' +
+            '(--fit-strata), leave objects out (--exclude-object)'
+          : 'Keep no root of each object (--fit-floor 0), leave objects out (--exclude-object)';
       const held = SAMPLE_HELD_BY[cut.limitedBy];
       const sizedInMB = cut.limitedBy === 'storage' || cut.limitedBy === 'within';
       throw new SampleCannotFitError(
@@ -7517,6 +7548,7 @@ export class ForgeExecutor {
       drawnBy: config.dryRun ? 'dryRun' : 'run',
       sample: report,
       ...(drawing.newestByIds.length > 0 ? { newestByIds: drawing.newestByIds } : {}),
+      ...(drawing.oldestByIds.length > 0 ? { oldestByIds: drawing.oldestByIds } : {}),
       ids: [...cut.ids].map(([objectApiName, ids]) => ({ objectApiName, ids })),
       counts: {
         personAccounts: Object.fromEntries(cut.personAccounts),
@@ -7946,6 +7978,7 @@ export class ForgeExecutor {
       state.remapper.countsByObject().map((entry) => [entry.objectApiName, entry]),
     );
     const report = sample.report;
+    const roots = sampleRootsResultOf(report.roots);
     return {
       seed: report.seed,
       draw: report.draw,
@@ -7955,6 +7988,7 @@ export class ForgeExecutor {
       // Whether the run drew it or took a simulation's up: why it drew its
       // own, of a run that did, is its caller's to add.
       drawnBy: report.plan.drawnBy,
+      ...(roots ? { roots } : {}),
       objects: report.objects.map((object) => {
         const done = counts.get(object.objectApiName);
         const now = done ? done.created + (done.linked ?? 0) : 0;

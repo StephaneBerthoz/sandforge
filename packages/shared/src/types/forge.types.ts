@@ -982,9 +982,9 @@ export interface ForgeWholeOrgDryRun {
  * of the room the target has (`WholeOrgSample.heavyRoots`), the share then
  * every other root; `whole` when the whole org fits, and copying every
  * record is the better run; `draw` when every root of a draw held to a
- * window, filters on its roots or strata fits: all the roots it may take are
- * in it, and widening those takes more — never the whole org, which the draw
- * did not weigh.
+ * window or filters on its roots fits: all the roots it may take are in it,
+ * and widening those takes more — never the whole org, which the draw did
+ * not weigh. Strata alone keep every root in the draw, and say `whole`.
  */
 export type WholeOrgSampleLimit =
   | 'storage'
@@ -1083,9 +1083,10 @@ export interface WholeOrgSampleObject {
    */
   childrenCut?: Array<{ field: string; rows: number }>;
   /**
-   * Of a draw held to a window, filters on its roots or strata, the roots
+   * Of a draw held to a window or a filter on the object's roots, the roots
    * the source holds of the object and those in the draw: the share is of
-   * the second. Absent from an object the draw does not restrict.
+   * the second. Absent from an object the draw does not restrict, and the
+   * first from one the window cannot date, which is not counted.
    */
   rootsInTheSource?: number;
   rootsInTheDraw?: number;
@@ -1176,8 +1177,8 @@ export interface WholeOrgSample {
   leftEmpty: Array<{ objectApiName: string; field: string; rows: number }>;
   /**
    * The objects of the run whose source holds records of which the sample
-   * keeps none: said apart, never as empty. `noRootInTheDraw`: the window,
-   * the filter of its roots or its strata left it none to draw.
+   * keeps none: said apart, never as empty. `noRootInTheDraw`: the window
+   * or the filter of its roots left it none to draw.
    */
   noRecordDrawn: Array<{ objectApiName: string; sourceRows: number; noRootInTheDraw?: true }>;
   /**
@@ -1311,9 +1312,10 @@ export interface ForgeSampleBudget {
    * About the requests drawing the plan reads of the source with the draw
    * asked, by discovery's counts, against what the source has left today,
    * and the seconds it takes: past a tenth of the day, the draw `recent` or a
-   * filter is offered. `atMost`: the draw is held to a window, filters on its
-   * roots or strata, which discovery's counts know nothing of — what it
-   * reads is at most that.
+   * filter is offered. `atMost`: the draw is held to a window or filters on
+   * its roots, which discovery's counts know nothing of — what it reads is at
+   * most that. Strata drawn by date read a statement per value besides,
+   * which no count of discovery tells.
    */
   planReads: { source: ForgeWholeOrgAllowanceCheck; seconds: number; atMost?: true };
 }

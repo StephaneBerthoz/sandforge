@@ -178,19 +178,7 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
-  // The core of the sample's new draws — strata, and the window, filter and
-  // strata resolved against the run — lands before the drawing of a sample
-  // imports it (wave 58, E4), which removes these two entries.
-  {
-    path: 'packages/extension/src/modules/forge/sample/sampleDrawOptions.ts',
-    reason: 'imported by the drawing of a sample (wave 58, E4)',
-  },
-  {
-    path: 'packages/extension/src/modules/forge/sample/sampleStrata.ts',
-    reason: 'imported by the drawing of a sample (wave 58, E4)',
-  },
-];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {

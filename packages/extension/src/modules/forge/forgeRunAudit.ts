@@ -36,6 +36,7 @@ import {
   firedOnUpdateOf,
   type UpdatedAfterInsert,
 } from './ForgeRunGate.js';
+import { sampleRootsResultOf } from './sample/sampleDrawing.js';
 
 /**
  * How long a simulation or a rehearsal stands as one that came before a run of
@@ -217,14 +218,18 @@ export function decisionCounts(
  * What the audit trail keeps of a sample of the whole org (`AuditFit`), as a
  * fit of Seed's or Autopilot's is kept: the module, the share of each
  * object's roots kept, the MB asked, the seed, the draw, the bound that held
- * it, the records it keeps and those the source holds of the run's objects —
- * its objects kept and those it keeps none of. Counts, never an id of the
- * roots it set aside, nor where its plan is.
+ * it, how its roots were chosen — the window, the objects whose roots were
+ * filtered or stratified —, the records it keeps and those the source holds
+ * of the run's objects — its objects kept and those it keeps none of.
+ * Counts and names, never an id of the roots it set aside, where its plan
+ * is, the text of a filter nor the value of a stratum.
  */
 export function forgeSampleAuditFitOf(sample: WholeOrgSample): AuditFit {
   const inSource =
     sample.objects.reduce((sum, object) => sum + object.sourceRows, 0) +
     sample.noRecordDrawn.reduce((sum, object) => sum + object.sourceRows, 0);
+  // How the roots were chosen, by names alone: no filter's text, no value.
+  const roots = sampleRootsResultOf(sample.roots);
   return {
     module: 'forge',
     share: sample.share,
@@ -232,6 +237,7 @@ export function forgeSampleAuditFitOf(sample: WholeOrgSample): AuditFit {
     seed: sample.seed,
     draw: sample.draw,
     limitedBy: sample.budget.limitedBy,
+    ...(roots ? { roots } : {}),
     kept: sample.rows,
     inSource,
   };

@@ -206,5 +206,57 @@ describe('wholeOrgHistoryEntry', () => {
       expect(result.config?.sample).toHaveProperty('plan');
       expect(result.sample).toHaveProperty('heavyRoots');
     });
+
+    // Run again from the history, a sample drawn among chosen roots is drawn
+    // among the same: the filters' text stays with the options, and the
+    // result keeps how they were chosen by their names alone.
+    it('keeps how the roots were chosen by their names, the roots in the draw, and the filters’ text with the options alone', () => {
+      const result = sampled();
+      const chosen: ForgeExecutionResult = {
+        ...result,
+        ...(result.sample
+          ? {
+              sample: {
+                ...result.sample,
+                roots: {
+                  window: { field: 'CreatedDate', from: '2026-08-16T10:00:00Z', lastDays: 90 },
+                  whereObjects: ['Account'],
+                  strataFields: ['Account.RecordTypeId'],
+                },
+                objects: [{ ...written, rootsInTheSource: 18_000, rootsInTheDraw: 2_400 }],
+              },
+            }
+          : {}),
+        ...(result.config
+          ? {
+              config: {
+                ...result.config,
+                sample: {
+                  withinMB: 3,
+                  rootWhere: { Account: "BillingCountry = 'France'" },
+                  plan: '/storage/forge-samples/abc',
+                },
+              },
+            }
+          : {}),
+      };
+
+      const entry = wholeOrgHistoryEntry(chosen);
+
+      expect(entry.sample?.roots).toEqual({
+        window: { field: 'CreatedDate', from: '2026-08-16T10:00:00Z', lastDays: 90 },
+        whereObjects: ['Account'],
+        strataFields: ['Account.RecordTypeId'],
+      });
+      expect(entry.sample?.objects[0]).toMatchObject({
+        rootsInTheSource: 18_000,
+        rootsInTheDraw: 2_400,
+      });
+      expect(JSON.stringify(entry.sample)).not.toContain('France');
+      expect(entry.config?.sample).toEqual({
+        withinMB: 3,
+        rootWhere: { Account: "BillingCountry = 'France'" },
+      });
+    });
   });
 });

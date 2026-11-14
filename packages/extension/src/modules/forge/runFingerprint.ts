@@ -5,6 +5,7 @@ import {
   type ForgeGraph,
   type ForgeGraphNode,
   type ForgeSampleOptions,
+  type ForgeSampleWindow,
 } from '@sandforge/shared';
 import type { WholeOrgCarriedSample } from '../../core/precheck/ProductionGuard.js';
 
@@ -67,8 +68,20 @@ export function sampleFingerprintOf(
  * (`FORGE_SAMPLE_DEFAULTS`), the objects asked whole once each and in order,
  * and no plan, whose path names nothing the run copies — what the run's
  * fingerprint and its question take of them alike.
+ *
+ * The roots it draws among are taken as asked, each only when asked, so that
+ * a sample of every root keeps the fingerprint it had before they could be
+ * chosen: the window — of the last days, those days, never the instant they
+ * start at, which moves with the day —, the filter on the roots of each
+ * object, its text trimmed, and the fields of the strata once each and in
+ * order. Without them, a Simulate's plan drawn for one window was taken up
+ * by a run asked another, its options the same but for the roots.
  */
 export function sampleOptionsApplied(options: ForgeSampleOptions): WholeOrgCarriedSample {
+  const rootWhere = Object.entries(options.rootWhere ?? {}).map(
+    ([objectApiName, where]) => [objectApiName, where.trim()] as const,
+  );
+  const strata = [...new Set(options.strata ?? [])].sort();
   return {
     ...(options.withinMB !== undefined ? { withinMB: options.withinMB } : {}),
     ...(options.maxTotal !== undefined ? { maxTotal: options.maxTotal } : {}),
@@ -78,6 +91,19 @@ export function sampleOptionsApplied(options: ForgeSampleOptions): WholeOrgCarri
     children: options.children ?? FORGE_SAMPLE_DEFAULTS.children,
     floor: options.floor ?? FORGE_SAMPLE_DEFAULTS.floor,
     whole: [...new Set(options.whole ?? [])].sort(),
+    ...(options.window ? { window: windowAsAsked(options.window) } : {}),
+    ...(rootWhere.length > 0 ? { rootWhere: Object.fromEntries(rootWhere) } : {}),
+    ...(strata.length > 0 ? { strata } : {}),
+  };
+}
+
+/** A window as asked, its keys those it gives: the last days as days. */
+function windowAsAsked(window: ForgeSampleWindow): ForgeSampleWindow {
+  return {
+    field: window.field,
+    ...(window.from !== undefined ? { from: window.from } : {}),
+    ...(window.to !== undefined ? { to: window.to } : {}),
+    ...(window.lastDays !== undefined ? { lastDays: window.lastDays } : {}),
   };
 }
 

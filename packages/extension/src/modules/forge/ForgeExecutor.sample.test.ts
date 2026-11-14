@@ -856,6 +856,203 @@ describe('a clone of the whole org that copies a sample of it', () => {
 });
 
 /*
+ * A sample whose roots are chosen — a window of dates, a filter on the roots
+ * of an object, strata —, as the run hands its options to the draw: the
+ * describe's types, which strata are held to, and the record types the
+ * source names, which the plan names its strata by.
+ */
+describe('a sample of the whole org whose roots are chosen', () => {
+  const BUSINESS = '012S00000000BUSAAA';
+  const PARTNER = '012S00000000PRTAAA';
+  const CHOSEN_FIELDS: Record<string, FieldInfo[]> = {
+    Account: [
+      field('Id'),
+      field('Name', { type: 'string' }),
+      field('ParentId', { isReference: true, referenceTo: ['Account'], nillable: true }),
+      field('RecordTypeId', {
+        type: 'reference',
+        isReference: true,
+        referenceTo: ['RecordType'],
+        nillable: true,
+      }),
+      field('CreatedDate', { type: 'datetime', createable: false, updateable: false }),
+    ],
+    Contact: [
+      ...FIELDS.Contact,
+      field('CreatedDate', { type: 'datetime', createable: false, updateable: false }),
+    ],
+  };
+  /** A moment `minutes` past the start of March of `year`, as the org writes a record's dates. */
+  const madeIn = (year: number, minutes: number): string =>
+    new Date(Date.UTC(year, 2, 1, 0, minutes)).toISOString().replace('Z', '+0000');
+  const WINDOW_2025 = {
+    field: 'CreatedDate' as const,
+    from: '2025-01-01T00:00:00Z',
+    to: '2026-01-01T00:00:00Z',
+  };
+
+  /**
+   * 150 accounts, the first fifty made in 2025 and the others in 2026, every
+   * tenth a partner, the others businesses, each with a contact.
+   */
+  function chosenSource(): SampleSourceOrg {
+    const org = new SampleSourceOrg();
+    org.columns.set('Account', [
+      'Id',
+      'Name',
+      'ParentId',
+      'RecordTypeId',
+      'CreatedDate',
+      'IsDeleted',
+    ]);
+    org.columns.set('Contact', ['Id', 'LastName', 'AccountId', 'CreatedDate', 'IsDeleted']);
+    for (let n = 1; n <= 150; n++) {
+      org.add('Account', {
+        Id: fakeId('001', 'S', n),
+        Name: `A${n}`,
+        ParentId: null,
+        RecordTypeId: n % 10 === 0 ? PARTNER : BUSINESS,
+        CreatedDate: n <= 50 ? madeIn(2025, n) : madeIn(2026, n),
+        IsDeleted: false,
+      });
+      org.add('Contact', {
+        Id: fakeId('003', 'S', n),
+        LastName: `C${n}`,
+        AccountId: fakeId('001', 'S', n),
+        CreatedDate: madeIn(2026, 1_000 + n),
+        IsDeleted: false,
+      });
+    }
+    return org;
+  }
+
+  /** The run's deps over `source`, its describes those of the chosen roots, and the record types it names. */
+  function chosenOrgs(source: SampleSourceOrg) {
+    const base = orgs(source);
+    const deps = {
+      ...base.deps,
+      describeFields: vi.fn(async (_org: string, object: string) => CHOSEN_FIELDS[object] ?? []),
+      describeObject: vi.fn(async (org: string, object: string) => {
+        if (org !== 'src' || object !== 'Account') throw new Error('not described');
+        const type = (recordTypeId: string, developerName: string) => ({
+          recordTypeId,
+          developerName,
+          name: developerName,
+          available: true,
+          active: true,
+          master: false,
+          defaultRecordTypeMapping: false,
+        });
+        return {
+          keyPrefix: '001',
+          recordTypes: [type(BUSINESS, 'Business'), type(PARTNER, 'Partner')],
+        };
+      }),
+    } satisfies ForgeExecutorDeps;
+    return { ...base, deps, executor: new ForgeExecutor(deps) };
+  }
+
+  it('draws its plan among the roots a window and a filter chose, by strata named as the source names its record types, and its result says how by names alone', async () => {
+    const options: ForgeSampleOptions = {
+      window: WINDOW_2025,
+      rootWhere: { Account: "Name != 'A1'" },
+      strata: ['Account.RecordTypeId'],
+    };
+    const keepAt = join(plansDir(), 'dry');
+
+    await chosenOrgs(chosenSource()).executor.execute(
+      graphOf(150, 150),
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(keepAt, budgetOf(8_800), { dryRun: true, options }),
+    );
+
+    const plan = await SamplePlan.open(keepAt);
+    const { sample } = plan.manifest;
+    // Made in 2025, but the first: 49, each with its contact; five partners.
+    expect(plan.countOf('Account')).toBe(49);
+    expect(plan.countOf('Contact')).toBe(49);
+    expect(sample.budget.limitedBy).toBe('draw');
+    expect(sample.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      rootsInTheDraw: 49,
+      rootsInTheSource: 150,
+    });
+    expect(sample.roots).toEqual({
+      window: WINDOW_2025,
+      where: [{ objectApiName: 'Account', where: "Name != 'A1'" }],
+      strata: [
+        {
+          objectApiName: 'Account',
+          field: 'RecordTypeId',
+          values: [
+            { value: BUSINESS, label: 'Business', roots: 44, kept: 44 },
+            { value: PARTNER, label: 'Partner', roots: 5, kept: 5 },
+          ],
+        },
+      ],
+    });
+
+    const store = ForgeRunStore.open(memoryRunFile());
+    const summary = await chosenOrgs(chosenSource()).executor.execute(
+      graphOf(150, 150),
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(join(plansDir(), 'run.sample'), budgetOf(8_800), { store, options }),
+    );
+    expect(summary.sample?.roots).toEqual({
+      window: WINDOW_2025,
+      whereObjects: ['Account'],
+      strataFields: ['Account.RecordTypeId'],
+    });
+    expect(JSON.stringify(summary.sample)).not.toMatch(/A1'|Business|Partner/);
+  }, 60_000);
+
+  it('names the floors of the strata among what a sample that cannot fit takes, and fewer strata among the ways out', async () => {
+    const { executor, deps } = chosenOrgs(chosenSource());
+
+    const run = executor.execute(
+      graphOf(150, 150),
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(join(plansDir(), 'tiny'), budgetOf(0), {
+        options: { strata: ['Account.RecordTypeId'] },
+      }),
+    );
+
+    await expect(run).rejects.toMatchObject({
+      code: 'SAMPLE_CANNOT_FIT',
+      message: expect.stringMatching(
+        /2 roots for the floors of 2 values.*stratify fewer objects \(--fit-strata\)/,
+      ),
+    });
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+  }, 60_000);
+
+  it('refuses a stratum the describe says is text before any read of the roots, and keeps no plan', async () => {
+    const source = chosenSource();
+    const keepAt = join(plansDir(), 'refused');
+
+    const run = chosenOrgs(source).executor.execute(
+      graphOf(150, 150),
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(keepAt, budgetOf(8_800), { dryRun: true, options: { strata: ['Account.Name'] } }),
+    );
+
+    await expect(run).rejects.toMatchObject({
+      code: 'SAMPLE_DRAW_INVALID',
+      sample: { requests: 0 },
+    });
+    expect(source.sent.some(({ soql }) => soql.includes('COUNT'))).toBe(false);
+    await expect(SamplePlan.open(keepAt)).rejects.toMatchObject({ refusal: 'gone' });
+  }, 60_000);
+});
+
+/*
  * The price catalog, too large for a sample to copy whole: drawn, its records
  * come as the lines the sample keeps name them — a price, the standard price
  * its product needs, the product, the books. The run reads it by the plan's

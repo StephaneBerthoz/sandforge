@@ -184,6 +184,39 @@ describe('sampleBudgetPreviewOf', () => {
     expect(recent.planReads.source.estimate).toBe(1 + 2 + 1 + 1 + 2);
   });
 
+  // Review priced a draw held to a window as one of every root, and said
+  // nothing of the count of each object's roots of the source it sends besides.
+  it('prices a window or a filter on the roots with a count more of each object it holds, and says it reads that at most', () => {
+    const spread = sampleBudgetPreviewOf({ graph: graph(), options: {}, storage, source });
+    const windowed = sampleBudgetPreviewOf({
+      graph: graph(),
+      options: { window: { field: 'CreatedDate', lastDays: 30 } },
+      storage,
+      source,
+    });
+    const filtered = sampleBudgetPreviewOf({
+      graph: graph(),
+      options: { rootWhere: { case: "Status = 'New'" } },
+      storage,
+      source,
+    });
+    const stratified = sampleBudgetPreviewOf({
+      graph: graph(),
+      options: { strata: ['Account.Type'] },
+      storage,
+      source,
+    });
+
+    // Accounts, contacts and cases counted again without the window; the
+    // cases alone without their filter.
+    expect(windowed.planReads.source.estimate).toBe(spread.planReads.source.estimate + 3);
+    expect(windowed.planReads.atMost).toBe(true);
+    expect(filtered.planReads.source.estimate).toBe(spread.planReads.source.estimate + 1);
+    expect(filtered.planReads.atMost).toBe(true);
+    // Strata keep every root in the draw: a count by value in place of one.
+    expect(stratified.planReads).toEqual(spread.planReads);
+  });
+
   it('says no budget when the target would not say its storage and no MB is asked, and the draw is not priced past what the source would not say', () => {
     const preview = sampleBudgetPreviewOf({
       graph: graph(),

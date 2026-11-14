@@ -203,8 +203,9 @@ export interface ForgeRunGateStop {
      * the drawing may read (a tenth), past which it stopped, and how it drew.
      * Absent, the run was refused past all that is left. The newest or the
      * oldest roots first read fewer requests than roots spread over the org.
-     * `restricted` says the draw was held to a window, filters on its roots
-     * or strata: its counts are at most, and narrowing them is a way out.
+     * `restricted` says the draw was held to a window or filters on its
+     * roots: narrowing them is a way out. Strata alone keep every root in
+     * the draw, and leave it unset.
      */
     drawing?: { share: number; draw: ForgeSampleDraw; restricted?: boolean };
     /**

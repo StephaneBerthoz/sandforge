@@ -93,6 +93,12 @@ export interface SamplePlanManifest {
    * are none.
    */
   newestByIds?: string[];
+  /**
+   * The objects whose oldest roots, of a draw of the oldest, were taken in
+   * the order of their ids, having no creation date the org orders by.
+   * Absent when there are none, and of a plan drawn before the oldest were.
+   */
+  oldestByIds?: string[];
   /** What the run's gate counts of the plan beside its ids: see {@link SamplePlanCounts}. */
   counts?: SamplePlanCounts;
 }
@@ -120,6 +126,8 @@ export interface SamplePlanToKeep {
   sample: WholeOrgSampleDrawn;
   /** See {@link SamplePlanManifest.newestByIds}. */
   newestByIds?: readonly string[];
+  /** See {@link SamplePlanManifest.oldestByIds}. */
+  oldestByIds?: readonly string[];
   /** See {@link SamplePlanManifest.counts}. */
   counts?: SamplePlanCounts;
   /** The ids kept of each object, in any order; an object of none is left out. */
@@ -184,6 +192,43 @@ export function runPlanDirOf(storagePath: string, journalId: string): string {
 const objectNameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/);
 const countSchema = z.number().int().nonnegative();
 
+/**
+ * How a sample chose its roots, as its plan keeps it (`WholeOrgSampleRoots`):
+ * the window as it was applied — a window of the last days with the instant
+ * it started at beside its `lastDays` —, the objects drawn without its date,
+ * the filters on the roots, and the values of each stratum. Every field is
+ * optional, and a plan drawn before they were reads as one that chose none.
+ */
+const sampleRootsSchema = z.object({
+  window: z
+    .object({
+      field: z.enum(['CreatedDate', 'LastModifiedDate']),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      lastDays: z.number().int().positive().optional(),
+    })
+    .optional(),
+  notWindowed: z.array(objectNameSchema).optional(),
+  where: z.array(z.object({ objectApiName: objectNameSchema, where: z.string() })).optional(),
+  strata: z
+    .array(
+      z.object({
+        objectApiName: objectNameSchema,
+        field: z.string(),
+        values: z.array(
+          z.object({
+            value: z.union([z.string(), z.boolean(), z.null()]),
+            label: z.string().optional(),
+            roots: countSchema,
+            kept: countSchema,
+          }),
+        ),
+        more: countSchema.optional(),
+      }),
+    )
+    .optional(),
+});
+
 const sampleSchema = z.object({
   seed: z.number().int().min(0),
   draw: forgeSampleDrawSchema,
@@ -209,6 +254,7 @@ const sampleSchema = z.object({
       'sourceRequests',
       'heavyRoots',
       'whole',
+      'draw',
     ]),
   }),
   rows: countSchema,
@@ -223,6 +269,8 @@ const sampleSchema = z.object({
       asParents: countSchema,
       whole: z.literal(true).optional(),
       childrenCut: z.array(z.object({ field: z.string(), rows: countSchema })).optional(),
+      rootsInTheSource: countSchema.optional(),
+      rootsInTheDraw: countSchema.optional(),
     }),
   ),
   whole: z.array(
@@ -256,7 +304,14 @@ const sampleSchema = z.object({
   leftEmpty: z.array(
     z.object({ objectApiName: objectNameSchema, field: z.string(), rows: countSchema }),
   ),
-  noRecordDrawn: z.array(z.object({ objectApiName: objectNameSchema, sourceRows: countSchema })),
+  noRecordDrawn: z.array(
+    z.object({
+      objectApiName: objectNameSchema,
+      sourceRows: countSchema,
+      noRootInTheDraw: z.literal(true).optional(),
+    }),
+  ),
+  roots: sampleRootsSchema.optional(),
   partialMasters: z
     .array(
       z.object({
@@ -271,6 +326,7 @@ const sampleSchema = z.object({
     .optional(),
   planRequests: z.object({ source: countSchema }),
   newestByIds: z.array(objectNameSchema).optional(),
+  oldestByIds: z.array(objectNameSchema).optional(),
 }) satisfies z.ZodType<WholeOrgSampleDrawn>;
 
 const countsSchema = z.object({
@@ -296,6 +352,7 @@ const manifestSchema = z.object({
   ),
   sample: sampleSchema,
   newestByIds: z.array(objectNameSchema).optional(),
+  oldestByIds: z.array(objectNameSchema).optional(),
   counts: countsSchema.optional(),
 }) satisfies z.ZodType<SamplePlanManifest>;
 
@@ -511,6 +568,9 @@ export class SamplePlan {
         sample: plan.sample,
         ...(plan.newestByIds !== undefined && plan.newestByIds.length > 0
           ? { newestByIds: [...plan.newestByIds] }
+          : {}),
+        ...(plan.oldestByIds !== undefined && plan.oldestByIds.length > 0
+          ? { oldestByIds: [...plan.oldestByIds] }
           : {}),
         ...(plan.counts ? { counts: plan.counts } : {}),
       };

@@ -832,20 +832,106 @@ function sampleLimitWords(
       return vscode.l10n.t(
         'nothing: every record fits, and copying the whole org is the better run',
       );
-    // Every root a window, filters or strata left is in the sample: it says
-    // to widen those, never to copy the whole org, which the draw never weighed.
+    // Every root a window or filters left is in the sample: it says to widen
+    // those, never to copy the whole org, which the draw never weighed.
+    // Strata alone keep every root in the draw, and never hold it.
     case 'draw':
       return vscode.l10n.t(
-        'all the roots its window, the filters of its roots and its strata let it draw: widen them to take more',
+        'all the roots its window and the filters of its roots let it draw: widen them to take more',
       );
   }
+}
+
+/** How a sample's roots were drawn, as its question says it. */
+function drawWordsOf(draw: WholeOrgConfirmationSample['draw']): string {
+  switch (draw) {
+    case 'recent':
+      return vscode.l10n.t('the newest first');
+    case 'oldest':
+      return vscode.l10n.t('the oldest first');
+    case 'uniform':
+      return vscode.l10n.t('spread over the org');
+  }
+}
+
+/** A sample's window, as its question says it: what dates the roots, from and to when, in UTC. */
+function windowWordsOf(window: NonNullable<WholeOrgConfirmationSample['roots']>['window']): string {
+  if (!window) return '';
+  const modified = window.field === 'LastModifiedDate';
+  if (window.lastDays !== undefined) {
+    return modified
+      ? vscode.l10n.t(
+          'last modified in the last {0} days, from {1} (UTC)',
+          window.lastDays,
+          window.from ?? '',
+        )
+      : vscode.l10n.t(
+          'created in the last {0} days, from {1} (UTC)',
+          window.lastDays,
+          window.from ?? '',
+        );
+  }
+  if (window.from !== undefined && window.to !== undefined) {
+    return modified
+      ? vscode.l10n.t('last modified from {0} to before {1} (UTC)', window.from, window.to)
+      : vscode.l10n.t('created from {0} to before {1} (UTC)', window.from, window.to);
+  }
+  if (window.from !== undefined) {
+    return modified
+      ? vscode.l10n.t('last modified from {0} (UTC)', window.from)
+      : vscode.l10n.t('created from {0} (UTC)', window.from);
+  }
+  return modified
+    ? vscode.l10n.t('last modified before {0} (UTC)', window.to ?? '')
+    : vscode.l10n.t('created before {0} (UTC)', window.to ?? '');
+}
+
+/**
+ * How a sample's roots were chosen, as its question says it in one line: the
+ * window, the filter on the roots of each object in the user's own words,
+ * the objects stratified with the values counted, and the objects the window
+ * could not date. Nothing when none chose them.
+ */
+function rootsLines(sample: WholeOrgConfirmationSample): string[] {
+  const roots = sample.roots;
+  if (!roots) return [];
+  const parts = [
+    ...(roots.window ? [windowWordsOf(roots.window)] : []),
+    ...(roots.where ?? []).map(({ objectApiName, where }) =>
+      vscode.l10n.t('{0} where {1}', objectApiName, where),
+    ),
+    ...(roots.strata && roots.strata.length > 0
+      ? [
+          vscode.l10n.t(
+            'stratified: {0}',
+            roots.strata
+              .map(({ objectApiName, field, values }) =>
+                vscode.l10n.t('{0} by {1} ({2} values)', objectApiName, field, values),
+              )
+              .join(', '),
+          ),
+        ]
+      : []),
+  ];
+  const lines = parts.length > 0 ? [vscode.l10n.t('Roots: {0}.', parts.join('; '))] : [];
+  if (roots.notWindowed && roots.notWindowed.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'No root of these objects is in the draw, the window finding no such date on them: {0}.',
+        roots.notWindowed.slice(0, LISTED_IN_A_QUESTION).join(', ') +
+          (roots.notWindowed.length > LISTED_IN_A_QUESTION ? ', …' : ''),
+      ),
+    );
+  }
+  return lines;
 }
 
 /**
  * What the question of a sample of the whole org says of it before the lines
  * of any clone of the whole org: what it keeps of what the source holds and
  * the storage it takes of what it may; its seed, draw and share, and what
- * held it; when and by what its plan was drawn, the simulation's with its
+ * held it; how its roots were chosen, when they were; the objects read by
+ * their ids for want of a creation date; when and by what its plan was drawn, the simulation's with its
  * age, and why the run drew its own when it did; what an optional lookup
  * outside it becomes and the children a record brings; the lookups written
  * empty, the roots set aside, the objects it keeps none of; the objects
@@ -876,15 +962,24 @@ function sampleLines(
           ),
         ]
       : []),
-    vscode.l10n.t(
-      'Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.',
-      sample.seed,
-      sample.draw === 'recent'
-        ? vscode.l10n.t('the newest first')
-        : vscode.l10n.t('spread over the org'),
-      percentOf(sample.share),
-      sampleLimitWords(sample.limitedBy, question, wholeOrg.source),
-    ),
+    // Of a draw held to a window or filters, its share is of the roots they
+    // let in, never of every root of the source.
+    sample.roots?.window !== undefined || (sample.roots?.where ?? []).length > 0
+      ? vscode.l10n.t(
+          'Drawn with seed {0}, {1}: {2} % of the roots in the draw of each object, with the records they reach; held by {3}.',
+          sample.seed,
+          drawWordsOf(sample.draw),
+          percentOf(sample.share),
+          sampleLimitWords(sample.limitedBy, question, wholeOrg.source),
+        )
+      : vscode.l10n.t(
+          'Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.',
+          sample.seed,
+          drawWordsOf(sample.draw),
+          percentOf(sample.share),
+          sampleLimitWords(sample.limitedBy, question, wholeOrg.source),
+        ),
+    ...rootsLines(sample),
     // Read newest by their ids, an object with no creation date to sort by
     // has its roots drawn, or its children kept under the cap, by an order
     // that follows the making of records within a load only: said, as the
@@ -895,6 +990,15 @@ function sampleLines(
             'Newest by the order of their ids, having no creation date the org sorts by, which ids follow within a load only: {0}.',
             sample.newestByIds.slice(0, LISTED_IN_A_QUESTION).join(', ') +
               (sample.newestByIds.length > LISTED_IN_A_QUESTION ? ', …' : ''),
+          ),
+        ]
+      : []),
+    ...(sample.oldestByIds && sample.oldestByIds.length > 0
+      ? [
+          vscode.l10n.t(
+            'Oldest by the order of their ids, having no creation date the org sorts by, which ids follow within a load only: {0}.',
+            sample.oldestByIds.slice(0, LISTED_IN_A_QUESTION).join(', ') +
+              (sample.oldestByIds.length > LISTED_IN_A_QUESTION ? ', …' : ''),
           ),
         ]
       : []),

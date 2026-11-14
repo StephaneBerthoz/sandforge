@@ -2,9 +2,11 @@
  * Drawing the plan of a sample of the whole org against the source: the
  * reads of `sampleReader.ts` put under the reader the closure of
  * `sampleClosure.ts` knows (`SampleReader`), and the steps of a draw in their
- * order — the roots counted, their read priced against what the source has
- * left today, their ids read and ranked, the sample closed over them and cut
- * to the budget (`drawTheSample`).
+ * order — the roots it may take chosen by its window, the filters on its
+ * roots and its strata (`sampleDrawOptions.ts`), counted, their read priced
+ * against what the source has left today, their ids read and ranked — in
+ * their value, of an object stratified (`sampleStrata.ts`) —, the sample
+ * closed over them and cut to the budget (`drawTheSample`).
  *
  * Nothing is written here and nothing is kept: the run keeps the plan
  * (`samplePlanStore.ts`) and judges it at its gate.
@@ -30,9 +32,12 @@ import {
   PRICEBOOK_OBJECT,
   type ForgeSampleDraw,
   type ForgeSampleParents,
+  type ForgeSampleWindow,
   type ForgeSamplingProgress,
   type WholeOrgSample,
   type WholeOrgSampleBudget,
+  type WholeOrgSampleResult,
+  type WholeOrgSampleRoots,
 } from '@sandforge/shared';
 import { ACCOUNT, CONTACT } from '../../../core/common/platformRecords.js';
 import {
@@ -49,6 +54,7 @@ import {
   type SampleRelation,
   type SampleRow,
 } from './sampleClosure.js';
+import { sampleRootsOf, sampleRootsReportOf, type SampleRoots } from './sampleDrawOptions.js';
 import {
   documentedMeasure,
   drawTheSample,
@@ -74,10 +80,14 @@ import {
 import {
   SampleSourceReader,
   rootScanRequestsOf,
+  type DatedRootRead,
   type RootCarrier,
+  type RootCount,
   type RootRead,
   type SampleSource,
+  type StratumValue,
 } from './sampleReader.js';
+import { StratifiedRoots, strataTakesOf } from './sampleStrata.js';
 
 /**
  * Why a run of a sample of the whole org stops before its first write, as
@@ -106,6 +116,11 @@ export class SampleRefusedError extends Error {
 /** A field of the source's describe a sample may read, and what the describe says of how the org takes it. */
 export interface SampleDescribedField {
   name: string;
+  /**
+   * Its type as the describe gives it (`picklist`, `boolean`, `reference`…):
+   * what a stratum is held to. Unknown, no stratum is drawn by it.
+   */
+  type?: string;
   /** Whether the org groups rows by it (`groupable`); unknown when the describe does not say. */
   groupable?: boolean;
   /** Whether the org orders rows by it (`sortable`); unknown when the describe does not say. */
@@ -123,6 +138,12 @@ export interface SampleDrawOptions {
   floor: number;
   /** Objects asked whole (`--fit-whole`). */
   whole?: readonly string[];
+  /** The dates the roots are drawn in (`--fit-window`): see `sampleDrawOptions.ts`. */
+  window?: ForgeSampleWindow;
+  /** Per object, the condition its roots are drawn among (`--fit-where`). */
+  rootWhere?: Record<string, string>;
+  /** The fields the roots are stratified by (`--fit-strata`). */
+  strata?: string[];
 }
 
 /**
@@ -189,6 +210,22 @@ export interface SampleDrawingInput {
   sourceRequestsLeft?: number;
   /** The most records the closure holds (`SAMPLE_MAX_ROWS` when absent): a test seam. */
   maxRows?: number;
+  /**
+   * When the sample is drawn, in milliseconds: what a window of the last
+   * days counts back from. Now when absent.
+   */
+  now?: number;
+  /**
+   * How the values of a field an object's roots are stratified by are
+   * named in the report: a record type by its DeveloperName, as the
+   * source's describe lists its record types — no request of its own.
+   * Undefined, or a value it does not name, is said as it is read: a
+   * picklist's value, a lookup's id.
+   */
+  labelsOf?: (
+    objectApiName: string,
+    field: string,
+  ) => Promise<((value: StratumValue) => string | undefined) | undefined>;
   signal?: AbortSignal;
   onProgress?: (progress: ForgeSamplingProgress) => void;
 }
@@ -205,6 +242,31 @@ export interface SampleDrawing {
    * `WholeOrgSample.newestByIds`.
    */
   newestByIds: string[];
+  /**
+   * The objects whose oldest roots, of a draw of the oldest, were taken in
+   * the order of their ids: see `WholeOrgSample.oldestByIds`.
+   */
+  oldestByIds: string[];
+  /**
+   * How the roots were chosen, when the options chose them — a window,
+   * filters on the roots, strata —: see `WholeOrgSample.roots`. Absent of a
+   * draw among every root.
+   */
+  roots?: WholeOrgSampleRoots;
+  /**
+   * Per object whose roots a window or a filter restricts, those in the draw
+   * and those of the source (`WholeOrgSampleObject.rootsInTheDraw`,
+   * `rootsInTheSource`); the second unknown of an object not counted.
+   */
+  rootsCounted: ReadonlyMap<string, { inTheDraw: number; inTheSource?: number }>;
+  /** The objects the window, the filters on the roots or the strata left no root to draw. */
+  noRootInTheDraw: ReadonlySet<string>;
+  /**
+   * Of a draw by strata, the roots their floors keep at the least share
+   * (`--fit-floor` of each value), and the values: what a sample that cannot
+   * fit may be held by.
+   */
+  strataFloors?: { roots: number; values: number };
 }
 
 /** The columns a price is read with beside its lookups: what decides the standard price it needs. */
@@ -468,11 +530,98 @@ function carriersOf(links: SampleLinks, objectApiName: string): RootCarrier[] {
 }
 
 /**
+ * A window as a refusal says it: the roots made, or last modified, from and
+ * to its instants, or within its last days.
+ */
+function windowWordsOf(window: ForgeSampleWindow): string {
+  const made = window.field === 'LastModifiedDate' ? 'last modified' : 'made';
+  if (window.lastDays !== undefined) {
+    return (
+      `roots ${made} in the last ${window.lastDays} days` +
+      (window.from !== undefined ? `, from ${window.from}` : '')
+    );
+  }
+  const from = window.from !== undefined ? ` from ${window.from}` : '';
+  const to = window.to !== undefined ? ` to before ${window.to}` : '';
+  return `roots ${made}${from}${to}`;
+}
+
+/**
+ * The refusal of a draw whose window and filters on the roots leave no
+ * object a root (`SAMPLE_DRAW_EMPTY`): what chose the roots, the objects the
+ * window could not date, the roots the source holds outside them, and the
+ * ways to widen them. Nothing is read past the counts.
+ */
+function drawEmptyOf(
+  roots: SampleRoots,
+  counts: readonly RootCount[],
+  requests: number,
+): ForgeRunGateError {
+  const chosen = [
+    ...(roots.window ? [windowWordsOf(roots.window)] : []),
+    ...roots.where.map(({ objectApiName, where }) => `${objectApiName} where ${where}`),
+  ];
+  const outside = counts
+    .filter((count) => (count.inTheSource?.rows ?? 0) > 0)
+    .map((count) => `${count.objectApiName} ${count.inTheSource?.rows ?? 0}`);
+  const ways = [
+    ...(roots.window ? ['widen the window (--fit-window)'] : []),
+    ...(roots.where.length > 0 ? ['loosen the filters on the roots (--fit-where)'] : []),
+    'draw without them',
+  ].join(', or ');
+  return new ForgeRunGateError(
+    'SAMPLE_DRAW_EMPTY',
+    `No object has a root in the draw: ${chosen.join('; ')}.` +
+      (roots.notWindowed.length > 0
+        ? ` The window does not date ${roots.notWindowed.join(', ')}, which have no root in it.`
+        : '') +
+      (outside.length > 0 ? ` The source holds roots outside them: ${outside.join(', ')}.` : '') +
+      ` Nothing was written, and the counts sent ${requests} request(s) of the source. ` +
+      `${ways.charAt(0).toUpperCase()}${ways.slice(1)}.`,
+    undefined,
+    undefined,
+    undefined,
+    { sample: { requests } },
+  );
+}
+
+/**
+ * The ways out of a draw whose read of the roots would cost past a tenth of
+ * the source's day: of a draw spread over the org, the newest or the oldest,
+ * which read only the roots they keep; of any, fewer roots — a window or
+ * filters on them, or narrower ones —, fewer strata, a filter on the large
+ * objects, or another day.
+ */
+function drawingWaysOf(draw: ForgeSampleDraw, roots: SampleRoots): string {
+  const fewer = roots.restricted
+    ? 'narrow the window or the filters on the roots (--fit-window, --fit-where)'
+    : 'draw among fewer roots (--fit-window, --fit-where)';
+  if (draw === 'uniform') {
+    return (
+      'Draw the most recent records (--fit-draw recent) or the oldest (--fit-draw oldest), ' +
+      `${fewer}, or narrow the large objects (--filter).`
+    );
+  }
+  return (
+    `${fewer.charAt(0).toUpperCase()}${fewer.slice(1)}` +
+    (roots.stratified ? ', stratify fewer objects (--fit-strata)' : '') +
+    ', narrow the large objects (--filter), or draw it once the source has more to spare.'
+  );
+}
+
+/**
  * Draw a sample of the whole org: see the module's comment. Refuses, before
- * an id is read, a read of the roots past a tenth of what the source has left
- * today (`API_BUDGET_EXCEEDED`, of the source); a sample the bounds cannot
- * hold comes back as `cannotFit`, and one past the records it may hold throws
- * `SampleTooLarge`.
+ * a request, options of the draw the run cannot take (`SAMPLE_DRAW_INVALID`,
+ * every problem at once); once the roots are counted, a draw whose window
+ * and filters on the roots leave none (`SAMPLE_DRAW_EMPTY`), and, before an
+ * id is read, a read of the roots past a tenth of what the source has left
+ * today (`API_BUDGET_EXCEEDED`, of the source). A sample the bounds cannot
+ * hold comes back as `cannotFit`, and one past the records it may hold
+ * throws `SampleTooLarge`.
+ *
+ * The roots of an object stratified are read value by value, as far as each
+ * can enter the sample, and ranked in their value (`sampleStrata.ts`); its
+ * floor is each value's.
  */
 export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<SampleDrawing> {
   const { options, budget } = input;
@@ -499,6 +648,20 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       : {}),
     wholeBytes: (objectApiName, rows) => wholeBytesOf(objectApiName, rows),
   });
+  // Which roots the draw takes, held to the run and its describes before a
+  // request is sent: every option it cannot take refused at once.
+  const roots = sampleRootsOf({
+    options: {
+      ...(options.window ? { window: options.window } : {}),
+      ...(options.rootWhere ? { rootWhere: options.rootWhere } : {}),
+      ...(options.strata ? { strata: options.strata } : {}),
+    },
+    now: input.now ?? Date.now(),
+    links,
+    ...(input.excluded ? { excluded: input.excluded.keys() } : {}),
+    fieldsOf: (objectApiName) => input.fieldsOf(objectApiName),
+    ...(input.filterOf ? { filterOf: input.filterOf } : {}),
+  });
   const described = (objectApiName: string, name: string): SampleDescribedField | undefined =>
     input.fieldsOf(objectApiName)?.find((field) => field.name.toLowerCase() === name.toLowerCase());
   const reader = new SampleSourceReader(input.source, {
@@ -521,15 +684,52 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     .filter(([, kind]) => kind.kind === 'drawn' && kind.rooted)
     .map(([objectApiName]) => objectApiName)
     .sort();
-  const reads: RootRead[] = rooted.map((objectApiName) => ({
-    objectApiName,
-    carriers: carriersOf(links, objectApiName),
-  }));
+  // An object the window cannot date has no root in the draw: never read.
+  const reads: RootRead[] = rooted
+    .filter((objectApiName) => roots.objects.get(objectApiName)?.notWindowed !== true)
+    .map((objectApiName) => {
+      const chosen = roots.objects.get(objectApiName);
+      return {
+        objectApiName,
+        carriers: carriersOf(links, objectApiName),
+        ...(chosen?.window ? { window: chosen.window } : {}),
+        ...(chosen?.where !== undefined ? { where: chosen.where } : {}),
+        ...(chosen?.stratifiedBy !== undefined ? { stratifiedBy: chosen.stratifiedBy } : {}),
+      };
+    });
   const counts = await reader.countRoots(reads);
   const most = rootsTheBudgetHolds(budget.budget.bytes, budget.budget.maxTotal);
-  const takes = counts.map((count) => Math.min(count.rows, most));
+  // Of an object stratified, each value read as far as a root of it can
+  // enter the sample, and no further.
+  const stratified = new Map<string, StratifiedRoots>();
+  counts.forEach((count, index) => {
+    const field = reads[index].stratifiedBy;
+    if (field === undefined || !count.strata) return;
+    const takes = strataTakesOf(
+      count.strata.map((stratum) => stratum.rows),
+      most,
+      options.floor,
+    );
+    stratified.set(
+      count.objectApiName,
+      new StratifiedRoots({
+        objectApiName: count.objectApiName,
+        field,
+        strata: count.strata.map((stratum, at) => ({
+          value: stratum.value,
+          roots: stratum.rows,
+          take: takes[at],
+        })),
+        draw: options.draw,
+        seed: options.seed,
+        floor: options.floor,
+      }),
+    );
+  });
+  const takeOf = (count: RootCount): DatedRootRead['take'] =>
+    stratified.get(count.objectApiName)?.reads() ?? Math.min(count.rows, most);
   const scan = counts.reduce(
-    (sum, count, index) => sum + rootScanRequestsOf(count, options.draw, takes[index]),
+    (sum, count) => sum + rootScanRequestsOf(count, options.draw, takeOf(count)),
     0,
   );
   const left = input.sourceRequestsLeft;
@@ -542,11 +742,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       API_BUDGET_EXCEEDED,
       `Drawing the sample reads about ${estimate} requests of the source, more than a tenth ` +
         `of the ${left} it has left today. Nothing was written, and no id was read past the ` +
-        'counts. ' +
-        (options.draw === 'uniform'
-          ? 'Draw the most recent records (--fit-draw recent), or narrow the large objects ' +
-            '(--filter).'
-          : 'Narrow the large objects (--filter), or draw it once the source has more to spare.'),
+        `counts. ${drawingWaysOf(options.draw, roots)}`,
       undefined,
       undefined,
       undefined,
@@ -556,7 +752,11 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
           org: 'source',
           estimate,
           remaining: left,
-          drawing: { share: API_BUDGET_NEAR_SHARE, draw: options.draw },
+          drawing: {
+            share: API_BUDGET_NEAR_SHARE,
+            draw: options.draw,
+            ...(roots.restricted ? { restricted: true } : {}),
+          },
         },
       },
     );
@@ -564,20 +764,33 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
 
   const draw = new RootDraw(most, options.floor);
   let rootsByIds: string[] = [];
+  /** Per object, the roots a scan spread over the org handed on: every root of it in the draw. */
+  const scanned = new Map<string, number>();
   if (options.draw === 'uniform') {
-    await reader.drawUniform(reads, (objectApiName, ids) => {
+    await reader.drawUniform(reads, (objectApiName, ids, value) => {
+      scanned.set(objectApiName, (scanned.get(objectApiName) ?? 0) + ids.length);
+      const strata = stratified.get(objectApiName);
+      if (strata) {
+        for (const id of ids) strata.scanned(id, value ?? null);
+        return;
+      }
       for (const id of ids) draw.offer(objectApiName, id, rankOf(options.seed, id));
     });
   } else {
-    const roots = new Map(counts.map((count) => [count.objectApiName, count.rows]));
+    const rowsOf = new Map(counts.map((count) => [count.objectApiName, count.rows]));
     const positions = new Map<string, number>();
     const drawn = await reader.drawByDate(
-      reads.map((read, index) => ({ ...read, take: takes[index] })),
+      counts.map((count, index) => ({ ...reads[index], take: takeOf(count) })),
       options.draw,
-      (objectApiName, ids) => {
+      (objectApiName, ids, value) => {
+        const strata = stratified.get(objectApiName);
+        if (strata) {
+          strata.read(value ?? null, ids);
+          return;
+        }
         let position = positions.get(objectApiName) ?? 0;
         for (const id of ids) {
-          draw.offer(objectApiName, id, recentRankOf(position, roots.get(objectApiName) ?? 0));
+          draw.offer(objectApiName, id, recentRankOf(position, rowsOf.get(objectApiName) ?? 0));
           position++;
         }
         positions.set(objectApiName, position);
@@ -586,12 +799,29 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     rootsByIds = drawn.filter((read) => read.by === 'id').map((read) => read.objectApiName);
     // An object read up to its take, short of the roots counted, has roots
     // never read past it: the share stays below them.
-    counts.forEach((count, index) => {
-      const take = takes[index];
+    for (const count of counts) {
+      if (stratified.has(count.objectApiName)) continue;
+      const take = Math.min(count.rows, most);
       if (take < count.rows && (positions.get(count.objectApiName) ?? 0) >= take) {
         draw.leftUnread(recentRankOf(take, count.rows));
       }
-    });
+    }
+  }
+  // Each root of a value ranked in it, its floor the value's; a value read
+  // short of its roots holds the share below its first left unread.
+  for (const strata of stratified.values()) {
+    for (const root of strata.ranked()) {
+      draw.offer(strata.objectApiName, root.id, root.rank, root.stratum);
+    }
+    draw.leftUnread(strata.firstUnread);
+  }
+  const offered = draw.drawn();
+  // No root in the window and the conditions: nothing is read past the
+  // counts, an object counted to hold none never read, and nothing drawn —
+  // where a sample of the objects copied whole alone would have been said.
+  // A count a lookup of several objects tests on the rows read ends here too.
+  if (roots.restricted && offered.length === 0) {
+    throw drawEmptyOf(roots, counts, reader.requests);
   }
   const { maxTotal } = budget.budget;
   const heldBy =
@@ -602,7 +832,13 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   const cut = await drawTheSample({
     links,
     reader: closing,
-    draw: { roots: draw.drawn(), beyond: draw.beyond, heldBy, floor: options.floor },
+    draw: {
+      roots: offered,
+      beyond: draw.beyond,
+      heldBy,
+      floor: options.floor,
+      ...(roots.restricted ? { restricted: true } : {}),
+    },
     sourceRows,
     options: {
       parents: options.parents,
@@ -626,9 +862,103 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     roomBytes: budget.roomBytes,
     onStep: (step, rows) => input.onProgress?.({ step, rows, requests: reader.requests }),
   });
-  // The roots read newest by their ids, and the children the cap kept so.
-  const newestByIds = [...new Set([...rootsByIds, ...closing.cappedByIds])].sort();
-  return { links, cut, planRequests: reader.requests, newestByIds };
+
+  // The roots read by their ids: the newest, or the oldest; and the children
+  // the cap kept by theirs, always the newest.
+  const newestByIds = [
+    ...new Set([...(options.draw === 'recent' ? rootsByIds : []), ...closing.cappedByIds]),
+  ].sort();
+  const oldestByIds = options.draw === 'oldest' ? [...rootsByIds].sort() : [];
+
+  // Of each object whose roots the window or a filter chose, those in the
+  // draw — every one a scan handed on, or as the count said — and those of
+  // the source; none, of an object the window could not date.
+  const rootsCounted = new Map<string, { inTheDraw: number; inTheSource?: number }>();
+  const noRootInTheDraw = new Set<string>();
+  for (const objectApiName of rooted) {
+    const chosen = roots.objects.get(objectApiName);
+    if (
+      !chosen ||
+      (chosen.window === undefined && chosen.where === undefined && !chosen.notWindowed)
+    ) {
+      continue;
+    }
+    const count = counts.find((entry) => entry.objectApiName === objectApiName);
+    const inTheDraw =
+      chosen.notWindowed || !count
+        ? 0
+        : options.draw === 'uniform'
+          ? (scanned.get(objectApiName) ?? 0)
+          : count.rows;
+    const inTheSource = count?.inTheSource?.rows;
+    rootsCounted.set(objectApiName, {
+      inTheDraw,
+      ...(inTheSource !== undefined ? { inTheSource } : {}),
+    });
+    if (inTheDraw === 0 && (chosen.notWindowed || (inTheSource ?? 0) > 0)) {
+      noRootInTheDraw.add(objectApiName);
+    }
+  }
+
+  // How the roots were chosen, the values of each stratum with the roots it
+  // holds and those the sample keeps as roots.
+  let report: WholeOrgSampleRoots | undefined;
+  if (roots.restricted || roots.stratified) {
+    const strata: NonNullable<WholeOrgSampleRoots['strata']> = [];
+    for (const strataOf of stratified.values()) {
+      const kept = cut.kind === 'sample' ? cut.rootIds.get(strataOf.objectApiName) : undefined;
+      const labelOf = await input.labelsOf?.(strataOf.objectApiName, strataOf.field);
+      strata.push(strataOf.report((id) => kept?.has(idKey(id)) === true, labelOf));
+    }
+    report = { ...sampleRootsReportOf(roots), ...(strata.length > 0 ? { strata } : {}) };
+  }
+
+  // The floors of the strata, what a sample that cannot fit may be held by.
+  let strataFloors: SampleDrawing['strataFloors'];
+  if (options.floor > 0 && stratified.size > 0) {
+    let values = 0;
+    let floorRoots = 0;
+    for (const strataOf of stratified.values()) {
+      for (const value of strataOf.reads()) {
+        values++;
+        floorRoots += Math.min(value.roots, options.floor);
+      }
+    }
+    if (values > 0) strataFloors = { roots: floorRoots, values };
+  }
+
+  return {
+    links,
+    cut,
+    planRequests: reader.requests,
+    newestByIds,
+    oldestByIds,
+    ...(report ? { roots: report } : {}),
+    rootsCounted,
+    noRootInTheDraw,
+    ...(strataFloors ? { strataFloors } : {}),
+  };
+}
+
+/**
+ * How a sample chose its roots, as a run's result, its history and its
+ * audit keep it (`WholeOrgSampleResult.roots`): the window, the objects whose
+ * roots were filtered, and the fields they were stratified by
+ * (`Object.Field`) — never a filter's text nor a stratum's value, which stay
+ * with the run's config and its plan. Nothing of a draw among every root.
+ */
+export function sampleRootsResultOf(
+  roots: WholeOrgSampleRoots | undefined,
+): WholeOrgSampleResult['roots'] | undefined {
+  if (!roots) return undefined;
+  const whereObjects = (roots.where ?? []).map((entry) => entry.objectApiName);
+  const strataFields = (roots.strata ?? []).map((entry) => `${entry.objectApiName}.${entry.field}`);
+  const summary = {
+    ...(roots.window ? { window: { ...roots.window } } : {}),
+    ...(whereObjects.length > 0 ? { whereObjects } : {}),
+    ...(strataFields.length > 0 ? { strataFields } : {}),
+  };
+  return Object.keys(summary).length > 0 ? summary : undefined;
 }
 
 /** What a sample drew, as its plan keeps it and its dry run says it: the report but for its place on disk. */
@@ -655,14 +985,30 @@ export function sampleReportOf(
     },
     rows: cut.rows,
     storageBytes: cut.storageBytes,
-    objects: cut.objects,
+    // Of an object whose roots the draw chose, those in it beside those of
+    // the source: the share is of the first.
+    objects: cut.objects.map((object) => {
+      const counted = drawing.rootsCounted.get(object.objectApiName);
+      if (!counted) return object;
+      return {
+        ...object,
+        ...(counted.inTheSource !== undefined ? { rootsInTheSource: counted.inTheSource } : {}),
+        rootsInTheDraw: counted.inTheDraw,
+      };
+    }),
     whole: links.whole,
     heavyRoots: cut.heavyRoots,
     dropped: cut.dropped,
     leftEmpty: cut.leftEmpty,
-    noRecordDrawn: cut.noRecordDrawn,
+    noRecordDrawn: cut.noRecordDrawn.map((entry) =>
+      drawing.noRootInTheDraw.has(entry.objectApiName)
+        ? { ...entry, noRootInTheDraw: true as const }
+        : entry,
+    ),
+    ...(drawing.roots ? { roots: drawing.roots } : {}),
     ...(cut.partialMasters.length > 0 ? { partialMasters: cut.partialMasters } : {}),
     planRequests: { source: drawing.planRequests },
     ...(drawing.newestByIds.length > 0 ? { newestByIds: [...drawing.newestByIds] } : {}),
+    ...(drawing.oldestByIds.length > 0 ? { oldestByIds: [...drawing.oldestByIds] } : {}),
   };
 }

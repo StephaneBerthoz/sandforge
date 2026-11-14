@@ -227,6 +227,39 @@ function sampleQuestionOf(sample: WholeOrgSample, now: number): WholeOrgConfirma
     ...(sample.newestByIds && sample.newestByIds.length > 0
       ? { newestByIds: [...sample.newestByIds] }
       : {}),
+    ...(sample.oldestByIds && sample.oldestByIds.length > 0
+      ? { oldestByIds: [...sample.oldestByIds] }
+      : {}),
+    ...(sample.roots ? { roots: rootsQuestionOf(sample.roots) } : {}),
+  };
+}
+
+/**
+ * How the roots of a sample were chosen, as its question says it: the
+ * window as applied, the filter on the roots of each object, each object
+ * stratified with the values it counted, and the objects the window could
+ * not date. Counts and the user's own words: no value of a stratum.
+ */
+function rootsQuestionOf(
+  roots: NonNullable<WholeOrgSample['roots']>,
+): NonNullable<WholeOrgConfirmationSample['roots']> {
+  return {
+    ...(roots.window ? { window: { ...roots.window } } : {}),
+    ...(roots.where && roots.where.length > 0
+      ? { where: roots.where.map(({ objectApiName, where }) => ({ objectApiName, where })) }
+      : {}),
+    ...(roots.strata && roots.strata.length > 0
+      ? {
+          strata: roots.strata.map(({ objectApiName, field, values, more }) => ({
+            objectApiName,
+            field,
+            values: values.length + (more ?? 0),
+          })),
+        }
+      : {}),
+    ...(roots.notWindowed && roots.notWindowed.length > 0
+      ? { notWindowed: [...roots.notWindowed] }
+      : {}),
   };
 }
 
