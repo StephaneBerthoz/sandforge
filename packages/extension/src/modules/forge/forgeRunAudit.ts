@@ -21,12 +21,14 @@ import type {
   AuditDecisionCount,
   AuditFiredOnInsert,
   AuditFiredOnUpdate,
+  AuditFit,
   AuditRunContext,
   ForgeConfig,
   ForgeDecisionApplied,
   ForgeGapDecisionKind,
   ForgeGraph,
   ForgeTargetAutomation,
+  WholeOrgSample,
 } from '@sandforge/shared';
 import {
   automationUnreadOf,
@@ -208,6 +210,30 @@ export function decisionCounts(
 }
 
 /**
+ * What the audit trail keeps of a sample of the whole org (`AuditFit`), as a
+ * fit of Seed's or Autopilot's is kept: the module, the share of each
+ * object's roots kept, the MB asked, the seed, the draw, the bound that held
+ * it, the records it keeps and those the source holds of the run's objects —
+ * its objects kept and those it keeps none of. Counts, never an id of the
+ * roots it set aside, nor where its plan is.
+ */
+export function forgeSampleAuditFitOf(sample: WholeOrgSample): AuditFit {
+  const inSource =
+    sample.objects.reduce((sum, object) => sum + object.sourceRows, 0) +
+    sample.noRecordDrawn.reduce((sum, object) => sum + object.sourceRows, 0);
+  return {
+    module: 'forge',
+    share: sample.share,
+    ...(sample.budget.withinMB !== undefined ? { withinMB: sample.budget.withinMB } : {}),
+    seed: sample.seed,
+    draw: sample.draw,
+    limitedBy: sample.budget.limitedBy,
+    kept: sample.rows,
+    inSource,
+  };
+}
+
+/**
  * The context of one run's entry, filled in as the run meets its gate and
  * built for each entry the run records: one stopped at its first check knows
  * its config and what came before it, one that ran knows what fired, what was
@@ -218,6 +244,7 @@ export class ForgeRunAudit {
   private fired?: AuditFiredOnInsert;
   private firedOnUpdate?: AuditFiredOnUpdate;
   private deliverability?: AuditRunContext['deliverability'];
+  private sampleFit?: AuditFit;
 
   /**
    * @param config - The run's config, as the request sent it.
@@ -255,6 +282,20 @@ export class ForgeRunAudit {
   /** A person answered a question of the run's gate by going on. */
   confirm(question: AuditConfirmation): void {
     if (!this.confirmed.includes(question)) this.confirmed.push(question);
+  }
+
+  /** The run copies a sample of the whole org, as its plan drew it, which its entry keeps as its fit. */
+  sampled(sample: WholeOrgSample): void {
+    this.sampleFit = forgeSampleAuditFitOf(sample);
+  }
+
+  /**
+   * What the entry recorded now keeps of the run's fit (`WriteRun.fit`): of
+   * a run of a sample, how it was drawn and what it keeps; nothing for a run
+   * of every record, or one stopped before its sample was drawn.
+   */
+  fit(): AuditFit | undefined {
+    return this.sampleFit ? { ...this.sampleFit } : undefined;
   }
 
   /**

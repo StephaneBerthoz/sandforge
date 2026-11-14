@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import { forgeRunFingerprint, sameRunSetup } from './runFingerprint.js';
+import { forgeRunFingerprint, sameRunSetup, sampleFingerprintOf } from './runFingerprint.js';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -170,5 +170,77 @@ describe('sameRunSetup', () => {
     // Of that kind, a table that holds rows now is a table left in: not alike.
     const holding = graph([node('Account'), node('Contact')]);
     expect(sameRunSetup(before, holding, setup)).toBe(false);
+  });
+});
+
+describe('the fingerprint of a sample of the whole org', () => {
+  const whole = graph([node('Account'), node('Contact')]);
+  /** The panel's setup: the run's config, a sample in it. */
+  const panel = (sample: unknown) => ({ ...setup, config: { ...setup.config, sample } });
+
+  it('is the same for options left at their default or given at it, and objects asked whole in any order', () => {
+    expect(
+      forgeRunFingerprint(whole, panel({ withinMB: 3, whole: ['Region__c', 'Country__c'] })),
+    ).toBe(
+      forgeRunFingerprint(
+        whole,
+        panel({
+          withinMB: 3,
+          seed: 1,
+          draw: 'uniform',
+          parents: 'all',
+          children: 100,
+          floor: 1,
+          whole: ['Country__c', 'Region__c', 'Country__c'],
+        }),
+      ),
+    );
+  });
+
+  it('changes with the seed, the draw, the bounds, the parents, the children, the floor and the objects asked whole', () => {
+    const base = forgeRunFingerprint(whole, panel({ withinMB: 3 }));
+    for (const other of [
+      { withinMB: 3, seed: 2 },
+      { withinMB: 3, draw: 'recent' },
+      { withinMB: 4 },
+      { withinMB: 3, maxTotal: 500 },
+      { withinMB: 3, parents: 'required' },
+      { withinMB: 3, children: 'all' },
+      { withinMB: 3, floor: 0 },
+      { withinMB: 3, whole: ['Region__c'] },
+    ]) {
+      expect(forgeRunFingerprint(whole, panel(other))).not.toBe(base);
+    }
+  });
+
+  // A plan replayed is the same plan wherever its folder is: the run is
+  // fingerprinted by its ids, never by where they were read from.
+  it('changes with the plan a run replays, by its SHA-256, never with its path', () => {
+    const at = (plan: string, planSha256: string) =>
+      forgeRunFingerprint(whole, panel({ withinMB: 3, plan, planSha256 }));
+
+    expect(at('/home/a/forge-samples/x', 'a'.repeat(64))).toBe(
+      at('/tmp/copied/plan', 'a'.repeat(64)),
+    );
+    expect(at('/home/a/forge-samples/x', 'a'.repeat(64))).not.toBe(
+      at('/home/a/forge-samples/x', 'b'.repeat(64)),
+    );
+    expect(
+      forgeRunFingerprint(whole, panel({ withinMB: 3, plan: '/home/a/forge-samples/x' })),
+    ).toBe(forgeRunFingerprint(whole, panel({ withinMB: 3 })));
+  });
+
+  it('reads a sample at the top of the setup, as the command line gives it, as the panel’s', () => {
+    expect(
+      forgeRunFingerprint(whole, { ...setup, sample: { seed: 1, plan: '/a', planSha256: 'c' } }),
+    ).toBe(
+      forgeRunFingerprint(whole, { ...setup, sample: sampleFingerprintOf({ plan: '/b' }, 'c') }),
+    );
+    expect(sampleFingerprintOf(undefined)).toBeUndefined();
+  });
+
+  it('keeps the fingerprint of a run of every record as it was', () => {
+    expect(forgeRunFingerprint(whole, panel(undefined))).toBe(forgeRunFingerprint(whole, setup));
+    expect(sameRunSetup(forgeRunFingerprint(whole, setup), whole, panel(undefined))).toBe(true);
   });
 });

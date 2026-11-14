@@ -826,7 +826,7 @@ export type ForgeWholeOrgStorageCheck =
  */
 export interface ForgeWholeOrgRefusal extends Pick<
   ForgeRunGateStop,
-  'storage' | 'api' | 'readBound'
+  'storage' | 'api' | 'readBound' | 'sample'
 > {
   code: string;
   message: string;

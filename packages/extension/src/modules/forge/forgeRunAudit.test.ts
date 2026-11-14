@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import type { ForgeConfig, ForgeGraph, ForgeTargetAutomation } from '@sandforge/shared';
+import type {
+  ForgeConfig,
+  ForgeGraph,
+  ForgeTargetAutomation,
+  WholeOrgSample,
+} from '@sandforge/shared';
 
 import {
   ForgeRunAudit,
@@ -9,6 +14,7 @@ import {
   firedOnInsertCounts,
   firedOnUpdateCounts,
   forgeCaseKey,
+  forgeSampleAuditFitOf,
 } from './forgeRunAudit.js';
 
 const CONFIG: ForgeConfig = {
@@ -328,5 +334,89 @@ describe('ForgeRunAudit', () => {
     audit.confirm('volume');
 
     expect(first.confirmed).toEqual(['automation']);
+  });
+});
+
+describe('the fit of a sample of the whole org, as the audit trail keeps it', () => {
+  const sample: WholeOrgSample = {
+    seed: 7,
+    draw: 'recent',
+    floor: 1,
+    parents: 'all',
+    children: 100,
+    share: 0.0041,
+    budget: {
+      bytes: 3 * 1024 * 1024,
+      withinMB: 3,
+      remainingMB: 5,
+      share: 0.8,
+      limitedBy: 'within',
+    },
+    rows: 1_812,
+    storageBytes: 2.9 * 1024 * 1024,
+    objects: [
+      {
+        objectApiName: 'Account',
+        sourceRows: 18_400,
+        kept: 712,
+        roots: 500,
+        below: 0,
+        asParents: 212,
+      },
+      {
+        objectApiName: 'Contact',
+        sourceRows: 40_000,
+        kept: 1_100,
+        roots: 0,
+        below: 1_100,
+        asParents: 0,
+      },
+    ],
+    whole: [],
+    heavyRoots: [
+      {
+        objectApiName: 'Account',
+        id: '001000000000003AAA',
+        rows: 900,
+        relation: { objectApiName: 'Contact', field: 'AccountId' },
+      },
+    ],
+    dropped: [],
+    leftEmpty: [],
+    noRecordDrawn: [{ objectApiName: 'Lead', sourceRows: 9_000 }],
+    planRequests: { source: 61 },
+    plan: {
+      path: '/storage/forge-samples/abc',
+      sha256: 'd'.repeat(64),
+      drawnAt: '2026-11-14T14:02:00.000Z',
+      drawnBy: 'dryRun',
+    },
+  };
+
+  it('keeps the module, the share, the seed, the draw, the bound that held it, and the records kept of those the source holds', () => {
+    expect(forgeSampleAuditFitOf(sample)).toEqual({
+      module: 'forge',
+      share: 0.0041,
+      withinMB: 3,
+      seed: 7,
+      draw: 'recent',
+      limitedBy: 'within',
+      kept: 1_812,
+      inSource: 18_400 + 40_000 + 9_000,
+    });
+    // Counts, never ids, nor where the plan is.
+    expect(JSON.stringify(forgeSampleAuditFitOf(sample))).not.toMatch(
+      /001000000000003AAA|forge-samples/,
+    );
+  });
+
+  it('is what the run of a sample records with its entry, and nothing for a run of every record', () => {
+    const audit = new ForgeRunAudit(CONFIG, { reviewSkipped: false });
+    expect(audit.fit()).toBeUndefined();
+
+    audit.sampled(sample);
+
+    expect(audit.fit()).toEqual(forgeSampleAuditFitOf(sample));
+    expect(audit.context()).not.toHaveProperty('fit');
   });
 });

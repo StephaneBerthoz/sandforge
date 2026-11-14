@@ -34,6 +34,12 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   // Of a run that clones no whole org, said as a clone of the whole org's
   // refusal for its files: what they take, and what the target has left.
   FILE_STORAGE_EXCEEDED: 'forgeRun.gate.storageExceededFiles',
+  // A sample of the whole org refused before it wrote anything.
+  SAMPLE_STORAGE_UNREAD: 'forgeRun.gate.sampleStorageUnread',
+  SAMPLE_CANNOT_FIT: 'forgeRun.gate.sampleCannotFit',
+  SAMPLE_TOO_LARGE: 'forgeRun.gate.sampleTooLarge',
+  SAMPLE_PLAN_MISMATCH: 'forgeRun.gate.samplePlanMismatch',
+  SAMPLE_PLAN_GONE: 'forgeRun.gate.samplePlanGone',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
@@ -50,13 +56,27 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
  * storage, which allowance of which org — its source's requests, its
  * target's Bulk API batches — refused it, in words that name what it can
  * leave out rather than a cap it does not have; files that could not be
- * looked up, by what looked them up.
+ * looked up, by what looked them up; a sample whose target has less room
+ * than it was fitted to, by what it was fitted to and what the target holds
+ * now; a refusal of a sample as the executor raises it, with no figure, in
+ * words that need none, and a run resumed otherwise than it was set up apart
+ * from a plan of another org or setup.
  */
 function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: boolean): string {
   if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
     return 'forgeRun.gate.checkpointRefusedFor';
   }
+  if (stop.code === 'SAMPLE_CANNOT_FIT' && stop.sample?.needMB === undefined) {
+    return 'forgeRun.gate.sampleCannotFitNamed';
+  }
+  if (stop.code === 'SAMPLE_TOO_LARGE' && stop.sample?.rows === undefined) {
+    return 'forgeRun.gate.sampleTooLargeUnsized';
+  }
+  if (stop.code === 'SAMPLE_PLAN_MISMATCH' && stop.sample?.plan === undefined) {
+    return 'forgeRun.gate.samplePlanMismatchResume';
+  }
   if (stop.code === 'STORAGE_EXCEEDED') {
+    if (stop.sample?.fittedMB !== undefined) return 'forgeRun.gate.sampleTargetMoved';
     if (stop.storage?.kind === 'files') return 'forgeRun.gate.storageExceededFiles';
     if (wholeOrg) return 'forgeRun.gate.storageExceededAll';
   }
@@ -100,6 +120,15 @@ export function gateStopSentence(
     // bound it held, and each object past it.
     bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
     objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
+    // A sample refused: what it needs and may take, the heaviest objects,
+    // the records it read and holds at once, and what it was fitted to.
+    need: (stop.sample?.needMB ?? 0).toLocaleString(locale),
+    budget: (stop.sample?.budgetMB ?? 0).toLocaleString(locale),
+    heaviest: (stop.sample?.heaviest ?? []).join(', '),
+    rows: (stop.sample?.rows ?? 0).toLocaleString(locale),
+    most: (stop.sample?.most ?? 0).toLocaleString(locale),
+    fitted: (stop.sample?.fittedMB ?? 0).toLocaleString(locale),
+    holds: (stop.sample?.holdsMB ?? 0).toLocaleString(locale),
   });
 }
 

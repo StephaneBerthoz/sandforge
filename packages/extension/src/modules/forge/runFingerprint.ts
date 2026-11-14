@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { leftOutAsEmptyTable, type ForgeGraph, type ForgeGraphNode } from '@sandforge/shared';
+import {
+  FORGE_SAMPLE_DEFAULTS,
+  leftOutAsEmptyTable,
+  type ForgeGraph,
+  type ForgeGraphNode,
+  type ForgeSampleOptions,
+} from '@sandforge/shared';
+import type { WholeOrgCarriedSample } from '../../core/precheck/ProductionGuard.js';
 
 /**
  * The fingerprint of a Forge run's setup: what a run that resumes another
@@ -20,9 +27,80 @@ import { leftOutAsEmptyTable, type ForgeGraph, type ForgeGraphNode } from '@sand
  * it empty. Taken for an object left in or out, a run stopped in between
  * could not have been taken up. Of the rest, what the caller hands over,
  * keys in any order: a setup said in another order is the same setup.
+ *
+ * A sample of the whole org in the setup — at its top, as the command line
+ * gives it, or in its config, as the panel does — is taken as it applies
+ * ({@link sampleFingerprintOf}): an option left out is its default, the
+ * objects asked whole a set, and a plan replayed its SHA-256 alone
+ * (`planSha256`), never its path. The same options draw the same sample
+ * however they were said, and the same plan holds the same ids wherever its
+ * folder is.
  */
 export function forgeRunFingerprint(graph: ForgeGraph, setup: unknown): string {
   return fingerprintOf(graph, setup, (node) => node.included || leftOutAsEmptyTable(node));
+}
+
+/**
+ * A sample of the whole org as a run's fingerprint takes it: each option as
+ * it applies (`FORGE_SAMPLE_DEFAULTS` for one left out), the objects asked
+ * whole once each and in order, and the SHA-256 of the plan the run replays
+ * — which the caller reads of the plan, the path never. Nothing for a run of
+ * every record, whose fingerprint stays as it was.
+ *
+ * @param planSha256 - The SHA-256 of the plan the run replays, a dry run's
+ *   (`--fit-plan`) or the one its journal names; none for a run that draws
+ *   its own, which is fingerprinted before it draws.
+ */
+export function sampleFingerprintOf(
+  options: ForgeSampleOptions | undefined,
+  planSha256?: string,
+): (WholeOrgCarriedSample & { planSha256?: string }) | undefined {
+  if (options === undefined) return undefined;
+  return { ...sampleOptionsApplied(options), ...(planSha256 ? { planSha256 } : {}) };
+}
+
+/**
+ * The options of a sample as they apply: each left out at its default
+ * (`FORGE_SAMPLE_DEFAULTS`), the objects asked whole once each and in order,
+ * and no plan, whose path names nothing the run copies — what the run's
+ * fingerprint and its question take of them alike.
+ */
+export function sampleOptionsApplied(options: ForgeSampleOptions): WholeOrgCarriedSample {
+  return {
+    ...(options.withinMB !== undefined ? { withinMB: options.withinMB } : {}),
+    ...(options.maxTotal !== undefined ? { maxTotal: options.maxTotal } : {}),
+    seed: options.seed ?? FORGE_SAMPLE_DEFAULTS.seed,
+    draw: options.draw ?? FORGE_SAMPLE_DEFAULTS.draw,
+    parents: options.parents ?? FORGE_SAMPLE_DEFAULTS.parents,
+    children: options.children ?? FORGE_SAMPLE_DEFAULTS.children,
+    floor: options.floor ?? FORGE_SAMPLE_DEFAULTS.floor,
+    whole: [...new Set(options.whole ?? [])].sort(),
+  };
+}
+
+/** A plain object, as a setup and its config are. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A sample as a setup holds it, taken as {@link sampleFingerprintOf} takes it. */
+function sampleAsApplied(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const sha = typeof value.planSha256 === 'string' ? value.planSha256 : undefined;
+  return sampleFingerprintOf(value as ForgeSampleOptions, sha);
+}
+
+/** `setup` with the sample it holds, at its top or in its config, as it applies. */
+function withSampleAsApplied(setup: unknown): unknown {
+  if (!isRecord(setup)) return setup;
+  const config = setup.config;
+  return {
+    ...setup,
+    ...('sample' in setup ? { sample: sampleAsApplied(setup.sample) } : {}),
+    ...(isRecord(config) && 'sample' in config
+      ? { config: { ...config, sample: sampleAsApplied(config.sample) } }
+      : {}),
+  };
 }
 
 /**
@@ -64,7 +142,9 @@ function fingerprintOf(
         `${b.sourceObject}|${b.targetObject}|${b.relationshipName}`,
       ),
     );
-  return createHash('sha256').update(canonicalJson({ nodes, edges, setup })).digest('hex');
+  return createHash('sha256')
+    .update(canonicalJson({ nodes, edges, setup: withSampleAsApplied(setup) }))
+    .digest('hex');
 }
 
 /** `value` as JSON, every object's keys in order, `undefined` left out as JSON leaves it. */

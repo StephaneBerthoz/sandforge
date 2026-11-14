@@ -19,6 +19,7 @@ import type {
   RunConfirmation,
   RunUpdateStep,
   WholeOrgConfirmation,
+  WholeOrgConfirmationSample,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
@@ -798,6 +799,157 @@ function allowanceLines(
     : [words.told(estimate, remaining, max)];
 }
 
+/** A share of the roots of each object, as a percentage of two figures. */
+function percentOf(share: number): string {
+  return String(Number((share * 100).toPrecision(2)));
+}
+
+/** The bound that held a sample, as its question says it. */
+function sampleLimitWords(
+  limitedBy: WholeOrgConfirmationSample['limitedBy'],
+  question: WriteConfirmation,
+  source: string,
+): string {
+  switch (limitedBy) {
+    case 'storage':
+      return vscode.l10n.t('the data storage {0} has left', question.org);
+    case 'within':
+      return vscode.l10n.t('the MB asked');
+    case 'maxTotal':
+      return vscode.l10n.t('the records asked');
+    case 'targetRequests':
+      return vscode.l10n.t('the daily API requests of {0}', question.org);
+    case 'bulkBatches':
+      return vscode.l10n.t('the daily Bulk API batches of {0}', question.org);
+    case 'sourceRequests':
+      return vscode.l10n.t('the daily API requests of {0}', source);
+    case 'whole':
+      return vscode.l10n.t(
+        'nothing: every record fits, and copying the whole org is the better run',
+      );
+  }
+}
+
+/**
+ * What the question of a sample of the whole org says of it before the lines
+ * of any clone of the whole org: what it keeps of what the source holds and
+ * the storage it takes of what it may; its seed, draw and share, and what
+ * held it; when and by what its plan was drawn, the simulation's with its
+ * age, and why the run drew its own when it did; what an optional lookup
+ * outside it becomes and the children a record brings; the lookups written
+ * empty, the roots set aside, the objects it keeps none of; the objects
+ * copied whole as asked.
+ */
+function sampleLines(
+  question: WriteConfirmation,
+  wholeOrg: WholeOrgConfirmation,
+  sample: WholeOrgConfirmationSample,
+): string[] {
+  const lines = [
+    vscode.l10n.t(
+      'The sample keeps {0} of the {1} records {2} holds of these objects: about {3} MB of the {4} MB it may take.',
+      sample.rows,
+      sample.sourceRows,
+      wholeOrg.source,
+      formatMB(sample.storageMB),
+      formatMB(sample.budgetMB),
+    ),
+    vscode.l10n.t(
+      'Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.',
+      sample.seed,
+      sample.draw === 'recent'
+        ? vscode.l10n.t('the newest first')
+        : vscode.l10n.t('spread over the org'),
+      percentOf(sample.share),
+      sampleLimitWords(sample.limitedBy, question, wholeOrg.source),
+    ),
+    // Read newest by their ids, an object with no creation date to sort by
+    // is drawn by an order that follows the making of records within a load
+    // only: said, as the draw is not quite what its name says there.
+    ...(sample.newestByIds && sample.newestByIds.length > 0
+      ? [
+          vscode.l10n.t(
+            'Newest by the order of their ids, having no creation date the org sorts by, which ids follow within a load only: {0}.',
+            sample.newestByIds.slice(0, LISTED_IN_A_QUESTION).join(', ') +
+              (sample.newestByIds.length > LISTED_IN_A_QUESTION ? ', …' : ''),
+          ),
+        ]
+      : []),
+    sample.drawnBy === 'dryRun' && sample.minutesBefore !== undefined
+      ? vscode.l10n.t(
+          'Drawn by the simulation {0} minutes before; the run takes up its plan.',
+          sample.minutesBefore,
+        )
+      : vscode.l10n.t('Drawn by this run.'),
+  ];
+  if (sample.drawnAgain === 'tooOld') {
+    lines.push(
+      vscode.l10n.t('The plan of the simulation was more than a day old: the run drew its own.'),
+    );
+  } else if (sample.drawnAgain === 'setUpOtherwise') {
+    lines.push(
+      vscode.l10n.t(
+        'The plan of the simulation was drawn for another setup: the run drew its own.',
+      ),
+    );
+  } else if (sample.drawnAgain === 'planGone') {
+    lines.push(
+      vscode.l10n.t(
+        'The plan of the run this one retries was gone: the run drew its own with the same options.',
+      ),
+    );
+  }
+  lines.push(
+    sample.parents === 'required'
+      ? vscode.l10n.t('An optional lookup to a record outside the sample is written empty.')
+      : vscode.l10n.t(
+          'A record outside the sample that an optional lookup names is copied, without its children.',
+        ),
+    sample.children === 'all'
+      ? vscode.l10n.t('A record brings every child it has.')
+      : vscode.l10n.t(
+          'A record brings at most {0} children per relation, the newest; a master record brings every detail.',
+          sample.children,
+        ),
+  );
+  if (sample.leftEmpty !== undefined && sample.leftEmpty > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Lookups written empty, their record outside the sample: {0}.',
+        sample.leftEmpty,
+      ),
+    );
+  }
+  if (sample.heavyRoots !== undefined && sample.heavyRoots > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Records set aside, each of which would have brought in more than a tenth of what the sample may take: {0}. The simulation names them.',
+        sample.heavyRoots,
+      ),
+    );
+  }
+  if (sample.noRecordDrawn !== undefined && sample.noRecordDrawn > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Objects of {0} none of whose records the sample keeps: {1}.',
+        wholeOrg.source,
+        sample.noRecordDrawn,
+      ),
+    );
+  }
+  const whole = wholeOrg.carried?.sample?.whole ?? [];
+  if (whole.length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Copied whole as asked: {0}.',
+        whole.slice(0, LISTED_IN_A_QUESTION).join(', ') +
+          (whole.length > LISTED_IN_A_QUESTION ? ', …' : ''),
+      ),
+    );
+  }
+  return lines;
+}
+
 /**
  * What a clone of the whole org says besides its rows and their data storage,
  * as its question is always put: what it leaves out and what it was set to
@@ -810,7 +962,7 @@ function allowanceLines(
  * that a removal takes it back.
  */
 function wholeOrgLines(question: WriteConfirmation, wholeOrg: WholeOrgConfirmation): string[] {
-  const lines: string[] = [];
+  const lines: string[] = wholeOrg.sample ? sampleLines(question, wholeOrg, wholeOrg.sample) : [];
   if (wholeOrg.leftOut > 0) {
     lines.push(
       vscode.l10n.t(
@@ -1056,37 +1208,45 @@ function wholeOrgLines(question: WriteConfirmation, wholeOrg: WholeOrgConfirmati
 function writeQuestion(question: WriteConfirmation): string[] {
   const { wholeOrg } = question;
   const lines = [
-    wholeOrg
+    wholeOrg?.sample
       ? vscode.l10n.t(
-          'This clone copies all the data of {0} into {1}: {2} objects, {3} records.',
+          'This clone copies a sample of {0} into {1}: {2} objects, {3} records.',
           wholeOrg.source,
           question.org,
           question.objects.length,
           question.total,
         )
-      : question.module === 'autopilot'
+      : wholeOrg
         ? vscode.l10n.t(
-            'This Autopilot run is about to write {0} records to {1}:',
-            question.total,
+            'This clone copies all the data of {0} into {1}: {2} objects, {3} records.',
+            wholeOrg.source,
             question.org,
+            question.objects.length,
+            question.total,
           )
-        : question.module === 'seed'
+        : question.module === 'autopilot'
           ? vscode.l10n.t(
-              'This seed is about to write {0} records to {1}:',
+              'This Autopilot run is about to write {0} records to {1}:',
               question.total,
               question.org,
             )
-          : question.module === 'sync'
+          : question.module === 'seed'
             ? vscode.l10n.t(
-                'This sync is about to write {0} records to {1}:',
+                'This seed is about to write {0} records to {1}:',
                 question.total,
                 question.org,
               )
-            : vscode.l10n.t(
-                'This clone is about to write {0} records to {1}:',
-                question.total,
-                question.org,
-              ),
+            : question.module === 'sync'
+              ? vscode.l10n.t(
+                  'This sync is about to write {0} records to {1}:',
+                  question.total,
+                  question.org,
+                )
+              : vscode.l10n.t(
+                  'This clone is about to write {0} records to {1}:',
+                  question.total,
+                  question.org,
+                ),
   ];
   // Names and counts alone: nothing in them to translate — save, once the
   // case was simulated, what the simulation counted of each object.
@@ -1573,11 +1733,15 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   const sends =
     (question.stage === 'write' || question.stage === 'automation') &&
     deliverabilityLines(question).length > 0;
+  // A sample of the whole org copies part of it: its button says so.
+  const sampled = question.stage === 'write' && question.wholeOrg?.sample !== undefined;
   const go = rehearsal
     ? vscode.l10n.t('Rehearse')
     : sends
       ? vscode.l10n.t('Execute and send the emails')
-      : vscode.l10n.t('Execute');
+      : sampled
+        ? vscode.l10n.t('Copy the sample')
+        : vscode.l10n.t('Execute');
   // A modal's text cannot be selected everywhere: the command that would
   // assign a bypass goes to the clipboard from a button of its own. It
   // cancels the clone, which the user runs again once the command ran.
@@ -1592,9 +1756,11 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
           ? vscode.l10n.t('SandForge: confirm this sync')
           : question.stage === 'write' && question.module === 'seed'
             ? vscode.l10n.t('SandForge: confirm this seed')
-            : question.stage === 'write' && question.wholeOrg
-              ? vscode.l10n.t('SandForge: confirm this clone of the whole org')
-              : vscode.l10n.t('SandForge: confirm this clone'),
+            : sampled
+              ? vscode.l10n.t('SandForge: confirm this sample of the whole org')
+              : question.stage === 'write' && question.wholeOrg
+                ? vscode.l10n.t('SandForge: confirm this clone of the whole org')
+                : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
     ...(commands.length > 0 ? [go, copy] : [go]),
   );

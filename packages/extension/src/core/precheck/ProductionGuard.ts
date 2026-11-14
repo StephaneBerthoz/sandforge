@@ -1,7 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { BYTES_PER_MB } from '@sandforge/shared';
-import type { ForgeRemovalRisk, RunCheckpointEstimate, RunDeliverability } from '@sandforge/shared';
+import type {
+  ForgeRemovalRisk,
+  ForgeSampleDraw,
+  ForgeSampleParents,
+  RunCheckpointEstimate,
+  RunDeliverability,
+  WholeOrgSampleLimit,
+} from '@sandforge/shared';
 
 /** Safety tier classification for Salesforce orgs */
 export type SafetyTier = 'production' | 'staging' | 'development' | 'scratch';
@@ -466,9 +473,23 @@ export interface WholeOrgConfirmation {
    * or the run it started from or set on Review: the objects read through a
    * filter, those left out by name, those whose rows a decision on Gaps holds
    * back (`skippedRows`), and those with fields left out (`fieldExclusions`),
-   * each by name. Absent when nothing does.
+   * each by name; and a sample rather than every record, with its options as
+   * they apply (`ForgeConfig.sample`). Absent when nothing does.
    */
-  carried?: { filters: string[]; excluded: string[]; heldBack: string[]; fieldsLeftOut: string[] };
+  carried?: {
+    filters: string[];
+    excluded: string[];
+    heldBack: string[];
+    fieldsLeftOut: string[];
+    sample?: WholeOrgCarriedSample;
+  };
+  /**
+   * Of a sample of the whole org (`ForgeConfig.sample`), what its plan keeps
+   * of the source, how it was drawn and how long ago: said before the rest,
+   * the records and objects of the question being the plan's. Absent when
+   * every record is copied.
+   */
+  sample?: WholeOrgConfirmationSample;
   /** The target's API requests, every part together: said whenever it is asked. */
   targetApi: WholeOrgAllowance;
   /** The API requests its reads of the source still take. */
@@ -517,6 +538,62 @@ export interface WholeOrgConfirmation {
    * anonymized. Absent when it copies none so.
    */
   personalAsIs?: Array<{ objectApiName: string; fields: string[] }>;
+}
+
+/**
+ * A sample of the whole org as what narrows its run (`WholeOrgConfirmation.carried`):
+ * each option as it applies, those left out at their default, the objects
+ * copied whole as asked once each. Never the path of a plan, which names
+ * nothing the run copies.
+ */
+export interface WholeOrgCarriedSample {
+  withinMB?: number;
+  maxTotal?: number;
+  seed: number;
+  draw: ForgeSampleDraw;
+  parents: ForgeSampleParents;
+  children: number | 'all';
+  floor: number;
+  whole: string[];
+}
+
+/** What the question of a sample of the whole org says of it: see {@link WholeOrgConfirmation.sample}. */
+export interface WholeOrgConfirmationSample {
+  /** The records the sample keeps, of how many objects, and the records the source holds of the run's objects. */
+  rows: number;
+  objects: number;
+  sourceRows: number;
+  /** The data storage the sample takes in the target, and the most it may take, in MB. */
+  storageMB: number;
+  budgetMB: number;
+  /** The seed its roots were drawn by, how, and the share of each object's roots it keeps, 0 to 1. */
+  seed: number;
+  draw: ForgeSampleDraw;
+  share: number;
+  /** The first bound that held it. */
+  limitedBy: WholeOrgSampleLimit;
+  /** What an optional lookup to a record outside it becomes, and the most children a record brings per relation. */
+  parents: ForgeSampleParents;
+  children: number | 'all';
+  /** When its plan was drawn, and by what: the simulation the run takes up, or the run itself. */
+  drawnAt: string;
+  drawnBy: 'run' | 'dryRun';
+  /** Of a plan a simulation drew, how long before the question, in minutes, rounded up. */
+  minutesBefore?: number;
+  /** Why the run drew its own when a simulation's plan was at hand. */
+  drawnAgain?: 'tooOld' | 'setUpOtherwise' | 'planGone';
+  /** The lookups of its records written empty, their record outside it, in all. Absent when none. */
+  leftEmpty?: number;
+  /** The roots set aside for what each would have brought in. Absent when none. */
+  heavyRoots?: number;
+  /** The objects of the run whose source holds records it keeps none of. Absent when none. */
+  noRecordDrawn?: number;
+  /**
+   * Of a draw of the most recent roots, the objects whose newest were read in
+   * the order of their ids, having no creation date the org sorts by: ids
+   * follow the making of records within a load only. Absent when none.
+   */
+  newestByIds?: string[];
 }
 
 /**

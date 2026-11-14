@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_RUN_GATE_CODES, forgeRunGateStopOf, isForgeRunGateCode } from './forge-run-gate.js';
 
 describe('forge run gate stops', () => {
-  it('names the twelve ways a run stops at its gate', () => {
+  it('names the seventeen ways a run stops at its gate, the five of a sample of the whole org last', () => {
     expect(FORGE_RUN_GATE_CODES).toEqual([
       'PRODUCTION_TARGET',
       'AUTOMATION_DECLINED',
@@ -16,7 +16,89 @@ describe('forge run gate stops', () => {
       'FILES_UNREAD',
       'FILE_STORAGE_UNREAD',
       'FILE_STORAGE_EXCEEDED',
+      'SAMPLE_STORAGE_UNREAD',
+      'SAMPLE_CANNOT_FIT',
+      'SAMPLE_TOO_LARGE',
+      'SAMPLE_PLAN_MISMATCH',
+      'SAMPLE_PLAN_GONE',
     ]);
+  });
+
+  // A sample of the whole org is refused before it writes when it cannot be
+  // drawn or held to what it was drawn against: read as a stop, the page
+  // says it in the user's language, with what the stop names of it.
+  describe('of a sample of the whole org', () => {
+    it('reads a sample that cannot fit: what it needs, what it may take and the heaviest objects', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'SAMPLE_CANNOT_FIT',
+          sample: { needMB: 7.5, budgetMB: 3.6, heaviest: ['Case', 'Pricebook2'] },
+        }),
+      ).toEqual({
+        code: 'SAMPLE_CANNOT_FIT',
+        sample: { needMB: 7.5, budgetMB: 3.6, heaviest: ['Case', 'Pricebook2'] },
+      });
+    });
+
+    it('reads a sample too large to hold: the records read and the most held at once', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'SAMPLE_TOO_LARGE',
+          sample: { rows: 1_000_001, most: 1_000_000 },
+        }),
+      ).toEqual({ code: 'SAMPLE_TOO_LARGE', sample: { rows: 1_000_001, most: 1_000_000 } });
+    });
+
+    it('reads a plan refused, by what is wrong with it', () => {
+      expect(forgeRunGateStopOf({ code: 'SAMPLE_PLAN_GONE', sample: { plan: 'gone' } })).toEqual({
+        code: 'SAMPLE_PLAN_GONE',
+        sample: { plan: 'gone' },
+      });
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_PLAN_MISMATCH', sample: { plan: 'otherOrg' } }),
+      ).toEqual({ code: 'SAMPLE_PLAN_MISMATCH', sample: { plan: 'otherOrg' } });
+      expect(forgeRunGateStopOf({ code: 'SAMPLE_STORAGE_UNREAD' })).toEqual({
+        code: 'SAMPLE_STORAGE_UNREAD',
+      });
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_PLAN_MISMATCH', sample: { plan: 'mislaid' } }),
+      ).toBeNull();
+    });
+
+    // The target has less room than when the sample was fitted to it: the
+    // run is refused for its storage, and the page says to simulate again.
+    it('reads a refusal for storage of a sample whose target moved: what it was fitted to, and what the target holds now', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 3.5, remainingMB: 3 },
+          sample: { fittedMB: 3.6, holdsMB: 2 },
+        }),
+      ).toEqual({
+        code: 'STORAGE_EXCEEDED',
+        storage: { estimateMB: 3.5, remainingMB: 3 },
+        sample: { fittedMB: 3.6, holdsMB: 2 },
+      });
+    });
+
+    it('drops what a stop says of a sample on a stop that is not of one', () => {
+      expect(
+        forgeRunGateStopOf({ code: 'API_BUDGET_EXCEEDED', sample: { fittedMB: 3.6, holdsMB: 2 } }),
+      ).toEqual({ code: 'API_BUDGET_EXCEEDED' });
+      expect(isForgeRunGateCode('SAMPLE_PLAN_GONE')).toBe(true);
+    });
+
+    it('reads nothing past what a page names: a negative size, or more objects than it lists', () => {
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_CANNOT_FIT', sample: { needMB: -1, budgetMB: 3 } }),
+      ).toBeNull();
+      expect(
+        forgeRunGateStopOf({
+          code: 'SAMPLE_CANNOT_FIT',
+          sample: { heaviest: Array.from({ length: 21 }, (_, i) => `O${i}`) },
+        }),
+      ).toBeNull();
+    });
   });
 
   // The file copier of a run that clones no whole org refuses files past the

@@ -358,6 +358,7 @@ export {
   isForgeRunGateCode,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
+  type SampleGatePlanRefusal,
 } from './utils/forge-run-gate.js';
 export {
   COMPARE_DIFFERENCE_COUNT,

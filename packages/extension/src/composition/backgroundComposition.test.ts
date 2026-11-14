@@ -793,6 +793,160 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(call[0]).toBe('SandForge: confirm this clone of the whole org');
   });
 
+  // "Copy a sample of SRC into TGT: 1 812 records of 37 objects (of
+  // 1 284 330), 3.5 MB of the 3.6 MB budget; seed 1, 0.41 % of the roots;
+  // drawn at 14:02 by the simulation." Then the lines of any clone of the
+  // whole org, and a button that says what it does.
+  it('says of a sample of the whole org what it keeps, how it was drawn and how old its plan is, and asks to copy the sample', async () => {
+    const sampled: WriteConfirmation = {
+      ...write,
+      counted: true,
+      aboveRecords: undefined,
+      objects: [
+        { objectApiName: 'Case', rows: 1_100 },
+        { objectApiName: 'Account', rows: 712 },
+      ],
+      total: 1_812,
+      storage: { estimateMB: 3.5, maxMB: 5, remainingMB: 5, near: false },
+      wholeOrg: {
+        source: 'PROD',
+        leftOut: 0,
+        carried: {
+          filters: [],
+          excluded: [],
+          heldBack: [],
+          fieldsLeftOut: [],
+          sample: {
+            seed: 1,
+            draw: 'uniform',
+            parents: 'all',
+            children: 100,
+            floor: 1,
+            whole: ['Region__c'],
+          },
+        },
+        sample: {
+          rows: 1_812,
+          objects: 2,
+          sourceRows: 1_284_330,
+          storageMB: 3.5,
+          budgetMB: 3.6,
+          seed: 1,
+          draw: 'uniform',
+          share: 0.0041,
+          limitedBy: 'storage',
+          parents: 'all',
+          children: 100,
+          drawnAt: '2026-11-14T14:02:00.000Z',
+          drawnBy: 'dryRun',
+          minutesBefore: 8,
+          leftEmpty: 3,
+          heavyRoots: 1,
+          noRecordDrawn: 1,
+        },
+        targetApi: { estimate: 40, remaining: 9_000, max: 100_000 },
+        sourceApi: { estimate: 12, remaining: 9_000, max: 100_000 },
+        durationSeconds: 60,
+        restObjects: ['Case', 'Account'],
+      },
+    };
+
+    expect(runQuestionDetail(sampled).split('\n')).toEqual([
+      'This clone copies a sample of PROD into DEV: 2 objects, 1812 records.',
+      '• Case: 1100',
+      '• Account: 712',
+      'They take about 3.5 MB of data storage; DEV has 5 MB left of 5 MB.',
+      'The sample keeps 1812 of the 1284330 records PROD holds of these objects: about 3.5 MB of the 3.6 MB it may take.',
+      'Drawn with seed 1, spread over the org: 0.41 % of the roots of each object, with the records they reach; held by the data storage DEV has left.',
+      'Drawn by the simulation 8 minutes before; the run takes up its plan.',
+      'A record outside the sample that an optional lookup names is copied, without its children.',
+      'A record brings at most 100 children per relation, the newest; a master record brings every detail.',
+      'Lookups written empty, their record outside the sample: 3.',
+      'Records set aside, each of which would have brought in more than a tenth of what the sample may take: 1. The simulation names them.',
+      'Objects of PROD none of whose records the sample keeps: 1.',
+      'Copied whole as asked: Region__c.',
+      'API requests of DEV, to write: about 40; it has 9000 of its 100000 daily requests left.',
+      'API requests of PROD, to read: about 12; it has 9000 of its 100000 daily requests left.',
+      'Duration: a minute or less.',
+      'Written by REST rather than in Bulk API jobs, for their size or what a job cannot do: Case, Account.',
+      'Records whose owner is inactive in DEV are written with you as their owner, unless you hold Update Records with Inactive Owners; owners mapped under Review → Controls come first.',
+      'Removing the run from Results takes back every record it created.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Copy the sample' as never);
+    const { productionGuard } = createBackgroundComposition({
+      configStore: createMockConfigStore(),
+    });
+    await expect(productionGuard.confirmRun(sampled)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call[0]).toBe('SandForge: confirm this sample of the whole org');
+    expect(call.slice(2)).toEqual(['Copy the sample']);
+  });
+
+  it('says of a sample drawn by its run why it did not take up the simulation, what holds it, and its draw by recency', () => {
+    const base = {
+      rows: 10,
+      objects: 1,
+      sourceRows: 100,
+      storageMB: 0.02,
+      budgetMB: 1,
+      seed: 4,
+      share: 0.1,
+      parents: 'required' as const,
+      children: 'all' as const,
+      drawnAt: '2026-11-14T14:02:00.000Z',
+      drawnBy: 'run' as const,
+    };
+    const linesOf = (sample: NonNullable<WriteConfirmation['wholeOrg']>['sample']) =>
+      runQuestionDetail({
+        ...write,
+        counted: true,
+        wholeOrg: {
+          source: 'PROD',
+          leftOut: 0,
+          ...(sample ? { sample } : {}),
+          targetApi: { estimate: 4, remaining: 9_000, max: 100_000 },
+          sourceApi: { estimate: 4, remaining: 9_000, max: 100_000 },
+          durationSeconds: 6,
+          restObjects: [],
+        },
+      }).split('\n');
+
+    const recent = linesOf({
+      ...base,
+      draw: 'recent',
+      limitedBy: 'maxTotal',
+      drawnAgain: 'tooOld',
+      newestByIds: ['Region__c', 'Widget__c'],
+    });
+    expect(recent).toContain(
+      'Drawn with seed 4, the newest first: 10 % of the roots of each object, with the records they reach; held by the records asked.',
+    );
+    expect(recent).toContain(
+      'Newest by the order of their ids, having no creation date the org sorts by, which ids follow within a load only: Region__c, Widget__c.',
+    );
+    expect(recent).toContain('Drawn by this run.');
+    expect(recent).toContain(
+      'The plan of the simulation was more than a day old: the run drew its own.',
+    );
+    expect(recent).toContain('An optional lookup to a record outside the sample is written empty.');
+    expect(recent).toContain('A record brings every child it has.');
+    expect(
+      linesOf({ ...base, draw: 'uniform', limitedBy: 'within', drawnAgain: 'setUpOtherwise' }),
+    ).toContain('The plan of the simulation was drawn for another setup: the run drew its own.');
+    expect(
+      linesOf({ ...base, draw: 'uniform', limitedBy: 'sourceRequests', drawnAgain: 'planGone' }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/held by the daily API requests of PROD\.$/),
+        'The plan of the run this one retries was gone: the run drew its own with the same options.',
+      ]),
+    );
+    // A clone of every record says none of it.
+    expect(linesOf(undefined).join('\n')).not.toMatch(/sample/);
+  });
+
   it("names in a Sync run's question what it may write over, and that removing it puts that back", () => {
     expect(
       runQuestionDetail({ ...write, module: 'sync', counted: true, overwrites: 2400 }).split('\n'),

@@ -6,13 +6,20 @@
  * the same dry run and put the same question.
  */
 
-import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  type ForgeConfig,
+  type ForgeGraph,
+  type WholeOrgSample,
+} from '@sandforge/shared';
 import { namespaceOf } from '../checkpoint/checkpointScope.js';
 import type {
   WholeOrgAllowance,
   WholeOrgConfirmation,
+  WholeOrgConfirmationSample,
 } from '../../core/precheck/ProductionGuard.js';
 import type { WholeOrgBoundary } from './ForgeExecutor.js';
+import { sampleOptionsApplied } from './runFingerprint.js';
 import {
   personalFieldsAsIsOf,
   wholeOrgLeftOutOf,
@@ -30,8 +37,9 @@ export type WholeOrgCarried = NonNullable<WholeOrgConfirmation['carried']>;
 /**
  * What a clone of the whole org was set to that narrows it — the objects it
  * reads through a filter, those it leaves out by name, those whose rows a
- * decision on Gaps holds back, those it copies without some of their fields
- * — for its question to say: a whole org that copies part of a table, or
+ * decision on Gaps holds back, those it copies without some of their fields,
+ * a sample rather than every record — for its question to say: a whole org
+ * that copies part of a table, or
  * part of its records, without saying so is not what was asked for. Carried
  * over from a template or the run it was started from, set on Review, or
  * given on the command line: the configuration does not tell them apart, nor
@@ -40,10 +48,10 @@ export type WholeOrgCarried = NonNullable<WholeOrgConfirmation['carried']>;
 export function carriedOf(
   config: Pick<
     ForgeConfig,
-    'objectSoqlFilters' | 'excludedObjects' | 'skippedRows' | 'fieldExclusions'
+    'objectSoqlFilters' | 'excludedObjects' | 'skippedRows' | 'fieldExclusions' | 'sample'
   >,
 ): WholeOrgCarried | undefined {
-  const carried: WholeOrgCarried = {
+  const carried = {
     filters: Object.keys(config.objectSoqlFilters ?? {}).sort(),
     excluded: [...new Set(config.excludedObjects ?? [])].sort(),
     heldBack: [...new Set((config.skippedRows ?? []).map((entry) => entry.object))].sort(),
@@ -51,7 +59,10 @@ export function carriedOf(
       .filter(([, fields]) => fields.length > 0)
       .map(([object]) => object)
       .sort(),
-  };
+  } satisfies WholeOrgCarried;
+  // A sample copies part of every object: it narrows the run whatever else
+  // does, said with its options as they apply, as its fingerprint takes them.
+  if (config.sample) return { ...carried, sample: sampleOptionsApplied(config.sample) };
   return Object.values(carried).some((objects) => objects.length > 0) ? carried : undefined;
 }
 
@@ -165,6 +176,50 @@ export function pricedOfTheDryRun(dry: WholeOrgDryRun): WholeOrgPriced {
 }
 
 /**
+ * What the question of a sample of the whole org says of it: the records its
+ * plan keeps of what the source holds of the run's objects, the storage it
+ * takes of what it may take, its seed, draw and share, what held it, what an
+ * optional lookup outside it becomes, the children it takes, and when and by
+ * what its plan was drawn — a simulation's, with its age. Counts and words:
+ * no id of the roots set aside, no path of the plan.
+ */
+function sampleQuestionOf(sample: WholeOrgSample, now: number): WholeOrgConfirmationSample {
+  const sum = (rows: ReadonlyArray<{ rows: number }>): number =>
+    rows.reduce((total, entry) => total + entry.rows, 0);
+  const sourceRows =
+    sample.objects.reduce((total, object) => total + object.sourceRows, 0) +
+    sample.noRecordDrawn.reduce((total, object) => total + object.sourceRows, 0);
+  const leftEmpty = sum(sample.leftEmpty);
+  const { plan } = sample;
+  const drawnAt = Date.parse(plan.drawnAt);
+  return {
+    rows: sample.rows,
+    objects: sample.objects.length,
+    sourceRows,
+    storageMB: sample.storageBytes / BYTES_PER_MB,
+    budgetMB: sample.budget.bytes / BYTES_PER_MB,
+    seed: sample.seed,
+    draw: sample.draw,
+    share: sample.share,
+    limitedBy: sample.budget.limitedBy,
+    parents: sample.parents,
+    children: sample.children,
+    drawnAt: plan.drawnAt,
+    drawnBy: plan.drawnBy,
+    ...(plan.drawnBy === 'dryRun' && Number.isFinite(drawnAt)
+      ? { minutesBefore: Math.max(1, Math.ceil((now - drawnAt) / 60_000)) }
+      : {}),
+    ...(plan.drawnAgain ? { drawnAgain: plan.drawnAgain } : {}),
+    ...(leftEmpty > 0 ? { leftEmpty } : {}),
+    ...(sample.heavyRoots.length > 0 ? { heavyRoots: sample.heavyRoots.length } : {}),
+    ...(sample.noRecordDrawn.length > 0 ? { noRecordDrawn: sample.noRecordDrawn.length } : {}),
+    ...(sample.newestByIds && sample.newestByIds.length > 0
+      ? { newestByIds: [...sample.newestByIds] }
+      : {}),
+  };
+}
+
+/**
  * What the question of a clone of the whole org says besides its rows and
  * their storage (`WriteConfirmation.wholeOrg`), from what the run measured
  * and what its gate priced: what it leaves out and what narrows it; the
@@ -173,7 +228,12 @@ export function pricedOfTheDryRun(dry: WholeOrgDryRun): WholeOrgPriced {
  * batches; how long it writes; its files against the file storage left; the
  * objects of managed packages it writes, whose package runs its own
  * automation whatever the mute keeps quiet; the phone numbers that go in
- * empty; and the personal fields it copies as they are.
+ * empty; and the personal fields it copies as they are. Of a sample, what
+ * its plan keeps and how it was drawn, before the rest ({@link sampleQuestionOf}).
+ *
+ * @param input.sample - Of a sample of the whole org, what its plan drew.
+ * @param input.now - When the question is put, in epoch milliseconds: the
+ *   age of a simulation's plan is said against it.
  */
 export function wholeOrgConfirmationOf(input: {
   run: Pick<WholeOrgRun, 'source' | 'graph' | 'anonymizePII' | 'carried'>;
@@ -181,6 +241,8 @@ export function wholeOrgConfirmationOf(input: {
   plan: WritePlan;
   budget: WholeOrgPriced;
   files?: WholeOrgFilesCheck;
+  sample?: WholeOrgSample;
+  now?: number;
 }): WholeOrgConfirmation {
   const { run, measures, plan, budget } = input;
   const written = new Set(
@@ -200,6 +262,7 @@ export function wholeOrgConfirmationOf(input: {
     source: run.source,
     leftOut: wholeOrgLeftOutOf(run.graph).objects.length,
     ...(run.carried ? { carried: run.carried } : {}),
+    ...(input.sample ? { sample: sampleQuestionOf(input.sample, input.now ?? Date.now()) } : {}),
     targetApi: allowanceOf(budget.api),
     sourceApi: allowanceOf(budget.wholeOrg.source),
     ...(jobs > 0

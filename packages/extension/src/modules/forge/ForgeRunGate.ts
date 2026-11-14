@@ -31,6 +31,7 @@ import {
   firedOnRemovalOf,
   firedOnRemovalStepsOf,
   firedOnWriteOf,
+  forgeRunGateStopOf,
   heldBypassPermissionsOf,
   isForgeRunGateCode,
 } from '@sandforge/shared';
@@ -58,6 +59,9 @@ import type {
   RunCheckpointEstimate,
   RunCheckpointTaken,
   RunDeliverability,
+  SampleGatePlanRefusal,
+  WholeOrgSample,
+  WholeOrgSampleBudget,
 } from '@sandforge/shared';
 import {
   beforeRunFailedWords,
@@ -98,6 +102,7 @@ import {
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { AUTOMATION_READ_MOST, objectsTheRunWrites } from './TargetAutomationReader.js';
+import type { SampleRefusalCode } from './sample/sampleDrawing.js';
 
 /** The volume past which the extension asks before a run writes (`sandforge.safety.confirmAboveRecords`). */
 export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
@@ -281,6 +286,12 @@ export interface WritePlanLeftOut {
    */
   noParentInSource?: Array<{ objectApiName: string; rows: number }>;
   /**
+   * Of a sample of the whole org, per object, the rows its plan left aside:
+   * a lookup they may not leave empty names a record outside its object's
+   * filter, which the run does not copy. Absent when none.
+   */
+  outsideFilter?: Array<{ objectApiName: string; rows: number }>;
+  /**
    * Per object, the rows the platform writes itself with a record the run
    * creates, which the write links to and never sends. Absent when none.
    */
@@ -377,6 +388,7 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
       | 'recordTypeNotInTarget'
       | 'withoutParent'
       | 'noParentInSource'
+      | 'outsideFilter'
       | 'linkedToTarget'
       | 'currencyReplaced',
   ) =>
@@ -386,6 +398,7 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const recordTypeNotInTarget = rowsOf('recordTypeNotInTarget');
   const withoutParent = rowsOf('withoutParent');
   const noParentInSource = rowsOf('noParentInSource');
+  const outsideFilter = rowsOf('outsideFilter');
   const linkedToTarget = rowsOf('linkedToTarget');
   const currencyReplaced = rowsOf('currencyReplaced');
   return {
@@ -399,6 +412,7 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
     linkedByValue.length > 0 ||
     withoutParent.length > 0 ||
     noParentInSource.length > 0 ||
+    outsideFilter.length > 0 ||
     linkedToTarget.length > 0 ||
     currencyReplaced.length > 0
       ? {
@@ -410,6 +424,7 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
             ...(linkedByValue.length > 0 ? { linkedByValue } : {}),
             ...(withoutParent.length > 0 ? { withoutParent } : {}),
             ...(noParentInSource.length > 0 ? { noParentInSource } : {}),
+            ...(outsideFilter.length > 0 ? { outsideFilter } : {}),
             ...(linkedToTarget.length > 0 ? { linkedToTarget } : {}),
             ...(currencyReplaced.length > 0 ? { currencyReplaced } : {}),
           },
@@ -1388,6 +1403,8 @@ export interface ForgeGateStop {
   api?: NonNullable<ForgeRunGateStop['api']>;
   /** For a refusal for objects read whole: the bound, and the objects past it. */
   readBound?: NonNullable<ForgeRunGateStop['readBound']>;
+  /** For a sample of the whole org refused: what the stop names of it (`ForgeRunGateStop.sample`). */
+  sample?: NonNullable<ForgeRunGateStop['sample']>;
 }
 
 /** The objects a refusal for objects read whole names, at most, as the page reads it. */
@@ -1849,6 +1866,12 @@ export interface WholeOrgDryRun {
   personalAsIs: Array<{ objectApiName: string; fields: string[] }>;
   /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
   wouldBeRefused: ForgeGateStop[];
+  /**
+   * Of a sample of the whole org, what its plan drew and how
+   * (`WholeOrgSample`), said before the rest: the counts above are the
+   * plan's. Absent when every record is copied.
+   */
+  sample?: WholeOrgSample;
 }
 
 /**
@@ -1899,6 +1922,11 @@ export const DELIVERABILITY_READ_MOST = 2;
  *   read the limits, and priced as sent. The panel tells the target's alone,
  *   what the discovery of the org sent it; the source is then priced as
  *   without it.
+ * @param input.sample - Of a sample of the whole org, what its plan drew:
+ *   said first, its counts those `objects` hands over, and held, as its
+ *   run's gate holds it, to what the target has left now
+ *   ({@link sampleGateStopOf}) — refused in place of the data storage's own
+ *   refusal, which says less.
  */
 export async function wholeOrgDryRunOf(input: {
   objects: ForgeWriteBoundary['objects'];
@@ -1911,6 +1939,7 @@ export async function wholeOrgDryRunOf(input: {
   mute?: number;
   deliverability?: number;
   sentBefore?: () => { target: number; source?: number };
+  sample?: WholeOrgSample;
   target: { org: string; limits: LimitsTransport };
   source: { org: string; limits: LimitsTransport };
 }): Promise<WholeOrgDryRun> {
@@ -1925,6 +1954,9 @@ export async function wholeOrgDryRunOf(input: {
 
   const storage = storageCheckOf(plan, limits);
   const overStorage = storageRefusal(storage, input.target.org);
+  const sampleStop = input.sample
+    ? sampleGateStopOf({ sample: input.sample, storage: limits, target: input.target.org })
+    : undefined;
   const files = wholeOrgFilesOf(input.measures.files, limits, input.target.org);
   const sent = input.sentBefore?.();
   const requests = forgeWriteBudgetOf({
@@ -1947,7 +1979,8 @@ export async function wholeOrgDryRunOf(input: {
   });
   const wouldBeRefused = [
     readBoundStopOf(input.measures.readWholeOver),
-    overStorage !== undefined && storage.verdict === 'exceeds'
+    sampleStop,
+    sampleStop === undefined && overStorage !== undefined && storage.verdict === 'exceeds'
       ? {
           code: 'STORAGE_EXCEEDED' as const,
           message: `${overStorage} Nothing was written.`,
@@ -1985,7 +2018,281 @@ export async function wholeOrgDryRunOf(input: {
     },
     personalAsIs: personalFieldsAsIsOf(input.graph.nodes, written, input.anonymizePII),
     wouldBeRefused,
+    ...(input.sample ? { sample: input.sample } : {}),
   };
+}
+
+// ─── A sample of the whole org ──────────────────────────────────────────────
+
+/**
+ * The target would not say what data storage it has left, and nothing else
+ * — the MB asked (`--fit-within`), the records asked (`--max-total`) —
+ * bounds the sample: there is nothing to draw it against, or to hold it to.
+ */
+export const SAMPLE_STORAGE_UNREAD = 'SAMPLE_STORAGE_UNREAD';
+
+/**
+ * The objects a sample copies whole and the roots it keeps of each object
+ * whatever the share (`--fit-floor`) alone take more than the sample may: no
+ * share of the rest fits. The heaviest are named.
+ */
+export const SAMPLE_CANNOT_FIT = 'SAMPLE_CANNOT_FIT';
+
+/** Drawing the sample read more records than it holds at once. */
+export const SAMPLE_TOO_LARGE = 'SAMPLE_TOO_LARGE';
+
+/**
+ * The plan a run was given to replay (`--fit-plan`) was drawn of another org
+ * or for another setup of the run, or is no longer as its dry run wrote it.
+ */
+export const SAMPLE_PLAN_MISMATCH = 'SAMPLE_PLAN_MISMATCH';
+
+/**
+ * The plan a run resumes is not on this machine, or not as it was written —
+ * or no plan is where a run was given one: the records it was to write
+ * cannot be taken up.
+ */
+export const SAMPLE_PLAN_GONE = 'SAMPLE_PLAN_GONE';
+
+/** What gives a sample's gate the bounds it was drawn against: see `WholeOrgSampleBudget`. */
+type SampleBudgetTerms = Pick<
+  WholeOrgSampleBudget,
+  'bytes' | 'remainingMB' | 'share' | 'roundingMB' | 'withinMB' | 'maxTotal'
+>;
+
+/**
+ * The refusal of a sample whose target would not say its data storage when
+ * nothing else bounds it ({@link SAMPLE_STORAGE_UNREAD}), or nothing: the
+ * storage was read, or the MB or the records asked hold the sample. Asked
+ * before a sample is drawn, of the bounds asked, and at its gate, of the
+ * bounds it was drawn with.
+ *
+ * @param input.bounds - The MB and the records asked of the sample.
+ * @param input.target - The org, as the refusal names it.
+ */
+export function sampleStorageUnreadStopOf(input: {
+  storage: DataStorage | { unread: string };
+  bounds: Pick<WholeOrgSampleBudget, 'withinMB' | 'maxTotal'>;
+  target: string;
+}): ForgeGateStop | undefined {
+  const { storage, bounds, target } = input;
+  if (!('unread' in storage)) return undefined;
+  if (bounds.withinMB !== undefined || bounds.maxTotal !== undefined) return undefined;
+  return {
+    code: SAMPLE_STORAGE_UNREAD,
+    message:
+      `The data storage ${target} has left could not be read (${storage.unread}), and a sample ` +
+      'is fitted to it: there is nothing to hold it to. Give the most it may take ' +
+      '(--fit-within <MB>) or the most records (--max-total <n>), or run it again once the org ' +
+      'answers. Nothing was written.',
+  };
+}
+
+/**
+ * The bytes a sample may take of the data storage a target has left now, by
+ * the terms it was fitted to: the same share of what is left past the same
+ * margin for rounding. The MB asked bound nothing more here: a sample was
+ * drawn within them. Undefined for a sample drawn against no storage — the
+ * target would not say, and the MB or the records asked held it.
+ */
+function sampleHoldsBytesOf(
+  budget: SampleBudgetTerms,
+  storage: Pick<DataStorage, 'remainingMB'>,
+): number | undefined {
+  if (budget.remainingMB === undefined || budget.share === undefined) return undefined;
+  const past = Math.max(0, storage.remainingMB - (budget.roundingMB ?? 0));
+  return Math.floor(budget.share * past * BYTES_PER_MB);
+}
+
+/**
+ * The refusal of a sample whose target has less room than it was fitted to,
+ * or nothing: the data storage the target has left now, by the terms the
+ * sample was fitted to, holds less than the sample takes. Refused for its
+ * storage (`STORAGE_EXCEEDED`), with what it was fitted to and what the
+ * target holds now (`sample`), and the word to simulate again: drawn again,
+ * a sample fits; cut to what is left, the run would not be the sample
+ * simulated, and a run never cuts one.
+ */
+function sampleTargetMovedStopOf(input: {
+  sample: Pick<WholeOrgSample, 'storageBytes'> & { budget: SampleBudgetTerms };
+  storage: DataStorage;
+  target: string;
+}): ForgeGateStop | undefined {
+  const { sample, storage, target } = input;
+  const holds = sampleHoldsBytesOf(sample.budget, storage);
+  if (holds === undefined || sample.storageBytes <= holds) return undefined;
+  const takes = formatMBPast(sample.storageBytes / BYTES_PER_MB, holds / BYTES_PER_MB);
+  const fitted = formatMB(sample.budget.bytes / BYTES_PER_MB);
+  return {
+    code: 'STORAGE_EXCEEDED',
+    message:
+      `The sample was fitted to ${fitted} MB of the data storage ${target} had left ` +
+      `(${sample.budget.remainingMB} MB), and ${target} now says ${storage.remainingMB} MB ` +
+      `left, which holds ${takes.bound} MB of a sample: the sample takes about ${takes.over} MB. ` +
+      'Simulate again — run the dry run again — to draw a sample that fits: a run never cuts ' +
+      'its sample short. Nothing was written.',
+    storage: { estimateMB: Number(takes.over), remainingMB: storage.remainingMB },
+    sample: { fittedMB: Number(fitted), holdsMB: Number(takes.bound) },
+  };
+}
+
+/**
+ * What the gate of a sample of the whole org holds it to beside a run's
+ * checks — the dry run's and the run's alike, once the target's limits are
+ * read: refused when the target would not say its data storage and nothing
+ * else bounds the sample ({@link SAMPLE_STORAGE_UNREAD}), and when the
+ * storage the target has left now holds less than the sample takes by the
+ * terms it was fitted to (`STORAGE_EXCEEDED`, simulate again). Nothing when
+ * it holds.
+ *
+ * @param input.storage - The target's limits as the gate read them, or why
+ *   they could not be.
+ * @param input.target - The org, as the refusal names it.
+ */
+export function sampleGateStopOf(input: {
+  sample: Pick<WholeOrgSample, 'storageBytes'> & { budget: SampleBudgetTerms };
+  storage: DataStorage | { unread: string };
+  target: string;
+}): ForgeGateStop | undefined {
+  const { sample, storage, target } = input;
+  if ('unread' in storage) {
+    return sampleStorageUnreadStopOf({ storage, bounds: sample.budget, target });
+  }
+  return sampleTargetMovedStopOf({ sample, storage, target });
+}
+
+/** The refusals of a plan the run is given, as `SamplePlanError` names them. */
+const PLAN_REFUSALS: ReadonlySet<string> = new Set<SampleGatePlanRefusal>([
+  'gone',
+  'changed',
+  'otherOrg',
+  'otherSetup',
+  'otherSha',
+]);
+
+/** What a plan given to replay (`--fit-plan`) is refused for, after its first words. */
+const REPLAY_WORDS: Readonly<Record<Exclude<SampleGatePlanRefusal, 'gone'>, string>> = {
+  changed: 'is no longer as its dry run wrote it: its ids changed since',
+  otherOrg: 'was drawn of another org than the source',
+  otherSetup:
+    'was drawn for another setup of the run — other flags, filters, objects or options of the sample',
+  otherSha: 'is not the plan its dry run printed',
+};
+
+/**
+ * The refusal of a plan a run resumes (`resume`) or was given to replay
+ * (`replay`, `--fit-plan`), from what refused it (`SamplePlanError`).
+ * Resumed, a plan gone or changed is gone ({@link SAMPLE_PLAN_GONE}): the
+ * records the run was to write cannot be taken up after where it stopped.
+ * Given, a path that holds no plan is gone too; one drawn of another org,
+ * for another setup, or changed since, is another plan
+ * ({@link SAMPLE_PLAN_MISMATCH}).
+ */
+function samplePlanStopOf(refusal: SampleGatePlanRefusal, use: 'replay' | 'resume'): ForgeGateStop {
+  if (use === 'resume') {
+    const state =
+      refusal === 'gone' ? 'is no longer on this machine' : 'is no longer as it was written';
+    return {
+      code: SAMPLE_PLAN_GONE,
+      message:
+        `The plan of the sample this run resumes ${state}: the records it was to write cannot ` +
+        'be taken up after where it stopped (--resume). Remove what it wrote (--remove), or ' +
+        'run the clone again without --resume to draw a new sample. Nothing was written.',
+      sample: { plan: refusal },
+    };
+  }
+  if (refusal === 'gone') {
+    return {
+      code: SAMPLE_PLAN_GONE,
+      message:
+        'No plan of a sample is at the path given to --fit-plan: give the folder its dry run ' +
+        'printed ("sample plan: …"), within a day of it, or leave --fit-plan out to draw a new ' +
+        'sample. Nothing was written.',
+      sample: { plan: refusal },
+    };
+  }
+  return {
+    code: SAMPLE_PLAN_MISMATCH,
+    message:
+      `The plan given to --fit-plan ${REPLAY_WORDS[refusal]}: run the dry run again with the ` +
+      'flags of this run, and replay the plan it prints. Nothing was written.',
+    sample: { plan: refusal },
+  };
+}
+
+/**
+ * The codes the executor refuses a sample under (`SampleRefusedError`): the
+ * objects copied whole and the floors alone past the bounds, more records
+ * read than the drawing holds at once, a plan gone, a run resumed otherwise
+ * than it was set up. Each is one of the gate's, the same string, held so by
+ * the compiler on both sides.
+ */
+const SAMPLE_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  SAMPLE_TOO_LARGE,
+  SAMPLE_CANNOT_FIT,
+  SAMPLE_PLAN_GONE,
+  SAMPLE_PLAN_MISMATCH,
+] as const satisfies ReadonlyArray<SampleRefusalCode & ForgeRunGateCode>);
+
+/** The heaviest objects a refusal of the executor names, at most, as the page reads them. */
+const HEAVIEST_NAMED = 20;
+
+/**
+ * The gate's refusal for an error met as a sample is drawn (`draw`), its
+ * plan taken up to resume (`resume`) or given to replay (`replay`):
+ *
+ * - the executor's own refusal (`SampleRefusedError`), under its code and in
+ *   its words, which name the flags that would let the run through; of a
+ *   sample that cannot fit, its heaviest objects named; what it says besides
+ *   for the page (`sample`) kept when it reads as a stop's;
+ * - a plan its caller opened and found refused (`SamplePlanError`): resumed,
+ *   gone ({@link SAMPLE_PLAN_GONE}) whatever refused it; given to replay,
+ *   gone when nothing is there, another plan ({@link SAMPLE_PLAN_MISMATCH})
+ *   otherwise.
+ *
+ * Told by name as well as by class, as a gate's stop is: thrown from the
+ * executor, the error reaches the bridge through the orchestrator, and what
+ * is said of it must not hang on one module instance. Nothing for any other
+ * error, nor for a refusal under a code the gate does not know.
+ */
+export function sampleGateErrorOf(
+  error: unknown,
+  use: 'draw' | 'replay' | 'resume',
+): ForgeRunGateError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if (error.name === 'SampleRefusedError') {
+    const { code, heaviest, sample } = error as {
+      code?: unknown;
+      heaviest?: unknown;
+      sample?: unknown;
+    };
+    if (typeof code !== 'string' || !SAMPLE_REFUSAL_CODES.has(code)) return undefined;
+    const named = Array.isArray(heaviest)
+      ? heaviest.flatMap((object: unknown) => {
+          const name = (object as { objectApiName?: unknown } | null)?.objectApiName;
+          return typeof name === 'string' ? [name] : [];
+        })
+      : [];
+    // What the refusal says of itself for the page, held to what a stop may say.
+    const said = forgeRunGateStopOf({ code, sample })?.sample ?? {};
+    const detail = {
+      ...said,
+      ...(code === SAMPLE_CANNOT_FIT && said.heaviest === undefined && named.length > 0
+        ? { heaviest: named.slice(0, HEAVIEST_NAMED) }
+        : {}),
+    };
+    return ForgeRunGateError.of({
+      code: code as SampleRefusalCode,
+      message: error.message,
+      ...(Object.keys(detail).length > 0 ? { sample: detail } : {}),
+    });
+  }
+  if (error.name === 'SamplePlanError' && use !== 'draw') {
+    const { refusal } = error as { refusal?: unknown };
+    if (typeof refusal !== 'string' || !PLAN_REFUSALS.has(refusal)) return undefined;
+    return ForgeRunGateError.of(samplePlanStopOf(refusal as SampleGatePlanRefusal, use));
+  }
+  return undefined;
 }
 
 /** What an org has of a daily email limit, as its `/limits` say. */
@@ -3299,6 +3606,8 @@ export class ForgeRunGateError extends Error {
   readonly api?: NonNullable<ForgeRunGateStop['api']>;
   /** For a clone of the whole org refused for what it reads whole: the bound, and the objects past it. */
   readonly readBound?: NonNullable<ForgeRunGateStop['readBound']>;
+  /** For a sample of the whole org refused: what the stop names of it. */
+  readonly sample?: NonNullable<ForgeRunGateStop['sample']>;
 
   constructor(
     code: ForgeRunGateErrorCode,
@@ -3306,7 +3615,7 @@ export class ForgeRunGateError extends Error {
     storage?: NonNullable<ForgeRunGateStop['storage']>,
     ceiling?: number,
     reason?: CheckpointRefusalCode,
-    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound'>,
+    detail?: Pick<ForgeRunGateStop, 'api' | 'readBound' | 'sample'>,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
@@ -3316,6 +3625,7 @@ export class ForgeRunGateError extends Error {
     if (reason !== undefined) this.reason = reason;
     if (detail?.api) this.api = detail.api;
     if (detail?.readBound) this.readBound = detail.readBound;
+    if (detail?.sample) this.sample = detail.sample;
   }
 
   /**
@@ -3325,7 +3635,8 @@ export class ForgeRunGateError extends Error {
    * refused, never by what — the disk of this machine, another run writing,
    * its limit of records — which the English message alone named. A stop of
    * a clone of the whole org keeps what it names besides: the storage and
-   * which, the allowance and the org, the objects read whole.
+   * which, the allowance and the org, the objects read whole, what it says
+   * of a sample.
    */
   static of(stop: ForgeGateStop): ForgeRunGateError {
     return new ForgeRunGateError(
@@ -3337,6 +3648,7 @@ export class ForgeRunGateError extends Error {
       {
         ...(stop.api ? { api: stop.api } : {}),
         ...(stop.readBound ? { readBound: stop.readBound } : {}),
+        ...(stop.sample ? { sample: stop.sample } : {}),
       },
     );
   }
@@ -3355,6 +3667,7 @@ export class ForgeRunGateError extends Error {
       ...(this.readBound && this.code === 'READ_BOUND_EXCEEDED'
         ? { readBound: this.readBound }
         : {}),
+      ...(this.sample ? { sample: this.sample } : {}),
     };
   }
 }
@@ -3528,6 +3841,12 @@ export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
     lines.push(
       `  not counted: ${objectApiName}, ${rows} record(s) left aside: a lookup they may not ` +
         'leave empty names a record the source does not hold, which no copy can write',
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.outsideFilter ?? []) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s) left aside: a lookup they may not ` +
+        "leave empty names a record outside its object's filter, which the run does not copy",
     );
   }
   for (const { objectApiName, rows } of leftOut.byThePlatform ?? []) {

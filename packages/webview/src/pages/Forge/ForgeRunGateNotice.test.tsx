@@ -210,6 +210,92 @@ describe('ForgeRunGateNotice', () => {
       expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
     });
+
+    /*
+     * A sample of the whole org refused, said in the page's words — Review,
+     * Simulate — where the host's English names the command line's flags.
+     */
+    it.each([
+      [
+        'a target that would not say its storage, nothing else bounding the sample',
+        { code: 'SAMPLE_STORAGE_UNREAD' },
+        'The run was refused before it wrote anything: the target org would not say what data storage it has left, and the sample has nothing else to be held to. Set the MB it may take on Review, or run it again once the org answers.',
+      ],
+      [
+        'a sample that cannot fit',
+        {
+          code: 'SAMPLE_CANNOT_FIT',
+          sample: { needMB: 7.5, budgetMB: 3.6, heaviest: ['Case', 'Pricebook2'] },
+        },
+        'The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take about 7.5 MB, past the 3.6 MB the sample may take; the heaviest: Case, Pricebook2. Leave objects out, or copy fewer whole, on Review, or let the sample take more.',
+      ],
+      [
+        'a sample too large to hold',
+        { code: 'SAMPLE_TOO_LARGE', sample: { rows: 1_000_001, most: 1_000_000 } },
+        'The run was refused before it wrote anything: drawing the sample read 1,000,001 records, more than the 1,000,000 it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.',
+      ],
+      [
+        'a plan of another org or setup',
+        { code: 'SAMPLE_PLAN_MISMATCH', sample: { plan: 'otherSetup' } },
+        'The run was refused before it wrote anything: the plan of the sample it was to copy was drawn of another org or for another setup, or has changed since. Simulate again to draw a new one.',
+      ],
+      [
+        'a plan gone',
+        { code: 'SAMPLE_PLAN_GONE', sample: { plan: 'gone' } },
+        'The run was refused before it wrote anything: the plan of its sample is no longer on this machine, or no longer as it was drawn, so its records cannot be taken up. Run it again from Review to draw a new sample, or remove what it wrote from Results.',
+      ],
+      [
+        'a target with less room than the sample was fitted to',
+        {
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 3.5, remainingMB: 4 },
+          sample: { fittedMB: 3.6, holdsMB: 2.8 },
+        },
+        'The run was refused before it wrote anything: the sample was fitted to 3.6 MB of the target org’s data storage, and what the target has left now holds 2.8 MB of a sample. Simulate again to draw a sample that fits.',
+      ],
+      // As the executor refuses them, with no figure: said without one.
+      [
+        'a sample that cannot fit, as the executor names its heaviest objects alone',
+        { code: 'SAMPLE_CANNOT_FIT', sample: { heaviest: ['Case', 'Pricebook2'] } },
+        'The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take more than the sample may take; the heaviest: Case, Pricebook2. Leave objects out, or copy fewer whole, on Review, or let the sample take more.',
+      ],
+      [
+        'a sample too large to hold, said without its records',
+        { code: 'SAMPLE_TOO_LARGE' },
+        'The run was refused before it wrote anything: drawing the sample read more records than it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.',
+      ],
+      [
+        'a run resumed as it was not set up',
+        { code: 'SAMPLE_PLAN_MISMATCH' },
+        'The run was refused before it wrote anything: the run it resumes was set up otherwise, a sample where this one copies every record, or every record where this one copies a sample. Resume it as it was set up.',
+      ],
+    ])('alerts that a sample was refused for %s', (_what, stop, text) => {
+      act(() => useForgeRunGateStore.getState().setStop(stop as ForgeRunGateStop));
+      render(<ForgeRunGateNotice />);
+
+      expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
+    });
+
+    it('says a target with less room than the sample was fitted to in the panel’s language', async () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 3.5, remainingMB: 4 },
+          sample: { fittedMB: 3.6, holdsMB: 2.8 },
+        }),
+      );
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await act(() => i18n.changeLanguage('fr'));
+      try {
+        render(<ForgeRunGateNotice />);
+        expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+          "Le clonage a été refusé avant d'écrire quoi que ce soit : l'échantillon a été ajusté à 3,6 Mo du stockage de données de l'org cible, et ce qu'il lui reste maintenant en contient 2,8 Mo. Simulez de nouveau pour tirer un échantillon qui tient.",
+        );
+      } finally {
+        await act(() => i18n.changeLanguage('en'));
+      }
+    });
   });
 
   describe('of a run its file copier refused, which clones no whole org', () => {

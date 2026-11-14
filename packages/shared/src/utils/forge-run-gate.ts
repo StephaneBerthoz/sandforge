@@ -46,6 +46,24 @@ import * as z from 'zod';
  *   file copier would copy take more file storage than the target has left,
  *   as the stop's `storage` says, `kind: 'files'`. A clone of the whole org
  *   is refused so at its gate under `STORAGE_EXCEEDED`.
+ *
+ * A sample of the whole org (`ForgeConfig.sample`) is refused, nothing
+ * written, under five codes of its own; and under `STORAGE_EXCEEDED` when
+ * the target has less room than the sample was fitted to, the stop's
+ * `sample` saying how much: drawn again, it would fit, cut, it would not be
+ * the sample simulated.
+ *
+ * - `SAMPLE_STORAGE_UNREAD`: the target would not say what data storage it
+ *   has left, and no other bound — the MB or the records asked — holds the
+ *   sample: there is nothing to fit it to.
+ * - `SAMPLE_CANNOT_FIT`: the objects copied whole and the roots kept of each
+ *   object alone take more than the sample may: no share of the rest fits.
+ * - `SAMPLE_TOO_LARGE`: drawing the sample read more records than it holds
+ *   at once, a bound on the memory.
+ * - `SAMPLE_PLAN_MISMATCH`: the plan a run was given to replay was drawn of
+ *   another org or for another setup, or is no longer as it was written.
+ * - `SAMPLE_PLAN_GONE`: the plan a run resumes, or was given, is not on this
+ *   machine, or not as it was written: its records cannot be taken up.
  */
 /**
  * The rows of one object past which a run reading it with no cap asks first
@@ -75,6 +93,11 @@ export const FORGE_RUN_GATE_CODES = [
   'FILES_UNREAD',
   'FILE_STORAGE_UNREAD',
   'FILE_STORAGE_EXCEEDED',
+  'SAMPLE_STORAGE_UNREAD',
+  'SAMPLE_CANNOT_FIT',
+  'SAMPLE_TOO_LARGE',
+  'SAMPLE_PLAN_MISMATCH',
+  'SAMPLE_PLAN_GONE',
 ] as const;
 
 /** A way a Forge run stops at its gate. */
@@ -121,7 +144,48 @@ export interface ForgeRunGateStop {
    * and each object past it with its rows.
    */
   readBound?: { bound: number; objects: Array<{ objectApiName: string; rows: number }> };
+  /**
+   * For a sample of the whole org stopped at its gate, what the page names of
+   * the stop:
+   * - of one that cannot fit (`SAMPLE_CANNOT_FIT`), what the objects copied
+   *   whole and the roots kept of each object take, the most the sample may
+   *   take, in MB, and the heaviest objects by name;
+   * - of one too large to hold (`SAMPLE_TOO_LARGE`), the records it read and
+   *   the most it holds at once;
+   * - of a plan refused (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`), what is
+   *   wrong with it: not there, changed since, drawn of another org, for
+   *   another setup, or another plan than its run's;
+   * - of a sample whose target has less room than it was fitted to
+   *   (`STORAGE_EXCEEDED`), the MB it was fitted to and the MB the storage
+   *   the target has left now holds of a sample.
+   */
+  sample?: {
+    needMB?: number;
+    budgetMB?: number;
+    heaviest?: string[];
+    rows?: number;
+    most?: number;
+    plan?: SampleGatePlanRefusal;
+    fittedMB?: number;
+    holdsMB?: number;
+  };
 }
+
+/** What is wrong with the plan of a sample a run is refused for: see {@link ForgeRunGateStop.sample}. */
+export type SampleGatePlanRefusal = 'gone' | 'changed' | 'otherOrg' | 'otherSetup' | 'otherSha';
+
+/** The codes of a sample's own stops, and the one a sample whose target moved is refused under. */
+const SAMPLE_STOP_CODES: ReadonlySet<ForgeRunGateCode> = new Set([
+  'SAMPLE_STORAGE_UNREAD',
+  'SAMPLE_CANNOT_FIT',
+  'SAMPLE_TOO_LARGE',
+  'SAMPLE_PLAN_MISMATCH',
+  'SAMPLE_PLAN_GONE',
+  'STORAGE_EXCEEDED',
+]);
+
+/** The heaviest objects a refusal of a sample that cannot fit names, at most, as the page reads them. */
+const SAMPLE_HEAVIEST_NAMED = 20;
 
 const stopSchema = z.object({
   code: z.enum(FORGE_RUN_GATE_CODES),
@@ -163,6 +227,20 @@ const stopSchema = z.object({
         .max(200),
     })
     .optional(),
+  // Bounded as a message is: sizes and counts never below zero, and the
+  // heaviest objects few, each a name.
+  sample: z
+    .object({
+      needMB: z.number().nonnegative().optional(),
+      budgetMB: z.number().nonnegative().optional(),
+      heaviest: z.array(z.string().min(1).max(255)).max(SAMPLE_HEAVIEST_NAMED).optional(),
+      rows: z.number().int().nonnegative().optional(),
+      most: z.number().int().nonnegative().optional(),
+      plan: z.enum(['gone', 'changed', 'otherOrg', 'otherSetup', 'otherSha']).optional(),
+      fittedMB: z.number().nonnegative().optional(),
+      holdsMB: z.number().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 /** Whether `value` is one of the codes a run stops at its gate with. */
@@ -177,7 +255,7 @@ export function isForgeRunGateCode(value: unknown): value is ForgeRunGateCode {
 export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
   const parsed = stopSchema.safeParse(value);
   if (!parsed.success) return null;
-  const { code, storage, ceiling, reason, api, readBound } = parsed.data;
+  const { code, storage, ceiling, reason, api, readBound, sample } = parsed.data;
   return {
     code,
     ...(storage
@@ -194,5 +272,6 @@ export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
     // Each says something of its own stop only, as the reason does.
     ...(api && code === 'API_BUDGET_EXCEEDED' ? { api } : {}),
     ...(readBound && code === 'READ_BOUND_EXCEEDED' ? { readBound } : {}),
+    ...(sample && SAMPLE_STOP_CODES.has(code) ? { sample } : {}),
   };
 }
