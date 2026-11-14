@@ -27,6 +27,7 @@ import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { ForgeEmailLimit, ForgeUndoObjectResult } from './forge.types.js';
 import type { ISODateString } from './common.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
+import type { FrozenLoadRecordsInfo } from './frozen.types.js';
 
 // ─── The checkpoint file (checkpoint.json, version 1) ────────────────────────
 
@@ -828,6 +829,40 @@ export interface CheckpointListEntry {
    * be undone: Undo is offered for an org's latest rewind only.
    */
   undo?: { rewindId: string; until: ISODateString };
+  /**
+   * Its replays into other orgs this machine keeps, each org's once, newest
+   * first: read from the replays' own files, which a deletion of the
+   * checkpoint leaves. Absent when it was never replayed.
+   */
+  replays?: CheckpointReplayListed[];
+}
+
+/**
+ * A checkpoint's replay into another org, as this machine's files say it, no
+ * org asked: what a removal of it takes, which needs neither the checkpoint
+ * nor its org.
+ */
+export interface CheckpointReplayListed {
+  /**
+   * The other org: its Organization Id as it answered, the name the replay
+   * gave it, and the registered org that answers with that Id now, when one
+   * does — what a removal connects to.
+   */
+  target: { organizationId: string; name?: string; orgId?: string };
+  /** When its last replay wrote its last record; absent when none wrote. */
+  replayedAt?: ISODateString;
+  /** Records its replays created there that no removal took, every object together. */
+  inPlace: number;
+  /** Set when a removal took every record its last replay created. */
+  removed?: true;
+  /** What its last replay was asked. */
+  choices?: CheckpointReplayChoices;
+  /**
+   * The replay a removal takes next there, counts only, under the registered
+   * org's id: absent when no registered org answers with its Id, or no
+   * replay wrote.
+   */
+  records?: FrozenLoadRecordsInfo;
 }
 
 /** One object a take would read, as its scope reads it before anything is kept. */

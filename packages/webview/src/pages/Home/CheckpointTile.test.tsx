@@ -140,4 +140,38 @@ describe('CheckpointTile', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('offers to replay the newest checkpoint of the sandbox before its refresh into it, which no rewind reaches', () => {
+    render(<CheckpointTile org={developerOrg({ orgType: 'Sandbox' })} />);
+    answerList([
+      listEntry(
+        readyCheckpoint({ checkpointId: 'ck-20261019-090000-0002', name: 'Recette prête' }),
+        {
+          valid: false,
+          why: 'refreshed',
+        },
+      ),
+      listEntry(readyCheckpoint({ checkpointId: 'ck-20261018-090000-0003', name: 'Older' }), {
+        valid: false,
+        why: 'refreshed',
+      }),
+    ]);
+    expect(screen.getByTestId('checkpoint-tile-replay').textContent).toContain(
+      '“Recette prête” is of DEV-SB before its refresh: replay it to set its records up again there.',
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-tile-replay-open'));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'checkpoint',
+      replayCheckpointId: 'ck-20261019-090000-0002',
+    });
+  });
+
+  it('offers no replay when no checkpoint is of the org before a refresh', () => {
+    render(<CheckpointTile org={developerOrg()} />);
+    answerList([
+      listEntry(readyCheckpoint(), { valid: false, why: 'scratchExpired' }),
+      listEntry(),
+    ]);
+    expect(screen.queryByTestId('checkpoint-tile-replay')).toBeNull();
+  });
 });

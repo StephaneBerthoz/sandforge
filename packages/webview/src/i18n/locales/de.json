@@ -4171,7 +4171,9 @@
       "none": "Erstellen Sie vor Ihrer nächsten Testsitzung einen Prüfpunkt von {{org}}",
       "take": "Prüfpunkt erstellen",
       "expiresSoon": "„{{name}}“ läuft {{when}} ab",
-      "keep": "Aufbewahren"
+      "keep": "Aufbewahren",
+      "replayRefreshed": "„{{name}}“ stammt von {{org}} vor der Aktualisierung: Geben Sie ihn wieder, um seine Datensätze dort neu anzulegen.",
+      "replay": "Wiedergeben…"
     },
     "openAutomation": "Automatisierung öffnen",
     "openOpModule": "{{module}} öffnen",
@@ -6530,6 +6532,74 @@
         "explanationUnread": "Was {{org}} beim Schreiben des Ladevorgangs ausführt, konnte nicht gelesen werden, und nichts wurde geschrieben.",
         "action": "Haken Sie „Laden, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an, um trotzdem zu laden, haken Sie das Stummschalten der Automatisierung an, um still zu halten, was die Umgehung der Org prüft, oder deaktivieren Sie diese Automatisierungen in {{org}}."
       }
+    },
+    "replay": {
+      "automation": {
+        "title": "Was {{org}} ausführt, wenn die Wiedergabe ihre Datensätze einfügt und aktualisiert:",
+        "unread": "Was {{org}} ausführt, konnte nicht gelesen werden ({{reason}}): Die Wiedergabe fragt, als liefe etwas.",
+        "refused": "Eine Wiedergabe würde abgelehnt, nichts geschrieben, außer Sie haken „Wiedergeben, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an oder schalten sie stumm.",
+        "accepted": "Mit angehaktem Kästchen schreibt die Wiedergabe trotzdem, und diese Automatisierung läuft."
+      },
+      "emails": {
+        "refused": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben der Wiedergabe sendet, oder sagt nicht, ob sie sie zustellt: Die Wiedergabe würde abgelehnt, nichts geschrieben, außer Sie haken „Wiedergeben, auch wenn {{org}} die E-Mails zustellt“ an.",
+        "accepted": "{{org}} stellt die E-Mails zu, die das noch Laufende beim Schreiben der Wiedergabe sendet, oder sagt nicht, ob sie sie zustellt: Mit angehaktem Kästchen sendet die Wiedergabe sie.",
+        "exceeded": "Über das hinaus, was {{org}} heute bleibt, wird jeder Datensatz abgelehnt, dessen Flow beim Speichern scheitert: Die Wiedergabe würde abgelehnt, nichts geschrieben, was auch immer das Kästchen sagt. Schalten Sie stumm, was sie sendet, oder geben Sie in einer Org wieder, der heute mehr E-Mails bleiben."
+      },
+      "removal": {
+        "title": "Letzte Wiedergabe",
+        "titleEarlier": "Frühere Wiedergabe",
+        "replayedInto": "Am {{date}} in {{org}} wiedergegeben",
+        "earlierNote": "Eine Wiedergabe vor der letzten: Die folgenden Wiedergaben haben ihre Datensätze in {{org}} gelassen.",
+        "remove": "Diese Wiedergabe entfernen",
+        "removeLeft": "Den Rest dieser Wiedergabe entfernen",
+        "removeTitle": "Diese Wiedergabe aus {{org}} entfernen",
+        "removeDescription": "Löscht aus {{org}} die Datensätze, die diese Wiedergabe angelegt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen die Wiedergabe verknüpft hat und die {{org}} schon enthielt, bleiben, ebenso ein Datensatz, von dem in {{org}} bleibende Datensätze abhängen. Ein seit der Wiedergabe geänderter Datensatz oder einer, von dem seitdem hinzugefügte Datensätze abhängen, bleibt, sofern Sie ihn nicht unten einschließen.",
+        "includeChanged": "Auch die seit der Wiedergabe geänderten Datensätze entfernen, und was ihnen seitdem hinzugefügt wurde",
+        "sweep": "Zuerst aufräumen: auch die Datensätze löschen, die Flows und Trigger des Ziels für diese Wiedergabe angelegt haben; sonst können sie das Entfernen ihrer Datensätze verhindern",
+        "sweepAloneTitle": "Aus {{org}} zurücknehmen, was ihre Automatisierung für diese Wiedergabe angelegt hat",
+        "sweepAloneDescription": "Von dem, was diese Wiedergabe angelegt hat, ist in {{org}} nichts mehr übrig. Dies löscht nur, was das Aufräumen unten nimmt: was die Flows und Trigger von {{org}} für die Wiedergabe angelegt haben, unter ihrem Benutzer, untergeordnete vor ihren übergeordneten; es landet in ihrem Papierkorb. Ein Datensatz, den seitdem jemand anderes geändert hat, bleibt, sofern Sie ihn nicht unten einschließen.",
+        "sweepLoading": "Wird gelesen, was die Automatisierung von {{org}} während der Wiedergabe angelegt hat…",
+        "removing": "Die von dieser Wiedergabe angelegten Datensätze werden entfernt…",
+        "orgGone": "Die Org, in die diese Wiedergabe geschrieben hat, ist nicht mehr verbunden: Verbinden Sie sie, um die Wiedergabe zu entfernen.",
+        "nothingCreated": "Diese Wiedergabe hat keinen Datensatz angelegt: Es gibt nichts zu entfernen.",
+        "keptByThePlatform": "In {{org}} von jedem Entfernen behalten — die Plattform löscht diese von der Wiedergabe angelegten Datensätze nicht: {{objects}}",
+        "automationTitle": "Was {{org}} ausführt, wenn diese Wiedergabe zurückgenommen wird",
+        "automationLoading": "Wird gelesen, was {{org}} ausführt, wenn diese Wiedergabe zurückgenommen wird…",
+        "automationIntro": "Wenn diese Wiedergabe zurückgenommen wird, führt {{org}} aus:",
+        "automationNone": "Keine Automatisierung von {{org}} läuft, wenn diese Wiedergabe zurückgenommen wird.",
+        "automationError": "Was {{org}} ausführt, wenn diese Wiedergabe zurückgenommen wird, konnte nicht gelesen werden: {{reason}}"
+      },
+      "refusal": {
+        "sameOrg": "{{target}} ist die Org, von der dieser Prüfpunkt stammt: Eine Wiedergabe legt Kopien ihrer Datensätze in einer anderen Org an, und nichts wurde geschrieben. Um {{target}} auf diesen Zeitpunkt zurückzubringen, verwenden Sie Zurücksetzen.",
+        "realDataStaging": "Dieser Prüfpunkt stammt von einer als Staging markierten Sandbox, die echte Daten enthält: Er geht nur maskiert in eine andere Org, und nichts wurde geschrieben. Haken Sie Personenbezogene Daten maskieren an und simulieren Sie erneut.",
+        "realDataStorage": "Dieser Prüfpunkt stammt von einer Partial-Copy- oder Full-Sandbox ({{mb}} MB Datenspeicher): Er kann echte Daten enthalten, geht nur maskiert in eine andere Org, und nichts wurde geschrieben. Haken Sie Personenbezogene Daten maskieren an und simulieren Sie erneut.",
+        "copyUnknown": "Dieser Prüfpunkt stammt von einer Sandbox und sagt nicht, von welcher Art: Vor SandForge 1.81 erstellt, bewahrt er keinen Datenspeicher auf, und eine Partial-Copy- oder Full-Sandbox enthält Produktionsdatensätze. Nichts wurde geschrieben. Haken Sie Personenbezogene Daten maskieren an oder erklären Sie, dass er keine echten Daten enthält, was das Audit-Protokoll aufbewahrt; simulieren Sie dann erneut.",
+        "tooMany": "Diese Wiedergabe würde {{records}} Datensätze einrichten, mehr als die {{max}}, die eine Wiedergabe auf einmal einrichtet, und nichts wurde geschrieben. Deaktivieren Sie einige Objekte und simulieren Sie erneut.",
+        "nothing": "Von diesem Prüfpunkt bleibt nichts wiederzugeben: Jedes Objekt ist ausgelassen oder enthält keinen Datensatz, den eine Wiedergabe einrichtet. Nichts wurde geschrieben. Haken Sie ein Objekt an.",
+        "unusable": "Dieser Prüfpunkt lässt sich nicht wiedergeben: Seine Erstellung läuft oder ist fehlgeschlagen, oder seine Datei lässt sich nicht lesen. Nichts wurde geschrieben.",
+        "notFound": "Dieser Prüfpunkt wird auf diesem Rechner nicht mehr aufbewahrt, und nichts wurde geschrieben. Gehen Sie zurück zu den Prüfpunkten, um zu sehen, was aufbewahrt ist.",
+        "maxRecords": "Die Wiedergabe würde mehr Datensätze anlegen, als ihre Simulation gezählt hat: Die Org oder der Prüfpunkt hat sich seitdem geändert, und nichts wurde geschrieben. Simulieren Sie erneut.",
+        "noLoad": "Keine Wiedergabe dieses Prüfpunkts in diese Org ist auf diesem Rechner verzeichnet, und nichts wurde geändert. Geben Sie ihn zuerst dort wieder.",
+        "loadChanged": "Seit diese Wiedergabe angezeigt wurde, wurde eine andere in diese Org verzeichnet, und nichts wurde entfernt. Prüfen Sie, was ein Entfernen jetzt nimmt, und bestätigen Sie es erneut.",
+        "targetRefreshed": "Die Org wurde nach der Wiedergabe aktualisiert: Die angelegten Datensätze sind mit der Aktualisierung verschwunden, und nichts wurde geändert. Geben Sie den Prüfpunkt erneut wieder.",
+        "loadStopped": "Die letzte Wiedergabe hat mittendrin angehalten und keinen Zählvertrag geschrieben, und nichts wurde geprüft. Entfernen Sie sie, geben Sie dann erneut wieder und prüfen Sie.",
+        "loadRemoved": "Die von der letzten Wiedergabe angelegten Datensätze wurden entfernt: Es gibt nichts zu prüfen. Geben Sie erneut wieder und prüfen Sie dann.",
+        "loadRemovedPart": "Ein Entfernen hat einen Teil der von der letzten Wiedergabe angelegten Datensätze genommen und {{left}} davon in der Org gelassen: Eine Prüfung würde die genommenen als fehlend lesen. Entfernen Sie den Rest und prüfen Sie dann.",
+        "alreadyRemoved": "Die von dieser Wiedergabe angelegten Datensätze wurden bereits entfernt, und nichts wurde gelöscht. Die Wiedergabe wird jetzt so angezeigt, wie dieser Rechner sie aufbewahrt.",
+        "nothingToRemove": "Diese Wiedergabe hat keinen Datensatz angelegt, den ein Entfernen nimmt, und nichts wurde gelöscht. Die Wiedergabe wird jetzt so angezeigt, wie dieser Rechner sie aufbewahrt.",
+        "cancelled": "Sie haben die Wiedergabe angehalten, bevor sie etwas geschrieben hat, und nichts wurde geschrieben.",
+        "cancelledWrote": "Sie haben die Wiedergabe mittendrin angehalten. Bis dahin geschriebene Datensätze: {{records}}. Was sie angelegt hat, wird mit den Wiedergaben dieses Prüfpunkts aufbewahrt: Diese Wiedergabe entfernen nimmt es zurück.",
+        "checkpointRefused": "Die Wiedergabe wurde vor jedem Schreiben abgelehnt: Der Prüfpunkt, den sie zuerst von den geschriebenen Objekten erstellen sollte, wurde abgelehnt oder konnte nicht erstellt werden, was die SandForge-Ausgabe sagt. Nichts wurde geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“ oder beheben Sie, was ihn ablehnt.",
+        "loadConfig": "Die Datensätze des Prüfpunkts lassen Pflichtfelder der anderen Org leer, und nichts wurde geschrieben: {{gaps}}. Deaktivieren Sie ihre Objekte oder geben Sie über die Befehlszeile mit einer Konfiguration wieder, die ihnen einen Wert gibt (--replay-config).",
+        "nonSandbox": "{{org}} ist weder Sandbox noch Scratch-Org noch Developer-Edition-Org: Eine Wiedergabe geht nur in diese, und nichts wurde geschrieben. Wählen Sie eine davon.",
+        "staging": "{{org}} ist eine als Staging markierte Sandbox: Sie enthält echte Daten, und eine Wiedergabe geht nie in eine solche. Nichts wurde geschrieben. Wählen Sie eine andere Org.",
+        "storage": "Die Datensätze des Prüfpunkts brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei: Die Wiedergabe würde mittendrin abbrechen, und nichts wurde geschrieben. Deaktivieren Sie einige Objekte oder geben Sie Datenspeicher in {{org}} frei.",
+        "apiBudget": "Die Wiedergabe würde rund {{estimate}} API-Anfragen von {{org}} brauchen, der noch {{remaining}} von {{max}} täglichen Anfragen bleiben: Sie würde mittendrin abbrechen, und nichts wurde geschrieben. Geben Sie wieder, sobald die Org Anfragen übrig hat, oder in einer Org, der heute mehr bleiben.",
+        "emailsNotAccepted": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben der Wiedergabe sendet, oder sagt nicht, ob sie sie zustellt, und nichts wurde geschrieben. Haken Sie „Wiedergeben, auch wenn {{org}} die E-Mails zustellt“ an, haken Sie das Stummschalten der Automatisierung an, oder stellen Sie die Zustellbarkeit der Org auf System email only.",
+        "emailsExceeded": "Die Wiedergabe würde {{org}} mehr E-Mails senden lassen, als ihr heute bleiben ({{limit}}: rund {{emails}}, {{remaining}} von {{max}} übrig), und nichts wurde geschrieben. Haken Sie das Stummschalten der Automatisierung an, um still zu halten, was sie sendet, oder geben Sie in einer Org wieder, der heute mehr E-Mails bleiben.",
+        "automation": "{{org}} führt Automatisierungen aus, während die Wiedergabe ihre Datensätze schreibt ({{named}}), und nichts wurde geschrieben. Haken Sie „Wiedergeben, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an, haken Sie das Stummschalten der Automatisierung an, oder schalten Sie diese Automatisierung in {{org}} ab.",
+        "automationUnread": "Was {{org}} beim Schreiben der Wiedergabe ausführt, konnte nicht gelesen werden, und nichts wurde geschrieben. Haken Sie „Wiedergeben, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an, oder haken Sie das Stummschalten der Automatisierung an."
+      }
     }
   },
   "runRemoval": {
@@ -7824,13 +7894,12 @@
         "damaged": "Seine Datei kann nicht gelesen werden: Dieser Prüfpunkt kann nur gelöscht werden.",
         "taking": "Nicht fertig: Er wird gerade erstellt, oder eine Erstellung wurde vor ihrem Ende gestoppt. Er kann nur gelöscht werden.",
         "failed": "Seine Erstellung ist fehlgeschlagen: Dieser Prüfpunkt kann nur gelöscht werden.",
-        "refreshed": "{{org}} wurde am {{date}} aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
-        "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
-        "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte können nur gelöscht werden."
+        "refreshed": "{{org}} wurde am {{date}} aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und setzt sie nicht mehr zurück.",
+        "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und setzt sie nicht mehr zurück.",
+        "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte setzen sie nicht mehr zurück."
       },
-      "frozenInstead": "Ein Prüfpunkt setzt die Org, von der er stammt, auf einen Zeitpunkt zurück, und keine andere Org: Daten, die in einer anderen Org wieder eingerichtet werden sollen, werden als Eingefrorenes Dataset eingefroren, solange ihre Org besteht.",
       "expiresSoon": "Läuft {{when}} ab",
-      "scratchExpiresSoon": "Diese Scratch-Org läuft am {{date}} ab: Ihre Prüfpunkte können dann nur noch gelöscht werden, und Aufbewahren bewahrt sie nicht auf. Um ihre Daten in einer anderen Org wieder einzurichten, frieren Sie sie vorher als Eingefrorenes Dataset ein: Ein Eingefrorenes Dataset lässt sich in jede Sandbox oder Developer-Edition-Org laden.",
+      "scratchExpiresSoon": "Diese Scratch-Org läuft am {{date}} ab: Ihre Prüfpunkte setzen sie dann nicht mehr zurück, was Aufbewahren auch sagt. In einer anderen Org lassen sie sich weiter wiedergeben: In einer anderen Org wiedergeben… legt ihre Datensätze dort neu an, mit neuen IDs.",
       "keepIt": "Aufbewahren",
       "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr mit ihrer Id zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt. Ein Zurücksetzen legt sie mit neuen Ids neu an.",
       "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
@@ -8406,6 +8475,162 @@
         "importedForever": "„{{name}}“ importiert: Jetzt unter den Prüfpunkten von {{org}} aufgeführt und aufbewahrt, bis Sie ihn löschen.",
         "alreadyKept": "„{{name}}“ ist auf diesem Rechner bereits gespeichert, unverändert: Er wurde so belassen.",
         "done": "Fertig"
+      }
+    },
+    "replay": {
+      "open": "In einer anderen Org wiedergeben…",
+      "title": "„{{name}}“ in einer anderen Org wiedergeben",
+      "back": "Zurück zu den Prüfpunkten",
+      "facts": "Von {{org}}, erstellt {{age}} · {{records}} Datensätze",
+      "intro": "Die Wiedergabe legt in {{target}} eine Kopie der Datensätze dieses Prüfpunkts an, übergeordnete vor untergeordneten, mit neuen IDs. Nichts, was {{target}} enthält, wird geändert oder gelöscht. Ein Prüfpunkt bewahrt keinen Dateiinhalt auf: Dateien kommen nicht mit. Eine Wiedergabe lässt sich entfernen.",
+      "introNoTarget": "Die Wiedergabe legt in der gewählten Org eine Kopie der Datensätze dieses Prüfpunkts an, übergeordnete vor untergeordneten, mit neuen IDs. Nichts, was diese Org enthält, wird geändert oder gelöscht. Ein Prüfpunkt bewahrt keinen Dateiinhalt auf: Dateien kommen nicht mit. Eine Wiedergabe lässt sich entfernen.",
+      "target": {
+        "label": "Org für die Wiedergabe",
+        "theOther": "die andere Org",
+        "none": "Keine Sandbox, Scratch-Org oder Developer-Edition-Org ist für eine Wiedergabe verbunden: Verbinden Sie eine auf der Seite Organisationen.",
+        "refreshed": "{{org}} ist die Sandbox, von der dieser Prüfpunkt stammt, aktualisiert am {{date}}: Ihre Datensätze kommen mit neuen IDs zurück.",
+        "refreshedUndated": "{{org}} ist die Sandbox, von der dieser Prüfpunkt stammt, seitdem aktualisiert: Ihre Datensätze kommen mit neuen IDs zurück.",
+        "own": "{{org}} wird nicht angeboten: Dieser Prüfpunkt stammt von ihr, und Zurücksetzen bringt sie auf diesen Zeitpunkt zurück.",
+        "ownNote": "Org dieses Prüfpunkts",
+        "staging": "Als Staging markierte Sandboxes werden nicht angeboten: Sie enthalten echte Daten, und eine Wiedergabe geht nie in eine solche."
+      },
+      "choices": "Was die Wiedergabe einrichtet",
+      "objects": {
+        "legend": "Objekte",
+        "hint": "Deaktivieren Sie ein Objekt, um es auszulassen: Ein Lookup darauf wird geleert und in der Simulation genannt.",
+        "object": "{{object}} ({{records}})",
+        "files": "Nicht wiedergegeben, da ein Prüfpunkt keinen Dateiinhalt aufbewahrt: {{objects}}."
+      },
+      "owners": {
+        "legend": "Wem die Datensätze gehören",
+        "same": "Ihrem Inhaber, wo die andere Org ihn hat",
+        "sameHint": "Beibehalten, wenn {{target}} denselben aktiven Benutzer hat; sonst Ihnen.",
+        "me": "Ihnen, die wiedergeben",
+        "meHint": "Jeder wiedergegebene Datensatz gehört in {{target}} Ihnen."
+      },
+      "customSettings": "Die benutzerdefinierten Einstellungen einrichten, die er enthält, nie über eine Zeile der anderen Org",
+      "mask": {
+        "label": "Personenbezogene Daten maskieren",
+        "free": "Dieser Prüfpunkt stammt von einer Scratch-Org, einer Developer-Edition-Org oder einer Developer-Sandbox: Die Maskierung liegt bei Ihnen.",
+        "staging": "Dieser Prüfpunkt stammt von einer als Staging markierten Sandbox, die echte Daten enthält: Er geht nur maskiert in eine andere Org.",
+        "storage": "Dieser Prüfpunkt stammt von einer Partial-Copy- oder Full-Sandbox ({{mb}} MB Datenspeicher): Er kann echte Daten enthalten und geht nur maskiert in eine andere Org.",
+        "unknown": "Dieser Prüfpunkt stammt von einer Sandbox und sagt nicht, von welcher Art: Vor SandForge 1.81 erstellt, bewahrt er keinen Datenspeicher auf. Die Maskierung ist für Sie angehakt; enthält er keine echten Daten, deaktivieren Sie sie und geben Sie das an.",
+        "noRealData": "Dieser Prüfpunkt enthält keine echten Daten: ihn unmaskiert wiedergeben (das Audit-Protokoll bewahrt dies auf)"
+      },
+      "keepContactPoints": "E-Mail-Adressen und Telefonnummern unverändert lassen (sonst unerreichbar gemacht)",
+      "replace": "Die letzte Wiedergabe in {{target}} ersetzen: zuerst die {{records}} Datensätze löschen, die sie dort angelegt hat, und behalten, womit sie verknüpft hat",
+      "replaceConfirm": {
+        "title": "Die letzte Wiedergabe in {{target}} ersetzen",
+        "description": "Löscht aus {{target}} die {{records}} Datensätze, die die letzte Wiedergabe dieses Prüfpunkts dort angelegt hat, untergeordnete vor ihren übergeordneten, und gibt ihn dann erneut wieder. Was die Wiedergaben verknüpft haben und {{target}} schon enthielt, bleibt."
+      },
+      "acceptEmails": "Wiedergeben, auch wenn {{target}} die E-Mails zustellt",
+      "acceptAutomation": "Wiedergeben, auch wenn {{target}} beim Eingang der Datensätze Automatisierungen ausführt",
+      "costLead": "Laut Simulation:",
+      "simulate": "Simulieren",
+      "run": "Wiedergeben",
+      "pickFirst": "Wählen Sie die Org für die Wiedergabe.",
+      "simulateFirst": "Zuerst simulieren: Nichts wird in {{target}} geschrieben, bevor eine Simulation dieser Auswahl sagt, was die Wiedergabe tut.",
+      "changed": "Die Auswahl hat sich seit der Simulation geändert: Simulieren Sie erneut, bevor Sie in {{target}} wiedergeben.",
+      "running": "Wiedergabe in {{target}}…",
+      "runningObject": "Wiedergabe in {{target}}: {{object}}…",
+      "stopping": "Wird angehalten: Die Wiedergabe endet, sobald der laufende Aufruf beantwortet ist. Was sie bis dahin angelegt hat, wird mit den Wiedergaben dieses Prüfpunkts aufbewahrt, und ein Entfernen nimmt es zurück.",
+      "stopRefused": "Die Wiedergabe konnte nicht angehalten werden",
+      "stopRefusedDetail": "Die Wiedergabe läuft nicht mehr, oder sie wurde nicht aus diesem Fenster gestartet.",
+      "verify": "Prüfen",
+      "column": {
+        "object": "Objekt",
+        "toCreate": "Anzulegen",
+        "linked": "Verknüpft",
+        "fieldsDropped": "Ausgelassene Felder",
+        "notSent": "Nicht gesendet",
+        "created": "Angelegt",
+        "refused": "Abgelehnt"
+      },
+      "plan": {
+        "title": "Was die Wiedergabe in {{target}} täte",
+        "records_one": "Legt in {{target}} eine Kopie von {{records}} seiner Datensätze an, mit neuer ID; nichts, was {{target}} enthält, wird geändert oder gelöscht.",
+        "records_other": "Legt in {{target}} Kopien von {{records}} seiner Datensätze an, übergeordnete zuerst, mit neuen IDs; nichts, was {{target}} enthält, wird geändert oder gelöscht.",
+        "linkedById_one": "{{records}} Datensatz ist in {{target}} unter derselben ID: verknüpft, nicht geändert.",
+        "linkedById_other": "{{records}} Datensätze sind in {{target}} unter derselben ID: verknüpft, nicht geändert.",
+        "linkedByKey_one": "{{records}} Datensatz ist in {{target}} mit denselben Werten der Felder, die eine Verknüpfung nennt: verknüpft, nicht angelegt.",
+        "linkedByKey_other": "{{records}} Datensätze sind in {{target}} mit denselben Werten der Felder, die eine Verknüpfung nennt: verknüpft, nicht angelegt.",
+        "owners": "Inhaber: beibehalten bei {{kept}} (derselbe Benutzer in {{target}}); Sie bei {{toYou}}.",
+        "ownersNotInTarget": "{{records}} davon: Ihr Benutzer ist nicht in {{target}}.",
+        "ownersInactive": "{{records}} davon: Ihr Benutzer ist in {{target}} inaktiv.",
+        "ownersQueueMissing": "{{records}} davon: Ihre Warteschlange ist nicht in {{target}} oder nimmt dieses Objekt nicht an.",
+        "recordTypeByName": "{{object}} ({{records}}): Datensatztyp {{recordType}}, in {{target}} über seinen Namen gefunden.",
+        "recordTypeById": "{{object}} ({{records}}): Datensatztyp {{recordType}}, in {{target}} unter derselben ID gefunden.",
+        "recordTypeDefault": "{{object}} ({{records}}): Der Datensatztyp {{recordType}} ist nicht in {{target}}, und seine Datensätze erhalten dort Ihren Standardtyp.",
+        "notReplayed": {
+          "fileContentNotKept": "{{object}} ({{records}}): nicht wiedergegeben, ein Prüfpunkt bewahrt keinen Dateiinhalt auf.",
+          "notInTarget": "{{object}} ({{records}}): nicht wiedergegeben, {{target}} hat dieses Objekt nicht. Stellen Sie es bereit oder lassen Sie es aus.",
+          "notCreateable": "{{object}} ({{records}}): nicht wiedergegeben, {{target}} legt keinen seiner Datensätze selbst an.",
+          "excluded": "{{object}} ({{records}}): ausgelassen, wie gewünscht."
+        },
+        "lookupEmptied": {
+          "objectNotReplayed": "{{field}} bei {{records}} Datensätzen geleert: Sein Objekt ist ausgelassen. Haken Sie es an, um die Verknüpfung zu behalten.",
+          "objectNotHeld": "{{field}} bei {{records}} Datensätzen geleert: Der genannte Datensatz ist weder in diesem Prüfpunkt noch in {{target}}.",
+          "userNotInTarget": "{{field}} bei {{records}} Datensätzen geleert: Sein Benutzer ist nicht in {{target}}."
+        },
+        "refused": {
+          "requiredLookupMissing": "{{object}} ({{records}}): vor jedem Schreiben abgelehnt, ein Pflicht-Lookup nennt einen Datensatz, der weder wiedergegeben wird noch in {{target}} ist.",
+          "parentRefused": "{{object}} ({{records}}): vor jedem Schreiben abgelehnt, mit dem abgelehnten übergeordneten Datensatz: Ein Waise wird nie geschrieben.",
+          "personAccountsUnsupported": "{{object}} ({{records}}): vor jedem Schreiben abgelehnt, Personenaccounts sind in {{target}} nicht aktiviert. Aktivieren Sie sie oder lassen Sie Account aus.",
+          "inactiveCurrency": "{{object}} ({{records}}): vor jedem Schreiben abgelehnt, in einer Währung, die {{target}} nicht aktiviert hat.",
+          "recordTypeUnavailable": "{{object}} ({{records}}): vor jedem Schreiben abgelehnt, ein Datensatztyp, von dem Sie in {{target}} keine Datensätze anlegen dürfen."
+        },
+        "fieldsNotInTarget": "{{object}}: Felder, die {{target}} fehlen, ausgelassen: {{fields}}.",
+        "customSettings": "Benutzerdefinierte Einstellungen: {{inserted}} Zeilen eingerichtet; {{already}} schon in {{target}}, beibehalten.",
+        "currencyRefused": "{{code}} ({{records}}): {{target}} hat sie nicht aktiviert, und diese Datensätze werden vor jedem Schreiben abgelehnt. Aktivieren Sie sie oder lassen Sie sie aus.",
+        "singleCurrency": "{{target}} hat eine einzige Währung: Beträge bleiben unverändert, in ihrer Währung.",
+        "standardPricebook": {
+          "annex": "Die Einträge des Standardpreisbuchs werden an dem erkannt, was der Prüfpunkt aufbewahrt hat.",
+          "deduced": "Die Einträge des Standardpreisbuchs werden aus den Einträgen selbst abgeleitet: Der Prüfpunkt wurde vor SandForge 1.81 erstellt.",
+          "ambiguous": "Welches Preisbuch das Standardpreisbuch war, lässt sich nicht sagen: Seine Einträge werden vor jedem Schreiben abgelehnt. Lassen Sie PricebookEntry aus oder erstellen Sie einen neuen Prüfpunkt mit SandForge 1.81.",
+          "none": "Kein Eintrag eines Standardpreisbuchs ist enthalten: Preise werden ohne Standardpreis wiedergegeben."
+        },
+        "masked": "Maskiert: {{fields}}.",
+        "unmaskedFreeText": "Freitextfelder, die die Maskierung nicht liest und die unverändert übergehen: {{fields}}.",
+        "contactPointsNeutralized": "E-Mail-Adressen und Telefonnummern werden unerreichbar gemacht.",
+        "contactPointsKept": "E-Mail-Adressen und Telefonnummern gehen unverändert über.",
+        "archived": "{{records}} archivierte Aufgaben und Ereignisse werden wiedergegeben, die {{target}} als aktiv führt.",
+        "degraded": "Vor SandForge 1.81 erstellt, bewahrt dieser Prüfpunkt keine {{parts}} auf: Ihre Datensätze erhalten, was {{target}} standardmäßig vergibt.",
+        "part": {
+          "recordTypes": "Datensatztypen",
+          "users": "Benutzer",
+          "queues": "Warteschlangen",
+          "standardPricebook": "Standardpreisbuch"
+        },
+        "auditDates": "Erstellungs- und Änderungsdaten und -benutzer sind die der Wiedergabe: Die Plattform setzt sie.",
+        "filesLeft_one": "{{files}} Datei wird nicht wiedergegeben, da ein Prüfpunkt keinen Dateiinhalt aufbewahrt: {{names}}.",
+        "filesLeft_other": "{{files}} Dateien werden nicht wiedergegeben, da ein Prüfpunkt keinen Dateiinhalt aufbewahrt: {{names}}.",
+        "storage": "Datenspeicher: rund {{estimate}} MB, bei {{remaining}} MB frei in {{target}} von {{max}} MB.",
+        "earlier": "Eine frühere Wiedergabe dieses Prüfpunkts in {{target}} ist noch vorhanden: Diese legt ihre Datensätze daneben erneut an. Entfernen Sie sie zuerst oder haken Sie Ersetzen an."
+      },
+      "result": {
+        "title": "In {{target}} wiedergegeben",
+        "completed": "Die Wiedergabe hat geschrieben, was sie sollte.",
+        "completedWithErrors": "{{target}} hat einige Datensätze abgelehnt, wie aufgeführt: Der Rest ist geschrieben.",
+        "partial": "Die Wiedergabe hat geschrieben, was sie konnte, und vor dem Rest angehalten, wie aufgeführt."
+      },
+      "verdict": {
+        "passed": "Geprüft: {{target}} enthält jeden Datensatz, den die Wiedergabe geschrieben zu haben angibt.",
+        "partial": "Teilweise geprüft: Einige von der Wiedergabe geschriebene Datensätze fehlen in {{target}} oder sind Waisen.",
+        "failed": "Nicht bestanden: Was {{target}} enthält, stimmt nicht mit dem überein, was die Wiedergabe geschrieben hat.",
+        "unstable": "Nicht prüfbar: Was {{target}} enthält, änderte sich während der Zählung."
+      },
+      "replays": {
+        "title": "Wiedergaben dieses Prüfpunkts",
+        "inPlace": "{{target}}, wiedergegeben am {{date}}: noch {{records}} Datensätze dort.",
+        "removed": "{{target}}, wiedergegeben am {{date}}: entfernt.",
+        "nothing": "{{target}}, wiedergegeben am {{date}}: Keiner ihrer Datensätze ist dort mehr.",
+        "notConnected": "Diese Org ist nicht verbunden: Verbinden Sie sie, um diese Wiedergabe zu entfernen.",
+        "pick": "{{target}} anzeigen"
+      },
+      "list": {
+        "elsewhere": "Er setzt seine Org nicht mehr zurück, lässt sich aber in einer anderen Org wiedergeben: Seine Datensätze werden dort neu angelegt, mit neuen IDs.",
+        "inPlace": "Noch vorhandene Wiedergaben: {{replays}}.",
+        "deleteKeeps": "Seine Wiedergaben bleiben, wo sie sind: {{replays}}. Jede lässt sich auch ohne den Prüfpunkt entfernen."
       }
     }
   },

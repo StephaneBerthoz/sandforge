@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { FrozenLoadEmailCount, FrozenLoadEmailsInfo } from '@sandforge/shared';
+import type { FrozenRun } from './frozenErrorWords';
 
 /** Props for {@link FrozenLoadEmails}. */
 export interface FrozenLoadEmailsProps {
@@ -9,7 +10,25 @@ export interface FrozenLoadEmailsProps {
   /** The org the load writes to, as the user knows it. */
   org: string;
   testId: string;
+  /** What the run is to the person: a load, unless a replay of a checkpoint. */
+  run?: FrozenRun;
 }
+
+/** The sentences that name the run, by what it is to the person; the rest say no run. */
+const RUN_KEYS: Readonly<
+  Record<FrozenRun, { refused: string; accepted: string; exceeded: string }>
+> = {
+  load: {
+    refused: 'frozen.preview.emails.refused',
+    accepted: 'frozen.preview.emails.accepted',
+    exceeded: 'frozen.preview.emails.exceeded',
+  },
+  replay: {
+    refused: 'frozen.replay.emails.refused',
+    accepted: 'frozen.replay.emails.accepted',
+    exceeded: 'frozen.replay.emails.exceeded',
+  },
+};
 
 /** A daily email limit, in words. */
 function limitWords(limit: FrozenLoadEmailCount['limit'], t: TFunction): string {
@@ -35,17 +54,25 @@ function countWords(tally: FrozenLoadEmailCount, t: TFunction): string {
  * its preview reads them: whether the org delivers them and whether the load
  * would go on, what sends them, and how many against what the org has left
  * today. The load counted none and read nothing: its inserts fired the
- * target's flows, which emailed as a clone's do, and no page said it.
+ * target's flows, which emailed as a clone's do, and no page said it. A
+ * replay of a checkpoint, which goes through the same load, says it of the
+ * replay.
  */
-export const FrozenLoadEmails: React.FC<FrozenLoadEmailsProps> = ({ emails, org, testId }) => {
+export const FrozenLoadEmails: React.FC<FrozenLoadEmailsProps> = ({
+  emails,
+  org,
+  testId,
+  run = 'load',
+}) => {
   const { t } = useTranslation();
+  const keys = RUN_KEYS[run];
   const refused = emails.refused?.code;
   const senders = emails.deliverability?.senders ?? [];
   const verdict =
     refused === 'EMAILS_NOT_ACCEPTED'
-      ? t('frozen.preview.emails.refused', { org })
+      ? t(keys.refused, { org })
       : emails.verdict === 'asks'
-        ? t('frozen.preview.emails.accepted', { org })
+        ? t(keys.accepted, { org })
         : emails.verdict === 'withheld'
           ? t('frozen.preview.emails.withheld', { org })
           : undefined;
@@ -65,7 +92,7 @@ export const FrozenLoadEmails: React.FC<FrozenLoadEmailsProps> = ({ emails, org,
         </p>
       ))}
       {refused === 'FROZEN_EMAILS_EXCEEDED' && (
-        <p data-testid={`${testId}-exceeded`}>{t('frozen.preview.emails.exceeded', { org })}</p>
+        <p data-testid={`${testId}-exceeded`}>{t(keys.exceeded, { org })}</p>
       )}
       {emails.uncounted !== undefined && (
         <p className="text-text-secondary" data-testid={`${testId}-uncounted`}>

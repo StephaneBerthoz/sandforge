@@ -111,4 +111,40 @@ describe('FrozenLoadEmails', () => {
       "Not all of them were counted: the target's flows: INSUFFICIENT_ACCESS could not be read.",
     );
   });
+
+  it('says it of a replay of a checkpoint, which goes through the same load, never of a load', () => {
+    const { unmount } = render(
+      <FrozenLoadEmails emails={emails()} org="QA" testId="e" run="replay" />,
+    );
+    expect(screen.getByTestId('e-verdict').textContent).toBe(
+      'QA delivers every email what still runs sends as the replay writes, or would not say whether it does: the replay would be refused, nothing written, unless you tick “Replay even though QA delivers the emails”.',
+    );
+    unmount();
+    render(
+      <FrozenLoadEmails
+        emails={emails({
+          refused: { code: 'FROZEN_EMAILS_EXCEEDED', message: 'host words' },
+          counted: [
+            {
+              limit: 'SingleEmail',
+              objects: [
+                { objectApiName: 'Contact', rows: 36, perRecord: 2, sentBy: ['Contact welcome'] },
+              ],
+              emails: 72,
+              verdict: 'exceeds',
+              remaining: 15,
+              max: 15,
+            },
+          ],
+        })}
+        org="QA"
+        testId="e"
+        run="replay"
+      />,
+    );
+    expect(screen.getByTestId('e-exceeded').textContent).toContain(
+      'the replay would be refused, nothing written, whatever the box says',
+    );
+    expect(screen.getByTestId('e').textContent).not.toMatch(/\bload\b/);
+  });
 });

@@ -44,6 +44,7 @@ import {
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
 import { appendToRewindLedger, rewindLedgerFileOf } from '../../modules/checkpoint/rewindLedger.js';
+import { ReplayStore } from '../../modules/checkpoint/replay/replayStore.js';
 import {
   writePathOrderDefects,
   type BeforeRunAsk,
@@ -853,6 +854,95 @@ describe('CheckpointHandler — the list', () => {
         organizationId: REFRESHED_ORG_ID.slice(0, 15),
       }),
     ).toBe(1);
+  });
+
+  it('lists with each checkpoint its replays into other orgs, the registered org each went into and what a removal takes there, read from this machine alone', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    const QA = '00D000000000022EAA';
+    h.orgManager.addOrg(
+      registered({ id: 'org-qa' as UUID, alias: 'QA', orgId: QA, orgType: 'Scratch' }),
+    );
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-replays-'));
+    dirs.push(dir);
+    const replays = new ReplayStore({ root: join(dir, 'replays') });
+    h.handler.setReplayStore(replays);
+    const choices = {
+      owners: 'same' as const,
+      customSettings: false,
+      mask: false,
+      contactPoints: 'neutralized' as const,
+      objects: [],
+      excluded: [],
+      link: [],
+    };
+    const folder = await replays.record(
+      {
+        checkpointId,
+        name: 'Before UAT',
+        takenAt: new Date(T0).toISOString(),
+        org: { organizationId: ORG_ID, alias: 'DEV-SB', tier: 'sandbox' },
+      },
+      { organizationId: QA, name: 'QA' },
+      choices,
+    );
+    await replays
+      .mappingStoreOf(folder, QA, { now: () => new Date('2026-11-12T10:05:00.000Z') })
+      .persist(new Map([['Account-1', '001000000000001AAA']]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-1'] }],
+        startedAt: new Date('2026-11-12T10:01:00.000Z'),
+      });
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    await h.send('wv-list-replays', 'checkpoint:list', { orgId: REGISTERED });
+
+    expect(answerOf(h, 'wv-list-replays').payload.checkpoints).toEqual([
+      expect.objectContaining({
+        checkpointId,
+        replays: [
+          {
+            target: { organizationId: QA, name: 'QA', orgId: 'org-qa' },
+            replayedAt: '2026-11-12T10:05:00.000Z',
+            inPlace: 1,
+            choices,
+            records: expect.objectContaining({
+              orgId: 'org-qa',
+              loadedAt: '2026-11-12T10:05:00.000Z',
+              created: [{ objectApiName: 'Account', count: 1 }],
+              recorded: true,
+            }),
+          },
+        ],
+      }),
+    ]);
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('lists a checkpoint never replayed without replays, and the list stands when the replays cannot be read', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-replays-'));
+    dirs.push(dir);
+    h.handler.setReplayStore(new ReplayStore({ root: join(dir, 'replays') }));
+
+    await h.send('wv-list-none', 'checkpoint:list', { orgId: REGISTERED });
+    const [entry] = answerOf(h, 'wv-list-none').payload.checkpoints as Array<
+      Record<string, unknown>
+    >;
+    expect(entry.checkpointId).toBe(checkpointId);
+    expect(entry).not.toHaveProperty('replays');
+
+    writeFileSync(join(dir, 'replays'), 'not a folder');
+    h.handler.setReplayStore({
+      list: () => Promise.reject(new Error('unreadable')),
+    } as unknown as ReplayStore);
+    await h.send('wv-list-unread', 'checkpoint:list', { orgId: REGISTERED });
+    expect(answerOf(h, 'wv-list-unread').payload.checkpoints).toEqual([
+      expect.objectContaining({ checkpointId, valid: true }),
+    ]);
+    expect(
+      h.logs.some((line) => line.includes('replays of the checkpoints could not be read')),
+    ).toBe(true);
   });
 });
 

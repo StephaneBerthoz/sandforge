@@ -71,4 +71,17 @@ describe('FrozenLoadAutomation', () => {
     );
     expect(screen.queryByTestId('auto-firing')).toBeNull();
   });
+
+  it('says it of a replay of a checkpoint, which goes through the same load, never of a load', () => {
+    render(<FrozenLoadAutomation automation={FIRING} org="QA" testId="auto" run="replay" />);
+
+    const said = screen.getByTestId('auto').textContent ?? '';
+    expect(screen.getByTestId('auto').firstElementChild?.textContent).toBe(
+      'What QA runs as the replay inserts its records and updates them:',
+    );
+    expect(screen.getByTestId('auto-verdict').textContent).toBe(
+      'A replay would be refused, nothing written, unless you tick “Replay although QA runs automation as the records go in”, or mute it.',
+    );
+    expect(said).not.toMatch(/\bload\b/);
+  });
 });

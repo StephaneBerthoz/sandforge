@@ -4171,7 +4171,9 @@
       "none": "Créez un point de contrôle de {{org}} avant votre prochaine session de test",
       "take": "Créer un point de contrôle",
       "expiresSoon": "« {{name}} » expire {{when}}",
-      "keep": "Conserver"
+      "keep": "Conserver",
+      "replayRefreshed": "« {{name}} » est de {{org}} avant son rafraîchissement : rejouez-le pour y remettre ses enregistrements.",
+      "replay": "Rejouer…"
     },
     "openAutomation": "Ouvrir l'Automatisation",
     "openOpModule": "Ouvrir {{module}}",
@@ -6530,6 +6532,74 @@
         "explanationUnread": "Ce que {{org}} exécute quand le chargement écrit n'a pas pu être lu, et rien n'a été écrit.",
         "action": "Cochez « Charger même si {{org}} exécute des automatisations à l'entrée des enregistrements » pour charger malgré tout, cochez la coupure de l'automatisation pour faire taire ce qui teste le contournement de l'org, ou désactivez ces automatisations dans {{org}}."
       }
+    },
+    "replay": {
+      "automation": {
+        "title": "Ce que {{org}} exécute quand le rejeu insère ses enregistrements et les met à jour :",
+        "unread": "Ce que {{org}} exécute n'a pas pu être lu ({{reason}}) : le rejeu demande comme si quelque chose tournait.",
+        "refused": "Un rejeu serait refusé, rien d'écrit, sauf si vous cochez « Rejouer même si {{org}} exécute des automatisations à l'entrée des enregistrements », ou si vous la coupez.",
+        "accepted": "Avec la case cochée, le rejeu écrit malgré tout, et cette automatisation tourne."
+      },
+      "emails": {
+        "refused": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le rejeu écrit, ou ne dit pas s'ils partent : le rejeu serait refusé, rien d'écrit, sauf si vous cochez « Rejouer même si {{org}} délivre les e-mails ».",
+        "accepted": "{{org}} délivre les e-mails que ce qui tourne encore envoie quand le rejeu écrit, ou ne dit pas s'ils partent : avec la case cochée, le rejeu les envoie.",
+        "exceeded": "Au-delà de ce qu'il reste aujourd'hui à {{org}}, chaque enregistrement dont le Flow échoue à l'enregistrement est refusé : le rejeu serait refusé, rien d'écrit, quelle que soit la case. Coupez ce qui les envoie, ou rejouez dans une org à qui il reste plus d'e-mails aujourd'hui."
+      },
+      "removal": {
+        "title": "Dernier rejeu",
+        "titleEarlier": "Rejeu antérieur",
+        "replayedInto": "Rejoué dans {{org}} le {{date}}",
+        "earlierNote": "Un rejeu avant le dernier : les rejeux suivants ont laissé ses enregistrements dans {{org}}.",
+        "remove": "Retirer ce rejeu",
+        "removeLeft": "Retirer ce qui reste de ce rejeu",
+        "removeTitle": "Retirer ce rejeu de {{org}}",
+        "removeDescription": "Supprime de {{org}} les enregistrements créés par ce rejeu, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels le rejeu s'est lié, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le rejeu, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
+        "includeChanged": "Retirer aussi les enregistrements modifiés depuis le rejeu, et ce qui leur a été ajouté depuis",
+        "sweep": "Balayer d'abord : supprimer aussi les enregistrements que les Flows et déclencheurs de la cible ont créés pour ce rejeu ; sinon, ils peuvent empêcher le retrait de ses enregistrements",
+        "sweepAloneTitle": "Reprendre dans {{org}} ce que ses automatisations ont créé pour ce rejeu",
+        "sweepAloneDescription": "Rien de ce que ce rejeu a créé ne reste dans {{org}}. Ceci ne supprime que ce que prend le balayage ci-dessous : ce que les Flows et déclencheurs de {{org}} ont créé pour le rejeu, sous son utilisateur, les enfants avant leurs parents ; cela va dans sa corbeille. Un enregistrement que quelqu'un d'autre a modifié depuis est conservé, sauf si vous l'incluez ci-dessous.",
+        "sweepLoading": "Lecture de ce que les automatisations de {{org}} ont créé pendant le rejeu…",
+        "removing": "Retrait des enregistrements créés par ce rejeu…",
+        "orgGone": "L'org où ce rejeu a écrit n'est plus connectée : connectez-la pour retirer le rejeu.",
+        "nothingCreated": "Ce rejeu n'a créé aucun enregistrement : il n'y a rien à retirer.",
+        "keptByThePlatform": "Conservés dans {{org}} par tout retrait — la plateforme ne supprime pas ces enregistrements créés par le rejeu : {{objects}}",
+        "automationTitle": "Ce que {{org}} exécute quand ce rejeu est retiré",
+        "automationLoading": "Lecture de ce que {{org}} exécute quand ce rejeu est retiré…",
+        "automationIntro": "Quand ce rejeu est retiré, {{org}} exécute :",
+        "automationNone": "Aucune automatisation de {{org}} ne tourne quand ce rejeu est retiré.",
+        "automationError": "Ce que {{org}} exécute quand ce rejeu est retiré n'a pas pu être lu : {{reason}}"
+      },
+      "refusal": {
+        "sameOrg": "{{target}} est l'org dont ce point de contrôle a été pris : un rejeu crée des copies de ses enregistrements dans une autre org, et rien n'a été écrit. Pour ramener {{target}} à ce moment, utilisez Revenir à ce point.",
+        "realDataStaging": "Ce point de contrôle est d'une sandbox marquée Staging, qui contient des données réelles : il ne va dans une autre org que masqué, et rien n'a été écrit. Cochez Masquer les données personnelles, puis simulez de nouveau.",
+        "realDataStorage": "Ce point de contrôle est d'une sandbox Partial Copy ou Full ({{mb}} Mo de stockage de données) : il peut contenir des données réelles, ne va dans une autre org que masqué, et rien n'a été écrit. Cochez Masquer les données personnelles, puis simulez de nouveau.",
+        "copyUnknown": "Ce point de contrôle est d'une sandbox et ne dit pas laquelle : pris avant SandForge 1.81, il ne garde pas le stockage de données, et une sandbox Partial Copy ou Full contient les enregistrements de la production. Rien n'a été écrit. Cochez Masquer les données personnelles, ou déclarez qu'il ne contient aucune donnée réelle, ce que le journal d'audit garde ; puis simulez de nouveau.",
+        "tooMany": "Ce rejeu remettrait en place {{records}} enregistrements, au-delà des {{max}} qu'un rejeu remet en place à la fois, et rien n'a été écrit. Décochez des objets, puis simulez de nouveau.",
+        "nothing": "Il ne reste rien à rejouer de ce point de contrôle : chaque objet est écarté, ou ne tient aucun enregistrement qu'un rejeu remet en place. Rien n'a été écrit. Cochez un objet.",
+        "unusable": "Ce point de contrôle ne peut pas être rejoué : sa prise est en cours ou a échoué, ou son fichier ne peut pas être lu. Rien n'a été écrit.",
+        "notFound": "Ce point de contrôle n'est plus gardé sur cette machine, et rien n'a été écrit. Revenez aux points de contrôle pour voir ce qui est gardé.",
+        "maxRecords": "Le rejeu créerait plus d'enregistrements que sa simulation n'en comptait : l'org ou le point de contrôle a changé depuis, et rien n'a été écrit. Simulez de nouveau.",
+        "noLoad": "Aucun rejeu de ce point de contrôle dans cette org n'est enregistré sur cette machine, et rien n'a été modifié. Rejouez-le d'abord dans cette org.",
+        "loadChanged": "Un autre rejeu dans cette org a été enregistré depuis l'affichage de celui-ci, et rien n'a été retiré. Vérifiez ce qu'un retrait prend maintenant, puis confirmez-le de nouveau.",
+        "targetRefreshed": "L'org a été rafraîchie après le rejeu : les enregistrements qu'il a créés sont partis avec le rafraîchissement, et rien n'a été modifié. Rejouez le point de contrôle de nouveau.",
+        "loadStopped": "Le dernier rejeu s'est arrêté en cours de route sans écrire de contrat de comptage, et rien n'a été vérifié. Retirez-le, puis rejouez et vérifiez.",
+        "loadRemoved": "Les enregistrements créés par le dernier rejeu ont été retirés : il n'y a rien à vérifier. Rejouez, puis vérifiez.",
+        "loadRemovedPart": "Un retrait a pris une partie des enregistrements créés par le dernier rejeu et en a laissé {{left}} dans l'org : une vérification lirait ceux qu'il a pris comme manquants. Retirez ce qui reste, puis vérifiez.",
+        "alreadyRemoved": "Les enregistrements créés par ce rejeu ont déjà été retirés, et rien n'a été supprimé. Le rejeu est maintenant affiché tel que cette machine le garde.",
+        "nothingToRemove": "Ce rejeu n'a créé aucun enregistrement qu'un retrait prenne, et rien n'a été supprimé. Le rejeu est maintenant affiché tel que cette machine le garde.",
+        "cancelled": "Vous avez arrêté le rejeu avant qu'il n'écrive quoi que ce soit, et rien n'a été écrit.",
+        "cancelledWrote": "Vous avez arrêté le rejeu en cours de route. Enregistrements écrits d'ici là : {{records}}. Ce qu'il a créé est gardé avec les rejeux de ce point de contrôle : Retirer ce rejeu le reprend.",
+        "checkpointRefused": "Le rejeu a été refusé avant toute écriture : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris, ce que dit la sortie SandForge. Rien n'a été écrit. Décochez Point de contrôle d'abord, ou corrigez ce qui le refuse.",
+        "loadConfig": "Les enregistrements du point de contrôle laissent vides des champs obligatoires de l'autre org, et rien n'a été écrit : {{gaps}}. Décochez leurs objets, ou rejouez depuis la ligne de commande avec une configuration qui leur donne une valeur (--replay-config).",
+        "nonSandbox": "{{org}} n'est ni une sandbox, ni une scratch org, ni une org Developer Edition : un rejeu ne va que dans celles-ci, et rien n'a été écrit. Choisissez-en une.",
+        "staging": "{{org}} est une sandbox marquée Staging : elle contient des données réelles, et un rejeu n'y va jamais. Rien n'a été écrit. Choisissez une autre org.",
+        "storage": "Les enregistrements du point de contrôle prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}} : le rejeu s'arrêterait en cours de route, et rien n'a été écrit. Décochez des objets, ou libérez du stockage dans {{org}}.",
+        "apiBudget": "Le rejeu prendrait environ {{estimate}} requêtes d'API de {{org}}, à qui il en reste {{remaining}} de ses {{max}} quotidiennes : il s'arrêterait en cours de route, et rien n'a été écrit. Rejouez quand l'org a des requêtes en réserve, ou dans une org à qui il en reste plus aujourd'hui.",
+        "emailsNotAccepted": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le rejeu écrit, ou ne dit pas s'ils partent, et rien n'a été écrit. Cochez « Rejouer même si {{org}} délivre les e-mails », cochez la coupure de l'automatisation, ou passez la délivrabilité de l'org à System email only.",
+        "emailsExceeded": "Le rejeu ferait envoyer à {{org}} plus d'e-mails qu'il ne lui en reste aujourd'hui ({{limit}} : environ {{emails}}, {{remaining}} sur {{max}} restants), et rien n'a été écrit. Cochez la coupure de l'automatisation pour faire taire ce qui les envoie, ou rejouez dans une org à qui il reste plus d'e-mails aujourd'hui.",
+        "automation": "{{org}} exécute des automatisations quand le rejeu écrit ses enregistrements ({{named}}), et rien n'a été écrit. Cochez « Rejouer même si {{org}} exécute des automatisations à l'entrée des enregistrements », cochez la coupure de l'automatisation, ou désactivez ces automatisations dans {{org}}.",
+        "automationUnread": "Ce que {{org}} exécute quand le rejeu écrit n'a pas pu être lu, et rien n'a été écrit. Cochez « Rejouer même si {{org}} exécute des automatisations à l'entrée des enregistrements », ou cochez la coupure de l'automatisation."
+      }
     }
   },
   "runRemoval": {
@@ -7824,13 +7894,12 @@
         "damaged": "Son fichier est illisible : ce point de contrôle ne peut qu'être supprimé.",
         "taking": "Inachevé : sa création est en cours, ou une création s'est arrêtée avant la fin. Il ne peut qu'être supprimé.",
         "failed": "Sa création a échoué : ce point de contrôle ne peut qu'être supprimé.",
-        "refreshed": "{{org}} a été rafraîchie le {{date}} : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
-        "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
-        "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne peuvent qu'être supprimés."
+        "refreshed": "{{org}} a été rafraîchie le {{date}} : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne la ramène plus en arrière.",
+        "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne la ramène plus en arrière.",
+        "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne la ramènent plus en arrière."
       },
-      "frozenInstead": "Un point de contrôle ramène l'org dont il a été pris à un moment donné, et aucune autre org : les données à remettre en place dans une autre org se figent en Jeu de données figé tant que leur org existe.",
       "expiresSoon": "Expire {{when}}",
-      "scratchExpiresSoon": "Cette scratch org expire le {{date}} : ses points de contrôle ne pourront alors qu'être supprimés, et Conserver ne les conserve pas. Pour remettre ses données en place dans une autre org, figez-les avant en Jeu de données figé : un Jeu de données figé se charge dans toute sandbox ou org Developer Edition.",
+      "scratchExpiresSoon": "Cette scratch org expire le {{date}} : ses points de contrôle ne la ramèneront alors plus en arrière, quoi que dise Conserver. Ils se rejoueront toujours dans une autre org : Rejouer dans une autre org… y recrée leurs enregistrements, avec de nouveaux Id.",
       "keepIt": "Conserver",
       "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir avec leur Id : la corbeille les garde 15 jours, moins si elle se remplit. Un retour arrière les recrée, avec de nouveaux Id.",
       "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
@@ -8406,6 +8475,162 @@
         "importedForever": "« {{name}} » importé : il figure maintenant parmi les points de contrôle de {{org}}, conservé jusqu’à ce que vous le supprimiez.",
         "alreadyKept": "« {{name}} » est déjà conservé sur cette machine, identique : il a été laissé tel quel.",
         "done": "Terminé"
+      }
+    },
+    "replay": {
+      "open": "Rejouer dans une autre org…",
+      "title": "Rejouer « {{name}} » dans une autre org",
+      "back": "Retour aux points de contrôle",
+      "facts": "De {{org}}, pris {{age}} · {{records}} enregistrements",
+      "intro": "Rejouer crée dans {{target}} une copie des enregistrements de ce point de contrôle, parents avant enfants, avec de nouveaux Id. Rien de {{target}} n'est modifié ni supprimé. Un point de contrôle ne garde pas le contenu des fichiers : les fichiers ne suivent pas. Un rejeu se retire.",
+      "introNoTarget": "Rejouer crée dans l'org choisie une copie des enregistrements de ce point de contrôle, parents avant enfants, avec de nouveaux Id. Rien de cette org n'est modifié ni supprimé. Un point de contrôle ne garde pas le contenu des fichiers : les fichiers ne suivent pas. Un rejeu se retire.",
+      "target": {
+        "label": "Org où rejouer",
+        "theOther": "l'autre org",
+        "none": "Aucune sandbox, scratch org ou org Developer Edition n'est connectée pour y rejouer : connectez-en une sur la page Organisations.",
+        "refreshed": "{{org}} est la sandbox dont ce point de contrôle a été pris, rafraîchie le {{date}} : ses enregistrements y reviennent avec de nouveaux Id.",
+        "refreshedUndated": "{{org}} est la sandbox dont ce point de contrôle a été pris, rafraîchie depuis : ses enregistrements y reviennent avec de nouveaux Id.",
+        "own": "{{org}} n'est pas proposée : ce point de contrôle est le sien, et Revenir à ce point la ramène à ce moment.",
+        "ownNote": "org de ce point de contrôle",
+        "staging": "Les sandboxes marquées Staging ne sont pas proposées : elles contiennent des données réelles, et un rejeu n'y va jamais."
+      },
+      "choices": "Ce que le rejeu remet en place",
+      "objects": {
+        "legend": "Objets",
+        "hint": "Décochez un objet pour l'écarter : une référence vers lui est vidée, et la simulation la nomme.",
+        "object": "{{object}} ({{records}})",
+        "files": "Non rejoués, un point de contrôle ne gardant pas le contenu des fichiers : {{objects}}."
+      },
+      "owners": {
+        "legend": "Propriétaires des enregistrements",
+        "same": "Leur propriétaire, là où l'autre org l'a",
+        "sameHint": "Gardé quand {{target}} a le même utilisateur actif ; sinon vous.",
+        "me": "Vous, qui rejouez",
+        "meHint": "Chaque enregistrement rejoué est à vous dans {{target}}."
+      },
+      "customSettings": "Remettre en place les paramètres personnalisés qu'il garde, jamais par-dessus une ligne de l'autre org",
+      "mask": {
+        "label": "Masquer les données personnelles",
+        "free": "Ce point de contrôle est d'une scratch org, d'une org Developer Edition ou d'une sandbox Developer : le masquage est à votre choix.",
+        "staging": "Ce point de contrôle est d'une sandbox marquée Staging, qui contient des données réelles : il ne va dans une autre org que masqué.",
+        "storage": "Ce point de contrôle est d'une sandbox Partial Copy ou Full ({{mb}} Mo de stockage de données) : il peut contenir des données réelles, et ne va dans une autre org que masqué.",
+        "unknown": "Ce point de contrôle est d'une sandbox et ne dit pas laquelle : pris avant SandForge 1.81, il ne garde pas le stockage de données. Le masquage est coché pour vous ; s'il ne contient aucune donnée réelle, décochez-le et dites-le.",
+        "noRealData": "Ce point de contrôle ne contient aucune donnée réelle : le rejouer sans masque (le journal d'audit le garde)"
+      },
+      "keepContactPoints": "Garder e-mails et numéros de téléphone tels quels (sinon rendus injoignables)",
+      "replace": "Remplacer le dernier rejeu dans {{target}} : supprimer d’abord les {{records}} enregistrements qu’il y a créés, et garder ce à quoi il s’est lié",
+      "replaceConfirm": {
+        "title": "Remplacer le dernier rejeu dans {{target}}",
+        "description": "Supprime de {{target}} les {{records}} enregistrements que le dernier rejeu de ce point de contrôle y a créés, les enfants avant leurs parents, puis le rejoue. Ce à quoi les rejeux se sont liés, que {{target}} contenait déjà, est conservé."
+      },
+      "acceptEmails": "Rejouer même si {{target}} délivre les e-mails",
+      "acceptAutomation": "Rejouer même si {{target}} exécute des automatisations à l'entrée des enregistrements",
+      "costLead": "Selon la simulation :",
+      "simulate": "Simuler",
+      "run": "Rejouer",
+      "pickFirst": "Choisissez l'org où rejouer.",
+      "simulateFirst": "Simulez d'abord : rien n'est écrit dans {{target}} tant qu'une simulation de ces choix n'a pas dit ce que fait le rejeu.",
+      "changed": "Les choix ont changé depuis la simulation : simulez de nouveau avant de rejouer dans {{target}}.",
+      "running": "Rejeu dans {{target}}…",
+      "runningObject": "Rejeu dans {{target}} : {{object}}…",
+      "stopping": "Arrêt en cours : le rejeu s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'il a créé d'ici là est gardé avec les rejeux de ce point de contrôle, et un retrait le reprend.",
+      "stopRefused": "Impossible d'arrêter le rejeu",
+      "stopRefusedDetail": "Le rejeu n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
+      "verify": "Vérifier",
+      "column": {
+        "object": "Objet",
+        "toCreate": "À créer",
+        "linked": "Liés",
+        "fieldsDropped": "Champs écartés",
+        "notSent": "Non envoyés",
+        "created": "Créés",
+        "refused": "Refusés"
+      },
+      "plan": {
+        "title": "Ce que le rejeu ferait dans {{target}}",
+        "records_one": "Crée dans {{target}} une copie de {{records}} de ses enregistrements, avec un nouvel Id ; rien de {{target}} n'est modifié ni supprimé.",
+        "records_other": "Crée dans {{target}} des copies de {{records}} de ses enregistrements, parents d'abord, avec de nouveaux Id ; rien de {{target}} n'est modifié ni supprimé.",
+        "linkedById_one": "{{records}} enregistrement est dans {{target}} sous le même Id : lié, non modifié.",
+        "linkedById_other": "{{records}} enregistrements sont dans {{target}} sous le même Id : liés, non modifiés.",
+        "linkedByKey_one": "{{records}} enregistrement est dans {{target}} avec les mêmes valeurs des champs qu'un lien nomme : lié, non créé.",
+        "linkedByKey_other": "{{records}} enregistrements sont dans {{target}} avec les mêmes valeurs des champs qu'un lien nomme : liés, non créés.",
+        "owners": "Propriétaires : gardés sur {{kept}} (le même utilisateur dans {{target}}) ; vous sur {{toYou}}.",
+        "ownersNotInTarget": "{{records}} d'entre eux : leur utilisateur n'est pas dans {{target}}.",
+        "ownersInactive": "{{records}} d'entre eux : leur utilisateur est inactif dans {{target}}.",
+        "ownersQueueMissing": "{{records}} d'entre eux : leur file d'attente n'est pas dans {{target}}, ou n'accepte pas cet objet.",
+        "recordTypeByName": "{{object}} ({{records}}) : type d'enregistrement {{recordType}}, trouvé dans {{target}} par son nom.",
+        "recordTypeById": "{{object}} ({{records}}) : type d'enregistrement {{recordType}}, trouvé dans {{target}} sous le même Id.",
+        "recordTypeDefault": "{{object}} ({{records}}) : le type d'enregistrement {{recordType}} n'est pas dans {{target}}, et ses enregistrements y prennent votre type par défaut.",
+        "notReplayed": {
+          "fileContentNotKept": "{{object}} ({{records}}) : non rejoué, un point de contrôle ne garde pas le contenu des fichiers.",
+          "notInTarget": "{{object}} ({{records}}) : non rejoué, {{target}} n'a pas cet objet. Déployez-le, ou écartez-le.",
+          "notCreateable": "{{object}} ({{records}}) : non rejoué, {{target}} ne crée aucun de ses enregistrements lui-même.",
+          "excluded": "{{object}} ({{records}}) : écarté, comme demandé."
+        },
+        "lookupEmptied": {
+          "objectNotReplayed": "{{field}} vidé sur {{records}} enregistrements : son objet est écarté. Cochez-le pour garder le lien.",
+          "objectNotHeld": "{{field}} vidé sur {{records}} enregistrements : l'enregistrement qu'il nomme n'est ni dans ce point de contrôle ni dans {{target}}.",
+          "userNotInTarget": "{{field}} vidé sur {{records}} enregistrements : son utilisateur n'est pas dans {{target}}."
+        },
+        "refused": {
+          "requiredLookupMissing": "{{object}} ({{records}}) : refusés avant toute écriture, une référence obligatoire nomme un enregistrement ni rejoué ni dans {{target}}.",
+          "parentRefused": "{{object}} ({{records}}) : refusés avant toute écriture, avec le parent refusé : un orphelin n'est jamais écrit.",
+          "personAccountsUnsupported": "{{object}} ({{records}}) : refusés avant toute écriture, les comptes personnels ne sont pas activés dans {{target}}. Activez-les, ou écartez Account.",
+          "inactiveCurrency": "{{object}} ({{records}}) : refusés avant toute écriture, dans une devise que {{target}} n'a pas activée.",
+          "recordTypeUnavailable": "{{object}} ({{records}}) : refusés avant toute écriture, un type d'enregistrement dont vous ne pouvez pas créer d'enregistrement dans {{target}}."
+        },
+        "fieldsNotInTarget": "{{object}} : champs absents de {{target}}, écartés : {{fields}}.",
+        "customSettings": "Paramètres personnalisés : {{inserted}} lignes remises en place ; {{already}} déjà dans {{target}}, conservées.",
+        "currencyRefused": "{{code}} ({{records}}) : {{target}} ne l'a pas activée, et ces enregistrements sont refusés avant toute écriture. Activez-la, ou écartez-les.",
+        "singleCurrency": "{{target}} n'a qu'une devise : les montants sont gardés tels quels, dans sa devise.",
+        "standardPricebook": {
+          "annex": "Les entrées du catalogue de prix standard sont reconnues par ce que le point de contrôle a gardé.",
+          "deduced": "Les entrées du catalogue de prix standard sont déduites des entrées elles-mêmes : le point de contrôle a été pris avant SandForge 1.81.",
+          "ambiguous": "Le catalogue de prix standard ne peut pas être reconnu : ses entrées sont refusées avant toute écriture. Écartez PricebookEntry, ou prenez un nouveau point de contrôle avec SandForge 1.81.",
+          "none": "Aucune entrée d'un catalogue de prix standard n'est gardée : les prix sont rejoués sans prix standard."
+        },
+        "masked": "Masqués : {{fields}}.",
+        "unmaskedFreeText": "Champs de texte libre que le masquage ne lit pas, qui partent tels quels : {{fields}}.",
+        "contactPointsNeutralized": "Les e-mails et numéros de téléphone sont rendus injoignables.",
+        "contactPointsKept": "Les e-mails et numéros de téléphone partent tels quels.",
+        "archived": "{{records}} tâches et événements archivés sont rejoués, que {{target}} tient vivants.",
+        "degraded": "Pris avant SandForge 1.81, ce point de contrôle ne garde pas {{parts}} : leurs enregistrements prennent ce que {{target}} donne par défaut.",
+        "part": {
+          "recordTypes": "les types d'enregistrement",
+          "users": "les utilisateurs",
+          "queues": "les files d'attente",
+          "standardPricebook": "le catalogue de prix standard"
+        },
+        "auditDates": "Les dates et utilisateurs de création et de modification sont ceux du rejeu : la plateforme les pose.",
+        "filesLeft_one": "{{files}} fichier n’est pas rejoué, un point de contrôle ne gardant pas le contenu des fichiers : {{names}}.",
+        "filesLeft_other": "{{files}} fichiers ne sont pas rejoués, un point de contrôle ne gardant pas le contenu des fichiers : {{names}}.",
+        "storage": "Stockage de données : environ {{estimate}} Mo, avec {{remaining}} Mo restants dans {{target}} sur {{max}} Mo.",
+        "earlier": "Un rejeu antérieur de ce point de contrôle dans {{target}} est encore en place : celui-ci recrée ses enregistrements à côté. Retirez-le d’abord, ou cochez Remplacer."
+      },
+      "result": {
+        "title": "Rejoué dans {{target}}",
+        "completed": "Le rejeu a écrit ce qu'il devait.",
+        "completedWithErrors": "{{target}} a refusé des enregistrements, listés : le reste est écrit.",
+        "partial": "Le rejeu a écrit ce qu'il a pu, et s'est arrêté avant le reste, listé."
+      },
+      "verdict": {
+        "passed": "Vérifié : {{target}} contient chaque enregistrement que le rejeu dit avoir écrit.",
+        "partial": "Vérifié en partie : des enregistrements écrits par le rejeu manquent dans {{target}}, ou sont orphelins.",
+        "failed": "Non vérifié : ce que contient {{target}} ne correspond pas à ce que le rejeu a écrit.",
+        "unstable": "Vérification impossible : ce que contient {{target}} changeait pendant qu'on le comptait."
+      },
+      "replays": {
+        "title": "Rejeux de ce point de contrôle",
+        "inPlace": "{{target}}, rejoué le {{date}} : {{records}} enregistrements encore en place.",
+        "removed": "{{target}}, rejoué le {{date}} : retiré.",
+        "nothing": "{{target}}, rejoué le {{date}} : aucun de ses enregistrements n'y reste.",
+        "notConnected": "Cette org n'est pas connectée : connectez-la pour retirer ce rejeu.",
+        "pick": "Afficher {{target}}"
+      },
+      "list": {
+        "elsewhere": "Il ne ramène plus son org en arrière, mais il se rejoue dans une autre org : ses enregistrements y sont recréés, avec de nouveaux Id.",
+        "inPlace": "Rejeux encore en place : {{replays}}.",
+        "deleteKeeps": "Ses rejeux restent en place : {{replays}}. Chacun se retire encore sans le point de contrôle."
       }
     }
   },

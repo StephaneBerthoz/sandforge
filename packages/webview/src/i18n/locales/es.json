@@ -4171,7 +4171,9 @@
       "none": "Cree un punto de control de {{org}} antes de su próxima sesión de pruebas",
       "take": "Crear un punto de control",
       "expiresSoon": "«{{name}}» caduca {{when}}",
-      "keep": "Conservar"
+      "keep": "Conservar",
+      "replayRefreshed": "«{{name}}» es de {{org}} antes de su actualización: reprodúzcalo para volver a montar allí sus registros.",
+      "replay": "Reproducir…"
     },
     "openAutomation": "Abrir Automatización",
     "openOpModule": "Abrir {{module}}",
@@ -6530,6 +6532,74 @@
         "explanationUnread": "No se pudo leer lo que {{org}} ejecuta cuando la carga escribe, y no se escribió nada.",
         "action": "Marque «Cargar aunque {{org}} ejecute automatizaciones al entrar los registros» para cargar de todos modos, marque el silencio de la automatización para callar lo que prueba la omisión de la org, o desactive esas automatizaciones en {{org}}."
       }
+    },
+    "replay": {
+      "automation": {
+        "title": "Lo que {{org}} ejecuta cuando la reproducción inserta sus registros y los actualiza:",
+        "unread": "No se pudo leer lo que {{org}} ejecuta ({{reason}}): la reproducción pregunta como si algo se ejecutara.",
+        "refused": "Una reproducción se rechazaría, sin escribir nada, salvo que marque «Reproducir aunque {{org}} ejecute automatizaciones al entrar los registros», o la silencie.",
+        "accepted": "Con la casilla marcada, la reproducción escribe de todos modos, y esta automatización se ejecuta."
+      },
+      "emails": {
+        "refused": "{{org}} entrega todos los correos que envía lo que sigue en marcha cuando la reproducción escribe, o no dice si los entrega: la reproducción se rechazaría, sin escribir nada, salvo que marque «Reproducir aunque {{org}} entregue los correos».",
+        "accepted": "{{org}} entrega los correos que envía lo que sigue en marcha cuando la reproducción escribe, o no dice si los entrega: con la casilla marcada, la reproducción los envía.",
+        "exceeded": "Más allá de lo que le queda hoy a {{org}}, cada registro cuyo Flow falla al guardar se rechaza: la reproducción se rechazaría, sin escribir nada, diga lo que diga la casilla. Silencie lo que los envía, o reproduzca en una org a la que le queden más correos hoy."
+      },
+      "removal": {
+        "title": "Última reproducción",
+        "titleEarlier": "Reproducción anterior",
+        "replayedInto": "Reproducido en {{org}} el {{date}}",
+        "earlierNote": "Una reproducción anterior a la última: las siguientes dejaron sus registros en {{org}}.",
+        "remove": "Quitar esta reproducción",
+        "removeLeft": "Quitar lo que queda de esta reproducción",
+        "removeTitle": "Quitar esta reproducción de {{org}}",
+        "removeDescription": "Elimina de {{org}} los registros que creó esta reproducción, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la reproducción, que {{org}} ya contenía, se conservan, así como un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la reproducción, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluya abajo.",
+        "includeChanged": "Quitar también los registros modificados desde la reproducción, y lo que se les añadió desde entonces",
+        "sweep": "Barrer primero: eliminar también los registros que los Flows y desencadenadores del destino crearon para esta reproducción; si no, pueden impedir que se quiten sus registros",
+        "sweepAloneTitle": "Retirar de {{org}} lo que su automatización creó para esta reproducción",
+        "sweepAloneDescription": "No queda en {{org}} nada de lo que creó esta reproducción. Esto elimina solo lo que toma el barrido de abajo: lo que los Flows y desencadenadores de {{org}} crearon para la reproducción, con su usuario, los hijos antes que sus padres; va a su papelera de reciclaje. Un registro que otra persona modificó desde entonces se conserva salvo que lo incluya abajo.",
+        "sweepLoading": "Leyendo lo que la automatización de {{org}} creó durante la reproducción…",
+        "removing": "Quitando los registros que creó esta reproducción…",
+        "orgGone": "La org donde escribió esta reproducción ya no está conectada: conéctela para quitar la reproducción.",
+        "nothingCreated": "Esta reproducción no creó ningún registro: no hay nada que quitar.",
+        "keptByThePlatform": "Conservados en {{org}} por cualquier eliminación — la plataforma no elimina estos registros que creó la reproducción: {{objects}}",
+        "automationTitle": "Lo que {{org}} ejecuta cuando se retira esta reproducción",
+        "automationLoading": "Leyendo lo que {{org}} ejecuta cuando se retira esta reproducción…",
+        "automationIntro": "Cuando se retira esta reproducción, {{org}} ejecuta:",
+        "automationNone": "Ninguna automatización de {{org}} se ejecuta cuando se retira esta reproducción.",
+        "automationError": "No se pudo leer lo que {{org}} ejecuta cuando se retira esta reproducción: {{reason}}"
+      },
+      "refusal": {
+        "sameOrg": "{{target}} es la org de la que se tomó este punto de control: una reproducción crea copias de sus registros en otra org, y no se escribió nada. Para devolver {{target}} a ese momento, use Retroceder.",
+        "realDataStaging": "Este punto de control es de un sandbox marcado como Staging, que contiene datos reales: solo va a otra org enmascarado, y no se escribió nada. Marque Enmascarar los datos personales y simule de nuevo.",
+        "realDataStorage": "Este punto de control es de un sandbox Partial Copy o Full ({{mb}} MB de almacenamiento de datos): puede contener datos reales, solo va a otra org enmascarado, y no se escribió nada. Marque Enmascarar los datos personales y simule de nuevo.",
+        "copyUnknown": "Este punto de control es de un sandbox y no dice de cuál: tomado antes de SandForge 1.81, no guarda el almacenamiento de datos, y un sandbox Partial Copy o Full contiene los registros de producción. No se escribió nada. Marque Enmascarar los datos personales, o declare que no contiene datos reales, lo que guarda el registro de auditoría; luego simule de nuevo.",
+        "tooMany": "Esta reproducción montaría {{records}} registros, más de los {{max}} que una reproducción monta de una vez, y no se escribió nada. Desmarque algunos objetos y simule de nuevo.",
+        "nothing": "No queda nada de este punto de control por reproducir: cada objeto está fuera, o no contiene ningún registro que una reproducción monte. No se escribió nada. Marque un objeto.",
+        "unusable": "Este punto de control no se puede reproducir: su toma está en curso o falló, o su archivo no se puede leer. No se escribió nada.",
+        "notFound": "Este punto de control ya no se guarda en esta máquina, y no se escribió nada. Vuelva a los puntos de control para ver lo que se guarda.",
+        "maxRecords": "La reproducción crearía más registros de los que contó su simulación: la org o el punto de control cambió desde entonces, y no se escribió nada. Simule de nuevo.",
+        "noLoad": "No hay ninguna reproducción de este punto de control en esta org registrada en esta máquina, y no se modificó nada. Reprodúzcalo primero allí.",
+        "loadChanged": "Se registró otra reproducción en esta org desde que se mostró esta, y no se quitó nada. Compruebe lo que toma ahora una eliminación y confírmela de nuevo.",
+        "targetRefreshed": "La org se actualizó después de la reproducción: los registros que creó se fueron con la actualización, y no se modificó nada. Reproduzca el punto de control de nuevo.",
+        "loadStopped": "La última reproducción se detuvo a mitad de camino sin escribir contrato de conteo, y no se verificó nada. Quítela, luego reproduzca de nuevo y verifique.",
+        "loadRemoved": "Los registros que creó la última reproducción se quitaron: no hay nada que verificar. Reproduzca de nuevo y luego verifique.",
+        "loadRemovedPart": "Una eliminación tomó parte de los registros que creó la última reproducción y dejó {{left}} en la org: una verificación leería los que tomó como ausentes. Quite lo que queda y luego verifique.",
+        "alreadyRemoved": "Los registros que creó esta reproducción ya se quitaron, y no se eliminó nada. La reproducción se muestra ahora tal como la guarda esta máquina.",
+        "nothingToRemove": "Esta reproducción no creó ningún registro que tome una eliminación, y no se eliminó nada. La reproducción se muestra ahora tal como la guarda esta máquina.",
+        "cancelled": "Detuvo la reproducción antes de que escribiera nada, y no se escribió nada.",
+        "cancelledWrote": "Detuvo la reproducción a mitad de camino. Registros escritos hasta entonces: {{records}}. Lo que creó se guarda con las reproducciones de este punto de control: Quitar esta reproducción lo retira.",
+        "checkpointRefused": "La reproducción se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar, como dice la salida de SandForge. No se escribió nada. Desmarque Primero un punto de control, o corrija lo que lo rechaza.",
+        "loadConfig": "Los registros del punto de control dejan vacíos campos obligatorios de la otra org, y no se escribió nada: {{gaps}}. Desmarque sus objetos, o reproduzca desde la línea de comandos con una configuración que les dé un valor (--replay-config).",
+        "nonSandbox": "{{org}} no es ni sandbox, ni scratch org, ni org Developer Edition: una reproducción solo va a esos, y no se escribió nada. Elija uno de ellos.",
+        "staging": "{{org}} es un sandbox marcado como Staging: contiene datos reales, y una reproducción nunca va a uno de ellos. No se escribió nada. Elija otra org.",
+        "storage": "Los registros del punto de control ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB: la reproducción se detendría a mitad de camino, y no se escribió nada. Desmarque algunos objetos, o libere almacenamiento en {{org}}.",
+        "apiBudget": "La reproducción tomaría unas {{estimate}} solicitudes de API de {{org}}, a la que le quedan {{remaining}} de sus {{max}} diarias: se detendría a mitad de camino, y no se escribió nada. Reproduzca cuando la org tenga solicitudes de sobra, o en una org a la que le queden más hoy.",
+        "emailsNotAccepted": "{{org}} entrega todos los correos que envía lo que sigue en marcha cuando la reproducción escribe, o no dice si los entrega, y no se escribió nada. Marque «Reproducir aunque {{org}} entregue los correos», marque el silencio de la automatización, o ponga la entregabilidad de la org en System email only.",
+        "emailsExceeded": "La reproducción haría que {{org}} enviara más correos de los que le quedan hoy ({{limit}}: unos {{emails}}, {{remaining}} de {{max}} restantes), y no se escribió nada. Marque el silencio de la automatización para callar lo que los envía, o reproduzca en una org a la que le queden más correos hoy.",
+        "automation": "{{org}} ejecuta automatizaciones cuando la reproducción escribe sus registros ({{named}}), y no se escribió nada. Marque «Reproducir aunque {{org}} ejecute automatizaciones al entrar los registros», marque el silencio de la automatización, o desactive esa automatización en {{org}}.",
+        "automationUnread": "No se pudo leer lo que {{org}} ejecuta cuando la reproducción escribe, y no se escribió nada. Marque «Reproducir aunque {{org}} ejecute automatizaciones al entrar los registros», o marque el silencio de la automatización."
+      }
     }
   },
   "runRemoval": {
@@ -7824,13 +7894,12 @@
         "damaged": "Su archivo no se puede leer: este punto de control solo se puede eliminar.",
         "taking": "Sin terminar: su creación está en curso, o una creación se detuvo antes de acabar. Solo se puede eliminar.",
         "failed": "Su creación falló: este punto de control solo se puede eliminar.",
-        "refreshed": "{{org}} se actualizó el {{date}}: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
-        "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
-        "scratchExpired": "Esta scratch org caducó: sus puntos de control solo se pueden eliminar."
+        "refreshed": "{{org}} se actualizó el {{date}}: este punto de control es de la org anterior a la actualización, y ya no la hace retroceder.",
+        "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y ya no la hace retroceder.",
+        "scratchExpired": "Esta scratch org caducó: sus puntos de control ya no la hacen retroceder."
       },
-      "frozenInstead": "Un punto de control devuelve la org de la que se tomó a un momento, y ninguna otra org: los datos que se quieren volver a montar en otra org se congelan como Dataset congelado mientras su org existe.",
       "expiresSoon": "Caduca {{when}}",
-      "scratchExpiresSoon": "Esta scratch org caduca el {{date}}: sus puntos de control solo podrán eliminarse entonces, y Conservar no los conserva. Para volver a montar sus datos en otra org, congélelos antes como Dataset congelado: un Dataset congelado se carga en cualquier sandbox u org Developer Edition.",
+      "scratchExpiresSoon": "Esta scratch org caduca el {{date}}: sus puntos de control ya no la harán retroceder entonces, diga lo que diga Conservar. Seguirán reproduciéndose en otra org: Reproducir en otra org… vuelve a crear allí sus registros, con nuevos Id.",
       "keepIt": "Conservar",
       "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver con su Id: la papelera los guarda 15 días, menos si se llena. Un retroceso los crea de nuevo, con Id nuevos.",
       "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
@@ -8406,6 +8475,162 @@
         "importedForever": "«{{name}}» importado: figura ahora entre los puntos de control de {{org}} y se conserva hasta que lo elimine.",
         "alreadyKept": "«{{name}}» ya se conserva en esta máquina, igual: se dejó como estaba.",
         "done": "Hecho"
+      }
+    },
+    "replay": {
+      "open": "Reproducir en otra org…",
+      "title": "Reproducir «{{name}}» en otra org",
+      "back": "Volver a los puntos de control",
+      "facts": "De {{org}}, tomado {{age}} · {{records}} registros",
+      "intro": "Reproducir crea en {{target}} una copia de los registros de este punto de control, los padres antes que los hijos, con nuevos Id. Nada de lo que contiene {{target}} se modifica ni se elimina. Un punto de control no guarda el contenido de los archivos: los archivos no se trasladan. Una reproducción se puede quitar.",
+      "introNoTarget": "Reproducir crea en la org elegida una copia de los registros de este punto de control, los padres antes que los hijos, con nuevos Id. Nada de lo que contiene esa org se modifica ni se elimina. Un punto de control no guarda el contenido de los archivos: los archivos no se trasladan. Una reproducción se puede quitar.",
+      "target": {
+        "label": "Org donde reproducir",
+        "theOther": "la otra org",
+        "none": "No hay conectado ningún sandbox, scratch org ni org Developer Edition donde reproducir: conecte uno en la página Organizaciones.",
+        "refreshed": "{{org}} es el sandbox del que se tomó este punto de control, actualizado el {{date}}: sus registros vuelven a él con nuevos Id.",
+        "refreshedUndated": "{{org}} es el sandbox del que se tomó este punto de control, actualizado desde entonces: sus registros vuelven a él con nuevos Id.",
+        "own": "{{org}} no se ofrece: este punto de control es suyo, y Retroceder la devuelve a ese momento.",
+        "ownNote": "org de este punto de control",
+        "staging": "Los sandboxes marcados como Staging no se ofrecen: contienen datos reales, y una reproducción nunca va a uno de ellos."
+      },
+      "choices": "Lo que la reproducción vuelve a montar",
+      "objects": {
+        "legend": "Objetos",
+        "hint": "Desmarque un objeto para dejarlo fuera: una búsqueda hacia él se vacía, y la simulación la nombra.",
+        "object": "{{object}} ({{records}})",
+        "files": "No se reproducen, pues un punto de control no guarda el contenido de los archivos: {{objects}}."
+      },
+      "owners": {
+        "legend": "Quién es el propietario de los registros",
+        "same": "Su propietario, donde la otra org lo tiene",
+        "sameHint": "Se conserva cuando {{target}} tiene el mismo usuario activo; si no, usted.",
+        "me": "Usted, que reproduce",
+        "meHint": "Cada registro reproducido es suyo en {{target}}."
+      },
+      "customSettings": "Volver a montar los ajustes personalizados que contiene, nunca sobre una fila de la otra org",
+      "mask": {
+        "label": "Enmascarar los datos personales",
+        "free": "Este punto de control es de una scratch org, una org Developer Edition o un sandbox Developer: enmascarar queda a su elección.",
+        "staging": "Este punto de control es de un sandbox marcado como Staging, que contiene datos reales: solo va a otra org enmascarado.",
+        "storage": "Este punto de control es de un sandbox Partial Copy o Full ({{mb}} MB de almacenamiento de datos): puede contener datos reales, y solo va a otra org enmascarado.",
+        "unknown": "Este punto de control es de un sandbox y no dice de cuál: tomado antes de SandForge 1.81, no guarda el almacenamiento de datos. El enmascarado está marcado por usted; si no contiene datos reales, desmárquelo y dígalo.",
+        "noRealData": "Este punto de control no contiene datos reales: reproducirlo sin enmascarar (el registro de auditoría lo guarda)"
+      },
+      "keepContactPoints": "Dejar los correos y números de teléfono como están (si no, quedan inalcanzables)",
+      "replace": "Reemplazar la última reproducción en {{target}}: eliminar primero los {{records}} registros que creó allí, y conservar aquello a lo que se vinculó",
+      "replaceConfirm": {
+        "title": "Reemplazar la última reproducción en {{target}}",
+        "description": "Elimina de {{target}} los {{records}} registros que la última reproducción de este punto de control creó allí, los hijos antes que sus padres, y luego lo reproduce de nuevo. Aquello a lo que se vincularon las reproducciones, que {{target}} ya contenía, se conserva."
+      },
+      "acceptEmails": "Reproducir aunque {{target}} entregue los correos",
+      "acceptAutomation": "Reproducir aunque {{target}} ejecute automatizaciones al entrar los registros",
+      "costLead": "Según la simulación:",
+      "simulate": "Simular",
+      "run": "Reproducir",
+      "pickFirst": "Elija la org donde reproducir.",
+      "simulateFirst": "Simule primero: nada se escribe en {{target}} hasta que una simulación de estas opciones diga lo que hace la reproducción.",
+      "changed": "Las opciones cambiaron desde la simulación: simule de nuevo antes de reproducir en {{target}}.",
+      "running": "Reproduciendo en {{target}}…",
+      "runningObject": "Reproduciendo en {{target}}: {{object}}…",
+      "stopping": "Deteniendo: la reproducción termina en cuanto se responde la llamada en curso. Lo que creó hasta entonces se guarda con las reproducciones de este punto de control, y una eliminación lo retoma.",
+      "stopRefused": "No se pudo detener la reproducción",
+      "stopRefusedDetail": "La reproducción ya no está en curso, o no se inició desde esta ventana.",
+      "verify": "Verificar",
+      "column": {
+        "object": "Objeto",
+        "toCreate": "Por crear",
+        "linked": "Vinculados",
+        "fieldsDropped": "Campos omitidos",
+        "notSent": "No enviados",
+        "created": "Creados",
+        "refused": "Rechazados"
+      },
+      "plan": {
+        "title": "Lo que la reproducción haría en {{target}}",
+        "records_one": "Crea en {{target}} una copia de {{records}} de sus registros, con un nuevo Id; nada de lo que contiene {{target}} se modifica ni se elimina.",
+        "records_other": "Crea en {{target}} copias de {{records}} de sus registros, los padres primero, con nuevos Id; nada de lo que contiene {{target}} se modifica ni se elimina.",
+        "linkedById_one": "{{records}} registro está en {{target}} con el mismo Id: vinculado, sin modificar.",
+        "linkedById_other": "{{records}} registros están en {{target}} con el mismo Id: vinculados, sin modificar.",
+        "linkedByKey_one": "{{records}} registro está en {{target}} con los mismos valores de los campos que nombra un vínculo: vinculado, no creado.",
+        "linkedByKey_other": "{{records}} registros están en {{target}} con los mismos valores de los campos que nombra un vínculo: vinculados, no creados.",
+        "owners": "Propietarios: conservados en {{kept}} (el mismo usuario en {{target}}); usted en {{toYou}}.",
+        "ownersNotInTarget": "{{records}} de ellos: su usuario no está en {{target}}.",
+        "ownersInactive": "{{records}} de ellos: su usuario está inactivo en {{target}}.",
+        "ownersQueueMissing": "{{records}} de ellos: su cola no está en {{target}}, o no admite este objeto.",
+        "recordTypeByName": "{{object}} ({{records}}): tipo de registro {{recordType}}, encontrado en {{target}} por su nombre.",
+        "recordTypeById": "{{object}} ({{records}}): tipo de registro {{recordType}}, encontrado en {{target}} con el mismo Id.",
+        "recordTypeDefault": "{{object}} ({{records}}): el tipo de registro {{recordType}} no está en {{target}}, y sus registros toman allí su tipo predeterminado.",
+        "notReplayed": {
+          "fileContentNotKept": "{{object}} ({{records}}): no se reproduce, un punto de control no guarda el contenido de los archivos.",
+          "notInTarget": "{{object}} ({{records}}): no se reproduce, {{target}} no tiene ese objeto. Impleméntelo, o déjelo fuera.",
+          "notCreateable": "{{object}} ({{records}}): no se reproduce, {{target}} no crea ninguno de sus registros por sí mismo.",
+          "excluded": "{{object}} ({{records}}): dejado fuera, como se pidió."
+        },
+        "lookupEmptied": {
+          "objectNotReplayed": "{{field}} vaciado en {{records}} registros: su objeto está fuera. Márquelo para conservar el vínculo.",
+          "objectNotHeld": "{{field}} vaciado en {{records}} registros: el registro que nombra no está ni en este punto de control ni en {{target}}.",
+          "userNotInTarget": "{{field}} vaciado en {{records}} registros: su usuario no está en {{target}}."
+        },
+        "refused": {
+          "requiredLookupMissing": "{{object}} ({{records}}): rechazados antes de escribir nada, una búsqueda obligatoria nombra un registro que ni se reproduce ni está en {{target}}.",
+          "parentRefused": "{{object}} ({{records}}): rechazados antes de escribir nada, con el padre rechazado: nunca se escribe un huérfano.",
+          "personAccountsUnsupported": "{{object}} ({{records}}): rechazados antes de escribir nada, las cuentas personales no están activadas en {{target}}. Actívelas, o deje Account fuera.",
+          "inactiveCurrency": "{{object}} ({{records}}): rechazados antes de escribir nada, en una divisa que {{target}} no ha activado.",
+          "recordTypeUnavailable": "{{object}} ({{records}}): rechazados antes de escribir nada, un tipo de registro del que usted no puede crear registros en {{target}}."
+        },
+        "fieldsNotInTarget": "{{object}}: campos que faltan en {{target}}, omitidos: {{fields}}.",
+        "customSettings": "Ajustes personalizados: {{inserted}} filas montadas; {{already}} ya en {{target}}, conservadas.",
+        "currencyRefused": "{{code}} ({{records}}): {{target}} no la ha activado, y estos registros se rechazan antes de escribir nada. Actívela, o déjelos fuera.",
+        "singleCurrency": "{{target}} tiene una sola divisa: los importes se conservan tal cual, en su divisa.",
+        "standardPricebook": {
+          "annex": "Las entradas de la lista de precios estándar se reconocen por lo que guardó el punto de control.",
+          "deduced": "Las entradas de la lista de precios estándar se deducen de las propias entradas: el punto de control se tomó antes de SandForge 1.81.",
+          "ambiguous": "No se puede saber qué lista de precios era la estándar: sus entradas se rechazan antes de escribir nada. Deje PricebookEntry fuera, o tome un nuevo punto de control con SandForge 1.81.",
+          "none": "No se guarda ninguna entrada de una lista de precios estándar: los precios se reproducen sin precio estándar."
+        },
+        "masked": "Enmascarados: {{fields}}.",
+        "unmaskedFreeText": "Campos de texto libre que el enmascarado no lee, que van tal cual: {{fields}}.",
+        "contactPointsNeutralized": "Los correos y números de teléfono quedan inalcanzables.",
+        "contactPointsKept": "Los correos y números de teléfono van tal cual.",
+        "archived": "Se reproducen {{records}} tareas y eventos archivados, que {{target}} mantiene vivos.",
+        "degraded": "Tomado antes de SandForge 1.81, este punto de control no guarda {{parts}}: sus registros toman lo que {{target}} da por defecto.",
+        "part": {
+          "recordTypes": "los tipos de registro",
+          "users": "los usuarios",
+          "queues": "las colas",
+          "standardPricebook": "la lista de precios estándar"
+        },
+        "auditDates": "Las fechas y usuarios de creación y modificación son los de la reproducción: los pone la plataforma.",
+        "filesLeft_one": "{{files}} archivo no se reproduce, pues un punto de control no guarda el contenido de los archivos: {{names}}.",
+        "filesLeft_other": "{{files}} archivos no se reproducen, pues un punto de control no guarda el contenido de los archivos: {{names}}.",
+        "storage": "Almacenamiento de datos: unos {{estimate}} MB, con {{remaining}} MB libres en {{target}} de {{max}} MB.",
+        "earlier": "Una reproducción anterior de este punto de control en {{target}} sigue en su lugar: esta vuelve a crear sus registros al lado. Quítela primero, o marque Reemplazar."
+      },
+      "result": {
+        "title": "Reproducido en {{target}}",
+        "completed": "La reproducción escribió lo que debía.",
+        "completedWithErrors": "{{target}} rechazó algunos registros, listados: el resto se escribió.",
+        "partial": "La reproducción escribió lo que pudo, y se detuvo antes del resto, listado."
+      },
+      "verdict": {
+        "passed": "Verificado: {{target}} contiene cada registro que la reproducción dice haber escrito.",
+        "partial": "Verificado en parte: faltan en {{target}} registros que escribió la reproducción, o son huérfanos.",
+        "failed": "No verificado: lo que contiene {{target}} no coincide con lo que escribió la reproducción.",
+        "unstable": "No se pudo verificar: lo que contiene {{target}} cambiaba mientras se contaba."
+      },
+      "replays": {
+        "title": "Reproducciones de este punto de control",
+        "inPlace": "{{target}}, reproducido el {{date}}: {{records}} registros siguen allí.",
+        "removed": "{{target}}, reproducido el {{date}}: quitado.",
+        "nothing": "{{target}}, reproducido el {{date}}: no queda allí ninguno de sus registros.",
+        "notConnected": "Esa org no está conectada: conéctela para quitar esta reproducción.",
+        "pick": "Mostrar {{target}}"
+      },
+      "list": {
+        "elsewhere": "Ya no hace retroceder su org, pero se reproduce en otra org: sus registros se vuelven a crear allí, con nuevos Id.",
+        "inPlace": "Reproducciones que siguen en su lugar: {{replays}}.",
+        "deleteKeeps": "Sus reproducciones se quedan donde están: {{replays}}. Cada una se sigue quitando sin el punto de control."
       }
     }
   },

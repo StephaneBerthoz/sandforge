@@ -15,6 +15,7 @@
     "automationMute.kind.flow",
     "autopilot.step4.durationMinutes",
     "checkpoint.preview.person",
+    "checkpoint.replay.objects.object",
     "checkpoint.transfer.importDialog.madeByValue",
     "common.itemCount_one",
     "common.orgType.devPro",

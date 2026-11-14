@@ -7336,7 +7336,7 @@ for (const theme of SCANNED_THEMES) {
       expect(shortfalls, shortfalls.join('\n')).toEqual([]);
     });
 
-    test('Checkpoints list with a row’s More open: Rename, Export… and Stop comparing fields…', async ({
+    test('Checkpoints list with a row’s More open: Rename, Replay in another org…, Export… and Stop comparing fields…', async ({
       page,
     }) => {
       const checkpoint = readyCheckpoint({ checkpointId: 'ck-axe-more' });
@@ -7352,6 +7352,7 @@ for (const theme of SCANNED_THEMES) {
       const actions = page.getByTestId('checkpoint-more-actions-ck-axe-more');
       await expect(actions.getByRole('button')).toHaveText([
         'Rename',
+        'Replay in another org…',
         'Export…',
         'Stop comparing fields…',
       ]);
@@ -15646,7 +15647,7 @@ for (const theme of SCANNED_THEMES) {
       await expectMeasuredReadable(page, theme, rule);
     });
 
-    test('Checkpoints of a scratch org about to expire, and of one gone, each saying what Frozen keeps', async ({
+    test('Checkpoints of a scratch org about to expire, and of one gone, each saying it replays in another org', async ({
       page,
     }) => {
       const day = daysFromNow(3).slice(0, 10);
@@ -15673,7 +15674,7 @@ for (const theme of SCANNED_THEMES) {
         page,
         theme,
         byTestId('checkpoint-scratch-expires-ck-scratch-soon'),
-        byTestId('checkpoint-frozen-ck-scratch-gone'),
+        byTestId('checkpoint-elsewhere-ck-scratch-gone'),
       );
     });
 

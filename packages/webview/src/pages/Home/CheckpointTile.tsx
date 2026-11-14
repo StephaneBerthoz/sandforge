@@ -24,7 +24,9 @@ export interface CheckpointTileProps {
 /**
  * Home's word on the selected org's checkpoints: its latest, with Rewind…,
  * which opens what a rewind to it would do, or the offer to take one before the next test session; and a checkpoint
- * that expires within three days, with Keep. Read from this machine, never
+ * that expires within three days, with Keep; and, for a sandbox refreshed
+ * since, its newest checkpoint of before, with Replay…, which brings its data
+ * back into the sandbox with new Ids. Read from this machine, never
  * from the org. Nothing for a production org, of which none is ever taken,
  * nor before the list has answered.
  */
@@ -60,6 +62,11 @@ export const CheckpointTile: React.FC<CheckpointTileProps> = ({ org }) => {
   const expiresIn = expiring?.checkpoint.expiresAt
     ? formatStoredDate(expiring.checkpoint.expiresAt, (d) => formatRelativeTime(d))
     : null;
+  // The newest checkpoint of the sandbox before its refresh: it rewinds
+  // nothing any more, and its data comes back into the sandbox by a replay.
+  const beforeRefresh = listed.find(
+    (entry) => entry.why === 'refreshed' && entry.checkpoint !== undefined,
+  );
 
   return (
     <BentoTile colSpan={1} rowSpan={1}>
@@ -97,6 +104,26 @@ export const CheckpointTile: React.FC<CheckpointTileProps> = ({ org }) => {
               data-testid="checkpoint-tile-take"
             >
               {t('home.checkpoint.take')}
+            </Button>
+          </div>
+        )}
+        {beforeRefresh?.checkpoint && (
+          <div className="flex flex-col items-start gap-2" data-testid="checkpoint-tile-replay">
+            <p className="text-xs text-text-primary">
+              {t('home.checkpoint.replayRefreshed', {
+                name: beforeRefresh.checkpoint.name,
+                org: orgName,
+              })}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                navigate('checkpoint', { replayCheckpointId: beforeRefresh.checkpointId })
+              }
+              data-testid="checkpoint-tile-replay-open"
+            >
+              {t('home.checkpoint.replay')}
             </Button>
           </div>
         )}

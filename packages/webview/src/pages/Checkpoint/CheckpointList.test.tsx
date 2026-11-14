@@ -14,6 +14,7 @@ function renderList(entries = [listEntry()], focusRewind?: string, exporting?: s
   const onUndo = vi.fn();
   const onStopComparing = vi.fn();
   const onExport = vi.fn();
+  const onReplay = vi.fn();
   render(
     <CheckpointList
       entries={entries}
@@ -25,11 +26,12 @@ function renderList(entries = [listEntry()], focusRewind?: string, exporting?: s
       onUndo={onUndo}
       onStopComparing={onStopComparing}
       onExport={onExport}
+      onReplay={onReplay}
       {...(exporting ? { exporting } : {})}
       {...(focusRewind ? { focusRewind } : {})}
     />,
   );
-  return { onRename, onKeep, onDelete, onRewind, onUndo, onStopComparing, onExport };
+  return { onRename, onKeep, onDelete, onRewind, onUndo, onStopComparing, onExport, onReplay };
 }
 
 /** A checkpoint whose org's last rewind was made to it, and which can still be undone. */
@@ -112,11 +114,6 @@ describe('CheckpointList', () => {
       readyCheckpoint({ status: 'failed' }),
       'Its take failed: this checkpoint can only be deleted.',
     ],
-    [
-      'scratchExpired',
-      readyCheckpoint(),
-      'This scratch org has expired: its checkpoints can only be deleted.',
-    ],
   ] as const)(
     'says why a %s checkpoint can only be deleted, and offers only Delete',
     (why, checkpoint, said) => {
@@ -145,7 +142,7 @@ describe('CheckpointList', () => {
     expect(screen.getByTestId(`checkpoint-export-${ID}`)).toHaveAccessibleDescription('Before UAT');
   });
 
-  it('shows Rewind…, Keep and Delete on the row, and Rename, Export… and Stop comparing fields… under More', () => {
+  it('shows Rewind…, Keep and Delete on the row, and Rename, Replay in another org…, Export… and Stop comparing fields… under More', () => {
     // Each row put up to six controls on one wrapping line, the expert fix
     // that matters only after a rewind met automation among them.
     renderList();
@@ -171,6 +168,7 @@ describe('CheckpointList', () => {
       'More',
       'Delete',
       'Rename',
+      'Replay in another org…',
       'Export…',
       'Stop comparing fields…',
     ]);
@@ -223,7 +221,7 @@ describe('CheckpointList', () => {
       }),
     ]);
     expect(screen.getByTestId(`checkpoint-why-${ID}`).textContent).toBe(
-      'DEV-SB was refreshed on Oct 15, 2026: this checkpoint is of the org before it, and can only be deleted.',
+      'DEV-SB was refreshed on Oct 15, 2026: this checkpoint is of the org before it, and rewinds nothing any more.',
     );
   });
 
@@ -336,10 +334,9 @@ describe('CheckpointList', () => {
       ),
     ]);
     expect(screen.getByTestId(`checkpoint-scratch-expires-${ID}`).textContent).toBe(
-      'This scratch org expires on Oct 24, 2026: its checkpoints can then only be deleted, and ' +
-        'Keep does not keep them. To set up its data again in another org, freeze it as a ' +
-        'Frozen Dataset before then: a Frozen Dataset loads into any sandbox or Developer ' +
-        'Edition org.',
+      'This scratch org expires on Oct 24, 2026: its checkpoints then rewind nothing, whatever ' +
+        'Keep says. They still replay in another org: Replay in another org… sets their records ' +
+        'up there again, with new Ids.',
     );
   });
 
@@ -347,16 +344,77 @@ describe('CheckpointList', () => {
     ['refreshed', { refreshedAt: '2026-10-15T12:00:00.000Z' }],
     ['scratchExpired', {}],
   ] as const)(
-    'names a Frozen Dataset for the data of a %s checkpoint’s org, which a checkpoint never replays elsewhere',
+    'offers a %s checkpoint, which rewinds nothing, to replay in another org, to keep, rename and export, and no Rewind…',
     (why, more) => {
       const entry = listEntry(readyCheckpoint(), { valid: false, why, ...more });
-      renderList([entry]);
-      expect(screen.getByTestId(`checkpoint-frozen-${entry.checkpointId}`).textContent).toBe(
-        'A checkpoint returns the org it was taken of to a moment, and no other org: data to set ' +
-          'up again in another org is frozen as a Frozen Dataset while its org lives.',
+      const { onReplay, onKeep, onExport } = renderList([entry]);
+      expect(screen.getByTestId(`checkpoint-elsewhere-${ID}`).textContent).toBe(
+        'It no longer brings its org back, and it replays in another org: its records are created ' +
+          'there again, with new Ids.',
       );
+      expect(screen.queryByTestId(`checkpoint-frozen-${ID}`)).toBeNull();
+      expect(screen.queryByTestId(`checkpoint-rewind-${ID}`)).toBeNull();
+      expect(screen.queryByTestId(`checkpoint-stop-comparing-${ID}`)).toBeNull();
+      fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
+      expect(onReplay).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTestId(`checkpoint-keep-${ID}`));
+      expect(onKeep).toHaveBeenCalledWith(ID, true);
+      fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
+      expect(screen.getByTestId(`checkpoint-rename-${ID}`)).toBeVisible();
+      fireEvent.click(screen.getByTestId(`checkpoint-export-${ID}`));
+      expect(onExport).toHaveBeenCalledWith(ID);
     },
   );
+
+  it('offers a checkpoint that rewinds its org to replay in another org too, under More', () => {
+    const { onReplay } = renderList();
+    expect(screen.getByTestId(`checkpoint-replay-${ID}`)).not.toBeVisible();
+    fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
+    fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
+    expect(onReplay).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the replays a checkpoint left in other orgs, and its deletion says it leaves them', () => {
+    const entry = listEntry(readyCheckpoint(), {
+      replays: [
+        {
+          target: { organizationId: '00D000000000022EAA', name: 'QA', orgId: 'org-qa' },
+          replayedAt: '2026-10-21T10:00:00.000Z',
+          inPlace: 412,
+        },
+        {
+          target: { organizationId: '00D000000000033EAA', name: 'UAT' },
+          replayedAt: '2026-10-20T10:00:00.000Z',
+          inPlace: 0,
+          removed: true,
+        },
+      ],
+    });
+    const { onDelete } = renderList([entry]);
+    expect(screen.getByTestId(`checkpoint-replays-${ID}`).textContent).toBe(
+      'Replays still in place: QA (412).',
+    );
+    fireEvent.click(screen.getByTestId(`checkpoint-delete-${ID}`));
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'Its replays stay where they are: QA (412). Each is still removed without the checkpoint.',
+    );
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('says nothing of replays a checkpoint never made, or that were all removed', () => {
+    renderList([
+      listEntry(readyCheckpoint(), {
+        replays: [
+          {
+            target: { organizationId: '00D000000000033EAA', name: 'UAT' },
+            inPlace: 0,
+            removed: true,
+          },
+        ],
+      }),
+    ]);
+    expect(screen.queryByTestId(`checkpoint-replays-${ID}`)).toBeNull();
+  });
 
   it('says from which date records deleted can no longer come back, once the store says so', () => {
     renderList([listEntry(readyCheckpoint(), { binReachSince: '2026-10-07T14:06:03.000Z' })]);
@@ -435,6 +493,7 @@ describe('CheckpointList', () => {
           onUndo={vi.fn()}
           onStopComparing={vi.fn()}
           onExport={vi.fn()}
+          onReplay={vi.fn()}
         />,
       );
       expect(screen.getByTestId(`checkpoint-row-before-run-${ID}`).textContent).toBe(words);

@@ -94,6 +94,12 @@ export interface NavigationIntent {
    */
   previewMuted?: true;
   /**
+   * Open Checkpoints on the replay of this checkpoint of the selected org in
+   * another org: Home's "Replay…", for a checkpoint of the sandbox before its
+   * refresh, which rewinds nothing any more.
+   */
+  replayCheckpointId?: string;
+  /**
    * A saved Sync configuration to open on Sync's execute step, by its id and
    * the name it was saved under: Migration's "Open in Sync", with the two
    * orgs it runs between in `sourceOrgId` and `targetOrgId`. Sync's own

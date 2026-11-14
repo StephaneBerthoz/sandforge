@@ -4171,7 +4171,9 @@
       "none": "Take a checkpoint of {{org}} before your next test session",
       "take": "Take a checkpoint",
       "expiresSoon": "“{{name}}” expires {{when}}",
-      "keep": "Keep"
+      "keep": "Keep",
+      "replayRefreshed": "“{{name}}” is of {{org}} before its refresh: replay it to set its records up again there.",
+      "replay": "Replay…"
     },
     "openAutomation": "Open Automation",
     "openOpModule": "Open {{module}}",
@@ -6530,6 +6532,74 @@
         "explanationUnread": "What {{org}} runs as the load writes could not be read, and nothing was written.",
         "action": "Tick “Load although {{org}} runs automation as the records go in” to load all the same, tick Mute automation to keep quiet what tests the org's bypass, or turn that automation off in {{org}}."
       }
+    },
+    "replay": {
+      "automation": {
+        "title": "What {{org}} runs as the replay inserts its records and updates them:",
+        "unread": "What {{org}} runs could not be read ({{reason}}): the replay asks as though something runs.",
+        "refused": "A replay would be refused, nothing written, unless you tick “Replay although {{org}} runs automation as the records go in”, or mute it.",
+        "accepted": "With the box ticked, the replay writes all the same, and this automation runs."
+      },
+      "emails": {
+        "refused": "{{org}} delivers every email what still runs sends as the replay writes, or would not say whether it does: the replay would be refused, nothing written, unless you tick “Replay even though {{org}} delivers the emails”.",
+        "accepted": "{{org}} delivers the emails what still runs sends as the replay writes, or would not say whether it does: with the box ticked, the replay sends them.",
+        "exceeded": "Past what {{org}} has left today, each record whose flow fails in the save is refused: the replay would be refused, nothing written, whatever the box says. Mute what sends them, or replay into an org with more emails left today."
+      },
+      "removal": {
+        "title": "Last replay",
+        "titleEarlier": "Earlier replay",
+        "replayedInto": "Replayed into {{org}} on {{date}}",
+        "earlierNote": "A replay before the last one: the replays after it left its records in {{org}}.",
+        "remove": "Remove this replay",
+        "removeLeft": "Remove what is left of this replay",
+        "removeTitle": "Remove this replay from {{org}}",
+        "removeDescription": "Deletes from {{org}} the records this replay created, children before their parents; they go to its recycle bin. Records the replay linked to, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the replay, or one that records added since depend on, is kept unless you include it below.",
+        "includeChanged": "Also remove the records changed since the replay, and what was added to them since",
+        "sweep": "Sweep first: also delete the records the target’s flows and triggers created for this replay; otherwise they can keep its records from being removed",
+        "sweepAloneTitle": "Take back from {{org}} what its automation created for this replay",
+        "sweepAloneDescription": "Nothing this replay created is left in {{org}}. This deletes only what the sweep below takes: what {{org}}’s flows and triggers created for the replay, as its user, children before their parents; it goes to its recycle bin. A record someone else changed since is kept unless you include it below.",
+        "sweepLoading": "Reading what {{org}}’s automation created during the replay…",
+        "removing": "Removing the records this replay created…",
+        "orgGone": "The org this replay wrote to is no longer connected: connect it to remove the replay.",
+        "nothingCreated": "This replay created no record: there is nothing to remove.",
+        "keptByThePlatform": "Kept in {{org}} by any removal — the platform does not delete these records the replay created: {{objects}}",
+        "automationTitle": "What {{org}} runs as this replay is taken back",
+        "automationLoading": "Reading what {{org}} runs as this replay is taken back…",
+        "automationIntro": "As this replay is taken back, {{org}} runs:",
+        "automationNone": "Nothing {{org}} automates runs as this replay is taken back.",
+        "automationError": "What {{org}} runs as this replay is taken back could not be read: {{reason}}"
+      },
+      "refusal": {
+        "sameOrg": "{{target}} is the org this checkpoint was taken of: a replay creates copies of its records in another org, and nothing was written. To bring {{target}} back to that moment, use Rewind.",
+        "realDataStaging": "This checkpoint is of a sandbox marked Staging, which holds real data: it goes into another org masked only, and nothing was written. Tick Mask personal data, then simulate again.",
+        "realDataStorage": "This checkpoint is of a Partial Copy or Full sandbox ({{mb}} MB of data storage): it may hold real data, goes into another org masked only, and nothing was written. Tick Mask personal data, then simulate again.",
+        "copyUnknown": "This checkpoint is of a sandbox and does not say which: taken before SandForge 1.81, it keeps no data storage, and a Partial Copy or a Full sandbox holds production’s records. Nothing was written. Tick Mask personal data, or declare that it holds no real data, which the audit trail keeps; then simulate again.",
+        "tooMany": "This replay would set up {{records}} records, past the {{max}} a replay sets up at once, and nothing was written. Untick some objects, then simulate again.",
+        "nothing": "Nothing of this checkpoint is left to replay: every object is left out, or holds no record a replay sets up. Nothing was written. Tick an object.",
+        "unusable": "This checkpoint cannot be replayed: its take is under way or failed, or its file cannot be read. Nothing was written.",
+        "notFound": "This checkpoint is no longer kept on this machine, and nothing was written. Go back to the checkpoints to see what is kept.",
+        "maxRecords": "The replay would create more records than its simulation counted: the org or the checkpoint changed since, and nothing was written. Simulate again.",
+        "noLoad": "No replay of this checkpoint into this org is recorded on this machine, and nothing was changed. Replay it there first.",
+        "loadChanged": "Another replay into this org was recorded since this one was shown, and nothing was removed. Check what a removal takes now, then confirm it again.",
+        "targetRefreshed": "The org was refreshed after the replay: the records it created went with the refresh, and nothing was changed. Replay the checkpoint again.",
+        "loadStopped": "The last replay stopped part way and wrote no counting contract, and nothing was verified. Remove it, then replay again and verify.",
+        "loadRemoved": "The records the last replay created were removed: there is nothing to verify. Replay again, then verify.",
+        "loadRemovedPart": "A removal took part of the records the last replay created and left {{left}} of them in the org: a verification would read the ones it took as missing. Remove what is left, then verify.",
+        "alreadyRemoved": "The records this replay created were removed already, and nothing was deleted. The replay is now shown as this machine holds it.",
+        "nothingToRemove": "This replay created no record a removal takes, and nothing was deleted. The replay is now shown as this machine holds it.",
+        "cancelled": "You stopped the replay before it wrote anything, and nothing was written.",
+        "cancelledWrote": "You stopped the replay part way. Records it had written by then: {{records}}. What it created is kept with this checkpoint’s replays: Remove this replay takes it back.",
+        "checkpointRefused": "The replay was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first, or fix what refuses it.",
+        "loadConfig": "The checkpoint’s records leave required fields empty that the other org requires, and nothing was written: {{gaps}}. Untick their objects, or replay from the command line with a configuration that gives them a value (--replay-config).",
+        "nonSandbox": "{{org}} is no sandbox, scratch org or Developer Edition org: a replay goes into those alone, and nothing was written. Pick one of those.",
+        "staging": "{{org}} is a sandbox marked Staging: it holds real data, and a replay never goes into one. Nothing was written. Pick another org.",
+        "storage": "The checkpoint’s records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB: the replay would stop part way through, and nothing was written. Untick some objects, or free data storage in {{org}}.",
+        "apiBudget": "The replay would take about {{estimate}} API requests of {{org}}, which has {{remaining}} of its {{max}} daily requests left: it would stop part way through, and nothing was written. Replay once the org has requests to spare, or into an org with more left today.",
+        "emailsNotAccepted": "{{org}} delivers every email what still runs sends as the replay writes, or would not say whether it does, and nothing was written. Tick “Replay even though {{org}} delivers the emails”, tick Mute automation, or set the org’s deliverability to System email only.",
+        "emailsExceeded": "The replay would make {{org}} send more emails than it has left today ({{limit}}: about {{emails}}, {{remaining}} of {{max}} left), and nothing was written. Tick Mute automation to keep quiet what sends them, or replay into an org with more emails left today.",
+        "automation": "{{org}} runs automation as the replay writes its records ({{named}}), and nothing was written. Tick “Replay although {{org}} runs automation as the records go in”, tick Mute automation, or turn that automation off in {{org}}.",
+        "automationUnread": "What {{org}} runs as the replay writes could not be read, and nothing was written. Tick “Replay although {{org}} runs automation as the records go in”, or tick Mute automation."
+      }
     }
   },
   "runRemoval": {
@@ -7824,13 +7894,12 @@
         "damaged": "Its file cannot be read: this checkpoint can only be deleted.",
         "taking": "Not finished: a take of it is under way, or one stopped before it ended. It can only be deleted.",
         "failed": "Its take failed: this checkpoint can only be deleted.",
-        "refreshed": "{{org}} was refreshed on {{date}}: this checkpoint is of the org before it, and can only be deleted.",
-        "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and can only be deleted.",
-        "scratchExpired": "This scratch org has expired: its checkpoints can only be deleted."
+        "refreshed": "{{org}} was refreshed on {{date}}: this checkpoint is of the org before it, and rewinds nothing any more.",
+        "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and rewinds nothing any more.",
+        "scratchExpired": "This scratch org has expired: its checkpoints rewind nothing any more."
       },
-      "frozenInstead": "A checkpoint returns the org it was taken of to a moment, and no other org: data to set up again in another org is frozen as a Frozen Dataset while its org lives.",
       "expiresSoon": "Expires {{when}}",
-      "scratchExpiresSoon": "This scratch org expires on {{date}}: its checkpoints can then only be deleted, and Keep does not keep them. To set up its data again in another org, freeze it as a Frozen Dataset before then: a Frozen Dataset loads into any sandbox or Developer Edition org.",
+      "scratchExpiresSoon": "This scratch org expires on {{date}}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay in another org… sets their records up there again, with new Ids.",
       "keepIt": "Keep",
       "binReach": "Records deleted before {{date}} cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.",
       "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
@@ -8406,6 +8475,162 @@
         "importedForever": "Imported “{{name}}”: listed now among the checkpoints of {{org}}, and kept until you delete it.",
         "alreadyKept": "“{{name}}” is kept on this machine already, the same: it was left as it is.",
         "done": "Done"
+      }
+    },
+    "replay": {
+      "open": "Replay in another org…",
+      "title": "Replay “{{name}}” in another org",
+      "back": "Back to the checkpoints",
+      "facts": "Of {{org}}, taken {{age}} · {{records}} records",
+      "intro": "Replaying creates in {{target}} a copy of the records of this checkpoint, parents before children, with new Ids. Nothing {{target}} holds is changed or deleted. A checkpoint keeps no file’s content: files do not follow. A replay can be removed.",
+      "introNoTarget": "Replaying creates in the org you pick a copy of the records of this checkpoint, parents before children, with new Ids. Nothing that org holds is changed or deleted. A checkpoint keeps no file’s content: files do not follow. A replay can be removed.",
+      "target": {
+        "label": "Org to replay into",
+        "theOther": "the other org",
+        "none": "No sandbox, scratch org or Developer Edition org is connected to replay into: connect one on the Organizations page.",
+        "refreshed": "{{org}} is the sandbox this checkpoint was taken of, refreshed on {{date}}: its records come back into it with new Ids.",
+        "refreshedUndated": "{{org}} is the sandbox this checkpoint was taken of, refreshed since: its records come back into it with new Ids.",
+        "own": "{{org}} is not offered: this checkpoint is of it, and Rewind brings it back to that moment.",
+        "ownNote": "this checkpoint’s own org",
+        "staging": "Sandboxes marked Staging are not offered: they hold real data, and a replay never goes into one."
+      },
+      "choices": "What the replay sets up",
+      "objects": {
+        "legend": "Objects",
+        "hint": "Untick an object to leave it out: a lookup to it is emptied, and named in the simulation.",
+        "object": "{{object}} ({{records}})",
+        "files": "Not replayed, a checkpoint keeping no file’s content: {{objects}}."
+      },
+      "owners": {
+        "legend": "Who owns the records",
+        "same": "Their owner where the other org has them",
+        "sameHint": "Kept when {{target}} has the same active user; otherwise you.",
+        "me": "You, who replay",
+        "meHint": "Every record replayed is yours in {{target}}."
+      },
+      "customSettings": "Set up the custom settings it holds, never over a row the other org has",
+      "mask": {
+        "label": "Mask personal data",
+        "free": "This checkpoint is of a scratch org, a Developer Edition org or a Developer sandbox: masking is yours to choose.",
+        "staging": "This checkpoint is of a sandbox marked Staging, which holds real data: it goes into another org masked only.",
+        "storage": "This checkpoint is of a Partial Copy or Full sandbox ({{mb}} MB of data storage): it may hold real data, and goes into another org masked only.",
+        "unknown": "This checkpoint is of a sandbox and does not say which: taken before SandForge 1.81, it keeps no data storage. Masking is ticked for you; if it holds no real data, untick it and say so.",
+        "noRealData": "This checkpoint holds no real data: replay it unmasked (the audit trail keeps this)"
+      },
+      "keepContactPoints": "Keep emails and phone numbers as they are (otherwise made unreachable)",
+      "replace": "Replace the last replay into {{target}}: delete the {{records}} records it created there first, and keep what it linked",
+      "replaceConfirm": {
+        "title": "Replace the last replay into {{target}}",
+        "description": "Deletes from {{target}} the {{records}} records the last replay of this checkpoint created there, children before their parents, then replays it again. What the replays linked to, which {{target}} already held, is kept."
+      },
+      "acceptEmails": "Replay even though {{target}} delivers the emails",
+      "acceptAutomation": "Replay although {{target}} runs automation as the records go in",
+      "costLead": "As the simulation reads it:",
+      "simulate": "Simulate",
+      "run": "Replay",
+      "pickFirst": "Pick the org to replay into.",
+      "simulateFirst": "Simulate first: nothing is written to {{target}} until a simulation of these choices says what the replay does.",
+      "changed": "The choices changed since the simulation: simulate again before replaying into {{target}}.",
+      "running": "Replaying into {{target}}…",
+      "runningObject": "Replaying into {{target}}: {{object}}…",
+      "stopping": "Stopping: the replay ends once the call under way is answered. What it created by then is kept with this checkpoint’s replays, and a removal takes it back.",
+      "stopRefused": "Could not stop the replay",
+      "stopRefusedDetail": "The replay is no longer in progress, or it was not started from this window.",
+      "verify": "Verify",
+      "column": {
+        "object": "Object",
+        "toCreate": "To create",
+        "linked": "Linked",
+        "fieldsDropped": "Fields left out",
+        "notSent": "Not sent",
+        "created": "Created",
+        "refused": "Refused"
+      },
+      "plan": {
+        "title": "What the replay would do in {{target}}",
+        "records_one": "Creates a copy of {{records}} of its records in {{target}}, with a new Id; nothing {{target}} holds is changed or deleted.",
+        "records_other": "Creates copies of {{records}} of its records in {{target}}, parents first, with new Ids; nothing {{target}} holds is changed or deleted.",
+        "linkedById_one": "{{records}} record is in {{target}} under the same Id: linked, not changed.",
+        "linkedById_other": "{{records}} records are in {{target}} under the same Id: linked, not changed.",
+        "linkedByKey_one": "{{records}} record is in {{target}} with the same values of the fields a link names: linked, not created.",
+        "linkedByKey_other": "{{records}} records are in {{target}} with the same values of the fields a link names: linked, not created.",
+        "owners": "Owners: kept on {{kept}} (the same user in {{target}}); you on {{toYou}}.",
+        "ownersNotInTarget": "{{records}} of them: their user is not in {{target}}.",
+        "ownersInactive": "{{records}} of them: their user is inactive in {{target}}.",
+        "ownersQueueMissing": "{{records}} of them: their queue is not in {{target}}, or takes no such record.",
+        "recordTypeByName": "{{object}} ({{records}}): record type {{recordType}}, found in {{target}} by its name.",
+        "recordTypeById": "{{object}} ({{records}}): record type {{recordType}}, found in {{target}} under the same Id.",
+        "recordTypeDefault": "{{object}} ({{records}}): record type {{recordType}} is not in {{target}}, and its records take your default type there.",
+        "notReplayed": {
+          "fileContentNotKept": "{{object}} ({{records}}): not replayed, a checkpoint keeps no file’s content.",
+          "notInTarget": "{{object}} ({{records}}): not replayed, {{target}} has no such object. Deploy it there, or leave it out.",
+          "notCreateable": "{{object}} ({{records}}): not replayed, {{target}} creates none of its records itself.",
+          "excluded": "{{object}} ({{records}}): left out, as asked."
+        },
+        "lookupEmptied": {
+          "objectNotReplayed": "{{field}} emptied on {{records}} records: its object is left out. Tick it to keep the link.",
+          "objectNotHeld": "{{field}} emptied on {{records}} records: the record it names is neither in this checkpoint nor in {{target}}.",
+          "userNotInTarget": "{{field}} emptied on {{records}} records: its user is not in {{target}}."
+        },
+        "refused": {
+          "requiredLookupMissing": "{{object}} ({{records}}): refused before anything is written, a required lookup names a record neither replayed nor in {{target}}.",
+          "parentRefused": "{{object}} ({{records}}): refused before anything is written, with the parent refused: an orphan is never written.",
+          "personAccountsUnsupported": "{{object}} ({{records}}): refused before anything is written, person accounts are not turned on in {{target}}. Turn them on, or leave Account out.",
+          "inactiveCurrency": "{{object}} ({{records}}): refused before anything is written, in a currency {{target}} has not activated.",
+          "recordTypeUnavailable": "{{object}} ({{records}}): refused before anything is written, a record type you cannot create records of in {{target}}."
+        },
+        "fieldsNotInTarget": "{{object}}: fields {{target}} lacks, left out: {{fields}}.",
+        "customSettings": "Custom settings: {{inserted}} rows set up; {{already}} already in {{target}}, kept.",
+        "currencyRefused": "{{code}} ({{records}}): {{target}} has not activated it, and these records are refused before anything is written. Activate it, or leave them out.",
+        "singleCurrency": "{{target}} has one currency: amounts are kept as they are, in its currency.",
+        "standardPricebook": {
+          "annex": "The standard price book’s entries are told by what the checkpoint kept.",
+          "deduced": "The standard price book’s entries are told from the entries themselves: the checkpoint was taken before SandForge 1.81.",
+          "ambiguous": "Which price book was standard cannot be told: its entries are refused before anything is written. Leave PricebookEntry out, or take a new checkpoint with SandForge 1.81.",
+          "none": "No entry of a standard price book is held: prices are replayed against no standard price."
+        },
+        "masked": "Masked: {{fields}}.",
+        "unmaskedFreeText": "Free-text fields the masking does not read, which go as they are: {{fields}}.",
+        "contactPointsNeutralized": "Emails and phone numbers are made unreachable.",
+        "contactPointsKept": "Emails and phone numbers go as they are.",
+        "archived": "{{records}} archived tasks and events are replayed, which {{target}} holds live.",
+        "degraded": "Taken before SandForge 1.81, this checkpoint keeps no {{parts}}: their records take what {{target}} gives by default.",
+        "part": {
+          "recordTypes": "record types",
+          "users": "users",
+          "queues": "queues",
+          "standardPricebook": "standard price book"
+        },
+        "auditDates": "Created and modified dates and users are the replay’s own: the platform sets them.",
+        "filesLeft_one": "{{files}} file is not replayed, a checkpoint keeping no file’s content: {{names}}.",
+        "filesLeft_other": "{{files}} files are not replayed, a checkpoint keeping no file’s content: {{names}}.",
+        "storage": "Data storage: about {{estimate}} MB, with {{remaining}} MB left in {{target}} of {{max}} MB.",
+        "earlier": "An earlier replay of this checkpoint into {{target}} is still in place: this one creates its records again beside it. Remove it first, or tick Replace."
+      },
+      "result": {
+        "title": "Replayed into {{target}}",
+        "completed": "The replay wrote what it was to.",
+        "completedWithErrors": "{{target}} refused some records, as listed: the rest were written.",
+        "partial": "The replay wrote what it could, and stopped short of the rest, as listed."
+      },
+      "verdict": {
+        "passed": "Verified: {{target}} holds every record the replay says it wrote.",
+        "partial": "Verified in part: some records the replay wrote are missing in {{target}}, or orphans.",
+        "failed": "Not verified: what {{target}} holds does not match what the replay wrote.",
+        "unstable": "Could not be verified: what {{target}} holds kept changing while it was counted."
+      },
+      "replays": {
+        "title": "Replays of this checkpoint",
+        "inPlace": "{{target}}, replayed on {{date}}: {{records}} records still there.",
+        "removed": "{{target}}, replayed on {{date}}: removed.",
+        "nothing": "{{target}}, replayed on {{date}}: none of its records is left there.",
+        "notConnected": "That org is not connected: connect it to remove this replay.",
+        "pick": "Show {{target}}"
+      },
+      "list": {
+        "elsewhere": "It no longer brings its org back, and it replays in another org: its records are created there again, with new Ids.",
+        "inPlace": "Replays still in place: {{replays}}.",
+        "deleteKeeps": "Its replays stay where they are: {{replays}}. Each is still removed without the checkpoint."
       }
     }
   },

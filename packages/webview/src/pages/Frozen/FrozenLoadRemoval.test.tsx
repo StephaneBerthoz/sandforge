@@ -1622,3 +1622,70 @@ describe('FrozenLoadRemoval', () => {
     });
   });
 });
+
+describe('FrozenLoadRemoval of a replay of a checkpoint', () => {
+  const REPLAY = { organizationId: '00D000000000011EAA', checkpointId: 'ck-20261020-140512-a1b2' };
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  it('says the replay where a load’s card says the load, and names no dataset', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} replay={REPLAY} />);
+
+    expect(screen.getByRole('heading', { name: 'Last replay' })).toBeTruthy();
+    expect(screen.getByTestId('frozen-removal-loaded').textContent).toMatch(
+      /^Replayed into DEV-SANDBOX on 2026-09-24 \d\d:\d\d$/,
+    );
+    expect(screen.getByTestId('frozen-removal-remove').textContent).toBe('Remove this replay');
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    expect(screen.getByTestId('danger-title').textContent).toBe(
+      'Remove this replay from DEV-SANDBOX',
+    );
+    const dialog = screen.getByRole('dialog').textContent ?? '';
+    expect(dialog).toContain('Deletes from DEV-SANDBOX the records this replay created');
+    expect(dialog).not.toMatch(/dataset|this load/i);
+  });
+
+  it('names the replay in its removal, what fires as it goes and what its sweep takes, read from its checkpoint’s replays', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} replay={REPLAY} />);
+
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    expect(sent('frozen:remove:automation')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+      replay: REPLAY,
+    });
+    fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    expect(sent('frozen:remove:sweep')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+      replay: REPLAY,
+    });
+    expect(screen.getByTestId('frozen-sweep-loading').textContent).toBe(
+      'Reading what DEV-SANDBOX’s automation created during the replay…',
+    );
+    fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sent('frozen:remove')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+      replay: REPLAY,
+    });
+  });
+
+  it('words a refusal of the replay’s removal as a replay’s', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} replay={REPLAY} />);
+    confirmRemoval();
+    answerRemoval('frozen:remove:error', {
+      code: 'ALREADY_REMOVED',
+      message: 'host words',
+      retryable: false,
+    });
+    expect(screen.getByTestId('frozen-removal-error').textContent).toContain(
+      'The records this replay created were removed already, and nothing was deleted.',
+    );
+  });
+});

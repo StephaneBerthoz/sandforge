@@ -14,29 +14,27 @@ import type { ExportCheckpointProps, ImportCheckpointProps } from './CheckpointT
  * once Take a checkpoint is pressed, what a rewind would do once Rewind… is,
  * the rewind and what it did once it is confirmed, the fields a checkpoint
  * compares once they are to change, and the key of an export or the facts of
- * a file to import once Export… or Import… has its answer. Their words are the page's own
- * namespace, loaded with the page; the preview names beside it the words of
- * what the org runs as a removal writes, which it lists as the Forge and Sync
- * removals do, and the run those of what a removal deleted, which it says as
- * they do.
+ * a file to import once Export… or Import… has its answer. Their words are
+ * loaded with the page: its own namespace, and those of what the org runs as a
+ * removal writes and of what a removal deleted, which the preview and the run
+ * say as the Forge and Sync removals do — and which a replay in another org,
+ * drawn by the page itself, says of its load and of its removal.
  */
 
 const LoadedTakeCheckpoint = lazy(() =>
-  withEnglish(() => import('./TakeCheckpoint'), ['checkpointNotes'])().then((module) => ({
+  withEnglish(() => import('./TakeCheckpoint'), [])().then((module) => ({
     default: module.TakeCheckpoint,
   })),
 );
 
 const LoadedRewindPreview = lazy(() =>
-  withEnglish(() => import('./RewindPreview'), ['orgAutomation', 'runRemoval'])().then(
-    (module) => ({
-      default: module.RewindPreview,
-    }),
-  ),
+  withEnglish(() => import('./RewindPreview'), [])().then((module) => ({
+    default: module.RewindPreview,
+  })),
 );
 
 const LoadedRewindRun = lazy(() =>
-  withEnglish(() => import('./RewindRun'), ['orgAutomation', 'runRemoval'])().then((module) => ({
+  withEnglish(() => import('./RewindRun'), [])().then((module) => ({
     default: module.RewindRun,
   })),
 );

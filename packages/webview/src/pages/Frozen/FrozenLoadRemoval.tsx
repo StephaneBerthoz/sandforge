@@ -10,6 +10,7 @@ import type {
   FrozenReloadSweep as FrozenReloadSwept,
   FrozenReloadSweepListing,
   FrozenRemovalResult,
+  FrozenReplayRef,
 } from '@sandforge/shared';
 import {
   firedOnRemovalStepsOf,
@@ -51,7 +52,7 @@ import {
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
 import { FrozenReloadRefused } from './FrozenReloadRefused';
-import { frozenErrorWords } from './frozenErrorWords';
+import { frozenErrorWords, type FrozenRun } from './frozenErrorWords';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -85,14 +86,101 @@ interface AutomationAnswer {
   steps: ForgeRemovalSteps;
 }
 
-/** What the confirmation's automation section says, as a removal takes a load back. */
-const AUTOMATION_WORDS: RemovalAutomationWords = {
-  title: 'frozen.removal.automationTitle',
-  loading: 'frozen.removal.automationLoading',
-  intro: 'frozen.removal.automationIntro',
-  none: 'frozen.removal.automationNone',
-  error: 'frozen.removal.automationError',
+/** What the confirmation's automation section says, as a removal takes a load or a replay back. */
+const AUTOMATION_WORDS: Readonly<Record<FrozenRun, RemovalAutomationWords>> = {
+  load: {
+    title: 'frozen.removal.automationTitle',
+    loading: 'frozen.removal.automationLoading',
+    intro: 'frozen.removal.automationIntro',
+    none: 'frozen.removal.automationNone',
+    error: 'frozen.removal.automationError',
+  },
+  replay: {
+    title: 'frozen.replay.removal.automationTitle',
+    loading: 'frozen.replay.removal.automationLoading',
+    intro: 'frozen.replay.removal.automationIntro',
+    none: 'frozen.replay.removal.automationNone',
+    error: 'frozen.replay.removal.automationError',
+  },
 };
+
+/** The sentences of the card and its confirmation that name the run; the others name none. */
+interface RemovalRunWords {
+  title: string;
+  titleEarlier: string;
+  loadedInto: string;
+  earlierNote: string;
+  remove: string;
+  removeLeft: string;
+  removeTitle: string;
+  removeDescription: string;
+  includeChanged: string;
+  sweep: string;
+  sweepAloneTitle: string;
+  sweepAloneDescription: string;
+  sweepLoading: string;
+  removing: string;
+  orgGone: string;
+  nothingCreated: string;
+  keptByThePlatform: string;
+}
+
+/** {@link RemovalRunWords}, by what the run is to the person: a load of a dataset, or a replay. */
+const RUN_WORDS: Readonly<Record<FrozenRun, RemovalRunWords>> = {
+  load: {
+    title: 'frozen.removal.title',
+    titleEarlier: 'frozen.removal.titleEarlier',
+    loadedInto: 'frozen.removal.loadedInto',
+    earlierNote: 'frozen.removal.earlierNote',
+    remove: 'frozen.removal.remove',
+    removeLeft: 'frozen.removal.removeLeft',
+    removeTitle: 'frozen.removal.removeTitle',
+    removeDescription: 'frozen.removal.removeDescription',
+    includeChanged: 'frozen.removal.includeChanged',
+    sweep: 'frozen.removal.sweep',
+    sweepAloneTitle: 'frozen.removal.sweepAloneTitle',
+    sweepAloneDescription: 'frozen.removal.sweepAloneDescription',
+    sweepLoading: 'frozen.removal.sweepLoading',
+    removing: 'frozen.removal.removing',
+    orgGone: 'frozen.removal.orgGone',
+    nothingCreated: 'frozen.removal.nothingCreated',
+    keptByThePlatform: 'frozen.removal.keptByThePlatform',
+  },
+  replay: {
+    title: 'frozen.replay.removal.title',
+    titleEarlier: 'frozen.replay.removal.titleEarlier',
+    loadedInto: 'frozen.replay.removal.replayedInto',
+    earlierNote: 'frozen.replay.removal.earlierNote',
+    remove: 'frozen.replay.removal.remove',
+    removeLeft: 'frozen.replay.removal.removeLeft',
+    removeTitle: 'frozen.replay.removal.removeTitle',
+    removeDescription: 'frozen.replay.removal.removeDescription',
+    includeChanged: 'frozen.replay.removal.includeChanged',
+    sweep: 'frozen.replay.removal.sweep',
+    sweepAloneTitle: 'frozen.replay.removal.sweepAloneTitle',
+    sweepAloneDescription: 'frozen.replay.removal.sweepAloneDescription',
+    sweepLoading: 'frozen.replay.removal.sweepLoading',
+    removing: 'frozen.replay.removal.removing',
+    orgGone: 'frozen.replay.removal.orgGone',
+    nothingCreated: 'frozen.replay.removal.nothingCreated',
+    keptByThePlatform: 'frozen.replay.removal.keptByThePlatform',
+  },
+};
+
+/**
+ * A replay named as one string, so that a request read again for it is not
+ * read again for a new object of the same replay; empty for a load.
+ */
+function replayKeyOf(replay: FrozenReplayRef | undefined): string {
+  return replay ? `${replay.organizationId}/${replay.checkpointId}` : '';
+}
+
+/** What a request of a removal names beside the load: the replay of {@link replayKeyOf}, if any. */
+function replayOfKey(key: string): { replay?: FrozenReplayRef } {
+  if (key === '') return {};
+  const [organizationId = '', checkpointId = ''] = key.split('/');
+  return { replay: { organizationId, checkpointId } };
+}
 
 /** Props for {@link FrozenRemovalAutomation}. */
 interface FrozenRemovalAutomationProps {
@@ -113,6 +201,8 @@ interface FrozenRemovalAutomationProps {
    * while none answered: what the removal's confirmation waits for.
    */
   onRead?: (covered: readonly string[] | 'failed' | undefined) => void;
+  /** A replay's load, read from the mapping of its checkpoint's replays, and said as a replay. */
+  replay?: FrozenReplayRef;
 }
 
 /**
@@ -134,6 +224,7 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
   reload = false,
   mute,
   onRead,
+  replay,
 }) => {
   const read = useBridgeMutation<AutomationAnswer>('frozen:remove:automation', {
     responseType: 'frozen:remove:automation:response',
@@ -146,6 +237,7 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
   const [lastRead, setLastRead] = useState<AutomationAnswer | null>(null);
   // By value: a new list of the same objects reads nothing again.
   const swept = sweptObjects.join(',');
+  const replayKey = replayKeyOf(replay);
   const readAgain = useCallback(
     () =>
       mutate({
@@ -153,8 +245,9 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
         loadedAt,
         ...(swept !== '' ? { sweptObjects: swept.split(',') } : {}),
         ...(reload ? { reload: true } : {}),
+        ...replayOfKey(replayKey),
       }),
-    [orgId, loadedAt, swept, reload, mutate],
+    [orgId, loadedAt, swept, reload, replayKey, mutate],
   );
   useEffect(() => {
     setLastRead(null);
@@ -204,7 +297,7 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
       testId="frozen-removal-automation"
       org={org}
       targetOrgId={orgId}
-      words={AUTOMATION_WORDS}
+      words={AUTOMATION_WORDS[replay ? 'replay' : 'load']}
       shown={shown}
       error={read.error}
       reading={read.loading}
@@ -239,6 +332,8 @@ interface FrozenRemovalSweepProps {
    * automation of, and waits for.
    */
   onListings: (listings: readonly ForgeSweepListing[] | 'failed' | null) => void;
+  /** A replay's load, read from the mapping of its checkpoint's replays, and said as a replay. */
+  replay?: FrozenReplayRef;
 }
 
 /**
@@ -259,6 +354,7 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   ticks,
   onTicksChange,
   onListings,
+  replay,
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -268,9 +364,10 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
     timeoutMs: SWEEP_READ_TIMEOUT_MS,
   });
   const { mutate } = read;
+  const replayKey = replayKeyOf(replay);
   useEffect(() => {
-    mutate({ targetOrgId: orgId, loadedAt });
-  }, [orgId, loadedAt, mutate]);
+    mutate({ targetOrgId: orgId, loadedAt, ...replayOfKey(replayKey) });
+  }, [orgId, loadedAt, replayKey, mutate]);
   const answer = read.data?.loadedAt === loadedAt ? read.data : null;
   const listing = answer?.listing ?? null;
   const otherLoads = answer?.otherLoads;
@@ -292,7 +389,7 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({
   } else if (!listing) {
     body = (
       <p data-testid="frozen-sweep-loading" className="text-text-secondary">
-        {t('frozen.removal.sweepLoading', { org })}
+        {t(RUN_WORDS[replay ? 'replay' : 'load'].sweepLoading, { org })}
       </p>
     );
   } else {
@@ -532,6 +629,12 @@ export interface FrozenLoadRemovalProps {
    * `onDismiss` once that removal is confirmed, or cancelled from the card.
    */
   reloadRefusal?: { message: string; onDismiss: () => void };
+  /**
+   * A replay of a checkpoint, whose loads its checkpoint's replays keep:
+   * every request names it, and the card says "replay" where a load's says
+   * "load". Absent for a load of the project's dataset.
+   */
+  replay?: FrozenReplayRef;
 }
 
 /**
@@ -556,8 +659,11 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   busy = false,
   lastReport,
   reloadRefusal,
+  replay,
 }) => {
   const { t } = useTranslation();
+  const run: FrozenRun = replay ? 'replay' : 'load';
+  const words = RUN_WORDS[run];
   const orgs = useOrgStore((s) => s.orgs);
   const report = records ? reportOfTheLoad(records, lastReport) : undefined;
   const markOf = useRewoundMarks(report === undefined);
@@ -638,6 +744,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       ...(includeChanged ? { includeChanged: true } : {}),
       ...asked,
       ...(muteAutomation ? { muteAutomation: true } : {}),
+      ...replayOfKey(replayKeyOf(replay)),
     });
     setConfirming(false);
     // The way out the refused reload offered is taken: the load is going.
@@ -701,7 +808,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     if (!records.removed && !records.keptByThePlatform) {
       action = (
         <p data-testid="frozen-removal-nothing" className="text-[11px] text-text-secondary">
-          {t('frozen.removal.nothingCreated')}
+          {t(words.nothingCreated)}
         </p>
       );
     } else if (records.removed && org) {
@@ -726,7 +833,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   } else if (!org) {
     action = (
       <p data-testid="frozen-removal-org-gone" className="text-[11px] text-text-secondary">
-        {t('frozen.removal.orgGone')}
+        {t(words.orgGone)}
       </p>
     );
   } else {
@@ -741,7 +848,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         data-testid="frozen-removal-remove"
         className="self-start text-[11px]"
       >
-        {records.removed ? t('frozen.removal.removeLeft') : t('frozen.removal.remove')}
+        {records.removed ? t(words.removeLeft) : t(words.remove)}
       </Button>
     );
   }
@@ -751,14 +858,14 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       <CardBody>
         <div className="flex flex-col gap-2" data-testid="frozen-removal">
           <h2 className="text-sm font-semibold text-text-primary">
-            {records.earlier ? t('frozen.removal.titleEarlier') : t('frozen.removal.title')}
+            {records.earlier ? t(words.titleEarlier) : t(words.title)}
           </h2>
           <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-loaded">
-            {t('frozen.removal.loadedInto', { org: org ?? records.orgId, date })}
+            {t(words.loadedInto, { org: org ?? records.orgId, date })}
           </p>
           {records.earlier && (
             <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-earlier">
-              {t('frozen.removal.earlierNote', { org: org ?? records.orgId })}
+              {t(words.earlierNote, { org: org ?? records.orgId })}
             </p>
           )}
           {/* Above what the card offers: the removal it opens is that one. */}
@@ -778,7 +885,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               sent, they were refused and the load offered for removal again. */}
           {records.keptByThePlatform && records.keptByThePlatform.length > 0 && (
             <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-kept">
-              {t('frozen.removal.keptByThePlatform', {
+              {t(words.keptByThePlatform, {
                 org: org ?? records.orgId,
                 objects: keptObjects(records.keptByThePlatform),
               })}
@@ -793,7 +900,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
                 className="text-[11px] text-text-secondary"
                 data-testid="frozen-removal-removing"
               >
-                {cancelRequested ? t('frozen.removal.stopping') : t('frozen.removal.removing')}
+                {cancelRequested ? t('frozen.removal.stopping') : t(words.removing)}
               </p>
               {removal.requestId && (
                 <Button
@@ -814,11 +921,15 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           {removal.error && (
             <ErrorBanner
               message={
-                frozenErrorWords({ code: removal.errorCode ?? undefined }, t, (id) =>
-                  orgDisplayName(
-                    orgs.find((o) => o.id === id),
-                    id,
-                  ),
+                frozenErrorWords(
+                  { code: removal.errorCode ?? undefined },
+                  t,
+                  (id) =>
+                    orgDisplayName(
+                      orgs.find((o) => o.id === id),
+                      id,
+                    ),
+                  run,
                 ) ?? removal.error
               }
               code={removal.errorCode}
@@ -866,13 +977,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         // what an earlier removal "left" over no record.
         title={
           sweepAlone
-            ? t('frozen.removal.sweepAloneTitle', { org: org ?? '' })
-            : t('frozen.removal.removeTitle', { org: org ?? '' })
+            ? t(words.sweepAloneTitle, { org: org ?? '' })
+            : t(words.removeTitle, { org: org ?? '' })
         }
         description={
           sweepAlone
-            ? t('frozen.removal.sweepAloneDescription', { org: org ?? '' })
-            : t('frozen.removal.removeDescription', { org: org ?? '' })
+            ? t(words.sweepAloneDescription, { org: org ?? '' })
+            : t(words.removeDescription, { org: org ?? '' })
         }
         confirmText={org ?? ''}
         confirmLabel={removalConfirmLabel(t, records.created, sweep)}
@@ -894,6 +1005,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             sweptObjects={sweptObjects}
             mute={{ checked: muteAutomation, onChange: setMuteAutomation }}
             onRead={setAutomationRead}
+            {...replayOfKey(replayKeyOf(replay))}
           />
         )}
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
@@ -903,7 +1015,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             onChange={(e) => setIncludeChanged(e.target.checked)}
             data-testid="frozen-removal-include-changed"
           />
-          {t('frozen.removal.includeChanged')}
+          {t(words.includeChanged)}
         </label>
         {/* Never ticked unasked: a sweep deletes records the load did not write.
             Alone, it is what the confirmation is for. */}
@@ -915,7 +1027,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
               onChange={(e) => setSweep(e.target.checked)}
               data-testid="frozen-removal-sweep-toggle"
             />
-            {t('frozen.removal.sweep')}
+            {t(words.sweep)}
           </label>
         )}
         {sweep && confirming && (
@@ -926,6 +1038,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             ticks={ticks}
             onTicksChange={setTicks}
             onListings={setSweepListings}
+            {...replayOfKey(replayKeyOf(replay))}
           />
         )}
       </DangerConfirm>

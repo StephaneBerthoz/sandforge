@@ -4171,7 +4171,9 @@
       "none": "Crie um ponto de verificação de {{org}} antes da sua próxima sessão de testes",
       "take": "Criar um ponto de verificação",
       "expiresSoon": "“{{name}}” expira {{when}}",
-      "keep": "Guardar"
+      "keep": "Guardar",
+      "replayRefreshed": "“{{name}}” é de {{org}} antes da atualização: reproduza-o para montar de novo lá os registros dele.",
+      "replay": "Reproduzir…"
     },
     "openAutomation": "Abrir Automação",
     "openOpModule": "Abrir {{module}}",
@@ -6530,6 +6532,74 @@
         "explanationUnread": "Não foi possível ler o que {{org}} executa quando a carga grava, e nada foi gravado.",
         "action": "Marque “Carregar mesmo que {{org}} execute automações na entrada dos registros” para carregar assim mesmo, marque o silêncio da automação para calar o que testa o bypass da org, ou desative essas automações em {{org}}."
       }
+    },
+    "replay": {
+      "automation": {
+        "title": "O que {{org}} executa quando a reprodução insere os registros e os atualiza:",
+        "unread": "Não foi possível ler o que {{org}} executa ({{reason}}): a reprodução pergunta como se algo rodasse.",
+        "refused": "Uma reprodução seria recusada, nada gravado, a menos que você marque “Reproduzir mesmo que {{org}} execute automações na entrada dos registros”, ou a silencie.",
+        "accepted": "Com a caixa marcada, a reprodução grava assim mesmo, e esta automação roda."
+      },
+      "emails": {
+        "refused": "{{org}} entrega todos os e-mails que o que ainda roda envia quando a reprodução grava, ou não diz se os entrega: a reprodução seria recusada, nada gravado, a menos que você marque “Reproduzir mesmo que {{org}} entregue os e-mails”.",
+        "accepted": "{{org}} entrega os e-mails que o que ainda roda envia quando a reprodução grava, ou não diz se os entrega: com a caixa marcada, a reprodução os envia.",
+        "exceeded": "Além do que resta hoje a {{org}}, cada registro cujo Flow falha ao salvar é recusado: a reprodução seria recusada, nada gravado, seja o que for que a caixa diga. Silencie o que os envia, ou reproduza numa org à qual restem mais e-mails hoje."
+      },
+      "removal": {
+        "title": "Última reprodução",
+        "titleEarlier": "Reprodução anterior",
+        "replayedInto": "Reproduzido em {{org}} em {{date}}",
+        "earlierNote": "Uma reprodução antes da última: as seguintes deixaram os registros dela em {{org}}.",
+        "remove": "Remover esta reprodução",
+        "removeLeft": "Remover o que resta desta reprodução",
+        "removeTitle": "Remover esta reprodução de {{org}}",
+        "removeDescription": "Exclui de {{org}} os registros que esta reprodução criou, os filhos antes dos pais; eles vão para a lixeira dela. Os registros a que a reprodução se vinculou, que {{org}} já continha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde a reprodução, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
+        "includeChanged": "Remover também os registros alterados desde a reprodução, e o que lhes foi adicionado desde então",
+        "sweep": "Varrer primeiro: excluir também os registros que os Flows e gatilhos do destino criaram para esta reprodução; caso contrário, eles podem impedir a remoção dos registros dela",
+        "sweepAloneTitle": "Retirar de {{org}} o que a automação dela criou para esta reprodução",
+        "sweepAloneDescription": "Nada do que esta reprodução criou resta em {{org}}. Isto exclui só o que a varredura abaixo pega: o que os Flows e gatilhos de {{org}} criaram para a reprodução, com o usuário dela, os filhos antes dos pais; vai para a lixeira dela. Um registro que outra pessoa alterou desde então é mantido, a menos que você o inclua abaixo.",
+        "sweepLoading": "Lendo o que a automação de {{org}} criou durante a reprodução…",
+        "removing": "Removendo os registros que esta reprodução criou…",
+        "orgGone": "A org em que esta reprodução gravou não está mais conectada: conecte-a para remover a reprodução.",
+        "nothingCreated": "Esta reprodução não criou nenhum registro: não há nada a remover.",
+        "keptByThePlatform": "Mantidos em {{org}} por qualquer remoção — a plataforma não exclui estes registros criados pela reprodução: {{objects}}",
+        "automationTitle": "O que {{org}} executa quando esta reprodução é retirada",
+        "automationLoading": "Lendo o que {{org}} executa quando esta reprodução é retirada…",
+        "automationIntro": "Quando esta reprodução é retirada, {{org}} executa:",
+        "automationNone": "Nenhuma automação de {{org}} roda quando esta reprodução é retirada.",
+        "automationError": "Não foi possível ler o que {{org}} executa quando esta reprodução é retirada: {{reason}}"
+      },
+      "refusal": {
+        "sameOrg": "{{target}} é a org de que este ponto de verificação foi tirado: uma reprodução cria cópias dos registros dele em outra org, e nada foi gravado. Para levar {{target}} de volta a esse momento, use Retroceder.",
+        "realDataStaging": "Este ponto de verificação é de uma sandbox marcada como Staging, que contém dados reais: ele só vai para outra org mascarado, e nada foi gravado. Marque Mascarar os dados pessoais e simule de novo.",
+        "realDataStorage": "Este ponto de verificação é de uma sandbox Partial Copy ou Full ({{mb}} MB de armazenamento de dados): pode conter dados reais, só vai para outra org mascarado, e nada foi gravado. Marque Mascarar os dados pessoais e simule de novo.",
+        "copyUnknown": "Este ponto de verificação é de uma sandbox e não diz de qual tipo: tirado antes do SandForge 1.81, ele não guarda o armazenamento de dados, e uma sandbox Partial Copy ou Full contém os registros da produção. Nada foi gravado. Marque Mascarar os dados pessoais, ou declare que ele não contém dados reais, o que a trilha de auditoria guarda; depois simule de novo.",
+        "tooMany": "Esta reprodução montaria {{records}} registros, além dos {{max}} que uma reprodução monta de uma vez, e nada foi gravado. Desmarque alguns objetos e simule de novo.",
+        "nothing": "Nada deste ponto de verificação resta a reproduzir: cada objeto está de fora, ou não contém nenhum registro que uma reprodução monte. Nada foi gravado. Marque um objeto.",
+        "unusable": "Este ponto de verificação não pode ser reproduzido: a captura dele está em andamento ou falhou, ou o arquivo dele não pode ser lido. Nada foi gravado.",
+        "notFound": "Este ponto de verificação não é mais guardado nesta máquina, e nada foi gravado. Volte aos pontos de verificação para ver o que é guardado.",
+        "maxRecords": "A reprodução criaria mais registros do que a simulação dela contou: a org ou o ponto de verificação mudou desde então, e nada foi gravado. Simule de novo.",
+        "noLoad": "Nenhuma reprodução deste ponto de verificação nesta org está registrada nesta máquina, e nada foi alterado. Reproduza-o lá primeiro.",
+        "loadChanged": "Outra reprodução nesta org foi registrada desde que esta foi mostrada, e nada foi removido. Confira o que uma remoção pega agora e confirme-a de novo.",
+        "targetRefreshed": "A org foi atualizada depois da reprodução: os registros que ela criou foram embora com a atualização, e nada foi alterado. Reproduza o ponto de verificação de novo.",
+        "loadStopped": "A última reprodução parou no meio do caminho sem gravar contrato de contagem, e nada foi verificado. Remova-a, depois reproduza de novo e verifique.",
+        "loadRemoved": "Os registros que a última reprodução criou foram removidos: não há nada a verificar. Reproduza de novo e depois verifique.",
+        "loadRemovedPart": "Uma remoção pegou parte dos registros que a última reprodução criou e deixou {{left}} deles na org: uma verificação leria os que ela pegou como ausentes. Remova o que resta e depois verifique.",
+        "alreadyRemoved": "Os registros que esta reprodução criou já foram removidos, e nada foi excluído. A reprodução agora é mostrada como esta máquina a guarda.",
+        "nothingToRemove": "Esta reprodução não criou nenhum registro que uma remoção pegue, e nada foi excluído. A reprodução agora é mostrada como esta máquina a guarda.",
+        "cancelled": "Você parou a reprodução antes que ela gravasse algo, e nada foi gravado.",
+        "cancelledWrote": "Você parou a reprodução no meio do caminho. Registros gravados até lá: {{records}}. O que ela criou é guardado com as reproduções deste ponto de verificação: Remover esta reprodução o retira.",
+        "checkpointRefused": "A reprodução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia tirar primeiro dos objetos que grava foi recusado, ou não pôde ser tirado, como diz a saída do SandForge. Nada foi gravado. Desmarque Primeiro um ponto de verificação, ou corrija o que o recusa.",
+        "loadConfig": "Os registros do ponto de verificação deixam vazios campos obrigatórios da outra org, e nada foi gravado: {{gaps}}. Desmarque os objetos deles, ou reproduza pela linha de comando com uma configuração que lhes dê um valor (--replay-config).",
+        "nonSandbox": "{{org}} não é sandbox, scratch org nem org Developer Edition: uma reprodução só vai para essas, e nada foi gravado. Escolha uma delas.",
+        "staging": "{{org}} é uma sandbox marcada como Staging: contém dados reais, e uma reprodução nunca vai para uma delas. Nada foi gravado. Escolha outra org.",
+        "storage": "Os registros do ponto de verificação ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}: a reprodução pararia no meio do caminho, e nada foi gravado. Desmarque alguns objetos, ou libere armazenamento em {{org}}.",
+        "apiBudget": "A reprodução tomaria cerca de {{estimate}} solicitações de API de {{org}}, à qual restam {{remaining}} das {{max}} diárias: ela pararia no meio do caminho, e nada foi gravado. Reproduza quando a org tiver solicitações de sobra, ou numa org à qual restem mais hoje.",
+        "emailsNotAccepted": "{{org}} entrega todos os e-mails que o que ainda roda envia quando a reprodução grava, ou não diz se os entrega, e nada foi gravado. Marque “Reproduzir mesmo que {{org}} entregue os e-mails”, marque o silêncio da automação, ou defina a capacidade de entrega da org como System email only.",
+        "emailsExceeded": "A reprodução faria {{org}} enviar mais e-mails do que lhe restam hoje ({{limit}}: cerca de {{emails}}, {{remaining}} de {{max}} restantes), e nada foi gravado. Marque o silêncio da automação para calar o que os envia, ou reproduza numa org à qual restem mais e-mails hoje.",
+        "automation": "{{org}} executa automações quando a reprodução grava os registros ({{named}}), e nada foi gravado. Marque “Reproduzir mesmo que {{org}} execute automações na entrada dos registros”, marque o silêncio da automação, ou desative essa automação em {{org}}.",
+        "automationUnread": "Não foi possível ler o que {{org}} executa quando a reprodução grava, e nada foi gravado. Marque “Reproduzir mesmo que {{org}} execute automações na entrada dos registros”, ou marque o silêncio da automação."
+      }
     }
   },
   "runRemoval": {
@@ -7824,13 +7894,12 @@
         "damaged": "O arquivo dele não pode ser lido: este ponto de verificação só pode ser excluído.",
         "taking": "Não concluído: a criação dele está em andamento, ou uma criação parou antes do fim. Só pode ser excluído.",
         "failed": "A criação dele falhou: este ponto de verificação só pode ser excluído.",
-        "refreshed": "{{org}} foi atualizada em {{date}}: este ponto de verificação é da org de antes da atualização, e só pode ser excluído.",
-        "refreshedUndated": "{{org}} foi atualizada desde então: este ponto de verificação é da org de antes da atualização, e só pode ser excluído.",
-        "scratchExpired": "Esta scratch org expirou: seus pontos de verificação só podem ser excluídos."
+        "refreshed": "{{org}} foi atualizada em {{date}}: este ponto de verificação é da org de antes da atualização, e não a faz mais retroceder.",
+        "refreshedUndated": "{{org}} foi atualizada desde então: este ponto de verificação é da org de antes da atualização, e não a faz mais retroceder.",
+        "scratchExpired": "Esta scratch org expirou: seus pontos de verificação não a fazem mais retroceder."
       },
-      "frozenInstead": "Um ponto de verificação devolve a org de que foi tirado a um momento, e nenhuma outra org: os dados a montar de novo em outra org são congelados como Dataset congelado enquanto a org deles existe.",
       "expiresSoon": "Expira {{when}}",
-      "scratchExpiresSoon": "Esta scratch org expira em {{date}}: seus pontos de verificação só poderão então ser excluídos, e Guardar não os guarda. Para montar seus dados de novo em outra org, congele-os antes como Dataset congelado: um Dataset congelado é carregado em qualquer sandbox ou org Developer Edition.",
+      "scratchExpiresSoon": "Esta scratch org expira em {{date}}: seus pontos de verificação não a farão mais retroceder, diga o que disser Guardar. Eles continuarão sendo reproduzidos em outra org: Reproduzir em outra org… recria lá os registros deles, com novos Ids.",
       "keepIt": "Guardar",
       "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar com o seu Id: a lixeira os guarda por 15 dias, menos se encher. Um retrocesso os recria, com Ids novos.",
       "rewound": "Retrocesso feito em {{date}}: pode ser desfeito até {{until}}, antes se a lixeira encher.",
@@ -8406,6 +8475,162 @@
         "importedForever": "“{{name}}” importado: agora consta entre os pontos de verificação de {{org}} e fica guardado até você excluí-lo.",
         "alreadyKept": "“{{name}}” já está guardado nesta máquina, igual: foi deixado como estava.",
         "done": "Concluído"
+      }
+    },
+    "replay": {
+      "open": "Reproduzir em outra org…",
+      "title": "Reproduzir “{{name}}” em outra org",
+      "back": "Voltar aos pontos de verificação",
+      "facts": "De {{org}}, tirado {{age}} · {{records}} registros",
+      "intro": "Reproduzir cria em {{target}} uma cópia dos registros deste ponto de verificação, os pais antes dos filhos, com novos Ids. Nada do que {{target}} contém é alterado ou excluído. Um ponto de verificação não guarda o conteúdo dos arquivos: os arquivos não vão junto. Uma reprodução pode ser removida.",
+      "introNoTarget": "Reproduzir cria na org escolhida uma cópia dos registros deste ponto de verificação, os pais antes dos filhos, com novos Ids. Nada do que essa org contém é alterado ou excluído. Um ponto de verificação não guarda o conteúdo dos arquivos: os arquivos não vão junto. Uma reprodução pode ser removida.",
+      "target": {
+        "label": "Org onde reproduzir",
+        "theOther": "a outra org",
+        "none": "Nenhuma sandbox, scratch org ou org Developer Edition está conectada para reproduzir: conecte uma na página Organizações.",
+        "refreshed": "{{org}} é a sandbox de que este ponto de verificação foi tirado, atualizada em {{date}}: os registros dele voltam a ela com novos Ids.",
+        "refreshedUndated": "{{org}} é a sandbox de que este ponto de verificação foi tirado, atualizada desde então: os registros dele voltam a ela com novos Ids.",
+        "own": "{{org}} não é oferecida: este ponto de verificação é dela, e Retroceder a leva de volta a esse momento.",
+        "ownNote": "org deste ponto de verificação",
+        "staging": "Sandboxes marcadas como Staging não são oferecidas: elas contêm dados reais, e uma reprodução nunca vai para uma delas."
+      },
+      "choices": "O que a reprodução monta de novo",
+      "objects": {
+        "legend": "Objetos",
+        "hint": "Desmarque um objeto para deixá-lo de fora: uma pesquisa para ele é esvaziada, e a simulação a nomeia.",
+        "object": "{{object}} ({{records}})",
+        "files": "Não reproduzidos, já que um ponto de verificação não guarda o conteúdo dos arquivos: {{objects}}."
+      },
+      "owners": {
+        "legend": "Quem é proprietário dos registros",
+        "same": "O proprietário deles, onde a outra org o tem",
+        "sameHint": "Mantido quando {{target}} tem o mesmo usuário ativo; senão, você.",
+        "me": "Você, que reproduz",
+        "meHint": "Cada registro reproduzido é seu em {{target}}."
+      },
+      "customSettings": "Montar de novo as configurações personalizadas que ele contém, nunca por cima de uma linha da outra org",
+      "mask": {
+        "label": "Mascarar os dados pessoais",
+        "free": "Este ponto de verificação é de uma scratch org, de uma org Developer Edition ou de uma sandbox Developer: mascarar fica a seu critério.",
+        "staging": "Este ponto de verificação é de uma sandbox marcada como Staging, que contém dados reais: ele só vai para outra org mascarado.",
+        "storage": "Este ponto de verificação é de uma sandbox Partial Copy ou Full ({{mb}} MB de armazenamento de dados): pode conter dados reais, e só vai para outra org mascarado.",
+        "unknown": "Este ponto de verificação é de uma sandbox e não diz de qual tipo: tirado antes do SandForge 1.81, ele não guarda o armazenamento de dados. O mascaramento está marcado para você; se ele não contém dados reais, desmarque-o e declare isso.",
+        "noRealData": "Este ponto de verificação não contém dados reais: reproduzi-lo sem mascarar (a trilha de auditoria guarda isto)"
+      },
+      "keepContactPoints": "Manter e-mails e números de telefone como estão (senão, ficam inalcançáveis)",
+      "replace": "Substituir a última reprodução em {{target}}: excluir primeiro os {{records}} registros que ela criou lá, e manter aquilo a que ela se vinculou",
+      "replaceConfirm": {
+        "title": "Substituir a última reprodução em {{target}}",
+        "description": "Exclui de {{target}} os {{records}} registros que a última reprodução deste ponto de verificação criou lá, os filhos antes dos pais, e depois o reproduz de novo. Aquilo a que as reproduções se vincularam, que {{target}} já continha, é mantido."
+      },
+      "acceptEmails": "Reproduzir mesmo que {{target}} entregue os e-mails",
+      "acceptAutomation": "Reproduzir mesmo que {{target}} execute automações na entrada dos registros",
+      "costLead": "Segundo a simulação:",
+      "simulate": "Simular",
+      "run": "Reproduzir",
+      "pickFirst": "Escolha a org onde reproduzir.",
+      "simulateFirst": "Simule primeiro: nada é gravado em {{target}} até que uma simulação destas escolhas diga o que a reprodução faz.",
+      "changed": "As escolhas mudaram desde a simulação: simule de novo antes de reproduzir em {{target}}.",
+      "running": "Reproduzindo em {{target}}…",
+      "runningObject": "Reproduzindo em {{target}}: {{object}}…",
+      "stopping": "Parando: a reprodução termina assim que a chamada em andamento for respondida. O que ela criou até lá é guardado com as reproduções deste ponto de verificação, e uma remoção o retira.",
+      "stopRefused": "Não foi possível parar a reprodução",
+      "stopRefusedDetail": "A reprodução não está mais em andamento, ou não foi iniciada nesta janela.",
+      "verify": "Verificar",
+      "column": {
+        "object": "Objeto",
+        "toCreate": "A criar",
+        "linked": "Vinculados",
+        "fieldsDropped": "Campos deixados de fora",
+        "notSent": "Não enviados",
+        "created": "Criados",
+        "refused": "Recusados"
+      },
+      "plan": {
+        "title": "O que a reprodução faria em {{target}}",
+        "records_one": "Cria em {{target}} uma cópia de {{records}} dos registros dele, com um novo Id; nada do que {{target}} contém é alterado ou excluído.",
+        "records_other": "Cria em {{target}} cópias de {{records}} dos registros dele, os pais primeiro, com novos Ids; nada do que {{target}} contém é alterado ou excluído.",
+        "linkedById_one": "{{records}} registro está em {{target}} com o mesmo Id: vinculado, não alterado.",
+        "linkedById_other": "{{records}} registros estão em {{target}} com o mesmo Id: vinculados, não alterados.",
+        "linkedByKey_one": "{{records}} registro está em {{target}} com os mesmos valores dos campos que um vínculo nomeia: vinculado, não criado.",
+        "linkedByKey_other": "{{records}} registros estão em {{target}} com os mesmos valores dos campos que um vínculo nomeia: vinculados, não criados.",
+        "owners": "Proprietários: mantidos em {{kept}} (o mesmo usuário em {{target}}); você em {{toYou}}.",
+        "ownersNotInTarget": "{{records}} deles: o usuário não está em {{target}}.",
+        "ownersInactive": "{{records}} deles: o usuário está inativo em {{target}}.",
+        "ownersQueueMissing": "{{records}} deles: a fila não está em {{target}}, ou não aceita este objeto.",
+        "recordTypeByName": "{{object}} ({{records}}): tipo de registro {{recordType}}, encontrado em {{target}} pelo nome.",
+        "recordTypeById": "{{object}} ({{records}}): tipo de registro {{recordType}}, encontrado em {{target}} com o mesmo Id.",
+        "recordTypeDefault": "{{object}} ({{records}}): o tipo de registro {{recordType}} não está em {{target}}, e os registros dele recebem lá o seu tipo padrão.",
+        "notReplayed": {
+          "fileContentNotKept": "{{object}} ({{records}}): não reproduzido, um ponto de verificação não guarda o conteúdo dos arquivos.",
+          "notInTarget": "{{object}} ({{records}}): não reproduzido, {{target}} não tem esse objeto. Implante-o, ou deixe-o de fora.",
+          "notCreateable": "{{object}} ({{records}}): não reproduzido, {{target}} não cria nenhum registro dele por si mesma.",
+          "excluded": "{{object}} ({{records}}): deixado de fora, como pedido."
+        },
+        "lookupEmptied": {
+          "objectNotReplayed": "{{field}} esvaziado em {{records}} registros: o objeto dele está de fora. Marque-o para manter o vínculo.",
+          "objectNotHeld": "{{field}} esvaziado em {{records}} registros: o registro que ele nomeia não está nem neste ponto de verificação nem em {{target}}.",
+          "userNotInTarget": "{{field}} esvaziado em {{records}} registros: o usuário dele não está em {{target}}."
+        },
+        "refused": {
+          "requiredLookupMissing": "{{object}} ({{records}}): recusados antes de qualquer gravação, uma pesquisa obrigatória nomeia um registro que nem é reproduzido nem está em {{target}}.",
+          "parentRefused": "{{object}} ({{records}}): recusados antes de qualquer gravação, com o pai recusado: um órfão nunca é gravado.",
+          "personAccountsUnsupported": "{{object}} ({{records}}): recusados antes de qualquer gravação, as contas pessoais não estão ativadas em {{target}}. Ative-as, ou deixe Account de fora.",
+          "inactiveCurrency": "{{object}} ({{records}}): recusados antes de qualquer gravação, numa moeda que {{target}} não ativou.",
+          "recordTypeUnavailable": "{{object}} ({{records}}): recusados antes de qualquer gravação, um tipo de registro do qual você não pode criar registros em {{target}}."
+        },
+        "fieldsNotInTarget": "{{object}}: campos ausentes de {{target}}, deixados de fora: {{fields}}.",
+        "customSettings": "Configurações personalizadas: {{inserted}} linhas montadas; {{already}} já em {{target}}, mantidas.",
+        "currencyRefused": "{{code}} ({{records}}): {{target}} não a ativou, e estes registros são recusados antes de qualquer gravação. Ative-a, ou deixe-os de fora.",
+        "singleCurrency": "{{target}} tem uma única moeda: os valores são mantidos como estão, na moeda dela.",
+        "standardPricebook": {
+          "annex": "As entradas da tabela de preços padrão são reconhecidas pelo que o ponto de verificação guardou.",
+          "deduced": "As entradas da tabela de preços padrão são deduzidas das próprias entradas: o ponto de verificação foi tirado antes do SandForge 1.81.",
+          "ambiguous": "Não é possível saber qual tabela de preços era a padrão: as entradas dela são recusadas antes de qualquer gravação. Deixe PricebookEntry de fora, ou tire um novo ponto de verificação com o SandForge 1.81.",
+          "none": "Nenhuma entrada de uma tabela de preços padrão é guardada: os preços são reproduzidos sem preço padrão."
+        },
+        "masked": "Mascarados: {{fields}}.",
+        "unmaskedFreeText": "Campos de texto livre que o mascaramento não lê, que vão como estão: {{fields}}.",
+        "contactPointsNeutralized": "E-mails e números de telefone ficam inalcançáveis.",
+        "contactPointsKept": "E-mails e números de telefone vão como estão.",
+        "archived": "{{records}} tarefas e eventos arquivados são reproduzidos, que {{target}} mantém ativos.",
+        "degraded": "Tirado antes do SandForge 1.81, este ponto de verificação não guarda {{parts}}: os registros deles recebem o que {{target}} dá por padrão.",
+        "part": {
+          "recordTypes": "os tipos de registro",
+          "users": "os usuários",
+          "queues": "as filas",
+          "standardPricebook": "a tabela de preços padrão"
+        },
+        "auditDates": "As datas e usuários de criação e de modificação são os da reprodução: a plataforma os define.",
+        "filesLeft_one": "{{files}} arquivo não é reproduzido, já que um ponto de verificação não guarda o conteúdo dos arquivos: {{names}}.",
+        "filesLeft_other": "{{files}} arquivos não são reproduzidos, já que um ponto de verificação não guarda o conteúdo dos arquivos: {{names}}.",
+        "storage": "Armazenamento de dados: cerca de {{estimate}} MB, com {{remaining}} MB restantes em {{target}} de {{max}} MB.",
+        "earlier": "Uma reprodução anterior deste ponto de verificação em {{target}} ainda está no lugar: esta recria os registros dele ao lado. Remova-a primeiro, ou marque Substituir."
+      },
+      "result": {
+        "title": "Reproduzido em {{target}}",
+        "completed": "A reprodução gravou o que devia.",
+        "completedWithErrors": "{{target}} recusou alguns registros, listados: o resto foi gravado.",
+        "partial": "A reprodução gravou o que pôde, e parou antes do resto, listado."
+      },
+      "verdict": {
+        "passed": "Verificado: {{target}} contém cada registro que a reprodução diz ter gravado.",
+        "partial": "Verificado em parte: registros gravados pela reprodução faltam em {{target}}, ou são órfãos.",
+        "failed": "Não verificado: o que {{target}} contém não corresponde ao que a reprodução gravou.",
+        "unstable": "Não foi possível verificar: o que {{target}} contém mudava enquanto era contado."
+      },
+      "replays": {
+        "title": "Reproduções deste ponto de verificação",
+        "inPlace": "{{target}}, reproduzido em {{date}}: {{records}} registros ainda lá.",
+        "removed": "{{target}}, reproduzido em {{date}}: removido.",
+        "nothing": "{{target}}, reproduzido em {{date}}: nenhum dos registros dele continua lá.",
+        "notConnected": "Essa org não está conectada: conecte-a para remover esta reprodução.",
+        "pick": "Mostrar {{target}}"
+      },
+      "list": {
+        "elsewhere": "Ele não faz mais a org dele retroceder, mas é reproduzido em outra org: os registros dele são recriados lá, com novos Ids.",
+        "inPlace": "Reproduções ainda no lugar: {{replays}}.",
+        "deleteKeeps": "As reproduções dele ficam onde estão: {{replays}}. Cada uma continua sendo removida sem o ponto de verificação."
       }
     }
   },

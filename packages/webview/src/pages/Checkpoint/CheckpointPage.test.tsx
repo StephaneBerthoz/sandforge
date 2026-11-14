@@ -886,4 +886,55 @@ describe('CheckpointPage', () => {
       expect(kept().includes(SHOWN_KEY)).toBe(false);
     });
   });
+
+  describe('a replay in another org', () => {
+    const QA = developerOrg({
+      id: 'org-qa',
+      alias: 'QA',
+      orgType: 'Scratch',
+      orgId: '00D000000000022EAA',
+    });
+
+    it('opens the replay of a checkpoint of the sandbox before its refresh from its row, and comes back to the list read again', () => {
+      useOrgStore.setState({
+        orgs: [developerOrg({ orgType: 'Sandbox' }), QA],
+        selectedOrgId: 'org-dev',
+      });
+      render(<CheckpointPage />);
+      answerList([listEntry(readyCheckpoint(), { valid: false, why: 'refreshed' })]);
+      fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
+      expect(
+        screen.getByRole('heading', { name: 'Replay “Before UAT” in another org' }),
+      ).toHaveFocus();
+      const lists = host.current?.sent('checkpoint:list').length ?? 0;
+      fireEvent.click(screen.getByTestId('checkpoint-replay-close'));
+      expect(screen.getByTestId('checkpoint-list')).toBeInTheDocument();
+      expect(host.current?.sent('checkpoint:list').length).toBeGreaterThan(lists);
+    });
+
+    it('opens on the replay Home asked for, once the list says the checkpoint is there', () => {
+      useOrgStore.setState({
+        orgs: [developerOrg({ orgType: 'Sandbox' }), QA],
+        selectedOrgId: 'org-dev',
+      });
+      useAppStore.setState({
+        currentRoute: 'checkpoint',
+        navigationIntent: { route: 'checkpoint', replayCheckpointId: ID },
+      });
+      render(<CheckpointPage />);
+      answerList([listEntry(readyCheckpoint(), { valid: false, why: 'refreshed' })]);
+      expect(screen.getByTestId('checkpoint-replay')).toBeInTheDocument();
+    });
+
+    it('opens no replay of a checkpoint that does not read, which the list keeps', () => {
+      useAppStore.setState({
+        currentRoute: 'checkpoint',
+        navigationIntent: { route: 'checkpoint', replayCheckpointId: 'ck-20261019-090000-dead' },
+      });
+      render(<CheckpointPage />);
+      answerList([listEntry(null, { valid: false, why: 'damaged' })]);
+      expect(screen.queryByTestId('checkpoint-replay')).toBeNull();
+      expect(screen.getByTestId('checkpoint-list')).toBeInTheDocument();
+    });
+  });
 });

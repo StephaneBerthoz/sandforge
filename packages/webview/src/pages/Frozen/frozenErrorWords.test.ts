@@ -562,4 +562,120 @@ describe('frozenErrorWords', () => {
       await i18n.changeLanguage('en');
     }
   });
+
+  describe('of a replay of a checkpoint', () => {
+    it('says each refusal of the replay’s own guard by the box that lifts it', () => {
+      expect(
+        frozenErrorWords(
+          { code: 'REPLAY_SAME_ORG', params: { checkpoint: 'Before UAT', target: 'QA' } },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ).toBe(
+        'QA is the org this checkpoint was taken of: a replay creates copies of its records in another org, and nothing was written. To bring QA back to that moment, use Rewind.',
+      );
+      expect(
+        frozenErrorWords(
+          { code: 'REPLAY_REAL_DATA', params: { why: 'storage', mb: 5120 } },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ).toContain('(5120 MB of data storage)');
+      expect(
+        frozenErrorWords(
+          { code: 'REPLAY_REAL_DATA', params: { why: 'staging' } },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ).toContain('Tick Mask personal data, then simulate again.');
+      expect(frozenErrorWords({ code: 'REPLAY_COPY_UNKNOWN' }, t, aliasOf, 'replay')).toContain(
+        'declare that it holds no real data, which the audit trail keeps',
+      );
+      expect(
+        frozenErrorWords(
+          { code: 'REPLAY_TOO_MANY', params: { records: 140000, max: 100000 } },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ).toContain('Untick some objects, then simulate again.');
+      expect(frozenErrorWords({ code: 'MAX_RECORDS' }, t, aliasOf, 'replay')).toContain(
+        'Simulate again.',
+      );
+    });
+
+    it('says the load’s gates and a removal’s refusals of a replay, in no word of a dataset or a load', () => {
+      const said = [
+        frozenErrorWords(
+          {
+            code: 'FROZEN_STORAGE_EXCEEDED',
+            orgId: 'org-uat',
+            storage: { estimateMB: 4.21, remainingMB: 2, maxMB: 5 },
+          },
+          t,
+          aliasOf,
+          'replay',
+        ),
+        frozenErrorWords(
+          {
+            code: 'API_BUDGET_EXCEEDED',
+            orgId: 'org-uat',
+            apiRequests: { estimate: 900, remaining: 10, max: 15000 },
+          },
+          t,
+          aliasOf,
+          'replay',
+        ),
+        frozenErrorWords({ code: 'EMAILS_NOT_ACCEPTED', orgId: 'org-uat' }, t, aliasOf, 'replay'),
+        frozenErrorWords(
+          {
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            orgId: 'org-uat',
+            automation: { firing: [{ objectApiName: 'Account', kind: 'flow', name: 'Stamp' }] },
+          },
+          t,
+          aliasOf,
+          'replay',
+        ),
+        frozenErrorWords({ code: 'LOAD_CHANGED' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'TARGET_REFRESHED' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'LOAD_STOPPED' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'LOAD_REMOVED', left: 3 }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'ALREADY_REMOVED' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'NOTHING_TO_REMOVE' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'NO_LOAD' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'LOAD_CANCELLED', written: 12 }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'CHECKPOINT_REFUSED' }, t, aliasOf, 'replay'),
+        frozenErrorWords({ code: 'LOAD_CONFIG', gaps: ['Case.Origin'] }, t, aliasOf, 'replay'),
+        frozenErrorWords(
+          { code: 'GUARD_REFUSED', guard: 'non-sandbox', tier: 'staging', orgId: 'org-uat' },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ];
+      expect(said.every((words) => typeof words === 'string' && words !== '')).toBe(true);
+      expect(said[0]).toBe(
+        'The checkpoint’s records take about 4.21 MB of data storage, and UAT has 2 MB left of 5 MB: the replay would stop part way through, and nothing was written. Untick some objects, or free data storage in UAT.',
+      );
+      expect(said[3]).toContain('(Account — Flow: Stamp)');
+      expect(said.filter((words) => /dataset|\bload\b|\bloads\b/i.test(words ?? ''))).toEqual([]);
+    });
+
+    it('keeps the host’s words for a refusal it has no words of a replay for', () => {
+      expect(frozenErrorWords({ code: 'CONFIG_MISSING' }, t, aliasOf, 'replay')).toBeUndefined();
+      expect(
+        frozenErrorWords(
+          { code: 'GUARD_REFUSED', guard: 'source-is-target', orgId: 'org-uat' },
+          t,
+          aliasOf,
+          'replay',
+        ),
+      ).toBeUndefined();
+      expect(frozenErrorWords({ code: 'REPLAY_SAME_ORG' }, t, aliasOf, 'replay')).toBeUndefined();
+    });
+  });
 });

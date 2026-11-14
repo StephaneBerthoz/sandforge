@@ -533,7 +533,7 @@ for (const theme of THEMES) {
       await expect(more).toHaveAttribute('aria-expanded', 'true');
       await expect(
         page.getByTestId('checkpoint-more-actions-ck-expiring').getByRole('button'),
-      ).toHaveText(['Rename', 'Export…', 'Stop comparing fields…']);
+      ).toHaveText(['Rename', 'Replay in another org…', 'Export…', 'Stop comparing fields…']);
       await expectReadable(page, theme, '[data-testid="checkpoint-row-ck-expiring"]');
 
       // Stop comparing fields…: the fields the checkpoint compares, none of its stamps.

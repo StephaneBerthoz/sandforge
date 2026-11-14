@@ -494,7 +494,7 @@ test.describe('Checkpoint’s Records at most', () => {
 });
 
 test.describe('Checkpoints of a scratch org about to expire, and of one gone', () => {
-  test('warns on the row of each checkpoint of the scratch org before it goes, and names Frozen for another org', async ({
+  test('warns on the row of each checkpoint of the scratch org before it goes, and offers to replay it in another org', async ({
     page,
   }) => {
     // Three days ahead, as the store warns: a day read as this machine's midnight.
@@ -523,13 +523,16 @@ test.describe('Checkpoints of a scratch org about to expire, and of one gone', (
     });
 
     await expect(page.getByTestId('checkpoint-scratch-expires-ck-scratch-soon')).toHaveText(
-      `This scratch org expires on ${said}: its checkpoints can then only be deleted, and Keep does not keep them. To set up its data again in another org, freeze it as a Frozen Dataset before then: a Frozen Dataset loads into any sandbox or Developer Edition org.`,
+      `This scratch org expires on ${said}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay in another org… sets their records up there again, with new Ids.`,
     );
-    await expect(page.getByTestId('checkpoint-frozen-ck-scratch-gone')).toHaveText(
-      'A checkpoint returns the org it was taken of to a moment, and no other org: data to set up again in another org is frozen as a Frozen Dataset while its org lives.',
+    await expect(page.getByTestId('checkpoint-elsewhere-ck-scratch-gone')).toHaveText(
+      'It no longer brings its org back, and it replays in another org: its records are created there again, with new Ids.',
+    );
+    await expect(page.getByTestId('checkpoint-replay-ck-scratch-gone')).toHaveText(
+      'Replay in another org…',
     );
     await expect(page.getByTestId('checkpoint-scratch-expires-ck-sandbox')).toHaveCount(0);
-    await expect(page.getByTestId('checkpoint-frozen-ck-sandbox')).toHaveCount(0);
+    await expect(page.getByTestId('checkpoint-elsewhere-ck-sandbox')).toHaveCount(0);
   });
 });
 

@@ -34,6 +34,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
+import { ReplayCheckpoint } from './ReplayCheckpoint';
 import {
   ExportCheckpoint,
   ImportCheckpoint,
@@ -57,10 +58,11 @@ const UNDO_CANNOT_RESULT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> 
 };
 
 /**
- * Where the page opens for the org Home named: a take, or what a rewind to
- * one checkpoint would do — muted, from the result of a run that muted.
+ * Where the page opens for the org Home named: a take, what a rewind to one
+ * checkpoint would do — muted, from the result of a run that muted —, or the
+ * replay of one in another org.
  */
-type Arrival = { take: true } | { preview: string; muted?: true } | null;
+type Arrival = { take: true } | { preview: string; muted?: true } | { replay: string } | null;
 
 /** A rewind or an undo the page started, with the checkpoint it is of. */
 type PageRun = RunShown & { checkpoint: OrgCheckpoint };
@@ -107,7 +109,9 @@ export const CheckpointPage: React.FC = () => {
               preview: navigationIntent.previewCheckpointId,
               ...(navigationIntent.previewMuted === true ? { muted: true as const } : {}),
             }
-          : null,
+          : navigationIntent.replayCheckpointId !== undefined
+            ? { replay: navigationIntent.replayCheckpointId }
+            : null,
   );
   const [arrivedFor] = useState(currentOrg?.id);
   useEffect(() => {
@@ -239,6 +243,11 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const [undoAcceptsEmails, setUndoAcceptsEmails] = useState(false);
   const [undoMutesAutomation, setUndoMutesAutomation] = useState(false);
   const [stopComparing, setStopComparing] = useState<OrgCheckpoint | null>(null);
+  // The checkpoint whose replay in another org is open, and the one whose
+  // row takes the keyboard back once it is left.
+  const [replaying, setReplaying] = useState<string | null>(
+    arrival !== null && 'replay' in arrival ? arrival.replay : null,
+  );
 
   const listQuery = useBridgeQuery<CheckpointListResponse['payload']>('checkpoint:list', {
     orgId: org.id,
@@ -484,6 +493,39 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
       />
     );
   }
+  // A replay opens once the list has said the checkpoint is there and
+  // replays: one deleted since leaves the list.
+  const replayed =
+    replaying !== null && listQuery.data
+      ? listQuery.data.checkpoints.find(
+          (entry): entry is typeof entry & { checkpoint: OrgCheckpoint } =>
+            entry.checkpointId === replaying &&
+            entry.checkpoint !== undefined &&
+            (entry.valid || entry.why === 'refreshed' || entry.why === 'scratchExpired'),
+        )
+      : undefined;
+  if (replayed) {
+    return (
+      <ReplayCheckpoint
+        org={org}
+        entry={replayed}
+        onClose={() => {
+          setReplaying(null);
+          refetchList.current();
+        }}
+        onChanged={() => refetchList.current()}
+        {...(replayed.valid
+          ? {
+              onRewind: () => {
+                setReplaying(null);
+                setLeftPreview(undefined);
+                setPreviewing(replayed.checkpointId);
+              },
+            }
+          : {})}
+      />
+    );
+  }
   if (listQuery.data === null && listQuery.error) {
     return (
       <div className="flex flex-col items-start gap-2">
@@ -624,6 +666,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
             setExportingId(checkpointId);
             exporting.mutate({ checkpointId });
           }}
+          onReplay={setReplaying}
           exporting={exporting.loading ? exportingId : null}
           focusRewind={leftPreview}
         />

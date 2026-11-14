@@ -13,6 +13,7 @@ import type {
   CheckpointMovedWhileTaken,
   CheckpointRefusal,
   CheckpointRefusalCode,
+  CheckpointReplayListed,
   CheckpointRewindListed,
   CheckpointScopeMode,
   CheckpointTakeRequests,
@@ -112,6 +113,7 @@ import type {
   BeforeRunTakeOptions,
 } from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import type { ArchiveRead } from '../../modules/checkpoint/checkpointArchive.js';
+import type { ReplayStore } from '../../modules/checkpoint/replay/replayStore.js';
 
 /** Message types handled by CheckpointHandler. */
 const CHECKPOINT_TYPES = new Set([
@@ -504,20 +506,35 @@ function wroteAny(result: RewindResult): boolean {
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview, rewind, undo, guard, archive, plan, bounds, beforeRun, emails] =
-    await Promise.all([
-      import('../../modules/checkpoint/OrgCheckpointStore.js'),
-      import('../../modules/checkpoint/takeCheckpoint.js'),
-      import('../../modules/checkpoint/previewCheckpoint.js'),
-      import('../../modules/checkpoint/rewindOrg.js'),
-      import('../../modules/checkpoint/undoCheckpoint.js'),
-      import('../../modules/checkpoint/checkpointGuard.js'),
-      import('../../modules/checkpoint/checkpointArchive.js'),
-      import('../../modules/checkpoint/rewindPlan.js'),
-      import('../../modules/checkpoint/rewindBounds.js'),
-      import('../../modules/checkpoint/beforeRunCheckpoint.js'),
-      import('../../modules/checkpoint/rewindEmails.js'),
-    ]);
+  const [
+    store,
+    take,
+    preview,
+    rewind,
+    undo,
+    guard,
+    archive,
+    plan,
+    bounds,
+    beforeRun,
+    emails,
+    replays,
+    loads,
+  ] = await Promise.all([
+    import('../../modules/checkpoint/OrgCheckpointStore.js'),
+    import('../../modules/checkpoint/takeCheckpoint.js'),
+    import('../../modules/checkpoint/previewCheckpoint.js'),
+    import('../../modules/checkpoint/rewindOrg.js'),
+    import('../../modules/checkpoint/undoCheckpoint.js'),
+    import('../../modules/checkpoint/checkpointGuard.js'),
+    import('../../modules/checkpoint/checkpointArchive.js'),
+    import('../../modules/checkpoint/rewindPlan.js'),
+    import('../../modules/checkpoint/rewindBounds.js'),
+    import('../../modules/checkpoint/beforeRunCheckpoint.js'),
+    import('../../modules/checkpoint/rewindEmails.js'),
+    import('../../modules/checkpoint/replay/replayStore.js'),
+    import('../../modules/frozendataset/loadRecords.js'),
+  ]);
   return {
     pageEmailsRefusal: emails.pageEmailsRefusal,
     planSelection: plan.planSelection,
@@ -563,6 +580,10 @@ async function loadCheckpointModules() {
     freeBytesOf: beforeRun.freeBytesOf,
     scopeBeforeRun: beforeRun.scopeBeforeRun,
     settleBeforeRun: beforeRun.settleBeforeRun,
+    ReplayStore: replays.ReplayStore,
+    defaultReplayStoreRoot: replays.defaultReplayStoreRoot,
+    loadToRemove: loads.loadToRemove,
+    loadRecordsInfo: loads.loadRecordsInfo,
   };
 }
 
@@ -724,7 +745,8 @@ function holderWords(holder: OrgLockHolder): string {
  *   of all, read from the store alone, never from the org. An org's are those
  *   of every Organization Id its registered entry was: a sandbox refreshed
  *   since lists those of the org before, which no longer rewind it and are
- *   replayed in another org.
+ *   replayed in another org. Each names its replays this machine keeps, from
+ *   the replays' own files, with what a removal of each takes next.
  * - `checkpoint:scope` — what a take would hold and cost, read from the org's
  *   describes and counts, nothing kept (`scopeCheckpoint`).
  * - `checkpoint:take` — the take (`takeCheckpoint`), under the id of its
@@ -805,6 +827,8 @@ function holderWords(holder: OrgLockHolder): string {
 export class CheckpointHandler implements DomainHandler {
   private loaded?: Promise<CheckpointModules>;
   private store?: Promise<OrgCheckpointStore | CheckpointStoreRefusal>;
+  /** Where the replays of the checkpoints into other orgs are kept: the machine's, unless set. */
+  private replays?: ReplayStore;
   private liveTracker?: LiveOperationTracker;
   private syncRuns?: RunFiles;
   private seedRuns?: RunFiles;
@@ -867,6 +891,15 @@ export class CheckpointHandler implements DomainHandler {
   /** The store the checkpoints are kept in, in place of the one `SANDFORGE_JOURNAL_DIR` or the home names. */
   setStore(store: OrgCheckpointStore): void {
     this.store = Promise.resolve(store);
+  }
+
+  /**
+   * Where the replays of the checkpoints into other orgs are kept, in place
+   * of the machine's (`replays/` beside `checkpoints/`): the store the loads
+   * of a replay write to, so the list names what they left.
+   */
+  setReplayStore(store: ReplayStore): void {
+    this.replays = store;
   }
 
   /** Another reader of what the org runs than the handler's own. */
@@ -2475,6 +2508,73 @@ export class CheckpointHandler implements DomainHandler {
   }
 
   /**
+   * The checkpoints listed, each with its replays into other orgs this
+   * machine keeps: read from the replays' own files, outside the checkpoints'
+   * folders, no org asked. Each replay names the registered org that answers
+   * with the Organization Id it went into, and what a removal of it takes
+   * next there, under that org's id. Replays that cannot be read leave the
+   * list as it was: a checkpoint is still listed, and rewound to.
+   */
+  private async withReplays(entries: CheckpointListEntry[]): Promise<CheckpointListEntry[]> {
+    if (entries.length === 0) return entries;
+    try {
+      const m = await this.modules();
+      this.replays ??= new m.ReplayStore({ root: m.defaultReplayStoreRoot() });
+      const replays = this.replays;
+      const orgs = this.deps.orgManager.getAllOrgs();
+      const bySource = new Map<string, Awaited<ReturnType<ReplayStore['list']>>>();
+      for (const entry of entries) {
+        if (!bySource.has(entry.organizationId)) {
+          bySource.set(
+            entry.organizationId,
+            await replays.list({ sourceOrganizationId: entry.organizationId }),
+          );
+        }
+      }
+      const out: CheckpointListEntry[] = [];
+      for (const entry of entries) {
+        const of = (bySource.get(entry.organizationId) ?? []).filter(
+          (replay) => replay.checkpointId === entry.checkpointId,
+        );
+        const listed: CheckpointReplayListed[] = [];
+        for (const replay of of) {
+          const registered = orgs.find((org) =>
+            sameOrganization(org.orgId, replay.target.organizationId),
+          );
+          const loads = await replays
+            .mappingStoreOf(
+              replays.folderOf(replay.sourceOrganizationId, replay.checkpointId),
+              replay.target.organizationId,
+            )
+            .recordedLoads();
+          const next = m.loadToRemove(loads);
+          listed.push({
+            target: {
+              organizationId: replay.target.organizationId,
+              ...(replay.target.name !== undefined ? { name: replay.target.name } : {}),
+              ...(registered ? { orgId: registered.id } : {}),
+            },
+            ...(replay.replayedAt !== undefined ? { replayedAt: replay.replayedAt } : {}),
+            inPlace: replay.inPlace,
+            ...(replay.removed ? { removed: true as const } : {}),
+            ...(replay.choices ? { choices: replay.choices } : {}),
+            ...(registered && next
+              ? { records: { ...m.loadRecordsInfo(next), orgId: registered.id } }
+              : {}),
+          });
+        }
+        out.push(listed.length > 0 ? { ...entry, replays: listed } : entry);
+      }
+      return out;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] The replays of the checkpoints could not be read: ${extractErrorMessage(err)}`,
+      );
+      return entries;
+    }
+  }
+
+  /**
    * The registered org a checkpoint is of: the one registered with its
    * Organization Id, its alias first, or the one that answered as it last.
    */
@@ -2669,10 +2769,11 @@ export class CheckpointHandler implements DomainHandler {
     if (parsed === null) return;
     try {
       const store = await this.openedStore();
-      const checkpoints =
+      const listed =
         parsed?.orgId === undefined
           ? await store.list({ refreshedAt: (organizationId) => this.refreshedAt(organizationId) })
           : await this.listOfOrg(store, parsed.orgId);
+      const checkpoints = await this.withReplays(listed);
       this.respond(msg, 'checkpoint:list:response', { checkpoints });
     } catch (err: unknown) {
       this.fail(msg, err, 'LIST_ERROR');

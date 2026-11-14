@@ -28,7 +28,7 @@ import {
 } from './checkpointFacts';
 
 /**
- * Why a checkpoint listed can only be deleted, as each row says it. A
+ * Why a checkpoint listed rewinds nothing, as each row says it. A
  * refreshed sandbox names its date when the store knows it.
  */
 const WHY_KEYS: Readonly<Record<CheckpointInvalidReason, string>> = {
@@ -73,6 +73,8 @@ export interface CheckpointListProps {
   onStopComparing: (checkpoint: OrgCheckpoint) => void;
   /** Export a checkpoint to an encrypted file, at the place the window's save dialog asks for. */
   onExport: (checkpointId: string) => void;
+  /** Open the replay of a checkpoint in another org. */
+  onReplay: (checkpointId: string) => void;
   /**
    * The checkpoint whose export is under way: its Export… says so, and the
    * others wait for it, the save dialog being one at a time.
@@ -91,6 +93,30 @@ function nameOf(entry: CheckpointListEntry): string {
 }
 
 /**
+ * Whether a checkpoint replays in another org: one that rewinds its org, and
+ * one of a sandbox refreshed since or of a scratch org expired, which rewinds
+ * nothing any more and is still the data it was. Not one being taken, one
+ * whose take failed, nor one whose file cannot be read.
+ */
+function replayable(entry: CheckpointListEntry): boolean {
+  return (
+    entry.checkpoint !== undefined &&
+    (entry.valid || entry.why === 'refreshed' || entry.why === 'scratchExpired')
+  );
+}
+
+/** Its replays that left records in another org, each as the list names it: the org and its records there. */
+function replaysInPlace(entry: CheckpointListEntry): string {
+  return (entry.replays ?? [])
+    .filter((replay) => replay.inPlace > 0)
+    .map(
+      (replay) =>
+        `${replay.target.name ?? replay.target.organizationId} (${formatNumber(replay.inPlace)})`,
+    )
+    .join(', ');
+}
+
+/**
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
  * takes and how long it is kept, beside its name the run that took it before
@@ -102,7 +128,10 @@ function nameOf(entry: CheckpointListEntry): string {
  * before a date can no longer come back once it is older than the recycle
  * bin keeps them; and, on the checkpoint of the org's last rewind, when that
  * rewind was made and until when Undo can take it back. One that cannot be
- * rewound to says why, and can only be deleted.
+ * rewound to says why: of a sandbox refreshed since or of a scratch org
+ * expired, it replays in another org, kept and exported as any other; else it
+ * can only be deleted. Each lists its replays still in place, which deleting
+ * it leaves.
  */
 export const CheckpointList: React.FC<CheckpointListProps> = ({
   entries,
@@ -114,6 +143,7 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
   onUndo,
   onStopComparing,
   onExport,
+  onReplay,
   exporting = null,
   focusRewind,
 }) => {
@@ -124,13 +154,18 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
   const deleteDescription = (entry: CheckpointListEntry): string => {
     const rewoundAt = entry.undo ? entry.checkpoint?.lastRewind?.endedAt : undefined;
     const rewoundOn = rewoundAt ? formatStoredDate(rewoundAt, (d) => formatDate(d)) : null;
-    return rewoundOn
+    const said = rewoundOn
       ? t('checkpoint.delete.descriptionUndo', {
           name: nameOf(entry),
           org: orgName,
           date: rewoundOn,
         })
       : t('checkpoint.delete.description', { name: nameOf(entry), org: orgName });
+    // Deleting it takes nothing of its replays: each is still removed without it.
+    const replays = replaysInPlace(entry);
+    return replays !== ''
+      ? `${said} ${t('checkpoint.replay.list.deleteKeeps', { replays })}`
+      : said;
   };
 
   return (
@@ -148,6 +183,7 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
             onUndo={onUndo}
             onStopComparing={onStopComparing}
             onExport={() => onExport(entry.checkpointId)}
+            onReplay={() => onReplay(entry.checkpointId)}
             exporting={exporting === null ? null : exporting === entry.checkpointId}
             focusRewind={focusRewind === entry.checkpointId}
           />
@@ -191,6 +227,7 @@ interface CheckpointRowProps {
   onUndo: CheckpointListProps['onUndo'];
   onStopComparing: CheckpointListProps['onStopComparing'];
   onExport: () => void;
+  onReplay: () => void;
   /** Its export is under way (true), another's is (false), or none is (null). */
   exporting: boolean | null;
   /** Its Rewind… takes the keyboard as it is drawn. */
@@ -208,6 +245,7 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
   onUndo,
   onStopComparing,
   onExport,
+  onReplay,
   exporting,
   focusRewind,
 }) => {
@@ -227,6 +265,11 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
   const moreShown = moreOpen || exporting === true;
   const { checkpoint } = entry;
   const usable = entry.valid && checkpoint !== undefined;
+  // Of the org before a refresh, or of a scratch org expired: it rewinds
+  // nothing, and replays elsewhere, kept, renamed or exported as any other.
+  const elsewhere = replayable(entry) && !usable;
+  const kept = replayable(entry) && checkpoint !== undefined ? checkpoint : undefined;
+  const inPlace = replaysInPlace(entry);
   const records = checkpoint ? recordsHeld(checkpoint) : 0;
   const takenAt = checkpoint
     ? formatStoredDate(checkpoint.takenAt, (d) => formatRelativeTime(d))
@@ -295,11 +338,22 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               {t('checkpoint.list.rewind')}
             </Button>
           )}
-          {usable && (
+          {elsewhere && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onReplay}
+              aria-describedby={nameId}
+              data-testid={`checkpoint-replay-${entry.checkpointId}`}
+            >
+              {t('checkpoint.replay.open')}
+            </Button>
+          )}
+          {kept && (
             <label className="flex items-center gap-1.5 text-xs text-text-primary">
               <input
                 type="checkbox"
-                checked={checkpoint.expiresAt === null}
+                checked={kept.expiresAt === null}
                 onChange={(event) => onKeep(event.target.checked)}
                 aria-describedby={nameId}
                 data-testid={`checkpoint-keep-${entry.checkpointId}`}
@@ -307,7 +361,7 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               <span>{t('checkpoint.keep')}</span>
             </label>
           )}
-          {usable && (
+          {kept && (
             <Button
               variant="ghost"
               size="sm"
@@ -334,7 +388,7 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           </Button>
         </div>
       </div>
-      {usable && (
+      {kept && (
         <div
           id={moreId}
           hidden={!moreShown}
@@ -350,12 +404,24 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           >
             {t('checkpoint.list.rename')}
           </Button>
-          {/* Offered where Rewind… is: a checkpoint being taken, one whose take
-              failed, one whose file cannot be read, one of the org before a
-              refresh or of an expired scratch org is refused by the extension
-              before its save dialog asks anything. Kept focusable while its
-              export runs, so the dialog of its key gives the keyboard back
-              to it. */}
+          {/* A checkpoint that rewinds its org replays in another one too. */}
+          {usable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onReplay}
+              aria-describedby={nameId}
+              data-testid={`checkpoint-replay-${entry.checkpointId}`}
+            >
+              {t('checkpoint.replay.open')}
+            </Button>
+          )}
+          {/* Offered with Keep: a checkpoint being taken, one whose take
+              failed and one whose file cannot be read are refused by the
+              extension before its save dialog asks anything; one of the org
+              before a refresh or of an expired scratch org goes to a teammate
+              who replays it. Kept focusable while its export runs, so the
+              dialog of its key gives the keyboard back to it. */}
           <Button
             variant="ghost"
             size="sm"
@@ -370,15 +436,17 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           </Button>
           {/* Also offered by a rewind's result, where automation kept it
               partial: the expert fix this is. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onStopComparing(checkpoint)}
-            aria-describedby={nameId}
-            data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
-          >
-            {t('checkpoint.list.stopComparing')}
-          </Button>
+          {usable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onStopComparing(checkpoint)}
+              aria-describedby={nameId}
+              data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
+            >
+              {t('checkpoint.list.stopComparing')}
+            </Button>
+          )}
         </div>
       )}
       {why && (
@@ -389,12 +457,20 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           {why}
         </p>
       )}
-      {(entry.why === 'refreshed' || entry.why === 'scratchExpired') && (
+      {elsewhere && (
         <p
           className="text-xs text-text-secondary"
-          data-testid={`checkpoint-frozen-${entry.checkpointId}`}
+          data-testid={`checkpoint-elsewhere-${entry.checkpointId}`}
         >
-          {t('checkpoint.list.frozenInstead')}
+          {t('checkpoint.replay.list.elsewhere')}
+        </p>
+      )}
+      {inPlace !== '' && (
+        <p
+          className="text-xs text-text-primary"
+          data-testid={`checkpoint-replays-${entry.checkpointId}`}
+        >
+          {t('checkpoint.replay.list.inPlace', { replays: inPlace })}
         </p>
       )}
       {usable && (

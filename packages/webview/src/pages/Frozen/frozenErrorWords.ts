@@ -46,7 +46,16 @@ export interface FrozenErrorPayload {
   minutes?: unknown;
   /** The tier of the org an entry guard refused, with `GUARD_REFUSED`. */
   tier?: unknown;
+  /** What a replay's refusal names — its checkpoint, the other org, the figures —, with `REPLAY_*`. */
+  params?: unknown;
 }
+
+/**
+ * What a run of the Frozen load is to the person: a load of the project's
+ * dataset, or a replay of a checkpoint into another org, which goes through
+ * the same load and is said in its own words — no "dataset" leaves a replay.
+ */
+export type FrozenRun = 'load' | 'replay';
 
 /** Whether a value is a list of words the host sent. */
 function isWords(value: unknown): value is string[] {
@@ -78,14 +87,21 @@ function isWords(value: unknown): value is string[] {
  * that failed (`LOAD_ERROR`, `EXTRACT_ERROR`, …) carries what the org or the
  * disk answered. A refusal that names too little to be said is left there too.
  *
+ * A replay of a checkpoint (`run` `replay`) is said in its own words, every
+ * refusal of its own (`REPLAY_*`) by what it names and the box that lifts
+ * it; a refusal it has no words for keeps the host's, which say "replay".
+ *
  * @param t - Translates a key in the interface language.
  * @param aliasOf - The name the panel gives an org, by its registered id.
+ * @param run - What the run is to the person: a load, unless a replay.
  */
 export function frozenErrorWords(
   payload: FrozenErrorPayload | undefined,
   t: (key: string, options?: Record<string, unknown>) => string,
   aliasOf: (orgId: string) => string,
+  run: FrozenRun = 'load',
 ): string | undefined {
+  if (run === 'replay') return replayErrorWords(payload, t, aliasOf);
   switch (payload?.code) {
     case 'CONFIG_MISSING':
       return `${t('frozen.refusal.configMissing.explanation')} ${t('frozen.refusal.configMissing.action')}`;
@@ -444,4 +460,178 @@ function budgetWords(
       budget: payload.budgetMax,
     })} ${heaviest}` + t('frozen.refusal.budgetExceeded.action')
   );
+}
+
+/** A name a refusal gives, when it gives one. */
+function nameIn(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * A replay's refusal in the page's words, or undefined to show the host's:
+ * those of the replay's own guard (`REPLAY_*`), by the box that lifts each;
+ * and those of the load it goes through, said of a replay — its gates, a
+ * removal read before another, a verification with nothing to verify.
+ */
+function replayErrorWords(
+  payload: FrozenErrorPayload | undefined,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  aliasOf: (orgId: string) => string,
+): string | undefined {
+  const params =
+    typeof payload?.params === 'object' && payload.params !== null
+      ? (payload.params as Record<string, unknown>)
+      : {};
+  const org = typeof payload?.orgId === 'string' ? aliasOf(payload.orgId) : undefined;
+  switch (payload?.code) {
+    case 'REPLAY_SAME_ORG':
+      return nameIn(params.target) !== undefined
+        ? t('frozen.replay.refusal.sameOrg', { target: nameIn(params.target) })
+        : undefined;
+    case 'REPLAY_REAL_DATA':
+      return params.why === 'staging'
+        ? t('frozen.replay.refusal.realDataStaging')
+        : typeof params.mb === 'number'
+          ? t('frozen.replay.refusal.realDataStorage', { mb: params.mb })
+          : undefined;
+    case 'REPLAY_COPY_UNKNOWN':
+      return t('frozen.replay.refusal.copyUnknown');
+    case 'REPLAY_TOO_MANY':
+      return typeof params.records === 'number' && typeof params.max === 'number'
+        ? t('frozen.replay.refusal.tooMany', { records: params.records, max: params.max })
+        : undefined;
+    case 'REPLAY_NOTHING':
+      return t('frozen.replay.refusal.nothing');
+    case 'REPLAY_CHECKPOINT_UNUSABLE':
+      return t('frozen.replay.refusal.unusable');
+    case 'CHECKPOINT_NOT_FOUND':
+      return t('frozen.replay.refusal.notFound');
+    case 'MAX_RECORDS':
+      return t('frozen.replay.refusal.maxRecords');
+    case 'NO_LOAD':
+      return t('frozen.replay.refusal.noLoad');
+    case 'LOAD_CHANGED':
+      return t('frozen.replay.refusal.loadChanged');
+    case 'TARGET_REFRESHED':
+      return t('frozen.replay.refusal.targetRefreshed');
+    case 'LOAD_STOPPED':
+      return t('frozen.replay.refusal.loadStopped');
+    case 'LOAD_REMOVED':
+      return typeof payload.left === 'number' && payload.left > 0
+        ? t('frozen.replay.refusal.loadRemovedPart', { left: payload.left })
+        : t('frozen.replay.refusal.loadRemoved');
+    case 'ALREADY_REMOVED':
+      return t('frozen.replay.refusal.alreadyRemoved');
+    case 'NOTHING_TO_REMOVE':
+      return t('frozen.replay.refusal.nothingToRemove');
+    case 'LOAD_CANCELLED':
+      return typeof payload.written !== 'number'
+        ? undefined
+        : payload.written > 0
+          ? t('frozen.replay.refusal.cancelledWrote', { records: payload.written })
+          : t('frozen.replay.refusal.cancelled');
+    case 'CHECKPOINT_REFUSED':
+      return t('frozen.replay.refusal.checkpointRefused');
+    case 'LOAD_CONFIG':
+      return isWords(payload.gaps)
+        ? t('frozen.replay.refusal.loadConfig', { gaps: payload.gaps.join('; ') })
+        : undefined;
+    case 'TIMEOUT':
+      return `${t('frozen.refusal.timeout.explanation')} ${t('frozen.refusal.timeout.action')}`;
+    case 'GUARD_REFUSED':
+      if (payload.guard === 'guard-refused') {
+        if (payload.decision === 'declined') return t('common.refusal.guardDeclined');
+        return payload.decision === 'refused' && typeof payload.reason === 'string'
+          ? t('common.refusal.guardBlocked', { reason: payload.reason })
+          : undefined;
+      }
+      if (payload.guard !== 'non-sandbox' || org === undefined) return undefined;
+      return payload.tier === 'staging'
+        ? t('frozen.replay.refusal.staging', { org })
+        : t('frozen.replay.refusal.nonSandbox', { org });
+    case 'FROZEN_STORAGE_EXCEEDED': {
+      const storage = payload.storage as Record<string, unknown> | undefined;
+      if (
+        org === undefined ||
+        typeof storage !== 'object' ||
+        storage === null ||
+        typeof storage.estimateMB !== 'number' ||
+        typeof storage.remainingMB !== 'number' ||
+        typeof storage.maxMB !== 'number'
+      ) {
+        return undefined;
+      }
+      return t('frozen.replay.refusal.storage', {
+        org,
+        estimate: megabytes(storage.estimateMB),
+        remaining: storage.remainingMB,
+        max: storage.maxMB,
+      });
+    }
+    case 'API_BUDGET_EXCEEDED': {
+      const api = payload.apiRequests as Record<string, unknown> | undefined;
+      if (
+        org === undefined ||
+        typeof api !== 'object' ||
+        api === null ||
+        typeof api.estimate !== 'number' ||
+        typeof api.remaining !== 'number' ||
+        typeof api.max !== 'number'
+      ) {
+        return undefined;
+      }
+      return t('frozen.replay.refusal.apiBudget', {
+        org,
+        estimate: api.estimate,
+        remaining: api.remaining,
+        max: api.max,
+      });
+    }
+    case 'EMAILS_NOT_ACCEPTED':
+      return org === undefined ? undefined : t('frozen.replay.refusal.emailsNotAccepted', { org });
+    case 'FROZEN_EMAILS_EXCEEDED': {
+      const counted = (payload.emails as { counted?: unknown } | undefined)?.counted;
+      const over = Array.isArray(counted)
+        ? (counted as Array<Record<string, unknown>>).find((count) => count.verdict === 'exceeds')
+        : undefined;
+      if (org === undefined || !over || typeof over.emails !== 'number') return undefined;
+      return t('frozen.replay.refusal.emailsExceeded', {
+        org,
+        limit: t(
+          over.limit === 'SingleEmail' ? 'common.emailLimit.single' : 'common.emailLimit.workflow',
+        ),
+        emails: over.emails,
+        remaining: typeof over.remaining === 'number' ? over.remaining : 0,
+        max: typeof over.max === 'number' ? over.max : 0,
+      });
+    }
+    case 'AUTOMATION_NOT_ACCEPTED': {
+      const automation = payload.automation as { firing?: unknown } | undefined;
+      if (org === undefined || typeof automation !== 'object' || automation === null) {
+        return undefined;
+      }
+      const firing = Array.isArray(automation.firing)
+        ? (automation.firing as Array<Record<string, unknown>>).filter(
+            (entry) =>
+              typeof entry.objectApiName === 'string' &&
+              typeof entry.name === 'string' &&
+              typeof entry.kind === 'string' &&
+              AUTOMATION_KIND_KEYS[entry.kind] !== undefined,
+          )
+        : [];
+      const runs = firing
+        .map(
+          (entry) =>
+            `${String(entry.objectApiName)} — ${t(AUTOMATION_KIND_KEYS[String(entry.kind)], {
+              name: entry.name,
+            })}`,
+        )
+        .join('; ');
+      return runs !== ''
+        ? t('frozen.replay.refusal.automation', { org, named: runs })
+        : t('frozen.replay.refusal.automationUnread', { org });
+    }
+    default:
+      return undefined;
+  }
 }
