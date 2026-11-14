@@ -46,12 +46,21 @@ import {
 export const STORAGE_ROUNDING_MARGIN_MB = 0.5;
 
 /**
- * Seconds within which `/limits` counts a write in what it says is left:
- * sixteen seconds after an insert of 1,500 contacts the scratch org still said
- * 500 of 500, seventy-six seconds after, 497. A second run right after a first
- * reads a storage left that may be late by about that much.
+ * What a fit says of the storage `/limits` says is left, of `target`: it
+ * counts a load minutes after it, not seconds. Sixteen seconds after an
+ * insert of 1,500 contacts a scratch org still said 500 of 500, seventy-six
+ * seconds after, 497; but a Developer Edition of 5 MB still said 5 left a
+ * hundred seconds after a load of 1.95 MB, twice, and 2 only 384 seconds
+ * after it. Said "up to 60 seconds", the line promised a second run started
+ * a minute after the first would read what it left. No wait of the product
+ * rests on it: a run reads `/limits` as it starts, whenever that is.
  */
-export const STORAGE_RECOUNT_SECONDS = 60;
+export function storageRecountWords(target: string): string {
+  return (
+    `Salesforce can take several minutes to count a load in what ${target} says it has ` +
+    'left: a run started sooner after another may read room it no longer has'
+  );
+}
 
 /** What {@link fitBudgetOf} is given: what the target says it has, and what is asked of the fit. */
 export interface FitBudgetInput {

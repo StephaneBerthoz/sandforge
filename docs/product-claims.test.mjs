@@ -5646,11 +5646,25 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   // Why a run draws its own, as the handler tells it.
   assert.match(
     sample,
-    /the plan was a day old, the simulation was set up otherwise, or its plan was gone/,
+    /the plan was a day old, the simulation was set up otherwise, or its plan was taken up by an earlier run/,
   );
   const handler = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
   assert.match(handler, /drawnAgain = 'tooOld';/);
-  assert.match(handler, /drawnAgain = simulated === fingerprint \? 'planGone' : 'setUpOtherwise';/);
+  assert.match(
+    handler,
+    /drawnAgain = simulated === fingerprint \? 'planTaken' : 'setUpOtherwise';/,
+  );
+  // A run that wrote nothing leaves the simulation's plan; a retry writes the plan of the run it retries.
+  assert.match(
+    sample,
+    /a run refused at its gate or declined at its question writes none of them and leaves the plan to the next/,
+  );
+  assert.match(handler, /await this\.giveThePlanBack\(journalId, sample\.adoptedFrom\);/);
+  assert.match(
+    sample,
+    /\*\*Retry\*\* writes the plan of the run it retries while that run's journal keeps it/,
+  );
+  assert.match(handler, /plan = await copySamplePlan\(retried, storagePath, run\.journalId\);/);
 
   // No file with a sample.
   assert.match(sample, /A sample copies no file[^.]*the extension refuses a sample with files/);

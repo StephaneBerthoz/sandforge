@@ -17,7 +17,9 @@ import {
   SamplePlan,
   SamplePlanError,
   adoptSamplePlan,
+  copySamplePlan,
   dryRunPlanDirOf,
+  giveBackSamplePlan,
   keepSamplePlan,
   lastDryRunPlan,
   removeSamplePlan,
@@ -360,6 +362,42 @@ describe('the plan a run takes up', () => {
     );
     if (process.platform !== 'win32') {
       expect((await stat(adopted.dir)).mode & 0o777).toBe(0o700);
+    }
+  });
+
+  it('puts a plan a run took up back where it was given, unless that folder holds a plan drawn since', async () => {
+    const given = dryRunPlanDirOf(storage, FINGERPRINT);
+    const plan = await keepSamplePlan(given, planOf());
+    await adoptSamplePlan(plan, storage, 'run-1');
+
+    expect(await giveBackSamplePlan(storage, 'run-1', given)).toBe(true);
+    const back = await lastDryRunPlan(storage, FINGERPRINT, new Date('2026-11-13T15:00:00Z'));
+    expect(back instanceof SamplePlan && back.sha256).toBe(plan.sha256);
+    // Nothing left beside the run's journal: nothing to put back twice.
+    expect(await giveBackSamplePlan(storage, 'run-1', given)).toBe(false);
+
+    // A simulation drew another meanwhile: it is the last of its setup.
+    await adoptSamplePlan(await SamplePlan.open(given), storage, 'run-2');
+    await keepSamplePlan(given, planOf({ drawnAt: new Date('2026-11-13T14:30:00.000Z') }));
+    expect(await giveBackSamplePlan(storage, 'run-2', given)).toBe(false);
+  });
+
+  it('copies the plan of a run beside the journal of the run that retries it, and leaves the run’s own', async () => {
+    const plan = await adoptSamplePlan(
+      await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf()),
+      storage,
+      'run-1',
+    );
+
+    const copy = await copySamplePlan(plan, storage, 'retry-1');
+
+    expect(copy.dir).toBe(runPlanDirOf(storage, 'retry-1'));
+    expect(copy.sha256).toBe(plan.sha256);
+    expect(await idsOf(copy, 'Account')).toEqual(await idsOf(plan, 'Account'));
+    expect((await SamplePlan.open(plan.dir)).sha256).toBe(plan.sha256);
+    if (process.platform !== 'win32') {
+      expect((await stat(copy.dir)).mode & 0o777).toBe(0o700);
+      expect((await stat(join(copy.dir, 'sample.json'))).mode & 0o777).toBe(0o600);
     }
   });
 

@@ -3315,12 +3315,15 @@ function truncatedObjectsOf(
 /**
  * The line of the records a run linked to rather than created: those the
  * target held before the run, and apart from them those the platform wrote
- * itself with a record the run created, in the words each object's line uses.
- * All said "already in the target", the owner's member and split of the run's
- * opportunity read as records the target held before the run.
+ * itself with a record the run created, in the words each object's line uses,
+ * and those linked to a record the run created itself, which the target
+ * refused as copies of it. All said "already in the target", the owner's
+ * member and split of the run's opportunity read as records the target held
+ * before the run, and so did ten accounts linked to the accounts the run had
+ * just written, a value the target keeps unique repeated in the source.
  */
 function linkedLine(
-  summary: Pick<ExecutionSummary, 'linkedCount' | 'writtenByThePlatform'>,
+  summary: Pick<ExecutionSummary, 'linkedCount' | 'writtenByThePlatform' | 'linkedToCreatedCount'>,
 ): string {
   const byWords = new Map<string, number>();
   for (const { objectApiName, rows } of summary.writtenByThePlatform ?? []) {
@@ -3328,12 +3331,16 @@ function linkedLine(
     byWords.set(words, (byWords.get(words) ?? 0) + rows);
   }
   const byThePlatform = [...byWords.values()].reduce((sum, rows) => sum + rows, 0);
-  if (byThePlatform === 0) {
+  const own = summary.linkedToCreatedCount ?? 0;
+  if (byThePlatform === 0 && own === 0) {
     return `linked:  ${summary.linkedCount} (already in the target, not created)`;
   }
-  const held = summary.linkedCount - byThePlatform;
+  const held = summary.linkedCount - byThePlatform - own;
   const parts = [
     ...(held > 0 ? [`${held} already in the target, not created`] : []),
+    ...(own > 0
+      ? [`${own} to records the run created, the target refusing them as copies of those`]
+      : []),
     ...[...byWords].map(([words, rows]) => `${rows} written by the platform with ${words}`),
   ];
   return `linked:  ${summary.linkedCount} (${parts.join('; ')})`;
@@ -3384,7 +3391,13 @@ export function summaryLines(
   if (summary.existingRecords.length > 0) {
     lines.push('', `already in the target (${summary.existingRecords.length} object(s)):`);
     for (const e of summary.existingRecords) {
-      const parts = [`${e.linked} linked`];
+      const own = e.linkedToCreated ?? 0;
+      const parts = [
+        ...(e.linked - own > 0 || own === 0 ? [`${e.linked - own} linked`] : []),
+        ...(own > 0
+          ? [`${own} linked to records the run created (refused as copies of those)`]
+          : []),
+      ];
       if (e.unidentified > 0) {
         parts.push(`${e.unidentified} not identified — their children lost the link`);
       }
@@ -3811,6 +3824,11 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // them itself with a record the run created, and their children link to
     // them.
     linkedCount: summary.linkedCount,
+    // Of them, those linked to a record the run created itself — the target
+    // refused them as copies of it — which a removal takes with that record;
+    // per object in existingRecords (`linkedToCreated`). Said "already in
+    // the target", ten of a run's own accounts read as records it held before.
+    ...(summary.linkedToCreatedCount ? { linkedToCreatedCount: summary.linkedToCreatedCount } : {}),
     // Of them, per object, those the platform wrote with a record the run
     // created: in the target no more than that record was before the run.
     ...(summary.writtenByThePlatform ? { writtenByThePlatform: summary.writtenByThePlatform } : {}),

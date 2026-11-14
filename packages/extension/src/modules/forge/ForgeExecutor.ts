@@ -1475,6 +1475,12 @@ export interface ExistingRecordReport {
   /** Rows mapped onto the record the refusal named; their children link to it. */
   linked: number;
   /**
+   * Of `linked`, the rows whose record is one the run created itself: the
+   * target refused them as copies of a record the run had just written.
+   * Absent when there were none.
+   */
+  linkedToCreated?: number;
+  /**
    * Rows refused as duplicates without one record to trust. Counted as
    * failed, and their children lose the lookup.
    */
@@ -1733,10 +1739,11 @@ export interface ExecutionSummary {
    */
   withTheirRecordCount?: number;
   /**
-   * Of a run whose ids are in its journal (`remapInJournal`), the records of
-   * `linkedCount` linked to a record the run created itself — the target
-   * refused the row as a copy of a record the run had just written — which a
-   * removal of the run takes with that record
+   * The records of `linkedCount` linked to a record the run created itself —
+   * the target refused the row as a copy of a record the run had just
+   * written — which a removal of the run takes with that record: counted as
+   * each node's line says them. Of a run whose ids are in its journal
+   * (`remapInJournal`), those of the part a removal takes them with
    * (`ForgeRunStore.linkedToCreatedCount`). Absent when there were none.
    */
   linkedToCreatedCount?: number;
@@ -1962,6 +1969,8 @@ interface PageCarry {
   succeeded: number;
   updated: number;
   linked: number;
+  /** Of `linked`, the rows linked to a record the run created itself. */
+  linkedToCreated: number;
   failed: number;
   alreadyExists: number;
   unidentified: number;
@@ -2051,6 +2060,7 @@ function emptyPageCarry(): PageCarry {
     succeeded: 0,
     updated: 0,
     linked: 0,
+    linkedToCreated: 0,
     failed: 0,
     alreadyExists: 0,
     unidentified: 0,
@@ -2691,6 +2701,8 @@ interface ExecutionState {
   successCount: number;
   updatedCount: number;
   linkedCount: number;
+  /** Of `linkedCount`, the rows linked to a record the run created itself. */
+  linkedToCreatedCount: number;
   wouldInsertCount: number;
   failedCount: number;
   skippedCount: number;
@@ -3716,6 +3728,29 @@ function writtenBeforeNote(config: ForgeStageConfig, count: number): string {
 }
 
 /**
+ * What a line says of the rows linked to a record rather than written: those
+ * linked to a record the target held before the run, and apart from them
+ * those linked to a record the run created itself, which the target refused
+ * as copies of it. Run on a whole org whose source repeats a value the target
+ * keeps unique, a line said "13 linked to records already in the target" of
+ * ten accounts linked to the account the run had just written for the first
+ * of their pair, and three the target did hold.
+ *
+ * @param linked - The rows linked, of both kinds.
+ * @param toCreated - Of them, those linked to a record of the run's own.
+ */
+function linkedNote(linked: number, toCreated: number): string {
+  const own = Math.min(linked, Math.max(0, toCreated));
+  const held = linked - own;
+  return (
+    (held > 0 ? `, ${held} linked to records already in the target` : '') +
+    (own > 0
+      ? `, ${own} linked to records the run created (the target refused them as copies of those)`
+      : '')
+  );
+}
+
+/**
  * Samples an object read page by page keeps of the rows the target refused,
  * across its pages: the three a node written whole keeps.
  */
@@ -3733,8 +3768,7 @@ function pagedCounts(
 ): string {
   const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
   const updated = carry.updated > 0 ? `, ${carry.updated} updated through their external id` : '';
-  const linked =
-    carry.linked > 0 ? `, ${carry.linked} linked to records already in the target` : '';
+  const linked = linkedNote(carry.linked, carry.linkedToCreated);
   const withTheirAccount =
     carry.withTheirAccount > 0
       ? `, ${carry.withTheirAccount} written by the platform with their person account`
@@ -5345,6 +5379,7 @@ export class ForgeExecutor {
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
+      linkedToCreatedCount: 0,
       wouldInsertCount: 0,
       failedCount: 0,
       skippedCount: 0,
@@ -7398,6 +7433,9 @@ export class ForgeExecutor {
       share: report.share,
       sha256: report.plan.sha256,
       drawnAt: report.plan.drawnAt,
+      // Whether the run drew it or took a simulation's up: why it drew its
+      // own, of a run that did, is its caller's to add.
+      drawnBy: report.plan.drawnBy,
       objects: report.objects.map((object) => {
         const done = counts.get(object.objectApiName);
         const now = done ? done.created + (done.linked ?? 0) : 0;
@@ -9641,9 +9679,11 @@ export class ForgeExecutor {
     }
     const existing = state.existingRecords.filter((entry) => entry.objectApiName === objectApiName);
     if (existing.length > 1) {
+      const toCreated = existing.reduce((sum, entry) => sum + (entry.linkedToCreated ?? 0), 0);
       const merged: ExistingRecordReport = {
         objectApiName,
         linked: existing.reduce((sum, entry) => sum + entry.linked, 0),
+        ...(toCreated > 0 ? { linkedToCreated: toCreated } : {}),
         unidentified: existing.reduce((sum, entry) => sum + entry.unidentified, 0),
       };
       const at = state.existingRecords.indexOf(existing[0]);
@@ -10818,6 +10858,9 @@ export class ForgeExecutor {
       successCount: state.successCount,
       updatedCount: state.updatedCount,
       linkedCount: state.linkedCount,
+      ...(state.linkedToCreatedCount > 0 && !simulated
+        ? { linkedToCreatedCount: state.linkedToCreatedCount }
+        : {}),
       wouldInsertCount: state.wouldInsertCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
@@ -10961,8 +11004,11 @@ export class ForgeExecutor {
       // Nor the ids its journal marks: counted below.
       store: undefined,
       withTheirRecord: new Set<string>(),
+      linkedToCreatedCount: 0,
     });
     const withTheirRecord = state.store?.withTheirRecordCount ?? 0;
+    // What the part's removal takes with the records it created, read from
+    // its journal, in place of what the lines counted.
     const linkedToCreated = state.store?.linkedToCreatedCount() ?? 0;
     return {
       ...summary,
@@ -16320,6 +16366,7 @@ export class ForgeExecutor {
       ]);
     }
     state.linkedCount += written.linkedExistingCount;
+    state.linkedToCreatedCount += written.linkedToCreatedCount ?? 0;
     state.failedCount += written.failureCount;
     this.oweToTheSecondPass(state, written.pendingFkUpdates);
     if (written.writtenWithoutFields) {
@@ -16333,6 +16380,7 @@ export class ForgeExecutor {
       state.existingRecords.push({
         objectApiName,
         linked: written.linkedExistingCount,
+        ...(written.linkedToCreatedCount ? { linkedToCreated: written.linkedToCreatedCount } : {}),
         unidentified: written.unidentifiedExistingCount,
       });
     }
@@ -18196,6 +18244,7 @@ export class ForgeExecutor {
         page.succeeded += nodeSuccess;
         page.updated += nodeUpdated;
         page.linked += nodeLinked;
+        page.linkedToCreated += writeResult.linkedToCreatedCount ?? 0;
         page.failed += nodeFailure;
         page.alreadyExists += writeResult.alreadyExistsCount;
         page.unidentified += nodeUnidentified;
@@ -18263,8 +18312,7 @@ export class ForgeExecutor {
       // The rows the target already held are named apart: linked is neither
       // written nor failed, and a duplicate the run could not identify is a
       // failure whose children lose their lookup — worth saying on its own.
-      const linked =
-        nodeLinked > 0 ? `, ${nodeLinked} linked to records already in the target` : '';
+      const linked = linkedNote(nodeLinked, writeResult.linkedToCreatedCount ?? 0);
       const updated = nodeUpdated > 0 ? `, ${nodeUpdated} updated through their external id` : '';
       const unidentified =
         nodeUnidentified > 0

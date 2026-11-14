@@ -754,6 +754,12 @@ describe('what a run says of a fit', () => {
     expect(lines).toContain(
       '  fitted plan: 8001 record(s), about 16.4 MB; 19 requests read to fit it',
     );
+    // Minutes, not the sixty seconds it said: run for real, a Developer
+    // Edition still said 5 MB of 5 left a hundred seconds after a load.
+    expect(lines.at(-1)).toBe(
+      '  Salesforce can take several minutes to count a load in what TGT says it has left: ' +
+        'a run started sooner after another may read room it no longer has',
+    );
   });
 
   it('says what held it when it was the requests, the bound on records, or the caps', () => {

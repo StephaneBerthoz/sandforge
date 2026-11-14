@@ -162,7 +162,7 @@ import {
   type SeedFit,
   type SeedFitCaps,
 } from '../src/modules/seed/seedFit.js';
-import { STORAGE_RECOUNT_SECONDS } from '../src/modules/forge/fitBudget.js';
+import { storageRecountWords } from '../src/modules/forge/fitBudget.js';
 import {
   API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
@@ -1877,8 +1877,7 @@ export function seedFitLines(
     `  fitted seed: ${fit.records} records, about ${formatMB(proposal.estimateMB)} MB` +
       (budget.automationMB > 0 ? ' with what its flows create under them' : '') +
       `, ${fit.requests} API requests`,
-    `  ${target} counts a load in what it says it has left up to ${STORAGE_RECOUNT_SECONDS} ` +
-      'seconds after it: a run started sooner after another may read room it no longer has',
+    `  ${storageRecountWords(target)}`,
   ];
 }
 

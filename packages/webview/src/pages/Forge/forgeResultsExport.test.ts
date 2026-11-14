@@ -11,8 +11,10 @@ import {
   runFailureCell,
   runFailuresOf,
   runNotesReportLines,
+  sampleReportWords,
   type ObjectResultRow,
 } from './forgeResultsExport';
+import { wholeOrgSampleResult } from './testing/wholeOrg';
 import {
   ORPHAN_PARENTS_REPORT,
   RUN_NOTES,
@@ -268,6 +270,38 @@ describe('the per-object results as a file', () => {
     expect(lines).toEqual([
       '"Object","Records read","Status","Created","Linked","Failed","Errors"',
       '"Lookups the second pass left empty","","","","","","2 of 5 left empty: FIELD_FILTER_VALIDATION_EXCEPTION"',
+    ]);
+  });
+});
+
+describe('a sample of the whole org in the report and the file', () => {
+  it('says the share, the seed, the draw, the plan and who drew it, and why the run drew its own', () => {
+    expect(sampleReportWords(wholeOrgSampleResult({ drawnBy: 'dryRun' }))).toBe(
+      '0.4 % of the roots of each object, seed 1, spread over the org; plan SHA-256 ' +
+        '9f86d081884c…, drawn 2026-11-14T14:02:00.000Z; drawn by the simulation, its plan taken up',
+    );
+    expect(
+      sampleReportWords(
+        wholeOrgSampleResult({ draw: 'recent', drawnBy: 'run', drawnAgain: 'planGone' }),
+      ),
+    ).toMatch(
+      /the newest first; .*; drawn by this run \(the plan of the run this one retried was gone\)$/,
+    );
+    // A result kept before it was said names no one.
+    expect(sampleReportWords(wholeOrgSampleResult())).toMatch(/drawn 2026-11-14T14:02:00\.000Z$/);
+  });
+
+  it('gives the sample a row of the results file', () => {
+    const lines = objectResultsCsv([], {
+      idRemapByObject: [],
+      errors: [],
+      sample: wholeOrgSampleResult({ drawnBy: 'run' }),
+    }).split('\n');
+
+    expect(lines).toEqual([
+      '"Object","Records read","Status","Created","Linked","Failed","Errors"',
+      '"Sample of the whole org","","","","","","0.4 % of the roots of each object, seed 1, ' +
+        'spread over the org; plan SHA-256 9f86d081884c…, drawn 2026-11-14T14:02:00.000Z; drawn by this run"',
     ]);
   });
 });

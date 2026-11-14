@@ -51,6 +51,22 @@ function objectWords(t: TFunction, object: WholeOrgSampleWritten, source: string
   return said.join(' ');
 }
 
+/**
+ * Who drew the plan the run wrote — the simulation it took up, the run it
+ * retried, or the run itself — and why it drew its own when one was at hand.
+ * Only the question said it: the results of a run that drew its plan again
+ * did not say why. Nothing for a result kept before it was said.
+ */
+function drawnWhyWords(t: TFunction, sample: WholeOrgSampleResult): string {
+  if (!sample.drawnBy) return '';
+  const by = sample.ofTheRunRetried
+    ? t('forgeRun.sampleResult.drawnBy.retried')
+    : t(`forgeRun.sampleResult.drawnBy.${sample.drawnBy}`);
+  return sample.drawnAgain
+    ? `${by} ${t(`forgeRun.sampleResult.drawnAgain.${sample.drawnAgain}`)}`
+    : by;
+}
+
 /** Props for {@link ForgeSampleResult}. */
 export interface ForgeSampleResultProps {
   sample: WholeOrgSampleResult;
@@ -108,6 +124,7 @@ export const ForgeSampleResult: React.FC<ForgeSampleResultProps> = ({ sample, so
     );
   }
   const complete = changed === 0 && short === 0;
+  const why = drawnWhyWords(t, sample);
 
   return (
     <section
@@ -130,6 +147,11 @@ export const ForgeSampleResult: React.FC<ForgeSampleResultProps> = ({ sample, so
             : drawnAt.toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
         })}
       </p>
+      {why && (
+        <p data-testid="forge-sample-result-why" className="text-text-secondary">
+          {why}
+        </p>
+      )}
       <p
         data-testid="forge-sample-result-verdict"
         className={

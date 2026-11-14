@@ -1109,16 +1109,28 @@ export interface WholeOrgSample {
    * and whether by this run or by a dry run it takes up — the panel's last
    * Simulate, or the command line's `--fit-plan`. `drawnAgain` says why a run
    * drew its own when a plan was at hand: the simulation's was more than a
-   * day old, set up otherwise, or the plan of the run it retries was gone.
+   * day old, set up otherwise, or taken up by a run that wrote with it
+   * already (`planTaken`), or the plan of the run it retries was gone
+   * (`planGone`). `ofTheRunRetried` says a retry took up the plan of the run
+   * it retries, which that run drew or took up in its turn.
    */
   plan: {
     path: string;
     sha256: string;
     drawnAt: string;
     drawnBy: 'run' | 'dryRun';
-    drawnAgain?: 'tooOld' | 'setUpOtherwise' | 'planGone';
+    drawnAgain?: WholeOrgSampleDrawnAgain;
+    ofTheRunRetried?: true;
   };
 }
+
+/**
+ * Why a run of a sample drew its own plan when one was at hand: the
+ * simulation's was a day old or more (`tooOld`), drawn for another setup
+ * (`setUpOtherwise`), or taken up by a run that wrote with it already
+ * (`planTaken`); or the plan of the run it retries was gone (`planGone`).
+ */
+export type WholeOrgSampleDrawnAgain = 'tooOld' | 'setUpOtherwise' | 'planTaken' | 'planGone';
 
 /** What a run of a sample wrote of one object, beside what its plan kept. */
 export interface WholeOrgSampleWritten extends WholeOrgSampleObject {
@@ -1145,6 +1157,15 @@ export interface WholeOrgSampleResult {
   share: number;
   sha256: string;
   drawnAt: string;
+  /**
+   * Whether the run drew its plan or took up a simulation's, why it drew its
+   * own when a simulation's was at hand, and whether it took up the plan of
+   * the run it retries: what its question said, kept for its results. Absent
+   * from a result kept before they were.
+   */
+  drawnBy?: 'run' | 'dryRun';
+  drawnAgain?: WholeOrgSampleDrawnAgain;
+  ofTheRunRetried?: true;
   objects: WholeOrgSampleWritten[];
   /**
    * Lookups the run wrote empty because they name a record outside its plan,
@@ -1255,6 +1276,12 @@ export interface ForgeExistingRecords {
   objectApiName: string;
   /** Rows linked to the record the target already held; their children point at it. */
   linked: number;
+  /**
+   * Of `linked`, the rows whose record is one the run created itself: the
+   * target refused them as copies of a record the run had just written, a
+   * value it keeps unique repeated in the source. Absent when there were none.
+   */
+  linkedToCreated?: number;
   /**
    * Rows refused as duplicates without one record the run could trust. Counted
    * as failed, and their children lost the lookup to them.
@@ -2393,10 +2420,10 @@ export interface ForgeExecutionResult {
    */
   withTheirRecordCount?: number;
   /**
-   * Of a run whose ids are in its journal (`remapInJournal`), the records of
-   * `linkedExistingCount` linked to a record the run created itself — the
-   * target refused the row as a copy of a record the run had just written —
-   * which its removal takes with the rest of the run's: what
+   * The records of `linkedExistingCount` linked to a record the run created
+   * itself — the target refused the row as a copy of a record the run had
+   * just written — which its removal takes with the rest of the run's. Of a
+   * run whose ids are in its journal (`remapInJournal`), what
    * `forgeRunLinkedKept` leaves out of a run that keeps its ids, counted.
    * Absent when there were none.
    */

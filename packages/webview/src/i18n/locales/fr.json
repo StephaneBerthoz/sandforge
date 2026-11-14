@@ -1342,7 +1342,7 @@
       "keptByKey": "gardé entier : chacun sous la ligne parente que nomme sa clé",
       "total": "{{after}} enregistrements sur {{before}}, environ {{estimate}} Mo.",
       "totalWithRoom": "{{after}} enregistrements sur {{before}}, environ {{estimate}} Mo avec ce que les Flows créent dessous.",
-      "counted": "Selon le compte de SandForge, aux tailles que Salesforce documente : 2 Ko pour la plupart des enregistrements. {{org}} compte un chargement dans ce qui lui reste jusqu'à environ une minute après : un run lancé plus tôt après un autre peut lire une place qu'elle n'a plus.",
+      "counted": "Selon le compte de SandForge, aux tailles que Salesforce documente : 2 Ko pour la plupart des enregistrements. Salesforce peut mettre plusieurs minutes à compter un chargement dans ce que {{org}} dit lui rester : une exécution lancée plus tôt après une autre peut lire une place qu'elle n'a plus.",
       "cannotFitStorage": "Même réduit au plus loin, ce seed prend environ {{estimate}} Mo, au-delà des {{fits}} Mo qui tiennent dans {{org}}. Retirez des objets, ou libérez du stockage de données dans {{org}}.",
       "cannotFitRequests": "Même réduit au plus loin, les écritures de ce seed laisseraient à {{org}} moins d'un dixième de ses requêtes API quotidiennes. Lancez-le demain, ou retirez des objets.",
       "seed": "Lancer le seed avec ces nombres",
@@ -4083,6 +4083,11 @@
       "noConfig": "Exécution enregistrée avant la conservation des configurations — rien à réinjecter.",
       "loadError": "Impossible de charger l'historique des exécutions.",
       "reused": "Formulaire réinjecté depuis l'exécution du {{date}}.",
+      "sample": "Échantillon : {{share}} % des racines, graine {{seed}}, {{draw}}",
+      "sampleDraw": {
+        "uniform": "réparti sur l'org",
+        "recent": "les plus récents d'abord"
+      },
       "statusSuccess": "Réussie",
       "statusPartial": "Partielle",
       "statusInterrupted": "Interrompue",
@@ -4243,6 +4248,7 @@
     "after": "Après",
     "inserted": "Insérés",
     "linkedExisting": "Rattachés à l'existant",
+    "linkedToOwn": "Rattachés aux enregistrements de l'exécution",
     "skipped": "Ignorés",
     "stoppedObjects": "Arrêtés",
     "objectsSkipped": "Objets ignorés",
@@ -4374,6 +4380,8 @@
       "targetId": "Id cible",
       "existingNote_one": "Dont {{count}} déjà dans l’org cible : rattaché, non créé.",
       "existingNote_other": "Dont {{count}} déjà dans l’org cible : rattachés, non créés.",
+      "ownNote_one": "Dont {{count}} rattaché à un enregistrement créé par cette exécution : la cible l'a refusé comme copie de celui-ci.",
+      "ownNote_other": "Dont {{count}} rattachés à des enregistrements créés par cette exécution : la cible les a refusés comme copies de ceux-ci.",
       "existingBadge": "existant",
       "openRecord": "Ouvrir {{object}} {{id}} dans l’org cible",
       "openRoot": "Ouvrir l'enregistrement cloné ({{object}}) dans {{org}}",
@@ -4797,6 +4805,8 @@
       "hint": "L'org cible a refusé ces enregistrements parce qu'elle les contient déjà. Quand Salesforce a désigné l'enregistrement, le clone s'y rattache sans jamais le modifier.",
       "linked_one": "{{count}} rattaché, non créé",
       "linked_other": "{{count}} rattachés, non créés",
+      "linkedToOwn_one": "{{count}} rattaché à un enregistrement créé par cette exécution, refusé comme sa copie",
+      "linkedToOwn_other": "{{count}} rattachés à des enregistrements créés par cette exécution, refusés comme leurs copies",
       "unidentified_one": "{{count}} non identifié — compté en échec, et ses enregistrements enfants ont perdu le lien",
       "unidentified_other": "{{count}} non identifiés — comptés en échec, et leurs enregistrements enfants ont perdu le lien"
     },
@@ -5190,6 +5200,17 @@
     "sampleResult": {
       "title": "L'échantillon",
       "drawn": "Tiré avec la graine {{seed}}, {{draw}} : {{share}} % des racines de chaque objet. Plan SHA-256 {{sha}}…, tiré le {{at}}.",
+      "drawnBy": {
+        "dryRun": "Tiré par la simulation : l'exécution a repris son plan.",
+        "run": "Tiré par cette exécution.",
+        "retried": "Tiré par l'exécution que celle-ci a relancée : l'exécution a repris son plan."
+      },
+      "drawnAgain": {
+        "tooOld": "Le plan de la simulation avait plus d'un jour : l'exécution a tiré le sien.",
+        "setUpOtherwise": "Le plan de la simulation avait été tiré pour un autre réglage : l'exécution a tiré le sien.",
+        "planTaken": "Le plan de la simulation avait été repris par une exécution précédente : l'exécution a tiré le sien.",
+        "planGone": "Le plan de l'exécution que celle-ci a relancée avait disparu : l'exécution a tiré le sien avec les mêmes options."
+      },
       "verdict": {
         "complete": "Chaque enregistrement de l'échantillon a été écrit ou lié.",
         "completeGone": "Chaque enregistrement de l'échantillon encore dans {{source}} a été écrit ou lié.",
@@ -5486,7 +5507,7 @@
       "emptiedOnParent": "{{object}}.{{field}} ({{records}}) : lu par Id, il désigne un enregistrement que l'ajustement a coupé",
       "total": "{{records}} enregistrements en tout, environ {{estimate}} Mo ; {{requests}} requêtes lues pour l'ajuster.",
       "totalWithRoom": "{{records}} enregistrements en tout, environ {{estimate}} Mo et {{room}} Mo pour ce que les Flows créent dessous ; {{requests}} requêtes lues pour l'ajuster.",
-      "counted": "Selon le compte de SandForge, aux tailles que Salesforce documente : 2 Ko pour la plupart des enregistrements, 4 Ko pour un compte personnel. {{org}} compte un chargement dans ce qui lui reste jusqu'à environ une minute après : un run lancé plus tôt après un autre peut lire une place qu'elle n'a plus.",
+      "counted": "Selon le compte de SandForge, aux tailles que Salesforce documente : 2 Ko pour la plupart des enregistrements, 4 Ko pour un compte personnel. Salesforce peut mettre plusieurs minutes à compter un chargement dans ce que {{org}} dit lui rester : une exécution lancée plus tôt après une autre peut lire une place qu'elle n'a plus.",
       "gateAgain": "La copie soumet de nouveau le plan ajusté à ses contrôles : ce qui reste dans {{org}} est relu, et un plan qui n'y tient plus est refusé.",
       "undo": "Annuler l'ajustement",
       "fitted": "Plan ajusté au stockage de données de {{org}} : {{after}} des {{before}} enregistrements des objets sélectionnés gardés, {{share}} de chacun.",

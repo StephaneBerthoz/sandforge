@@ -43,6 +43,12 @@ export class IdRemapper {
    * is remapped as if it named the other.
    */
   private readonly aliases = new Map<string, string>();
+  /**
+   * The records this run created, by the first fifteen characters of their
+   * id, held in memory without a store (`createdTarget`): the record the
+   * target names when it refuses a row as a copy of one.
+   */
+  private readonly createdKeys = new Set<string>();
 
   /**
    * Have a source record the run does not write stand for another it writes
@@ -70,6 +76,8 @@ export class IdRemapper {
       this.store.setMapping('created', oldId, newId, objectApiName);
       return;
     }
+    this.forgetCreated(oldId);
+    this.createdKeys.add(newId.slice(0, 15));
     this.map.set(oldId, newId);
     this.existing.delete(oldId);
     this.updated.delete(oldId);
@@ -88,6 +96,7 @@ export class IdRemapper {
       this.store.setMapping('updated', oldId, targetId, objectApiName);
       return;
     }
+    this.forgetCreated(oldId);
     this.map.set(oldId, targetId);
     this.existing.delete(oldId);
     this.updated.add(oldId);
@@ -108,6 +117,7 @@ export class IdRemapper {
       this.store.setMapping('existing', oldId, existingId, objectApiName);
       return;
     }
+    this.forgetCreated(oldId);
     this.map.set(oldId, existingId);
     this.existing.add(oldId);
     this.updated.delete(oldId);
@@ -175,6 +185,27 @@ export class IdRemapper {
       byObject.set(objectApiName, sourceIds);
     }
     return [...byObject].map(([objectApiName, sourceIds]) => ({ objectApiName, sourceIds }));
+  }
+
+  /** Forget, as created, the record `oldId` was created as, when it is registered again. */
+  private forgetCreated(oldId: string): void {
+    const before = this.map.get(oldId);
+    if (before !== undefined && !this.existing.has(oldId) && !this.updated.has(oldId)) {
+      this.createdKeys.delete(before.slice(0, 15));
+    }
+  }
+
+  /**
+   * Whether `targetId` is a record this run created: the target refused a row
+   * as a copy of it, and the row linked to it is linked to a record of the
+   * run's own, not one the target held before the run. Run on a whole org
+   * whose source repeats a value the target keeps unique, the second of ten
+   * pairs of accounts were said "linked to records already in the target",
+   * all ten linked to an account the run had just written.
+   */
+  createdTarget(targetId: string): boolean {
+    if (this.store) return this.store.createdTarget(targetId);
+    return this.createdKeys.has(targetId.slice(0, 15));
   }
 
   /** Remember the object of a mapping, or forget it when the new one names none. */
@@ -288,6 +319,7 @@ export class IdRemapper {
     this.existing.clear();
     this.updated.clear();
     this.objectOf.clear();
+    this.createdKeys.clear();
   }
 
   /** Serialize all mappings to a plain object for checkpoint persistence. */

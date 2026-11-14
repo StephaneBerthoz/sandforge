@@ -1342,7 +1342,7 @@
       "keptByKey": "ganz behalten: jede unter der Elternzeile, die ihr Schlüssel nennt",
       "total": "{{after}} von {{before}} Datensätzen, etwa {{estimate}} MB.",
       "totalWithRoom": "{{after}} von {{before}} Datensätzen, etwa {{estimate}} MB mit dem, was die Flows darunter anlegen.",
-      "counted": "Nach der Zählung von SandForge, mit den Größen, die Salesforce dokumentiert: 2 KB für die meisten Datensätze. {{org}} rechnet einen Ladevorgang bis zu etwa einer Minute danach in ihren freien Speicher ein: Ein früher nach einem anderen gestarteter Lauf kann Platz lesen, den sie nicht mehr hat.",
+      "counted": "Nach der Zählung von SandForge, mit den Größen, die Salesforce dokumentiert: 2 KB für die meisten Datensätze. Salesforce kann mehrere Minuten brauchen, bis ein Ladevorgang in den freien Speicher eingerechnet ist, den {{org}} angibt: Ein früher nach einem anderen gestarteter Lauf kann Platz lesen, den sie nicht mehr hat.",
       "cannotFitStorage": "Selbst so weit wie möglich gekürzt braucht dieser Seed etwa {{estimate}} MB, mehr als die {{fits}} MB, die in {{org}} passen. Lassen Sie Objekte weg oder geben Sie Datenspeicher in {{org}} frei.",
       "cannotFitRequests": "Selbst so weit wie möglich gekürzt ließen die Schreibvorgänge dieses Seeds {{org}} weniger als ein Zehntel ihrer täglichen API-Anfragen. Starten Sie ihn morgen oder lassen Sie Objekte weg.",
       "seed": "Seed mit diesen Anzahlen starten",
@@ -4083,6 +4083,11 @@
       "noConfig": "Vor der Speicherung von Konfigurationen aufgezeichnet — es gibt nichts zu übernehmen.",
       "loadError": "Der Verlauf der Durchläufe konnte nicht geladen werden.",
       "reused": "Formular aus dem Durchlauf vom {{date}} übernommen.",
+      "sample": "Stichprobe: {{share}} % der Wurzeln, Startwert {{seed}}, {{draw}}",
+      "sampleDraw": {
+        "uniform": "über die Org verteilt",
+        "recent": "die neuesten zuerst"
+      },
       "statusSuccess": "Erfolgreich",
       "statusPartial": "Teilweise",
       "statusInterrupted": "Unterbrochen",
@@ -4243,6 +4248,7 @@
     "after": "Nachher",
     "inserted": "Eingefügt",
     "linkedExisting": "Mit Vorhandenem verknüpft",
+    "linkedToOwn": "Mit Datensätzen des Laufs verknüpft",
     "skipped": "Übersprungen",
     "stoppedObjects": "Angehalten",
     "objectsSkipped": "Übersprungene Objekte",
@@ -4374,6 +4380,8 @@
       "targetId": "Ziel-Id",
       "existingNote_one": "Davon {{count}} bereits in der Ziel-Org: verknüpft, nicht erstellt.",
       "existingNote_other": "Davon {{count}} bereits in der Ziel-Org: verknüpft, nicht erstellt.",
+      "ownNote_one": "Davon {{count}} mit einem Datensatz verknüpft, den dieser Lauf erstellt hat: Die Ziel-Org hat ihn als Kopie dieses Datensatzes abgelehnt.",
+      "ownNote_other": "Davon {{count}} mit Datensätzen verknüpft, die dieser Lauf erstellt hat: Die Ziel-Org hat sie als Kopien dieser Datensätze abgelehnt.",
       "existingBadge": "vorhanden",
       "openRecord": "{{object}} {{id}} in der Ziel-Org öffnen",
       "openRoot": "Geklonten Datensatz ({{object}}) in {{org}} öffnen",
@@ -4797,6 +4805,8 @@
       "hint": "Die Ziel-Org hat diese Datensätze abgelehnt, weil sie sie bereits enthält. Wo Salesforce den Datensatz benannt hat, verknüpft der Klon damit und ändert ihn nie.",
       "linked_one": "{{count}} verknüpft, nicht erstellt",
       "linked_other": "{{count}} verknüpft, nicht erstellt",
+      "linkedToOwn_one": "{{count}} mit einem Datensatz dieses Laufs verknüpft, als dessen Kopie abgelehnt",
+      "linkedToOwn_other": "{{count}} mit Datensätzen dieses Laufs verknüpft, als deren Kopien abgelehnt",
       "unidentified_one": "{{count}} nicht identifiziert — als fehlgeschlagen gezählt, seine untergeordneten Datensätze haben die Verknüpfung verloren",
       "unidentified_other": "{{count}} nicht identifiziert — als fehlgeschlagen gezählt, ihre untergeordneten Datensätze haben die Verknüpfung verloren"
     },
@@ -5190,6 +5200,17 @@
     "sampleResult": {
       "title": "Die Stichprobe",
       "drawn": "Gezogen mit Startwert {{seed}}, {{draw}}: {{share}} % der Wurzeln jedes Objekts. Plan SHA-256 {{sha}}…, gezogen am {{at}}.",
+      "drawnBy": {
+        "dryRun": "Von der Simulation gezogen: der Lauf hat ihren Plan übernommen.",
+        "run": "Von diesem Lauf gezogen.",
+        "retried": "Vom Lauf gezogen, den dieser wiederholt hat: der Lauf hat dessen Plan übernommen."
+      },
+      "drawnAgain": {
+        "tooOld": "Der Plan der Simulation war älter als einen Tag: der Lauf hat seinen eigenen gezogen.",
+        "setUpOtherwise": "Der Plan der Simulation wurde für eine andere Einrichtung gezogen: der Lauf hat seinen eigenen gezogen.",
+        "planTaken": "Der Plan der Simulation wurde von einem früheren Lauf übernommen: der Lauf hat seinen eigenen gezogen.",
+        "planGone": "Der Plan des Laufs, den dieser wiederholt hat, war nicht mehr vorhanden: der Lauf hat seinen eigenen mit denselben Optionen gezogen."
+      },
       "verdict": {
         "complete": "Jeder Datensatz der Stichprobe wurde geschrieben oder verknüpft.",
         "completeGone": "Jeder Datensatz der Stichprobe, der noch in {{source}} ist, wurde geschrieben oder verknüpft.",
@@ -5486,7 +5507,7 @@
       "emptiedOnParent": "{{object}}.{{field}} ({{records}}): Per Id gelesen, verweist es auf einen Datensatz, den die Anpassung weggelassen hat",
       "total": "{{records}} Datensätze insgesamt, etwa {{estimate}} MB; {{requests}} Anfragen gelesen, um anzupassen.",
       "totalWithRoom": "{{records}} Datensätze insgesamt, etwa {{estimate}} MB und {{room}} MB für das, was die Flows darunter anlegen; {{requests}} Anfragen gelesen, um anzupassen.",
-      "counted": "Nach der Zählung von SandForge, mit den Größen, die Salesforce dokumentiert: 2 KB für die meisten Datensätze, 4 KB für ein Personenkonto. {{org}} rechnet einen Ladevorgang bis zu etwa einer Minute danach in ihren freien Speicher ein: Ein früher nach einem anderen gestarteter Lauf kann Platz lesen, den sie nicht mehr hat.",
+      "counted": "Nach der Zählung von SandForge, mit den Größen, die Salesforce dokumentiert: 2 KB für die meisten Datensätze, 4 KB für ein Personenkonto. Salesforce kann mehrere Minuten brauchen, bis ein Ladevorgang in den freien Speicher eingerechnet ist, den {{org}} angibt: Ein früher nach einem anderen gestarteter Lauf kann Platz lesen, den sie nicht mehr hat.",
       "gateAgain": "Das Kopieren unterzieht den angepassten Plan erneut seinen Prüfungen: Der freie Speicher von {{org}} wird erneut gelesen, und ein Plan, der nicht mehr passt, wird abgelehnt.",
       "undo": "Anpassung rückgängig machen",
       "fitted": "Plan an den Datenspeicher von {{org}} angepasst: {{after}} der {{before}} Datensätze der ausgewählten Objekte behalten, {{share}} von jedem.",

@@ -7,6 +7,7 @@ import type {
   ForgeSampleParents,
   RunCheckpointEstimate,
   RunDeliverability,
+  WholeOrgSampleDrawnAgain,
   WholeOrgSampleLimit,
 } from '@sandforge/shared';
 
@@ -586,7 +587,9 @@ export interface WholeOrgConfirmationSample {
   /** Of a plan a simulation drew, how long before the question, in minutes, rounded up. */
   minutesBefore?: number;
   /** Why the run drew its own when a simulation's plan was at hand. */
-  drawnAgain?: 'tooOld' | 'setUpOtherwise' | 'planGone';
+  drawnAgain?: WholeOrgSampleDrawnAgain;
+  /** Of a retry, that it takes up the plan of the run it retries. */
+  ofTheRunRetried?: true;
   /** The lookups of its records written empty, their record outside it, in all. Absent when none. */
   leftEmpty?: number;
   /** The roots set aside for what each would have brought in. Absent when none. */

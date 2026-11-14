@@ -31,6 +31,32 @@ describe('ForgeSampleResult', () => {
     );
   });
 
+  it('says who drew the plan the run wrote, and why the run drew its own when one was at hand', () => {
+    renderResult({ drawnBy: 'dryRun' });
+    expect(screen.getByTestId('forge-sample-result-why').textContent).toBe(
+      'Drawn by the simulation: the run took up its plan.',
+    );
+  });
+
+  it('says why a run drew its own plan: the simulation’s was taken up by an earlier run', () => {
+    renderResult({ drawnBy: 'run', drawnAgain: 'planTaken' });
+    expect(screen.getByTestId('forge-sample-result-why').textContent).toBe(
+      'Drawn by this run. The plan of the simulation was taken up by an earlier run: the run drew its own.',
+    );
+  });
+
+  it('says a retry took up the plan of the run it retried, or drew its own once it was gone', () => {
+    renderResult({ drawnBy: 'run', ofTheRunRetried: true });
+    expect(screen.getByTestId('forge-sample-result-why').textContent).toBe(
+      'Drawn by the run this one retried: the run took up its plan.',
+    );
+  });
+
+  it('says nothing of who drew it of a result kept before it was said', () => {
+    renderResult();
+    expect(screen.queryByTestId('forge-sample-result-why')).toBeNull();
+  });
+
   it('says of each object what was written of what the sample kept, how it came in, and of what the source held', () => {
     renderResult();
 

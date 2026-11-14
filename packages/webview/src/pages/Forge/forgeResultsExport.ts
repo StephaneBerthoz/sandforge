@@ -1,4 +1,10 @@
-import type { ForgeExecutionError, ForgeExecutionResult, ForgeNodeStatus } from '@sandforge/shared';
+import type {
+  ForgeExecutionError,
+  ForgeExecutionResult,
+  ForgeNodeStatus,
+  WholeOrgSampleDrawnAgain,
+  WholeOrgSampleResult,
+} from '@sandforge/shared';
 import { csvCell, forgeRunCreatedRecords, parseRecordError } from '@sandforge/shared';
 
 /** Rows of cells as CSV text, a line per row. */
@@ -74,6 +80,43 @@ const LEFT_EMPTY_WORDS = 'Lookups the second pass left empty';
  */
 const PARENTS_NOT_COPIED_WORDS = 'Parents fetched outside the clone, not copied';
 
+/** The words the copied report and the results file give a sample of the whole org. */
+const SAMPLE_WORDS = 'Sample of the whole org';
+
+/** Who drew a sample's plan, in the report's words. */
+const DRAWN_BY_WORDS: Readonly<Record<'run' | 'dryRun' | 'retried', string>> = {
+  run: 'drawn by this run',
+  dryRun: 'drawn by the simulation, its plan taken up',
+  retried: 'drawn by the run this one retried, its plan taken up',
+};
+
+/** Why a run drew its own plan when one was at hand, in the report's words. */
+const DRAWN_AGAIN_WORDS: Readonly<Record<WholeOrgSampleDrawnAgain, string>> = {
+  tooOld: "the simulation's plan was more than a day old",
+  setUpOtherwise: "the simulation's plan was drawn for another setup",
+  planTaken: "the simulation's plan was taken up by an earlier run",
+  planGone: 'the plan of the run this one retried was gone',
+};
+
+/**
+ * What the copied report and the results file say of a sample of the whole
+ * org, in English as the rest of them: the share of each object's roots it
+ * kept, its seed, how its roots were drawn, the SHA-256 of its plan and who
+ * drew it. Neither said the run had copied a sample, nor which.
+ */
+export function sampleReportWords(sample: WholeOrgSampleResult): string {
+  const percent = Math.round(sample.share * 1000) / 10;
+  const by = sample.drawnBy
+    ? `; ${DRAWN_BY_WORDS[sample.ofTheRunRetried ? 'retried' : sample.drawnBy]}` +
+      (sample.drawnAgain ? ` (${DRAWN_AGAIN_WORDS[sample.drawnAgain]})` : '')
+    : '';
+  return (
+    `${String(percent)} % of the roots of each object, seed ${String(sample.seed)}, ` +
+    `${sample.draw === 'recent' ? 'the newest first' : 'spread over the org'}; ` +
+    `plan SHA-256 ${sample.sha256.slice(0, 12)}…, drawn ${sample.drawnAt}${by}`
+  );
+}
+
 /**
  * The per-object results as a CSV file: the rows the results table lists,
  * each status by its code as the copied report gives it, with what the run
@@ -86,7 +129,7 @@ const PARENTS_NOT_COPIED_WORDS = 'Parents fetched outside the clone, not copied'
  */
 export function objectResultsCsv(
   rows: readonly ObjectResultRow[],
-  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'> | null,
+  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors' | 'sample'> | null,
 ): string {
   const remapped = new Map(
     (result?.idRemapByObject ?? []).map((counts) => [counts.objectApiName, counts]),
@@ -129,6 +172,21 @@ export function objectResultsCsv(
             leftEmptyCell(leftEmpty),
           ],
         ]),
+    // A run that copied a sample of the whole org says which, as the
+    // copied report does: its per-object counts are the sample's.
+    ...(result?.sample
+      ? [
+          [
+            SAMPLE_WORDS,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            sampleReportWords(result.sample),
+          ],
+        ]
+      : []),
     ...(notCopied.failed === 0
       ? []
       : [

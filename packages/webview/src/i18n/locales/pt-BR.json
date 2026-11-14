@@ -1342,7 +1342,7 @@
       "keptByKey": "mantido inteiro: cada um sob a linha pai que sua chave nomeia",
       "total": "{{after}} de {{before}} registros, cerca de {{estimate}} MB.",
       "totalWithRoom": "{{after}} de {{before}} registros, cerca de {{estimate}} MB com o que os fluxos criam sob eles.",
-      "counted": "Pela contagem do SandForge, nos tamanhos que a Salesforce documenta: 2 KB para a maioria dos registros. {{org}} conta uma carga no que diz ter disponível até cerca de um minuto depois: uma execução iniciada antes, logo após outra, pode ler um espaço que já não tem.",
+      "counted": "Pela contagem do SandForge, nos tamanhos que a Salesforce documenta: 2 KB para a maioria dos registros. A Salesforce pode levar vários minutos para contar uma carga no que {{org}} diz ter disponível: uma execução iniciada antes, logo após outra, pode ler um espaço que já não tem.",
       "cannotFitStorage": "Mesmo reduzido ao máximo, este seed ocupa cerca de {{estimate}} MB, além dos {{fits}} MB que cabem em {{org}}. Deixe objetos de fora ou libere armazenamento de dados em {{org}}.",
       "cannotFitRequests": "Mesmo reduzido ao máximo, as gravações deste seed deixariam a {{org}} menos de um décimo de suas solicitações de API diárias. Execute-o amanhã ou deixe objetos de fora.",
       "seed": "Iniciar Seed com estes números",
@@ -4083,6 +4083,11 @@
       "noConfig": "Registrada antes de as configurações serem guardadas — não há nada a preencher.",
       "loadError": "Não foi possível carregar o histórico de execuções.",
       "reused": "Formulário preenchido a partir da execução de {{date}}.",
+      "sample": "Amostra: {{share}} % das raízes, semente {{seed}}, {{draw}}",
+      "sampleDraw": {
+        "uniform": "distribuída pela org",
+        "recent": "os mais recentes primeiro"
+      },
       "statusSuccess": "Bem-sucedida",
       "statusPartial": "Parcial",
       "statusInterrupted": "Interrompida",
@@ -4243,6 +4248,7 @@
     "after": "Depois",
     "inserted": "Inseridos",
     "linkedExisting": "Vinculados a existentes",
+    "linkedToOwn": "Vinculados a registros da execução",
     "skipped": "Ignorados",
     "stoppedObjects": "Interrompidos",
     "objectsSkipped": "Objetos ignorados",
@@ -4374,6 +4380,8 @@
       "targetId": "Id de destino",
       "existingNote_one": "{{count}} deles já estava na org de destino: vinculado, não criado.",
       "existingNote_other": "{{count}} deles já estavam na org de destino: vinculados, não criados.",
+      "ownNote_one": "{{count}} deles foi vinculado a um registro criado por esta execução: o destino o recusou como cópia desse registro.",
+      "ownNote_other": "{{count}} deles foram vinculados a registros criados por esta execução: o destino os recusou como cópias desses registros.",
       "existingBadge": "existente",
       "openRecord": "Abrir {{object}} {{id}} na org de destino",
       "openRoot": "Abrir o registro clonado ({{object}}) em {{org}}",
@@ -4797,6 +4805,8 @@
       "hint": "A org de destino recusou estes registros porque já os contém. Quando o Salesforce indicou o registro, o clone se vincula a ele e nunca o altera.",
       "linked_one": "{{count}} vinculado, não criado",
       "linked_other": "{{count}} vinculados, não criados",
+      "linkedToOwn_one": "{{count}} vinculado a um registro criado por esta execução, recusado como sua cópia",
+      "linkedToOwn_other": "{{count}} vinculados a registros criados por esta execução, recusados como suas cópias",
       "unidentified_one": "{{count}} não identificado — contado como falha, e seus registros filhos perderam o vínculo",
       "unidentified_other": "{{count}} não identificados — contados como falha, e seus registros filhos perderam o vínculo"
     },
@@ -5190,6 +5200,17 @@
     "sampleResult": {
       "title": "A amostra",
       "drawn": "Sorteada com a semente {{seed}}, {{draw}}: {{share}} % das raízes de cada objeto. Plano SHA-256 {{sha}}…, sorteado em {{at}}.",
+      "drawnBy": {
+        "dryRun": "Sorteada pela simulação: a execução retomou o seu plano.",
+        "run": "Sorteada por esta execução.",
+        "retried": "Sorteada pela execução que esta repetiu: a execução retomou o seu plano."
+      },
+      "drawnAgain": {
+        "tooOld": "O plano da simulação tinha mais de um dia: a execução sorteou o seu.",
+        "setUpOtherwise": "O plano da simulação foi sorteado para outra configuração: a execução sorteou o seu.",
+        "planTaken": "O plano da simulação foi retomado por uma execução anterior: a execução sorteou o seu.",
+        "planGone": "O plano da execução que esta repetiu não existia mais: a execução sorteou o seu com as mesmas opções."
+      },
       "verdict": {
         "complete": "Cada registro da amostra foi gravado ou vinculado.",
         "completeGone": "Cada registro da amostra ainda em {{source}} foi gravado ou vinculado.",
@@ -5486,7 +5507,7 @@
       "emptiedOnParent": "{{object}}.{{field}} ({{records}}): lido por Id, ele referencia um registro que o ajuste cortou",
       "total": "{{records}} registros ao todo, cerca de {{estimate}} MB; {{requests}} solicitações lidas para ajustá-lo.",
       "totalWithRoom": "{{records}} registros ao todo, cerca de {{estimate}} MB e {{room}} MB para o que os fluxos criam sob eles; {{requests}} solicitações lidas para ajustá-lo.",
-      "counted": "Pela contagem do SandForge, nos tamanhos que a Salesforce documenta: 2 KB para a maioria dos registros, 4 KB para uma conta pessoal. {{org}} conta uma carga no que diz ter disponível até cerca de um minuto depois: uma execução iniciada antes, logo após outra, pode ler um espaço que já não tem.",
+      "counted": "Pela contagem do SandForge, nos tamanhos que a Salesforce documenta: 2 KB para a maioria dos registros, 4 KB para uma conta pessoal. A Salesforce pode levar vários minutos para contar uma carga no que {{org}} diz ter disponível: uma execução iniciada antes, logo após outra, pode ler um espaço que já não tem.",
       "gateAgain": "A cópia submete de novo o plano ajustado às suas verificações: o que resta em {{org}} é lido de novo, e um plano que não cabe mais é recusado.",
       "undo": "Desfazer o ajuste",
       "fitted": "Plano ajustado ao armazenamento de dados de {{org}}: {{after}} dos {{before}} registros dos objetos selecionados guardados, {{share}} de cada um.",

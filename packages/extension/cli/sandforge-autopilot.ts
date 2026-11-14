@@ -94,7 +94,7 @@ import {
   AUTOPILOT_FIT_CODES,
   AUTOPILOT_GATE_CODES,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
-import { STORAGE_RECOUNT_SECONDS, fitBudgetOf } from '../src/modules/forge/fitBudget.js';
+import { fitBudgetOf, storageRecountWords } from '../src/modules/forge/fitBudget.js';
 import {
   CHECKPOINT_REFUSED,
   DEFAULT_MAX_TOTAL,
@@ -1361,8 +1361,7 @@ export function autopilotFitLines(fit: AutopilotPlanFit, target: string, muted: 
         ? ` and ${formatMB(budget.automationMB)} MB for what its flows create under them`
         : '') +
       `; ${report.requestsRead} requests read to fit it`,
-    `  ${target} counts a load in what it says it has left up to ${STORAGE_RECOUNT_SECONDS} ` +
-      'seconds after it: a run started sooner after another may read room it no longer has',
+    `  ${storageRecountWords(target)}`,
   ];
 }
 

@@ -897,7 +897,9 @@ function sampleLines(
           'Drawn by the simulation {0} minutes before; the run takes up its plan.',
           sample.minutesBefore,
         )
-      : vscode.l10n.t('Drawn by this run.'),
+      : sample.ofTheRunRetried
+        ? vscode.l10n.t('Drawn by the run this one retries; the run takes up its plan.')
+        : vscode.l10n.t('Drawn by this run.'),
   ];
   if (sample.drawnAgain === 'tooOld') {
     lines.push(
@@ -907,6 +909,12 @@ function sampleLines(
     lines.push(
       vscode.l10n.t(
         'The plan of the simulation was drawn for another setup: the run drew its own.',
+      ),
+    );
+  } else if (sample.drawnAgain === 'planTaken') {
+    lines.push(
+      vscode.l10n.t(
+        'The plan of the simulation was taken up by an earlier run: the run drew its own.',
       ),
     );
   } else if (sample.drawnAgain === 'planGone') {

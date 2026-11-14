@@ -18,6 +18,7 @@ import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFix
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
+import { wholeOrgSampleResult } from './testing/wholeOrg';
 import {
   ORPHAN_PARENTS_REPORT,
   RUN_NOTES,
@@ -2699,6 +2700,74 @@ describe('ForgeResults', () => {
       'Account — 2 linked, not created',
       'AccountContactRelation — 1 not identified — counted as failed, and its children lost the link',
     ]);
+  });
+
+  it('says apart the records linked to a record the run created, in the cards, per object and in the report', async () => {
+    // Run for real on a whole org: "13 linked to records already in the
+    // target", ten of them linked to the accounts the run had just written.
+    mockResult = {
+      ...makeMockResult(),
+      createdCount: 12,
+      linkedExistingCount: 13,
+      linkedToCreatedCount: 10,
+      existingRecords: [
+        { objectApiName: 'Account', linked: 13, linkedToCreated: 10, unidentified: 0 },
+      ],
+    } as typeof mockResult;
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+
+      const cards = screen.getAllByTestId('kpi-card');
+      expect(cards).toHaveLength(8);
+      expect(cards[1].textContent).toBe('Linked to existing3');
+      expect(cards[2].textContent).toBe("Linked to the run's records10");
+      expect(screen.getAllByTestId('forge-results-existing-row').map((r) => r.textContent)).toEqual(
+        [
+          'Account — 3 linked, not created — 10 linked to records this run created, refused as their copies',
+        ],
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+      const report = writeText.mock.calls[0]?.[0] ?? '';
+      expect(report).toContain('- Linked to existing: 3\n');
+      expect(report).toContain('- Linked to records the run created (refused as copies): 10\n');
+      expect(report).toContain('| Account | 3 (and 10 to records the run created) | 0 |');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it('says in the copied report which sample of the whole org the run copied', async () => {
+    mockResult = {
+      ...makeMockResult(),
+      sample: wholeOrgSampleResult({ drawnBy: 'dryRun' }),
+    } as typeof mockResult;
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+      expect(writeText.mock.calls[0]?.[0] ?? '').toContain(
+        '- Sample of the whole org: 0.4 % of the roots of each object, seed 1, spread over the org; ' +
+          'plan SHA-256 9f86d081884c…, drawn 2026-11-14T14:02:00.000Z; drawn by the simulation, its plan taken up\n',
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('shows no notice and no extra card for a run the target held nothing of', () => {

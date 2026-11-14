@@ -346,6 +346,35 @@ describe('ForgeRunStore', () => {
       expect(freshStore().store.linkedToCreatedCount()).toBe(0);
     });
 
+    it('tells a record the run created, in any part, from one it linked to or wrote over, by the first fifteen characters of its id', () => {
+      // Told apart by their first fifteen characters, as the org names a record.
+      const rec = (n: number): string => `001T${String(n).padStart(11, '0')}AAA`;
+      const { store, file } = freshStore();
+      store.setMapping('created', src('001', 1), rec(1), 'Account');
+      store.setMapping('existing', src('001', 2), rec(2), 'Account');
+      store.setMapping('updated', src('001', 3), rec(3), 'Account');
+      // Created, then said linked to another: its first record is no longer the run's word.
+      store.setMapping('created', src('001', 4), rec(4), 'Account');
+      store.setMapping('existing', src('001', 4), rec(5), 'Account');
+      store.createdUnattributed('Account', [rec(6)]);
+
+      expect(store.createdTarget(rec(1))).toBe(true);
+      expect(store.createdTarget(rec(1).slice(0, 15))).toBe(true);
+      expect(store.createdTarget(rec(2))).toBe(false);
+      expect(store.createdTarget(rec(3))).toBe(false);
+      expect(store.createdTarget(rec(4))).toBe(false);
+      expect(store.createdTarget(rec(6))).toBe(true);
+      expect(store.createdTarget(rec(7))).toBe(false);
+      store.close();
+
+      // A part that takes the run up knows what the earlier ones created.
+      const again = ForgeRunStore.open(memoryRunFile(file.text()));
+      again.beginPart(at);
+      expect(again.createdTarget(rec(1))).toBe(true);
+      expect(again.createdTarget(rec(6))).toBe(true);
+      expect(again.createdTarget(rec(2))).toBe(false);
+    });
+
     it("marks each record the platform wrote with one the run created once a part, and gives back this part's, in the order marked", () => {
       const { store, file } = freshStore();
       store.withTheirRecord(src('003', 1));

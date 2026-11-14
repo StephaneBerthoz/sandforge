@@ -213,6 +213,7 @@ function sampleQuestionOf(sample: WholeOrgSample, now: number): WholeOrgConfirma
       ? { minutesBefore: Math.max(1, Math.ceil((now - drawnAt) / 60_000)) }
       : {}),
     ...(plan.drawnAgain ? { drawnAgain: plan.drawnAgain } : {}),
+    ...(plan.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
     ...(leftEmpty > 0 ? { leftEmpty } : {}),
     ...(sample.heavyRoots.length > 0 ? { heavyRoots: sample.heavyRoots.length } : {}),
     ...(sample.noRecordDrawn.length > 0 ? { noRecordDrawn: sample.noRecordDrawn.length } : {}),

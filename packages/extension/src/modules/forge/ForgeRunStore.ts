@@ -536,6 +536,23 @@ export class ForgeRunStore {
    * bytes a mark, and no id.
    */
   private readonly marks: SourceIdIndex;
+  /**
+   * The records the run created, in every part, by the first fifteen
+   * characters of their id: an index over the lines of their registration,
+   * as the source ids' is, read back when they match — no id held. What
+   * tells a row the target refused as a copy of a record the run had just
+   * written from one linked to a record the target held before the run
+   * (`createdTarget`). Measured on a million records created: 2²¹ slots,
+   * 38 MB, as much as the index of their source ids; a set of their ids took
+   * 89 MB.
+   */
+  private readonly createdTargets: SourceIdIndex;
+  /**
+   * The records a Bulk API job of the run wrote that no row was matched to
+   * (`createdUnattributed`), by the same key: a few, those of the rows of a
+   * job its results did not name.
+   */
+  private readonly createdUnattributedKeys = new Set<string>();
   private readsHeld: string[] = [];
   /** The records this part marked as written with one the run created: see {@link withTheirRecord}. */
   private withTheirRecordMarked = 0;
@@ -557,6 +574,10 @@ export class ForgeRunStore {
     this.marks = new SourceIdIndex((offset, length) =>
       markKeyOf(parseLine(this.lineAt(offset, length))),
     );
+    this.createdTargets = new SourceIdIndex((offset, length) => {
+      const value = parseLine(this.lineAt(offset, length));
+      return value ? recordKeyOf(String(value[2] ?? '')) : '';
+    });
   }
 
   /** The store of the journal `file`, its lines read once. */
@@ -627,6 +648,7 @@ export class ForgeRunStore {
     const line = JSON.stringify([LINE_TAG[code], sourceId, targetId, objectApiName ?? '']);
     const offset = this.write(line);
     this.index.put(found, a, b, offset, Buffer.byteLength(line), code);
+    if (code === CREATED) this.indexCreated(targetId, offset, Buffer.byteLength(line));
     if (!wasMapped) this.mappedCount++;
     if (objectApiName) {
       const counts = this.countsOf(objectApiName);
@@ -670,6 +692,37 @@ export class ForgeRunStore {
       ...(record.objectApiName ? { objectApiName: record.objectApiName } : {}),
       earlier: record.at < this.partStart,
     };
+  }
+
+  /**
+   * Whether `targetId` is a record the run created, in any part: a row's,
+   * whose latest word is still that it was created, or one a Bulk API job of
+   * the run wrote under no row. A row the target refused as a copy of such a
+   * record is linked to the run's own, not to one the target held.
+   */
+  createdTarget(targetId: string): boolean {
+    const key = recordKeyOf(targetId);
+    if (this.createdUnattributedKeys.has(key)) return true;
+    if (this.createdTargets.size === 0) return false;
+    const slot = this.createdTargets.find(key, hashA(key), hashB(key));
+    if (slot < 0) return false;
+    const offset = this.createdTargets.offsetOf(slot);
+    const value = parseLine(this.lineAt(offset, this.createdTargets.lengthOf(slot)));
+    if (!value) return false;
+    const sourceId = String(value[1]);
+    const latest = this.index.find(sourceId, hashA(sourceId), hashB(sourceId));
+    return (
+      latest >= 0 && this.index.offsetOf(latest) === offset && this.index.codeOf(latest) === CREATED
+    );
+  }
+
+  /** Index the line at `offset` as the one that created `targetId`. */
+  private indexCreated(targetId: string, offset: number, length: number): void {
+    const key = recordKeyOf(targetId);
+    if (!key) return;
+    const a = hashA(key);
+    const b = hashB(key);
+    this.createdTargets.put(this.createdTargets.find(key, a, b), a, b, offset, length, CREATED);
   }
 
   /** The target id `sourceId` maps onto, in any part. */
@@ -1199,6 +1252,7 @@ export class ForgeRunStore {
   createdUnattributed(objectApiName: string, targetIds: readonly string[]): void {
     if (targetIds.length === 0) return;
     this.write(JSON.stringify([UNATTRIBUTED_TAG, objectApiName, [...targetIds]]));
+    for (const id of targetIds) this.createdUnattributedKeys.add(recordKeyOf(id));
   }
 
   /**
@@ -1391,6 +1445,12 @@ export class ForgeRunStore {
       this.marks.put(found, a, b, line.offset, line.length, 0);
       return;
     }
+    if (tag === UNATTRIBUTED_TAG) {
+      if (Array.isArray(value[2])) {
+        for (const id of value[2]) this.createdUnattributedKeys.add(recordKeyOf(String(id)));
+      }
+      return;
+    }
     const code = CODE_OF_TAG[tag];
     if (code === undefined) return;
     const sourceId = String(value[1]);
@@ -1406,6 +1466,7 @@ export class ForgeRunStore {
     if (code === READ && found >= 0) return;
     this.index.put(found, a, b, line.offset, line.length, code);
     if (code === READ) return;
+    if (code === CREATED) this.indexCreated(String(value[2] ?? ''), line.offset, line.length);
     if (!wasMapped) this.mappedCount++;
     const objectApiName = String(value[3] ?? '');
     if (!objectApiName) return;
@@ -1415,6 +1476,15 @@ export class ForgeRunStore {
       (this.earlierPastCheckpoint.get(objectApiName) ?? 0) + 1,
     );
   }
+}
+
+/**
+ * A record id by its first fifteen characters, as the org names a record in
+ * the words of a refusal: what a record created and a record linked to are
+ * matched by.
+ */
+function recordKeyOf(id: string): string {
+  return id.slice(0, 15);
 }
 
 /** A registration line, read; undefined for a line that is not one. */

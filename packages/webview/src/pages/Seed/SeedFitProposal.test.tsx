@@ -173,8 +173,10 @@ describe('SeedFitProposalCard', () => {
     expect(within(card).getByTestId('seed-fit-total').textContent).toContain(
       '1,717 of 7,600 records, about 3.58 MB with what the flows create under them.',
     );
+    // Minutes, not about a minute: run for real, a Developer Edition still
+    // said 5 MB of 5 left a hundred seconds after a load.
     expect(within(card).getByTestId('seed-fit-counted').textContent).toContain(
-      'my-dev-org counts a load in what it says it has left up to about a minute after it',
+      'Salesforce can take several minutes to count a load in what my-dev-org says it has left',
     );
 
     fireEvent.click(within(card).getByRole('button', { name: 'Seed these counts' }));

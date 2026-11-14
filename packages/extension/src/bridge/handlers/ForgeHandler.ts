@@ -24,6 +24,7 @@ import type {
   ForgeWholeOrgDryRun,
   ForgeSamplingProgress,
   WholeOrgSample,
+  WholeOrgSampleResult,
   WholeOrgSampleBudget,
   ComplianceFrameworkType,
   GuardDecision,
@@ -296,7 +297,9 @@ import {
   SamplePlan,
   SamplePlanError,
   adoptSamplePlan,
+  copySamplePlan,
   dryRunPlanDirOf,
+  giveBackSamplePlan,
   lastDryRunPlan,
   runPlanDirOf,
   sweepSamplePlans,
@@ -705,6 +708,13 @@ interface SampleOfTheRun {
   stream: ForgeSampleStream;
   fingerprint: string;
   drawnAgain?: WholeOrgSample['plan']['drawnAgain'];
+  /** Of a retry, that it takes up the plan of the run it retries. */
+  ofTheRunRetried?: true;
+  /**
+   * Where the simulation's plan the run took up was: put back there when the
+   * run writes nothing with it (`giveBackSamplePlan`).
+   */
+  adoptedFrom?: string;
 }
 
 /** The cases whose last sampled simulation the handler keeps the setup of. */
@@ -932,8 +942,9 @@ function removedInItsLine(
  * Of the rows the last part of a journal linked to a record, those linked to
  * one the part created itself — refused as a copy of a record the run had
  * just written, or of one a job of it wrote under no row — and not written
- * with their record: what an entry past the bound counts so, as a run that
- * ended counts them (`linkedToCreatedCount`).
+ * with their record: what an entry counts so, as a run that ended counts them
+ * (`linkedToCreatedCount`), its results saying them apart from the records
+ * the target held.
  */
 function linkedToCreatedOf(read: ForgeRunJournalRead): number {
   const own = new Set(
@@ -959,7 +970,12 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     0,
   );
   const mapped = Object.keys(read.remap.table).length;
-  const linkedToCreated = mapped > HISTORY_IDS_BOUND ? linkedToCreatedOf(read) : 0;
+  const linkedToCreated = linkedToCreatedOf(read);
+  // What the platform wrote with a record the part created goes with it, as
+  // the command line's summary of the journal says it: left out, an entry
+  // past the bound said the person accounts' contacts it linked to stayed.
+  const markedWith = new Set(read.remap.withTheirRecord ?? []);
+  const withTheirRecord = read.remap.linked.filter((sourceId) => markedWith.has(sourceId));
   // Past the bound, the entry counts what the part created and its journal
   // keeps the ids, as for a run that ended.
   const ids =
@@ -974,12 +990,13 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
             linked: 0,
           })),
           remapInJournal: true as const,
-          ...(linkedToCreated > 0 ? { linkedToCreatedCount: linkedToCreated } : {}),
+          ...(withTheirRecord.length > 0 ? { withTheirRecordCount: withTheirRecord.length } : {}),
         }
       : {
           idRemapTable: read.remap.table,
           idRemapExisting: read.remap.linked,
           idRemapCreated: read.remap.createdByObject,
+          ...(withTheirRecord.length > 0 ? { idRemapWithTheirRecord: withTheirRecord } : {}),
         };
   return {
     forgeId: read.parts > 1 ? `${read.journalId}-${read.parts - 1}` : read.journalId,
@@ -992,6 +1009,8 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     ...ids,
     createdCount: created,
     linkedExistingCount: read.remap.linked.length,
+    // Said apart from the records the target held, on any entry: see `linkedToCreatedOf`.
+    ...(linkedToCreated > 0 ? { linkedToCreatedCount: linkedToCreated } : {}),
     journalId: read.journalId,
     journalPart: Math.max(0, read.parts - 1),
     ...(read.endBefore ? { retryOf: read.endBefore.forgeId, resumed: true as const } : {}),
@@ -1618,6 +1637,27 @@ function withoutObjects(
  */
 function withCallsBefore(result: ForgeExecutionResult, calls: number): ForgeExecutionResult {
   return result.apiCalls === undefined ? result : { ...result, apiCalls: result.apiCalls + calls };
+}
+
+/**
+ * A sample's result with why the run drew its own plan when one was at hand,
+ * and whether it took up the plan of the run it retries, as its question said
+ * them: the results say them too. Only the question did, and the results of
+ * a run that drew again did not say why.
+ */
+function withSampleWhy<T extends { sample?: WholeOrgSampleResult }>(
+  ran: T,
+  sample: Pick<SampleOfTheRun, 'drawnAgain' | 'ofTheRunRetried'> | undefined,
+): T {
+  if (!ran.sample || !sample || (!sample.drawnAgain && !sample.ofTheRunRetried)) return ran;
+  return {
+    ...ran,
+    sample: {
+      ...ran.sample,
+      ...(sample.drawnAgain ? { drawnAgain: sample.drawnAgain } : {}),
+      ...(sample.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
+    },
+  };
 }
 
 /**
@@ -2519,6 +2559,8 @@ export class ForgeHandler implements DomainHandler {
     // that run wrote would be written a second time. Refused before the guard
     // is asked, as a file copy not accepted is.
     let writtenBefore: Record<string, string> | undefined;
+    /** Of a retry, the journal of the run it retries, which keeps the plan of its sample. */
+    let retriedJournal: { journalId?: string } | undefined;
     // What a resumed part goes on from is in the journal it goes on in.
     if (retryOf !== undefined && !resume) {
       const base = await this.runToRetry(retryOf, config.targetOrgId);
@@ -2543,6 +2585,7 @@ export class ForgeHandler implements DomainHandler {
         return;
       }
       writtenBefore = base.written;
+      retriedJournal = base.journalId !== undefined ? { journalId: base.journalId } : {};
     }
 
     // Production guard check on the target org — same policy as sync/seed
@@ -3269,6 +3312,7 @@ export class ForgeHandler implements DomainHandler {
           dryRun,
           ...(journalId !== undefined ? { journalId } : {}),
           resumes: resume !== undefined,
+          ...(retriedJournal ? { retried: retriedJournal } : {}),
           volumeCase,
           target: targetName,
           lookup,
@@ -3375,9 +3419,17 @@ export class ForgeHandler implements DomainHandler {
               sampled: (report: WholeOrgSample): WholeOrgSample => {
                 throttledSampling.flush();
                 const drawnAgain = sample?.drawnAgain;
-                const said = drawnAgain
-                  ? { ...report, plan: { ...report.plan, drawnAgain } }
-                  : report;
+                const said =
+                  drawnAgain || sample?.ofTheRunRetried
+                    ? {
+                        ...report,
+                        plan: {
+                          ...report.plan,
+                          ...(drawnAgain ? { drawnAgain } : {}),
+                          ...(sample?.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
+                        },
+                      }
+                    : report;
                 audit.sampled(said);
                 return said;
               },
@@ -3462,7 +3514,7 @@ export class ForgeHandler implements DomainHandler {
         });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
-      const counted = withCallsBefore(executed, lookup.requests);
+      const counted = withSampleWhy(withCallsBefore(executed, lookup.requests), sample);
       // A run whose ids stayed in its journal names it, and keeps it.
       const inJournal =
         counted.remapInJournal && store && journalId
@@ -3679,7 +3731,7 @@ export class ForgeHandler implements DomainHandler {
       // worth taking back. A run that created nothing is not kept.
       const stoppedRun =
         partial && !dryRun
-          ? this.keepStoppedRun(partial, graph, config, {
+          ? this.keepStoppedRun(withSampleWhy(partial, sample), graph, config, {
               startedAt,
               cancelled,
               retryOf,
@@ -3758,6 +3810,18 @@ export class ForgeHandler implements DomainHandler {
       // said the abort's words as the error it stopped on. A run kept in no
       // entry says what became of the checkpoint it took first beside it:
       // deleted, as it wrote nothing, or kept for what it may have written.
+      // A run that wrote nothing with the simulation's plan it took up —
+      // refused at its gate, declined at its question, stopped before its
+      // first write — puts it back, for the run after it to take up: left
+      // beside the journal, it went with it, and the next run drew its own.
+      if (
+        sample?.adoptedFrom !== undefined &&
+        journalId !== undefined &&
+        !journalAfter.keep &&
+        !(partial && wroteSome(partial))
+      ) {
+        await this.giveThePlanBack(journalId, sample.adoptedFrom);
+      }
       await endJournal();
       const taken = checkpointTaken && checkpointInfo ? { checkpoint: checkpointInfo } : {};
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
@@ -4036,7 +4100,7 @@ export class ForgeHandler implements DomainHandler {
   private async runToRetry(
     forgeId: string,
     targetOrgId: string,
-  ): Promise<{ written: Record<string, string> } | { refused: string }> {
+  ): Promise<{ written: Record<string, string>; journalId?: string } | { refused: string }> {
     const history = this.loadHistory();
     const entry = history.find((e) => e.forgeId === forgeId);
     if (!entry) {
@@ -4071,7 +4135,11 @@ export class ForgeHandler implements DomainHandler {
     // A run past the bound wrote what its journal says, every part of it.
     const read = await this.withIdsOf(entry);
     if ('gone' in read) return { refused: read.gone };
-    return { written: read.entry.idRemapTable ?? {} };
+    // Its journal, beside which the plan of its sample is kept while it is.
+    return {
+      written: read.entry.idRemapTable ?? {},
+      ...(entry.journalId !== undefined ? { journalId: entry.journalId } : {}),
+    };
   }
 
   /**
@@ -4682,6 +4750,8 @@ export class ForgeHandler implements DomainHandler {
     /** The run's journal, beside which its plan is kept; none on a simulation. */
     journalId?: string;
     resumes: boolean;
+    /** Of a retry, the journal of the run it retries, whose plan it takes up while it is kept. */
+    retried?: { journalId?: string };
     /** The case whose last simulation the run takes the plan of. */
     volumeCase: string;
     /** The target, as the user knows it. */
@@ -4704,24 +4774,47 @@ export class ForgeHandler implements DomainHandler {
     let keepAt: string;
     let plan: SamplePlan | undefined;
     let drawnAgain: SampleOfTheRun['drawnAgain'];
+    let ofTheRunRetried = false;
+    let adoptedFrom: string | undefined;
+    const unlessGone = (err: unknown): undefined => {
+      if (err instanceof SamplePlanError) return undefined;
+      throw err;
+    };
     if (run.dryRun || run.journalId === undefined) {
       keepAt = dryRunPlanDirOf(storagePath, fingerprint);
+    } else if (run.retried && !run.resumes) {
+      keepAt = runPlanDirOf(storagePath, run.journalId);
+      // A retry writes the plan of the run it retries, copied, while that
+      // run's journal keeps it: drawn again, it was fitted to the room the
+      // first run had left, not to the plan it wrote part of. Gone with
+      // that journal, it is drawn again with the same options, and said.
+      const retriedJournalId = run.retried.journalId;
+      const retried =
+        retriedJournalId !== undefined
+          ? await SamplePlan.open(runPlanDirOf(storagePath, retriedJournalId), {
+              fingerprint,
+            }).catch(unlessGone)
+          : undefined;
+      if (retried) {
+        plan = await copySamplePlan(retried, storagePath, run.journalId);
+        ofTheRunRetried = true;
+      } else {
+        drawnAgain = 'planGone';
+      }
     } else {
       keepAt = runPlanDirOf(storagePath, run.journalId);
       if (!run.resumes) {
         const last = await lastDryRunPlan(storagePath, fingerprint, now);
         if (last instanceof SamplePlan) {
-          plan = await adoptSamplePlan(last, storagePath, run.journalId).catch((err: unknown) => {
-            if (err instanceof SamplePlanError) return undefined;
-            throw err;
-          });
-          if (!plan) drawnAgain = 'planGone';
+          plan = await adoptSamplePlan(last, storagePath, run.journalId).catch(unlessGone);
+          if (plan) adoptedFrom = last.dir;
+          else drawnAgain = 'planTaken';
         } else if (last === 'tooOld') {
           drawnAgain = 'tooOld';
         } else {
           const simulated = this.sampleSimulations.get(run.volumeCase);
           if (simulated !== undefined) {
-            drawnAgain = simulated === fingerprint ? 'planGone' : 'setUpOtherwise';
+            drawnAgain = simulated === fingerprint ? 'planTaken' : 'setUpOtherwise';
           }
         }
       }
@@ -4764,7 +4857,28 @@ export class ForgeHandler implements DomainHandler {
       ...(sourceRequestsLeft !== undefined ? { sourceRequestsLeft } : {}),
       onProgress: run.onProgress,
     };
-    return { stream, fingerprint, ...(drawnAgain ? { drawnAgain } : {}) };
+    return {
+      stream,
+      fingerprint,
+      ...(drawnAgain ? { drawnAgain } : {}),
+      ...(ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
+      ...(adoptedFrom !== undefined ? { adoptedFrom } : {}),
+    };
+  }
+
+  /**
+   * Put the simulation's plan the run `journalId` took up back where it was
+   * (`giveBackSamplePlan`); one that cannot go back is said in the log and
+   * goes with the journal, the next run drawing its own.
+   */
+  private async giveThePlanBack(journalId: string, dir: string): Promise<void> {
+    const storagePath = this.runJournal?.storagePath;
+    if (storagePath === undefined) return;
+    await giveBackSamplePlan(storagePath, journalId, dir).catch((err: unknown) => {
+      logger.warn(
+        `Forge sample: the plan of the simulation was not put back (${extractErrorMessage(err)})`,
+      );
+    });
   }
 
   /** The last simulation of the case `volumeCase` drew a sample for the setup `fingerprint`. */

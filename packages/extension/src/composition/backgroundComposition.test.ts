@@ -957,6 +957,26 @@ describe("a run's questions, in the production confirmation's modal (localized)"
         'The plan of the run this one retries was gone: the run drew its own with the same options.',
       ]),
     );
+    // The simulation's plan taken up by a run before, which no retry is.
+    const taken = linesOf({
+      ...base,
+      draw: 'uniform',
+      limitedBy: 'within',
+      drawnAgain: 'planTaken',
+    });
+    expect(taken).toContain(
+      'The plan of the simulation was taken up by an earlier run: the run drew its own.',
+    );
+    expect(taken.join(' ')).not.toMatch(/retries/);
+    // A retry that takes up the plan of the run it retries does not say it drew it.
+    const retried = linesOf({
+      ...base,
+      draw: 'uniform',
+      limitedBy: 'within',
+      ofTheRunRetried: true,
+    });
+    expect(retried).toContain('Drawn by the run this one retries; the run takes up its plan.');
+    expect(retried).not.toContain('Drawn by this run.');
     // Every root fits but those set aside: held by them, never by nothing.
     const aside = linesOf({
       ...base,

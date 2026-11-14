@@ -54,6 +54,9 @@ function sampleKept(sample: WholeOrgSampleResult): WholeOrgSampleResult {
     share: sample.share,
     sha256: sample.sha256,
     drawnAt: sample.drawnAt,
+    ...(sample.drawnBy ? { drawnBy: sample.drawnBy } : {}),
+    ...(sample.drawnAgain ? { drawnAgain: sample.drawnAgain } : {}),
+    ...(sample.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
     objects: sample.objects.map((object) => ({
       objectApiName: object.objectApiName,
       sourceRows: object.sourceRows,

@@ -325,6 +325,12 @@ describe('a seed fitted from the command line', () => {
     );
     expect(out).toMatch(/\n {2}Account {2}\d+ of 2000\n {2}Contact {2}\d+ of 4000\n/);
     expect(out).toContain('  not counted: what Apex trigger AccountTrigger on Account creates\n');
+    // Minutes, not the sixty seconds it said: run for real, a Developer
+    // Edition still said 5 MB of 5 left a hundred seconds after a load.
+    expect(out).toContain(
+      '  Salesforce can take several minutes to count a load in what TGT says it has left: ' +
+        'a run started sooner after another may read room it no longer has\n',
+    );
     expect(out).toMatch(/data storage: about [\d.]+ MB to write, TGT has 5 MB left of 5 MB\n/);
     expect(out).not.toContain('a real run would be refused');
     // The gate met again by the counts fitted, its limits read again.

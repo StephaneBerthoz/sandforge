@@ -39,6 +39,7 @@ import {
   forgeRunCountsCreatedOf,
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark, useRemovalSweep } from './ForgeRemovalSweep';
+import { percentOf, sampleNumber } from './sampleFigures';
 
 /** Map a run's outcome to its i18n key. */
 const STATUS_KEYS: Record<ForgeExecutionResult['status'], string> = {
@@ -478,6 +479,21 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                     {[modeKey && t(modeKey), subject, depthKey && t(depthKey)]
                       .filter(Boolean)
                       .join(' · ')}
+                  </span>
+                )}
+                {/* Which sample of the whole org it copied: the entry read as
+                    every record of it. */}
+                {entry.sample && (
+                  <span
+                    data-testid={`forge-history-sample-${entry.forgeId}`}
+                    className="block text-[11px] text-text-secondary"
+                  >
+                    {t('forge.history.sample', {
+                      share: percentOf(entry.sample.share),
+                      seed: sampleNumber(entry.sample.seed),
+                      // In the history's own words: the page loads no Review's.
+                      draw: t(`forge.history.sampleDraw.${entry.sample.draw}`),
+                    })}
                   </span>
                 )}
               </div>

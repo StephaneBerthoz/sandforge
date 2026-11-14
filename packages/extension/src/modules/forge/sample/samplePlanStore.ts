@@ -31,7 +31,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as z from 'zod';
 import {
@@ -574,6 +574,71 @@ export async function adoptSamplePlan(
   await rm(dir, { recursive: true, force: true });
   await rename(plan.dir, dir);
   return SamplePlan.open(dir, { sha256: plan.sha256 });
+}
+
+/**
+ * Put back where it was given the plan of a dry run that the run `journalId`
+ * took up and wrote nothing with — refused at its gate, declined at its
+ * question, stopped before its first write —, for the run after it to take it
+ * up again. Left beside the run's journal, it went with it, and the next run
+ * drew its own, saying the simulation's plan was gone.
+ *
+ * @param dir - Where the plan was given: the dry run's folder it was taken from.
+ * @returns Whether it went back: not when the run holds none, nor when `dir`
+ *   holds a plan drawn since, which is the last one of its setup.
+ */
+export async function giveBackSamplePlan(
+  storagePath: string,
+  journalId: string,
+  dir: string,
+): Promise<boolean> {
+  const from = runPlanDirOf(storagePath, journalId);
+  if (!(await isThere(from)) || (await isThere(dir))) return false;
+  await makePrivateDir(samplesDirOf(storagePath));
+  await rename(from, dir);
+  return true;
+}
+
+/**
+ * Copy the plan of a run beside the journal of the run `journalId` that
+ * retries it: the retry writes the ids that run set out to write, and the
+ * run retried keeps its own for its journal. Drawn again, the sample of a
+ * retry was fitted to the room the first run had left, not to the plan it
+ * wrote part of.
+ *
+ * @returns The copy, read back from its place, held to the plan's SHA-256.
+ */
+export async function copySamplePlan(
+  plan: SamplePlan,
+  storagePath: string,
+  journalId: string,
+): Promise<SamplePlan> {
+  const dir = runPlanDirOf(storagePath, journalId);
+  const temp = `${dir}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    await makePrivateDir(temp);
+    for (const name of await readdir(plan.dir)) {
+      await copyFile(join(plan.dir, name), join(temp, name));
+      await chmod(join(temp, name), CHECKPOINT_FILE_MODE);
+    }
+    await rm(dir, { recursive: true, force: true });
+    await rename(temp, dir);
+  } catch (error: unknown) {
+    await rm(temp, { recursive: true, force: true });
+    throw error;
+  }
+  return SamplePlan.open(dir, { sha256: plan.sha256 });
+}
+
+/** Whether `path` is there. */
+async function isThere(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error: unknown) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
 }
 
 /** Remove a plan and its folder: one a run is done with, or a dry run's no run will take up. */

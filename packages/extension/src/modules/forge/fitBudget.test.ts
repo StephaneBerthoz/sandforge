@@ -10,13 +10,13 @@ import {
 
 import { apiBudgetCheckOf } from './ForgeRunGate.js';
 import {
-  STORAGE_RECOUNT_SECONDS,
   STORAGE_ROUNDING_MARGIN_MB,
   automationRoomOf,
   evenlyKept,
   fitBudgetOf,
   roomBytesOf,
   storageFitBudgetOf,
+  storageRecountWords,
   type FitAct,
 } from './fitBudget.js';
 
@@ -94,8 +94,16 @@ describe('fitBudgetOf', () => {
     expect(budget).toMatchObject({
       terms: { remainingMB: 5, maxMB: 5, share: 0.8, roundingMB: 0.5, limitedBy: 'storage' },
     });
-    // What /limits says of a write a minute after it, at the most.
-    expect(STORAGE_RECOUNT_SECONDS).toBe(60);
+  });
+
+  it('says the storage left may count a load minutes after it, never a number of seconds', () => {
+    // Run for real on a Developer Edition: 5 MB of 5 left a hundred seconds
+    // after a load, 2 only 384 seconds after it.
+    expect(storageRecountWords('DEV')).toBe(
+      'Salesforce can take several minutes to count a load in what DEV says it has left: ' +
+        'a run started sooner after another may read room it no longer has',
+    );
+    expect(storageRecountWords('DEV')).not.toMatch(/\d+ seconds/);
   });
 
   it('holds to the bound asked when it is lower than what the org has left, and says which held', () => {

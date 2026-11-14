@@ -893,6 +893,57 @@ describe('a run whose ids are in its journal', () => {
       expect(forgeRunLinkedKeptCount(entry)).toBe(1);
     });
 
+    it('counts on the entry of a run past the bound it stopped the rows the platform wrote with a record the run created, which go with it, as the command line does', async () => {
+      // The contact of a person account the run created, written by the
+      // platform with it and linked to: the entry said it would stay.
+      execute.mockImplementation(async (_graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store);
+        store?.setMapping(
+          'existing',
+          sourceOf('003', PAST_THE_BOUND),
+          targetOf('003', 0),
+          'Contact',
+        );
+        store?.withTheirRecord(sourceOf('003', PAST_THE_BOUND));
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      handler = windowOpened();
+
+      const entry = (await listed()).history[0];
+      expect(entry).toMatchObject({
+        interrupted: true,
+        remapInJournal: true,
+        linkedExistingCount: 2,
+        withTheirRecordCount: 1,
+      });
+      // The account the target held stays; the contact goes with its account.
+      expect(forgeRunLinkedKeptCount(entry)).toBe(1);
+    });
+
+    it('names on the entry of a run under the bound it stopped the rows the platform wrote with a record the run created, which go with it', async () => {
+      execute.mockImplementation(async (_graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store, 2);
+        store?.setMapping('existing', sourceOf('003', 9), targetOf('003', 0), 'Contact');
+        store?.withTheirRecord(sourceOf('003', 9));
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      handler = windowOpened();
+
+      const entry = (await listed()).history[0];
+      expect(entry).toMatchObject({
+        interrupted: true,
+        idRemapWithTheirRecord: [sourceOf('003', 9)],
+      });
+      expect(entry).not.toHaveProperty('remapInJournal');
+      expect(forgeRunLinkedKeptCount(entry)).toBe(1);
+    });
+
     it('lists a run that stopped once, to take up, not a second time as interrupted', async () => {
       execute.mockImplementation(async (graph: ForgeGraph, _config: ForgeConfig, options) => {
         const store = (options as ExecuteOptions | undefined)?.stream?.store;

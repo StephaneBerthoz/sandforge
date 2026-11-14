@@ -224,9 +224,12 @@ describe('forge:execute of a sample of the whole org', () => {
   let storage: string;
   /** Stop the run once the target has taken this many records; none when undefined. */
   let stopAfter: number | undefined;
+  /** Whether the user declines the questions asked. */
+  let declining: boolean;
 
   beforeEach(() => {
     stopAfter = undefined;
+    declining = false;
     mockGetConn.mockReset();
     questions = [];
     written = new Map();
@@ -267,7 +270,7 @@ describe('forge:execute of a sample of the whole org', () => {
         productionGuard: new ProductionGuard({
           requestRunConfirmation: async (question) => {
             questions.push(question);
-            return true;
+            return !declining;
           },
         }),
       } as unknown as HandlerDeps['infraServices'],
@@ -542,6 +545,9 @@ describe('forge:execute of a sample of the whole org', () => {
       const { result } = lastAnswer();
       expect(result.status).toBe('success');
       expect(result.sample?.sha256).toBe(simulated?.plan.sha256);
+      // Its results say whose plan it wrote, as its question did.
+      expect(result.sample).toMatchObject({ drawnBy: 'dryRun' });
+      expect(result.sample).not.toHaveProperty('drawnAgain');
       expect(rowsWritten()).toBe(simulated?.rows);
       // Taken up, the plan left the simulation's folder for the run's.
       expect(existsSync(simulated?.plan.path ?? '')).toBe(false);
@@ -595,8 +601,53 @@ describe('forge:execute of a sample of the whole org', () => {
 
       expect(writeQuestions()[1].wholeOrg?.sample).toMatchObject({
         drawnBy: 'run',
-        drawnAgain: 'planGone',
+        drawnAgain: 'planTaken',
       });
+      // And its results, and the history, why it drew its own.
+      expect(lastAnswer().result.sample).toMatchObject({ drawnBy: 'run', drawnAgain: 'planTaken' });
+      const ran = lastAnswer().result.forgeId;
+      const kept = (store.get<ForgeExecutionResult[]>('forge:history') ?? []).find(
+        (entry) => entry.forgeId === ran,
+      );
+      expect(kept?.sample).toMatchObject({ drawnBy: 'run', drawnAgain: 'planTaken' });
+    });
+
+    it('takes the simulation’s plan up after a run refused at its gate wrote nothing with it', async () => {
+      await simulate();
+      const simulated = lastAnswer().wholeOrgDryRun?.sample;
+      const counted = draws();
+      const room = limits['tgt-org'];
+      limits['tgt-org'] = { ...(room as object), DataStorageMB: { Max: 5, Remaining: 0.7 } };
+      await execute();
+      expect(lastError().code).toBe('STORAGE_EXCEEDED');
+      expect(rowsWritten()).toBe(0);
+      // Put back where the simulation drew it.
+      expect(existsSync(simulated?.plan.path ?? '')).toBe(true);
+      limits['tgt-org'] = room;
+
+      await execute();
+
+      expect(draws()).toBe(counted);
+      expect(writeQuestions()[0].wholeOrg?.sample).toMatchObject({ drawnBy: 'dryRun' });
+      expect(writeQuestions()[0].wholeOrg?.sample).not.toHaveProperty('drawnAgain');
+      expect(lastAnswer().result.sample?.sha256).toBe(simulated?.plan.sha256);
+      expect(rowsWritten()).toBe(simulated?.rows);
+    });
+
+    it('takes the simulation’s plan up after a run declined at its question', async () => {
+      await simulate();
+      const simulated = lastAnswer().wholeOrgDryRun?.sample;
+      declining = true;
+      await execute();
+      expect(lastError().code).toBe('WRITE_DECLINED');
+      expect(rowsWritten()).toBe(0);
+      declining = false;
+
+      await execute();
+
+      expect(writeQuestions()[1].wholeOrg?.sample).toMatchObject({ drawnBy: 'dryRun' });
+      expect(writeQuestions()[1].wholeOrg?.sample).not.toHaveProperty('drawnAgain');
+      expect(lastAnswer().result.sample?.sha256).toBe(simulated?.plan.sha256);
     });
 
     it('is refused, nothing written, when the target has less room than its plan was fitted to, and the page is told by how much', async () => {
@@ -654,6 +705,41 @@ describe('forge:execute of a sample of the whole org', () => {
       expect(draws()).toBe(counted);
       expect(lastAnswer().result).toMatchObject({ status: 'success', resumed: true });
       expect(rowsWritten()).toBe(planned);
+    });
+
+    it('is retried with the plan of the run it retries, drawing none, and says so', async () => {
+      const { forgeId, planned } = await stoppedRun();
+      const counted = draws();
+
+      await execute({ retryOf: forgeId });
+
+      expect(draws()).toBe(counted);
+      const retried = writeQuestions().at(-1)?.wholeOrg?.sample;
+      expect(retried).toMatchObject({ ofTheRunRetried: true });
+      expect(retried).not.toHaveProperty('drawnAgain');
+      expect(lastAnswer().result).toMatchObject({
+        status: 'success',
+        retryOf: forgeId,
+        sample: { drawnBy: 'dryRun', ofTheRunRetried: true },
+      });
+      expect(rowsWritten()).toBe(planned);
+      // The run retried keeps its own beside its journal.
+      expect(runPlans()).toHaveLength(2);
+    });
+
+    it('is retried with a plan of its own, said, once the plan of the run it retries is gone', async () => {
+      const { forgeId } = await stoppedRun();
+      for (const name of runPlans()) {
+        rmSync(path.join(storage, 'forge-runs', name), { recursive: true, force: true });
+      }
+
+      await execute({ retryOf: forgeId });
+
+      expect(writeQuestions().at(-1)?.wholeOrg?.sample).toMatchObject({
+        drawnBy: 'run',
+        drawnAgain: 'planGone',
+      });
+      expect(writeQuestions().at(-1)?.wholeOrg?.sample).not.toHaveProperty('ofTheRunRetried');
     });
 
     it('is refused, nothing more written, when the plan its journal names is gone', async () => {

@@ -549,6 +549,35 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({ linkedCount: 2 }))).not.toHaveProperty('writtenByThePlatform');
   });
 
+  it('says apart the records linked to a record the run created itself, in the line, its object and the JSON', () => {
+    // Run for real on a whole org: "linked: 13 (already in the target, not
+    // created)" of ten accounts linked to the accounts the run had just
+    // written for the first of their pair, and three the target did hold.
+    const ran = summary({
+      successCount: 28,
+      linkedCount: 13,
+      linkedToCreatedCount: 10,
+      existingRecords: [
+        { objectApiName: 'Account', linked: 13, linkedToCreated: 10, unidentified: 0 },
+      ],
+    });
+
+    const lines = summaryLines(ran);
+    expect(lines[1]).toBe(
+      'linked:  13 (3 already in the target, not created; ' +
+        '10 to records the run created, the target refusing them as copies of those)',
+    );
+    expect(lines).toContain(
+      '  Account  3 linked, 10 linked to records the run created (refused as copies of those)',
+    );
+    expect(jsonResult(ran)).toMatchObject({
+      linkedCount: 13,
+      linkedToCreatedCount: 10,
+      existingRecords: [{ objectApiName: 'Account', linked: 13, linkedToCreated: 10 }],
+    });
+    expect(jsonResult(summary({ linkedCount: 2 }))).not.toHaveProperty('linkedToCreatedCount');
+  });
+
   it('counts the records an upsert matched by their external id as updated, not created', () => {
     const lines = summaryLines(summary({ successCount: 3, updatedCount: 2 }));
 

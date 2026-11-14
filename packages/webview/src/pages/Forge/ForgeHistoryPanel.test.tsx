@@ -25,6 +25,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { ForgeHistoryPanel } from './ForgeHistoryPanel';
+import { wholeOrgSampleResult } from './testing/wholeOrg';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { developerOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -238,6 +239,27 @@ describe('ForgeHistoryPanel', () => {
 
     expect(screen.getByTestId('forge-history-entry-forge-all').textContent).toContain(
       'Whole org · ALL',
+    );
+  });
+
+  it('says which sample of the whole org a run copied', () => {
+    const sampled: ForgeExecutionResult = {
+      ...RECORD_RUN,
+      forgeId: 'forge-sample',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+        sample: {},
+      },
+      sample: wholeOrgSampleResult({ share: 0.67, seed: 2 }),
+    };
+    render(<ForgeHistoryPanel entries={[sampled]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.getByTestId('forge-history-sample-forge-sample').textContent).toBe(
+      'Sample: 67 % of the roots, seed 2, spread over the org',
     );
   });
 

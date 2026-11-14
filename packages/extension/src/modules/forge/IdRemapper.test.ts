@@ -25,6 +25,25 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('a record the run created', () => {
+    it('is told from one linked to or written over, by the first fifteen characters of its id', () => {
+      remapper.add('001S00000000001AAA', '001T00000000001AAA', 'Account');
+      remapper.addExisting('001S00000000002AAA', '001T00000000002AAA', 'Account');
+      remapper.addUpdated('001S00000000003AAA', '001T00000000003AAA', 'Account');
+      // Created, then linked to another: its first record is no longer the run's word.
+      remapper.add('001S00000000004AAA', '001T00000000004AAA', 'Account');
+      remapper.addExisting('001S00000000004AAA', '001T00000000005AAA', 'Account');
+
+      expect(remapper.createdTarget('001T00000000001AAA')).toBe(true);
+      expect(remapper.createdTarget('001T00000000001')).toBe(true);
+      expect(remapper.createdTarget('001T00000000002AAA')).toBe(false);
+      expect(remapper.createdTarget('001T00000000003AAA')).toBe(false);
+      expect(remapper.createdTarget('001T00000000004AAA')).toBe(false);
+      remapper.clear();
+      expect(remapper.createdTarget('001T00000000001AAA')).toBe(false);
+    });
+  });
+
   describe('a record that stands for another', () => {
     it('remaps a lookup naming it onto the record the other went in as, and counts it nowhere', () => {
       // Registered as a record the target already held, the price the run

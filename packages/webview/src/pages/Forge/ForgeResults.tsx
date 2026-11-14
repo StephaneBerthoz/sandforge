@@ -31,6 +31,7 @@ import type {
   ForgeResumeRunRequest,
 } from '@sandforge/shared';
 import {
+  forgeRunCreatedRecords,
   idMapCsv,
   idMapRows,
   leftOutAsEmptyTable,
@@ -87,6 +88,7 @@ import {
   runFailureCell,
   runFailuresOf,
   runNotesReportLines,
+  sampleReportWords,
   type RunFailure,
 } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -118,6 +120,13 @@ function ranAsSimulation(result: ForgeExecutionResult | null): boolean {
 
 /** How long the Id map of a run whose ids are in its journal may take to save: the dialog waits on a person. */
 const SAVE_FROM_THE_JOURNAL_MS = 600_000;
+
+/**
+ * The columns of the row of figures on a wide screen, by how many of the two
+ * cards of linked records it shows: each class written whole, for the build
+ * to keep it.
+ */
+const KPI_COLUMNS = ['lg:grid-cols-6', 'lg:grid-cols-7', 'lg:grid-cols-8'] as const;
 
 /** Today, as an export's file name carries it. */
 function exportDate(): string {
@@ -284,8 +293,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [simulation, result?.wouldInsertCount, result?.createdCount, nodes],
   );
 
+  /** Records linked to rather than created: neither created nor failed. */
+  const linkedAll = result?.linkedExistingCount ?? 0;
+  /**
+   * Of them, those linked to a record the run created itself, which the
+   * target refused as copies of it: said apart from the records the target
+   * held before the run. Counted with them, ten of a run's own accounts read
+   * as records the target already held.
+   */
+  const linkedToOwn = Math.min(linkedAll, result?.linkedToCreatedCount ?? 0);
   /** Records the target already held and named: linked to, neither created nor failed. */
-  const linked = result?.linkedExistingCount ?? 0;
+  const linked = linkedAll - linkedToOwn;
 
   const idRemaps = result?.idRemapCount ?? 0;
 
@@ -295,11 +313,27 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [result?.idRemapTable],
   );
 
-  /** Source ids whose target is a record the target org already held. */
-  const existingSourceIds = useMemo(
-    () => new Set(result?.idRemapExisting ?? []),
-    [result?.idRemapExisting],
-  );
+  /**
+   * Source ids whose target is a record the target org already held: those
+   * linked to a record the run created itself — refused as its copy — left
+   * out, the record being the run's.
+   */
+  const existingSourceIds = useMemo(() => {
+    const linkedIds = result?.idRemapExisting ?? [];
+    if (!result || linkedIds.length === 0) return new Set<string>();
+    const own = new Set(
+      forgeRunCreatedRecords(result).flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))),
+    );
+    const table = result.idRemapTable ?? {};
+    return new Set(
+      linkedIds.filter((sourceId) => {
+        const target = Object.prototype.hasOwnProperty.call(table, sourceId)
+          ? table[sourceId]
+          : undefined;
+        return typeof target !== 'string' || !own.has(target.slice(0, 15));
+      }),
+    );
+  }, [result]);
 
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
@@ -362,8 +396,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // because each read it tried failed.
   const successRate = useMemo(() => {
     if (plannedRecords === 0) return result?.status === 'failure' ? 0 : 100;
-    return Math.round(((inserted + linked) / plannedRecords) * 100);
-  }, [plannedRecords, inserted, linked, result?.status]);
+    return Math.round(((inserted + linkedAll) / plannedRecords) * 100);
+  }, [plannedRecords, inserted, linkedAll, result?.status]);
 
   // Objects whose read failed, which the records read leave out: the rate and
   // the written count are measured without them, and a record-scoped run never
@@ -582,6 +616,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       '',
       `- Inserted: ${String(inserted)}`,
       `- Linked to existing: ${String(linked)}`,
+      // Apart from them, as on the page: the run's own records, refused as copies.
+      ...(linkedToOwn > 0
+        ? [`- Linked to records the run created (refused as copies): ${String(linkedToOwn)}`]
+        : []),
+      // Which sample of the whole org the run copied, as its results say it.
+      ...(result?.sample ? [`- Sample of the whole org: ${sampleReportWords(result.sample)}`] : []),
       `- Objects skipped: ${String(skippedObjects)}`,
       `- ID Remaps: ${String(idRemaps)}`,
       `- Success Rate: ${String(successRate)}%`,
@@ -627,7 +667,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       lines.push('', '## Already in the Target', '', '| Object | Linked | Not identified |');
       lines.push('|--------|--------|----------------|');
       for (const e of existingRecords) {
-        lines.push(`| ${e.objectApiName} | ${String(e.linked)} | ${String(e.unidentified)} |`);
+        const own = e.linkedToCreated ?? 0;
+        const linkedCell =
+          own > 0
+            ? `${String(e.linked - own)} (and ${String(own)} to records the run created)`
+            : String(e.linked);
+        lines.push(`| ${e.objectApiName} | ${linkedCell} | ${String(e.unidentified)} |`);
       }
     }
 
@@ -657,6 +702,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   }, [
     inserted,
     linked,
+    linkedToOwn,
+    result?.sample,
     skippedObjects,
     idRemaps,
     successRate,
@@ -1050,7 +1097,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         animate="visible"
         className={cn(
           'grid grid-cols-2 gap-3 sm:grid-cols-3',
-          linked > 0 ? 'lg:grid-cols-7' : 'lg:grid-cols-6',
+          KPI_COLUMNS[(linked > 0 ? 1 : 0) + (linkedToOwn > 0 ? 1 : 0)],
         )}
       >
         <KPICard
@@ -1066,6 +1113,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             icon="link"
             label={t('forgeRun.linkedExisting')}
             value={linked}
+            variant="success"
+          />
+        )}
+        {/* Apart from them: rows the target refused as copies of a record the
+            run had just written, linked to the run's own. */}
+        {linkedToOwn > 0 && (
+          <KPICard
+            icon="link"
+            label={t('forgeRun.linkedToOwn')}
+            value={linkedToOwn}
             variant="success"
           />
         )}
@@ -1316,6 +1373,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             {t('forgeRun.idMapping.subtitle', { count: idRemapRows.length })}
             {existingSourceIds.size > 0 &&
               ` ${t('forgeRun.idMapping.existingNote', { count: existingSourceIds.size })}`}
+            {linkedToOwn > 0 && ` ${t('forgeRun.idMapping.ownNote', { count: linkedToOwn })}`}
             {created.size > 0 && ` ${t('forgeRun.idMapping.openNote')}`}
           </p>
           {idRemapRows.length > ID_REMAP_VIRTUALIZE_THRESHOLD ? (
@@ -1400,7 +1458,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             {existingRecords.map((e) => (
               <li key={e.objectApiName} data-testid="forge-results-existing-row">
                 <span className="font-mono text-text-primary">{e.objectApiName}</span>
-                {e.linked > 0 && ` — ${t('forgeRun.existingRecords.linked', { count: e.linked })}`}
+                {e.linked - (e.linkedToCreated ?? 0) > 0 &&
+                  ` — ${t('forgeRun.existingRecords.linked', { count: e.linked - (e.linkedToCreated ?? 0) })}`}
+                {(e.linkedToCreated ?? 0) > 0 &&
+                  ` — ${t('forgeRun.existingRecords.linkedToOwn', { count: e.linkedToCreated ?? 0 })}`}
                 {e.unidentified > 0 && (
                   <span className="text-status-warning">
                     {` — ${t('forgeRun.existingRecords.unidentified', { count: e.unidentified })}`}

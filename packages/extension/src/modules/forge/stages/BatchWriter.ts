@@ -455,6 +455,12 @@ export interface BatchWriteResult {
    * to. Neither created nor failed.
    */
   linkedExistingCount: number;
+  /**
+   * Of those, the rows linked to a record the run created itself: the target
+   * refused the row as a copy of a record the run had just written — a value
+   * it keeps unique repeated in the source. Absent when there were none.
+   */
+  linkedToCreatedCount?: number;
   /** Records that failed (including API-truncated results). */
   failureCount: number;
   /**
@@ -791,6 +797,11 @@ export function fieldsToLeaveOut(
   const details = result.errorDetails ?? [];
   if (details.length !== result.errors.length) return undefined;
   return refusedFields(details, payload, keep, mayBeEmpty, options);
+}
+
+/** Count, among the rows linked, one linked to a record the run created itself. */
+function countLinkedToCreated(tally: BatchWriteResult): void {
+  tally.linkedToCreatedCount = (tally.linkedToCreatedCount ?? 0) + 1;
 }
 
 /** Whether every error the target refused a row with is its failure to lock a record the write needed. */
@@ -2202,6 +2213,8 @@ export class BatchWriter {
       // it — no update, and no pass-2 patch of its lookups, which would
       // overwrite a record this run did not create.
       tally.linkedExistingCount++;
+      // Asked before the row is linked: of the run's own, or the target's.
+      if (remapper.createdTarget(existing.id)) countLinkedToCreated(tally);
       const oldId = built?.source['Id'];
       if (typeof oldId === 'string') remapper.addExisting(oldId, existing.id, objectApiName);
       return;
@@ -2611,6 +2624,7 @@ export class BatchWriter {
     duplicates.forEach((duplicate, i) => {
       const id = found[i];
       if (id && typeof duplicate.sourceId === 'string') {
+        if (remapper.createdTarget(id)) countLinkedToCreated(tally);
         remapper.addExisting(duplicate.sourceId, id, objectApiName);
         tally.linkedExistingCount++;
         return;

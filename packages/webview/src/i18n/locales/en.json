@@ -1342,7 +1342,7 @@
       "keptByKey": "kept whole: each under the parent row its key names",
       "total": "{{after}} of {{before}} records, about {{estimate}} MB.",
       "totalWithRoom": "{{after}} of {{before}} records, about {{estimate}} MB with what the flows create under them.",
-      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records. {{org}} counts a load in what it says it has left up to about a minute after it: a run started sooner after another may read room it no longer has.",
+      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records. Salesforce can take several minutes to count a load in what {{org}} says it has left: a run started sooner after another may read room it no longer has.",
       "cannotFitStorage": "Even cut as far as it goes, this seed takes about {{estimate}} MB, past the {{fits}} MB that fit in {{org}}. Leave objects out, or free data storage in {{org}}.",
       "cannotFitRequests": "Even cut as far as it goes, the writes of this seed would leave {{org}} less than a tenth of its daily API requests. Seed it tomorrow, or leave objects out.",
       "seed": "Seed these counts",
@@ -4083,6 +4083,11 @@
       "noConfig": "Recorded before run configurations were kept — nothing to refill.",
       "loadError": "Run history could not be loaded.",
       "reused": "Form refilled from the run of {{date}}.",
+      "sample": "Sample: {{share}} % of the roots, seed {{seed}}, {{draw}}",
+      "sampleDraw": {
+        "uniform": "spread over the org",
+        "recent": "the newest first"
+      },
       "statusSuccess": "Success",
       "statusPartial": "Partial",
       "statusInterrupted": "Interrupted",
@@ -4243,6 +4248,7 @@
     "after": "After",
     "inserted": "Inserted",
     "linkedExisting": "Linked to existing",
+    "linkedToOwn": "Linked to the run's records",
     "skipped": "Skipped",
     "stoppedObjects": "Stopped",
     "objectsSkipped": "Objects skipped",
@@ -4374,6 +4380,8 @@
       "targetId": "Target Id",
       "existingNote_one": "{{count}} of them was already in the target org: linked, not created.",
       "existingNote_other": "{{count}} of them were already in the target org: linked, not created.",
+      "ownNote_one": "{{count}} of them was linked to a record this run created: the target refused it as a copy of that record.",
+      "ownNote_other": "{{count}} of them were linked to records this run created: the target refused them as copies of those records.",
       "existingBadge": "existing",
       "openRecord": "Open {{object}} {{id}} in the target org",
       "openRoot": "Open the {{object}} cloned in {{org}}",
@@ -4797,6 +4805,8 @@
       "hint": "The target refused these records because it already holds them. Where Salesforce named the record, the clone links to it and never changes it.",
       "linked_one": "{{count}} linked, not created",
       "linked_other": "{{count}} linked, not created",
+      "linkedToOwn_one": "{{count}} linked to a record this run created, refused as its copy",
+      "linkedToOwn_other": "{{count}} linked to records this run created, refused as their copies",
       "unidentified_one": "{{count}} not identified — counted as failed, and its children lost the link",
       "unidentified_other": "{{count}} not identified — counted as failed, and their children lost the link"
     },
@@ -5190,6 +5200,17 @@
     "sampleResult": {
       "title": "The sample",
       "drawn": "Drawn with seed {{seed}}, {{draw}}: {{share}} % of the roots of each object. Plan SHA-256 {{sha}}…, drawn on {{at}}.",
+      "drawnBy": {
+        "dryRun": "Drawn by the simulation: the run took up its plan.",
+        "run": "Drawn by this run.",
+        "retried": "Drawn by the run this one retried: the run took up its plan."
+      },
+      "drawnAgain": {
+        "tooOld": "The plan of the simulation was more than a day old: the run drew its own.",
+        "setUpOtherwise": "The plan of the simulation was drawn for another setup: the run drew its own.",
+        "planTaken": "The plan of the simulation was taken up by an earlier run: the run drew its own.",
+        "planGone": "The plan of the run this one retried was gone: the run drew its own with the same options."
+      },
       "verdict": {
         "complete": "Every record of the sample was written or linked.",
         "completeGone": "Every record of the sample still in {{source}} was written or linked.",
@@ -5486,7 +5507,7 @@
       "emptiedOnParent": "{{object}}.{{field}} ({{records}}): read by id, it names a record the fit cut",
       "total": "{{records}} records in all, about {{estimate}} MB; {{requests}} requests read to fit it.",
       "totalWithRoom": "{{records}} records in all, about {{estimate}} MB and {{room}} MB for what the flows create under them; {{requests}} requests read to fit it.",
-      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records, 4 KB for a person account. {{org}} counts a load in what it says it has left up to about a minute after it: a run started sooner after another may read room it no longer has.",
+      "counted": "By SandForge's count, at the sizes Salesforce documents: 2 KB for most records, 4 KB for a person account. Salesforce can take several minutes to count a load in what {{org}} says it has left: a run started sooner after another may read room it no longer has.",
       "gateAgain": "The copy holds the plan fitted to its checks again: what {{org}} has left is read again, and a plan it no longer fits is refused.",
       "undo": "Undo fit",
       "fitted": "Plan fitted to the data storage of {{org}}: {{after}} of the {{before}} records of the selected objects kept, {{share}} of each.",

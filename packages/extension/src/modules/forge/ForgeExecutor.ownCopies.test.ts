@@ -7,6 +7,7 @@ import type {
   ExecutionSummary,
   FieldInfo,
   ForgeExecutorDeps,
+  ForgeProgressEvent,
   InsertResult,
 } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
@@ -276,5 +277,78 @@ describe('a record the run created, that a later row of the run is linked to', (
     ]);
 
     expect(await removed(orgsOfTheRun, records)).toEqual([HELD]);
+  });
+});
+
+/** The line `objectName` ended on, as the run said it. */
+function endedOn(events: readonly ForgeProgressEvent[], objectName: string): string {
+  const ended = events.filter(
+    (event) => event.objectName === objectName && event.status === 'done',
+  );
+  return ended[ended.length - 1]?.message ?? '';
+}
+
+describe('the line of an object whose rows were linked to records the run created', () => {
+  const OWN = '2 linked to records the run created (the target refused them as copies of those)';
+
+  it('says them apart from the record the target held, as the summary and its object do', async () => {
+    const events: ForgeProgressEvent[] = [];
+    const summary = await orgs().executor.execute(GRAPH, 'src', 'tgt', (event) => {
+      events.push(event);
+    });
+
+    const line = endedOn(events, 'Account');
+    expect(line).toContain('2 succeeded, 1 linked to records already in the target, ' + OWN);
+    expect(line).not.toContain('3 linked to records already in the target');
+    expect(summary.linkedCount).toBe(3);
+    expect(summary.linkedToCreatedCount).toBe(2);
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 3, linkedToCreated: 2, unidentified: 0 },
+    ]);
+  });
+
+  it('says them so of a run that keeps its ids in its journal', async () => {
+    const events: ForgeProgressEvent[] = [];
+    const file = memoryRunFile(
+      `${JSON.stringify({ run: { journalId: 'j', targetOrgId: 'tgt', startedAt: RUN_STARTED } })}\n`,
+    );
+    const store = ForgeRunStore.open(file);
+
+    const summary = await orgs().executor.execute(
+      GRAPH,
+      'src',
+      'tgt',
+      (event) => {
+        events.push(event);
+      },
+      { stream: { store, summaryBound: 0 } },
+    );
+    store.close();
+
+    expect(endedOn(events, 'Account')).toContain(
+      '2 succeeded, 1 linked to records already in the target, ' + OWN,
+    );
+    expect(summary.linkedToCreatedCount).toBe(2);
+  });
+
+  it('says them so of an object read page by page, its pages added up', async () => {
+    const events: ForgeProgressEvent[] = [];
+    const summary = await orgs().executor.execute(
+      GRAPH,
+      'src',
+      'tgt',
+      (event) => {
+        events.push(event);
+      },
+      { stream: { pageSize: 2 } },
+    );
+
+    expect(events.some((event) => event.message?.startsWith('Account, page 2:'))).toBe(true);
+    expect(endedOn(events, 'Account')).toContain(
+      '2 succeeded, 1 linked to records already in the target, ' + OWN,
+    );
+    expect(summary.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 3, linkedToCreated: 2, unidentified: 0 },
+    ]);
   });
 });
