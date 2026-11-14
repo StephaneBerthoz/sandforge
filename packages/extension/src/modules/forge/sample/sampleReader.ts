@@ -9,17 +9,36 @@
  *
  * - **Roots.** Each object's are counted first, `SELECT COUNT() FROM O WHERE
  *   <carriers> = null`, which prices their ids before one is read; then read,
- *   every id of them (`uniform`), or the newest first (`recent`), by the date
- *   each was made, paged after the date and id of the last row read — an
- *   offset past 2 000 is refused, and an object's ids do not follow the
- *   making of its records from one load to the next. A lookup that may name
- *   records of several objects (`WhatId`) is read with the ids and tested
- *   here, by the key prefix of what it names: tested in the statement, it
- *   would take a semi-join per object, and the org takes two at most and
- *   none beside an OR. A `= null` that no index serves on a table of
+ *   every id of them (`uniform`), or the newest first (`recent`) or the
+ *   oldest (`oldest`), by the date each was made, paged after the date and id
+ *   of the last row read — an offset past 2 000 is refused, and an object's
+ *   ids do not follow the making of its records from one load to the next.
+ *   A lookup that may name records of several objects (`WhatId`) is read
+ *   with the ids and tested here, by the key prefix of what it names: tested
+ *   in the statement, it would take a semi-join per object, and the org
+ *   takes two at most. A `= null` that no index serves on a table of
  *   millions may run past the org's time (`QUERY_TIMEOUT`; none did on a
  *   scratch org of 74 000 rows): the object is then read without it, its
  *   lookups tested here, as many pages as the table.
+ * - **Which roots.** A draw may hold the roots to a window of dates, made or
+ *   last modified (`CreatedDate >= :from AND CreatedDate < :to`, instants to
+ *   the second, as a scratch org compared them), and to a condition of the
+ *   user's on an object's roots; and stratify them by a field, counted by
+ *   its values, `SELECT F, COUNT(Id) n … GROUP BY F`, and read by date one
+ *   value at a time, `AND F = :value`. These terms hold the reads of the
+ *   roots alone: never the records they name or hold, which come whatever
+ *   their date or values. A window on `LastModifiedDate` also holds
+ *   `SystemModstamp`, which an index serves and which a scratch org stamped
+ *   at or after it on every row of six objects; past the org's time, the
+ *   date of the change is tested here instead, as a lookup's `= null` is.
+ *   Restricted so, an object's roots are counted again without the window
+ *   and the condition: its roots of the source, beside those of the draw.
+ * - **Semi-joins.** A filter of the user's may hold one: a scratch org took
+ *   an OR beside it, the page after a date and an id, as long as the
+ *   semi-join stays a term of the statement's own AND, and refused one in
+ *   parentheses an OR is part of. A condition that holds one and no OR of
+ *   its own is written as the statement's own terms, never in parentheses
+ *   beside others, a form no org was asked.
  * - **Records named.** By their ids, `Id IN (…)`, in lists as long as the
  *   URI and 500 ids allow, measured as the request goes on the wire, a
  *   select too wide for one statement read in column groups
@@ -56,12 +75,18 @@
  * No value of a record is read but ids, lookups, and what the closure of a
  * sample asks to decide what it keeps: a record type, `IsPersonAccount`, a
  * price's book, product, currency, model and state, and the date a record
- * was made where the newest are kept.
+ * was made where the newest are kept; and, of the roots, the value of their
+ * stratum, and the date of their last change where the org could not test it.
  */
 
-import type { ForgeSampleDraw, ForgeSamplingProgress } from '@sandforge/shared';
+import type {
+  ForgeRunGateCode,
+  ForgeSampleDraw,
+  ForgeSampleWindow,
+  ForgeSamplingProgress,
+} from '@sandforge/shared';
 import { extractErrorCode, extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
-import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import {
   MAX_STATEMENT_URI_CHARS,
   columnGroups,
@@ -73,6 +98,7 @@ import {
 } from '../../../core/common/wideRead.js';
 import { ARCHIVED_ACTIVITIES } from '../../../core/removal/tableIds.js';
 import { soqlInstant } from '../../checkpoint/orgStreams.js';
+import { ForgeRunGateError } from '../ForgeRunGate.js';
 import type { SourceRow } from '../stages/PagedRows.js';
 import { eachInPool } from '../WholeOrgDiscovery.js';
 import { compareIds, idKey } from './sampleRank.js';
@@ -131,19 +157,57 @@ export interface RootCarrier {
   drawnPrefixes?: ReadonlySet<string>;
 }
 
+/**
+ * A value of the field the roots of an object are stratified by: a
+ * picklist's, a checkbox's, the id a lookup names (`RecordTypeId`,
+ * `OwnerId`), or none — `null`, which the org counts as a group of its own.
+ */
+export type StratumValue = string | boolean | null;
+
+/**
+ * The dates the roots of an object are drawn in, the window's instants
+ * resolved (a window of the last days turned into its `from` when the
+ * sample is drawn): made, or last modified, from `from`, included, to before
+ * `to`, each an instant in UTC to the second, either left out.
+ */
+export type RootWindow = Pick<ForgeSampleWindow, 'field' | 'from' | 'to'>;
+
 /** The roots of one object to count or read. */
 export interface RootRead {
   objectApiName: string;
   carriers: readonly RootCarrier[];
+  /** The dates its roots are drawn in: a record outside them is no root of the draw. */
+  window?: RootWindow;
+  /**
+   * The condition, without WHERE, its roots are drawn among
+   * (`ForgeSampleOptions.rootWhere`): held by the reads of its roots alone,
+   * never by those of the records they name or hold.
+   */
+  where?: string;
+  /**
+   * The field its roots are stratified by: counted by its values
+   * (`RootCount.strata`), and each root handed on with its own.
+   */
+  stratifiedBy?: string;
 }
 
-/** The roots of one object to read the newest first, and how many it keeps. */
-export interface RecentRootRead extends RootRead {
+/** How many roots of one value of a stratum a draw by date takes. */
+export interface StratumTake {
+  value: StratumValue;
   take: number;
 }
 
+/** The roots of one object to read by the date they were made, and how many it keeps. */
+export interface DatedRootRead extends RootRead {
+  /**
+   * The roots it keeps; of an object stratified, those each value keeps,
+   * each value read by its own statements, `AND <field> = <value>`.
+   */
+  take: number | readonly StratumTake[];
+}
+
 /**
- * The order the newest roots of one object were read in: by `created`, the
+ * The order the roots of one object were read in by date: by `created`, the
  * date each record was made, ties by id; or by `id` alone, where the object
  * has no creation date it orders by — which the plan says, as an object's
  * ids follow its records' making within a load, not from one to the next.
@@ -165,8 +229,22 @@ export interface RootCount {
   rows: number;
   /** Whether `rows` is the roots themselves. */
   exact: boolean;
-  /** Set when the count with its `= null` ran past the org's time, and the object is read without it. */
+  /**
+   * Set when the count with its `= null`, or its window of the last change,
+   * ran past the org's time, and the object is read without them.
+   */
   timedOut?: true;
+  /**
+   * Of an object stratified, its roots by value of the field, as the org
+   * grouped them and in its order, each counted as `rows` is.
+   */
+  strata?: Array<{ value: StratumValue; rows: number }>;
+  /**
+   * Of an object whose roots a window or a condition restricts, its roots
+   * without them, those of the source: `exact` as `rows` is, false where a
+   * lookup is tested on the rows read or the count ran without its nulls.
+   */
+  inTheSource?: { rows: number; exact: boolean };
 }
 
 /** Records of one object to read by their ids. */
@@ -346,36 +424,142 @@ function refusedItsShape(error: unknown): boolean {
   return code !== undefined && SHAPE_REFUSALS.has(code);
 }
 
+/**
+ * Codes of an org that refused the statement counting the roots of a draw
+ * for what it says: a field its describe does not list or that it will not
+ * group by, a condition it cannot read, more semi-joins than it takes. Words
+ * of a condition of the user's, or of a field to stratify by, which only the
+ * org tells: the draw is refused (`SAMPLE_DRAW_INVALID`) in them.
+ */
+const DRAW_REFUSALS: ReadonlySet<string> = new Set([
+  'MALFORMED_QUERY',
+  'INVALID_FIELD',
+  'EXCEEDED_MAX_SEMIJOIN_SUBSELECTS',
+]);
+
+/** The code a draw the source cannot count is refused under. */
+const SAMPLE_DRAW_INVALID = 'SAMPLE_DRAW_INVALID' satisfies ForgeRunGateCode;
+
 /** How the roots of one object are read: see `SampleSourceReader.rootShapeOf`. */
 interface RootShape {
   object: string;
-  /** The id, then the lookups tested here. */
+  /** The id, then the fields tested here, and the stratum's when its values are read. */
   select: string[];
-  /** The object's filter, and the lookups held to `= null`. */
+  /**
+   * The object's filter, the lookups held to `= null`, the window, the
+   * condition of its roots, and the value of the stratum read.
+   */
   terms: string[];
-  /** Whether a lookup is held to `= null`: a statement that may run past the org's time. */
+  /**
+   * Whether a term may run past the org's time, which can be tested here
+   * instead: a field held to `= null`, a window on the date of the last change.
+   */
   held: boolean;
-  /** Whether a lookup is tested here: a row read may be no root. */
+  /** Whether a term is tested here: a row read may be no root. */
   tested: boolean;
   isRoot: (row: SourceRow) => boolean;
 }
 
+/** What a shape of the roots of one object is asked for, beside the roots themselves. */
+interface ShapeAsked {
+  /** The roots of the source: without the window and the condition of the draw. */
+  natural?: true;
+  /** The roots of one value of the stratum alone. */
+  stratum?: StratumTake;
+  /** Each root read with the value of its stratum. */
+  values?: true;
+  /** Read as of an object whose nulls and changes run past the org's time, or not, whatever it was found to be. */
+  slow?: boolean;
+}
+
 /** The field the newest records are found by: the date each was made, to the second. */
 const CREATED = 'CreatedDate';
+
+/** The date of a record's last change, which no index serves: a window on it may run past the org's time. */
+const MODIFIED = 'LastModifiedDate';
+
+/**
+ * The stamp of a record's last change by anyone, the platform's own too,
+ * which an index serves: a scratch org stamped it at or after
+ * `LastModifiedDate` on every row of six objects, so a window from a date
+ * holds it from the same date without leaving a row out.
+ */
+const STAMPED = 'SystemModstamp';
 
 /** `text` with its quoted literals emptied: what is read for its words. */
 function withoutLiterals(text: string): string {
   return text.replace(/'(?:[^'\\]|\\.)*'/g, "''");
 }
 
-/** Whether a filter holds a semi-join, `IN (SELECT …)`: the org then takes no OR beside it. */
-function holdsSemiJoin(filter: string): boolean {
-  return /\(\s*SELECT\b/i.test(withoutLiterals(filter));
+/** Whether a condition holds a semi-join, `IN (SELECT …)`. */
+function holdsSemiJoin(condition: string): boolean {
+  return /\(\s*SELECT\b/i.test(withoutLiterals(condition));
+}
+
+/** Whether a condition holds an OR of its own level, outside its parentheses and quotes. */
+function orAtItsTop(condition: string): boolean {
+  let depth = 0;
+  let top = '';
+  for (const char of withoutLiterals(condition)) {
+    if (char === '(') depth++;
+    top += depth === 0 ? char : ' ';
+    if (char === ')') depth = Math.max(0, depth - 1);
+  }
+  return /\bOR\b/i.test(top);
+}
+
+/**
+ * A condition of the user's — an object's filter, the condition of its
+ * roots — as a term of a statement's AND: in parentheses, but for one that
+ * holds a semi-join and no OR of its own, whose terms are written as the
+ * statement's own. A scratch org took an OR beside a semi-join of the top
+ * level and refused one in parentheses an OR is part of; one in parentheses
+ * beside other terms of an AND was never asked of an org.
+ */
+function conditionTermOf(condition: string): string {
+  const text = condition.trim();
+  return holdsSemiJoin(text) && !orAtItsTop(text) ? text : `(${text})`;
 }
 
 /** Whether a value names no record: a lookup left empty. */
 function isEmpty(value: unknown): boolean {
   return value === null || value === undefined || value === '';
+}
+
+/** The stratum a row's value puts it in: a text, a checkbox, or none. */
+function stratumOf(value: unknown): StratumValue {
+  if (isEmpty(value)) return null;
+  return typeof value === 'boolean' ? value : String(value);
+}
+
+/** One key per value of a stratum, a text apart from a checkbox of the same words. */
+function stratumKeyOf(value: StratumValue): string {
+  return value === null ? '\u0000' : `${typeof value}:${String(value)}`;
+}
+
+/**
+ * `field = value` as SOQL writes it: a text quoted and escaped, a checkbox
+ * bare, none as `null` — which a scratch org took of its accounts of no
+ * record type.
+ */
+function stratumTermOf(field: string, value: StratumValue): string {
+  if (value === null) return `${field} = null`;
+  if (typeof value === 'boolean') return `${field} = ${String(value)}`;
+  return `${field} = '${sanitizeSoqlValue(value)}'`;
+}
+
+/** `text` as a sentence of a message: ended by one full stop, the org's own or one added. */
+function sentenceOf(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/** Whether a date a row was read with stands in `window`: from its `from`, included, to before its `to`. */
+function inWindow(value: unknown, window: RootWindow): boolean {
+  const at = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(at)) return false;
+  if (window.from !== undefined && at < Date.parse(window.from)) return false;
+  return window.to === undefined || at < Date.parse(window.to);
 }
 
 // ─── The reader ──────────────────────────────────────────────────────────────
@@ -393,6 +577,8 @@ export class SampleSourceReader {
   private readonly ungrouped = new Set<string>();
   /** The roots counted of each object: one counted none is not read. */
   private readonly counted = new Map<string, number>();
+  /** The roots counted of each value of an object's stratum, by its key: a value counted none is not read. */
+  private readonly countedStrata = new Map<string, Map<string, number>>();
   /** The id of the standard price book, once read; null when the source has none. */
   private standardBook?: string | null;
 
@@ -495,15 +681,23 @@ export class SampleSourceReader {
    * The terms every read of `objectApiName` holds: its filter, and, read
    * through `queryAll`, `IsDeleted = false` — as the run's own reads hold
    * them (`ForgeExecutor.filterOf`). The filter is the user's own WHERE,
-   * held at the config's schema; it may hold a semi-join, which the org then
-   * takes no OR beside ({@link holdsSemiJoin}).
+   * held at the config's schema; it may hold a semi-join, written as a term
+   * of the statement's own AND ({@link conditionTermOf}).
    */
   private termsOf(objectApiName: string): string[] {
     const filter = this.options.filterOf?.(objectApiName);
     return [
-      ...(filter !== undefined && filter.trim() !== '' ? [`(${filter})`] : []),
+      ...(filter !== undefined && filter.trim() !== '' ? [conditionTermOf(filter)] : []),
       ...(ARCHIVED_ACTIVITIES.has(objectApiName) ? ['IsDeleted = false'] : []),
     ];
+  }
+
+  /** Whether the describe of `objectApiName` lists `field`. */
+  private lists(objectApiName: string, field: string): boolean {
+    const wanted = field.toLowerCase();
+    return (this.options.fieldsOf(objectApiName) ?? []).some(
+      (name) => name.toLowerCase() === wanted,
+    );
   }
 
   /**
@@ -524,14 +718,19 @@ export class SampleSourceReader {
   // ─── Roots ─────────────────────────────────────────────────────────────────
 
   /**
-   * How `read`'s roots are read: the lookups held to `= null` in the
-   * statement — those that name a drawn object alone —, those read with the
-   * ids and tested here — those that may name several, and every one of an
-   * object whose `= null` ran past the org's time —, and the test.
+   * How `read`'s roots are read, in this order of terms: the object's
+   * filter; the lookups held to `= null` — those that name a drawn object
+   * alone —; the window, `W >= :from AND W < :to`, and, on the date of the
+   * last change, `SystemModstamp >= :from` where the describe lists it; the
+   * condition of its roots; the value of its stratum asked. Tested here, on
+   * the rows read: the lookups that may name several objects, and, of an
+   * object whose terms ran past the org's time, every `= null` and the
+   * window on the date of the last change. Of its roots in the source
+   * (`natural`), the window and the condition are left out.
    */
-  private rootShapeOf(read: RootRead): RootShape {
+  private rootShapeOf(read: RootRead, asked: ShapeAsked = {}): RootShape {
     const object = assertSoqlIdentifier(read.objectApiName);
-    const slow = this.slow.has(object);
+    const slow = asked.slow ?? this.slow.has(object);
     const carriers = read.carriers.map((carrier) => ({
       field: this.fieldOf(object, carrier.field),
       prefixes: carrier.drawnPrefixes === undefined ? undefined : [...carrier.drawnPrefixes],
@@ -541,24 +740,80 @@ export class SampleSourceReader {
     const names = (value: unknown, prefixes: string[] | undefined): boolean =>
       !isEmpty(value) &&
       (prefixes === undefined || prefixes.some((prefix) => String(value).startsWith(prefix)));
+
+    const window = asked.natural ? undefined : read.window;
+    const windowField = window ? this.fieldOf(object, window.field) : undefined;
+    const modified = window?.field === MODIFIED;
+    // The date of the last change, which no index serves, tested here once it ran past the org's time.
+    const windowHere = window !== undefined && modified && slow;
+    const windowTerms =
+      window && windowField && !windowHere
+        ? [
+            ...(window.from !== undefined ? [`${windowField} >= ${soqlInstant(window.from)}`] : []),
+            ...(window.to !== undefined ? [`${windowField} < ${soqlInstant(window.to)}`] : []),
+            ...(modified && window.from !== undefined && this.lists(object, STAMPED)
+              ? [`${STAMPED} >= ${soqlInstant(window.from)}`]
+              : []),
+          ]
+        : [];
+    const where = asked.natural || read.where?.trim() === '' ? undefined : read.where;
+
+    const stratumField =
+      read.stratifiedBy !== undefined && (asked.stratum !== undefined || asked.values)
+        ? this.fieldOf(object, read.stratifiedBy)
+        : undefined;
+    // None of a stratum is a field held to `= null`: tested here too, past the org's time.
+    const none = asked.stratum?.value === null;
+    const stratumTerms =
+      asked.stratum !== undefined && stratumField !== undefined && !(none && slow)
+        ? [stratumTermOf(stratumField, asked.stratum.value)]
+        : [];
+
+    const checks: Array<(row: SourceRow) => boolean> = [];
+    if (windowHere && window && windowField) {
+      checks.push((row) => inWindow(row[windowField], window));
+    }
+    if (none && slow && stratumField !== undefined) {
+      checks.push((row) => stratumOf(row[stratumField]) === null);
+    }
     return {
       object,
-      select: this.columnsOf(
-        object,
-        tested.map((carrier) => carrier.field),
-      ),
-      terms: [...this.termsOf(object), ...held.map((carrier) => `${carrier.field} = null`)],
-      held: held.length > 0,
-      tested: tested.length > 0,
-      isRoot: (row) => !tested.some((carrier) => names(row[carrier.field], carrier.prefixes)),
+      select: this.columnsOf(object, [
+        ...tested.map((carrier) => carrier.field),
+        ...(windowHere && windowField ? [windowField] : []),
+        ...(stratumField !== undefined && (asked.values || (none && slow)) ? [stratumField] : []),
+      ]),
+      terms: [
+        ...this.termsOf(object),
+        ...held.map((carrier) => `${carrier.field} = null`),
+        ...windowTerms,
+        ...(where !== undefined ? [conditionTermOf(where)] : []),
+        ...stratumTerms,
+      ],
+      held:
+        held.length > 0 ||
+        (modified && windowTerms.length > 0) ||
+        (none && stratumTerms.length > 0),
+      tested: tested.length > 0 || checks.length > 0,
+      isRoot: (row) =>
+        !tested.some((carrier) => names(row[carrier.field], carrier.prefixes)) &&
+        checks.every((check) => check(row)),
     };
   }
 
   /**
    * Count the roots of each object, six objects at a time: what prices the
-   * read of their ids before one is read. A count whose `= null` runs past
-   * the org's time is made again without it — every row of the object — and
-   * the object read without it from then on.
+   * read of their ids before one is read. A count whose `= null`, or whose
+   * window on the date of the last change, runs past the org's time is made
+   * again without them — every row of the object, or of the window's other
+   * terms — and the object read without them from then on. An object
+   * stratified is counted by the values of its field; one restricted by a
+   * window or a condition is counted again without them, a request more.
+   *
+   * @throws `SAMPLE_DRAW_INVALID` when the org refuses the count of a draw
+   *   restricted or stratified in its own words — a condition it cannot
+   *   read, a field it will not group by —, or its field has more values
+   *   than one answer holds.
    */
   async countRoots(reads: readonly RootRead[]): Promise<RootCount[]> {
     const counts: RootCount[] = new Array<RootCount>(reads.length);
@@ -567,6 +822,12 @@ export class SampleSourceReader {
       const count = await this.countRootsOf(read);
       counts[index] = count;
       this.counted.set(read.objectApiName, count.rows);
+      if (count.strata) {
+        this.countedStrata.set(
+          read.objectApiName,
+          new Map(count.strata.map((stratum) => [stratumKeyOf(stratum.value), stratum.rows])),
+        );
+      }
       done++;
       this.progress('counting', { objectApiName: read.objectApiName, done, total: reads.length });
     });
@@ -576,30 +837,203 @@ export class SampleSourceReader {
   private async countRootsOf(read: RootRead): Promise<RootCount> {
     const objectApiName = read.objectApiName;
     const options = this.readOptionsOf(objectApiName);
-    const first = this.rootShapeOf(read);
-    const countOf = (shape: RootShape): Promise<number> =>
-      this.count(`SELECT COUNT() FROM ${shape.object}${whereOf(shape.terms)}`, options);
-    if (!this.slow.has(objectApiName)) {
+    if (read.stratifiedBy !== undefined) this.refuseUngroupedStratum(read, read.stratifiedBy);
+    let timedOut = false;
+    for (;;) {
+      const shape = this.rootShapeOf(read);
+      let drawn: { rows: number; strata?: Array<{ value: StratumValue; rows: number }> };
       try {
-        const rows = await countOf(first);
-        return { objectApiName, rows, exact: !first.tested };
+        drawn =
+          read.stratifiedBy === undefined
+            ? {
+                rows: await this.count(
+                  `SELECT COUNT() FROM ${shape.object}${whereOf(shape.terms)}`,
+                  options,
+                ),
+              }
+            : await this.countByStratum(read, read.stratifiedBy, shape, options);
       } catch (error) {
-        if (!first.held || !ranPastItsTime(error)) throw error;
+        if (timedOut || !shape.held || !ranPastItsTime(error)) {
+          throw this.drawRefusalOf(read, error);
+        }
+        timedOut = true;
         this.slow.add(objectApiName);
+        continue;
+      }
+      const inTheSource = this.restricts(read)
+        ? await this.countInTheSource(read, {
+            terms: shape.terms,
+            rows: drawn.rows,
+            exact: !shape.tested,
+          })
+        : undefined;
+      return {
+        objectApiName,
+        rows: drawn.rows,
+        exact: !shape.tested,
+        ...(timedOut ? { timedOut: true as const } : {}),
+        ...(drawn.strata ? { strata: drawn.strata } : {}),
+        ...(inTheSource ? { inTheSource } : {}),
+      };
+    }
+  }
+
+  /** Whether a window or a condition restricts the roots of `read`: its roots of the source are then counted apart. */
+  private restricts(read: RootRead): boolean {
+    return read.window !== undefined || (read.where !== undefined && read.where.trim() !== '');
+  }
+
+  /**
+   * The roots of `read` in the source, its window and condition left out: a
+   * count of its own, which runs past the org's time apart from the draw's —
+   * made again without its nulls, the draw's reads unchanged. None is sent
+   * when the draw's count held the same terms — a window on the date of the
+   * last change tested here, and no condition —: its rows are the source's.
+   */
+  private async countInTheSource(
+    read: RootRead,
+    drawn: { terms: readonly string[]; rows: number; exact: boolean },
+  ): Promise<RootCount['inTheSource']> {
+    const options = this.readOptionsOf(read.objectApiName);
+    let slow = this.slow.has(read.objectApiName);
+    for (;;) {
+      const shape = this.rootShapeOf(read, { natural: true, slow });
+      if (shape.terms.join('\n') === drawn.terms.join('\n')) {
+        return { rows: drawn.rows, exact: drawn.exact };
+      }
+      try {
+        const rows = await this.count(
+          `SELECT COUNT() FROM ${shape.object}${whereOf(shape.terms)}`,
+          options,
+        );
+        return { rows, exact: !shape.tested };
+      } catch (error) {
+        if (slow || !shape.held || !ranPastItsTime(error)) throw error;
+        slow = true;
       }
     }
-    const rows = await countOf(this.rootShapeOf(read));
-    return { objectApiName, rows, exact: false, timedOut: true };
+  }
+
+  /**
+   * The roots of `read` by the values of `field`, `SELECT F, COUNT(Id) n …
+   * GROUP BY F`, a group of none among them: the first answer alone. An
+   * answer that holds {@link ROWS_PER_PAGE} values or more, or has a next
+   * page, is refused rather than cut: an aggregate is not paged on (a next
+   * page asked is refused), and a stratum left out would draw no root of it.
+   */
+  private async countByStratum(
+    read: RootRead,
+    field: string,
+    shape: RootShape,
+    options: SampleReadOptions | undefined,
+  ): Promise<{ rows: number; strata: Array<{ value: StratumValue; rows: number }> }> {
+    const by = this.fieldOf(shape.object, field);
+    const soql = `SELECT ${by}, COUNT(Id) n FROM ${shape.object}${whereOf(shape.terms)} GROUP BY ${by}`;
+    const rows: SourceRow[] = [];
+    let pages = 0;
+    try {
+      for await (const page of this.pages(soql, options)) {
+        pages++;
+        if (pages > 1) break;
+        for (const row of page) rows.push(row);
+      }
+    } catch (error) {
+      if (pages === 0) throw error;
+      // Its next page refused: an aggregate of more than one answer.
+      pages = 2;
+    }
+    if (pages > 1 || rows.length >= ROWS_PER_PAGE) {
+      throw this.drawRefused(
+        read,
+        `${read.objectApiName}.${field} has too many values among the roots of the draw to ` +
+          `stratify them: the source counts them in one answer of fewer than ${ROWS_PER_PAGE}, ` +
+          `and this one ${pages > 1 ? 'had more after it' : `held ${rows.length}`}.`,
+      );
+    }
+    const strata: Array<{ value: StratumValue; rows: number }> = [];
+    for (const row of rows) {
+      const n = Number(row['n']);
+      if (Number.isFinite(n)) strata.push({ value: stratumOf(row[by]), rows: n });
+    }
+    return { rows: strata.reduce((sum, stratum) => sum + stratum.rows, 0), strata };
+  }
+
+  /**
+   * Refuse, before a request, a stratum the describe says the source does
+   * not count by (`countsBy`): its id not `aggregatable`, the field not
+   * `groupable`.
+   */
+  private refuseUngroupedStratum(read: RootRead, field: string): void {
+    if (this.options.countsBy?.(read.objectApiName, field) !== false) return;
+    throw this.drawRefused(
+      read,
+      `The source's describe says the records of ${read.objectApiName} are not counted by ` +
+        `${field}.`,
+    );
+  }
+
+  /**
+   * The refusal of a draw the source would not count, in its own words —
+   * `error` as the org gave it —, or `error` itself: a refusal of a count of
+   * roots neither restricted nor stratified, or a failure of another kind.
+   */
+  private drawRefusalOf(read: RootRead, error: unknown): unknown {
+    const code = extractErrorCode(extractErrorMessage(error));
+    if (code === undefined || !DRAW_REFUSALS.has(code)) return error;
+    if (!this.restricts(read) && read.stratifiedBy === undefined) return error;
+    return this.drawRefused(
+      read,
+      `The source refused to count the roots of ${read.objectApiName} in the draw: ` +
+        extractErrorMessage(error),
+    );
+  }
+
+  /**
+   * A draw refused before a root is read (`SAMPLE_DRAW_INVALID`): `reason`,
+   * what the counts sent, and the ways on the draw's own options give.
+   */
+  private drawRefused(read: RootRead, reason: string): ForgeRunGateError {
+    const object = read.objectApiName;
+    const ways: string[] = [];
+    if (read.where !== undefined) {
+      ways.push(
+        `The source reads the condition of its roots (--fit-where ${object}=…) as it is ` +
+          'written: its fields are those of the object, and with the filter it holds two ' +
+          'semi-joins at most, none in parentheses an OR is part of.',
+      );
+    }
+    if (read.stratifiedBy !== undefined) {
+      ways.push(
+        `Stratify ${object} by a field of few values the source groups by — a picklist, a ` +
+          `checkbox, a record type or an owner (--fit-strata ${object}.<Field>) —, or narrow ` +
+          `its roots first (--fit-where ${object}=…).`,
+      );
+    }
+    return new ForgeRunGateError(
+      SAMPLE_DRAW_INVALID,
+      [
+        sentenceOf(reason),
+        `Nothing was written, and the counts sent ${this.sent} request(s) of the source.`,
+        ...ways,
+      ].join(' '),
+      undefined,
+      undefined,
+      undefined,
+      { sample: { requests: this.sent } },
+    );
   }
 
   /**
    * Read every root id of each object, six objects at a time, and hand each
    * page's roots to `onRoots` as it comes: no more than a page of each is
-   * held. An object counted to hold none is not read.
+   * held. An object counted to hold none is not read. Of an object
+   * stratified, each root is read with the value of its field, and a page's
+   * roots handed on by value, the value third: `null` for those of none,
+   * never left out as it is of an object not stratified.
    */
   async drawUniform(
     reads: readonly RootRead[],
-    onRoots: (objectApiName: string, ids: string[]) => void | Promise<void>,
+    onRoots: (objectApiName: string, ids: string[], stratum?: StratumValue) => void | Promise<void>,
   ): Promise<void> {
     let done = 0;
     await eachInPool(reads, async (read) => {
@@ -610,25 +1044,33 @@ export class SampleSourceReader {
   }
 
   /**
-   * Every root of one object, a page at a time. A read whose `= null` runs
-   * past the org's time before its first page is read again without it; past
+   * Every root of one object, a page at a time. A read whose terms run past
+   * the org's time before its first page is read again without them; past
    * its first page, it has handed roots on, and fails rather than hand them
    * twice.
    */
   private async scanRoots(
     read: RootRead,
-    onRoots: (objectApiName: string, ids: string[]) => void | Promise<void>,
+    onRoots: (objectApiName: string, ids: string[], stratum?: StratumValue) => void | Promise<void>,
   ): Promise<void> {
     const options = this.readOptionsOf(read.objectApiName);
+    const field = read.stratifiedBy;
     for (;;) {
-      const shape = this.rootShapeOf(read);
+      const shape = this.rootShapeOf(read, field === undefined ? {} : { values: true });
       const soql = `SELECT ${shape.select.join(', ')} FROM ${shape.object}${whereOf(shape.terms)}`;
       let answered = false;
       try {
         for await (const page of this.pages(soql, options)) {
           answered = true;
-          const ids = page.filter(shape.isRoot).map((row) => String(row['Id']));
-          if (ids.length > 0) await onRoots(read.objectApiName, ids);
+          const roots = page.filter(shape.isRoot);
+          if (field === undefined) {
+            const ids = roots.map((row) => String(row['Id']));
+            if (ids.length > 0) await onRoots(read.objectApiName, ids);
+            continue;
+          }
+          for (const { value, ids } of byStratum(roots, field)) {
+            await onRoots(read.objectApiName, ids, value);
+          }
         }
         return;
       } catch (error) {
@@ -639,86 +1081,90 @@ export class SampleSourceReader {
   }
 
   /**
-   * Read the newest roots of each object first, as many as each `take`s, six
-   * objects at a time, and hand them to `onRoots` in that order: by the date
-   * each record was made, `ORDER BY CreatedDate DESC, Id DESC`, statements of
-   * up to {@link ROWS_PER_PAGE} rows, each after the date and id of the last
-   * row the one before read — never by an offset, which the org refuses past
+   * Read the roots of each object by the date each was made, the newest
+   * first (`recent`) or the oldest (`oldest`), as many as each `take`s, six
+   * objects at a time, and hand them to `onRoots` in that order: `ORDER BY
+   * CreatedDate DESC, Id DESC` or `ASC, Id ASC`, statements of up to
+   * {@link ROWS_PER_PAGE} rows, each after the date and id of the last row
+   * the one before read — never by an offset, which the org refuses past
    * 2 000. Not by their ids alone: an object's ids follow the making of its
    * records within a load, not from one load to the next, and a scratch org
    * had none of its ten newest contacts among the ten greatest ids. An
    * object with no creation date it orders by is read by its ids, and the
-   * answer says so. What is read is what is kept, but for the rows a lookup
-   * tested here takes out.
+   * answer says so. What is read is what is kept, but for the rows a term
+   * tested here takes out. Of an object stratified, each value is read by
+   * statements of its own, `AND <field> = <value>`, as many as it takes, and
+   * its roots handed on with it; a value counted to hold none is not read.
    */
-  async drawRecent(
-    reads: readonly RecentRootRead[],
-    onRoots: (objectApiName: string, ids: string[]) => void | Promise<void>,
+  async drawByDate(
+    reads: readonly DatedRootRead[],
+    draw: Exclude<ForgeSampleDraw, 'uniform'>,
+    onRoots: (objectApiName: string, ids: string[], stratum?: StratumValue) => void | Promise<void>,
   ): Promise<RecentDraw[]> {
     const drawn = reads.map((read) => ({
       objectApiName: read.objectApiName,
-      by: this.newestBy(read.objectApiName),
+      by: this.orderedBy(read.objectApiName),
     }));
     let done = 0;
     await eachInPool(reads, async (read, index) => {
-      if (read.take > 0 && this.counted.get(read.objectApiName) !== 0) {
-        await this.newestRoots(read, drawn[index].by, onRoots);
+      const object = read.objectApiName;
+      if (this.counted.get(object) !== 0) {
+        const by = drawn[index].by;
+        if (typeof read.take === 'number') {
+          if (read.take > 0) await this.rootsByDate(read, draw, by, read.take, undefined, onRoots);
+        } else {
+          const counted = this.countedStrata.get(object);
+          for (const stratum of read.take) {
+            if (stratum.take <= 0 || counted?.get(stratumKeyOf(stratum.value)) === 0) continue;
+            await this.rootsByDate(read, draw, by, stratum.take, stratum, onRoots);
+          }
+        }
       }
       done++;
-      this.progress('drawing', { objectApiName: read.objectApiName, done, total: reads.length });
+      this.progress('drawing', { objectApiName: object, done, total: reads.length });
     });
     return drawn;
   }
 
   /**
-   * How the newest records of `objectApiName` are found: by the date each was
-   * made, when its describe lists one the org orders by; by its ids otherwise.
+   * How the records of `objectApiName` are told apart by date: by the date
+   * each was made, when its describe lists one the org orders by; by its ids
+   * otherwise.
    */
-  private newestBy(objectApiName: string): RecentDraw['by'] {
-    const listed = this.options.fieldsOf(objectApiName) ?? [];
-    const dated = listed.some((field) => field.toLowerCase() === CREATED.toLowerCase());
-    return dated && this.options.sorts?.(objectApiName, CREATED) !== false ? 'created' : 'id';
+  private orderedBy(objectApiName: string): RecentDraw['by'] {
+    return this.lists(objectApiName, CREATED) &&
+      this.options.sorts?.(objectApiName, CREATED) !== false
+      ? 'created'
+      : 'id';
   }
 
   /**
-   * Whether the newest records of `objectApiName` are read a second apart: by
-   * their creation date, under a filter that holds a semi-join, beside which
-   * the org takes no OR. Each page past the first then costs a request more
-   * ({@link rootScanRequestsOf}).
+   * The `take` roots of one object, or of one value of its stratum, by date.
+   * Past a page, the next statement starts after the last row read: `(d <
+   * :d OR (d = :d AND Id < :id))` of the newest, `>` of the oldest, rows made
+   * in the same second ordered by their ids. The OR is a term of the
+   * statement's AND, beside the semi-joins a filter or a condition holds: a
+   * scratch org took it so, and read the same rows as one sorted here.
    */
-  readsNewestApart(objectApiName: string): boolean {
-    const filter = this.options.filterOf?.(objectApiName);
-    return (
-      this.newestBy(objectApiName) === 'created' && filter !== undefined && holdsSemiJoin(filter)
-    );
-  }
-
-  /**
-   * The newest roots of one object. Past a page, the next statement starts
-   * after the last row read: `(CreatedDate < :d OR (CreatedDate = :d AND Id <
-   * :id))`, rows made in the same second ordered by their ids. Under a filter
-   * that holds a semi-join, the org takes no OR: the rest of the last second
-   * is read on its own, `CreatedDate = :d AND Id < :id`, and the rows made
-   * before it after, `CreatedDate < :d`.
-   */
-  private async newestRoots(
-    read: RecentRootRead,
+  private async rootsByDate(
+    read: RootRead,
+    draw: Exclude<ForgeSampleDraw, 'uniform'>,
     by: RecentDraw['by'],
-    onRoots: (objectApiName: string, ids: string[]) => void | Promise<void>,
+    take: number,
+    stratum: StratumTake | undefined,
+    onRoots: (objectApiName: string, ids: string[], stratum?: StratumValue) => void | Promise<void>,
   ): Promise<void> {
     const object = read.objectApiName;
     const options = this.readOptionsOf(object);
-    const apart = this.readsNewestApart(object);
     let given = 0;
     let last: { at: string; id: string } | undefined;
-    let sameSecond = false;
-    while (given < read.take) {
-      const shape = this.rootShapeOf(read);
-      // Every row a root but where a lookup is tested here: a statement of a page then.
-      const limit = shape.tested ? ROWS_PER_PAGE : Math.min(ROWS_PER_PAGE, read.take - given);
+    while (given < take) {
+      const shape = this.rootShapeOf(read, stratum === undefined ? {} : { stratum });
+      // Every row a root but where a term is tested here: a statement of a page then.
+      const limit = shape.tested ? ROWS_PER_PAGE : Math.min(ROWS_PER_PAGE, take - given);
       const select =
         by === 'created' ? this.columnsOf(object, [...shape.select, CREATED]) : shape.select;
-      const { after, order } = afterTheLast(by, last, apart, sameSecond);
+      const { after, order } = afterTheLast(by, draw, last);
       const soql =
         `SELECT ${select.join(', ')} FROM ${shape.object}${whereOf([...shape.terms, ...after])}` +
         ` ORDER BY ${order} LIMIT ${limit}`;
@@ -733,18 +1179,13 @@ export class SampleSourceReader {
       const ids = rows
         .filter(shape.isRoot)
         .map((row) => String(row['Id']))
-        .slice(0, read.take - given);
+        .slice(0, take - given);
       given += ids.length;
-      if (ids.length > 0) await onRoots(object, ids);
-      if (rows.length < limit) {
-        // The rest of a second read apart is done: the rows made before it come next.
-        if (!(apart && sameSecond)) return;
-        sameSecond = false;
-        continue;
+      if (ids.length > 0) {
+        await (stratum === undefined ? onRoots(object, ids) : onRoots(object, ids, stratum.value));
       }
-      const tail = rows[rows.length - 1];
-      last = lastRowOf(object, tail, by);
-      sameSecond = apart;
+      if (rows.length < limit) return;
+      last = lastRowOf(object, rows[rows.length - 1], by);
     }
   }
 
@@ -885,7 +1326,7 @@ export class SampleSourceReader {
     const field = this.fieldOf(object, read.field);
     const cap = read.cap;
     // Under a cap, the newest are kept by the date each was made, read with them.
-    const by = this.newestBy(object);
+    const by = this.orderedBy(object);
     const dated = cap !== 'all' && by === 'created';
     const columns = this.columnsOf(object, [field, ...read.columns, ...(dated ? [CREATED] : [])]);
     const parents = idsOnce(read.parentIds);
@@ -1055,31 +1496,51 @@ function newestOrderOf(by: RecentDraw['by']): string {
 }
 
 /**
- * What a statement of the newest records of an object holds after `last`,
- * beside the roots' own terms, and its order: see
- * `SampleSourceReader.newestRoots`. Every date is the org's own, to the
- * second, and no term is a semi-join.
+ * What a statement of the roots of an object read by date holds after
+ * `last`, beside the roots' own terms, and its order: see
+ * `SampleSourceReader.rootsByDate`. The newest are read down from the
+ * latest, the oldest up from the first, ties by id either way. Every date is
+ * the org's own, to the second.
  */
 function afterTheLast(
   by: RecentDraw['by'],
+  draw: Exclude<ForgeSampleDraw, 'uniform'>,
   last: { at: string; id: string } | undefined,
-  apart: boolean,
-  sameSecond: boolean,
 ): { after: string[]; order: string } {
-  const newest = newestOrderOf('created');
+  const down = draw === 'recent';
+  const past = down ? '<' : '>';
+  const way = down ? 'DESC' : 'ASC';
   if (by === 'id') {
-    return { after: last ? [`Id < '${last.id}'`] : [], order: newestOrderOf('id') };
+    return { after: last ? [`Id ${past} '${last.id}'`] : [], order: `Id ${way}` };
   }
-  if (!last) return { after: [], order: newest };
-  if (!apart) {
-    return {
-      after: [`(${CREATED} < ${last.at} OR (${CREATED} = ${last.at} AND Id < '${last.id}'))`],
-      order: newest,
-    };
+  const order = `${CREATED} ${way}, Id ${way}`;
+  if (!last) return { after: [], order };
+  return {
+    after: [
+      `(${CREATED} ${past} ${last.at} OR (${CREATED} = ${last.at} AND Id ${past} '${last.id}'))`,
+    ],
+    order,
+  };
+}
+
+/**
+ * The ids of `rows` by the value of their `field`, each value once, in the
+ * order their first row came: what a page of roots of an object stratified
+ * hands on.
+ */
+function byStratum(
+  rows: readonly SourceRow[],
+  field: string,
+): Array<{ value: StratumValue; ids: string[] }> {
+  const groups = new Map<string, { value: StratumValue; ids: string[] }>();
+  for (const row of rows) {
+    const value = stratumOf(row[field]);
+    const key = stratumKeyOf(value);
+    const group = groups.get(key) ?? { value, ids: [] };
+    group.ids.push(String(row['Id']));
+    groups.set(key, group);
   }
-  return sameSecond
-    ? { after: [`${CREATED} = ${last.at}`, `Id < '${last.id}'`], order: 'Id DESC' }
-    : { after: [`${CREATED} < ${last.at}`], order: newest };
+  return [...groups.values()];
 }
 
 /**
@@ -1175,23 +1636,32 @@ function newestOf(
 
 /**
  * The requests reading an object's roots sends once they are counted: the
- * pages of every root (`uniform`), or the statements of the `take` newest
- * (`recent`), each of up to {@link ROWS_PER_PAGE} rows — and, read a second
- * apart (`SampleSourceReader.readsNewestApart`), the rest of each page's last
- * second besides. None for an object counted to hold none. Of a count that
- * is not exact, the newest are priced as if every row read were a root: the
- * read goes on past the rows it tests out, and sends what it sends.
+ * pages of every root (`uniform`), stratified or not; or the statements of
+ * the `take` newest or oldest (`recent`, `oldest`), each of up to
+ * {@link ROWS_PER_PAGE} rows — of an object stratified, those of each value
+ * it takes, one at least of each value counted to hold a root. None for an
+ * object, or a value, counted to hold none. Of a count that is not exact,
+ * the roots by date are priced as if every row read were a root: the read
+ * goes on past the rows it tests out, and sends what it sends.
  */
 export function rootScanRequestsOf(
   count: RootCount,
   draw: ForgeSampleDraw,
-  take = 0,
-  apart = false,
+  take: DatedRootRead['take'] = 0,
 ): number {
   if (count.rows <= 0) return 0;
   if (draw === 'uniform') return Math.ceil(count.rows / ROWS_PER_PAGE);
-  const pages = Math.ceil(Math.min(Math.max(0, take), count.rows) / ROWS_PER_PAGE);
-  return apart ? pages + Math.max(0, pages - 1) : pages;
+  const pagesOf = (wanted: number, rows: number): number =>
+    Math.ceil(Math.min(Math.max(0, wanted), rows) / ROWS_PER_PAGE);
+  if (typeof take === 'number') return pagesOf(take, count.rows);
+  const counted = new Map(
+    (count.strata ?? []).map((stratum) => [stratumKeyOf(stratum.value), stratum.rows]),
+  );
+  return take.reduce(
+    (sum, stratum) =>
+      sum + pagesOf(stratum.take, counted.get(stratumKeyOf(stratum.value)) ?? stratum.take),
+    0,
+  );
 }
 
 /** How a run reads the records of one object of its plan, and what it costs. */

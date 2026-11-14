@@ -13,18 +13,32 @@
  * - a request line longer than the org holds, measured as it goes on the
  *   wire, each quote as `%27`: a scratch org answered 18 658 characters and
  *   refused 18 676, with a 431 (`ERROR_HTTP_431`);
- * - a third semi-join in a statement, or one beside an OR, in the words a
- *   scratch org answered them with (`EXCEEDED_MAX_SEMIJOIN_SUBSELECTS`,
- *   `MALFORMED_QUERY`);
+ * - a third semi-join in a statement (`EXCEEDED_MAX_SEMIJOIN_SUBSELECTS`),
+ *   or one an OR is applied to (`MALFORMED_QUERY`), in the words a scratch
+ *   org answered them with: `sj OR x` is "not allowed with the 'OR'
+ *   operator", and a semi-join in parentheses an OR is part of, `(sj AND x)
+ *   OR y` or `x AND (sj OR y)`, is "only allowed at the top level WHERE
+ *   expressions". An OR beside one is taken: a scratch org answered `sj AND
+ *   (d > :d OR (d = :d AND Id > :id))`, with one semi-join or two, or a
+ *   `NOT IN`, and an OR within the semi-join's own WHERE — and `(sj)` alone
+ *   in parentheses. A semi-join in parentheses that hold an AND and no OR,
+ *   `(sj AND x) AND y`, was never asked of an org: it is answered here, as
+ *   before, and the reads of a sample do not send it;
+ * - a date alone compared to a date-time field (`INVALID_FIELD`), as the
+ *   memory org reads it (`memorySoql.ts`);
  * - `COUNT(Id)` of feed items grouped by a field, which a scratch org
  *   refused (`MALFORMED_QUERY`, the id "does not support aggregate operator
- *   COUNT");
+ *   COUNT"), and a grouping by a field it cannot group by — a long text, as
+ *   a scratch org refused `GROUP BY Description` of its accounts
+ *   (`MALFORMED_QUERY`, "can not be grouped in a query call");
  * - an offset past 2 000 (`NUMBER_OUTSIDE_VALID_RANGE`), as Salesforce
  *   documents it and as Autopilot met it past the two thousandth row;
- * - of an object it is told is slow, a statement that holds a lookup to
+ * - of an object it is told is slow, a statement that holds a field to
  *   `= null`: a filter no index serves on a table of millions, which the org
  *   runs past its time and answers `QUERY_TIMEOUT` — in Salesforce's
- *   documented words, never yet met on a test org.
+ *   documented words, never yet met on a test org; and alike, of an object
+ *   it is told is slow on it, a statement that compares `LastModifiedDate`,
+ *   which no index serves either.
  *
  * A query leaves out the deleted rows and the archived activities;
  * `queryAll` answers both. A cursor answers `pageSize` rows a page, 2 000
@@ -85,6 +99,52 @@ function withoutLiterals(soql: string): string {
   return soql.replace(/'(?:[^'\\]|\\.)*'/g, "''");
 }
 
+/** A semi-join, `IN (SELECT Column FROM Object [WHERE …])`: its column, its object and its WHERE. */
+const SEMI_JOIN = /\bIN\s*\(\s*SELECT\s+(\w+)\s+FROM\s+(\w+)((?:\s+WHERE\s+[^()]+)?)\s*\)/gi;
+
+/** What stands in for a semi-join when where it stands is read. */
+const SEMI_JOIN_MARK = '§';
+
+/**
+ * Why the org refuses where the semi-joins of `soql` stand, or undefined
+ * when it takes them: one an OR of the top level applies to, or one in
+ * parentheses an OR is part of — its own or one around them. See the
+ * module's comment for what a scratch org answered.
+ */
+function semiJoinPlacementRefusal(soql: string): Error | undefined {
+  const marked = withoutLiterals(soql).replace(SEMI_JOIN, SEMI_JOIN_MARK);
+  const where = /\bWHERE\b(.*?)(?:\b(?:ORDER BY|GROUP BY|LIMIT|OFFSET)\b|$)/i.exec(marked)?.[1];
+  if (where === undefined || !where.includes(SEMI_JOIN_MARK)) return undefined;
+  interface Level {
+    or: boolean;
+  }
+  const top: Level = { or: false };
+  const open: Level[] = [top];
+  const marks: Level[][] = [];
+  for (const token of where.match(/[()]|§|\b(?:AND|OR)\b/gi) ?? []) {
+    if (token === '(') open.push({ or: false });
+    else if (token === ')') open.pop();
+    else if (token === SEMI_JOIN_MARK) marks.push([...open]);
+    else if (token.toUpperCase() === 'OR') open[open.length - 1].or = true;
+  }
+  for (const levels of marks) {
+    if (levels.length === 1 && top.or) {
+      return orgError(
+        'MALFORMED_QUERY',
+        "Semi join sub-selects are not allowed with the 'OR' operator",
+      );
+    }
+    if (levels.length > 1 && levels.some((level) => level.or)) {
+      return orgError(
+        'MALFORMED_QUERY',
+        'Semi join sub-selects are only allowed at the top level WHERE expressions and not ' +
+          'in nested WHERE expressions.',
+      );
+    }
+  }
+  return undefined;
+}
+
 export class SampleSourceOrg {
   /** Rows per object. */
   readonly rows = new Map<string, SoqlRow[]>();
@@ -93,13 +153,21 @@ export class SampleSourceOrg {
    * object not set answers the columns its rows hold, the id and `IsDeleted`.
    */
   readonly columns = new Map<string, readonly string[]>();
-  /** Objects whose statements with a lookup `= null` run past the org's time. */
+  /** Objects whose statements with a field `= null` run past the org's time. */
   readonly slow = new Set<string>();
+  /** Objects whose statements that compare `LastModifiedDate` run past the org's time. */
+  readonly slowOnModified = new Set<string>();
   /**
    * Objects whose ids the org will not count by a field: a scratch org
    * refused `COUNT(Id)` of feed items grouped by their parent.
    */
   readonly uncountedIds = new Set(['FeedItem']);
+  /**
+   * Fields the org will not group by, as `Object.Field`: a scratch org's
+   * describe says a long text is not `groupable`, and it refused `GROUP BY`
+   * the description of its accounts.
+   */
+  readonly ungroupable = new Set(['Account.Description']);
   /**
    * Statements the org refuses besides, by a pattern of their text, with the
    * code and words it refuses them in: a lookup it will not group by.
@@ -227,11 +295,16 @@ export class SampleSourceOrg {
       }
       if (field !== by)
         throw orgError('MALFORMED_QUERY', `Field must be grouped or aggregated: ${field}`);
+      if (this.ungroupable.has(`${object}.${by}`)) {
+        throw orgError('MALFORMED_QUERY', `field '${by}' can not be grouped in a query call`);
+      }
       const rows = this.selected(`SELECT ${field} FROM ${object}${where}`, all);
+      // The rows of no value come as one group, the field null, as a scratch
+      // org answered its accounts of no record type: `{ RecordTypeId: null, n: 1 }`.
       const counts = new Map<string, { value: unknown; n: number }>();
       for (const row of rows) {
-        const value = row[field];
-        const key = String(value);
+        const value = row[field] ?? null;
+        const key = value === null ? '\u0000' : `${typeof value}:${String(value)}`;
         const held = counts.get(key);
         if (held) held.n++;
         else counts.set(key, { value, n: 1 });
@@ -290,24 +363,20 @@ export class SampleSourceOrg {
   /**
    * `soql` with each semi-join, `IN (SELECT Column FROM Object [WHERE …])`,
    * read as the list of what its statement selects; a third one in a
-   * statement, or one beside an OR, refused as a scratch org refused them.
+   * statement, or one an OR applies to, refused as a scratch org refused
+   * them ({@link semiJoinPlacementRefusal}).
    */
   private withSemiJoinsRead(soql: string, all: boolean): string {
-    const semiJoin = /\bIN\s*\(\s*SELECT\s+(\w+)\s+FROM\s+(\w+)((?:\s+WHERE\s+[^()]+)?)\s*\)/gi;
-    const found = soql.match(semiJoin) ?? [];
+    const found = soql.match(SEMI_JOIN) ?? [];
     if (found.length > 2) {
       throw orgError(
         'EXCEEDED_MAX_SEMIJOIN_SUBSELECTS',
         'Maximum 2 semi join sub-selects are allowed',
       );
     }
-    if (found.length > 0 && /\bOR\b/i.test(withoutLiterals(soql.replace(semiJoin, '')))) {
-      throw orgError(
-        'MALFORMED_QUERY',
-        "Semi join sub-selects are not allowed with the 'OR' operator",
-      );
-    }
-    return soql.replace(semiJoin, (_whole, column: string, object: string, where: string) => {
+    const misplaced = semiJoinPlacementRefusal(soql);
+    if (misplaced) throw misplaced;
+    return soql.replace(SEMI_JOIN, (_whole, column: string, object: string, where: string) => {
       const values = this.selected(`SELECT ${column} FROM ${object}${where}`, all)
         .map((row) => row[column])
         .filter((value): value is string => typeof value === 'string');
@@ -321,9 +390,11 @@ export class SampleSourceOrg {
   private selected(statement: string, all: boolean): SoqlRow[] {
     const parsed = parseSoql(statement);
     this.refuseUnknownColumns(statement, parsed.object);
+    const plain = withoutLiterals(statement);
     if (
-      this.slow.has(parsed.object) &&
-      /\b[A-Za-z_]\w* = null\b/.test(withoutLiterals(statement))
+      (this.slow.has(parsed.object) && /\b[A-Za-z_]\w* = null\b/.test(plain)) ||
+      (this.slowOnModified.has(parsed.object) &&
+        /\bLastModifiedDate\s*(?:=|!=|<>|<=|>=|<|>)/i.test(plain))
     ) {
       throw orgError('QUERY_TIMEOUT', 'Your query request was running for too long.');
     }

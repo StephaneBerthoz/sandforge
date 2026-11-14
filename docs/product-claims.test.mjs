@@ -5595,7 +5595,7 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
   assert.match(sample, /_The newest first_: the roots made last, by their creation date/);
   assert.match(
     reader,
-    /const newest = newestOrderOf\('created'\);/,
+    /const down = draw === 'recent';[\s\S]{0,120}const way = down \? 'DESC' : 'ASC';[\s\S]{0,300}const order = `\$\{CREATED\} \$\{way\}, Id \$\{way\}`;/,
     'the newest roots are no longer read by their creation date — re-point this gate',
   );
   assert.match(

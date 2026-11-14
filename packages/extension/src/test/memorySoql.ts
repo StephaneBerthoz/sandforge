@@ -15,6 +15,12 @@
  * - `!=` keeps the rows whose field is empty, `<` and `>` never do;
  * - ascending order puts empty values first, descending last.
  *
+ * And it refuses, as the org does, a date alone compared to a field every
+ * object types as a date-time — `CreatedDate`, `LastModifiedDate`,
+ * `SystemModstamp` —: a scratch org answered `CreatedDate >= 2026-11-13` and
+ * `LastModifiedDate >= 2026-11-13` with `INVALID_FIELD`, in the words kept
+ * here.
+ *
  * Lives under `src/test/`: a helper, not a suite.
  */
 
@@ -50,6 +56,18 @@ const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUMBER = /^-?\d+(?:\.\d+)?$/;
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
+
+/** The fields every object's describe types `datetime`, lower-cased: a date alone is no value of theirs. */
+const DATE_TIME_FIELDS: ReadonlySet<string> = new Set([
+  'createddate',
+  'lastmodifieddate',
+  'systemmodstamp',
+]);
+
+/** An error as jsforce throws the org's: its code on `errorCode` and `name`, the org's words as the message. */
+function refusedByTheOrg(errorCode: string, message: string): Error {
+  return Object.assign(new Error(message), { name: errorCode, errorCode });
+}
 const TOKENS =
   /'(?:[^'\\]|\\.)*'|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})|\d{4}-\d{2}-\d{2}|-?\d+(?:\.\d+)?|!=|<>|<=|>=|[=<>(),]|[A-Za-z_][\w.]*|\S/g;
 
@@ -221,6 +239,13 @@ export function parseSoql(soql: string): SoqlStatement {
       throw new Error(`Unsupported operator ${operator}: ${soql}`);
     }
     const compared = literal();
+    if (compared.kind === 'date' && DATE_TIME_FIELDS.has(field.toLowerCase())) {
+      throw refusedByTheOrg(
+        'INVALID_FIELD',
+        `value of filter criterion for field '${field}' must be of type dateTime and should ` +
+          'not be enclosed in quotes',
+      );
+    }
     const normalised = operator === '<>' ? '!=' : operator;
     if (
       (compared.kind === 'null' || compared.kind === 'boolean') &&

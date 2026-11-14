@@ -529,14 +529,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   const most = rootsTheBudgetHolds(budget.budget.bytes, budget.budget.maxTotal);
   const takes = counts.map((count) => Math.min(count.rows, most));
   const scan = counts.reduce(
-    (sum, count, index) =>
-      sum +
-      rootScanRequestsOf(
-        count,
-        options.draw,
-        takes[index],
-        reader.readsNewestApart(count.objectApiName),
-      ),
+    (sum, count, index) => sum + rootScanRequestsOf(count, options.draw, takes[index]),
     0,
   );
   const left = input.sourceRequestsLeft;
@@ -578,8 +571,9 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   } else {
     const roots = new Map(counts.map((count) => [count.objectApiName, count.rows]));
     const positions = new Map<string, number>();
-    const drawn = await reader.drawRecent(
+    const drawn = await reader.drawByDate(
       reads.map((read, index) => ({ ...read, take: takes[index] })),
+      options.draw,
       (objectApiName, ids) => {
         let position = positions.get(objectApiName) ?? 0;
         for (const id of ids) {

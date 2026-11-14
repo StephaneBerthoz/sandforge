@@ -100,4 +100,24 @@ describe('parseSoql and selectFrom', () => {
       expect(() => parseSoql(soql), soql).toThrow();
     }
   });
+
+  it('refuses a date alone compared to a date-time field, in the code and words a scratch org refused it with', () => {
+    for (const field of ['CreatedDate', 'LastModifiedDate', 'SystemModstamp']) {
+      const soql = `SELECT COUNT() FROM Account WHERE ${field} >= 2026-11-13`;
+      expect(() => parseSoql(soql), soql).toThrow(
+        expect.objectContaining({
+          errorCode: 'INVALID_FIELD',
+          message:
+            `value of filter criterion for field '${field}' must be of type dateTime and ` +
+            'should not be enclosed in quotes',
+        }),
+      );
+    }
+    // The same day as an instant is read, as is a date compared to a field of dates.
+    expect(ids('SELECT Id FROM Account WHERE SystemModstamp >= 2026-10-20T18:59:04Z')).toEqual([
+      A2,
+      A3,
+    ]);
+    expect(() => parseSoql('SELECT Id FROM Task WHERE ActivityDate >= 2026-11-13')).not.toThrow();
+  });
 });

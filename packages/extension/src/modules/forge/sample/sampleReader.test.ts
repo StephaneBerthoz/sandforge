@@ -23,10 +23,48 @@ import {
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
-/** Columns as a scratch org without person accounts or multiple currencies describes them. */
+/**
+ * Columns as a scratch org without person accounts or multiple currencies
+ * describes them; the dates of the last change, the record type, the status
+ * and the flags of a case as the describe of another one gave them.
+ */
 const DESCRIBED: Record<string, string[]> = {
-  Account: ['Id', 'Name', 'ParentId', 'OwnerId', 'CreatedDate', 'IsDeleted'],
-  Contact: ['Id', 'AccountId', 'ReportsToId', 'OwnerId', 'CreatedDate', 'IsDeleted'],
+  Account: [
+    'Id',
+    'Name',
+    'ParentId',
+    'OwnerId',
+    'RecordTypeId',
+    'Description',
+    'BillingCountry',
+    'CreatedDate',
+    'LastModifiedDate',
+    'SystemModstamp',
+    'IsDeleted',
+  ],
+  Contact: [
+    'Id',
+    'AccountId',
+    'ReportsToId',
+    'OwnerId',
+    'MailingCountry',
+    'CreatedDate',
+    'LastModifiedDate',
+    'SystemModstamp',
+    'IsDeleted',
+  ],
+  Case: [
+    'Id',
+    'AccountId',
+    'ContactId',
+    'ParentId',
+    'Status',
+    'IsEscalated',
+    'CreatedDate',
+    'LastModifiedDate',
+    'SystemModstamp',
+    'IsDeleted',
+  ],
   Opportunity: ['Id', 'AccountId', 'CampaignId', 'Pricebook2Id', 'CreatedDate', 'IsDeleted'],
   Task: ['Id', 'WhatId', 'WhoId', 'CreatedDate', 'IsDeleted', 'IsArchived'],
   Pricebook2: ['Id', 'Name', 'IsStandard', 'IsDeleted'],
@@ -239,7 +277,7 @@ describe('the roots of a sample', () => {
 
     const [count] = await reader.countRoots([read]);
     const before = reader.requests;
-    const drawn = await reader.drawRecent([read], onRoots);
+    const drawn = await reader.drawByDate([read], 'recent', onRoots);
 
     const given = ids.get('Account') ?? [];
     expect(drawn).toEqual([{ objectApiName: 'Account', by: 'created' }]);
@@ -263,7 +301,7 @@ describe('the roots of a sample', () => {
     expect(reader.requests - before).toBe(rootScanRequestsOf(count, 'recent', 4_500));
   });
 
-  it('reads the rest of a second apart from the rows made before it, under a filter that holds a semi-join, which takes no OR beside it', async () => {
+  it('reads the page after the last date and id with its OR beside a semi-join of the filter, which stays a term of the statement’s own AND, as a scratch org took it', async () => {
     const org = describedOrg();
     org.add('Account', { Id: fakeId('001', 1), Name: 'A1' });
     const second = (n: number): number => (n > 2_500 ? 8 : n > 1_000 ? 11 : n > 500 ? 10 : 7);
@@ -281,23 +319,41 @@ describe('the roots of a sample', () => {
 
     const [count] = await reader.countRoots([read]);
     const before = reader.requests;
-    await reader.drawRecent([read], onRoots);
+    await reader.drawByDate([read], 'recent', onRoots);
 
     const given = ids.get('Contact') ?? [];
-    expect(reader.readsNewestApart('Contact')).toBe(true);
     expect(given).toHaveLength(2_300);
     expect(given[0]).toBe(fakeId('003', 2_500));
     // Made a second before the last page's last second, under greater ids.
     expect(given.slice(1_999, 2_001)).toEqual([fakeId('003', 501), fakeId('003', 3_000)]);
     expect(given.at(-1)).toBe(fakeId('003', 2_701));
-    const select = `SELECT Id, CreatedDate FROM Contact WHERE (${filter})`;
-    expect(org.sent.slice(1).map((sent) => sent.soql)).toEqual([
+    // The semi-join written bare: never in parentheses beside the other terms.
+    const select = `SELECT Id, CreatedDate FROM Contact WHERE ${filter}`;
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      `SELECT COUNT() FROM Contact WHERE ${filter}`,
       `${select} ORDER BY CreatedDate DESC, Id DESC LIMIT 2000`,
-      `${select} AND CreatedDate = ${literalAt(10)} AND Id < '${fakeId('003', 501)}' ORDER BY Id DESC LIMIT 300`,
-      `${select} AND CreatedDate < ${literalAt(10)} ORDER BY CreatedDate DESC, Id DESC LIMIT 300`,
+      `${select} AND (CreatedDate < ${literalAt(10)} OR (CreatedDate = ${literalAt(10)} AND Id < '${fakeId('003', 501)}')) ORDER BY CreatedDate DESC, Id DESC LIMIT 300`,
     ]);
-    expect(org.sent.some((sent) => / OR /.test(sent.soql))).toBe(false);
-    expect(reader.requests - before).toBe(rootScanRequestsOf(count, 'recent', 2_300, true));
+    expect(reader.requests - before).toBe(rootScanRequestsOf(count, 'recent', 2_300));
+  });
+
+  it('writes a filter that holds a semi-join and an OR of its own in parentheses, which the org then refuses in its words', async () => {
+    const org = describedOrg();
+    accountsAndContacts(org, 2, 1);
+    const filter = 'AccountId IN (SELECT Id FROM Account) OR ReportsToId != null';
+    const reader = readerOf(org, { Contact: filter });
+
+    await expect(
+      reader.countRoots([{ objectApiName: 'Contact', carriers: [] }]),
+    ).rejects.toMatchObject({
+      errorCode: 'MALFORMED_QUERY',
+      message:
+        'Semi join sub-selects are only allowed at the top level WHERE expressions and not in ' +
+        'nested WHERE expressions.',
+    });
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      `SELECT COUNT() FROM Contact WHERE (${filter})`,
+    ]);
   });
 
   it('reads the newest of an object with no creation date it orders by in the order of its ids, and says so', async () => {
@@ -315,7 +371,7 @@ describe('the roots of a sample', () => {
     const { ids, onRoots } = collector();
 
     await reader.countRoots(reads);
-    const drawn = await reader.drawRecent(reads, onRoots);
+    const drawn = await reader.drawByDate(reads, 'recent', onRoots);
 
     expect(drawn).toEqual([
       { objectApiName: 'Region__c', by: 'id' },
@@ -338,7 +394,7 @@ describe('the roots of a sample', () => {
     await reader.drawUniform([read], () => {
       throw new Error('no root to hand on');
     });
-    await reader.drawRecent([{ ...read, take: 10 }], () => {
+    await reader.drawByDate([{ ...read, take: 10 }], 'recent', () => {
       throw new Error('no root to hand on');
     });
 
@@ -368,7 +424,7 @@ describe('the roots of a sample', () => {
     const { ids, onRoots } = collector();
 
     await reader.countRoots([read]);
-    await reader.drawRecent([read], onRoots);
+    await reader.drawByDate([read], 'recent', onRoots);
 
     const given = ids.get('Task') ?? [];
     expect(given).toHaveLength(1_100);
@@ -419,6 +475,616 @@ describe('the roots of a sample', () => {
       { step: 'drawing', done: 1, total: 2, requests: 2 },
       { step: 'drawing', done: 2, total: 2, requests: 3 },
     ]);
+  });
+});
+
+describe('the roots a draw chooses', () => {
+  it('reads the oldest roots first by the date they were made, not by their ids, rows of one second by id, each page after the last date and id', async () => {
+    const org = describedOrg();
+    // Two loads: the accounts of the later one hold the smaller ids, five hundred a second.
+    for (let n = 1; n <= 4_600; n++) {
+      const second = n <= 2_300 ? 10 + Math.floor((n - 1) / 500) : Math.floor((n - 2_301) / 500);
+      org.add('Account', { Id: fakeId('001', n), ParentId: null, CreatedDate: madeAt(second) });
+    }
+    const reader = readerOf(org);
+    const read = { objectApiName: 'Account', carriers: [{ field: 'ParentId' }], take: 2_500 };
+    const { ids, onRoots } = collector();
+
+    const [count] = await reader.countRoots([read]);
+    const before = reader.requests;
+    const drawn = await reader.drawByDate([read], 'oldest', onRoots);
+
+    const given = ids.get('Account') ?? [];
+    expect(drawn).toEqual([{ objectApiName: 'Account', by: 'created' }]);
+    expect(given).toHaveLength(2_500);
+    // The earlier load first, though its ids are the greater, its smallest id first.
+    expect(given.slice(0, 2)).toEqual([fakeId('001', 2_301), fakeId('001', 2_302)]);
+    expect(given.slice(2_299, 2_301)).toEqual([fakeId('001', 4_600), fakeId('001', 1)]);
+    expect(given.at(-1)).toBe(fakeId('001', 200));
+    const select = 'SELECT Id, CreatedDate FROM Account WHERE ParentId = null';
+    const order = 'ORDER BY CreatedDate ASC, Id ASC';
+    expect(org.sent.slice(1).map((sent) => sent.soql)).toEqual([
+      `${select} ${order} LIMIT 2000`,
+      // The first page ended inside a second: its other rows come first.
+      `${select} AND (CreatedDate > ${literalAt(3)} OR (CreatedDate = ${literalAt(3)} AND Id > '${fakeId('001', 4_300)}')) ${order} LIMIT 500`,
+    ]);
+    expect(reader.requests - before).toBe(rootScanRequestsOf(count, 'oldest', 2_500));
+  });
+
+  it('reads the oldest of an object with no creation date it orders by in the order of its ids, the smallest first, and says so', async () => {
+    const org = describedOrg();
+    org.columns.set('Region__c', ['Id', 'Parent__c', 'IsDeleted']);
+    for (let n = 1; n <= 2_100; n++)
+      org.add('Region__c', { Id: fakeId('a0R', n), Parent__c: null });
+    const reader = readerOf(org);
+    const read = { objectApiName: 'Region__c', carriers: [{ field: 'Parent__c' }], take: 2_050 };
+    const { ids, onRoots } = collector();
+
+    await reader.countRoots([read]);
+    const drawn = await reader.drawByDate([read], 'oldest', onRoots);
+
+    expect(drawn).toEqual([{ objectApiName: 'Region__c', by: 'id' }]);
+    expect(ids.get('Region__c')?.slice(0, 2)).toEqual([fakeId('a0R', 1), fakeId('a0R', 2)]);
+    expect(ids.get('Region__c')?.at(-1)).toBe(fakeId('a0R', 2_050));
+    expect(org.sent.slice(1).map((sent) => sent.soql)).toEqual([
+      'SELECT Id FROM Region__c WHERE Parent__c = null ORDER BY Id ASC LIMIT 2000',
+      `SELECT Id FROM Region__c WHERE Parent__c = null AND Id > '${fakeId('a0R', 2_000)}' ORDER BY Id ASC LIMIT 50`,
+    ]);
+  });
+
+  it('holds the roots to a window of the dates they were made in every read of them, and counts the roots of the source without it', async () => {
+    const org = describedOrg();
+    for (let n = 1; n <= 6; n++) {
+      org.add('Account', { Id: fakeId('001', n), ParentId: null, CreatedDate: madeAt(n - 1) });
+    }
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Account',
+      carriers: [{ field: 'ParentId' }],
+      window: { field: 'CreatedDate', from: literalAt(2), to: literalAt(4) },
+    };
+    const uniform = collector();
+    const oldest = collector();
+
+    const [count] = await reader.countRoots([read]);
+    await reader.drawUniform([read], uniform.onRoots);
+    await reader.drawByDate([{ ...read, take: 5 }], 'oldest', oldest.onRoots);
+
+    expect(count).toEqual({
+      objectApiName: 'Account',
+      rows: 2,
+      exact: true,
+      inTheSource: { rows: 6, exact: true },
+    });
+    expect(uniform.ids.get('Account')).toEqual([fakeId('001', 3), fakeId('001', 4)]);
+    expect(oldest.ids.get('Account')).toEqual([fakeId('001', 3), fakeId('001', 4)]);
+    const window = `CreatedDate >= ${literalAt(2)} AND CreatedDate < ${literalAt(4)}`;
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      `SELECT COUNT() FROM Account WHERE ParentId = null AND ${window}`,
+      'SELECT COUNT() FROM Account WHERE ParentId = null',
+      `SELECT Id FROM Account WHERE ParentId = null AND ${window}`,
+      `SELECT Id, CreatedDate FROM Account WHERE ParentId = null AND ${window} ORDER BY CreatedDate ASC, Id ASC LIMIT 5`,
+    ]);
+  });
+
+  it('holds a window of the last change to the stamp an index serves too, where the describe lists it', async () => {
+    const org = describedOrg();
+    org.columns.set('Region__c', ['Id', 'Parent__c', 'LastModifiedDate', 'IsDeleted']);
+    for (let n = 1; n <= 4; n++) {
+      const at = madeAt(n - 1);
+      org.add('Account', {
+        Id: fakeId('001', n),
+        ParentId: null,
+        LastModifiedDate: at,
+        SystemModstamp: at,
+      });
+      org.add('Region__c', { Id: fakeId('a0R', n), Parent__c: null, LastModifiedDate: at });
+    }
+    const reader = readerOf(org);
+    const window = { field: 'LastModifiedDate', from: literalAt(2) } as const;
+
+    const counts = await reader.countRoots([
+      { objectApiName: 'Account', carriers: [{ field: 'ParentId' }], window },
+      { objectApiName: 'Region__c', carriers: [{ field: 'Parent__c' }], window },
+    ]);
+
+    expect(counts.map((count) => count.rows)).toEqual([2, 2]);
+    expect(org.sent.map((sent) => sent.soql)).toEqual(
+      expect.arrayContaining([
+        `SELECT COUNT() FROM Account WHERE ParentId = null AND LastModifiedDate >= ${literalAt(2)} AND SystemModstamp >= ${literalAt(2)}`,
+        `SELECT COUNT() FROM Region__c WHERE Parent__c = null AND LastModifiedDate >= ${literalAt(2)}`,
+      ]),
+    );
+  });
+
+  it('tests a window of the last change on the rows read once it runs past the org’s time, the count no longer exact, and asks the same count once', async () => {
+    const org = describedOrg();
+    org.columns.set('Lead', [
+      'Id',
+      'CreatedDate',
+      'LastModifiedDate',
+      'SystemModstamp',
+      'IsDeleted',
+    ]);
+    for (let n = 1; n <= 6; n++) {
+      const at = madeAt(n - 1);
+      org.add('Lead', {
+        Id: fakeId('00Q', n),
+        CreatedDate: at,
+        LastModifiedDate: at,
+        SystemModstamp: at,
+      });
+    }
+    // Stamped in the window by the platform, changed before it: no root of the draw.
+    org.add('Lead', {
+      Id: fakeId('00Q', 7),
+      CreatedDate: madeAt(0),
+      LastModifiedDate: madeAt(1),
+      SystemModstamp: madeAt(5),
+    });
+    org.slowOnModified.add('Lead');
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Lead',
+      carriers: [],
+      window: { field: 'LastModifiedDate', from: literalAt(2) },
+    };
+    const uniform = collector();
+    const recent = collector();
+
+    const [count] = await reader.countRoots([read]);
+    await reader.drawUniform([read], uniform.onRoots);
+    await reader.drawByDate([{ ...read, take: 3 }], 'recent', recent.onRoots);
+
+    expect(count).toEqual({
+      objectApiName: 'Lead',
+      rows: 7,
+      exact: false,
+      timedOut: true,
+      inTheSource: { rows: 7, exact: false },
+    });
+    expect(uniform.ids.get('Lead')).toEqual([3, 4, 5, 6].map((n) => fakeId('00Q', n)));
+    expect(recent.ids.get('Lead')).toEqual([6, 5, 4].map((n) => fakeId('00Q', n)));
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      `SELECT COUNT() FROM Lead WHERE LastModifiedDate >= ${literalAt(2)} AND SystemModstamp >= ${literalAt(2)}`,
+      'SELECT COUNT() FROM Lead',
+      'SELECT Id, LastModifiedDate FROM Lead',
+      'SELECT Id, LastModifiedDate, CreatedDate FROM Lead ORDER BY CreatedDate DESC, Id DESC LIMIT 2000',
+    ]);
+  });
+
+  it('holds the roots to the condition of their own, a semi-join written as a term of the statement’s AND beside the OR of the next page, and counts the roots of the source without it', async () => {
+    const org = describedOrg();
+    for (let n = 1; n <= 2_100; n++) {
+      org.add('Account', {
+        Id: fakeId('001', n),
+        ParentId: null,
+        CreatedDate: madeAt(Math.floor(n / 700)),
+      });
+      // A case names every account but the last forty.
+      if (n <= 2_060) org.add('Case', { Id: fakeId('500', n), AccountId: fakeId('001', n) });
+    }
+    const where = 'Id IN (SELECT AccountId FROM Case)';
+    const reader = readerOf(org);
+    const read = {
+      objectApiName: 'Account',
+      carriers: [{ field: 'ParentId' }],
+      where,
+      take: 2_050,
+    };
+    const { ids, onRoots } = collector();
+
+    const [count] = await reader.countRoots([read]);
+    await reader.drawByDate([read], 'oldest', onRoots);
+
+    expect(count).toEqual({
+      objectApiName: 'Account',
+      rows: 2_060,
+      exact: true,
+      inTheSource: { rows: 2_100, exact: true },
+    });
+    expect(ids.get('Account')).toHaveLength(2_050);
+    expect(ids.get('Account')?.at(-1)).toBe(fakeId('001', 2_050));
+    const select = `SELECT Id, CreatedDate FROM Account WHERE ParentId = null AND ${where}`;
+    const order = 'ORDER BY CreatedDate ASC, Id ASC';
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      `SELECT COUNT() FROM Account WHERE ParentId = null AND ${where}`,
+      'SELECT COUNT() FROM Account WHERE ParentId = null',
+      `${select} ${order} LIMIT 2000`,
+      `${select} AND (CreatedDate > ${literalAt(2)} OR (CreatedDate = ${literalAt(2)} AND Id > '${fakeId('001', 2_000)}')) ${order} LIMIT 50`,
+    ]);
+  });
+
+  it('never holds the records a draw names, holds or copies whole to the window or the condition of its roots', async () => {
+    const org = describedOrg();
+    for (let n = 1; n <= 4; n++) {
+      org.add('Account', {
+        Id: fakeId('001', n),
+        ParentId: n === 2 ? fakeId('001', 3) : null,
+        BillingCountry: n <= 2 ? 'France' : 'Germany',
+        CreatedDate: madeAt(n),
+      });
+      // Contacts made long before their account, in another country.
+      org.add('Contact', {
+        Id: fakeId('003', n),
+        AccountId: fakeId('001', n),
+        MailingCountry: 'Spain',
+        CreatedDate: madeAt(0),
+      });
+      org.add('Case', {
+        Id: fakeId('500', n),
+        AccountId: fakeId('001', n),
+        CreatedDate: madeAt(0),
+      });
+    }
+    const where = "BillingCountry = 'France'";
+    const window = { field: 'CreatedDate', from: literalAt(1) } as const;
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Account',
+      carriers: [{ field: 'ParentId' }],
+      window,
+      where,
+    };
+    const { ids, onRoots } = collector();
+
+    await reader.countRoots([read]);
+    await reader.drawUniform([read], onRoots);
+    const roots = org.sent.length;
+    const [parents] = await reader.readParents([
+      // The parent of the second account, abroad.
+      { objectApiName: 'Account', ids: [fakeId('001', 3)], columns: ['BillingCountry'] },
+    ]);
+    const [children] = await reader.readChildren([
+      {
+        objectApiName: 'Contact',
+        field: 'AccountId',
+        parentIds: [fakeId('001', 1)],
+        columns: ['MailingCountry'],
+        cap: 100,
+        sourceRows: 4,
+      },
+    ]);
+    const whole: string[] = [];
+    await reader.readWhole([{ objectApiName: 'Case', columns: [] }], (_object, rows) => {
+      whole.push(...rows.map((row) => String(row['Id'])));
+    });
+
+    expect(ids.get('Account')).toEqual([fakeId('001', 1)]);
+    // Every term of the draw in each read of the roots…
+    for (const { soql } of org.sent.slice(0, roots)) {
+      if (soql === 'SELECT COUNT() FROM Account WHERE ParentId = null') continue;
+      expect(soql).toContain(`CreatedDate >= ${literalAt(1)}`);
+      expect(soql).toContain(`(${where})`);
+    }
+    // …and in none of the reads after them.
+    for (const { soql } of org.sent.slice(roots)) {
+      expect(soql).not.toContain('BillingCountry =');
+      expect(soql).not.toContain('CreatedDate >=');
+    }
+    expect(parents.rows.map((row) => row['BillingCountry'])).toEqual(['Germany']);
+    expect(children.rows.map((row) => row['MailingCountry'])).toEqual(['Spain']);
+    expect(whole).toHaveLength(4);
+  });
+
+  it('refuses a draw whose condition the org will not read, in the org’s words, nothing read past the counts', async () => {
+    const org = describedOrg();
+    accountsAndContacts(org, 3);
+    const reader = readerOf(org, {
+      Account: 'Id IN (SELECT AccountId FROM Contact) AND Id IN (SELECT AccountId FROM Case)',
+    });
+
+    const unknown = reader.countRoots([
+      { objectApiName: 'Account', carriers: [{ field: 'ParentId' }], where: "Nope_Field__c = 'x'" },
+    ]);
+    await expect(unknown).rejects.toMatchObject({
+      name: 'ForgeRunGateError',
+      code: 'SAMPLE_DRAW_INVALID',
+      sample: { requests: 1 },
+    });
+    await expect(unknown).rejects.toThrow(
+      "The source refused to count the roots of Account in the draw: INVALID_FIELD: No such column 'Nope_Field__c' on entity 'Account'.",
+    );
+    await expect(unknown).rejects.toThrow(
+      'Nothing was written, and the counts sent 1 request(s) of the source. The source reads the condition of its roots (--fit-where Account=…) as it is written',
+    );
+    // A third semi-join beside the filter's two.
+    await expect(
+      reader.countRoots([
+        {
+          objectApiName: 'Account',
+          carriers: [{ field: 'ParentId' }],
+          where: 'Id IN (SELECT AccountId FROM Opportunity)',
+        },
+      ]),
+    ).rejects.toThrow(
+      'The source refused to count the roots of Account in the draw: EXCEEDED_MAX_SEMIJOIN_SUBSELECTS: Maximum 2 semi join sub-selects are allowed.',
+    );
+    expect(org.sent).toHaveLength(2);
+  });
+
+  it('leaves a refusal of a count neither restricted nor stratified as the org gave it', async () => {
+    const org = describedOrg();
+    accountsAndContacts(org, 3);
+    const reader = readerOf(org, { Account: "Nope_Field__c = 'x'" });
+
+    await expect(
+      reader.countRoots([{ objectApiName: 'Account', carriers: [{ field: 'ParentId' }] }]),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_FIELD' });
+  });
+});
+
+describe('the strata of a draw', () => {
+  /** Accounts of two record types and of none, all roots. */
+  function typedAccounts(org: SampleSourceOrg): void {
+    const types = [fakeId('012', 1), fakeId('012', 1), fakeId('012', 2), null, fakeId('012', 1)];
+    types.forEach((RecordTypeId, index) => {
+      org.add('Account', {
+        Id: fakeId('001', index + 1),
+        ParentId: null,
+        RecordTypeId,
+        CreatedDate: madeAt(index),
+      });
+    });
+  }
+
+  it('counts the roots by the values of the field, those of none as a value of their own', async () => {
+    const org = describedOrg();
+    typedAccounts(org);
+    const reader = readerOf(org);
+
+    const [count] = await reader.countRoots([
+      { objectApiName: 'Account', carriers: [{ field: 'ParentId' }], stratifiedBy: 'RecordTypeId' },
+    ]);
+
+    expect(count).toEqual({
+      objectApiName: 'Account',
+      rows: 5,
+      exact: true,
+      strata: [
+        { value: fakeId('012', 1), rows: 3 },
+        { value: fakeId('012', 2), rows: 1 },
+        { value: null, rows: 1 },
+      ],
+    });
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      'SELECT RecordTypeId, COUNT(Id) n FROM Account WHERE ParentId = null GROUP BY RecordTypeId',
+    ]);
+  });
+
+  it('refuses a stratum the org will not group by, in its words, and one the describe says it does not count by before a request', async () => {
+    const org = describedOrg();
+    typedAccounts(org);
+    const read: RootRead = {
+      objectApiName: 'Account',
+      carriers: [{ field: 'ParentId' }],
+      stratifiedBy: 'Description',
+    };
+
+    const grouped = readerOf(org).countRoots([read]);
+    await expect(grouped).rejects.toMatchObject({
+      code: 'SAMPLE_DRAW_INVALID',
+      sample: { requests: 1 },
+    });
+    await expect(grouped).rejects.toThrow(
+      "in the draw: MALFORMED_QUERY: field 'Description' can not be grouped in a query call.",
+    );
+    await expect(grouped).rejects.toThrow('Stratify Account by a field of few values');
+
+    const sent = org.sent.length;
+    const described = readerOf(org, {}, { countsBy: (_object, field) => field !== 'Description' });
+    await expect(described.countRoots([read])).rejects.toMatchObject({
+      code: 'SAMPLE_DRAW_INVALID',
+      sample: { requests: 0 },
+    });
+    expect(org.sent).toHaveLength(sent);
+  });
+
+  it('refuses a stratum of more values than one answer counts, rather than draw from the first of them', async () => {
+    const org = describedOrg();
+    typedAccounts(org);
+    org.pageSize = 2;
+    const reader = readerOf(org);
+
+    await expect(
+      reader.countRoots([
+        {
+          objectApiName: 'Account',
+          carriers: [{ field: 'ParentId' }],
+          stratifiedBy: 'RecordTypeId',
+        },
+      ]),
+    ).rejects.toThrow(
+      'Account.RecordTypeId has too many values among the roots of the draw to stratify them: ' +
+        'the source counts them in one answer of fewer than 2000, and this one had more after it.',
+    );
+  });
+
+  it('reads every root of an object stratified with its value, and hands a page on value by value', async () => {
+    const org = describedOrg();
+    typedAccounts(org);
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Account',
+      carriers: [{ field: 'ParentId' }],
+      stratifiedBy: 'RecordTypeId',
+    };
+    const given: Array<{ ids: string[]; stratum: unknown }> = [];
+
+    await reader.countRoots([read]);
+    await reader.drawUniform([read], (_object, ids, ...stratum) => {
+      given.push({ ids, stratum });
+    });
+
+    expect(given).toEqual([
+      { ids: [1, 2, 5].map((n) => fakeId('001', n)), stratum: [fakeId('012', 1)] },
+      { ids: [fakeId('001', 3)], stratum: [fakeId('012', 2)] },
+      { ids: [fakeId('001', 4)], stratum: [null] },
+    ]);
+    expect(org.sent.at(-1)?.soql).toBe(
+      'SELECT Id, RecordTypeId FROM Account WHERE ParentId = null',
+    );
+  });
+
+  it('reads the roots of each value of a stratum by date, as many as each takes, its value escaped, none and a value taking none left out', async () => {
+    const org = describedOrg();
+    const statuses = ['New', 'New', 'New', "Won't fix", 'Working', null, null];
+    statuses.forEach((Status, index) => {
+      org.add('Case', {
+        Id: fakeId('500', index + 1),
+        AccountId: null,
+        Status,
+        CreatedDate: madeAt(index),
+      });
+    });
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Case',
+      carriers: [{ field: 'AccountId' }],
+      stratifiedBy: 'Status',
+    };
+    const take = [
+      { value: 'New', take: 2 },
+      { value: "Won't fix", take: 1 },
+      { value: 'Working', take: 0 },
+      { value: null, take: 1 },
+    ];
+    const given: Array<{ ids: string[]; stratum: unknown }> = [];
+
+    const [count] = await reader.countRoots([read]);
+    const before = reader.requests;
+    await reader.drawByDate([{ ...read, take }], 'recent', (_object, ids, stratum) => {
+      given.push({ ids, stratum });
+    });
+
+    expect(given).toEqual([
+      { ids: [fakeId('500', 3), fakeId('500', 2)], stratum: 'New' },
+      { ids: [fakeId('500', 4)], stratum: "Won't fix" },
+      { ids: [fakeId('500', 7)], stratum: null },
+    ]);
+    const select = 'SELECT Id, CreatedDate FROM Case WHERE AccountId = null';
+    const order = 'ORDER BY CreatedDate DESC, Id DESC';
+    expect(org.sent.slice(1).map((sent) => sent.soql)).toEqual([
+      `${select} AND Status = 'New' ${order} LIMIT 2`,
+      `${select} AND Status = 'Won\\'t fix' ${order} LIMIT 1`,
+      `${select} AND Status = null ${order} LIMIT 1`,
+    ]);
+    expect(reader.requests - before).toBe(rootScanRequestsOf(count, 'recent', take));
+  });
+
+  it('writes a checkbox of a stratum bare', async () => {
+    const org = describedOrg();
+    for (let n = 1; n <= 3; n++) {
+      org.add('Case', {
+        Id: fakeId('500', n),
+        AccountId: null,
+        IsEscalated: n === 2,
+        CreatedDate: madeAt(n),
+      });
+    }
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Case',
+      carriers: [{ field: 'AccountId' }],
+      stratifiedBy: 'IsEscalated',
+    };
+    const given: Array<{ ids: string[]; stratum: unknown }> = [];
+
+    const [count] = await reader.countRoots([read]);
+    await reader.drawByDate(
+      [{ ...read, take: [{ value: true, take: 1 }] }],
+      'oldest',
+      (_object, ids, stratum) => {
+        given.push({ ids, stratum });
+      },
+    );
+
+    expect(count.strata).toEqual([
+      { value: false, rows: 2 },
+      { value: true, rows: 1 },
+    ]);
+    expect(given).toEqual([{ ids: [fakeId('500', 2)], stratum: true }]);
+    expect(org.sent.at(-1)?.soql).toBe(
+      'SELECT Id, CreatedDate FROM Case WHERE AccountId = null AND IsEscalated = true ORDER BY CreatedDate ASC, Id ASC LIMIT 1',
+    );
+  });
+
+  it('tests the roots of no value of a stratum on the rows read once its nulls run past the org’s time', async () => {
+    const org = describedOrg();
+    const statuses = ['New', null, 'New', null];
+    statuses.forEach((Status, index) => {
+      org.add('Case', {
+        Id: fakeId('500', index + 1),
+        AccountId: null,
+        Status,
+        CreatedDate: madeAt(index),
+      });
+    });
+    org.add('Case', {
+      Id: fakeId('500', 9),
+      AccountId: fakeId('001', 1),
+      Status: null,
+      CreatedDate: madeAt(9),
+    });
+    org.slow.add('Case');
+    const reader = readerOf(org);
+    const read: RootRead = {
+      objectApiName: 'Case',
+      carriers: [{ field: 'AccountId' }],
+      stratifiedBy: 'Status',
+    };
+    const given: Array<{ ids: string[]; stratum: unknown }> = [];
+
+    const [count] = await reader.countRoots([read]);
+    await reader.drawByDate(
+      [
+        {
+          ...read,
+          take: [
+            { value: 'New', take: 2 },
+            { value: null, take: 2 },
+          ],
+        },
+      ],
+      'recent',
+      (_object, ids, stratum) => {
+        given.push({ ids, stratum });
+      },
+    );
+
+    expect(count).toMatchObject({ rows: 5, exact: false, timedOut: true });
+    expect(given).toEqual([
+      { ids: [fakeId('500', 3), fakeId('500', 1)], stratum: 'New' },
+      { ids: [fakeId('500', 4), fakeId('500', 2)], stratum: null },
+    ]);
+    expect(org.sent.map((sent) => sent.soql)).toEqual([
+      'SELECT Status, COUNT(Id) n FROM Case WHERE AccountId = null GROUP BY Status',
+      'SELECT Status, COUNT(Id) n FROM Case GROUP BY Status',
+      "SELECT Id, AccountId, CreatedDate FROM Case WHERE Status = 'New' ORDER BY CreatedDate DESC, Id DESC LIMIT 2000",
+      'SELECT Id, AccountId, Status, CreatedDate FROM Case ORDER BY CreatedDate DESC, Id DESC LIMIT 2000',
+    ]);
+  });
+
+  it('prices the reads by date of an object stratified value by value, one at least of each value it takes', () => {
+    const count = {
+      objectApiName: 'Case',
+      rows: 4_700,
+      exact: true,
+      strata: [
+        { value: 'New', rows: 4_500 },
+        { value: null, rows: 200 },
+      ],
+    };
+
+    expect(
+      rootScanRequestsOf(count, 'recent', [
+        { value: 'New', take: 2_100 },
+        { value: null, take: 1 },
+        { value: 'Closed', take: 0 },
+      ]),
+    ).toBe(3);
+    expect(rootScanRequestsOf(count, 'oldest', [{ value: null, take: 500 }])).toBe(1);
+    expect(rootScanRequestsOf(count, 'uniform', [{ value: 'New', take: 1 }])).toBe(3);
   });
 });
 

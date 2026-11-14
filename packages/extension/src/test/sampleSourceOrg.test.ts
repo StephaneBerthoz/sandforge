@@ -80,7 +80,7 @@ describe('the source org of a sample', () => {
     });
   });
 
-  it('refuses a third semi-join, and one beside an OR, in the words of the org', async () => {
+  it('refuses a third semi-join, and one an OR applies to, in the words of the org', async () => {
     const org = salesOrg();
     const third = await refusal(
       org,
@@ -95,6 +95,50 @@ describe('the source org of a sample', () => {
     );
     expect(beside).toMatchObject({ errorCode: 'MALFORMED_QUERY' });
     expect(beside?.message).toBe("Semi join sub-selects are not allowed with the 'OR' operator");
+    // In parentheses an OR is part of, theirs or around them: the words of a nested one.
+    for (const soql of [
+      "SELECT Id FROM Account WHERE (Id IN (SELECT AccountId FROM Contact) AND Name != 'x') OR Name = 'y'",
+      "SELECT Id FROM Account WHERE Name != 'x' AND (Id IN (SELECT AccountId FROM Contact) OR Name = 'y')",
+    ]) {
+      const nested = await refusal(org, soql);
+      expect(nested, soql).toMatchObject({ errorCode: 'MALFORMED_QUERY' });
+      expect(nested?.message).toBe(
+        'Semi join sub-selects are only allowed at the top level WHERE expressions and not in ' +
+          'nested WHERE expressions.',
+      );
+    }
+  });
+
+  it('takes an OR beside a semi-join of the top level, as a scratch org took the page after a date and an id', async () => {
+    const org = salesOrg();
+    const after = `(Name > 'A2' OR (Name = 'A2' AND Id > '${fakeId('001', 2)}'))`;
+    for (const [soql, accounts] of [
+      [
+        `SELECT Id FROM Account WHERE Id IN (SELECT AccountId FROM Contact) AND ${after} ORDER BY Name ASC, Id ASC LIMIT 2`,
+        [3, 4],
+      ],
+      // Two semi-joins, one of them a NOT IN, and the same OR.
+      [
+        `SELECT Id FROM Account WHERE Id IN (SELECT AccountId FROM Contact) AND Id NOT IN (SELECT ReportsToId FROM Contact) AND ${after} ORDER BY Name ASC, Id ASC`,
+        [3, 4],
+      ],
+      // An OR within the semi-join's own WHERE.
+      [
+        "SELECT Id FROM Account WHERE Id IN (SELECT AccountId FROM Contact WHERE Id = 'none' OR ReportsToId = null) AND Name != 'A1'",
+        [2, 3, 4],
+      ],
+      // The semi-join alone in parentheses.
+      [
+        'SELECT Id FROM Account WHERE (Id IN (SELECT AccountId FROM Contact)) AND ParentId = null',
+        [1, 2, 3, 4],
+      ],
+    ] as const) {
+      const answer = await org.query(soql);
+      expect(
+        answer.records.map((row) => row['Id']),
+        soql,
+      ).toEqual(accounts.map((n) => fakeId('001', n)));
+    }
   });
 
   it('reads two semi-joins as the lists their statements select', async () => {
@@ -152,6 +196,68 @@ describe('the source org of a sample', () => {
 
     expect(error).toMatchObject({ errorCode: 'MALFORMED_QUERY' });
     expect(error?.message).toBe('field Id does not support aggregate operator COUNT');
+  });
+
+  it('refuses to group by a field it cannot group by, in the words a scratch org refused its accounts’ description in', async () => {
+    const org = salesOrg();
+    org.columns.set('Account', ['Id', 'Name', 'ParentId', 'Description', 'IsDeleted']);
+
+    const error = await refusal(
+      org,
+      'SELECT Description, COUNT(Id) n FROM Account WHERE ParentId = null GROUP BY Description',
+    );
+
+    expect(error).toMatchObject({ errorCode: 'MALFORMED_QUERY' });
+    expect(error?.message).toBe("field 'Description' can not be grouped in a query call");
+  });
+
+  it('answers the rows of no value as one group, the field null, as a scratch org grouped its accounts of no record type', async () => {
+    const org = salesOrg();
+    org.columns.set('Account', ['Id', 'Name', 'ParentId', 'RecordTypeId', 'IsDeleted']);
+    org.add('Account', { Id: fakeId('001', 6), RecordTypeId: fakeId('012', 1), IsDeleted: false });
+    org.add('Account', { Id: fakeId('001', 7), RecordTypeId: null, IsDeleted: false });
+
+    const answer = await org.query(
+      'SELECT RecordTypeId, COUNT(Id) n FROM Account GROUP BY RecordTypeId',
+    );
+
+    // Four accounts that hold no record type at all, and one that holds it empty.
+    expect(answer.records).toEqual([
+      { RecordTypeId: null, n: 5 },
+      { RecordTypeId: fakeId('012', 1), n: 1 },
+    ]);
+  });
+
+  it('refuses a date alone compared to a date-time field, in the words a scratch org refused it in', async () => {
+    const org = salesOrg();
+    org.columns.set('Account', ['Id', 'Name', 'ParentId', 'CreatedDate', 'IsDeleted']);
+
+    const error = await refusal(org, 'SELECT COUNT() FROM Account WHERE CreatedDate >= 2026-11-13');
+
+    expect(error).toMatchObject({ errorCode: 'INVALID_FIELD' });
+    expect(error?.message).toBe(
+      "value of filter criterion for field 'CreatedDate' must be of type dateTime and should " +
+        'not be enclosed in quotes',
+    );
+    expect(
+      await refusal(org, 'SELECT COUNT() FROM Account WHERE CreatedDate >= 2026-11-13T00:00:00Z'),
+    ).toBeUndefined();
+  });
+
+  it('runs past its time a statement that compares the date of the last change, of an object it is told is slow on it', async () => {
+    const org = salesOrg();
+    org.columns.set('Account', ['Id', 'Name', 'ParentId', 'LastModifiedDate', 'IsDeleted']);
+    org.slowOnModified.add('Account');
+
+    expect(
+      await refusal(
+        org,
+        'SELECT COUNT() FROM Account WHERE LastModifiedDate >= 2026-11-13T00:00:00Z',
+      ),
+    ).toMatchObject({ errorCode: 'QUERY_TIMEOUT' });
+    // A read that only selects it is answered, as is a field held to null.
+    expect(await refusal(org, 'SELECT Id, LastModifiedDate FROM Account')).toBeUndefined();
+    expect(await refusal(org, 'SELECT Id FROM Account WHERE ParentId = null')).toBeUndefined();
   });
 
   it('counts the children of each parent a statement groups them by', async () => {
