@@ -1274,6 +1274,7 @@ export class ExtensionHandlers {
         'forge:gaps:request',
         'forge:users:request',
         'forge:target-records:request',
+        'forge:sample-budget:request',
       ],
       this.forgeHandler,
     );

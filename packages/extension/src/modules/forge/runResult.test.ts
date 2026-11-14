@@ -315,6 +315,35 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('writtenWithoutFields');
   });
 
+  it('keeps what a run of a sample wrote of its plan, for the results and the history', () => {
+    // The page's line per object, "712 written of 712 in the sample", reads it
+    // from the result alone: dropped here, a sample's run said nothing of it.
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const sample = {
+      seed: 1,
+      draw: 'uniform' as const,
+      share: 0.25,
+      sha256: 'a'.repeat(64),
+      drawnAt: '2026-09-23T09:58:00.000Z',
+      objects: [
+        {
+          objectApiName: 'Account',
+          sourceRows: 8,
+          kept: 2,
+          roots: 2,
+          below: 0,
+          asParents: 0,
+          written: 2,
+          goneSinceTheSample: 0,
+          changedSinceTheSample: 0,
+        },
+      ],
+    };
+
+    expect(forgeRunResult(summary({ sample }), GRAPH, run).sample).toEqual(sample);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('sample');
+  });
+
   it('keeps whether the run neutralized the contact points, and how many, for the results and the history', () => {
     const run = { startedAt: Date.now(), status: 'success' as const };
     const contactPoints = {

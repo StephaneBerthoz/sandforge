@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeOrchestrator } from './ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from './ForgeOrchestrator.js';
-import type { ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgePlan } from '@sandforge/shared';
-import type { ForgeProgressEvent, ExecutionSummary } from './ForgeExecutor.js';
+import type {
+  ForgeConfig,
+  ForgeGraph,
+  ForgeExecutionResult,
+  ForgePlan,
+  ForgeSampleOptions,
+} from '@sandforge/shared';
+import type { ForgeProgressEvent, ExecutionSummary, ForgeSampleStream } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 
 function createMockGraph(): ForgeGraph {
@@ -467,6 +473,82 @@ describe('ForgeOrchestrator', () => {
       expect(options?.stream?.ceiling).toBeUndefined();
       expect(options?.maxRecordsPerObject).toBeUndefined();
       expect(told).toEqual([200_000, 50_000]);
+    });
+
+    describe('a sample of the whole org', () => {
+      const wholeOrg = (sample?: ForgeConfig['sample']): ForgeConfig =>
+        createMockConfig({
+          inputMode: 'org',
+          depth: 'all',
+          recordId: undefined,
+          ...(sample ? { sample } : {}),
+        });
+      /** What the caller hands over to draw or take up a plan, the options aside. */
+      const handed = (options: ForgeSampleOptions = {}): ForgeSampleStream => ({
+        options,
+        budget: async () => ({
+          budget: { bytes: 1024, limitedBy: 'storage' },
+          bytesLimit: 'storage',
+          roomBytes: 1024,
+        }),
+        keepAt: '/plans/setup',
+        fingerprint: 'setup',
+      });
+
+      it('hands the executor the sample with the options the config asks, whatever the caller said of them', async () => {
+        // The config is what the run's fingerprint, its question, its history
+        // and its audit read the sample from: drawn with other options, the
+        // run would copy a sample none of them names.
+        await orchestrator.execute(createMockGraph(), wholeOrg({ seed: 2, draw: 'recent' }), {
+          stream: { ceiling: 200_000, sample: handed({ seed: 9 }) },
+        });
+
+        const options = vi.mocked(deps.executor.execute).mock.calls[0][4];
+        expect(options?.stream?.everything).toBe(true);
+        expect(options?.stream?.sample?.options).toEqual({ seed: 2, draw: 'recent' });
+        expect(options?.stream?.sample?.keepAt).toBe('/plans/setup');
+        expect(options?.stream?.sample?.fingerprint).toBe('setup');
+      });
+
+      it('refuses a sample the config asks with nothing to draw or take up its plan, before the executor has the run', async () => {
+        // Handed on as it was, the run copied every record of the org into a
+        // target the user had asked a sample of.
+        await expect(
+          orchestrator.execute(createMockGraph(), wholeOrg({ seed: 2 }), {
+            stream: { ceiling: 200_000 },
+          }),
+        ).rejects.toThrow(/sample/);
+        await expect(orchestrator.execute(createMockGraph(), wholeOrg({}))).rejects.toThrow(
+          /Nothing was read or written/,
+        );
+
+        expect(deps.executor.execute).not.toHaveBeenCalled();
+      });
+
+      it('refuses a plan to draw handed to a run whose config copies every record, or walks from a record', async () => {
+        await expect(
+          orchestrator.execute(createMockGraph(), wholeOrg(), {
+            stream: { ceiling: 200_000, sample: handed() },
+          }),
+        ).rejects.toThrow(/every record/);
+        await expect(
+          orchestrator.execute(createMockGraph(), createMockConfig(), {
+            stream: { ceiling: 200_000, sample: handed() },
+          }),
+        ).rejects.toThrow(/every record/);
+
+        expect(deps.executor.execute).not.toHaveBeenCalled();
+      });
+
+      it('draws from the graph of every record: setting a sample, or changing it, discovers nothing again', async () => {
+        // Review sets the sample once the org is discovered: discovered again
+        // for it, a whole org's describes and counts were read a second time.
+        await orchestrator.discover(wholeOrg());
+        await orchestrator.discover(wholeOrg({ seed: 2 }));
+        await orchestrator.discover(wholeOrg({ seed: 3, draw: 'recent', withinMB: 4 }));
+
+        expect(deps.discoveryService.discover).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('never asks any other run to write through the Bulk API, nor to read everything', async () => {

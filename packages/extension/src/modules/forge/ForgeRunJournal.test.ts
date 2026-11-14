@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ForgeGraph } from '@sandforge/shared';
@@ -9,6 +9,7 @@ import {
   type ForgeRunJournalDeps,
   type ForgeRunResumeHead,
 } from './ForgeRunJournal.js';
+import { runPlanDirOf } from './sample/samplePlanStore.js';
 
 /** A disk in memory: each file's text, by its path. */
 function memoryDisk(): { deps: ForgeRunJournalDeps; files: Map<string, string> } {
@@ -569,6 +570,33 @@ describe("a run's journal", () => {
       ]);
       await journal.end('on-disk');
       expect(await journal.leftOver()).toEqual([]);
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('takes the plan of a sample a run wrote, beside its journal, with the journal, and no other run’s', async () => {
+    // The plan holds the ids of a production's records: kept once its journal
+    // goes, it stayed on the machine with nothing left to say whose they were.
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'forge-journal-'));
+    try {
+      const journal = nodeRunJournal(storage);
+      expect(journal.storagePath).toBe(storage);
+      await runThatWrote(journal, 'sampled');
+      await runThatWrote(journal, 'other');
+      const planOf = (journalId: string): string => runPlanDirOf(storage, journalId);
+      for (const id of ['sampled', 'other']) {
+        await mkdir(planOf(id), { recursive: true });
+        await writeFile(path.join(planOf(id), 'sample.json'), '{}');
+      }
+
+      await journal.end('sampled');
+
+      await expect(stat(planOf('sampled'))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await stat(path.join(planOf('other'), 'sample.json'))).isFile()).toBe(true);
+      // A journal that never had a plan ends as before.
+      await journal.forget('other');
+      await expect(stat(planOf('other'))).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(storage, { recursive: true, force: true });
     }

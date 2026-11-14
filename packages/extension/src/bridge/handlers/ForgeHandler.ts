@@ -1,4 +1,5 @@
 import type {
+  AuditFit,
   AuditOutcome,
   AuditRunContext,
   BaseMessage,
@@ -21,6 +22,9 @@ import type {
   ForgeRehearsalProgress,
   ForgeWrittenBetween,
   ForgeWholeOrgDryRun,
+  ForgeSamplingProgress,
+  WholeOrgSample,
+  WholeOrgSampleBudget,
   ComplianceFrameworkType,
   GuardDecision,
   MutedAutomation,
@@ -55,6 +59,7 @@ import {
   guardTierOf,
   stillRunningOf,
   wholeOrgConfigIssue,
+  wholeOrgSampleFilesIssue,
   orgDisplayName,
 } from '@sandforge/shared';
 import * as z from 'zod';
@@ -194,6 +199,9 @@ import {
   takeCheckpointFirst,
   writePlanOf,
   readBoundStopOf,
+  sampleGateErrorOf,
+  sampleGateStopOf,
+  sampleStorageUnreadStopOf,
   wholeOrgDryRunOf,
   wholeOrgFilesOf,
   wholeOrgWritePlanOf,
@@ -278,9 +286,24 @@ import {
 import type {
   ExecutionSummary,
   ForgeProgressEvent,
+  ForgeSampleStream,
   ForgeWriteBoundary,
   ForgeWriteGateAnswer,
 } from '../../modules/forge/ForgeExecutor.js';
+import { automationRoomOf, type RoomPerRecord } from '../../modules/forge/fitBudget.js';
+import {
+  SamplePlan,
+  SamplePlanError,
+  adoptSamplePlan,
+  dryRunPlanDirOf,
+  lastDryRunPlan,
+  runPlanDirOf,
+  sweepSamplePlans,
+} from '../../modules/forge/sample/samplePlanStore.js';
+import {
+  sampleBudgetPreviewOf,
+  sampleBudgetTermsOf,
+} from '../../modules/forge/sample/sampleBudget.js';
 import { ownerMapRefusalOf } from '../../modules/forge/ownerMapRefusal.js';
 import {
   beforeRunFailedWords,
@@ -327,35 +350,83 @@ const previewPayloadSchema = z.object({
  * from a root, held to `wholeOrgConfigIssue` and refused in its words. The
  * mode or the depth of a whole org given with anything else is refused at
  * the parse, before anything is read: an org without ALL would walk from no
- * root, ALL from a record would be discovered as the whole org.
+ * root, ALL from a record would be discovered as the whole org. So is a
+ * sample (`sample`) given with a config walked from a root, which would say
+ * a sample its run never draws.
+ *
+ * Of a sample, the panel names neither a plan nor a bound on its records
+ * (`panelSampleIssue`): those are the command line's.
  */
 const forgeRunConfigSchema = forgeConfigSchema.superRefine((config, ctx) => {
-  if (config.inputMode !== 'org' && config.depth !== 'all') return;
+  if (config.inputMode !== 'org' && config.depth !== 'all' && config.sample === undefined) return;
   const issue = wholeOrgConfigIssue(config);
   if (issue !== undefined) ctx.addIssue({ code: 'custom', message: issue, path: ['inputMode'] });
+  const panel = panelSampleIssue(config.sample);
+  if (panel !== undefined)
+    ctx.addIssue({ code: 'custom', message: panel.message, path: panel.path });
 });
+
+/**
+ * Why the panel's sample of the whole org is refused, or nothing:
+ *
+ * - a plan named by its path (`plan`), the command line's `--fit-plan`: the
+ *   run takes up the plan of its last simulation of itself, from the
+ *   extension's own storage, and a path from the page would have the
+ *   extension open and write whatever folder it names;
+ * - a bound on its records (`maxTotal`), the command line's `--max-total`:
+ *   the panel asks past `sandforge.safety.confirmAboveRecords` instead, and
+ *   its storage, simulated, says what it takes.
+ */
+function panelSampleIssue(
+  sample: ForgeConfig['sample'],
+): { message: string; path: string[] } | undefined {
+  if (sample?.plan !== undefined) {
+    return {
+      message:
+        'The panel names no plan of a sample: a run takes up the plan of its last simulation ' +
+        'of itself. plan must be left out',
+      path: ['sample', 'plan'],
+    };
+  }
+  if (sample?.maxTotal !== undefined) {
+    return {
+      message:
+        'The panel bounds a sample by the data storage it may take, not by its records ' +
+        '(the command line’s --max-total). maxTotal must be left out',
+      path: ['sample', 'maxTotal'],
+    };
+  }
+  return undefined;
+}
 const discoverPayloadSchema = z.object({ config: forgeRunConfigSchema });
-const executePayloadSchema = z.object({
-  graph: forgeGraphSchema,
-  config: forgeRunConfigSchema,
-  // The method Review holds per PII category. The fields travel on the
-  // graph's nodes; a category left out takes its default method.
-  anonymizationRules: forgeAnonymizationRulesSchema.optional(),
-  // Copy the files of the records the run clones, as Review set it; absent,
-  // no file is read. Never part of the config: a template or a past run does
-  // not bring back the acceptance a run that anonymizes needs.
-  files: forgeFileCopyOptionSchema.optional(),
-  // The run this one retries, by its id in the history, which holds what it
-  // wrote; absent for a run started from Review.
-  retryOf: z.string().min(1).max(200).optional(),
-  // Started by Clone directly, with no stop on Review: the audit trail says so.
-  reviewSkipped: z.boolean().optional(),
-  // Mute the target's automation for the run, through its own bypass.
-  muteAutomation: z.boolean().optional(),
-  // Take a checkpoint of what the run writes before its first write. Never
-  // kept with what a resume takes the run up with: the same run takes none again.
-  checkpointFirst: checkpointFirstPayloadSchema.optional(),
-});
+const executePayloadSchema = z
+  .object({
+    graph: forgeGraphSchema,
+    config: forgeRunConfigSchema,
+    // The method Review holds per PII category. The fields travel on the
+    // graph's nodes; a category left out takes its default method.
+    anonymizationRules: forgeAnonymizationRulesSchema.optional(),
+    // Copy the files of the records the run clones, as Review set it; absent,
+    // no file is read. Never part of the config: a template or a past run does
+    // not bring back the acceptance a run that anonymizes needs.
+    files: forgeFileCopyOptionSchema.optional(),
+    // The run this one retries, by its id in the history, which holds what it
+    // wrote; absent for a run started from Review.
+    retryOf: z.string().min(1).max(200).optional(),
+    // Started by Clone directly, with no stop on Review: the audit trail says so.
+    reviewSkipped: z.boolean().optional(),
+    // Mute the target's automation for the run, through its own bypass.
+    muteAutomation: z.boolean().optional(),
+    // Take a checkpoint of what the run writes before its first write. Never
+    // kept with what a resume takes the run up with: the same run takes none again.
+    checkpointFirst: checkpointFirstPayloadSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    // A sample copies no file yet: which files it would copy, and what they
+    // would take of the target's file storage, is not drawn.
+    const issue = wholeOrgSampleFilesIssue(payload.config, payload.files);
+    if (issue !== undefined) ctx.addIssue({ code: 'custom', message: issue, path: ['files'] });
+  });
 
 /**
  * The guard's verdict on a run it asks no one about: refused, or allowed. A
@@ -602,6 +673,47 @@ const targetRecordsRequestPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   objectApiNames: z.array(z.string().min(1).max(255)).max(5_000),
 });
+// What Review says of a sample of the whole org before it is simulated: of a
+// clone of the whole org alone, whether it copies every record yet or not.
+const sampleBudgetPayloadSchema = z
+  .object({
+    graph: forgeGraphSchema,
+    config: forgeRunConfigSchema,
+    muteAutomation: z.boolean().optional(),
+  })
+  .refine((payload) => payload.config.inputMode === 'org', {
+    message: 'A sample is drawn from a clone of the whole org alone (inputMode org, depth all)',
+    path: ['config', 'inputMode'],
+  });
+
+/**
+ * Why a sample of the whole org was refused before anything was read: its
+ * plan is kept on disk, in the extension's storage, and this window has none.
+ */
+const SAMPLE_PLAN_UNKEPT_MESSAGE =
+  'A sample of the whole org keeps its plan on disk, in the extension’s storage, which this ' +
+  'window has none of. Nothing was read or written.';
+
+/**
+ * What a run of a sample of the whole org is handed to draw its plan or take
+ * one up (`stream`), the fingerprint of the setup it is drawn for, and why it
+ * draws its own when a simulation's plan was at hand (`drawnAgain`): see
+ * `ForgeHandler.sampleOf`.
+ */
+interface SampleOfTheRun {
+  stream: ForgeSampleStream;
+  fingerprint: string;
+  drawnAgain?: WholeOrgSample['plan']['drawnAgain'];
+}
+
+/** The cases whose last sampled simulation the handler keeps the setup of. */
+const SAMPLE_SIMULATIONS_KEPT = 16;
+
+/** What a run's entry in the audit trail keeps of its fit, when it copied a sample. */
+function auditFitOf(audit: Pick<ForgeRunAudit, 'fit'>): { fit?: AuditFit } {
+  const fit = audit.fit();
+  return fit ? { fit } : {};
+}
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -894,6 +1006,7 @@ const FORGE_TYPES = new Set([
   'forge:gaps:request',
   'forge:users:request',
   'forge:target-records:request',
+  'forge:sample-budget:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -1620,6 +1733,13 @@ export class ForgeHandler implements DomainHandler {
   private readonly trials = new RecentTrials();
   /** The last simulation of each case this window ran: what it counted to write. */
   private readonly simulations = new LastSimulations();
+  /**
+   * Of each case whose last simulation drew a sample of the whole org, the
+   * fingerprint of the setup it was drawn for: a run that finds no plan of
+   * its own setup says why it draws its own — the simulation was set up
+   * otherwise, or its plan is gone.
+   */
+  private readonly sampleSimulations = new Map<string, string>();
   /** The runs whose records are being verified, by `forgeId`: one verification at a time each. */
   private readonly verifying = new Set<string>();
 
@@ -1900,6 +2020,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:target-records:request':
         await this.handleTargetRecordsRequest(msg);
+        return true;
+      case 'forge:sample-budget:request':
+        await this.handleSampleBudgetRequest(msg);
         return true;
       default:
         return false;
@@ -2301,6 +2424,8 @@ export class ForgeHandler implements DomainHandler {
     });
     /** Whether the run clones the whole org (the ALL depth): see `ForgeConfig.inputMode`. */
     const wholeOrg = config.inputMode === 'org';
+    /** Whether it copies a sample of the org rather than every record: see `ForgeConfig.sample`. */
+    const sampled = wholeOrg && config.sample !== undefined;
     /** Refused before the guard is asked, and recorded as the path's own stop, unless a simulation. */
     const refuseBeforeTheGuard = (code: string, message: string): void => {
       if (!dryRun) {
@@ -2778,6 +2903,14 @@ export class ForgeHandler implements DomainHandler {
     let emails: RunEmails | undefined;
     /** Whether a person answered that question, with the emails in it, by going on. */
     let emailsAccepted = false;
+    /** Of a sample, what the run is handed to draw its plan or take one up, and why it drew its own. */
+    let sample: SampleOfTheRun | undefined;
+    /**
+     * Of a clone of every record of the whole org refused for its data
+     * storage, what a sample of it may take of the same storage: offered
+     * with the refusal.
+     */
+    let sampleOffer: WholeOrgSampleBudget | undefined;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2785,6 +2918,15 @@ export class ForgeHandler implements DomainHandler {
     const throttledExecProgress = throttle((event: Record<string, unknown>) => {
       const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event);
       this.deps.broker.postToWebview(progressMsg);
+    }, 100);
+    // Where the drawing of a sample's plan stands, before its gate: the plan
+    // reads the source for minutes, and no object is written meanwhile.
+    // Throttled as the run's progress is, and flushed before its gate and its
+    // answer, after which the page takes no more of it.
+    const throttledSampling = throttle((progress: ForgeSamplingProgress) => {
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:sampling:progress', { ...progress }),
+      );
     }, 100);
     const reportToLiveOperations = this.liveProgressOf(operationId, graph);
     const withCountsSoFar = countsSoFar();
@@ -2878,7 +3020,9 @@ export class ForgeHandler implements DomainHandler {
         // What still runs once the plan holds, from the read itself and the
         // plan, by the one function every computation before the lease takes
         // it from: the creations of what the mute keeps quiet are not held.
-        if (checkpointFirst !== undefined && 'automation' in read) {
+        // A sample keeps room under each record it draws for what still runs
+        // creates under it: read from the same plan.
+        if ((checkpointFirst !== undefined || sampled) && 'automation' in read) {
           running = stillRunningOf(read.automation, mutePlan, writes);
         }
         targetAutomation = automation;
@@ -2960,7 +3104,11 @@ export class ForgeHandler implements DomainHandler {
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
         }
-      } else if (checkpointFirst !== undefined || (wholeOrg && muteAutomation === true)) {
+      } else if (
+        checkpointFirst !== undefined ||
+        (wholeOrg && muteAutomation === true) ||
+        sampled
+      ) {
         // A simulation asked for the checkpoint first says what it would hold
         // and cost: what still runs is read for it, and the mute planned when
         // it is asked too — nothing assigned. A plan that cannot be made
@@ -3089,6 +3237,24 @@ export class ForgeHandler implements DomainHandler {
       // fit in. It stops before it reads a row; a run of anything else runs
       // on, its history keeping what it created. Its dry run keeps none.
       if (wholeOrg && !dryRun && !store) throw new Error(WHOLE_ORG_JOURNAL_MESSAGE);
+      // A sample's plan: the last simulation's of the same setup taken up, or
+      // what the run draws its own with, kept beside its journal.
+      if (sampled) {
+        sample = await this.sampleOf({
+          graph,
+          config,
+          anonymizationRules,
+          readCeiling,
+          dryRun,
+          ...(journalId !== undefined ? { journalId } : {}),
+          resumes: resume !== undefined,
+          volumeCase,
+          target: targetName,
+          lookup,
+          room: () => automationRoomOf(running, writes).perRecord,
+          onProgress: throttledSampling,
+        });
+      }
       // A Cancel taken while the journal was opened reaches an executor that
       // has not started, which clears it on entry: the run wrote.
       if (runController.signal.aborted) {
@@ -3179,6 +3345,28 @@ export class ForgeHandler implements DomainHandler {
         onSimulated: (plan) => {
           simulatedPlan = plan;
         },
+        // What its plan drew, said in the dry run, the question and the
+        // audit, with why the run drew its own when a simulation's was at
+        // hand; the drawing's progress is over.
+        ...(sampled
+          ? {
+              sampled: (report: WholeOrgSample): WholeOrgSample => {
+                throttledSampling.flush();
+                const drawnAgain = sample?.drawnAgain;
+                const said = drawnAgain
+                  ? { ...report, plan: { ...report.plan, drawnAgain } }
+                  : report;
+                audit.sampled(said);
+                return said;
+              },
+            }
+          : wholeOrg
+            ? {
+                onSampleOffer: (offer: WholeOrgSampleBudget) => {
+                  sampleOffer = offer;
+                },
+              }
+            : {}),
         onConfirmed: () => {
           guardDecision = strongerDecision(guardDecision, 'confirmed');
           audit.confirm('volume');
@@ -3198,6 +3386,7 @@ export class ForgeHandler implements DomainHandler {
           stream: {
             ceiling: readCeiling,
             ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
+            ...(sample ? { sample: sample.stream } : {}),
           },
           ...(runUserId ? { runUserId } : {}),
           // The lease the gate took is handed to the executor, which gives it
@@ -3336,6 +3525,7 @@ export class ForgeHandler implements DomainHandler {
           source: { origin: 'org', orgId: config.sourceOrgId },
           carried: forgeCarried(result),
           ...contactPointsAudit(result.contactPoints),
+          ...auditFitOf(audit),
           context: audit.context(result.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
           ...(checkpointInfo?.state === 'taken'
@@ -3348,6 +3538,10 @@ export class ForgeHandler implements DomainHandler {
         // and its gate says how far it is from what the simulation counted.
         this.trials.note('simulation', caseKey);
         if (simulatedPlan) this.simulations.note(volumeCase, simulatedPlan);
+        // The run of the case that follows takes its plan up, or says why not.
+        if (sample && wholeOrgDryRun?.sample) {
+          this.noteSampleSimulation(volumeCase, sample.fingerprint);
+        }
       }
       // What the run came to, in the output channel as on the page: a run
       // that ended left "Forge execute started" there and nothing else, and a
@@ -3356,12 +3550,14 @@ export class ForgeHandler implements DomainHandler {
       logger.info('Forge execute finished', runLogMeta(result));
 
       await endJournal();
+      throttledSampling.flush();
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {
         result,
         operationId,
         // Held to the type the page reads it by: a field the gate renames or
         // retypes fails the build here rather than the page in the panel.
         ...(wholeOrgDryRun ? { wholeOrgDryRun: wholeOrgDryRun satisfies ForgeWholeOrgDryRun } : {}),
+        ...(sampleOffer ? { sampleOffer } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
@@ -3373,7 +3569,13 @@ export class ForgeHandler implements DomainHandler {
       } else {
         this.liveTracker?.complete(operationId);
       }
-    } catch (error: unknown) {
+    } catch (caught: unknown) {
+      throttledSampling.flush();
+      // A sample refused as its plan was drawn or taken up — too large to
+      // hold, past what it may take, its plan gone or not the run's — stops
+      // the run before its first write, as its gate does, under the gate's
+      // code for it.
+      const error: unknown = sampleGateErrorOf(caught, resume ? 'resume' : 'draw') ?? caught;
       // Stopped at its gate — refused, or cancelled at one of its questions —
       // before the first record was written: no failure, whatever the reads
       // had met, and nothing for the history to keep. So are the files the
@@ -3508,6 +3710,7 @@ export class ForgeHandler implements DomainHandler {
               }
             : {}),
           ...contactPointsAudit(partial?.contactPoints),
+          ...auditFitOf(audit),
           context: audit.context(partial?.decisionsApplied),
           ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
           ...(checkpointInfo?.state === 'taken'
@@ -3547,7 +3750,13 @@ export class ForgeHandler implements DomainHandler {
               },
             }
           : gate?.stop
-            ? { extraPayload: { gate: gate.stop, ...taken } }
+            ? {
+                extraPayload: {
+                  gate: gate.stop,
+                  ...taken,
+                  ...(sampleOffer ? { sampleOffer } : {}),
+                },
+              }
             : checkpointTaken
               ? { extraPayload: taken }
               : {}),
@@ -4411,6 +4620,142 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * What a run of a sample of the whole org is handed to draw its plan or
+   * take one up (`ForgeSampleStream`), and why it draws its own when a
+   * simulation's plan was at hand:
+   *
+   * - a simulation draws its plan into the folder of its setup's plans
+   *   (`dryRunPlanDirOf`), the last drawn for that setup, kept a day;
+   * - a run takes up the plan of the last simulation of its setup while it
+   *   is less than a day old, moved beside its journal before the executor
+   *   has the run (`adoptSamplePlan`): it writes the ids its simulation said,
+   *   and no other run takes them up. Otherwise it draws its own, beside its
+   *   journal, and says why: the simulation's plan was a day old or more
+   *   (`tooOld`), the last simulation of its case was set up otherwise
+   *   (`setUpOtherwise`), or that simulation's plan is gone — taken up by a
+   *   run already (`planGone`);
+   * - a run that resumes another writes the plan its journal names, and
+   *   draws none.
+   *
+   * A plan drawn is drawn against the target's data storage, read once as
+   * the drawing starts, less the MB asked when fewer, room kept under each
+   * record for what the target's automation that still runs creates under
+   * it (`room`); a target that would not say its storage, and no MB asked,
+   * refuses it (`SAMPLE_STORAGE_UNREAD`). The requests the source has left
+   * are read before: past a tenth of them, the reading of the roots is
+   * refused before an id is read. Both reads are of the run's requests.
+   *
+   * The dry runs' plans a day old or more go as a sample is simulated or
+   * run: they hold a production's ids.
+   *
+   * @throws Error when the window keeps no storage: the plan has nowhere to
+   *   be kept, and nothing is read or written.
+   */
+  private async sampleOf(run: {
+    graph: ForgeGraph;
+    config: ForgeConfig;
+    anonymizationRules: ForgeAnonymizationRules | undefined;
+    readCeiling: number;
+    dryRun: boolean;
+    /** The run's journal, beside which its plan is kept; none on a simulation. */
+    journalId?: string;
+    resumes: boolean;
+    /** The case whose last simulation the run takes the plan of. */
+    volumeCase: string;
+    /** The target, as the user knows it. */
+    target: string;
+    lookup: { requests: number };
+    /** What the target's automation that still runs creates under each record the run writes. */
+    room: () => readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
+    onProgress: (progress: ForgeSamplingProgress) => void;
+  }): Promise<SampleOfTheRun> {
+    const { config } = run;
+    const storagePath = this.runJournal?.storagePath;
+    if (storagePath === undefined) throw new Error(SAMPLE_PLAN_UNKEPT_MESSAGE);
+    const fingerprint = this.setupFingerprintOf(
+      run.graph,
+      config,
+      run.anonymizationRules,
+      run.readCeiling,
+    );
+    const now = new Date();
+    let keepAt: string;
+    let plan: SamplePlan | undefined;
+    let drawnAgain: SampleOfTheRun['drawnAgain'];
+    if (run.dryRun || run.journalId === undefined) {
+      keepAt = dryRunPlanDirOf(storagePath, fingerprint);
+    } else {
+      keepAt = runPlanDirOf(storagePath, run.journalId);
+      if (!run.resumes) {
+        const last = await lastDryRunPlan(storagePath, fingerprint, now);
+        if (last instanceof SamplePlan) {
+          plan = await adoptSamplePlan(last, storagePath, run.journalId).catch((err: unknown) => {
+            if (err instanceof SamplePlanError) return undefined;
+            throw err;
+          });
+          if (!plan) drawnAgain = 'planGone';
+        } else if (last === 'tooOld') {
+          drawnAgain = 'tooOld';
+        } else {
+          const simulated = this.sampleSimulations.get(run.volumeCase);
+          if (simulated !== undefined) {
+            drawnAgain = simulated === fingerprint ? 'planGone' : 'setUpOtherwise';
+          }
+        }
+      }
+    }
+    await sweepSamplePlans(storagePath, now).catch((err: unknown) => {
+      logger.warn(
+        `Forge sample: the plans of past simulations were not swept (${extractErrorMessage(err)})`,
+      );
+    });
+    // Drawn, the plan reads the roots' ids only within a tenth of what the
+    // source has left; a source that would not say is not held to it.
+    let sourceRequestsLeft: number | undefined;
+    if (!plan && !run.resumes) {
+      const source = await this.readSourceApiBudget(config, run.lookup);
+      if (!('unread' in source)) sourceRequestsLeft = source.remaining;
+    }
+    const withinMB = config.sample?.withinMB;
+    const stream: ForgeSampleStream = {
+      options: config.sample ?? {},
+      budget: async () => {
+        run.lookup.requests++;
+        const storage = await this.readTargetDataStorage(config.targetOrgId);
+        const unread = sampleStorageUnreadStopOf({
+          storage,
+          bounds: withinMB !== undefined ? { withinMB } : {},
+          target: run.target,
+        });
+        if (unread) throw ForgeRunGateError.of(unread);
+        const terms = sampleBudgetTermsOf({
+          storage,
+          ...(withinMB !== undefined ? { withinMB } : {}),
+          automation: run.room(),
+        });
+        if (!terms) throw new Error('No budget of the sample could be read. Nothing was written.');
+        return terms;
+      },
+      keepAt,
+      fingerprint,
+      ...(plan ? { plan } : {}),
+      ...(sourceRequestsLeft !== undefined ? { sourceRequestsLeft } : {}),
+      onProgress: run.onProgress,
+    };
+    return { stream, fingerprint, ...(drawnAgain ? { drawnAgain } : {}) };
+  }
+
+  /** The last simulation of the case `volumeCase` drew a sample for the setup `fingerprint`. */
+  private noteSampleSimulation(volumeCase: string, fingerprint: string): void {
+    this.sampleSimulations.delete(volumeCase);
+    this.sampleSimulations.set(volumeCase, fingerprint);
+    for (const oldest of this.sampleSimulations.keys()) {
+      if (this.sampleSimulations.size <= SAMPLE_SIMULATIONS_KEPT) break;
+      this.sampleSimulations.delete(oldest);
+    }
+  }
+
+  /**
    * What the executor hands every row it is about to write, before the first
    * goes (`ExecuteOptions.beforeWrite`): the run's gate on what it writes.
    *
@@ -4498,6 +4843,18 @@ export class ForgeHandler implements DomainHandler {
     sentBefore?: number;
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
+    /**
+     * Of a sample of the whole org, told what its plan drew as the gate is
+     * reached: returns it as the run says it — why it drew its own when a
+     * simulation's was at hand.
+     */
+    sampled?: (report: WholeOrgSample) => WholeOrgSample;
+    /**
+     * Of a clone of every record of the whole org whose records take more
+     * data storage than the target has left, told what a sample of it may
+     * take of the same storage: the offer the refusal goes with.
+     */
+    onSampleOffer?: (offer: WholeOrgSampleBudget) => void;
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<Pick<ForgeWriteGateAnswer, 'splitAllowance'>> {
     const first = run.checkpoint;
@@ -4519,6 +4876,10 @@ export class ForgeHandler implements DomainHandler {
             'orgs, which its gate weighs it on. Nothing was written.',
         );
       }
+      // What a sample's plan drew, as the run says it.
+      const sample = measures?.sample
+        ? (run.sampled?.(measures.sample.report) ?? measures.sample.report)
+        : undefined;
       // The dry run of a clone of the whole org stops here, once counted:
       // what it would insert of each object, what it takes of both orgs and
       // every refusal its run would meet, read from their limits alone — past
@@ -4560,7 +4921,14 @@ export class ForgeHandler implements DomainHandler {
             org: whole.source,
             limits: this.limitsTransportOf(whole.sourceOrgId, run.lookup),
           },
+          ...(sample ? { sample } : {}),
         });
+        // Every record past the data storage the target has left: a sample
+        // that fits is offered instead.
+        if (!sample && dry.storage.verdict === 'exceeds') {
+          const offer = sampleBudgetTermsOf({ storage: dry.storage });
+          if (offer) run.onSampleOffer?.(offer.budget);
+        }
         logger.info('Forge write gate: the dry run of a clone of the whole org', {
           records: dry.totalRows,
           objects: dry.wouldInsert.length,
@@ -4600,6 +4968,14 @@ export class ForgeHandler implements DomainHandler {
       run.lookup.requests++;
       const limits = await this.readTargetDataStorage(run.targetOrgId);
       const storage = storageCheckOf(plan, limits);
+      // A sample is held to what the target has left now by the terms it was
+      // fitted to: drawn against more room than there is, it is refused for
+      // its storage and simulated again, never cut short. A target that
+      // would not say, with nothing else bounding it, holds it to nothing.
+      if (sample) {
+        const stop = sampleGateStopOf({ sample, storage: limits, target: run.org });
+        if (stop) throw ForgeRunGateError.of(stop);
+      }
       const threshold = this.confirmAboveRecords();
       const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
       const line = largeVolumeThreshold(run.orgTier);
@@ -4617,6 +4993,11 @@ export class ForgeHandler implements DomainHandler {
       });
       const refusal = storageRefusal(storage, run.org);
       if (refusal && storage.verdict === 'exceeds') {
+        // Every record of the whole org past it: a sample that fits is offered.
+        if (whole && !sample && !('unread' in limits)) {
+          const offer = sampleBudgetTermsOf({ storage: limits });
+          if (offer) run.onSampleOffer?.(offer.budget);
+        }
         throw new ForgeRunGateError('STORAGE_EXCEEDED', `${refusal} Nothing was written.`, {
           estimateMB: Number(formatMB(storage.estimateMB)),
           remainingMB: storage.remainingMB,
@@ -4708,6 +5089,7 @@ export class ForgeHandler implements DomainHandler {
               plan,
               budget: { api: requests.api, wholeOrg: requests.wholeOrg },
               ...(files?.files ? { files: files.files } : {}),
+              ...(sample ? { sample, now: Date.now() } : {}),
             })
           : undefined;
       if (wholeOrgQuestion) {
@@ -5865,20 +6247,40 @@ export class ForgeHandler implements DomainHandler {
     anonymizationRules: ForgeAnonymizationRules | undefined,
     ceiling: number,
   ): ForgeRunResumeHead {
-    const orgId = this.deps.orgManager.getOrg(config.targetOrgId)?.orgId;
-    const targetSalesforceOrgId = orgId && SF_ID_RE.test(orgId) ? orgId : undefined;
+    const targetSalesforceOrgId = this.targetSalesforceOrgIdOf(config);
     return {
       sourceOrgId: config.sourceOrgId,
-      fingerprint: this.fingerprintOf(
-        graph,
-        config,
-        anonymizationRules,
-        ceiling,
-        targetSalesforceOrgId,
-      ),
+      fingerprint: this.setupFingerprintOf(graph, config, anonymizationRules, ceiling),
       ...(targetSalesforceOrgId ? { targetSalesforceOrgId } : {}),
       startedWith: { graph, config, ...(anonymizationRules ? { anonymizationRules } : {}) },
     };
+  }
+
+  /** The Salesforce id of the org a run writes to, as the registry knows it; none when it does not. */
+  private targetSalesforceOrgIdOf(config: Pick<ForgeConfig, 'targetOrgId'>): string | undefined {
+    const orgId = this.deps.orgManager.getOrg(config.targetOrgId)?.orgId;
+    return orgId && SF_ID_RE.test(orgId) ? orgId : undefined;
+  }
+
+  /**
+   * The fingerprint of a run's setup, as its journal keeps it
+   * (`resumeHeadOf`): what a sample's plan is drawn for, and the run of the
+   * same setup takes up — a simulation and its run alike, whether it
+   * simulates left aside.
+   */
+  private setupFingerprintOf(
+    graph: ForgeGraph,
+    config: ForgeConfig,
+    anonymizationRules: ForgeAnonymizationRules | undefined,
+    ceiling: number,
+  ): string {
+    return this.fingerprintOf(
+      graph,
+      config,
+      anonymizationRules,
+      ceiling,
+      this.targetSalesforceOrgIdOf(config),
+    );
   }
 
   /** See `forgeRunFingerprint`: a run's setup, whether it simulates or not left aside. */
@@ -8234,6 +8636,50 @@ export class ForgeHandler implements DomainHandler {
           code: 'TARGET_RECORDS_ERROR',
         },
       );
+    }
+  }
+
+  /**
+   * What Review says of a sample of the whole org before it is simulated
+   * (`forge:sample-budget:request`): what every record takes against what
+   * the target has left, what a sample may take with the options asked —
+   * their defaults while the config copies every record —, the objects it
+   * copies whole of itself, and about what drawing it reads of the source
+   * (`sampleBudgetPreviewOf`). Reads the `/limits` of both orgs, one request
+   * each; nothing is drawn or written.
+   */
+  private async handleSampleBudgetRequest(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(
+      sampleBudgetPayloadSchema,
+      msg,
+      'forge:sample-budget:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { graph, config } = parsed;
+    try {
+      const [storage, source] = await Promise.all([
+        this.readTargetDataStorage(config.targetOrgId),
+        this.readSourceApiBudget(config, { requests: 0 }),
+      ]);
+      const budget = sampleBudgetPreviewOf({
+        graph,
+        options: config.sample,
+        ...(config.excludedObjects ? { excludedObjects: config.excludedObjects } : {}),
+        storage,
+        source,
+        maxRecordsPerObject: this.maxRecordsPerObject(),
+      });
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:sample-budget:response', {
+          targetOrgId: config.targetOrgId,
+          budget,
+        }),
+      );
+    } catch (error: unknown) {
+      sendHandlerError(this.deps, 'forge:sample-budget', 'forge:sample-budget:error', msg, error, {
+        code: 'SAMPLE_BUDGET_ERROR',
+      });
     }
   }
 }

@@ -179,5 +179,8 @@ export function forgeRunResult(
     // Past the bound, the ids are in the run's journal and the tables above
     // are empty: whoever records the run names the journal.
     ...(summary.remapInJournal ? { remapInJournal: true as const } : {}),
+    // Of a sample, what was written of each object of its plan: the page's
+    // line per object and the history read it from the result alone.
+    ...(summary.sample ? { sample: summary.sample } : {}),
   };
 }

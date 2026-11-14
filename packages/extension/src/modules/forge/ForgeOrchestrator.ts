@@ -14,6 +14,7 @@ import {
   type ExecuteOptions,
   type ForgeExecutor,
   type ForgeProgressEvent,
+  type ForgeSampleStream,
 } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import {
@@ -112,7 +113,11 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    *
    * Includes every config field that materially affects the resulting graph
    * (target org, anonymize, expandOrphanParents, maxRecordsPerObject) so
-   * cache hits never silently swap one configuration for another.
+   * cache hits never silently swap one configuration for another. A sample
+   * of the whole org (`config.sample`) is not one: it is drawn from the
+   * graph of every record, and set on Review once the org is discovered.
+   * Keyed by it, every option changed there read a whole org's describes and
+   * counts again.
    */
   private cacheKeyFor(config: ForgeConfig): string {
     // A clone of the whole org starts from no record and no query. What its
@@ -360,6 +365,39 @@ function withRunUser(
 }
 
 /**
+ * The sample a run of `config` draws or takes up (`ForgeConfig.sample`),
+ * with what its caller hands over to keep or take up its plan
+ * (`ForgeStreamOptions.sample`): drawn with the options the config asks,
+ * which the run's fingerprint, its question, its history and its audit read
+ * the sample from. Nothing for a run of every record.
+ *
+ * Refused, before the executor has the run, when the two disagree: a sample
+ * asked with nothing to keep its plan would have the executor copy every
+ * record of the org into a target the user asked a sample of, and one handed
+ * to a run whose config copies every record, a sample no record of the run
+ * names.
+ */
+function sampleStreamOf(
+  config: ForgeConfig,
+  given: ForgeSampleStream | undefined,
+): ForgeSampleStream | undefined {
+  if (config.sample === undefined) {
+    if (given === undefined) return undefined;
+    throw new Error(
+      'A sample was handed to a run whose config copies every record, or walks from a record: ' +
+        'run it as its config says, or ask the sample in its config. Nothing was read or written.',
+    );
+  }
+  if (config.inputMode !== 'org' || given === undefined) {
+    throw new Error(
+      'The config asks a sample of the whole org, and the run was handed nothing to keep or ' +
+        'take up its plan with: it would have copied every record. Nothing was read or written.',
+    );
+  }
+  return { ...given, options: config.sample };
+}
+
+/**
  * What the executor is asked to do by a run of `config` over `graph`, as
  * {@link ForgeOrchestrator.execute} asks it: a run from a record reads what
  * that record reaches; any other reads whole tables, each through its own
@@ -407,6 +445,7 @@ export function forgeExecuteOptions(
   // bounds instead what it reads whole (`wholeReadBound`), and its gate
   // refuses the run past it.
   const given = runOptions?.stream;
+  const sample = sampleStreamOf(config, given?.sample);
   const stream: ExecuteOptions['stream'] = wholeOrg
     ? {
         ...given,
@@ -415,6 +454,7 @@ export function forgeExecuteOptions(
         secondPassPageSize: WHOLE_ORG_WINDOW,
         ceiling: undefined,
         wholeReadBound: given?.wholeReadBound ?? given?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT,
+        ...(sample ? { sample } : {}),
       }
     : given;
   // The objects unchecked on the Forge page leave the run as objects

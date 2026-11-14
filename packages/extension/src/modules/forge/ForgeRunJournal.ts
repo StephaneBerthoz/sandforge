@@ -34,6 +34,7 @@ import {
   type InFlightTarget,
 } from './ForgeInFlight.js';
 import { HashedKeys, JournalPart, unattributedOf } from './journalRecords.js';
+import { runPlanDirOf } from './sample/samplePlanStore.js';
 
 /** What dating a run from its journal reads of the org it wrote to: see `ForgeRunJournal.writtenBetween`. */
 export type JournalDatesTarget = Pick<Connection, 'query'>;
@@ -67,6 +68,12 @@ export interface ForgeRunJournalDeps {
    * is written in place.
    */
   rename?: (from: string, to: string) => Promise<void>;
+  /**
+   * Remove a folder and all it holds, when it is there: the plan of the
+   * sample of the whole org a run wrote, kept beside its journal
+   * (`runPlanDirOf`), which goes with it. Without it, no plan is removed.
+   */
+  rmDir?: (dirPath: string) => Promise<void>;
 }
 
 /**
@@ -89,6 +96,7 @@ export function nodeRunJournal(storagePath: string): ForgeRunJournal {
         throw err;
       }),
     openRunFile: (filePath) => nodeRunFile(filePath),
+    rmDir: (dirPath) => rm(dirPath, { recursive: true, force: true }),
   });
 }
 
@@ -429,6 +437,11 @@ export class ForgeRunJournal {
 
   constructor(private readonly deps: ForgeRunJournalDeps) {
     this.dir = path.join(deps.storagePath, 'forge-runs');
+  }
+
+  /** The folder the journals and what goes with them are kept under: the extension's storage. */
+  get storagePath(): string {
+    return this.deps.storagePath;
   }
 
   /** The file of the journal `journalId`. */
@@ -888,6 +901,9 @@ export class ForgeRunJournal {
         await this.deps.rm(path.join(this.dir, name));
       }
     }
+    // So does the plan of the sample it wrote: the ids of a production's
+    // records, kept no longer than the run they were drawn for.
+    await this.deps.rmDir?.(runPlanDirOf(this.deps.storagePath, journalId));
   }
 
   /** The name of the file of the journal `journalId`, as {@link endedFiles} lists it. */

@@ -18,6 +18,7 @@ import type {
   ForgeTemplate,
   ForgeUndoResult,
   ForgeWholeOrgDryRun,
+  WholeOrgSampleBudget,
 } from '../forge.types.js';
 import type { AnonymizationMethod } from '../common.types.js';
 import type { RunCheckpointRequest } from '../checkpoint.types.js';
@@ -488,6 +489,13 @@ export interface ForgeExecuteResponse extends BaseMessage {
     result: ForgeExecutionResult;
     operationId: string;
     wholeOrgDryRun?: ForgeWholeOrgDryRun;
+    /**
+     * Of the dry run of a clone of every record of the whole org whose
+     * records take more data storage than the target has left, what a sample
+     * of it with the default options may take: Review's offer to copy a
+     * sample that fits instead. Absent otherwise.
+     */
+    sampleOffer?: WholeOrgSampleBudget;
   };
 }
 
@@ -529,6 +537,14 @@ export interface ForgeExecuteErrorMessage extends BaseMessage {
      * cancelled at a confirmation. Its code is the error's `code` too.
      */
     gate?: ForgeRunGateStop;
+    /**
+     * Of a clone of every record of the whole org refused for its data
+     * storage (`STORAGE_EXCEEDED`), what a sample of it with the default
+     * options may take of the same storage: the offer to copy a sample that
+     * fits instead, as a seed refused for its storage is offered its fit.
+     * Absent otherwise.
+     */
+    sampleOffer?: WholeOrgSampleBudget;
   };
 }
 
