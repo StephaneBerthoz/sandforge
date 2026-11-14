@@ -1113,6 +1113,63 @@ export const CHECKS = [
     },
   },
   {
+    name: 'the MCP server lists the clone of the whole org, and refuses a plan it does not hold before any org is read',
+    run: async ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const version = readJson(join(out, 'package.json')).version;
+        // The plan's receipt is read from the journal folder, through the
+        // modules of the plans and of the runs: loaded under this Node, or
+        // the call fails before its refusal.
+        const unknown = 'co-20260101-000000-zzzz';
+        const { answers, code, stderr } = await talkToMcp(
+          out,
+          [
+            {
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'initialize',
+              params: {
+                protocolVersion: '2025-11-25',
+                capabilities: {},
+                clientInfo: { name: 'sandforge-npm-check', version },
+              },
+            },
+            { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+            {
+              jsonrpc: '2.0',
+              id: 3,
+              method: 'tools/call',
+              params: { name: 'clone_org', arguments: { plan: unknown, confirm: 'NO-SUCH-ORG' } },
+            },
+          ],
+          { node, env: sealedEnv(home), cwd: home },
+        );
+        const [, listed, called] = answers;
+        const names = (listed?.result?.tools ?? []).map((tool) => tool.name);
+        for (const name of ['clone_org_plan', 'clone_org', 'run_status', 'run_stop']) {
+          if (!names.includes(name)) {
+            throw new Error(`tools/list does not list ${name}: ${names.join(', ')}`);
+          }
+        }
+        const refusal = called?.result?.structuredContent?.refusal;
+        if (
+          called?.result?.isError !== true ||
+          refusal?.code !== 'PLAN_GONE' ||
+          !refusal.message.includes(`plan "${unknown}" is not on this machine`)
+        ) {
+          throw new Error(
+            `clone_org of an unknown plan answered ${JSON.stringify(called)}\n${stderr}`,
+          );
+        }
+        if (code !== 0)
+          throw new Error(`the MCP server ended on ${code} once its input closed\n${stderr}`);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     name: 'each command refuses a Node older than the package, before anything is loaded',
     run: ({ out, node }) => {
       const home = scratchFolder();

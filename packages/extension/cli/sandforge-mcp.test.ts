@@ -18,6 +18,7 @@ import { undeletableRefusal } from './undeletableAnswer.js';
 import {
   ERROR,
   HANDSHAKE_VERSIONS,
+  INSTRUCTIONS,
   PROTOCOL_VERSION,
   TOOLS,
   claimStdout,
@@ -279,7 +280,7 @@ describe('sandforge-mcp: the protocol', () => {
 });
 
 describe('sandforge-mcp: the tools', () => {
-  it('lists the sixteen tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
+  it('lists the twenty tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
     const c = client();
     await c.initialized();
 
@@ -295,7 +296,11 @@ describe('sandforge-mcp: the tools', () => {
       'seed_templates',
       'seed_run',
       'clone_record',
+      'clone_org_plan',
+      'clone_org',
       'run_remove',
+      'run_status',
+      'run_stop',
       'checkpoint_list',
       'checkpoint_preview',
       'checkpoint_take',
@@ -312,6 +317,7 @@ describe('sandforge-mcp: the tools', () => {
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
     for (const name of [
       'seed_templates',
+      'run_status',
       'checkpoint_list',
       'checkpoint_preview',
       'empty_preview',
@@ -335,7 +341,16 @@ describe('sandforge-mcp: the tools', () => {
         expect.objectContaining({ readOnlyHint: false, destructiveHint: true }),
       );
     }
-    for (const name of ['seed_run', 'clone_record', 'checkpoint_take']) {
+    // A plan is kept on this machine, a clone of the whole org inserts, and a
+    // run stopped keeps what it wrote: none deletes or writes over.
+    for (const name of [
+      'seed_run',
+      'clone_record',
+      'clone_org_plan',
+      'clone_org',
+      'run_stop',
+      'checkpoint_take',
+    ]) {
       expect(hints[name], name).toEqual(
         expect.objectContaining({ readOnlyHint: false, destructiveHint: false }),
       );
@@ -1117,6 +1132,116 @@ describe("sandforge-mcp: a script's answer", () => {
     await c.close();
   });
 
+  it('says how to take back a seed, a clone or an apply stopped part way, as it does one that went through', async () => {
+    // Stopped by Ctrl-C, a kill or a closed terminal, a seed or a clone said
+    // "stopped by SIGINT" and nothing that took back what it had written.
+    const { run } = scripts((script) => ({
+      code: 130,
+      stdout: JSON.stringify(
+        script === 'sandforge-seed'
+          ? { runFile: '/j/seed-runs/r1.ndjson', interrupted: true }
+          : { journal: '/j/forge-runs/f1.ndjson', interrupted: true },
+      ),
+      stderr: 'interrupted\n',
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const seeded = await c.call('seed_run', {
+      org: 'DEV',
+      template: 'prebuilt-crm-starter',
+      dryRun: false,
+      confirm: 'DEV',
+    });
+    const cloned = await c.call('clone_record', {
+      source: 'SRC',
+      target: 'SB',
+      recordId: '001000000000001AAA',
+      dryRun: false,
+      confirm: 'SB',
+    });
+    const applied = await c.call('env_apply', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
+
+    for (const result of [seeded, cloned, applied]) {
+      expect(result.structuredContent.exitCode).toBe(130);
+      expect(textOf(result)).toContain('exit 130: stopped by SIGINT before it was through');
+      expect(textOf(result)).toContain(
+        'It stopped part way, between two calls to the org: what it wrote is kept, and said above.',
+      );
+    }
+    expect(textOf(seeded)).toContain(
+      'run_remove with module "seed" and run "/j/seed-runs/r1.ndjson" takes this run back.',
+    );
+    expect(textOf(cloned)).toContain(
+      'run_remove with module "forge" and run "/j/forge-runs/f1.ndjson" takes this run back.',
+    );
+    expect(textOf(applied)).toContain(
+      'env_destroy with file "sandforge.yaml" and org "SB" takes this environment back.',
+    );
+    await c.close();
+  });
+
+  it('previews a removal of a Seed or Forge run without confirm, as --preview, and refuses it for a Sync run', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    for (const module of ['seed', 'forge']) {
+      const previewed = await c.call('run_remove', {
+        module,
+        org: 'DEV',
+        run: 'run.json',
+        preview: true,
+      });
+      expect(previewed.isError, module).toBe(false);
+    }
+    const sync = await c.call('run_remove', {
+      module: 'sync',
+      org: 'DEV',
+      run: 'run.json',
+      preview: true,
+    });
+    const unconfirmed = await c.call('run_remove', {
+      module: 'forge',
+      org: 'DEV',
+      run: 'run.json',
+    });
+
+    expect(sync.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    expect(textOf(sync)).toContain('preview goes with module "seed" or "forge"');
+    expect(textOf(unconfirmed)).toContain(
+      'Before it, run_remove with preview: true (a Seed or Forge run) says what it would delete',
+    );
+    const line = ['--remove', 'run.json', '--target', 'DEV', '--preview', '--json'];
+    expect(ran).toEqual([
+      { script: 'sandforge-seed', args: line },
+      { script: 'sandforge-clone', args: line },
+    ]);
+    await c.close();
+  });
+
+  it('names preview where a removal’s lines name --preview, which the server tells the script it takes', async () => {
+    const { run } = scripts(() => ({
+      code: 3,
+      stdout: '{}',
+      stderr: 'delete them by hand, then remove the run again; --preview says what of it…\n',
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const removed = await c.call('run_remove', {
+      module: 'forge',
+      org: 'DEV',
+      run: 'run.json',
+      confirm: 'DEV',
+    });
+
+    expect(textOf(removed)).toContain(
+      "--preview, named above, is this tool's preview: true, for a Seed or Forge run",
+    );
+    await c.close();
+  });
+
   it('hands includeChanged, muteAutomation and leaveUndeletable to the line of a removal, each only once asked', async () => {
     const { ran, run } = scripts(() => ({ stdout: '{}' }));
     const c = client(run);
@@ -1872,7 +1997,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge mcp: 16 tools on stdio');
+    expect(stderr).toContain('sandforge mcp: 20 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });
@@ -2115,7 +2240,7 @@ describe('sandforge-mcp: what the tools reach', () => {
     await c.close();
   });
 
-  it('tells the model what no tool does — a clone of the whole org or of tables, a sample, Compare, Backup — and the command that does it', async () => {
+  it('tells the model what no tool does — a clone of tables, Compare, Backup — and the command that does it', async () => {
     const c = client();
     const answer = await c.request('initialize', {
       protocolVersion: '2025-06-18',
@@ -2125,7 +2250,6 @@ describe('sandforge-mcp: what the tools reach', () => {
     const said = String(answer.result?.instructions);
 
     for (const command of [
-      'pnpm exec tsx packages/extension/cli/sandforge-clone.ts --depth all --fit share',
       'pnpm exec tsx packages/extension/cli/sandforge-clone.ts --object',
       'pnpm exec tsx packages/extension/cli/sandforge-compare.ts',
       'pnpm exec tsx packages/extension/cli/sandforge-backup.ts',
@@ -2133,6 +2257,32 @@ describe('sandforge-mcp: what the tools reach', () => {
       expect(said).toContain(command);
     }
     expect(said).toContain('sandforge.yaml');
+    await c.close();
+  });
+
+  it('tells the model how a clone of the whole org goes — a plan, its question to show, then the run of that plan — and that a long call hands back a run', async () => {
+    // It said "No tool clones the whole org", and sent the person to a
+    // terminal for a dry run and a --yes.
+    const c = client();
+    const answer = await c.request('initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+    const said = String(answer.result?.instructions);
+
+    expect(said).not.toContain('No tool clones the whole org');
+    expect(said).not.toContain('--depth all --fit share');
+    expect(said).toContain(
+      'clone_org_plan, show the person the question its plan comes back with, then clone_org ' +
+        'with that plan and confirm; its personal fields are always anonymized.',
+    );
+    expect(said).toContain(
+      'A call still running after 45 seconds hands back a run: run_status follows it, run_stop ' +
+        'stops it.',
+    );
+    // What the package rewrites (scripts/npm-package.mjs, REWRITES).
+    expect(INSTRUCTIONS).toContain('run from a checkout of its repository. ');
     await c.close();
   });
 });

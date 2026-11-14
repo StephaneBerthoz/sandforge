@@ -30,6 +30,8 @@ describe('relayWords', () => {
     expect(relayTakes('--mute-automation')).toBe(true);
     expect(ownOptionWords('--leave-undeletable', 'removal')).toBe('--leave-undeletable');
     expect(ownOptionWords('--store')).toBe('--store');
+    // run_remove takes it as preview: true.
+    expect(ownOptionWords('--preview', 'removal')).toBe('--preview');
     expect(ownOptionWords('--max-total')).toBe("this script's own --max-total");
     expect(ownOptionWords('--sweep', 'removal')).toBe("this script's own removal with --sweep");
   });

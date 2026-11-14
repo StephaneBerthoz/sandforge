@@ -76,6 +76,8 @@ export interface ClonePlanReceipt {
   sample?: { dir: string; sha256: string; drawnAt: string };
   /** The question its run would ask on a terminal, in its own words. */
   question?: string;
+  /** How long its dry run said its writes take, in seconds: what a run of it is followed against. */
+  durationSeconds?: number;
   /** What its reader accepted for it: the parameters of the acceptances given. */
   accepted: string[];
   runs: ClonePlanRun[];
@@ -115,6 +117,7 @@ const receiptSchema = z.object({
     })
     .optional(),
   question: z.string().optional(),
+  durationSeconds: z.number().nonnegative().optional(),
   accepted: z.array(z.string()),
   runs: z.array(runSchema),
   dead: z.object({ code: z.string().min(1), at: z.iso.datetime() }).optional(),
@@ -151,6 +154,8 @@ export interface DryRunPlan {
   /** Of a sample, the plan of ids it drew: where, its SHA-256, when. */
   sample?: { path: string; sha256: string; drawnAt: string };
   question?: string;
+  /** How long it said its writes take, in seconds. */
+  durationSeconds?: number;
 }
 
 const dryRunSchema = z.object({
@@ -159,6 +164,7 @@ const dryRunSchema = z.object({
   writePlan: z.object({ totalRows: z.number().int().positive() }),
   wholeOrg: z.object({
     question: z.string().min(1).optional(),
+    durationSeconds: z.number().nonnegative().optional().catch(undefined),
     sample: z
       .object({
         plan: z.object({
@@ -187,6 +193,9 @@ export function dryRunPlanOf(answer: unknown): DryRunPlan | undefined {
     totalRows: writePlan.totalRows,
     ...(wholeOrg.sample ? { sample: { ...wholeOrg.sample.plan } } : {}),
     ...(wholeOrg.question !== undefined ? { question: wholeOrg.question } : {}),
+    ...(wholeOrg.durationSeconds !== undefined
+      ? { durationSeconds: wholeOrg.durationSeconds }
+      : {}),
   };
 }
 
@@ -250,6 +259,9 @@ export async function keepClonePlan(
     totalRows: plan.planned.totalRows,
     ...(sample ? { sample } : {}),
     ...(plan.planned.question !== undefined ? { question: plan.planned.question } : {}),
+    ...(plan.planned.durationSeconds !== undefined
+      ? { durationSeconds: plan.planned.durationSeconds }
+      : {}),
     accepted: [...plan.accepted],
     runs: [],
   };

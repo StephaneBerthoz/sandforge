@@ -302,6 +302,24 @@ describe('the plan of every record', () => {
     expect(receipt).not.toHaveProperty('sample');
     expect(receipt.expiresAt).toBe(new Date(NOW.getTime() + SAMPLE_PLAN_MAX_AGE_MS).toISOString());
   });
+
+  it('keeps how long its dry run said its writes take, which a run of it is followed against', async () => {
+    const planned = dryRunPlanOf(
+      wholeAnswer({ wholeOrg: { totalRows: 420, durationSeconds: 75 } }),
+    ) as DryRunPlan;
+    const receipt = await keepClonePlan(
+      journalDir,
+      { source: 'SRC', target: 'TGT', dryRunArgs: WHOLE_DRY_RUN, planned, accepted: [] },
+      NOW,
+    );
+
+    expect(planned.durationSeconds).toBe(75);
+    expect((await readClonePlan(journalDir, receipt.id))?.durationSeconds).toBe(75);
+    // A time that does not read as one leaves the plan without it, not unkept.
+    expect(
+      dryRunPlanOf(wholeAnswer({ wholeOrg: { totalRows: 420, durationSeconds: 'soon' } })),
+    ).toEqual({ mode: 'whole', totalRows: 420 });
+  });
 });
 
 describe('the line of a run of a plan', () => {

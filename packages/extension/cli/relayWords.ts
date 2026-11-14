@@ -47,7 +47,7 @@ export const CLONE_ORG_RELAY = 'sandforge mcp clone_org';
  * hands it: `sandforge-env destroy --sweep --include-changed`; the MCP
  * server's `seed_run`, `clone_record` and `run_remove` take
  * `muteAutomation`, `run_remove` its `leaveUndeletable`, its
- * `includeChanged` and, for a Sync run, its `store`; `env_destroy` its
+ * `includeChanged`, its `preview` and, for a Sync run, its `store`; `env_destroy` its
  * `includeChanged`. Its `clone_org_plan` takes what narrows, fits and
  * accepts a clone of the whole org, as parameters of the same names; its
  * `clone_org` takes a plan and nothing of what it writes. Any other relay —
@@ -58,7 +58,10 @@ export const CLONE_ORG_RELAY = 'sandforge mcp clone_org';
 const TAKEN_BY_THE_RELAY: ReadonlyMap<string, readonly string[]> = new Map([
   ['sandforge env', ['--sweep', '--include-changed']],
   ['sandforge env, relayed by sandforge mcp', ['--include-changed']],
-  ['sandforge mcp', ['--mute-automation', '--leave-undeletable', '--store', '--include-changed']],
+  [
+    'sandforge mcp',
+    ['--mute-automation', '--leave-undeletable', '--store', '--include-changed', '--preview'],
+  ],
   [
     CLONE_ORG_PLAN_RELAY,
     [

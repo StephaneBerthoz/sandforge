@@ -39,7 +39,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
@@ -51,11 +51,40 @@ import {
   spawnRunner,
   type CommandRun,
   type CommandRunner as RunnerOf,
+  type RunOptions,
   type SpawnOptions,
 } from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
 import { commandOf, nameOf } from './invocation.js';
+import { journalDirOf } from './journalDir.js';
+import { CLONE_ORG_PLAN_RELAY, CLONE_ORG_RELAY } from './relayWords.js';
+import {
+  HOLD_SECONDS_VARIABLE,
+  McpRuns,
+  RUN_HANDLE,
+  WAIT_SECONDS_MOST,
+  holdMsOf,
+  readRunSummary,
+  runsDirOf,
+  type McpRun,
+  type RunOnDisk,
+  type RunSummaryRead,
+} from './mcpRuns.js';
+import {
+  PLAN_ID,
+  addClonePlanRun,
+  clonePlanRunLine,
+  dryRunPlanOf,
+  endClonePlanRun,
+  keepClonePlan,
+  markClonePlanDead,
+  openClonePlan,
+  readClonePlan,
+  sweepClonePlans,
+  type ClonePlanReceipt,
+} from './mcpClonePlans.js';
+import { makePrivateDir } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -103,16 +132,20 @@ const SERVER_INFO = {
 
 /** What the model is told of the server as a whole, beside each tool's own description. */
 export const INSTRUCTIONS =
-  "SandForge's Seed, Forge's clone of a record, the removal of a run, the emptying of objects " +
-  'or of a whole org, Checkpoints and the environments of a sandforge.yaml, run from a ' +
+  "SandForge's Seed, Forge's clone of a record or of the whole org, the removal of a run, the " +
+  'emptying of objects or of a whole org, Checkpoints and the environments of a ' +
+  'sandforge.yaml, run from a ' +
   'checkout of its repository. Every org is named ' +
   'by its sf CLI alias, as `sf alias list` shows them. A tool that writes to an org takes ' +
   'confirm, the alias of that org exactly: give it only once the person using you has agreed ' +
   'to that write, after a dry run, a preview or a plan has said what it would do. The ' +
   'acceptances (acceptAutomation and the others) are theirs to give too. A production org is ' +
   "refused by every tool that writes to an org. Each answer carries the script's own JSON, its " +
-  'exit code and its lines. No tool clones the whole org, a sample of it that fits the target ' +
-  `(${commandOf('clone')} --depth all --fit share, its --dry-run first), or whole tables ` +
+  'exit code and its lines. A clone of the whole org, or of a sample of it that fits the ' +
+  'target: clone_org_plan, show the person the question its plan comes back with, then ' +
+  'clone_org with that plan and confirm; its personal fields are always anonymized. A call ' +
+  `still running after ${Math.round(holdMsOf() / 1000)} seconds hands back a run: run_status ` +
+  'follows it, run_stop stops it. No tool clones whole tables ' +
   `(${commandOf('clone')} --object <ApiName> --where <condition>), nor compares two orgs ` +
   `(${commandOf('compare')}) or takes a DataOps snapshot (${commandOf('backup')}): give the ` +
   'person the command to run in a terminal, or a sandforge.yaml resource that env_plan and ' +
@@ -157,10 +190,63 @@ export function toolRunner(options: Omit<SpawnOptions, 'relayedBy'> = {}): Comma
 
 const TOOL_RUNNER = toolRunner();
 
+/**
+ * What the server gives a tool beyond its arguments: where the scripts keep
+ * what they write on this machine, the runs it handed back, its clock, and
+ * how it runs a script of its own — the verification of a clone it ran.
+ */
+interface ToolContext {
+  /** The folder the scripts keep their journals in (`journalDir.ts`). */
+  journalDir: string;
+  /** The runs of this server, those running and those handed back. */
+  runs: McpRuns<ToolResult>;
+  now: () => Date;
+  log: (line: string) => void;
+  /** Runs a script for the server itself, as a tool runs one. */
+  runCommand: CommandRunner;
+  /** Stops what the server runs for itself, once it ends. */
+  stopping: AbortSignal;
+  /** The answer a run of this server gives once it has ended, made once. */
+  finalOf: (handle: string) => Promise<ToolResult> | undefined;
+}
+
+/** What a run of a script is told as it starts: its handle, and the summary file it may write. */
+interface Launch {
+  handle: string;
+  /** Under the runs folder, named by its handle: a clone's `--summary`. */
+  summary: string;
+}
+
 /** A call that runs a script, or one this server answers itself. */
 type Run =
-  | { script: Script; args: string[] }
-  | { local: () => Promise<{ text: string; structured: Record<string, unknown> }> };
+  | {
+      script: Script;
+      args: string[];
+      /** The command its lines are relayed by, in place of `sandforge mcp`. */
+      relayedBy?: string;
+      /** What `run_status` follows it by, once it is handed back. */
+      follow?: { plan?: string; summary?: string; expectedSeconds?: number };
+    }
+  | { local: (context: ToolContext) => Promise<ToolResult> };
+
+/** A call refused by the server before any script runs, its code and its words. */
+interface Refusal {
+  code: string;
+  message: string;
+}
+
+/** What the server reads before a call is confirmed: on disk, among its runs. */
+type Prepared<P> = { prepared: P } | { refusal: Refusal };
+
+/** What a run came to, as a tool settles its answer from it. */
+interface Settling {
+  ran: CommandRun;
+  run: { script: Script; args: readonly string[] };
+  launch: Launch;
+  /** The answer as any tool gives it, which the tool settles from. */
+  parts: ResultParts;
+  context: ToolContext;
+}
 
 /** A tool as `tools/list` describes it. */
 export interface ToolDefinition {
@@ -176,7 +262,7 @@ export interface ToolDefinition {
 }
 
 /** A tool as it is declared. */
-interface ToolSpec<S extends z.ZodType<Record<string, unknown>>> {
+interface ToolSpec<S extends z.ZodType<Record<string, unknown>>, P = undefined> {
   name: string;
   title: string;
   description: string;
@@ -185,8 +271,18 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>> {
   /** It deletes, or writes over what is there: meaningful only for a tool that is not read-only. */
   destructive?: boolean;
   args: S;
+  /**
+   * A refusal of the arguments in this tool's own words, before they are
+   * read: an argument the agent may well give that is no parameter, and why.
+   */
+  refuseFirst?: (raw: Record<string, unknown>) => string | undefined;
+  /**
+   * What a call reads before it is confirmed — a plan on disk, the runs under
+   * way —, or the server's refusal of it, before any script runs.
+   */
+  prepare?: (args: z.output<S>, context: ToolContext) => Promise<Prepared<P>>;
   /** The alias of the org a call writes to, which `confirm` names again; nothing for one that writes nothing. */
-  writesTo?: (args: z.output<S>) => string | undefined;
+  writesTo?: (args: z.output<S>, prepared: P) => string | undefined;
   /** What a call that writes does, as its refusal for want of `confirm` says it. */
   writes?: string;
   /** Where the person using the agent reads what a write would do, before agreeing to it. */
@@ -203,9 +299,22 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>> {
   named?: Readonly<Record<string, string>>;
   /** What an exit code of its script means for this tool, where it is not what it means for all. */
   exits?: Readonly<Partial<Record<number, string>>>;
-  /** Lines said after the script's own, from what it answered. */
+  /**
+   * Lines said after the script's own, from what it answered: of a run that
+   * went through, and of one stopped part way, whose answer names what it
+   * wrote as much.
+   */
   after?: (args: z.output<S>, answer: unknown) => string[];
-  run: (args: z.output<S>) => Run;
+  /** What a confirmed call keeps before its script starts. */
+  beforeStart?: (
+    args: z.output<S>,
+    prepared: P,
+    launch: Launch,
+    context: ToolContext,
+  ) => Promise<void>;
+  run: (args: z.output<S>, prepared: P, launch: Launch) => Run;
+  /** What the tool does once its script has ended, whatever its code, before it answers. */
+  settle?: (args: z.output<S>, prepared: P, settling: Settling) => Promise<ResultParts>;
 }
 
 /** A tool, its arguments read: what a call of it runs, and what it must be confirmed with. */
@@ -214,6 +323,8 @@ interface Call {
   confirm?: string;
   run: Run;
   after: (answer: unknown) => string[];
+  beforeStart: () => Promise<void>;
+  settle?: (settling: Settling) => Promise<ResultParts>;
 }
 
 /** A tool as this server serves it. */
@@ -224,7 +335,11 @@ interface ServedTool {
   flags: Readonly<Record<string, string>>;
   named: Readonly<Record<string, string>>;
   exits: Readonly<Partial<Record<number, string>>>;
-  read: (raw: Record<string, unknown>) => { call: Call } | { refusal: string };
+  read: (
+    raw: Record<string, unknown>,
+    context: ToolContext,
+    launch: Launch,
+  ) => Promise<{ call: Call } | { refusal: Refusal }>;
 }
 
 /**
@@ -240,7 +355,9 @@ function inputSchemaOf(args: z.ZodType): Record<string, unknown> {
 }
 
 /** A tool, served. */
-function tool<S extends z.ZodType<Record<string, unknown>>>(spec: ToolSpec<S>): ServedTool {
+function tool<S extends z.ZodType<Record<string, unknown>>, P = undefined>(
+  spec: ToolSpec<S, P>,
+): ServedTool {
   return {
     definition: {
       name: spec.name,
@@ -258,24 +375,43 @@ function tool<S extends z.ZodType<Record<string, unknown>>>(spec: ToolSpec<S>): 
     flags: spec.flags ?? {},
     named: spec.named ?? {},
     exits: spec.exits ?? {},
-    read: (raw) => {
+    read: async (raw, context, launch) => {
+      const first = spec.refuseFirst?.(raw);
+      if (first !== undefined) return { refusal: { code: 'ARGUMENTS', message: first } };
       const parsed = spec.args.safeParse(raw);
       if (!parsed.success) {
         return {
-          refusal: parsed.error.issues
-            .map((issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`)
-            .join('; '),
+          refusal: {
+            code: 'ARGUMENTS',
+            message:
+              `${spec.name}: ` +
+              parsed.error.issues
+                .map((issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`)
+                .join('; ') +
+              '. Nothing was run.',
+          },
         };
       }
       const args = parsed.data;
-      const writesTo = spec.writesTo?.(args);
+      let prepared: P;
+      if (spec.prepare) {
+        const read = await spec.prepare(args, context);
+        if ('refusal' in read) return read;
+        prepared = read.prepared;
+      } else {
+        prepared = undefined as P;
+      }
+      const writesTo = spec.writesTo?.(args, prepared);
       const confirm = (args as { confirm?: unknown }).confirm;
+      const { beforeStart, settle } = spec;
       return {
         call: {
           ...(writesTo !== undefined ? { writesTo } : {}),
           ...(typeof confirm === 'string' ? { confirm } : {}),
-          run: spec.run(args),
+          run: spec.run(args, prepared, launch),
           after: (answer) => spec.after?.(args, answer) ?? [],
+          beforeStart: () => beforeStart?.(args, prepared, launch, context) ?? Promise.resolve(),
+          ...(settle ? { settle: (settling: Settling) => settle(args, prepared, settling) } : {}),
         },
       };
     },
@@ -626,6 +762,635 @@ const REMOVAL_SCRIPT: Readonly<Record<'seed' | 'forge' | 'sync', Script>> = {
   sync: 'sandforge-sync',
 };
 
+// ─── A clone of the whole org ────────────────────────────────────────────────
+
+/**
+ * Where a person copies the personal data of a whole org as its source holds
+ * it, since no tool does: an agent's clone of the whole org always
+ * anonymizes, the choice being the person's alone, made on a terminal or in
+ * a file the repository's reviewers read.
+ */
+const REAL_DATA_WORDS =
+  "An agent's clone of the whole org always anonymizes its personal fields: no tool copies " +
+  'them as the source holds them. A person who means to does it on a terminal, ' +
+  `${commandOf('clone')} --depth all --source <alias> --target <alias> --no-anonymize after ` +
+  'its --dry-run, or in a sandforge.yaml whose depth: all resource says accept: { realData: ' +
+  'true }, reviewed where the repository is, that env_plan and env_apply run.';
+
+/** An object and one of its fields, `Account.Description`, as `--exclude` takes them. */
+const OBJECT_FIELD = /^[A-Za-z][A-Za-z0-9_]{0,79}\.[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** The most a sample may be asked to take of the target, in MB, as `--fit-within` takes it. */
+const FIT_WITHIN_MOST_MB = 1_000_000;
+
+/** The arguments of `clone_org`: a plan, its confirmation, and a resume. */
+const CLONE_ORG_ARGS: readonly string[] = ['plan', 'confirm', 'resume'];
+
+/**
+ * The refusals of a run of a plan that only a new plan answers: its copy
+ * changed or gone, a source that grew past its count, a target with less
+ * room or more automation than it was planned with. Its receipt is marked
+ * dead, and `clone_org` refuses it after.
+ */
+const PLAN_NO_LONGER_HOLDS: ReadonlySet<string> = new Set([
+  'SAMPLE_PLAN_MISMATCH',
+  'SAMPLE_PLAN_GONE',
+  'MAX_TOTAL_EXCEEDED',
+  'STORAGE_EXCEEDED',
+  'AUTOMATION_NOT_ACCEPTED',
+]);
+
+/** What `clone_org_plan` reads of its arguments, and passes to the clone's line. */
+interface CloneOrgPlanArgs {
+  source: string;
+  target: string;
+  fit?: 'share' | undefined;
+  fitWithinMB?: number | undefined;
+  fitSeed?: number | undefined;
+  fitDraw?: 'uniform' | 'recent' | undefined;
+  fitParents?: 'all' | 'required' | undefined;
+  fitChildren?: number | 'all' | undefined;
+  fitWhole?: string[] | undefined;
+  fitFloor?: number | undefined;
+  maxTotal?: number | undefined;
+  excludedObjects?: string[] | undefined;
+  excludedFields?: string[] | undefined;
+  filters?: Array<{ objectApiName: string; where: string }> | undefined;
+  acceptAutomation?: boolean | undefined;
+  acceptEmails?: boolean | undefined;
+  muteAutomation?: boolean | undefined;
+  checkpointFirst?: { keepDays?: number | undefined; excluded?: string[] | undefined } | undefined;
+}
+
+/**
+ * The line of the dry run `clone_org_plan` runs: the clone of the whole org
+ * with what narrows, fits and accepts it, anonymized whatever is asked, its
+ * preflight left to the run's gate as an environment leaves it — otherwise a
+ * read of each object first. Exported so it can be tested.
+ */
+export function cloneOrgPlanLine(args: CloneOrgPlanArgs): string[] {
+  return [
+    '--depth',
+    'all',
+    '--source',
+    args.source,
+    '--target',
+    args.target,
+    ...(args.fit !== undefined ? ['--fit', args.fit] : []),
+    ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
+    ...(args.fitSeed !== undefined ? ['--fit-seed', String(args.fitSeed)] : []),
+    ...(args.fitDraw !== undefined ? ['--fit-draw', args.fitDraw] : []),
+    ...(args.fitParents !== undefined ? ['--fit-parents', args.fitParents] : []),
+    ...(args.fitChildren !== undefined ? ['--fit-children', String(args.fitChildren)] : []),
+    ...(args.fitWhole ?? []).flatMap((name) => ['--fit-whole', name]),
+    ...(args.fitFloor !== undefined ? ['--fit-floor', String(args.fitFloor)] : []),
+    ...(args.maxTotal !== undefined ? ['--max-total', String(args.maxTotal)] : []),
+    ...(args.excludedObjects ?? []).flatMap((name) => ['--exclude-object', name]),
+    ...(args.excludedFields ?? []).flatMap((field) => ['--exclude', field]),
+    ...(args.filters ?? []).flatMap((filter) => [
+      '--filter',
+      `${filter.objectApiName}=${filter.where}`,
+    ]),
+    '--anonymize',
+    ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+    ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+    ...checkpointFirstLine(args.checkpointFirst),
+    '--skip-preflight',
+    '--dry-run',
+    '--json',
+  ];
+}
+
+/** The acceptances a plan was asked with, by the parameters that gave them. */
+function acceptedOf(args: CloneOrgPlanArgs): string[] {
+  return [
+    ...(args.acceptAutomation === true ? ['acceptAutomation'] : []),
+    ...(args.acceptEmails === true ? ['acceptEmails'] : []),
+    ...(args.muteAutomation === true ? ['muteAutomation'] : []),
+    ...(args.checkpointFirst !== undefined ? ['checkpointFirst'] : []),
+  ];
+}
+
+/** `value` when it is an object, else an empty one: what a lenient read of a script's JSON walks. */
+function objectOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** `value` when it is a finite number. */
+function numberOf(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** `value` when it is a string of something. */
+function stringOf(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/** A plan as `clone_org_plan` answers it, beside the dry run's own JSON. */
+interface PlanSummary {
+  id: string;
+  expiresAt: string;
+  mode: 'sample' | 'whole';
+  source: string;
+  target: string;
+  records: number;
+  objects: number;
+  storageMB?: { estimate?: number; remaining?: number };
+  requests?: { target?: number; source?: number };
+  bulkBatches?: number;
+  durationSeconds?: number;
+  question?: string;
+  anonymize: boolean;
+  accepted: string[];
+  sample?: { share?: number; seed?: number; draw?: string; limitedBy?: string };
+}
+
+/** What `clone_org_plan` says of the plan it kept: the receipt, and the dry run's own figures. */
+function planSummaryOf(receipt: ClonePlanReceipt, answer: unknown): PlanSummary {
+  const dry = objectOf(answer);
+  const whole = objectOf(dry.wholeOrg);
+  const storage = objectOf(whole.storage);
+  const requests = objectOf(whole.requests);
+  const sample = objectOf(whole.sample);
+  const estimate = (value: unknown) => numberOf(objectOf(value).estimate);
+  const storageMB = {
+    ...(numberOf(storage.estimateMB) !== undefined
+      ? { estimate: numberOf(storage.estimateMB) }
+      : {}),
+    ...(numberOf(storage.remainingMB) !== undefined
+      ? { remaining: numberOf(storage.remainingMB) }
+      : {}),
+  };
+  const asked = {
+    ...(estimate(requests.target) !== undefined ? { target: estimate(requests.target) } : {}),
+    ...(estimate(requests.source) !== undefined ? { source: estimate(requests.source) } : {}),
+  };
+  const limitedBy = stringOf(objectOf(sample.budget).limitedBy);
+  return {
+    id: receipt.id,
+    expiresAt: receipt.expiresAt,
+    mode: receipt.mode,
+    source: receipt.source,
+    target: receipt.target,
+    records: receipt.totalRows,
+    objects: Array.isArray(whole.wouldInsert) ? whole.wouldInsert.length : 0,
+    ...(Object.keys(storageMB).length > 0 ? { storageMB } : {}),
+    ...(Object.keys(asked).length > 0 ? { requests: asked } : {}),
+    ...(estimate(whole.bulkBatches) !== undefined
+      ? { bulkBatches: estimate(whole.bulkBatches) }
+      : {}),
+    ...(receipt.durationSeconds !== undefined ? { durationSeconds: receipt.durationSeconds } : {}),
+    ...(receipt.question !== undefined ? { question: receipt.question } : {}),
+    // Asked of every plan; said as the dry run read it.
+    anonymize: dry.anonymize !== false,
+    accepted: [...receipt.accepted],
+    ...(receipt.mode === 'sample'
+      ? {
+          sample: {
+            ...(numberOf(sample.share) !== undefined ? { share: numberOf(sample.share) } : {}),
+            ...(numberOf(sample.seed) !== undefined ? { seed: numberOf(sample.seed) } : {}),
+            ...(stringOf(sample.draw) !== undefined ? { draw: stringOf(sample.draw) } : {}),
+            ...(limitedBy !== undefined ? { limitedBy } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** What the server says of a plan it kept: what it writes, its question, and the call that writes it. */
+function planLines(plan: PlanSummary): string[] {
+  const share = plan.sample?.share;
+  const what =
+    plan.mode === 'sample'
+      ? `a sample of ${plan.source}` +
+        (share !== undefined ? `, ${Math.round(share * 1000) / 10} % of each object's roots` : '') +
+        (plan.sample?.limitedBy !== undefined ? `, held by ${plan.sample.limitedBy}` : '')
+      : `every record of ${plan.source} it can take`;
+  return [
+    `The plan "${plan.id}": ${plan.records} records of ${plan.objects} objects into ` +
+      `${plan.target}, ${what}, every personal field anonymized` +
+      (plan.durationSeconds !== undefined
+        ? `; its writes take about ${plan.durationSeconds} seconds`
+        : '') +
+      `. It holds until ${plan.expiresAt}` +
+      (plan.accepted.length > 0 ? `, with ${plan.accepted.join(', ')} given` : '') +
+      '.',
+    ...(plan.question !== undefined
+      ? [`Its question, which a terminal would ask before the first write: ${plan.question}`]
+      : []),
+    'Show the person this plan and its question. clone_org with plan ' +
+      `"${plan.id}" and confirm "${plan.target}" writes it and nothing else, once they have ` +
+      'said yes: nothing is written before.',
+  ];
+}
+
+/**
+ * Keep the plan of a dry run of a clone of the whole org that would go: its
+ * receipt, and of a sample a copy of the ids it drew. A dry run refused, or
+ * one with nothing to write, keeps none; its lines say why, and the
+ * parameters that lift each refusal are named by the tool's flags.
+ */
+async function keepThePlan(args: CloneOrgPlanArgs, settling: Settling): Promise<ResultParts> {
+  const { ran, run, parts, context } = settling;
+  if (ran.code !== DONE_EXIT) return parts;
+  const planned = dryRunPlanOf(parts.answer);
+  if (!planned) {
+    return {
+      ...parts,
+      added: [
+        ...parts.added,
+        'No plan was kept: the dry run counted no record to write, or answered otherwise than ' +
+          'a dry run of the whole org that would go. Nothing was written.',
+      ],
+    };
+  }
+  let receipt: ClonePlanReceipt;
+  try {
+    receipt = await keepClonePlan(
+      context.journalDir,
+      {
+        source: args.source,
+        target: args.target,
+        dryRunArgs: run.args,
+        planned,
+        accepted: acceptedOf(args),
+      },
+      context.now(),
+    );
+  } catch (err: unknown) {
+    const message =
+      'No plan was kept: the plan of ids its dry run drew is no longer the one it gave — ' +
+      `${err instanceof Error ? err.message : String(err)}. clone_org_plan again draws one, ` +
+      'kept as it is shown. Nothing was written.';
+    return {
+      ...parts,
+      added: [...parts.added, message],
+      structured: { ...parts.structured, refusal: { code: 'PLAN_NOT_KEPT', message } },
+      isError: true,
+    };
+  }
+  const plan = planSummaryOf(receipt, parts.answer);
+  return {
+    ...parts,
+    added: [...parts.added, ...planLines(plan)],
+    structured: { ...parts.structured, plan },
+  };
+}
+
+/** The plan a run of `clone_org` writes, as it was found before the call was confirmed. */
+interface PlanToWrite {
+  receipt: ClonePlanReceipt;
+  /** The journal a resume takes up: that of the plan's last run. */
+  journal?: string;
+}
+
+/** Why `plan` can no longer be written, in the words of the refusal that says so. */
+function planGoneWords(id: string, why: string, receipt?: ClonePlanReceipt): string {
+  switch (why) {
+    case 'expired':
+      return `plan "${id}" held until ${receipt?.expiresAt ?? 'a day after it was drawn'}, and no run of it wrote`;
+    case 'dead':
+      return (
+        `plan "${id}" no longer holds: a run of it was refused` +
+        (receipt?.dead !== undefined ? ` (${receipt.dead.code})` : '') +
+        ' for what changed since it was planned, writing nothing'
+      );
+    case 'journalGone':
+      return (
+        `a run of plan "${id}" wrote, and its journal is no longer on this machine: nothing ` +
+        'says what it wrote, to take up or back'
+      );
+    default:
+      return `plan "${id}" is not on this machine`;
+  }
+}
+
+/**
+ * What `clone_org` reads before it is confirmed: its plan as a run finds it,
+ * and the runs of this server. Refused here, before any script runs, is a
+ * plan gone or past its day, one already written (but by `resume`), a
+ * resume with nothing to take up, and a target another run of this server
+ * still writes.
+ */
+async function planToWrite(
+  args: { plan: string; resume?: true | undefined },
+  context: ToolContext,
+): Promise<Prepared<PlanToWrite>> {
+  const id = args.plan;
+  const opened = await openClonePlan(context.journalDir, id, context.now());
+  const nothing = 'Refused: nothing was read or written.';
+  if (opened.state === 'gone') {
+    return {
+      refusal: {
+        code: 'PLAN_GONE',
+        message:
+          `clone_org: ${planGoneWords(id, opened.why, opened.receipt)}. clone_org_plan again ` +
+          'with the same parameters says what a clone would write now: show the person its ' +
+          `question, then clone_org with its plan. ${nothing}`,
+      },
+    };
+  }
+  const { receipt } = opened;
+  if (opened.state === 'written') {
+    const last = opened.run.run;
+    const under = context.runs.get(last)?.running === true;
+    const journal = opened.journal;
+    const removal =
+      journal !== undefined
+        ? `run_remove with module "forge", org "${receipt.target}" and run "${journal}" ` +
+          '(preview: true first) takes it back'
+        : `run_status with run "${last}" says what is known of it`;
+    if (args.resume !== true || under) {
+      return {
+        refusal: {
+          code: 'PLAN_USED',
+          message:
+            `clone_org: plan "${id}" ${under ? 'is being written by' : 'was written by'} run ` +
+            `"${last}"${journal !== undefined ? `, whose journal is ${journal}` : ''}: a plan ` +
+            `is written once. run_status with run "${last}" ` +
+            (under ? 'follows it, and run_stop stops it' : 'says how it ended') +
+            `; clone_org with plan "${id}", resume: true and confirm "${receipt.target}" takes ` +
+            `up a run of it that stopped part way; ${removal}. ${nothing}`,
+        },
+      };
+    }
+    if (journal === undefined) {
+      return {
+        refusal: {
+          code: 'NOTHING_TO_RESUME',
+          message:
+            `clone_org: run "${last}" of plan "${id}" named no journal, so nothing says what it ` +
+            `wrote and no resume takes it up. ${removal}. ${nothing}`,
+        },
+      };
+    }
+  } else if (args.resume === true) {
+    return {
+      refusal: {
+        code: 'NOTHING_TO_RESUME',
+        message:
+          `clone_org: no run of plan "${id}" has written, and resume takes up a run that ` +
+          `stopped part way. clone_org with plan "${id}" and confirm "${receipt.target}", ` +
+          `without resume, writes it. ${nothing}`,
+      },
+    };
+  }
+  const busy = context.runs.busyWith(receipt.target);
+  if (busy) {
+    return {
+      refusal: {
+        code: 'TARGET_BUSY',
+        message:
+          `clone_org: ${receipt.target} is being written by run "${busy.handle}" of ` +
+          `${busy.meta.tool}, which this server runs: two runs writing one org at once could ` +
+          `not tell their records apart. run_status with run "${busy.handle}" says when it has ` +
+          `ended, and run_stop stops it. ${nothing}`,
+      },
+    };
+  }
+  return {
+    prepared: {
+      receipt,
+      ...(opened.state === 'written' && opened.journal !== undefined
+        ? { journal: opened.journal }
+        : {}),
+    },
+  };
+}
+
+/** The journal a clone's answer names, which `--resume`, `--remove` and `--verify` take. */
+function journalOfAnswer(answer: unknown): string | undefined {
+  return stringOf(objectOf(answer).journal);
+}
+
+/** What a verification of a run found, as `clone_org` answers it. */
+interface VerificationSaid {
+  exitCode: number;
+  /** VERIFIED, PARTIAL or UNSTABLE, as the verification says it; absent when it said none. */
+  status?: string;
+  /** The records it set out to read back, those there, in the recycle bin, out of sight. */
+  expected?: number;
+  present?: number;
+  deleted?: number;
+  notVisible?: number;
+  /** The lookups that do not point where the run set them. */
+  linksBroken?: number;
+  /** The objects it could not read back, or whose lookups it could not check. */
+  unchecked?: number;
+  /** Of a verification that was not VERIFIED, the objects it found short, the first fifty. */
+  objects?: Array<Record<string, unknown>>;
+}
+
+/** The objects a verification lists at most, of those it found short. */
+const SHORT_OBJECTS_SAID = 50;
+
+/**
+ * Verify what a run of a plan wrote, as an environment verifies a clone
+ * after its apply: `sandforge clone --verify` its journal, reading both
+ * orgs. Told only "done", an agent had nothing that said every record was
+ * there, its lookups holding.
+ */
+async function verifyTheRun(
+  context: ToolContext,
+  receipt: ClonePlanReceipt,
+  journal: string,
+): Promise<{ said: VerificationSaid; line: string; stderr: string }> {
+  const args = [
+    '--verify',
+    journal,
+    '--source',
+    receipt.source,
+    '--target',
+    receipt.target,
+    '--json',
+  ];
+  let ran: CommandRun;
+  try {
+    ran = await context.runCommand('sandforge-clone', args, context.stopping, {
+      relayedBy: CLONE_ORG_RELAY,
+    });
+  } catch (err: unknown) {
+    ran = {
+      code: FAILED_EXIT,
+      stdout: '',
+      stderr: `${nameOf('sandforge-clone')} could not be started: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const result = objectOf(objectOf(answerOf(ran.stdout)).result);
+  const verdict = stringOf(result.verdict);
+  const objects = Array.isArray(result.objects) ? result.objects.map(objectOf) : [];
+  const sum = (key: string) => objects.reduce((total, o) => total + (numberOf(o[key]) ?? 0), 0);
+  return {
+    said: {
+      exitCode: ran.code,
+      ...(verdict !== undefined
+        ? {
+            status: verdict.toUpperCase(),
+            expected: sum('expected'),
+            present: sum('present'),
+            deleted: sum('deleted'),
+            notVisible: sum('notVisible'),
+            linksBroken: sum('linksBroken'),
+            unchecked: objects.filter(
+              (o) => stringOf(o.error) !== undefined || stringOf(o.linksUnchecked) !== undefined,
+            ).length,
+          }
+        : {}),
+      ...(verdict !== undefined && verdict !== 'verified'
+        ? {
+            objects: objects
+              .filter(
+                (o) =>
+                  (numberOf(o.present) ?? 0) < (numberOf(o.expected) ?? 0) ||
+                  (numberOf(o.linksBroken) ?? 0) > 0 ||
+                  stringOf(o.error) !== undefined ||
+                  stringOf(o.linksUnchecked) !== undefined,
+              )
+              .slice(0, SHORT_OBJECTS_SAID)
+              .map((o) => ({
+                objectApiName: o.objectApiName,
+                expected: o.expected,
+                present: o.present,
+                deleted: o.deleted,
+                notVisible: o.notVisible,
+                linksBroken: o.linksBroken,
+                ...(stringOf(o.error) !== undefined ? { error: o.error } : {}),
+                ...(stringOf(o.linksUnchecked) !== undefined
+                  ? { linksUnchecked: o.linksUnchecked }
+                  : {}),
+              })),
+          }
+        : {}),
+    },
+    line: `verified by: ${commandText('sandforge-clone', args)}`,
+    stderr: ran.stderr.trimEnd(),
+  };
+}
+
+/** The verification as the answer says it: first, when it found the run short. */
+function verificationWords(said: VerificationSaid, target: string): string {
+  const counts =
+    said.expected !== undefined
+      ? `${said.present ?? 0} of the ${said.expected} records the run created read back from ` +
+        `${target}` +
+        (said.deleted ? `, ${said.deleted} in its recycle bin` : '') +
+        (said.notVisible ? `, ${said.notVisible} out of sight` : '') +
+        (said.linksBroken ? `; ${said.linksBroken} lookups not where the run set them` : '') +
+        (said.unchecked ? `; ${said.unchecked} objects not read or checked whole` : '')
+      : '';
+  const short =
+    (said.present ?? 0) < (said.expected ?? 0) || (said.linksBroken ?? 0) > 0
+      ? `${target} does not hold all of it as it was written`
+      : `what it wrote could not all be checked`;
+  switch (said.status) {
+    case 'VERIFIED':
+      return `Verification: VERIFIED — ${counts}, every lookup checked where the run set it.`;
+    case 'PARTIAL':
+      return (
+        `Verification: PARTIAL — the clone ended, and ${short}: ${counts}. ` +
+        'verification.objects names the objects, each with what it found.'
+      );
+    case 'UNSTABLE':
+      return (
+        `Verification: UNSTABLE — no two readings of ${target} agreed: something still writes ` +
+        `to the run's records (${counts}). run_status says it again, verified again, once ` +
+        'nothing does.'
+      );
+    default:
+      return (
+        `Verification: not done — the verification of the run ended on ${said.exitCode} ` +
+        '(its lines follow): what the clone wrote is not known to be there.'
+      );
+  }
+}
+
+/**
+ * What `clone_org` does once its run has ended: says in the plan's receipt
+ * how it ended; verifies what a run that went through wrote, the
+ * verification said first unless VERIFIED; marks the plan dead when a
+ * refusal says only a new plan answers; and gives the call that takes the
+ * run up or back, by its code.
+ */
+async function settleCloneOrg(prepared: PlanToWrite, settling: Settling): Promise<ResultParts> {
+  const { ran, launch, parts, context } = settling;
+  const { receipt } = prepared;
+  const answer = objectOf(parts.answer);
+  const journal = journalOfAnswer(answer) ?? (await readRunSummary(launch.summary))?.journal;
+  await endClonePlanRun(context.journalDir, receipt.id, launch.handle, {
+    code: ran.code,
+    ...(journal !== undefined ? { journal } : {}),
+  });
+  const head: string[] = [];
+  const added = [...parts.added];
+  let structured = parts.structured;
+  const takeBack =
+    journal !== undefined
+      ? `run_remove with module "forge", org "${receipt.target}" and run "${journal}" takes it ` +
+        'back: preview: true first says what it would delete.'
+      : undefined;
+  const refusal = objectOf(answer.refused);
+  const code = stringOf(refusal.code);
+  if (ANSWERED.has(ran.code)) {
+    const result = objectOf(answer.result);
+    const created = numberOf(result.successCount);
+    if (created !== undefined) {
+      added.push(
+        `It created ${created} records of the ${receipt.totalRows} its plan counted` +
+          (numberOf(result.failedCount) ? `, ${numberOf(result.failedCount)} refused` : '') +
+          '.',
+      );
+    }
+    if (journal !== undefined) {
+      const verified = await verifyTheRun(context, receipt, journal);
+      const words = verificationWords(verified.said, receipt.target);
+      if (verified.said.status === 'VERIFIED') added.push(words, verified.line);
+      else {
+        head.push(words);
+        added.push(verified.line, ...(verified.stderr !== '' ? [verified.stderr] : []));
+      }
+      structured = { ...structured, verification: verified.said };
+    }
+    if (takeBack !== undefined) added.push(`This run: ${takeBack}`);
+    added.push(...rewindHint(answer));
+  } else if (STOPPED.has(ran.code)) {
+    added.push(
+      journal !== undefined
+        ? `It stopped part way, between two calls to the org: its journal ${journal} holds what ` +
+            `it wrote. clone_org with plan "${receipt.id}", resume: true and confirm ` +
+            `"${receipt.target}" takes it up, writing nothing twice; ${takeBack ?? ''}`
+        : `It stopped before it wrote anything: plan "${receipt.id}" still holds until ` +
+            `${receipt.expiresAt}, and clone_org with it writes it.`,
+    );
+    added.push(...rewindHint(answer));
+  } else if (code !== undefined && PLAN_NO_LONGER_HOLDS.has(code)) {
+    await markClonePlanDead(context.journalDir, receipt.id, code, context.now());
+    added.push(
+      `The plan no longer holds (${code}): what it was drawn or counted from changed since. ` +
+        'clone_org_plan again with the same parameters says what a clone would write now; show ' +
+        'the person its question, then clone_org with its plan. Nothing was written.',
+    );
+  } else if (code === 'API_BUDGET_EXCEEDED') {
+    added.push(
+      `Plan "${receipt.id}" still holds until ${receipt.expiresAt}: clone_org with it again ` +
+        'once the org has the requests it takes, within its day, or clone_org_plan again. ' +
+        'Nothing was written.',
+    );
+  } else if (code === 'RESUME_UNCERTAIN') {
+    const retryAt = stringOf(refusal.retryAt);
+    added.push(
+      retryAt !== undefined
+        ? `clone_org with plan "${receipt.id}", resume: true and confirm "${receipt.target}" ` +
+            `again from ${retryAt}, once the calls the run left under way have ended. Nothing ` +
+            'was written.'
+        : `${takeBack ?? 'run_remove takes back what it wrote'} Nothing was written.`,
+    );
+  }
+  return { ...parts, head, added, structured };
+}
+
 /** The tools, in the order `tools/list` gives them. */
 export const TOOLS: readonly ServedTool[] = [
   tool({
@@ -829,6 +1594,293 @@ export const TOOLS: readonly ServedTool[] = [
     }),
   }),
   tool({
+    name: 'clone_org_plan',
+    title: 'Plan a clone of the whole org (Forge)',
+    description:
+      'The dry run of a clone of the whole org from source into target, or of a sample of it ' +
+      'that fits the target (fit: "share"), as sandforge clone --depth all --dry-run --json ' +
+      'says it: per object the records it would write, the API requests, Bulk API batches, ' +
+      'data storage and time it takes against what each org has left today, what it leaves out ' +
+      'and why, and every refusal a run would meet, each with the parameter that lifts it. It ' +
+      'reads both orgs and writes nothing to either. A plan that would go is kept on this ' +
+      "machine for a day, its owner's alone — of a sample, the ids of the records it drew — and " +
+      'comes back with its id and the question a terminal would ask before the first write: ' +
+      'show the person both; clone_org with that plan and confirm writes it and nothing else. ' +
+      'Every personal field is anonymized, always. acceptAutomation, acceptEmails, ' +
+      'muteAutomation and checkpointFirst are given here, to the plan, which says what was ' +
+      'accepted; maxTotal bounds the records, excludedObjects, excludedFields and filters narrow ' +
+      'the clone. A production target is refused.',
+    readOnly: false,
+    destructive: false,
+    args: z
+      .strictObject({
+        source: alias('The org to read from: its sf CLI alias.'),
+        target: alias('The org the plan writes into: its sf CLI alias.'),
+        fit: z
+          .enum(['share'])
+          .optional()
+          .describe(
+            '"share": a sample of the org rather than every record — roots drawn of each ' +
+              'object, each with its children and the records it names, none without a record ' +
+              'it cannot be written without —, the largest share that fits what the target ' +
+              'has left and maxTotal.',
+          ),
+        fitWithinMB: z
+          .number()
+          .min(0.01)
+          .max(FIT_WITHIN_MOST_MB)
+          .optional()
+          .describe('With fit: take no more than this many MB of the target.'),
+        fitSeed: z
+          .number()
+          .int()
+          .min(0)
+          .max(999_999_999_999_999)
+          .optional()
+          .describe('With fit: the seed the roots are drawn by (default 1).'),
+        fitDraw: z
+          .enum(['uniform', 'recent'])
+          .optional()
+          .describe(
+            'With fit: "uniform" spreads the roots over each object (default), "recent" takes ' +
+              'the newest by their creation date.',
+          ),
+        fitParents: z
+          .enum(['all', 'required'])
+          .optional()
+          .describe(
+            'With fit: "all" copies a record outside the sample an optional lookup names ' +
+              '(default), "required" writes such a lookup empty.',
+          ),
+        fitChildren: z
+          .union([z.number().int().min(1).max(1_000_000), z.literal('all')])
+          .optional()
+          .describe('With fit: the most children a record brings through each relation (100).'),
+        fitWhole: z
+          .array(z.string().regex(API_NAME, 'an object API name'))
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('With fit: objects copied whole, by API name.'),
+        fitFloor: z
+          .number()
+          .int()
+          .min(0)
+          .max(10_000)
+          .optional()
+          .describe('With fit: the roots kept of each object whatever the share (default 1).'),
+        maxTotal: z
+          .number()
+          .int()
+          .min(1)
+          .max(100_000_000)
+          .optional()
+          .describe(
+            'The most records the clone may write in all (default 10,000): past it, its run ' +
+              'is refused, and a sample is drawn within it.',
+          ),
+        excludedObjects: z
+          .array(z.string().regex(API_NAME, 'an object API name'))
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Objects left out, by API name; what that costs is said.'),
+        excludedFields: z
+          .array(z.string().regex(OBJECT_FIELD, 'Object.Field, by API names'))
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Fields left out, as Object.Field.'),
+        filters: z
+          .array(
+            z.strictObject({
+              objectApiName: z.string().regex(API_NAME, 'an object API name'),
+              where: z
+                .string()
+                .min(1)
+                .max(512)
+                .regex(ON_A_LINE, 'one line, not starting with "-"')
+                .describe('A SOQL WHERE condition, without WHERE.'),
+            }),
+          )
+          .min(1)
+          .max(50)
+          .optional()
+          .describe('Conditions that narrow an object, each added to what the clone reads of it.'),
+        anonymize: z
+          .literal(true)
+          .optional()
+          .describe(
+            'Always on, whether given or not: every personal field is anonymized by its ' +
+              "category's default method. false is refused: no tool copies them as they are.",
+          ),
+        acceptAutomation: acceptance(
+          'Plan the run with --accept-automation: it writes although the target runs flows, ' +
+            'Apex triggers, processes or workflow rules as the records go in. Only once the ' +
+            'person using you has accepted what a plan without it named.',
+        ),
+        acceptEmails: acceptance(
+          'Plan the run with --accept-emails: it writes although the target delivers every ' +
+            'email what still runs sends, or would not say whether it does. acceptAutomation ' +
+            'never stands for it. Only once the person using you has accepted that they go out.',
+        ),
+        muteAutomation: muteFor('the clone'),
+        checkpointFirst: checkpointFirst('the clone'),
+      })
+      .refine(
+        (args) =>
+          args.fit !== undefined ||
+          [
+            args.fitWithinMB,
+            args.fitSeed,
+            args.fitDraw,
+            args.fitParents,
+            args.fitChildren,
+            args.fitWhole,
+            args.fitFloor,
+          ].every((value) => value === undefined),
+        { message: 'the fit* parameters go with fit: "share"', path: ['fit'] },
+      ),
+    refuseFirst: (raw) =>
+      raw.anonymize === false || ['acceptRealData', 'noAnonymize', 'realData'].some((k) => k in raw)
+        ? `clone_org_plan: the personal fields cannot be left as they are. ${REAL_DATA_WORDS} ` +
+          'Nothing was run.'
+        : undefined,
+    // The plans past their day and the runs whose journal is gone, swept as
+    // a new plan is made: a receipt holds the ids of a production's records.
+    prepare: async (_args, context) => {
+      await sweepKept(context.journalDir, context.runs, context.now(), context.log);
+      return { prepared: undefined };
+    },
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
+    },
+    named: {
+      '--max-total':
+        "is this tool's maxTotal: the most records the clone may write. Give it the count the " +
+        'dry run said only once the person using you has agreed to that many.',
+      '--fit':
+        'is this tool\'s fit: "share", a sample of the org that fits the target rather than ' +
+        'every record.',
+      '--fit-within': "is this tool's fitWithinMB.",
+      '--fit-seed': "is this tool's fitSeed.",
+      '--fit-draw': "is this tool's fitDraw.",
+      '--fit-parents': "is this tool's fitParents.",
+      '--fit-children': "is this tool's fitChildren.",
+      '--fit-whole': "is this tool's fitWhole, an object by API name.",
+      '--fit-floor': "is this tool's fitFloor.",
+      '--exclude-object': "is this tool's excludedObjects, an object by API name.",
+      '--exclude': "is this tool's excludedFields, as Object.Field.",
+      '--filter': "is this tool's filters, an objectApiName and its where.",
+      '--checkpoint-first': "is this tool's checkpointFirst: {} takes it with the defaults.",
+      '--no-anonymize': `is no parameter of any tool. ${REAL_DATA_WORDS}`,
+      '--yes':
+        "is clone_org's to give: once the person has said yes to the plan's question, " +
+        'clone_org with the plan and confirm writes it without asking again.',
+    },
+    exits: {
+      [FAILED_EXIT]:
+        'refused, or a run of this plan would be: each refusal is said above, with the ' +
+        'parameter that lifts it; no plan was kept',
+    },
+    run: (args) => ({
+      script: 'sandforge-clone',
+      args: cloneOrgPlanLine(args),
+      relayedBy: CLONE_ORG_PLAN_RELAY,
+    }),
+    settle: (args, _prepared, settling) => keepThePlan(args, settling),
+  }),
+  tool({
+    name: 'clone_org',
+    title: 'Clone the whole org (Forge)',
+    description:
+      'Write the plan clone_org_plan kept, and nothing else: its records into its target, as ' +
+      'sandforge clone --depth all writes them, as Bulk API jobs from 2000 records of an object ' +
+      'and by REST under that. plan is the id clone_org_plan gave, good for a day; confirm is ' +
+      "the alias of the plan's target, given once the person has said yes to the question the " +
+      'plan came back with, which the run then does not ask again. A sample writes the records ' +
+      'its dry run drew, a plan of every record no more than its dry run counted: a source or ' +
+      'a target that changed since is refused, nothing written, and needs a new plan. It takes ' +
+      'no scope of its own. resume: true takes up the run of the plan that stopped part way, ' +
+      'from its journal. Once a run has ended, the server verifies what it wrote, and says the ' +
+      'verification first unless VERIFIED. The answer names the journal, which run_remove with ' +
+      'module "forge" takes the run back from. A plan already written, gone or past its day is ' +
+      'refused before anything is read.',
+    readOnly: false,
+    destructive: false,
+    args: z.strictObject({
+      plan: z
+        .string()
+        .regex(PLAN_ID, 'the id of a plan clone_org_plan kept, co-...')
+        .describe('The plan clone_org_plan kept, by the id its answer gave.'),
+      confirm: confirmOf("the plan's target").optional(),
+      resume: z
+        .literal(true)
+        .optional()
+        .describe(
+          'Take up the run of this plan that stopped part way, from its journal, writing ' +
+            'nothing it wrote.',
+        ),
+    }),
+    refuseFirst: (raw) => {
+      const scope = Object.keys(raw).filter((key) => !CLONE_ORG_ARGS.includes(key));
+      if (scope.length === 0) return undefined;
+      return (
+        `clone_org takes a plan, not its scope: ${scope.join(', ')} ` +
+        `${scope.length === 1 ? 'is' : 'are'} clone_org_plan's to give. clone_org_plan with ` +
+        `${scope.length === 1 ? 'it' : 'them'} plans again: show the person its question, then ` +
+        'clone_org with its plan and confirm. Nothing was run.'
+      );
+    },
+    prepare: (args, context) => planToWrite(args, context),
+    writesTo: (_args, prepared) => prepared.receipt.target,
+    writes: 'writes into it the records of the plan, and nothing else',
+    readFirst: 'clone_org_plan says what it would write, with the question to answer',
+    named: {
+      '--resume':
+        "is this tool's resume: true, with the plan and confirm: it takes the run up from its " +
+        'journal.',
+      '--remove':
+        'is run_remove, with module "forge", the org the run wrote to and its journal: ' +
+        'preview: true first says what it would delete.',
+      '--max-total':
+        "is no parameter of clone_org, which holds a run to the count its plan's dry run gave: " +
+        'clone_org_plan again plans with the source as it is now.',
+      '--no-anonymize': `is no parameter of any tool. ${REAL_DATA_WORDS}`,
+    },
+    beforeStart: async (args, prepared, launch, context) => {
+      // Kept in the receipt before the script starts: a server ended in the
+      // middle leaves a plan that reads as written, never as one to write again.
+      await makePrivateDir(runsDirOf(context.journalDir));
+      await addClonePlanRun(context.journalDir, prepared.receipt.id, {
+        run: launch.handle,
+        startedAt: context.now().toISOString(),
+        summary: launch.summary,
+        resume: args.resume === true,
+      });
+    },
+    run: (args, prepared, launch) => ({
+      script: 'sandforge-clone',
+      args: clonePlanRunLine(prepared.receipt, {
+        summary: launch.summary,
+        ...(args.resume === true && prepared.journal !== undefined
+          ? { resume: prepared.journal }
+          : {}),
+      }),
+      relayedBy: CLONE_ORG_RELAY,
+      follow: {
+        plan: prepared.receipt.id,
+        summary: launch.summary,
+        ...(prepared.receipt.durationSeconds !== undefined
+          ? { expectedSeconds: prepared.receipt.durationSeconds }
+          : {}),
+      },
+    }),
+    settle: (_args, prepared, settling) => settleCloneOrg(prepared, settling),
+  }),
+  tool({
     name: 'run_remove',
     title: "Remove a run's records",
     description:
@@ -837,7 +1889,11 @@ export const TOOLS: readonly ServedTool[] = [
       'a Sync run also gives the records it wrote over their values back. run is the summary ' +
       "file the run's --json was saved to, its run file or journal, or, for Seed and Sync, its " +
       'run id. Records changed since the run are kept, unless includeChanged. A production org ' +
-      'is refused. Needs confirm, the alias of org. acceptAutomation lets it delete although ' +
+      'is refused. preview: true, for a Seed or Forge run, says per object what it would delete, ' +
+      'what is gone already, what changed since and who changed it, and what a removal would be ' +
+      'refused for, deleting nothing and needing no confirm; otherwise it needs confirm, the ' +
+      'alias of org. A run of this server still running is refused: run_stop stops it first. ' +
+      'acceptAutomation lets it delete although ' +
       'the org runs automation as the records go; muteAutomation keeps that automation quiet ' +
       "for the removal through the org's own bypass. Where its user may not delete the records " +
       'of some objects of the run, it stops before its first delete, unless leaveUndeletable. ' +
@@ -893,13 +1949,35 @@ export const TOOLS: readonly ServedTool[] = [
               'run reads those objects whole; a relative path is read from where the server was ' +
               'started. The person using you names it.',
           ),
+        preview: acceptance(
+          'module "seed" or "forge": say what the removal would do, and do nothing — per object ' +
+            'the records it would delete, those gone already, those changed since the run and ' +
+            'who changed them, and what a removal now would be refused for. It reads the org, ' +
+            'deletes nothing, and takes no confirm.',
+        ),
       })
       .refine((args) => args.store === undefined || args.module === 'sync', {
         message: 'store goes with module "sync": a Seed or Forge run keeps no configuration',
         path: ['store'],
+      })
+      .refine((args) => args.preview !== true || args.module !== 'sync', {
+        message:
+          'preview goes with module "seed" or "forge": the removal of a Sync run has none, and ' +
+          'says what it gives back as it does it',
+        path: ['preview'],
       }),
-    writesTo: (args) => args.org,
+    // A removal under way of a run still writing would delete what the run
+    // goes on writing under it: no lock of the clone holds a journal against
+    // a removal, so the server holds its own runs.
+    prepare: async (args, context) => {
+      const under = await runUnderWay(context.runs, args.run);
+      return under ? { refusal: runUnderWayRefusal(under, args.run) } : { prepared: undefined };
+    },
+    writesTo: (args) => (args.preview === true ? undefined : args.org),
     writes: 'deletes the records the run created, into the recycle bin',
+    readFirst:
+      'run_remove with preview: true (a Seed or Forge run) says what it would delete, deleting ' +
+      'nothing',
     flags: {
       '--include-changed': 'includeChanged',
       '--accept-automation': 'acceptAutomation',
@@ -910,6 +1988,9 @@ export const TOOLS: readonly ServedTool[] = [
       '--store':
         "is this tool's store: the directory of the run's saved configuration, as the person " +
         'using you names it.',
+      '--preview':
+        "is this tool's preview: true, for a Seed or Forge run: it says what the removal would " +
+        'delete, and deletes nothing.',
     },
     run: (args) => ({
       script: REMOVAL_SCRIPT[args.module],
@@ -918,6 +1999,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.run,
         '--target',
         args.org,
+        ...(args.preview === true ? ['--preview'] : []),
         ...(args.includeChanged === true ? ['--include-changed'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
         ...(args.muteAutomation === true ? ['--mute-automation'] : []),
@@ -926,6 +2008,53 @@ export const TOOLS: readonly ServedTool[] = [
         '--json',
       ],
     }),
+  }),
+  tool({
+    name: 'run_status',
+    title: 'Follow a run',
+    description:
+      'How far a run is that a call handed back, by its handle (mr-...): a call whose script ' +
+      `still runs after ${Math.round(holdMsOf() / 1000)} seconds answers with one. While it ` +
+      "runs, its time against its plan's, what it wrote so far, its journal and its script's " +
+      'last lines; once it has ended, the answer its call would have given, the verification ' +
+      'of a clone included. waitSeconds waits that long for its end first (default 30, 50 at ' +
+      'most). A run of a server that has ended since is read off this machine: what it wrote, ' +
+      'and the calls that take it up or back. Reads this machine alone.',
+    readOnly: true,
+    args: z.strictObject({
+      run: z
+        .string()
+        .regex(RUN_HANDLE, 'the handle of a run, mr-...')
+        .describe('The run, by the handle the call that started it answered with.'),
+      waitSeconds: z
+        .number()
+        .min(0)
+        .max(WAIT_SECONDS_MOST)
+        .optional()
+        .describe(`How long to wait for its end first, in seconds (default 30).`),
+    }),
+    run: (args) => ({
+      local: (context) => runStatus(context, args.run, args.waitSeconds ?? RUN_STATUS_WAIT_SECONDS),
+    }),
+  }),
+  tool({
+    name: 'run_stop',
+    title: 'Stop a run',
+    description:
+      'Stop a run a call handed back, by its handle, as Ctrl-C stops its script on a terminal: ' +
+      'before its next call to the org, what it wrote kept in its journal, a Bulk API job still ' +
+      'open aborted and one the org is writing left to end. Only when the person using you ' +
+      'asks. It waits a while for the run to end, then answers as run_status does, with the ' +
+      'calls that take the run up or back.',
+    readOnly: false,
+    destructive: false,
+    args: z.strictObject({
+      run: z
+        .string()
+        .regex(RUN_HANDLE, 'the handle of a run, mr-...')
+        .describe('The run, by the handle the call that started it answered with.'),
+    }),
+    run: (args) => ({ local: (context) => runStop(context, args.run) }),
   }),
   tool({
     name: 'checkpoint_list',
@@ -1475,7 +2604,7 @@ const TOOLS_BY_NAME: ReadonlyMap<string, ServedTool> = new Map(
  * descriptions are keys of the webview's catalogue, which the seed script
  * reads them in English from: the lookup is that script's own.
  */
-async function seedTemplates(): Promise<{ text: string; structured: Record<string, unknown> }> {
+async function seedTemplates(): Promise<ToolResult> {
   const { templateDisplayName } = await import('./sandforge-seed.js');
   const templates = PREBUILT_SEED_TEMPLATES.map((template) => {
     const objects = template.objects.map((object) => ({
@@ -1490,16 +2619,15 @@ async function seedTemplates(): Promise<{ text: string; structured: Record<strin
       records: objects.reduce((total, object) => total + object.records, 0),
     };
   });
-  return {
-    text: templates
-      .map(
-        (t) =>
-          `${t.id} — ${t.name}: ${t.records} records at most in ${t.objects.length} objects ` +
-          `(${t.objects.map((o) => `${o.objectApiName} ${o.records}`).join(', ')})`,
-      )
-      .join('\n'),
-    structured: { templates },
-  };
+  return answered(
+    templates.map(
+      (t) =>
+        `${t.id} — ${t.name}: ${t.records} records at most in ${t.objects.length} objects ` +
+        `(${t.objects.map((o) => `${o.objectApiName} ${o.records}`).join(', ')})`,
+    ),
+    { templates },
+    false,
+  );
 }
 
 // ─── What a call answers ─────────────────────────────────────────────────────
@@ -1511,17 +2639,25 @@ interface ToolResult {
   isError: boolean;
 }
 
-/** A call refused before anything ran, as the scripts' own refusals are shaped. */
-function refused(code: string, message: string): ToolResult {
-  const structured = { refusal: { code, message } };
+/** A result of lines and of what they say as JSON, the JSON following the lines. */
+function answered(
+  lines: readonly string[],
+  structured: Record<string, unknown>,
+  isError: boolean,
+): ToolResult {
   return {
     content: [
-      { type: 'text', text: message },
+      { type: 'text', text: lines.join('\n') },
       { type: 'text', text: JSON.stringify(structured) },
     ],
     structuredContent: structured,
-    isError: true,
+    isError,
   };
+}
+
+/** A call refused before anything ran, as the scripts' own refusals are shaped. */
+function refused(code: string, message: string): ToolResult {
+  return answered([message], { refusal: { code, message } }, true);
 }
 
 /** What each exit code of the scripts means (`exitCodes.ts`), in a few words. */
@@ -1552,6 +2688,14 @@ export function exitWords(code: number): string {
 /** A run that is not a failure: done, partial or unstable, each said in its answer. */
 const ANSWERED: ReadonlySet<number> = new Set([DONE_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT]);
 
+/**
+ * A run stopped part way, as Ctrl-C, a kill or a closed terminal stops it
+ * (130, 143, 129): what it wrote is kept, and its answer names where. Told
+ * nothing past "stopped", an agent whose seed or clone was cut had no line
+ * that took it back, nor one that took it up.
+ */
+const STOPPED: ReadonlySet<number> = new Set(STOP_SIGNALS.map((signal) => stopExitCode(signal)));
+
 /** What the prompt says when no terminal can answer its question (`prompt.ts`). */
 const NO_TERMINAL = 'no terminal to answer';
 
@@ -1579,6 +2723,28 @@ function answerOf(stdout: string): unknown {
 }
 
 /**
+ * A script's run as the call's result, in its parts: what the server says
+ * first (`head`), the line it ran with the script's own lines (`said`), what
+ * the server adds to them (`added`), and the JSON beside them.
+ */
+interface ResultParts {
+  head: string[];
+  said: string[];
+  added: string[];
+  structured: Record<string, unknown>;
+  /** The script's own JSON, as `structured.answer` carries it. */
+  answer: unknown;
+  isError: boolean;
+}
+
+/** The result its parts make: the head, the script's lines, what the server adds, then the JSON. */
+function assembled(parts: ResultParts): ToolResult {
+  const lines = [...parts.head, ...(parts.head.length > 0 ? [''] : []), ...parts.said];
+  if (parts.added.length > 0) lines.push('', ...parts.added);
+  return answered(lines, parts.structured, parts.isError);
+}
+
+/**
  * A script's run as the call's result: its JSON as `answer`, beside its exit
  * code; its lines, then what the server adds to them — that a question it
  * asked is the person's to answer, which of its flags are this tool's
@@ -1590,6 +2756,16 @@ export function resultOf(
   ran: CommandRun,
   after: (answer: unknown) => string[] = () => [],
 ): ToolResult {
+  return assembled(resultPartsOf(served, run, ran, after));
+}
+
+/** A script's run as the parts of the call's result: see {@link resultOf}. */
+function resultPartsOf(
+  served: Pick<ServedTool, 'flags'> & Partial<Pick<ServedTool, 'exits' | 'named'>>,
+  run: { script: Script; args: readonly string[] },
+  ran: CommandRun,
+  after: (answer: unknown) => string[] = () => [],
+): ResultParts {
   const answer = answerOf(ran.stdout);
   const lines = [
     `ran: ${commandText(run.script, run.args)}`,
@@ -1618,19 +2794,311 @@ export function resultOf(
     if (names(text, flag)) added.push(`${flag}, named above, ${line}`);
   }
   if (ANSWERED.has(ran.code)) added.push(...after(answer));
-  if (added.length > 0) lines.push('', ...added);
-  const structured: Record<string, unknown> = {
-    exitCode: ran.code,
-    ...(answer !== undefined ? { answer } : {}),
-  };
+  else if (STOPPED.has(ran.code)) {
+    const back = after(answer);
+    if (back.length > 0) {
+      added.push(
+        'It stopped part way, between two calls to the org: what it wrote is kept, and said ' +
+          'above.',
+        ...back,
+      );
+    }
+  }
   return {
-    content: [
-      { type: 'text', text: lines.join('\n') },
-      { type: 'text', text: JSON.stringify(structured) },
-    ],
-    structuredContent: structured,
+    head: [],
+    said: lines,
+    added,
+    structured: { exitCode: ran.code, ...(answer !== undefined ? { answer } : {}) },
+    answer,
     isError: !ANSWERED.has(ran.code),
   };
+}
+
+// ─── Runs handed back ────────────────────────────────────────────────────────
+
+/** How long `run_status` waits for a run's end unless told, in seconds. */
+const RUN_STATUS_WAIT_SECONDS = 30;
+
+/** What `work` settles to within `ms`, or nothing when it has not by then. */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  const elapsed = new Promise<undefined>((done) => {
+    timer = setTimeout(() => done(undefined), Math.max(0, ms));
+  });
+  try {
+    return await Promise.race([work, elapsed]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * What a call answers whose script still runs once it has held it: the
+ * handle of its run, and the calls that follow and stop it. Not an error:
+ * the run goes on, and its answer comes by `run_status`.
+ */
+function handedBack(
+  run: McpRun<ToolResult>,
+  line: { script: Script; args: readonly string[] },
+): ToolResult {
+  const { handle, meta } = run;
+  return answered(
+    [
+      `ran: ${commandText(line.script, line.args)}`,
+      `still running: run_status with run "${handle}" follows it (waitSeconds up to ` +
+        `${WAIT_SECONDS_MOST}), and gives its answer once it has ended; run_stop with run ` +
+        `"${handle}" stops it as Ctrl-C would, what it wrote kept. It runs as long as this ` +
+        "server: closing the agent's session stops it the same way.",
+    ],
+    {
+      running: {
+        run: handle,
+        tool: meta.tool,
+        startedAt: meta.startedAt,
+        ...(meta.expectedSeconds !== undefined ? { expectedSeconds: meta.expectedSeconds } : {}),
+        ...(meta.plan !== undefined ? { plan: meta.plan } : {}),
+        ...(meta.summary !== undefined ? { summary: meta.summary } : {}),
+      },
+    },
+    false,
+  );
+}
+
+/** A run's answer once it has ended, as `run_status` gives it: its call's own, and that it ended. */
+function endedResult(answer: ToolResult, handle: string): ToolResult {
+  const structured = { ...answer.structuredContent, run: { run: handle, state: 'ended' } };
+  return answered([answer.content[0]?.text ?? ''], structured, answer.isError);
+}
+
+/** What a run's summary says of it so far, as `run_status` says it. */
+function summaryWords(summary: RunSummaryRead, records: number | undefined): string {
+  return (
+    `${summary.written} records written` +
+    (records !== undefined ? ` of the ${records} its plan counted` : '') +
+    `, of ${summary.objectsWritten} objects` +
+    (summary.failed > 0 ? `, ${summary.failed} refused by the org` : '') +
+    (summary.journal !== undefined ? `; its journal is ${summary.journal}` : '')
+  );
+}
+
+/** How far a run of this server is, as `run_status` and `run_stop` say it while it goes on. */
+async function progressResult(
+  context: ToolContext,
+  run: McpRun<ToolResult>,
+  stopping = false,
+): Promise<ToolResult> {
+  const progress = await context.runs.progress(run);
+  const plan =
+    run.meta.plan !== undefined
+      ? await readClonePlan(context.journalDir, run.meta.plan)
+      : undefined;
+  const { handle } = run;
+  const lines = [
+    `run "${handle}" of ${run.meta.tool} ` +
+      (!run.running
+        ? 'has ended, and what the server does after it — the verification of a clone — is ' +
+          'under way'
+        : stopping
+          ? 'is stopping: it stops before its next call to the org, and says what it wrote'
+          : 'is still running') +
+      `: ${progress.elapsedSeconds} seconds since it started` +
+      (progress.expectedSeconds !== undefined
+        ? `, its plan said its writes take about ${progress.expectedSeconds}`
+        : '') +
+      '.',
+    ...(progress.summary ? [`So far: ${summaryWords(progress.summary, plan?.totalRows)}.`] : []),
+    ...(progress.tail.length > 0 ? ['Its last lines:', ...progress.tail] : []),
+    `run_status with run "${handle}" follows it` +
+      (run.running && !stopping ? `; run_stop with run "${handle}" stops it.` : '.'),
+  ];
+  return answered(
+    lines,
+    {
+      running: {
+        run: handle,
+        tool: run.meta.tool,
+        startedAt: run.meta.startedAt,
+        state: run.running ? (stopping ? 'stopping' : 'running') : 'settling',
+        elapsedSeconds: progress.elapsedSeconds,
+        ...(progress.expectedSeconds !== undefined
+          ? { expectedSeconds: progress.expectedSeconds }
+          : {}),
+        ...(plan ? { plan: { id: plan.id, records: plan.totalRows } } : {}),
+        ...(progress.summary ? { summary: progress.summary } : {}),
+        tail: progress.tail,
+      },
+    },
+    false,
+  );
+}
+
+/**
+ * What is known of a run another server handed back, read off the disk:
+ * that server has ended, which stopped the run as Ctrl-C stops it, and its
+ * summary says how far it went. With it, the calls that take it up and back.
+ */
+async function fromDiskResult(
+  context: ToolContext,
+  handle: string,
+  onDisk: RunOnDisk,
+): Promise<ToolResult> {
+  const { meta, summary } = onDisk;
+  const state =
+    summary?.state === 'running'
+      ? 'its summary was last written while it ran: it was cut without saying it stopped'
+      : summary?.state === 'interrupted'
+        ? 'it stopped part way, as its summary says'
+        : summary?.state === 'failed'
+          ? 'it ended on an error, as its summary says'
+          : summary?.state === 'ended'
+            ? 'it ended, as its summary says'
+            : 'no summary of it is left';
+  const plan =
+    meta.plan !== undefined ? await readClonePlan(context.journalDir, meta.plan) : undefined;
+  const journal = summary?.journal;
+  const lines = [
+    `run "${handle}" of ${meta.tool} is not one of this server's: the server that started it ` +
+      `at ${meta.startedAt} has ended, which stopped it as Ctrl-C stops it. ${state}` +
+      (summary ? `: ${summaryWords(summary, plan?.totalRows)}` : '') +
+      '.',
+    ...(meta.tool === 'clone_org' && meta.plan !== undefined && meta.target !== undefined
+      ? [
+          `clone_org with plan "${meta.plan}", resume: true and confirm "${meta.target}" takes ` +
+            'it up, writing nothing twice.',
+        ]
+      : []),
+    ...(journal !== undefined && meta.target !== undefined
+      ? [
+          `run_remove with module "forge", org "${meta.target}" and run "${journal}" takes it ` +
+            'back: preview: true first says what it would delete.',
+        ]
+      : []),
+  ];
+  return answered(
+    lines,
+    {
+      run: {
+        run: handle,
+        state: 'gone',
+        tool: meta.tool,
+        startedAt: meta.startedAt,
+        ...(meta.target !== undefined ? { target: meta.target } : {}),
+        ...(meta.plan !== undefined ? { plan: meta.plan } : {}),
+        ...(summary ? { summary } : {}),
+      },
+    },
+    false,
+  );
+}
+
+/** A handle no server of this machine handed back. */
+function runUnknown(handle: string): ToolResult {
+  return refused(
+    'RUN_UNKNOWN',
+    `No run "${handle}" on this machine: this server holds none by that handle, and no server ` +
+      'before it left one. A call answers with the handle of its run only when it is still ' +
+      'running after its hold; the handle is in that answer.',
+  );
+}
+
+/** `run_status`: how far a run is, or its answer once it has ended. */
+async function runStatus(
+  context: ToolContext,
+  handle: string,
+  waitSeconds: number,
+): Promise<ToolResult> {
+  const run = context.runs.get(handle);
+  if (run) {
+    const final = context.finalOf(handle);
+    const seconds = Math.min(Math.max(0, waitSeconds), WAIT_SECONDS_MOST);
+    const answer = final ? await within(final, seconds * 1000) : undefined;
+    return answer ? endedResult(answer, handle) : progressResult(context, run);
+  }
+  const onDisk = await context.runs.readOnDisk(handle);
+  return onDisk ? fromDiskResult(context, handle, onDisk) : runUnknown(handle);
+}
+
+/** `run_stop`: stop a run as Ctrl-C stops it, then say what became of it. */
+async function runStop(context: ToolContext, handle: string): Promise<ToolResult> {
+  const run = context.runs.get(handle);
+  if (run) {
+    const wasRunning = run.running;
+    if (wasRunning) {
+      context.log(`sandforge mcp: run_stop stops ${handle} as Ctrl-C stops its script`);
+      run.stop();
+    }
+    const final = context.finalOf(handle);
+    const answer = final ? await within(final, context.runs.holdMs) : undefined;
+    if (!answer) return progressResult(context, run, wasRunning);
+    const ended = endedResult(answer, handle);
+    if (wasRunning) return ended;
+    return answered(
+      [`run "${handle}" had already ended: nothing was stopped.`, '', ended.content[0]?.text ?? ''],
+      ended.structuredContent,
+      ended.isError,
+    );
+  }
+  const onDisk = await context.runs.readOnDisk(handle);
+  return onDisk ? fromDiskResult(context, handle, onDisk) : runUnknown(handle);
+}
+
+/**
+ * The run of this server, still running, that writes the run a removal
+ * names: by the summary it writes, or by the journal that summary names.
+ */
+async function runUnderWay(
+  runs: McpRuns<ToolResult>,
+  named: string,
+): Promise<McpRun<ToolResult> | undefined> {
+  const asked = resolve(named);
+  const bySummary = runs
+    .all()
+    .find(
+      (run) => run.running && run.meta.summary !== undefined && resolve(run.meta.summary) === asked,
+    );
+  return bySummary ?? (await runs.underWayWith(named));
+}
+
+/** The refusal of a removal of a run this server still runs. */
+function runUnderWayRefusal(run: McpRun<ToolResult>, named: string): Refusal {
+  return {
+    code: 'RUN_UNDER_WAY',
+    message:
+      `run_remove: ${named} is the run "${run.handle}" of ${run.meta.tool}, which this server ` +
+      'still runs: a removal now would delete under it what it goes on writing. run_stop with ' +
+      `run "${run.handle}" stops it, and run_status says when it has ended; then run_remove ` +
+      'takes back what it wrote. Refused: nothing was read or written.',
+  };
+}
+
+/**
+ * Remove what no run will need any longer: the plans past their day, with
+ * their copies, and the files of runs whose journal is gone — a receipt and
+ * a summary hold the ids of a production's records. A plan a run of this
+ * server still writes is kept. What cannot be removed is said, never the
+ * call's failure.
+ */
+async function sweepKept(
+  journalDir: string,
+  runs: McpRuns<ToolResult>,
+  now: Date,
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    const writing = new Set(
+      runs
+        .all()
+        .filter((run) => run.running)
+        .map((run) => run.meta.plan),
+    );
+    await sweepClonePlans(journalDir, now, (id) => writing.has(id));
+    await runs.sweep();
+  } catch (err: unknown) {
+    log(
+      'sandforge mcp: the plans and runs past their day could not all be removed: ' +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ─── Serving ─────────────────────────────────────────────────────────────────
@@ -1661,29 +3129,77 @@ export interface ServeOptions {
   runCommand?: CommandRunner;
   /** A line for whoever reads stderr. */
   log?: (line: string) => void;
+  /** Where the scripts keep their journals: `SANDFORGE_JOURNAL_DIR`, or `~/.sandforge`. */
+  journalDir?: string;
+  /** How long a call holds its script before it hands the run back: `SANDFORGE_MCP_HOLD_SECONDS`. */
+  holdMs?: number;
+  /** This machine's clock. */
+  now?: () => Date;
 }
 
 export interface Serving {
   /** Settles once the input has ended and every call under way with it. */
   done: Promise<void>;
-  /** Stops every call under way, as Ctrl-C stops a script, and settles once they have ended. */
+  /**
+   * Stops every call under way and every run handed back, as Ctrl-C stops a
+   * script, and settles once they have ended.
+   */
   stop: () => Promise<void>;
 }
 
 /**
  * Serve the tools to the client whose messages `input` carries. Each request
  * is answered as it ends, calls running side by side; a call the client
- * cancels is stopped as Ctrl-C stops its script, and gets no answer. Once the
- * input ends, the calls still running are stopped the same way.
+ * cancels is stopped as Ctrl-C stops its script, and gets no answer. A call
+ * whose script still runs once it has held it `holdMs` answers with the
+ * handle of its run, which goes on: `run_status` follows it, `run_stop`
+ * stops it. Once the input ends, the calls and the runs still running are
+ * stopped the same way.
  */
 export function serve(options: ServeOptions): Serving {
   const runCommand = options.runCommand ?? TOOL_RUNNER;
   const log = options.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
+  const journalDir = options.journalDir ?? journalDirOf();
+  const now = options.now ?? (() => new Date());
+  const runs = new McpRuns<ToolResult>({
+    dir: runsDirOf(journalDir),
+    holdMs: options.holdMs ?? holdMsOf(),
+    now,
+  });
+  /** The answer each run gives once it has ended, by handle: made once, whoever asks. */
+  const finals = new Map<string, Promise<ToolResult>>();
+  const stopping = new AbortController();
+  const context: ToolContext = {
+    journalDir,
+    runs,
+    now,
+    log,
+    runCommand,
+    stopping: stopping.signal,
+    finalOf: (handle) => finals.get(handle),
+  };
   /** The revision `initialize` agreed on, for the requests that do not name one. */
   let handshake: string | undefined;
-  const running = new Map<RequestId, AbortController>();
+  /** The calls whose script runs and whose answer is not given yet, by request. */
+  const running = new Map<RequestId, McpRun<ToolResult>>();
+  /** The calls not answered yet, their script started or not. */
+  const calling = new Set<RequestId>();
   const cancelled = new Set<RequestId>();
-  const pending = new Set<Promise<void>>();
+  const pending = new Set<Promise<unknown>>();
+  /** Keep `work` among what the server waits for before it ends. */
+  const held = <T>(work: Promise<T>): Promise<T> => {
+    // Settled either way: what fails is said by whoever awaits `work`.
+    const kept: Promise<unknown> = work
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        pending.delete(kept);
+      });
+    pending.add(kept);
+    return work;
+  };
 
   const send = (message: Record<string, unknown>): void => {
     options.send(JSON.stringify({ jsonrpc: '2.0', ...message }));
@@ -1739,55 +3255,121 @@ export function serve(options: ServeOptions): Serving {
         },
       };
     }
-    const read = served.read(params.arguments ?? {});
-    if ('refusal' in read) {
-      return {
-        result: completed(era, {
-          ...refused('ARGUMENTS', `${served.definition.name}: ${read.refusal}. Nothing was run.`),
-        }),
-      };
-    }
-    const { call } = read;
-    if (call.writesTo !== undefined && call.confirm !== call.writesTo) {
-      return {
-        result: completed(era, {
-          ...refused('CONFIRM', confirmRefusal(served, call.writesTo, call.confirm)),
-        }),
-      };
-    }
-    if ('local' in call.run) {
-      const answered = await call.run.local();
-      return {
-        result: completed(era, {
-          content: [
-            { type: 'text', text: answered.text },
-            { type: 'text', text: JSON.stringify(answered.structured) },
-          ],
-          structuredContent: answered.structured,
-          isError: false,
-        }),
-      };
-    }
-    const { script, args } = call.run;
-    const controller = new AbortController();
-    running.set(id, controller);
+    const handle = runs.newHandle();
+    const launch: Launch = { handle, summary: runs.summaryPathOf(handle) };
+    calling.add(id);
     try {
-      log(`sandforge mcp: ${served.definition.name} runs ${commandText(script, args)}`);
-      let ran: CommandRun;
-      try {
-        ran = await runCommand(script, args, controller.signal);
-      } catch (err: unknown) {
-        ran = {
+      const read = await served.read(params.arguments ?? {}, context, launch);
+      // Cancelled while its plan or its runs were read: nothing ran, nothing is answered.
+      if (cancelled.has(id)) return undefined;
+      if ('refusal' in read) {
+        return { result: completed(era, { ...refused(read.refusal.code, read.refusal.message) }) };
+      }
+      const { call } = read;
+      if (call.writesTo !== undefined && call.confirm !== call.writesTo) {
+        return {
+          result: completed(era, {
+            ...refused('CONFIRM', confirmRefusal(served, call.writesTo, call.confirm)),
+          }),
+        };
+      }
+      if ('local' in call.run) {
+        const answer = await call.run.local(context);
+        return cancelled.has(id) ? undefined : { result: completed(era, { ...answer }) };
+      }
+      return await runScript(id, era, served, call, call.run, launch);
+    } finally {
+      calling.delete(id);
+      cancelled.delete(id);
+    }
+  };
+
+  /**
+   * Run a call's script under a run of the registry: its answer when it ends
+   * within the hold, the handle of its run when it does not.
+   */
+  const runScript = async (
+    id: RequestId,
+    era: Era,
+    served: ServedTool,
+    call: Call,
+    run: Extract<Run, { script: Script }>,
+    launch: Launch,
+  ): Promise<Outcome> => {
+    const { handle } = launch;
+    const { script, args, relayedBy, follow } = run;
+    await call.beforeStart();
+    log(`sandforge mcp: ${served.definition.name} runs ${commandText(script, args)}`);
+    const started = runs.start(
+      {
+        handle,
+        tool: served.definition.name,
+        ...(call.writesTo !== undefined ? { target: call.writesTo } : {}),
+        ...(follow?.plan !== undefined ? { plan: follow.plan } : {}),
+        ...(follow?.summary !== undefined ? { summary: follow.summary } : {}),
+        ...(follow?.expectedSeconds !== undefined
+          ? { expectedSeconds: follow.expectedSeconds }
+          : {}),
+      },
+      ({ signal, onStderr }) => {
+        const told: RunOptions = { ...(relayedBy !== undefined ? { relayedBy } : {}), onStderr };
+        return runCommand(script, args, signal, told).catch((err: unknown): CommandRun => ({
           code: FAILED_EXIT,
           stdout: '',
           stderr: `${nameOf(script)} could not be started: ${err instanceof Error ? err.message : String(err)}`,
-        };
+        }));
+      },
+    );
+    // What the call answers once the script has ended, and what follows its
+    // end — a plan kept, a clone verified —: made once, whether the call
+    // gives it or run_status does, and made even when nobody asks.
+    const final = held(
+      started.settled(async (ran) => {
+        const parts = resultPartsOf(served, run, ran, call.after);
+        if (!call.settle) return assembled(parts);
+        try {
+          return assembled(await call.settle({ ran, run, launch, parts, context }));
+        } catch (err: unknown) {
+          return assembled({
+            ...parts,
+            added: [
+              ...parts.added,
+              `What the server does once ${served.definition.name} has ended failed: ` +
+                `${err instanceof Error ? err.message : String(err)}.`,
+            ],
+            isError: true,
+          });
+        }
+      }),
+    );
+    finals.set(handle, final);
+    running.set(id, started);
+    // Cancelled while what it keeps before it starts was being written: it
+    // stops as soon as it has started, as a call cancelled under way does.
+    if (cancelled.has(id)) started.stop();
+    try {
+      const answer = await within(final, runs.holdMs);
+      if (cancelled.has(id)) {
+        await final;
+        finals.delete(handle);
+        return undefined;
       }
-      if (cancelled.has(id)) return undefined;
-      return { result: completed(era, { ...resultOf(served, call.run, ran, call.after) }) };
+      if (answer !== undefined) {
+        finals.delete(handle);
+        return { result: completed(era, { ...answer }) };
+      }
+      // Kept in memory whatever the disk says: the handle answered is what
+      // follows the run and stops it; the files are for a later server.
+      await runs.handBack(started).catch((err: unknown) => {
+        log(
+          `sandforge mcp: what a later server reads of ${handle} could not be written: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+      log(`sandforge mcp: ${served.definition.name} handed back as ${handle}, still running`);
+      return { result: completed(era, { ...handedBack(started, run) }) };
     } finally {
       running.delete(id);
-      cancelled.delete(id);
     }
   };
 
@@ -1869,13 +3451,17 @@ export function serve(options: ServeOptions): Serving {
     if (method !== 'notifications/cancelled' || !isObject(params)) return;
     const { requestId } = params;
     if (!isRequestId(requestId)) return;
-    const controller = running.get(requestId);
-    if (!controller) return;
+    // A call not answered yet: its handle never reached the client, so its
+    // run would go on unseen. One cancelled before its script started never
+    // starts it, or stops it as it does; one already handed back is run_stop's.
+    if (!calling.has(requestId)) return;
     cancelled.add(requestId);
+    const run = running.get(requestId);
+    if (!run) return;
     log(
       `sandforge mcp: request ${String(requestId)} cancelled: its script is stopped as Ctrl-C stops it`,
     );
-    controller.abort();
+    run.stop();
   };
 
   const receive = (line: string): void => {
@@ -1915,7 +3501,7 @@ export function serve(options: ServeOptions): Serving {
       notified(method, params);
       return;
     }
-    if (!isRequestId(id) || running.has(id)) {
+    if (!isRequestId(id) || calling.has(id)) {
       send({
         error: {
           code: ERROR.invalidRequest,
@@ -1946,7 +3532,10 @@ export function serve(options: ServeOptions): Serving {
   };
 
   const stop = async (): Promise<void> => {
-    for (const controller of running.values()) controller.abort();
+    // The runs handed back go with the calls under way: nothing writes on
+    // once the session that could see it has closed.
+    stopping.abort();
+    await runs.stopAll();
     while (pending.size > 0) await Promise.allSettled([...pending]);
   };
 
@@ -1975,9 +3564,9 @@ export function claimStdout(stdout: Writable, stderr: Writable): (line: string) 
   };
 }
 
-const HELP = `sandforge mcp — Seed, Forge's clone of a record, the removal of a run, the emptying of
-objects or of a whole org, Checkpoints and the environments of a sandforge.yaml, as tools for an AI
-agent, over the Model Context Protocol on stdio.
+const HELP = `sandforge mcp — Seed, Forge's clone of a record or of the whole org, the removal of a
+run, the emptying of objects or of a whole org, Checkpoints and the environments of a
+sandforge.yaml, as tools for an AI agent, over the Model Context Protocol on stdio.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
@@ -1997,9 +3586,20 @@ script holds. A tool that writes to an org needs confirm, the alias of that org 
 refused before anything is read. A script that asks a question stops at it, having written
 nothing, and the question comes back as the call's error.
 
+A clone of the whole org is planned first: clone_org_plan runs its dry run and keeps the plan,
+for a day, in mcp-plans/ under the journal directory, its owner's alone; clone_org writes that
+plan and nothing else, its personal fields always anonymized. A call whose script still runs
+after the hold answers with the handle of its run, which goes on: run_status follows it,
+run_stop stops it, and the server stops it as it ends. What a later server reads of it is kept
+in mcp-runs/ under the journal directory.
+
 Environment:
   SANDFORGE_JOURNAL_DIR=<dir>   where the scripts keep their run files, journals and
                                 checkpoints (default: ~/.sandforge), as each script's --help says
+  ${HOLD_SECONDS_VARIABLE}=<s>
+                                how long a call holds its script before it hands its run back,
+                                0 to 55 seconds (default: 45), under the minute a client gives
+                                a call before it cancels it
 
   --help                        this text
 `;
@@ -2013,7 +3613,16 @@ export async function main(argv: readonly string[] = process.argv): Promise<void
   }
   refuseUnreadArguments(args, { switches: [], values: [] });
   const send = claimStdout(process.stdout, process.stderr);
-  const serving = serve({ input: process.stdin, send });
+  // What servers before this one left past its day goes first: plans no run
+  // will write, and the files of runs whose journal is gone.
+  const journalDir = journalDirOf();
+  await sweepKept(
+    journalDir,
+    new McpRuns<ToolResult>({ dir: runsDirOf(journalDir), holdMs: 0 }),
+    new Date(),
+    (line) => void process.stderr.write(`${line}\n`),
+  );
+  const serving = serve({ input: process.stdin, send, journalDir });
   // A client that went away reads no answer: the scripts still running are
   // stopped as Ctrl-C stops them, and the server ends.
   process.stdout.on('error', () => {

@@ -203,21 +203,75 @@ describe('docs/mcp.md', () => {
     // checkpoint_rewind and checkpoint_undo relayed "--mute-automation keeps
     // quiet …" of their refusal for the emails, and took no such parameter.
     expect(rule).toContain(
-      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, ' +
+      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, `clone_org_plan`, ' +
         '`checkpoint_rewind`, `checkpoint_undo`, `empty_preview`, `empty_run` and `empty_undo` too',
     );
     expect(SERVER).toContain(
       "flags: { '--accept-emails': 'acceptEmails', '--mute-automation': 'muteAutomation' },",
     );
-    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(6);
+    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(7);
     expect(
       SERVER.split("...(args.muteAutomation === true ? ['--mute-automation'] : []),"),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     expect(rule).toContain("the script's line calls this script's own");
     expect(rule).toContain('No environment mutes, and none of its runs offers it.');
     expect(SERVER).toContain(
       "named: { '--accept-automation': fileAcceptsAutomation('env_destroy') },",
     );
+  });
+
+  it('names every code the server refuses a call with, and no other', () => {
+    // The server's own refusals, before any script runs: a code the guide did
+    // not name was one an agent's reader could not look up.
+    const thrown = new Set([
+      ...[...SERVER.matchAll(/refused\(\s*'([A-Z_]+)'/g)].map((m) => m[1] as string),
+      ...[...SERVER.matchAll(/\bcode: '([A-Z_]+)'/g)].map((m) => m[1] as string),
+    ]);
+    const answers = section('What a call answers');
+    const listed = answers.slice(answers.indexOf('A call refused by the server'));
+    const named = new Set(
+      [...listed.matchAll(/`([A-Z][A-Z_]+)`/g)]
+        .map((m) => m[1] as string)
+        .filter((code) => code !== 'VERIFIED'),
+    );
+
+    // Positive control: the codes of the confirm rule and of a plan gone.
+    expect(thrown).toContain('CONFIRM');
+    expect(thrown).toContain('PLAN_GONE');
+    expect(named).toEqual(thrown);
+  });
+
+  it('says how a clone of the whole org goes, that it is always anonymized, and where a person copies personal data as it is', () => {
+    const clone = section('A clone of the whole org');
+
+    expect(clone).toContain('`clone_org_plan` runs the dry run of a clone of the whole org');
+    expect(clone).toContain('`clone_org` takes that id and `confirm`');
+    expect(clone).toContain(
+      'Every personal field of a clone of the whole org is anonymized, always',
+    );
+    expect(clone).toContain('`sandforge clone --depth all … --no-anonymize`');
+    expect(clone).toContain('`accept: { realData: true }`');
+    // What the server runs: --anonymize on every plan's line, and no tool
+    // that hands a script --no-anonymize.
+    expect(SERVER).toMatch(/\n {4}'--anonymize',\n/);
+    expect(SERVER).not.toContain("? ['--no-anonymize']");
+    expect(SERVER).toContain(
+      "accept: { realData: ' +\n  'true }, reviewed where the repository is",
+    );
+  });
+
+  it('says how long a call holds its script before it hands its run back, as the runs module holds it', () => {
+    const long = section('Long calls');
+    const runs = source('packages/extension/cli/mcpRuns.ts');
+    const held = /export const HOLD_SECONDS_DEFAULT = (\d+);/.exec(runs)?.[1];
+    const most = /export const HOLD_SECONDS_MOST = (\d+);/.exec(runs)?.[1];
+    const waited = /export const WAIT_SECONDS_MOST = (\d+);/.exec(runs)?.[1];
+    if (!held || !most || !waited) throw new Error('mcpRuns.ts says its hold otherwise: re-point');
+
+    expect(long).toContain(`once the call has held it ${held} seconds`);
+    expect(long).toContain(`\`SANDFORGE_MCP_HOLD_SECONDS\` sets the hold, 0 to ${most} seconds`);
+    expect(long).toContain(`\`waitSeconds\`, ${waited} at most`);
+    expect(runs).toContain("export const HOLD_SECONDS_VARIABLE = 'SANDFORGE_MCP_HOLD_SECONDS';");
   });
 
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {
