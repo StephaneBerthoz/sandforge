@@ -5,11 +5,63 @@ import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
 import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
 import {
+  daysFromNow,
   listEntry,
   plainPreview,
   previewOfEverything,
   readyCheckpoint,
+  scopeAnswer as checkpointScope,
 } from './fixtures/checkpoints';
+import {
+  CARD_THAT_CANNOT_RUN,
+  CASE_NOT_COUNTED,
+  CLEANUP_FIRST_EXPORT,
+  JOURNAL_UNAVAILABLE_REFUSAL,
+  LEFT_OUT_FOR_RIGHTS,
+  QUICK_SYNC_ON_A_CUT_PREVIEW,
+  QUICK_SYNC_ON_OBJECTS,
+  QUICK_SYNC_ON_PREVIEW,
+  RESUME_TARGET_UNREAD_REFUSAL,
+  SENT_AGAIN_FOR_A_LOCK,
+  SHIPPED_MARKETPLACE_CARDS,
+  SYNC_READY_DRAFT,
+  TARGET_USERS_TRUNCATED,
+  VERIFIED_WITH_THE_PLATFORMS,
+  cleanupObject,
+  forgeGraph,
+  simulationCutAtReadCap,
+  syncHistoryEntrySentAgain,
+  syncRunSentAgain,
+} from './fixtures/refusals';
+import {
+  answerOnceAsked,
+  discoverFromQuery,
+  importDeletingFirst,
+  openAutopilotNode,
+  openForgeReview,
+  openMarketplace,
+  openModule,
+  openMonitorWithAStoppedClone,
+  openQuickSyncObjects,
+  openSyncHistoryEntry,
+  openWholeOrgReview,
+  refuseClonePreviewForMissingObject,
+  refuseCloneForStorage,
+  refuseCsvForStorage,
+  refuseFrozenLoadForStorage,
+  refuseQuickSync,
+  refuseResume,
+  runQuickSync,
+  runSyncDraft,
+  scanCleanup,
+  sentPayloads,
+  simulateSyncDraft,
+  simulateUnwritable,
+  startForgeRun as startRunFromReview,
+  stopAtTheGate,
+  verifyForgeRun,
+} from './helpers/refusalStates';
+import { sampleBudget, wholeOrgGraph } from '../src/pages/Forge/testing/wholeOrg';
 
 /** A checkpoint of the first mock org a Rewind step can name: its id one a step's schema reads. */
 function rewindableCheckpoint() {
@@ -15385,6 +15437,568 @@ for (const theme of STATE_THEMES) {
 
       await page.getByTestId('back-to-modes').click();
       await expect(page.getByTestId('seed-mode-selector')).toBeVisible();
+    });
+  });
+}
+
+/**
+ * What a refusal offers, and a warning that says why a step holds: each
+ * reached as refusal-ways-out.spec.ts reaches it and checks what it does,
+ * then scanned on the four themes the page scans run on — every axe rule,
+ * the roles and the names among them — with the contrast of what it paints
+ * held to the bar, and text axe measured inside each part it adds.
+ */
+async function expectMeasuredReadable(
+  page: Page,
+  theme: ScannedTheme,
+  ...within: string[]
+): Promise<void> {
+  const results = await checkAccessibility(page);
+  expectNoViolations(results);
+  for (const container of within) {
+    expect(
+      await contrastMeasuredIn(page, results, container),
+      `axe measured no text inside ${container}`,
+    ).toBeGreaterThan(0);
+  }
+  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+  expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+}
+
+/**
+ * A notification, scanned as one: it floats over the page, and what it
+ * covers is held to the bar where the page shows it uncovered.
+ */
+async function expectNotificationReadable(page: Page, theme: ScannedTheme): Promise<void> {
+  const toasts = byTestId('floating-toasts');
+  const results = await checkAccessibility(page);
+  expectNoViolations(results);
+  expect(await contrastMeasuredIn(page, results, toasts)).toBeGreaterThan(0);
+  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme), toasts);
+  expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+}
+
+/** The element a test id names, as a scan's selector. */
+function byTestId(testId: string): string {
+  return `[data-testid="${testId}"]`;
+}
+
+for (const theme of SCANNED_THEMES) {
+  test.describe(`axe-core WCAG 2.1 AA — ${theme} — refusals and their ways out`, () => {
+    test.describe.configure({ timeout: 60000 });
+    let bridge: MockBridge;
+
+    test.beforeEach(async ({ page }) => {
+      bridge = new MockBridge();
+      await paintHostTheme(page, theme);
+    });
+
+    test('Quick Sync refused for the data storage the target has left, with its three ways out', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_PREVIEW });
+      await refuseQuickSync(bridge, page);
+      await page.getByTestId('quick-sync-storage-refusal').waitFor({ timeout: 10_000 });
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('quick-sync-storage-refusal'),
+        byTestId('quick-sync-open-in-wizard'),
+        byTestId('quick-sync-open-forge'),
+        byTestId('quick-sync-empty-first'),
+      );
+    });
+
+    test('Quick Sync on one org on both sides, saying why Next stays off', async ({ page }) => {
+      await openModule(bridge, page, 'sync');
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-source-select').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('quick-sync-target-select').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('quick-sync-same-org').waitFor({ timeout: 10_000 });
+
+      await expectMeasuredReadable(page, theme, byTestId('quick-sync-same-org'));
+    });
+
+    test('Sync wizard on one org on both sides, saying why Next stays off', async ({ page }) => {
+      await openModule(bridge, page, 'sync');
+      await page.getByLabel('Source', { exact: true }).selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target', { exact: true }).selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('sync-same-org').waitFor({ timeout: 10_000 });
+
+      await expectMeasuredReadable(page, theme, byTestId('sync-same-org'));
+    });
+
+    test('Quick Sync suggestions with one the source does not let SandForge take, struck and focused', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_OBJECTS });
+      await openQuickSyncObjects(page);
+      // An inactive control is spared the contrast bar: the chips beside it are measured.
+      await page.getByTestId('suggestion-chip-Case').focus();
+
+      await expectMeasuredReadable(page, theme, byTestId('quick-sync-suggestions'));
+    });
+
+    test('Sync simulation whose target lacks an object, with Open Compare beside the words', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await simulateUnwritable(bridge, page, 'notInTarget');
+      await toMiddle(page, 'sync-write-check-open-compare');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('sync-write-check-unwritable-Invoice__c'),
+        byTestId('sync-write-check-open-compare'),
+      );
+    });
+
+    test('Migration offering to empty what an SFDMU export emptied first, held until a target, then offered', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'migration');
+      await importDeletingFirst(bridge, page);
+      await toMiddle(page, 'migration-empty-first');
+      await expectMeasuredReadable(page, theme, byTestId('migration-empty-first-hint'));
+
+      await page.getByTestId('migration-run-source').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('migration-run-target').selectOption(QA_SANDBOX.id);
+      await expect(page.getByTestId('migration-empty-first')).toBeEnabled();
+      await toMiddle(page, 'migration-empty-first');
+      await expectMeasuredReadable(page, theme, byTestId('migration-empty-first'));
+    });
+
+    test('Seed Clone refused for its storage, naming its heaviest objects and the ways out', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'seed');
+      await refuseCloneForStorage(bridge, page);
+
+      await expectMeasuredReadable(page, theme, byTestId('clone-error'));
+    });
+
+    test('Seed Clone preview refused for an object the target does not show', async ({ page }) => {
+      await openModule(bridge, page, 'seed');
+      await refuseClonePreviewForMissingObject(bridge, page);
+
+      await expectMeasuredReadable(page, theme, byTestId('clone-error'));
+    });
+
+    test('CSV import refused for its storage, saying how many rows fit', async ({ page }) => {
+      await openModule(bridge, page, 'seed');
+      await refuseCsvForStorage(bridge, page);
+      await toMiddle(page, 'csv-error');
+
+      await expectMeasuredReadable(page, theme, byTestId('csv-error'));
+    });
+
+    test('Frozen load refused for its storage, with the ways out of a dataset loaded whole', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'frozen');
+      await refuseFrozenLoadForStorage(bridge, page);
+      await toMiddle(page, 'frozen-error');
+
+      await expectMeasuredReadable(page, theme, byTestId('frozen-error'));
+    });
+
+    test('Checkpoint take past its Records at most, then a number it cannot be', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'checkpoint');
+      await answerOnceAsked(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [],
+      });
+      await page.getByRole('button', { name: 'Take a checkpoint' }).click();
+      await answerOnceAsked(
+        page,
+        'checkpoint:scope',
+        'checkpoint:scope:response',
+        checkpointScope(),
+      );
+      await page.getByLabel('Records at most').fill('2000');
+      await expect
+        .poll(async () => (await sentPayloads(page, 'checkpoint:scope')).at(-1)?.maxTotal)
+        .toBe(2000);
+      await answerAll(
+        page,
+        'checkpoint:scope',
+        'checkpoint:scope:response',
+        checkpointScope({
+          refusal: {
+            code: 'TOO_MANY_RECORDS',
+            message: 'This checkpoint would hold 2424 records, past --max-total (2000).',
+          },
+        }),
+      );
+      await page.getByTestId('checkpoint-refusal').waitFor({ timeout: 10_000 });
+      await toMiddle(page, 'checkpoint-refusal');
+      await expectMeasuredReadable(page, theme, byTestId('checkpoint-refusal'));
+
+      await page.getByLabel('Records at most').fill('0');
+      const rule = '[data-testid="checkpoint-take"] span[role="alert"]';
+      await expect(page.locator(rule)).toHaveText(
+        'A whole number of records, from 1 to 1,000,000.',
+      );
+      await page.locator(rule).evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await expectMeasuredReadable(page, theme, rule);
+    });
+
+    test('Checkpoints of a scratch org about to expire, and of one gone, each saying what Frozen keeps', async ({
+      page,
+    }) => {
+      const day = daysFromNow(3).slice(0, 10);
+      const scratch = {
+        ...readyCheckpoint().org,
+        tier: 'scratch' as const,
+        scratchExpiresAt: day,
+      };
+      await openModule(bridge, page, 'checkpoint');
+      await answerOnceAsked(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [
+          listEntry(readyCheckpoint({ checkpointId: 'ck-scratch-soon', org: scratch }), {
+            scratchExpiresSoon: true,
+          }),
+          listEntry(readyCheckpoint({ checkpointId: 'ck-scratch-gone', name: 'Last sprint' }), {
+            valid: false,
+            why: 'scratchExpired',
+          }),
+        ],
+      });
+      await page.getByTestId('checkpoint-scratch-expires-ck-scratch-soon').waitFor();
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('checkpoint-scratch-expires-ck-scratch-soon'),
+        byTestId('checkpoint-frozen-ck-scratch-gone'),
+      );
+    });
+
+    test('Cleanup of an object its user may not delete, its first export said and the next offered', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'dataops');
+      await scanCleanup(bridge, page, [cleanupObject('Contact', 1300, false)]);
+      await page.getByTestId('cleanup-stale-export').click();
+      await answerOnceAsked(
+        page,
+        'dataops:cleanup:export',
+        'dataops:cleanup:export:response',
+        CLEANUP_FIRST_EXPORT,
+      );
+      await page.getByTestId('cleanup-export-next').waitFor({ timeout: 10_000 });
+      await toMiddle(page, 'cleanup-export-next');
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('cleanup-export-status'),
+        byTestId('cleanup-export-next'),
+      );
+
+      await toMiddle(page, 'cleanup-not-deletable');
+      await expectMeasuredReadable(page, theme, byTestId('cleanup-not-deletable'));
+    });
+
+    test('Automation marketplace of the templates it ships, beside a card that cannot run', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'automation');
+      await openMarketplace(page, [CARD_THAT_CANNOT_RUN, ...SHIPPED_MARKETPLACE_CARDS]);
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId(`marketplace-template-blocked-${CARD_THAT_CANNOT_RUN.id}`),
+        byTestId(`marketplace-template-${SHIPPED_MARKETPLACE_CARDS[0].id}`),
+      );
+    });
+
+    test('Forge Records per object on a run from a query, what it cannot take greyed and why', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await page.getByTestId('forge-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('forge-record-limit').selectOption('1000');
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-record-limit-soql').waitFor();
+
+      await expectMeasuredReadable(page, theme, byTestId('forge-record-limit-soql'));
+    });
+
+    test('Forge discovery of an object not counted in time, offered to be included anyway', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await discoverFromQuery(page, forgeGraph(CASE_NOT_COUNTED));
+      await page.getByTestId('forge-view-table').click();
+      await page.getByTestId('forge-table-select-Case').click();
+      await page.getByTestId('node-include-anyway').waitFor();
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('node-not-counted'),
+        byTestId('node-include-anyway'),
+      );
+    });
+
+    test('Forge Review of a sample, the records drawn of each object whatever the share among its settings', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await openWholeOrgReview(page, wholeOrgGraph(), sampleBudget(), true);
+      await page.getByTestId('review-sample-more').locator('summary').click();
+      await toMiddle(page, 'review-sample-floor');
+
+      await expectMeasuredReadable(page, theme, byTestId('review-sample-more'));
+    });
+
+    test('Forge Review of a sample whose drawing was refused, offering the newest first', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await openWholeOrgReview(page, wholeOrgGraph(), sampleBudget(), true);
+      const run = await startRunFromReview(page);
+      await stopAtTheGate(page, run, {
+        code: 'API_BUDGET_EXCEEDED',
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 9_000,
+          remaining: 14_000,
+          drawing: { share: 0.5, draw: 'uniform' },
+        },
+      });
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('forge-run-gate-reason'),
+        byTestId('forge-run-gate-draw-newest'),
+      );
+    });
+
+    test('Forge Review of every record past the source’s requests, offering the sample that fits', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await openWholeOrgReview(page, wholeOrgGraph(), sampleBudget(), false);
+      const run = await startRunFromReview(page);
+      await stopAtTheGate(page, run, {
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
+      });
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('forge-run-gate-reason'),
+        byTestId('forge-run-gate-copy-sample-budget'),
+      );
+    });
+
+    test('Forge Review owners on a target with more users than it lists, a user given by the id typed', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await openForgeReview(bridge, page, []);
+      await page.getByTestId('tab-controls').click();
+      await page.getByTestId('review-controls-tab').waitFor({ timeout: 10_000 });
+      await answerOnceAsked(
+        page,
+        'forge:users:request',
+        'forge:users:response',
+        TARGET_USERS_TRUNCATED,
+      );
+      await page.getByTestId('controls-owner-source').fill('005000000000001AAA');
+      await page.getByLabel("Target user's id").fill('005000000000777AAA');
+      await toMiddle(page, 'controls-owner-target-id');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('controls-users-truncated'),
+        byTestId('controls-owners'),
+      );
+    });
+
+    test('Forge Review metadata differences, each with what the page does about it, and the copy for the admin', async ({
+      page,
+    }) => {
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await openModule(bridge, page, 'forge');
+      await openForgeReview(bridge, page);
+      await page.getByTestId('tab-metadata').click();
+      await page.getByTestId('diff-0-leave-field').click();
+      await page.getByTestId('diff-0-left-out').waitFor();
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('diff-0-left-out'),
+        byTestId('diff-0-leave-field'),
+        byTestId('diff-3-leave-object'),
+        byTestId('diff-4-compare-again'),
+        byTestId('metadata-admin-copy'),
+        // Each severity's badge, in the page's language.
+        byTestId('diff-0-severity'),
+        byTestId('diff-3-severity'),
+        byTestId('diff-6-severity'),
+      );
+
+      await page.getByTestId('metadata-admin-copy').click();
+      await expect(page.getByTestId('metadata-admin-copy-copied')).toHaveText('Copied');
+      await expectMeasuredReadable(page, theme, byTestId('metadata-admin-copy-copied'));
+    });
+
+    test('Forge Review of the whole org, what it leaves out for rights with what lifts it, and the copy for the admins', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await openWholeOrgReview(
+        page,
+        { ...wholeOrgGraph(), leftOut: LEFT_OUT_FOR_RIGHTS },
+        sampleBudget(),
+        false,
+      );
+      await page.getByTestId('tab-plan').click();
+      await page.getByTestId('review-left-out-toggle').click();
+      await toMiddle(page, 'left-out-admin-copy');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('left-out-way-notWritable'),
+        byTestId('left-out-admin-copy'),
+      );
+    });
+
+    test('Monitor saying a resume refused because its target could not be read', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'monitor');
+      await openMonitorWithAStoppedClone(bridge, page);
+      await refuseResume(bridge, page, RESUME_TARGET_UNREAD_REFUSAL);
+      await expect(page.getByTestId('floating-toasts')).toContainText(
+        'The clone could not be taken up',
+      );
+
+      await expectNotificationReadable(page, theme);
+    });
+
+    test('Monitor saying a resume refused because its journal could not be opened', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'monitor');
+      await openMonitorWithAStoppedClone(bridge, page);
+      await refuseResume(bridge, page, JOURNAL_UNAVAILABLE_REFUSAL);
+      await expect(page.getByTestId('floating-toasts')).toContainText(
+        "The run's journal on this machine's disk could not be opened.",
+      );
+
+      await expectNotificationReadable(page, theme);
+    });
+
+    test('Autopilot node detail saying the records a lock refused went again, and what became of them', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'autopilot');
+      await openAutopilotNode(bridge, page, {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'completed',
+        wave: 1,
+        recordCount: 1198,
+        failureCount: 2,
+        sentAgainForALock: SENT_AGAIN_FOR_A_LOCK,
+      });
+      await page.getByTestId('node-sent-again-for-a-lock').waitFor({ timeout: 10_000 });
+
+      await expectMeasuredReadable(page, theme, byTestId('node-sent-again-for-a-lock'));
+    });
+
+    test('Sync results saying the records a lock refused went again', async ({ page }) => {
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await runSyncDraft(bridge, page, syncRunSentAgain());
+      await toMiddle(page, 'sync-result-written-Contact-sentAgainForALock');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('sync-result-written-Contact-sentAgainForALock'),
+      );
+    });
+
+    test('Quick Sync results saying the records a lock refused went again', async ({ page }) => {
+      await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_PREVIEW });
+      await runQuickSync(bridge, page, syncRunSentAgain());
+      await toMiddle(page, 'quick-sync-result-written-Contact-sentAgainForALock');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('quick-sync-result-written-Contact-sentAgainForALock'),
+      );
+    });
+
+    test('Sync history detail saying the records a lock refused went again', async ({ page }) => {
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await openSyncHistoryEntry(bridge, page, syncHistoryEntrySentAgain());
+      await page.getByTestId('history-written-Contact-sentAgainForALock').waitFor();
+      await toMiddle(page, 'history-written-Contact-sentAgainForALock');
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('history-written-Contact-sentAgainForALock'),
+      );
+    });
+
+    test('Quick Sync preview saying the bound of each read, and an object read past it', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_A_CUT_PREVIEW });
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-preview-read-cap').waitFor({ timeout: 10_000 });
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('quick-sync-preview-read-cap'),
+        byTestId('quick-sync-preview-read-cut-Contact'),
+      );
+    });
+
+    test('Sync simulation saying the bound of each read, an object it cut, and what a lock adds to the requests', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await simulateSyncDraft(bridge, page, simulationCutAtReadCap(10_000));
+      await toMiddle(page, 'sync-write-check-api-lock-resends');
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('sync-simulation-read-cap'),
+        byTestId('sync-write-check-api-lock-resends'),
+      );
+
+      await toMiddle(page, 'sync-simulation-read-cut-Invoice__c');
+      await expectMeasuredReadable(page, theme, byTestId('sync-simulation-read-cut-Invoice__c'));
+    });
+
+    test('Forge verification of an object only the platform wrote, with the run’s', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'forge');
+      await verifyForgeRun(page, VERIFIED_WITH_THE_PLATFORMS);
+
+      await expectMeasuredReadable(
+        page,
+        theme,
+        byTestId('forge-verification-OpportunityContactRole'),
+      );
     });
   });
 }
