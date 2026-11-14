@@ -17,7 +17,6 @@ import {
   SamplePlan,
   SamplePlanError,
   adoptSamplePlan,
-  compareIds,
   dryRunPlanDirOf,
   keepSamplePlan,
   lastDryRunPlan,
@@ -28,6 +27,7 @@ import {
   type SamplePlanToKeep,
   type WholeOrgSampleDrawn,
 } from './samplePlanStore.js';
+import { compareIds } from './sampleRank.js';
 
 /*
  * The plan of a sample on disk: its ids, in their own order, and what was

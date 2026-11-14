@@ -41,26 +41,7 @@ import {
 } from '@sandforge/shared';
 import { CHECKPOINT_FILE_MODE, makePrivateDir } from '../../checkpoint/OrgCheckpointStore.js';
 import { IdSpool, IdSpoolWriter, idsFileOf } from '../../checkpoint/spooledRunRecords.js';
-
-/** The first fifteen characters of an id: the key the org knows a record by, whichever length it is written in. */
-const KEY_LENGTH = 15;
-
-/** The key of `id`: its first fifteen characters. */
-export function idKey(id: string): string {
-  return id.slice(0, KEY_LENGTH);
-}
-
-/**
- * How two ids of one object stand, by their keys, character by character:
- * the order of a plan's ids on disk, which a run reads its plan in and
- * resumes after its last id in. An org writes an id's characters from
- * `0-9A-Za-z`, in that order, so of two keys of one object the later one is
- * the greater — as `ORDER BY Id` puts them.
- */
-export function compareIds(a: string, b: string): number {
-  const [left, right] = [idKey(a), idKey(b)];
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+import { compareIds } from './sampleRank.js';
 
 /** How long a dry run's plan is taken up by the run after it, and kept. */
 export const SAMPLE_PLAN_MAX_AGE_MS = 24 * 60 * 60_000;
@@ -110,6 +91,22 @@ export interface SamplePlanManifest {
    * a load, not from one load to the next. Absent when there are none.
    */
   newestByIds?: string[];
+  /** What the run's gate counts of the plan beside its ids: see {@link SamplePlanCounts}. */
+  counts?: SamplePlanCounts;
+}
+
+/**
+ * What the gate of the run that writes a plan counts of it beside its ids,
+ * which a run that takes the plan up reads no more of the source for: per
+ * object, the person accounts among its records and the contacts of person
+ * accounts the platform writes with them; and per object the platform writes
+ * records of with the plan's, those it writes — of the plan's records, which
+ * the run links to (`inPlan`), and the others (`beyond`), which take the
+ * target's storage all the same.
+ */
+export interface SamplePlanCounts {
+  personAccounts: Record<string, number>;
+  byThePlatform: Array<{ objectApiName: string; inPlan: number; beyond: number }>;
 }
 
 /** A plan to keep: see {@link keepSamplePlan}. */
@@ -121,6 +118,8 @@ export interface SamplePlanToKeep {
   sample: WholeOrgSampleDrawn;
   /** See {@link SamplePlanManifest.newestByIds}. */
   newestByIds?: readonly string[];
+  /** See {@link SamplePlanManifest.counts}. */
+  counts?: SamplePlanCounts;
   /** The ids kept of each object, in any order; an object of none is left out. */
   ids: ReadonlyArray<{ objectApiName: string; ids: Iterable<string> }>;
 }
@@ -256,7 +255,15 @@ const sampleSchema = z.object({
   ),
   noRecordDrawn: z.array(z.object({ objectApiName: objectNameSchema, sourceRows: countSchema })),
   planRequests: z.object({ source: countSchema }),
+  newestByIds: z.array(objectNameSchema).optional(),
 }) satisfies z.ZodType<WholeOrgSampleDrawn>;
+
+const countsSchema = z.object({
+  personAccounts: z.record(objectNameSchema, countSchema),
+  byThePlatform: z.array(
+    z.object({ objectApiName: objectNameSchema, inPlan: countSchema, beyond: countSchema }),
+  ),
+}) satisfies z.ZodType<SamplePlanCounts>;
 
 const manifestSchema = z.object({
   version: z.literal(1),
@@ -274,6 +281,7 @@ const manifestSchema = z.object({
   ),
   sample: sampleSchema,
   newestByIds: z.array(objectNameSchema).optional(),
+  counts: countsSchema.optional(),
 }) satisfies z.ZodType<SamplePlanManifest>;
 
 // ─── Files ───────────────────────────────────────────────────────────────────
@@ -489,6 +497,7 @@ export class SamplePlan {
         ...(plan.newestByIds !== undefined && plan.newestByIds.length > 0
           ? { newestByIds: [...plan.newestByIds] }
           : {}),
+        ...(plan.counts ? { counts: plan.counts } : {}),
       };
       manifestSchema.parse(manifest);
       await writeNew(join(temp, MANIFEST), `${JSON.stringify(manifest)}\n`);

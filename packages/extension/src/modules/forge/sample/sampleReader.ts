@@ -70,7 +70,7 @@ import { ARCHIVED_ACTIVITIES } from '../../../core/removal/tableIds.js';
 import { soqlInstant } from '../../checkpoint/orgStreams.js';
 import type { SourceRow } from '../stages/PagedRows.js';
 import { eachInPool } from '../WholeOrgDiscovery.js';
-import { compareIds, idKey } from './samplePlanStore.js';
+import { compareIds, idKey } from './sampleRank.js';
 
 /** How a statement is read: `all`, through the org's `queryAll`. */
 export interface SampleReadOptions {

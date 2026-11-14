@@ -165,6 +165,17 @@ export interface CycleFkPatchInput {
   bulkUnsupported?: Set<string>;
   /** Waits out the delay before updates a job refused for a lock go again by REST. */
   wait?: (ms: number) => Promise<void>;
+  /**
+   * Of a sample of the whole org, whether a lookup owed names a record the
+   * run was never to write: one outside its plan, or one of the plan gone
+   * from the source since it was drawn. Such a lookup stays empty, told to
+   * `onLeftOutsideTheSample` by its object and field, and is no failure of
+   * the pass: said "could not be resolved", it failed the run for a record
+   * the sample left out by design.
+   */
+  outsideTheSample?: (update: PendingFkUpdate) => boolean;
+  /** Told of each lookup left empty for {@link outsideTheSample}. */
+  onLeftOutsideTheSample?: (objectApiName: string, field: string) => void;
 }
 
 /** The code the target refuses a row with when it could not lock a record the write needed. */
@@ -456,6 +467,10 @@ export class CycleFkPass {
     if (!newRefId) {
       if (input.deferUnresolved) {
         input.stillPending?.push(upd);
+        return;
+      }
+      if (input.outsideTheSample?.(upd)) {
+        input.onLeftOutsideTheSample?.(upd.objectApiName, upd.fieldName);
         return;
       }
       this.unresolvedCount++;

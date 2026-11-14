@@ -32,7 +32,11 @@ vi.mock('../modules/forge/forgeBulkWrite.js', async (importOriginal) => {
 
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
 import { BulkJobLostError, forgeBulkWrite } from '../modules/forge/forgeBulkWrite.js';
-import { initForgeComposition, registerForgeGraphViewListener } from './forgeComposition.js';
+import {
+  initForgeComposition,
+  registerForgeGraphViewListener,
+  toForgeObjectDescribe,
+} from './forgeComposition.js';
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
@@ -2058,6 +2062,37 @@ describe('the discovery of a clone of the whole org, through the composition', (
 
     const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
     expect(contact).toMatchObject({ recordCount: 1, recordCountApproximate: true });
+  });
+});
+
+describe('the describe a run of Forge reads its fields from', () => {
+  it('keeps whether the org groups, orders and aggregates by a field, and says nothing it was not told', () => {
+    const described = toForgeObjectDescribe({
+      name: 'FeedItem',
+      createable: true,
+      keyPrefix: '0D5',
+      recordTypeInfos: [],
+      childRelationships: [],
+      fields: [
+        { name: 'Id', type: 'id', aggregatable: false, groupable: false, sortable: true },
+        { name: 'ParentId', type: 'reference', referenceTo: ['Case'], groupable: true },
+        { name: 'Body', type: 'textarea' },
+      ],
+    } as unknown as Parameters<typeof toForgeObjectDescribe>[0]);
+
+    expect(
+      described.fields.map(({ name, groupable, sortable, aggregatable }) => ({
+        name,
+        groupable,
+        sortable,
+        aggregatable,
+      })),
+    ).toEqual([
+      { name: 'Id', groupable: false, sortable: true, aggregatable: false },
+      { name: 'ParentId', groupable: true, sortable: undefined, aggregatable: undefined },
+      { name: 'Body', groupable: undefined, sortable: undefined, aggregatable: undefined },
+    ]);
+    expect(described.fields.map((f) => 'groupable' in f)).toEqual([true, true, false]);
   });
 });
 

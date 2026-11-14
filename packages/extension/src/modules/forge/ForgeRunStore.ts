@@ -123,6 +123,19 @@ export function checkpointKey(objectApiName: string, pass?: string): string {
 /** The name of a pass, as a checkpoint line carries it: letters and digits. */
 const PASS_NAME = /^[A-Za-z][A-Za-z0-9]*$/;
 
+/**
+ * The plan of a sample of the whole org a run writes, as its journal names
+ * it: the folder it is kept in, beside the journal, and the SHA-256 of its
+ * ids. A part that takes the run up writes that plan and no other.
+ */
+export interface StoredSamplePlan {
+  dir: string;
+  sha256: string;
+}
+
+/** The SHA-256 of a plan's ids, as its manifest writes it. */
+const PLAN_SHA = /^[0-9a-f]{64}$/;
+
 /** A lookup owed to the second pass, as the store gives it back. */
 export interface StoredOwedLookup {
   update: PendingFkUpdate;
@@ -536,6 +549,8 @@ export class ForgeRunStore {
   private readonly foundAfterStop = new Set<string>();
   /** Of those, the rows whose call never said what they went in without: see `owesUntold`. */
   private readonly foundOwingUntold = new Set<string>();
+  /** The plan of the sample the run writes, the last the journal named. */
+  private plan?: StoredSamplePlan;
 
   private constructor(private readonly file: RunFile) {
     this.index = new SourceIdIndex((offset, length) => this.idOfLine(offset, length));
@@ -577,6 +592,25 @@ export class ForgeRunStore {
     this.write({ part: { n: this.parts, startedAt: startedAt.toISOString() } });
     this.parts++;
     this.flush();
+  }
+
+  /* ---- the plan of a sample ---- */
+
+  /**
+   * Name the plan of the sample of the whole org the run writes, before its
+   * first write, written at once: a part that takes the run up reads that
+   * plan, held to its SHA-256, and refuses to go on without it.
+   */
+  nameSamplePlan(plan: StoredSamplePlan): void {
+    if (!PLAN_SHA.test(plan.sha256)) throw new Error('Not the SHA-256 of a plan.');
+    this.write({ sample: { dir: plan.dir, sha256: plan.sha256 } });
+    this.plan = { dir: plan.dir, sha256: plan.sha256 };
+    this.flush();
+  }
+
+  /** The plan of a sample the journal names, in any part; none for a run that copies every record. */
+  get samplePlan(): StoredSamplePlan | undefined {
+    return this.plan ? { ...this.plan } : undefined;
   }
 
   /* ---- what the run wrote: source id to target id ---- */
@@ -1221,6 +1255,14 @@ export class ForgeRunStore {
       if (typeof parsed !== 'object' || parsed === null) continue;
       if ('part' in parsed) {
         this.parts++;
+      } else if ('sample' in parsed) {
+        const sample = (parsed as { sample: unknown }).sample;
+        if (typeof sample !== 'object' || sample === null) continue;
+        const { dir, sha256 } = sample as Record<string, unknown>;
+        // A line that does not read as the name of a plan names none.
+        if (typeof dir !== 'string' || dir === '' || typeof sha256 !== 'string') continue;
+        if (!PLAN_SHA.test(sha256)) continue;
+        this.plan = { dir, sha256 };
       } else if ('at' in parsed) {
         const at = (parsed as { at: unknown }).at;
         if (typeof at !== 'object' || at === null) continue;

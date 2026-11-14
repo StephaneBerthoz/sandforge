@@ -22,9 +22,18 @@ import type {
   RecordTypeGiven,
   RecordTypeGivenBasis,
   RecordTypeNamed,
+  WholeOrgSample,
+  WholeOrgSampleResult,
   WithoutRecordTypeWhy,
+  ForgeSampleOptions,
+  ForgeSamplingProgress,
 } from '@sandforge/shared';
-import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  FORGE_SAMPLE_DEFAULTS,
+  fileCopyRefusal,
+  isFileContentField,
+} from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import {
   DUPLICATE_RULE_FALLBACK_OBJECTS,
@@ -115,7 +124,8 @@ import {
   syncedQuoteWriteEdges,
   type QuoteLineToPair,
 } from './stages/SyncedQuoteLines.js';
-import { pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
+import { inPagesOf, pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
+import { firstColumns, idsPerStatement } from '../../core/common/wideRead.js';
 import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
 import {
   ContactPointNeutralizer,
@@ -282,6 +292,22 @@ import {
 import { keepPartialSummary } from './interruptedRun.js';
 import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
 import { checkpointKey, type ForgeRunStore, type StoredOwedLookup } from './ForgeRunStore.js';
+import {
+  SamplePlan,
+  SamplePlanError,
+  keepSamplePlan,
+  type SamplePlanCounts,
+} from './sample/samplePlanStore.js';
+import {
+  SampleRefusedError,
+  drawSampleOfTheOrg,
+  sampleReportOf,
+  type SampleBudgetTerms,
+} from './sample/sampleDrawing.js';
+import { SampleCancelled, SampleTooLarge } from './sample/sampleClosure.js';
+import type { SampleField, SampleObjectInput } from './sample/sampleLinks.js';
+import { compareIds, idKey } from './sample/sampleRank.js';
+import { runReadOf, type RunRead } from './sample/sampleReader.js';
 import { JOURNAL_LAST_WRITE_SLACK_MS } from './ForgeRunJournal.js';
 import { externalIdKey, fingerprintFields, jobRowKeys, rowFingerprint } from './ForgeInFlight.js';
 import { uniqueValueKey, type FieldBounds } from './describeBounds.js';
@@ -466,6 +492,17 @@ export interface FieldInfo extends FieldBounds {
    * reads as updateable, and the target says whether it takes the update.
    */
   updateable?: boolean;
+  /**
+   * Whether the org groups rows by the field, orders them by it, and
+   * aggregates it (`groupable`, `sortable`, `aggregatable` of the describe):
+   * what the reads of a sample of the whole org ask before they count a
+   * relation by parent — a scratch org refused `COUNT(Id)` of feed items —
+   * or order an object by its creation date. Unknown, the statement is sent,
+   * and a refusal read as no.
+   */
+  groupable?: boolean;
+  sortable?: boolean;
+  aggregatable?: boolean;
 }
 
 /** Optional execution mode parameters. */
@@ -805,6 +842,62 @@ export interface ForgeStreamOptions {
    * deps' bound alone.
    */
   wholeReadBound?: number;
+  /**
+   * Of a clone of the whole org, copy a sample of it that fits the target
+   * rather than every record (`ForgeConfig.sample`): see
+   * {@link ForgeSampleStream}. Absent, every record is copied, as before.
+   */
+  sample?: ForgeSampleStream;
+}
+
+/**
+ * How a clone of the whole org copies a sample of it (`ForgeStreamOptions.sample`).
+ *
+ * Before its gate, the run draws a plan — the ids it keeps of each object,
+ * drawn from ids and lookups alone (`sample/`) — or takes one up: a dry
+ * run's, or the plan its journal names when it resumes. It keeps the plan on
+ * disk, names it in its journal before its first write, and from then on
+ * reads each object of the plan by those ids alone: its gate counts them, its
+ * write sends them, and a lookup at a record outside them is written empty.
+ * The objects the sample copies whole are read and written as every record of
+ * a clone of the whole org is.
+ */
+export interface ForgeSampleStream {
+  /** The options as asked; one left out takes its default (`FORGE_SAMPLE_DEFAULTS`). */
+  options: ForgeSampleOptions;
+  /**
+   * What the sample may take, read of the target once before anything is
+   * drawn: the target's storage and the bounds asked, and the room the target's
+   * automation takes. Not asked of a run that takes a plan up.
+   */
+  budget: () => Promise<SampleBudgetTerms>;
+  /**
+   * The folder a plan the run draws is kept in, one of its own: of a dry run,
+   * the folder its setup's plans go in (`dryRunPlanDirOf`); of a run, the one
+   * beside its journal (`runPlanDirOf`), with which it lives and goes.
+   */
+  keepAt: string;
+  /** The fingerprint of the setup the plan is drawn for (`forgeRunFingerprint`), kept in its manifest. */
+  fingerprint: string;
+  /**
+   * A plan a dry run drew that the run writes rather than draw its own — the
+   * command line's `--fit-plan`, the panel's last Simulate — opened, held to
+   * the source and the setup, and moved beside the journal by the caller.
+   * Never read by a run that resumes another, which writes the plan its
+   * journal names, or refuses to go on (`SAMPLE_PLAN_GONE`).
+   */
+  plan?: SamplePlan;
+  /**
+   * The requests the source has left today: reading the ids of the roots
+   * past a tenth of them is refused before one is read
+   * (`API_BUDGET_EXCEEDED`, of the source). Absent when the source would not
+   * say.
+   */
+  sourceRequestsLeft?: number;
+  /** Told where the drawing of the plan stands, before the gate. */
+  onProgress?: (progress: ForgeSamplingProgress) => void;
+  /** The most records the drawing holds at once (`SAMPLE_MAX_ROWS` when absent): a test seam. */
+  maxRows?: number;
 }
 
 /**
@@ -977,6 +1070,22 @@ export interface WholeOrgBoundary extends WholeOrgMeasures {
    * or the run keeps the contact points.
    */
   contactPointsBlanked?: number;
+  /**
+   * Of a sample of the whole org (`stream.sample`), what its plan drew, and
+   * where it is kept: the counts of `objects` are then the plan's, after the
+   * last id of a run it resumes, and their reads by its ids priced in
+   * `sourceReads`. Beside it, of each object the platform writes records of
+   * with the plan's, those it writes: of the plan's records, which the run
+   * links to rather than sends (`inPlan`, counted out of `objects` and said
+   * in `leftOut.byThePlatform`), and the others (`beyond`), which the plan
+   * never read and the target holds all the same — weighed in the sample's
+   * storage. The rows the draw left out are in `report.dropped`, never failed:
+   * the run reads none of them. Absent for a clone of every record.
+   */
+  sample?: {
+    report: WholeOrgSample;
+    byThePlatform: ReadonlyArray<{ objectApiName: string; inPlan: number; beyond: number }>;
+  };
 }
 
 /**
@@ -1057,6 +1166,12 @@ export interface ForgeRowsLeftOut {
    * hold, or one so left aside.
    */
   noParentInSource?: number;
+  /**
+   * Of a sample of the whole org, rows its plan left aside, which no copy of
+   * it writes: a lookup they may not leave empty names a record outside its
+   * object's filter, or one so left aside.
+   */
+  outsideFilter?: number;
   /**
    * Rows the platform writes itself with a record the run creates — the
    * owner's member and split of an opportunity, a person account's contact
@@ -1617,6 +1732,13 @@ export interface ExecutionSummary {
    * when there were none.
    */
   withTheirRecordCount?: number;
+  /**
+   * Of a run of a sample of the whole org, how it was drawn and what it wrote
+   * of each object of its plan: written or linked to, gone from the source
+   * since the plan, held back for a record that changed since. Absent from
+   * every other run, and from a dry run's, whose plan its gate says.
+   */
+  sample?: WholeOrgSampleResult;
 }
 
 /**
@@ -2556,12 +2678,41 @@ interface ExecutionState {
    * writes; unset until then, and nothing when either org holds one.
    */
   currencies?: Promise<RunCurrencies | undefined>;
+  /** Of a sample of the whole org, its plan and what the run makes of it: see {@link RunSample}. */
+  sample?: RunSample;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
   wouldInsertCount: number;
   failedCount: number;
   skippedCount: number;
+}
+
+/**
+ * What a run of a sample of the whole org holds of its plan (`planTheSample`):
+ * the plan and its report, the objects read by its ids — the others are
+ * copied whole — and the ids of each, by their key, which say whether a
+ * record is the plan's; and, as the run goes, what it did not write of it.
+ */
+interface RunSample {
+  readonly plan: SamplePlan;
+  readonly report: WholeOrgSample;
+  /** The objects the plan holds the ids of: read by them alone. */
+  readonly drawn: ReadonlySet<string>;
+  /** Per drawn object, the keys of the ids the plan holds of it. */
+  readonly ids: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The key prefix of each drawn object, as its ids in the plan begin, or its describe says. */
+  readonly prefixes: ReadonlyMap<string, string>;
+  /** What the gate counts of the plan beside its ids: see `SamplePlanCounts`. */
+  readonly counts: SamplePlanCounts;
+  /** Per object, the ids of the plan the source no longer answered for, by their key. */
+  readonly gone: Map<string, Set<string>>;
+  /** Per object, the rows held back for a record they cannot be written without that changed since the plan. */
+  readonly changed: Map<string, number>;
+  /** Per object and lookup, the rows written without it, at a record outside the plan. */
+  readonly leftEmpty: Map<string, Map<string, number>>;
+  /** Per object, how the run reads it, decided once: see `readOfThePlan`. */
+  readonly reads: Map<string, RunRead>;
 }
 
 /**
@@ -3029,6 +3180,19 @@ const NOT_IN_THE_SOURCE: ParentNotWritten = {
 /** Why a row whose `field` names a record the source does not hold is left aside. */
 function notInTheSource(field: string, parent: string): string {
   return `${field} may not be left empty, and names a ${parent} record the source does not hold`;
+}
+
+/** Why a row of a sample whose `field` names a record outside its plan is held back. */
+function changedSinceTheSample(field: string, parent: string): string {
+  return (
+    `${field} may not be left empty, and names a ${parent} record outside the sample: ` +
+    'changed since the sample'
+  );
+}
+
+/** Why a row of a sample whose `field` names a record gone from the source since its plan is left aside. */
+function goneSinceTheSample(field: string, parent: string): string {
+  return `${field} may not be left empty, and names a ${parent} record gone from the source since the sample`;
 }
 
 /** Why a row whose `field` names a record left aside is left aside with it. */
@@ -4610,6 +4774,33 @@ function recordTypeGivenOfTally(objectApiName: string, tally: RecordTypeTally): 
  * children that cannot be written without it; the others lose their lookup at
  * it, and the second pass reports each one.
  */
+/** A summary's `sample`, when the run has one. */
+function sampleResultOrNothing(result: WholeOrgSampleResult | undefined): {
+  sample?: WholeOrgSampleResult;
+} {
+  return result ? { sample: result } : {};
+}
+
+/** The options of a sample as they apply: each one left out at its default (`FORGE_SAMPLE_DEFAULTS`). */
+function sampleOptionsOf(sample: ForgeSampleStream): {
+  seed: number;
+  draw: NonNullable<ForgeSampleOptions['draw']>;
+  parents: NonNullable<ForgeSampleOptions['parents']>;
+  children: number | 'all';
+  floor: number;
+  whole?: string[];
+} {
+  const asked = sample.options;
+  return {
+    seed: asked.seed ?? FORGE_SAMPLE_DEFAULTS.seed,
+    draw: asked.draw ?? FORGE_SAMPLE_DEFAULTS.draw,
+    parents: asked.parents ?? FORGE_SAMPLE_DEFAULTS.parents,
+    children: asked.children ?? FORGE_SAMPLE_DEFAULTS.children,
+    floor: asked.floor ?? FORGE_SAMPLE_DEFAULTS.floor,
+    ...(asked.whole && asked.whole.length > 0 ? { whole: [...asked.whole] } : {}),
+  };
+}
+
 export class ForgeExecutor {
   private readonly deps: ForgeExecutorDeps;
   private isPaused = false;
@@ -4620,6 +4811,8 @@ export class ForgeExecutor {
    * for each run that sends jobs (`bulkTransportOf`), and aborted with it.
    */
   private bulkCancel = new AbortController();
+  /** What stops the reads that draw the plan of a sample when the run is cancelled: see `drawThePlan`. */
+  private sampling = new AbortController();
   /** The run `execute` has under way, for {@link summarySoFar}; null between runs. */
   private running: ExecutionState | null = null;
 
@@ -4661,6 +4854,8 @@ export class ForgeExecutor {
     this.isAborted = true;
     // A job still open writes nothing once aborted; one closed goes on, and is waited for.
     this.bulkCancel.abort();
+    // The plan of a sample being drawn reads no more.
+    this.sampling.abort();
     // Snapshot+null+invoke so a concurrent pause/resume can't leak the
     // promise resolver into a paused state from a previous run.
     const resolver = this.pauseResolve;
@@ -5672,6 +5867,9 @@ export class ForgeExecutor {
       state.writtenObjects.add(node.objectApiName);
     }
 
+    // A sample of the whole org draws its plan, or takes one up, before its
+    // gate: the gate counts the plan, and the run reads it.
+    if (streamed) await this.planTheSample(state, runOrder);
     // A run read page by page holds no row before it writes the first: its
     // gate is shown what a count of each table says it will write, before
     // anything is read.
@@ -5944,6 +6142,7 @@ export class ForgeExecutor {
             onAnswered: () => state.store?.flush(),
             onRefusedByFilter: (object, field, recordId) =>
               this.noteLeftEmptyByFilter(state, object, field, recordId),
+            ...this.secondPassOfTheSample(state),
           });
           if (settled) state.errors.push(settled);
           state.pendingFkUpdates.push(...stillPending);
@@ -5976,6 +6175,7 @@ export class ForgeExecutor {
           onAnswered: () => state.store?.flush(),
           onRefusedByFilter: (object, field, recordId) =>
             this.noteLeftEmptyByFilter(state, object, field, recordId),
+          ...this.secondPassOfTheSample(state),
         });
     if (pass2Error) {
       state.errors.push(pass2Error);
@@ -6444,11 +6644,660 @@ export class ForgeExecutor {
    * object, and the ceiling of a node it reads so. Undefined for no bound.
    */
   private readBound(state: ExecutionState, node: ForgeGraphNode): number | undefined {
+    // An object of a sample's plan reads the plan's ids, which bound it.
+    if (state.sample?.drawn.has(node.objectApiName)) return undefined;
     const cap = state.config.maxRecordsPerObject;
     const capped = cap !== undefined && cap > 0 ? Math.floor(cap) : undefined;
     const ceiling = this.streamsNode(node, state) ? state.config.stream?.ceiling : undefined;
     if (capped === undefined) return ceiling;
     return ceiling === undefined ? capped : Math.min(capped, ceiling);
+  }
+
+  /**
+   * Of a clone of the whole org that copies a sample of it (`stream.sample`),
+   * its plan, before its gate: the plan its journal names when the run
+   * resumes another — refused when it is no longer on this machine, or no
+   * longer as it was drawn (`SAMPLE_PLAN_GONE`) —, the dry run's plan the
+   * caller hands over, or one drawn now and kept where the caller says
+   * (`drawThePlan`). A run that writes names its plan in its journal before
+   * its first write. From here on the run reads each object the plan draws by
+   * its ids alone, and its gate counts them.
+   *
+   * A run that resumes one whose journal names a plan, without a sample, or
+   * one whose journal names none, with a sample, is refused
+   * (`SAMPLE_PLAN_MISMATCH`): the first would write every record of a table
+   * the earlier part wrote a part of, the second would draw a sample beside
+   * every record the earlier part wrote.
+   */
+  private async planTheSample(
+    state: ExecutionState,
+    runOrder: readonly ForgeGraphNode[],
+  ): Promise<void> {
+    const { config, store } = state;
+    const sample = config.stream?.everything === true ? config.stream.sample : undefined;
+    const named = store?.samplePlan;
+    if (!sample) {
+      if (named) {
+        throw new SampleRefusedError(
+          'SAMPLE_PLAN_MISMATCH',
+          'The run this one resumes copied a sample of the whole org: resume it as a sample. ' +
+            NOTHING_WRITTEN,
+        );
+      }
+      return;
+    }
+    let plan: SamplePlan;
+    if (named) {
+      try {
+        plan = await SamplePlan.open(named.dir, { sha256: named.sha256 });
+      } catch (err) {
+        if (!(err instanceof SamplePlanError)) throw err;
+        throw new SampleRefusedError(
+          'SAMPLE_PLAN_GONE',
+          `The plan of the sample the run resumes is ${
+            err.refusal === 'gone' ? 'no longer on this machine' : 'no longer as it was drawn'
+          }: it cannot go on with the same records. ${NOTHING_WRITTEN} Copy a new sample ` +
+            'rather than resume this one.',
+        );
+      }
+    } else if (store?.resumes) {
+      throw new SampleRefusedError(
+        'SAMPLE_PLAN_MISMATCH',
+        'The run this one resumes copied every record of the whole org, not a sample: resume ' +
+          `it as it was set up. ${NOTHING_WRITTEN}`,
+      );
+    } else {
+      plan = sample.plan ?? (await this.drawThePlan(state, runOrder, sample));
+    }
+    if (store && !named) store.nameSamplePlan({ dir: plan.dir, sha256: plan.sha256 });
+    state.sample = await this.runSampleOf(state, plan);
+  }
+
+  /**
+   * Draw the plan of a sample of the whole org against the source, and keep
+   * it where the caller says (`stream.sample.keepAt`): see `sample/`. The
+   * objects of the run, their lookups as the source describes them — those
+   * the user leaves out of the rows left out of the draw —, the record types
+   * the run holds back read from the tables as the run would read them
+   * (`recordTypesOfTable`), the budget read of the target once. A cancel
+   * stops the reads before their next request.
+   */
+  private async drawThePlan(
+    state: ExecutionState,
+    runOrder: readonly ForgeGraphNode[],
+    sample: ForgeSampleStream,
+  ): Promise<SamplePlan> {
+    const { config, sourceOrgId } = state;
+    const options = sampleOptionsOf(sample);
+    const nodes = runOrder.filter(
+      (node) =>
+        node.included &&
+        (state.writtenObjects.has(node.objectApiName) ||
+          config.referenceDataObjects.has(node.objectApiName)),
+    );
+    const described = new Map<string, FieldInfo[]>();
+    for (const node of nodes) {
+      described.set(
+        node.objectApiName,
+        await this.deps.describeFields(sourceOrgId, node.objectApiName),
+      );
+    }
+    // A master-detail lookup, as the graph tells it: its record comes with
+    // every detail, never cut to a number of them.
+    const masterDetail = (child: string, field: FieldInfo): boolean =>
+      field.nillable === false &&
+      state.graph.edges.some(
+        (edge) =>
+          edge.type === 'master-detail' &&
+          edge.targetObject === child &&
+          (field.referenceTo ?? []).includes(edge.sourceObject),
+      );
+    const objects: SampleObjectInput[] = [];
+    const verdicts = new Map<string, { closed: Set<string>; lacking: Set<string> }>();
+    for (const node of nodes) {
+      const object = node.objectApiName;
+      const left = new Set(config.fieldExclusions[object] ?? []);
+      const fields: SampleField[] = (described.get(object) ?? [])
+        .filter((field) => field.isReference && !left.has(field.name))
+        .map((field) => ({
+          name: field.name,
+          referenceTo: field.referenceTo ?? [],
+          isMasterDetail: masterDetail(object, field),
+          ...(field.nillable !== undefined ? { nillable: field.nillable } : {}),
+          createable: field.createable,
+          ...(field.updateable !== undefined ? { updateable: field.updateable } : {}),
+        }));
+      objects.push({
+        objectApiName: object,
+        rows: node.recordCount,
+        keyPrefix:
+          (await this.objectInfoOf(sourceOrgId, object))?.keyPrefix ??
+          state.sourceKeyPrefixes.get(object) ??
+          null,
+        fields,
+      });
+      if (this.streamsNode(node, state) && !config.referenceDataObjects.has(object)) {
+        const types = await this.recordTypesOfTable(state, node);
+        if (types && types.closedInSource.length > 0) {
+          verdicts.set(object, {
+            closed: new Set(types.closedInSource.map(idKey)),
+            lacking: new Set(types.lackingInSource.map(idKey)),
+          });
+        }
+      }
+    }
+    const terms = await sample.budget();
+    this.sampling = new AbortController();
+    if (this.isAborted) this.sampling.abort();
+    let drawing: Awaited<ReturnType<typeof drawSampleOfTheOrg>>;
+    try {
+      drawing = await drawSampleOfTheOrg({
+        source: {
+          pages: (soql, read) =>
+            pagesOfStatement(this.deps, sourceOrgId, soql, undefined, undefined, read),
+          count: async (soql, read) => {
+            const countRecords = this.deps.countRecords;
+            if (countRecords) {
+              return read ? countRecords(sourceOrgId, soql, read) : countRecords(sourceOrgId, soql);
+            }
+            // Deps that count nothing: the rows of the statement read, counted here.
+            let rows = 0;
+            const select = soql.replace(/^SELECT COUNT\(\) FROM /, 'SELECT Id FROM ');
+            for await (const page of pagesOfStatement(
+              this.deps,
+              sourceOrgId,
+              select,
+              undefined,
+              undefined,
+              read,
+            )) {
+              rows += page.length;
+            }
+            return rows;
+          },
+        },
+        objects,
+        order: nodes.map((node) => node.objectApiName),
+        excluded: new Map([...config.excludedObjects].map((object) => [object, null])),
+        referenceData: config.referenceDataObjects,
+        fieldsOf: (object) =>
+          described
+            .get(object)
+            ?.filter((field) => field.queryable)
+            .map((field) => ({
+              name: field.name,
+              ...(field.groupable !== undefined ? { groupable: field.groupable } : {}),
+              ...(field.sortable !== undefined ? { sortable: field.sortable } : {}),
+              ...(field.aggregatable !== undefined ? { aggregatable: field.aggregatable } : {}),
+            })),
+        filterOf: (object) => config.objectSoqlFilters?.[object],
+        options,
+        budget: terms,
+        ...(config.stream?.wholeReadBound !== undefined
+          ? { maxRecordsPerObject: config.stream.wholeReadBound }
+          : {}),
+        recordTypeVerdict: (object, recordTypeId) => {
+          const verdict = verdicts.get(object);
+          const key = idKey(recordTypeId);
+          if (verdict?.lacking.has(key)) return 'recordTypeNotInTarget';
+          return verdict?.closed.has(key) ? 'heldBack' : undefined;
+        },
+        ...(sample.sourceRequestsLeft !== undefined
+          ? { sourceRequestsLeft: sample.sourceRequestsLeft }
+          : {}),
+        ...(sample.maxRows !== undefined ? { maxRows: sample.maxRows } : {}),
+        signal: this.sampling.signal,
+        ...(sample.onProgress ? { onProgress: sample.onProgress } : {}),
+      });
+    } catch (err) {
+      if (err instanceof SampleTooLarge) {
+        throw new SampleRefusedError('SAMPLE_TOO_LARGE', err.message);
+      }
+      if (err instanceof SampleCancelled || this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      throw err;
+    }
+    const { cut } = drawing;
+    if (cut.kind === 'cannotFit') {
+      const heaviest = cut.heaviest
+        .map((o) => `${o.objectApiName} (${o.rows} records${o.whole ? ', copied whole' : ''})`)
+        .join(', ');
+      throw new SampleRefusedError(
+        'SAMPLE_CANNOT_FIT',
+        `No sample of the whole org fits: the objects copied whole and the roots kept of each ` +
+          `object take ${cut.rows} records, ${(cut.storageBytes / BYTES_PER_MB).toFixed(1)} MB, ` +
+          `past what the sample may take (${cut.limitedBy}); the heaviest are ${heaviest}. ` +
+          `${NOTHING_WRITTEN} Keep no root of each object (--fit-floor 0), leave objects out ` +
+          '(--exclude-object), or take more of the target (--fit-within).',
+        cut.heaviest,
+      );
+    }
+    const report = sampleReportOf({ ...drawing, cut }, options, terms.budget);
+    return keepSamplePlan(sample.keepAt, {
+      sourceOrgId,
+      fingerprint: sample.fingerprint,
+      drawnAt: new Date(),
+      drawnBy: config.dryRun ? 'dryRun' : 'run',
+      sample: report,
+      ...(drawing.newestByIds.length > 0 ? { newestByIds: drawing.newestByIds } : {}),
+      ids: [...cut.ids].map(([objectApiName, ids]) => ({ objectApiName, ids })),
+      counts: {
+        personAccounts: Object.fromEntries(cut.personAccounts),
+        byThePlatform: cut.byThePlatform.map((entry) => ({ ...entry })),
+      },
+    });
+  }
+
+  /**
+   * What the run holds of its plan (`RunSample`): the ids of each object it
+   * draws by their key, read once from the plan's files, and the key prefix
+   * each begins with. The objects drawn are those of the run the plan does
+   * not copy whole, reference data aside: one the plan kept none of is read
+   * by no id, and writes nothing.
+   */
+  private async runSampleOf(state: ExecutionState, plan: SamplePlan): Promise<RunSample> {
+    const { manifest } = plan;
+    const whole = new Set(manifest.sample.whole.map((entry) => entry.objectApiName));
+    const drawn = new Set(
+      [...state.writtenObjects].filter(
+        (object) => !whole.has(object) && !state.config.referenceDataObjects.has(object),
+      ),
+    );
+    const ids = new Map<string, Set<string>>();
+    const prefixes = new Map<string, string>();
+    for (const object of drawn) {
+      const keys = new Set<string>();
+      for await (const page of plan.ids(object)) for (const id of page) keys.add(idKey(id));
+      ids.set(object, keys);
+      const first = keys.values().next().value;
+      const prefix =
+        first?.slice(0, 3) ??
+        (await this.objectInfoOf(state.sourceOrgId, object))?.keyPrefix ??
+        state.sourceKeyPrefixes.get(object);
+      if (prefix) prefixes.set(object, prefix);
+    }
+    return {
+      plan,
+      report: { ...manifest.sample, plan: plan.place },
+      drawn,
+      ids,
+      prefixes,
+      counts: manifest.counts ?? { personAccounts: {}, byThePlatform: [] },
+      gone: new Map(),
+      changed: new Map(),
+      leftEmpty: new Map(),
+      reads: new Map(),
+    };
+  }
+
+  /**
+   * Of a sample of the whole org, the drawn object a lookup's value names a
+   * record of, among the objects the lookup may name: the one, or the one
+   * whose key prefix the value begins with. Undefined when it names none the
+   * plan draws: an object copied whole, or one outside the run.
+   */
+  private drawnObjectNamed(
+    sample: RunSample,
+    referenceTo: readonly string[],
+    value: string,
+  ): string | undefined {
+    const drawn = referenceTo.filter((object) => sample.drawn.has(object));
+    if (drawn.length === 0) return undefined;
+    if (referenceTo.length === 1) return drawn[0];
+    return drawn.find((object) => {
+      const prefix = sample.prefixes.get(object);
+      return prefix !== undefined && value.startsWith(prefix);
+    });
+  }
+
+  /** Whether the plan holds the record `id` of the drawn object `objectApiName`. */
+  private inThePlan(sample: RunSample, objectApiName: string, id: string): boolean {
+    return sample.ids.get(objectApiName)?.has(idKey(id)) === true;
+  }
+
+  /**
+   * Of a sample of the whole org, whether a lookup's value names a record the
+   * run never writes: of an object the plan draws, and either outside the
+   * plan or gone from the source since it was drawn. A lookup at it is
+   * written empty, and owed nothing (`cleanNodeRecords`, the second pass).
+   */
+  private outsideTheSample(
+    state: ExecutionState,
+    referenceTo: readonly string[],
+    value: string,
+  ): boolean {
+    const sample = state.sample;
+    if (!sample) return false;
+    const object = this.drawnObjectNamed(sample, referenceTo, value);
+    if (object === undefined) return false;
+    return (
+      !this.inThePlan(sample, object, value) || sample.gone.get(object)?.has(idKey(value)) === true
+    );
+  }
+
+  /**
+   * What the second pass of a sample's run is told: a lookup owed at a record
+   * the run never writes — outside the plan, or gone since — is left empty
+   * and counted, no failure (`CycleFkPass`). Nothing for any other run.
+   */
+  private secondPassOfTheSample(state: ExecutionState): {
+    outsideTheSample?: (update: PendingFkUpdate) => boolean;
+    onLeftOutsideTheSample?: (objectApiName: string, field: string) => void;
+  } {
+    const sample = state.sample;
+    if (!sample) return {};
+    return {
+      outsideTheSample: (update) => {
+        const value = update.sourceRefId;
+        const object = [...sample.drawn].find((name) => {
+          const prefix = sample.prefixes.get(name);
+          return prefix !== undefined && value.startsWith(prefix);
+        });
+        return object !== undefined && this.outsideTheSample(state, [object], value);
+      },
+      onLeftOutsideTheSample: (objectApiName, field) =>
+        this.noteLeftOutsideTheSample(state, objectApiName, field),
+    };
+  }
+
+  /** Count, for the run's result, a lookup of `objectApiName` written empty at a record outside the sample. */
+  private noteLeftOutsideTheSample(
+    state: ExecutionState,
+    objectApiName: string,
+    field: string,
+  ): void {
+    const sample = state.sample;
+    if (!sample) return;
+    const fields = sample.leftEmpty.get(objectApiName) ?? new Map<string, number>();
+    fields.set(field, (fields.get(field) ?? 0) + 1);
+    sample.leftEmpty.set(objectApiName, fields);
+  }
+
+  /**
+   * What the gate of a sample's run is shown of an object its plan draws, as
+   * `countToWrite` shows an object of every record: the plan's ids of it,
+   * after the last one a run it resumes wrote — those that run wrote past it
+   * taken off, and the standard price book, linked to the target's, too —;
+   * the person accounts and their contacts the plan counted; the records the
+   * platform writes with the plan's, which the run links to; and the rows the
+   * plan left aside, never sent (`noParentInSource`, `outsideFilter`). The
+   * rows the plan held back for their record type, or for a record held back,
+   * are not read and never failed: the plan's report says them.
+   */
+  private async countToWriteOfThePlan(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    sample: RunSample,
+  ): Promise<{
+    read: number;
+    counted: ForgeCountedObject;
+    leftOut?: ForgeRowsLeftOut;
+    capped?: true;
+    partial?: true;
+  }> {
+    const object = node.objectApiName;
+    const resumed = state.config.stream?.resumeAfter.get(object);
+    const keys = sample.ids.get(object) ?? new Set<string>();
+    const after = resumed && SALESFORCE_ID.test(resumed.lastId) ? resumed.lastId : undefined;
+    const ahead = (id: string): boolean => after === undefined || compareIds(id, after) > 0;
+    let read = 0;
+    if (!resumed?.done) for (const key of keys) if (ahead(key)) read++;
+    const writtenBefore = Math.min(read, await this.writtenBeforeOf(state, node, resumed));
+    const standard = state.standardPricebookId;
+    const linkedToTarget =
+      object === PRICEBOOK_OBJECT &&
+      standard &&
+      keys.has(idKey(standard)) &&
+      ahead(standard) &&
+      !state.config.writtenBefore.has(standard)
+        ? Math.min(1, read - writtenBefore)
+        : 0;
+    let rows = Math.max(0, read - writtenBefore - linkedToTarget);
+    const persons = Math.min(rows, sample.counts.personAccounts[object] ?? 0);
+    let byThePlatform = 0;
+    if (object === CONTACT && persons > 0 && (await this.personAccountsInTarget(state)) === true) {
+      // Written by the platform with their person account, linked to.
+      byThePlatform = persons;
+    }
+    const pair = sample.counts.byThePlatform.find((entry) => entry.objectApiName === object);
+    if (pair) byThePlatform += Math.min(rows - byThePlatform, pair.inPlan);
+    rows -= byThePlatform;
+    const aside = (reason: 'noParentInSource' | 'outsideFilter'): number =>
+      sample.report.dropped
+        .filter((entry) => entry.objectApiName === object && entry.reason === reason)
+        .reduce((sum, entry) => sum + entry.rows, 0);
+    const leftOut: ForgeRowsLeftOut = {
+      ...(writtenBefore > 0 ? { writtenBefore } : {}),
+      ...(linkedToTarget > 0 ? { linkedToTarget } : {}),
+      ...(byThePlatform > 0 ? { byThePlatform } : {}),
+      ...(aside('noParentInSource') > 0 ? { noParentInSource: aside('noParentInSource') } : {}),
+      ...(aside('outsideFilter') > 0 ? { outsideFilter: aside('outsideFilter') } : {}),
+    };
+    const ofPersons = object === CONTACT && byThePlatform > 0 ? 0 : persons;
+    return {
+      read,
+      counted: { rows, ...(ofPersons > 0 ? { personAccounts: Math.min(ofPersons, rows) } : {}) },
+      ...(Object.keys(leftOut).length > 0 ? { leftOut } : {}),
+    };
+  }
+
+  /**
+   * How the run reads an object of its sample's plan, decided once and kept,
+   * the gate pricing what the run then does: by the plan's ids, or by its
+   * table's cursor, its rows kept to the plan's, whichever sends fewer
+   * requests (`runReadOf`) — and by the cursor whatever it costs for a task
+   * or an event, which the org may have archived (`READ_BY_CURSOR_ALONE`).
+   * The table's rows are discovery's count of it.
+   */
+  private async readOfThePlan(
+    state: ExecutionState,
+    sample: RunSample,
+    node: ForgeGraphNode,
+    planRows: number,
+  ): Promise<RunRead> {
+    const object = node.objectApiName;
+    const kept = sample.reads.get(object);
+    if (kept) return kept;
+    const described = await this.deps.describeFields(state.sourceOrgId, object);
+    const read = runReadOf({
+      objectApiName: object,
+      columns: fieldsToSelect(
+        described.filter((field) => !isFileContentField(field)),
+        state.config.fieldExclusions[object],
+      ),
+      sourceRows: node.recordCount,
+      planRows,
+    });
+    sample.reads.set(object, read);
+    return read;
+  }
+
+  /** The ids of the plan of `objectApiName` past `after`, the last one a run before this one wrote. */
+  private planRowsAfter(sample: RunSample, objectApiName: string, after?: string): number {
+    const keys = sample.ids.get(objectApiName);
+    if (!keys) return 0;
+    if (after === undefined) return keys.size;
+    let rows = 0;
+    for (const key of keys) if (compareIds(key, after) > 0) rows++;
+    return rows;
+  }
+
+  /**
+   * The rows of an object of a sample's plan, by its ids, past `after`: in
+   * lists as long as a statement of `select` holds (`idsPerStatement`), under
+   * the object's filter, each list's rows in the plan's order. An id the
+   * source no longer answers for is gone since the plan, kept as such when
+   * `tellGone` is set: no failure, and a lookup at it is written empty.
+   */
+  private async *pagesOfThePlanByIds(
+    state: ExecutionState,
+    sample: RunSample,
+    objectApiName: string,
+    select: readonly string[],
+    after?: string,
+    tellGone = false,
+  ): AsyncGenerator<Record<string, unknown>[]> {
+    const object = assertSoqlIdentifier(objectApiName);
+    const filter = this.filterOf(state, object);
+    const per = Math.max(
+      1,
+      idsPerStatement(object, firstColumns(select), filter ? `(${filter})` : undefined),
+    );
+    for await (const listed of sample.plan.ids(object, {
+      ...(after !== undefined ? { after } : {}),
+      size: per,
+    })) {
+      if (this.isAborted) return;
+      const ids = listed.filter((id) => SALESFORCE_ID.test(id));
+      if (ids.length === 0) continue;
+      const statement =
+        `SELECT ${select.join(', ')} FROM ${object} WHERE ` +
+        `${filter ? `(${filter}) AND ` : ''}Id IN (${ids.map((id) => `'${id}'`).join(', ')})`;
+      const rows = await this.readWholeOf(state, object, statement);
+      rows.sort((a, b) => compareIds(String(a['Id']), String(b['Id'])));
+      if (tellGone) {
+        const found = new Set(rows.map((row) => idKey(String(row['Id']))));
+        const gone = sample.gone.get(object) ?? new Set<string>();
+        for (const id of ids) if (!found.has(idKey(id))) gone.add(idKey(id));
+        if (gone.size > 0) sample.gone.set(object, gone);
+      }
+      yield rows;
+    }
+  }
+
+  /** Every row of {@link pagesOfThePlanByIds}, gathered: an object of the plan read whole, or the gate's reads of one. */
+  private async rowsOfThePlan(
+    state: ExecutionState,
+    sample: RunSample,
+    objectApiName: string,
+    select: readonly string[],
+    after?: string,
+    tellGone = false,
+  ): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = [];
+    for await (const page of this.pagesOfThePlanByIds(
+      state,
+      sample,
+      objectApiName,
+      select,
+      after,
+      tellGone,
+    )) {
+      for (const row of page) rows.push(row);
+    }
+    return rows;
+  }
+
+  /**
+   * The pages of an object of a sample's plan, read page by page from where
+   * its cursor stands (`statement`, the read of its whole table in the order
+   * of its ids, after the last id it has): by the plan's ids, or by that
+   * statement with each page kept to the plan's, as decided for the object
+   * (`readOfThePlan`), gathered into the run's windows. Read by the cursor, an
+   * id of the plan the table no longer held is gone since the plan.
+   */
+  private async *pagesOfThePlan(
+    state: ExecutionState,
+    sample: RunSample,
+    node: ForgeGraphNode,
+    cursor: NodeCursor,
+    statement: string,
+  ): AsyncGenerator<Record<string, unknown>[]> {
+    const object = node.objectApiName;
+    const after = cursor.lastId ?? cursor.resumeAfter;
+    const how = await this.readOfThePlan(
+      state,
+      sample,
+      node,
+      this.planRowsAfter(sample, object, after),
+    );
+    const select = /^SELECT (.+?) FROM /.exec(statement)?.[1]?.split(', ') ?? ['Id'];
+    const source =
+      how.by === 'ids'
+        ? this.pagesOfThePlanByIds(state, sample, object, select, after, true)
+        : this.cursorKeptToThePlan(state, sample, object, statement, after);
+    yield* inPagesOf(source, state.config.stream?.writeWindow ?? state.config.stream?.pageSize);
+  }
+
+  /** The pages of `statement` kept to the plan's ids: see {@link pagesOfThePlan}. */
+  private async *cursorKeptToThePlan(
+    state: ExecutionState,
+    sample: RunSample,
+    objectApiName: string,
+    statement: string,
+    after?: string,
+  ): AsyncGenerator<Record<string, unknown>[]> {
+    const keys = sample.ids.get(objectApiName) ?? new Set<string>();
+    const met = new Set<string>();
+    const pages = pagesOfStatement(
+      this.deps,
+      state.sourceOrgId,
+      statement,
+      undefined,
+      () => state.truncatedObjects.add(objectApiName),
+      this.readOptionsOf(state, objectApiName),
+    );
+    try {
+      for await (const page of pages) {
+        const kept = page.filter((row) => {
+          const key = idKey(String(row['Id']));
+          if (!keys.has(key)) return false;
+          met.add(key);
+          return true;
+        });
+        if (kept.length > 0) yield kept;
+      }
+    } finally {
+      await pages.return(undefined);
+    }
+    const gone = sample.gone.get(objectApiName) ?? new Set<string>();
+    for (const key of keys) {
+      if (!met.has(key) && (after === undefined || compareIds(key, after) > 0)) gone.add(key);
+    }
+    if (gone.size > 0) sample.gone.set(objectApiName, gone);
+  }
+
+  /**
+   * Of a sample's run, what it did of each object of its plan, for its
+   * result: the records written or linked to, by this part and the parts
+   * before it, those gone from the source since the plan, and those held back
+   * for a record that changed since. None on a dry run, whose gate says the plan.
+   */
+  private sampleResultOf(state: ExecutionState): WholeOrgSampleResult | undefined {
+    const sample = state.sample;
+    if (!sample || state.simulated) return undefined;
+    const counts = new Map(
+      state.remapper.countsByObject().map((entry) => [entry.objectApiName, entry]),
+    );
+    const report = sample.report;
+    return {
+      seed: report.seed,
+      draw: report.draw,
+      share: report.share,
+      sha256: report.plan.sha256,
+      drawnAt: report.plan.drawnAt,
+      objects: report.objects.map((object) => {
+        const done = counts.get(object.objectApiName);
+        const now = done ? done.created + (done.linked ?? 0) : 0;
+        const before = state.store?.earlierRecordsOf(object.objectApiName) ?? 0;
+        return {
+          ...object,
+          written: Math.min(object.kept, now + before),
+          goneSinceTheSample: sample.gone.get(object.objectApiName)?.size ?? 0,
+          changedSinceTheSample: sample.changed.get(object.objectApiName) ?? 0,
+        };
+      }),
+      ...(sample.leftEmpty.size > 0
+        ? {
+            leftEmpty: [...sample.leftEmpty].flatMap(([objectApiName, fields]) =>
+              [...fields].map(([field, rows]) => ({ objectApiName, field, rows })),
+            ),
+          }
+        : {}),
+    };
   }
 
   /**
@@ -6503,11 +7352,17 @@ export class ForgeExecutor {
         }
         continue;
       }
-      const { read, counted, leftOut, capped, partial } = await this.countToWrite(state, node);
+      const { read, counted, leftOut, capped, partial } = state.sample?.drawn.has(object)
+        ? await this.countToWriteOfThePlan(state, node, state.sample)
+        : await this.countToWrite(state, node);
       state.counted.set(object, read);
       if (capped) pastTheCap.push(object);
       if (partial) readInPart.add(object);
-      if (wholeRead) readWhole.push({ objectApiName: object, rows: read });
+      // Of a sample, the catalog it draws is read by the plan's ids, which no
+      // bound of a read cuts: its gate holds it to none.
+      if (wholeRead && !state.sample?.drawn.has(object)) {
+        readWhole.push({ objectApiName: object, rows: read });
+      }
       if (everything) written.push({ node, read, whole: wholeRead });
       objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
@@ -6517,7 +7372,11 @@ export class ForgeExecutor {
     // they cannot be told, how many there may be, counted in. Of an
     // opportunity a run before it wrote, the target says it once the roles'
     // turn comes: counted in too, and said.
-    const roles = objects.find((o) => o.objectApiName === OPPORTUNITY_CONTACT_ROLE);
+    // A sample's plan counted them, each with the opportunity and the
+    // contact it goes with (`countToWriteOfThePlan`).
+    const roles = state.sample?.drawn.has(OPPORTUNITY_CONTACT_ROLE)
+      ? undefined
+      : objects.find((o) => o.objectApiName === OPPORTUNITY_CONTACT_ROLE);
     const opportunities = objects.find((o) => o.objectApiName === OPPORTUNITY_OBJECT);
     const told = roles
       ? await this.rolesThePlatformWritesOfTheTables(state, runOrder, objects, readInPart)
@@ -6546,9 +7405,19 @@ export class ForgeExecutor {
     }
     const held = everything ? await this.heldAtTheGate(state, runOrder, objects) : undefined;
     if (held) held.requests += await this.pricesReplacedAtTheGate(state, objects);
-    const wholeOrg = everything
+    const measured = everything
       ? await this.measureTheWholeOrg(state, objects, readWhole, written, held)
       : undefined;
+    const wholeOrg =
+      measured && state.sample
+        ? {
+            ...measured,
+            sample: {
+              report: state.sample.report,
+              byThePlatform: state.sample.counts.byThePlatform,
+            },
+          }
+        : measured;
     if (this.isAborted) {
       throw new ForgeAbortedError(
         'Forge execution was aborted by user request. Remaining objects were not processed.',
@@ -6644,6 +7513,9 @@ export class ForgeExecutor {
     for (const node of written) {
       if (this.isAborted) break;
       const object = node.objectApiName;
+      // A sample's plan held back and left aside what it drew already: read
+      // by its ids, nothing of it is held back one by one again.
+      if (state.sample?.drawn.has(object)) continue;
       if (left > 0 && this.streamsNode(node, state)) {
         const types = await this.recordTypesOfTable(state, node);
         if (types && types.closed.length > 0 && this.typesHeldRowByRow(state, types)) {
@@ -6793,14 +7665,17 @@ export class ForgeExecutor {
         : []),
     ];
     const filter = this.filterOf(state, PRICEBOOK_ENTRY_OBJECT);
+    const sample = state.sample;
     let read: Record<string, unknown>[];
     try {
-      read = await this.readWholeOf(
-        state,
-        PRICEBOOK_ENTRY_OBJECT,
-        `SELECT ${columns.join(', ')} FROM ${PRICEBOOK_ENTRY_OBJECT}` +
-          (filter ? ` WHERE ${filter}` : ''),
-      );
+      read = sample?.drawn.has(PRICEBOOK_ENTRY_OBJECT)
+        ? await this.rowsOfThePlan(state, sample, PRICEBOOK_ENTRY_OBJECT, columns)
+        : await this.readWholeOf(
+            state,
+            PRICEBOOK_ENTRY_OBJECT,
+            `SELECT ${columns.join(', ')} FROM ${PRICEBOOK_ENTRY_OBJECT}` +
+              (filter ? ` WHERE ${filter}` : ''),
+          );
     } catch (err) {
       logger.warn(
         `[forge] the prices replaced in another currency could not be counted at the gate: ${extractErrorMessage(err)}`,
@@ -6987,7 +7862,15 @@ export class ForgeExecutor {
     for (const { node, read } of written) readOnce.set(node.objectApiName, read);
     for (const { objectApiName, rows } of readWhole) readOnce.set(objectApiName, rows);
     let requests = 0;
-    for (const rows of readOnce.values()) requests += pages(rows);
+    for (const [objectApiName, rows] of readOnce) {
+      const node = written.find((w) => w.node.objectApiName === objectApiName)?.node;
+      // An object of a sample's plan: by its ids, or its table's cursor,
+      // the cheaper, as the run reads it (`readOfThePlan`).
+      requests +=
+        state.sample?.drawn.has(objectApiName) && node
+          ? (await this.readOfThePlan(state, state.sample, node, rows)).requests
+          : pages(rows);
+    }
     const emails = written.find(({ node }) => node.objectApiName === EMAIL_MESSAGE);
     if (emails && emails.read > 0 && written.some(({ node }) => node.objectApiName === TASK)) {
       const naming = await this.countOf(state, EMAIL_MESSAGE, 'ActivityId != null');
@@ -7062,6 +7945,25 @@ export class ForgeExecutor {
           (f.type === undefined || TEXT_FIELD_TYPES.has(f.type)),
       );
       if (texts.length === 0) return 0;
+      const sample = state.sample;
+      if (sample?.drawn.has(object)) {
+        let planned = 0;
+        const rows = await this.rowsOfThePlan(
+          state,
+          sample,
+          object,
+          ['Id', ...texts.map((f) => f.name)],
+          state.config.stream?.resumeAfter.get(object)?.lastId,
+        );
+        for (const row of rows) {
+          for (const [name, value] of Object.entries(row)) {
+            if (name !== 'Id' && typeof value === 'string') {
+              planned += Buffer.byteLength(value, 'utf8');
+            }
+          }
+        }
+        return planned;
+      }
       const resumed = state.config.stream?.resumeAfter.get(object);
       const filter = this.filterOf(state, object);
       const terms = [
@@ -7642,6 +8544,8 @@ export class ForgeExecutor {
     const aside = new Map<number, ParentNotWritten>();
     if (state.config.stream?.everything !== true || records.length === 0) return { held, aside };
     const lookups = requiredLookupsInTheRun(state, node.objectApiName, fieldInfos, carried);
+    /** Of a sample, the rows held back for a record outside its plan. */
+    const changed = new Set<number>();
     /** Per parent object, the ids no record of the run's stands for, and the rows that name them. */
     const unknown = new Map<string, Map<string, Array<{ index: number; field: string }>>>();
     records.forEach((record, index) => {
@@ -7653,6 +8557,29 @@ export class ForgeExecutor {
       for (const { field, parent } of lookups) {
         const id = record[field];
         if (typeof id !== 'string' || id === '' || state.remapper.get(id)) continue;
+        // Of a sample, its plan says it at once: a record outside it means the
+        // row changed since the plan was drawn, and goes neither orphan nor
+        // with another; one gone from the source since leaves it aside.
+        const sample = state.sample;
+        if (sample?.drawn.has(parent)) {
+          if (!this.inThePlan(sample, parent, id)) {
+            held.set(index, {
+              field,
+              parentObject: parent,
+              reason: changedSinceTheSample(field, parent),
+            });
+            changed.add(index);
+          } else if (sample.gone.get(parent)?.has(idKey(id))) {
+            aside.set(index, {
+              field,
+              parentObject: parent,
+              reason: goneSinceTheSample(field, parent),
+            });
+          } else {
+            held.set(index, { field, parentObject: parent });
+          }
+          return;
+        }
         const known = state.heldInTheOrg.get(id);
         if (known === 'held') {
           held.set(index, { field, parentObject: parent });
@@ -7690,6 +8617,10 @@ export class ForgeExecutor {
       }
     }
     for (const index of held.keys()) aside.delete(index);
+    if (changed.size > 0 && state.sample) {
+      const object = node.objectApiName;
+      state.sample.changed.set(object, (state.sample.changed.get(object) ?? 0) + changed.size);
+    }
     return { held, aside };
   }
 
@@ -8213,16 +9144,20 @@ export class ForgeExecutor {
   ): Promise<Record<string, unknown>[]> {
     if (cursor.ended) return [];
     // A window of rows at a time when the run sets one — a job's worth, for a
-    // run that writes through the Bulk API — else each page as it comes.
+    // run that writes through the Bulk API — else each page as it comes. An
+    // object of a sample's plan reads the plan's ids alone.
+    const sampled = state.sample?.drawn.has(node.objectApiName) ? state.sample : undefined;
     const open = (statement: string): AsyncGenerator<Record<string, unknown>[]> =>
-      pagesOfStatement(
-        this.deps,
-        state.sourceOrgId,
-        statement,
-        state.config.stream?.writeWindow ?? state.config.stream?.pageSize,
-        () => state.truncatedObjects.add(node.objectApiName),
-        this.readOptionsOf(state, node.objectApiName),
-      );
+      sampled
+        ? this.pagesOfThePlan(state, sampled, node, cursor, statement)
+        : pagesOfStatement(
+            this.deps,
+            state.sourceOrgId,
+            statement,
+            state.config.stream?.writeWindow ?? state.config.stream?.pageSize,
+            () => state.truncatedObjects.add(node.objectApiName),
+            this.readOptionsOf(state, node.objectApiName),
+          );
     cursor.pages ??= open(soql);
     const retries = state.config.stream?.everything === true ? CURSOR_RETRIES : 0;
     let next: IteratorResult<Record<string, unknown>[]>;
@@ -8291,6 +9226,13 @@ export class ForgeExecutor {
     objectApiName: string,
     soql: string,
   ): Promise<Record<string, unknown>[]> {
+    // An object of a sample's plan read whole — the catalog the sample does
+    // not copy whole — is read by the plan's ids: no bound can cut it.
+    const sample = state.sample;
+    if (sample?.drawn.has(objectApiName)) {
+      const select = /^SELECT (.+?) FROM /.exec(soql)?.[1]?.split(', ') ?? ['Id'];
+      return this.rowsOfThePlan(state, sample, objectApiName, select, undefined, true);
+    }
     let cut = false;
     const truncated = (): void => {
       cut = true;
@@ -9876,6 +10818,7 @@ export class ForgeExecutor {
         ? { decisionsApplied: state.decisionsApplied.list() }
         : {}),
       ...(mayHaveBeenWritten.length > 0 ? { mayHaveBeenWritten } : {}),
+      ...sampleResultOrNothing(this.sampleResultOf(state)),
     };
   }
 
@@ -11246,7 +12189,11 @@ export class ForgeExecutor {
         rootRecordId: config.rootRecordId,
         extraWhere: withTheWhereOfAPass(this.filterOf(state, node.objectApiName), cursor?.pass),
         fieldsLeftOut: config.fieldExclusions[node.objectApiName],
-        maxRecordsPerObject: cursor ? this.pagedLimit(state, cursor) : config.maxRecordsPerObject,
+        maxRecordsPerObject: cursor
+          ? state.sample?.drawn.has(node.objectApiName)
+            ? undefined
+            : this.pagedLimit(state, cursor)
+          : config.maxRecordsPerObject,
         ...(cursor
           ? { inIdOrder: cursor.resumeAfter !== undefined ? { afterId: cursor.resumeAfter } : {} }
           : {}),
@@ -11493,6 +12440,16 @@ export class ForgeExecutor {
       // without it. Ask for them by name, for exactly the products in hand.
       if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
         await this.addStandardPricebookEntries(node, state, records, fieldInfos);
+        // A sample writes its plan's prices alone: the standard ones its
+        // custom prices need are in it already.
+        const sample = state.sample;
+        if (sample?.drawn.has(node.objectApiName)) {
+          const planned = records.filter((row) =>
+            this.inThePlan(sample, node.objectApiName, String(row['Id'])),
+          );
+          records.length = 0;
+          records.push(...planned);
+        }
         // A run that reads every row first settles them as they are written,
         // once the records of their lines have gone in: see `writeNode`.
         if (!state.readsEverythingFirst) {
@@ -15505,6 +16462,7 @@ export class ForgeExecutor {
       onAnswered: () => store.flush(),
       onRefusedByFilter: (object, field, recordId) =>
         this.noteLeftEmptyByFilter(state, object, field, recordId),
+      ...this.secondPassOfTheSample(state),
     });
     const leftEmpty: LeftEmptyLookups = new Map();
     const pageSize = state.config.stream?.secondPassPageSize ?? SECOND_PASS_PAGE;
@@ -16746,6 +17704,12 @@ export class ForgeExecutor {
         ...(team.lookups.size > 0 ? { resolvedLookups: team.lookups } : {}),
         ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),
         ...(inactiveOwners ? { inactiveOwners } : {}),
+        ...(state.sample
+          ? {
+              outsideTheSample: (field: FieldInfo, value: string) =>
+                this.outsideTheSample(state, field.referenceTo ?? [], value),
+            }
+          : {}),
         excludedFields,
         fieldRename,
         creatableFields: effectiveCreatableSet,
@@ -16805,6 +17769,11 @@ export class ForgeExecutor {
       }
       // And among the run's reports, once per object.
       this.noteLookupsOutsideTheRun(state, node.objectApiName, fieldInfos, cleanedRecords);
+      for (const cleaned of cleanedRecords) {
+        for (const field of cleaned.lookupsOutsideTheSample ?? []) {
+          this.noteLeftOutsideTheSample(state, node.objectApiName, field);
+        }
+      }
       noteOwnersInactive(state, node.objectApiName, cleanedRecords);
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {

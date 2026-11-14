@@ -79,6 +79,15 @@ interface ForgeObjectDescribe {
      * each dependent value: what a simulation checks each row against.
      */
     bounds: FieldBounds;
+    /**
+     * Whether the org groups rows by the field, orders them by it, and
+     * aggregates it: what the reads of a sample of the whole org ask before
+     * a `GROUP BY` or an `ORDER BY` (a scratch org refused `COUNT(Id)` of feed
+     * items). Absent when the describe does not say.
+     */
+    groupable?: boolean;
+    sortable?: boolean;
+    aggregatable?: boolean;
   }>;
   childRelationships: Array<{
     childSObject: string;
@@ -89,7 +98,7 @@ interface ForgeObjectDescribe {
 }
 
 /** Reduce a jsforce describe to {@link ForgeObjectDescribe}. */
-function toForgeObjectDescribe(
+export function toForgeObjectDescribe(
   meta: Awaited<ReturnType<Connection['describe']>>,
 ): ForgeObjectDescribe {
   const controllers = controllersOf(meta.fields);
@@ -128,6 +137,9 @@ function toForgeObjectDescribe(
             }
           : null,
       bounds: fieldBoundsOf(f, controllers),
+      ...(typeof f.groupable === 'boolean' ? { groupable: f.groupable } : {}),
+      ...(typeof f.sortable === 'boolean' ? { sortable: f.sortable } : {}),
+      ...(typeof f.aggregatable === 'boolean' ? { aggregatable: f.aggregatable } : {}),
     })),
     childRelationships: (meta.childRelationships ?? []).map((cr) => ({
       childSObject: cr.childSObject,
@@ -620,6 +632,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
               updateable: f.updateable,
               ...(f.length > 0 ? { length: f.length } : {}),
               ...f.bounds,
+              ...(f.groupable !== undefined ? { groupable: f.groupable } : {}),
+              ...(f.sortable !== undefined ? { sortable: f.sortable } : {}),
+              ...(f.aggregatable !== undefined ? { aggregatable: f.aggregatable } : {}),
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>

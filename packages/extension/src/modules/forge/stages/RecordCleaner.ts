@@ -95,6 +95,13 @@ export interface CleanedRecord {
    */
   lookupsOutsideTheRun?: string[];
   /**
+   * Of a sample of the whole org, the lookups the payload goes without
+   * because they name a record of a drawn object the plan does not hold
+   * (`CleanNodeRecordsInput.outsideTheSample`): written empty, and owed to no
+   * second pass, the run writing no such record. Absent, there were none.
+   */
+  lookupsOutsideTheSample?: string[];
+  /**
    * The owner the payload goes without because the target holds that user
    * inactive and the user the run writes as may not give a record an inactive
    * owner (`CleanNodeRecordsInput.inactiveOwners`), as the row named it: the
@@ -352,6 +359,17 @@ export interface CleanNodeRecordsInput {
    * in it, its amount converted (`replaceRowCurrency`'s `pricedIn`).
    */
   pricedIn?: (row: Readonly<Record<string, unknown>>) => string | undefined;
+  /**
+   * Of a sample of the whole org, whether a lookup's value names a record of
+   * an object the sample draws that its plan does not hold: an optional
+   * lookup at a record left outside it (`--fit-parents required`), or at one
+   * the plan left out. The row goes without it, whatever `referenceFallback`
+   * says, and no second pass owes it: carried, the target named nothing by
+   * it, or a record of its own of that id; owed, the second pass said the
+   * lookup could not be resolved, and the run failed for a record it never
+   * set out to write. Absent, every lookup goes as the run's rules say.
+   */
+  outsideTheSample?: (field: FieldInfo, value: string) => boolean;
 }
 
 /** No currency field known. */
@@ -393,6 +411,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     currencyFields = NO_CURRENCY_FIELDS,
     parentCurrencies,
     pricedIn,
+    outsideTheSample,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   /** The lookups by name: a text field that holds an id is never taken for one. */
@@ -467,6 +486,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedFks: NullifiedFk[] = [];
     /** The fields of `nullifiedFks` by the name the row was read with. */
     const nullifiedAsRead: string[] = [];
+    /** The lookups at a record outside the sample, by the name the target has. */
+    const lookupsOutsideTheSample: string[] = [];
     const resolved = resolvedLookups?.get(r);
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
@@ -484,6 +505,21 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       const carried = carriedAtInsert(field);
       const updatable = updatableInTarget(field, updatableFields, fieldRename[field.name]);
       if (!carried && !updatable) continue;
+      // A record of a drawn object the plan does not hold: written by no part
+      // of the run, the lookup goes empty and nothing is owed it.
+      const named = r[field.name];
+      if (
+        outsideTheSample &&
+        field.name !== 'RecordTypeId' &&
+        typeof named === 'string' &&
+        named !== '' &&
+        !remapper.get(named) &&
+        outsideTheSample(field, named)
+      ) {
+        nullifiedAsRead.push(field.name);
+        lookupsOutsideTheSample.push(fieldRename[field.name] ?? field.name);
+        continue;
+      }
       if (
         referenceFallback !== 'nullify' &&
         !lookupsAtFailed.has(field.name) &&
@@ -724,6 +760,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       ...(currencyChange ? { currencyChange } : {}),
       ...(lookupsNotCarried.length > 0 ? { lookupsNotCarried } : {}),
       ...(lookupsOutsideTheRun.length > 0 ? { lookupsOutsideTheRun } : {}),
+      ...(lookupsOutsideTheSample.length > 0 ? { lookupsOutsideTheSample } : {}),
       ...(ownerInactive !== undefined ? { ownerInactive } : {}),
     };
   });

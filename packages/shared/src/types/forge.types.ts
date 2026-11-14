@@ -1043,6 +1043,13 @@ export interface WholeOrgSample {
   /** The requests drawing the plan sent the source. */
   planRequests: { source: number };
   /**
+   * Of a draw of the most recent roots (`draw: 'recent'`), the objects whose
+   * newest were read in the order of their ids, having no creation date the
+   * org orders by: an object's ids follow the making of its records within a
+   * load, not from one load to the next. Absent when there are none.
+   */
+  newestByIds?: string[];
+  /**
    * The plan on disk: its path, the SHA-256 of its ids, when it was drawn,
    * and whether by this run or by a dry run it takes up — the panel's last
    * Simulate, or the command line's `--fit-plan`. `drawnAgain` says why a run
@@ -1084,6 +1091,12 @@ export interface WholeOrgSampleResult {
   sha256: string;
   drawnAt: string;
   objects: WholeOrgSampleWritten[];
+  /**
+   * Lookups the run wrote empty because they name a record outside its plan,
+   * or one gone from the source since it, per object and field: no failure,
+   * the run never setting out to write that record. Absent when none was.
+   */
+  leftEmpty?: Array<{ objectApiName: string; field: string; rows: number }>;
 }
 
 /**

@@ -508,4 +508,43 @@ describe('ForgeRunStore', () => {
       });
     });
   });
+
+  describe('the plan of a sample the run writes', () => {
+    const SHA = 'a'.repeat(64);
+
+    it('names the plan in the journal at once, and a part that takes the run up reads it back', () => {
+      const { store, file } = freshStore();
+      expect(store.samplePlan).toBeUndefined();
+      store.nameSamplePlan({ dir: '/runs/j.sample', sha256: SHA });
+      // Written before the first write, not held to the next turn.
+      expect(file.text()).toContain(`{"sample":{"dir":"/runs/j.sample","sha256":"${SHA}"}}`);
+
+      const taken = ForgeRunStore.open(memoryRunFile(file.text()));
+      taken.beginPart(at);
+      expect(taken.samplePlan).toEqual({ dir: '/runs/j.sample', sha256: SHA });
+    });
+
+    it('reads no plan from a line that does not name one, and refuses to name one without its SHA-256', () => {
+      const lines = [
+        '{"run":{"journalId":"j"}}',
+        '{"sample":{"dir":"/runs/j.sample","sha256":"not-a-sha"}}',
+        '{"sample":{"dir":"","sha256":"' + SHA + '"}}',
+        '{"sample":"/runs/j.sample"}',
+      ];
+      const store = ForgeRunStore.open(memoryRunFile(`${lines.join('\n')}\n`));
+      expect(store.samplePlan).toBeUndefined();
+      expect(() => store.nameSamplePlan({ dir: '/runs/j.sample', sha256: 'abc' })).toThrow(
+        /SHA-256/,
+      );
+    });
+
+    it('is not taken for a part, a checkpoint or a run that resumes', () => {
+      const { store, file } = freshStore();
+      store.nameSamplePlan({ dir: '/runs/j.sample', sha256: SHA });
+      const taken = ForgeRunStore.open(memoryRunFile(file.text()));
+      expect(taken.partCount).toBe(1);
+      expect(taken.checkpoints().size).toBe(0);
+      expect(taken.resumes).toBe(false);
+    });
+  });
 });

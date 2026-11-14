@@ -235,6 +235,32 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].status).toBe('error');
   });
 
+  it('leaves empty, and tells by object and field, a lookup at a record outside a sample, as no failure, still filling in the others', async () => {
+    const remapper = new IdRemapper();
+    remapper.add('003INPLAN', '003NEW1');
+    const left: string[] = [];
+    const input = makeInput({
+      remapper,
+      pendingFkUpdates: [
+        makePending({ sourceRefId: '003OUTSIDE' }),
+        makePending({ newId: '001NEW2', sourceId: '001OLD2', sourceRefId: '003INPLAN' }),
+      ],
+      outsideTheSample: (update) => update.sourceRefId === '003OUTSIDE',
+      onLeftOutsideTheSample: (object, field) => left.push(`${object}.${field}`),
+      updateRecords: vi
+        .fn<UpdateRecordsFn>()
+        .mockResolvedValue([{ id: '001NEW2', success: true, errors: [] }]),
+    });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(error).toBeNull();
+    expect(left).toEqual(['Account.PrimaryContactId']);
+    expect(vi.mocked(input.updateRecords!).mock.calls[0][2]).toEqual([
+      { Id: '001NEW2', PrimaryContactId: '003NEW1' },
+    ]);
+  });
+
   it('counts every lookup it could not fill in, past the three it names', async () => {
     // A real clone left twelve lookups empty — nine orders whose quote was
     // held back, two whose opportunity was not cloned, the opportunity's

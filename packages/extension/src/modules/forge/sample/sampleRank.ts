@@ -42,7 +42,11 @@ export function idKey(id: string): string {
 /**
  * The order of ids a plan keeps its records in, a resume reads them in, and
  * a draw breaks its ties by: the fifteen characters, code unit by code unit.
- * Ours, never the order an org sorts its ids in, which a plan cannot rely on.
+ * Ours, so that a plan does not hang on how an org answers; it is the order
+ * of `ORDER BY Id` all the same — an org writes an id's characters from
+ * `0-9A-Za-z`, and a scratch org sorted 74 238 ids in the order of their
+ * bytes —, which a run that reads a plan's object through its cursor, and
+ * resumes it after `Id > :last`, relies on.
  */
 export function compareIds(a: string, b: string): number {
   const x = idKey(a);

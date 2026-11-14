@@ -33,14 +33,19 @@
  */
 
 /**
- * Longest statement, measured as it travels in the request URI, that a read
- * sends. A scratch org refused one of 15 487 characters, and answered one of
- * 15 271, the headers of the request counted in what it takes: the budget was
- * 15 800, which a scoped read of hundreds of ids reached. Encoding is what
- * makes a list expensive: `'001...AAA', ` is 22 characters in the statement
- * and 26 in the URI, where the comma and the space are encoded and the quotes
- * are not. The budget leaves room for the API path in front of the query, the
- * request's headers and the ` LIMIT N` a per-object cap appends after it.
+ * Longest statement, measured by {@link uriLength}, that a read sends. A
+ * scratch org refused one of 15 487 characters, and answered one of 15 271,
+ * the headers of the request counted in what it takes: the budget was 15 800,
+ * which a scoped read of hundreds of ids reached. Encoding is what makes a
+ * list expensive: `'001...AAA', ` is 22 characters in the statement and 26 as
+ * `uriLength` counts it, the comma and the space encoded. On the wire it is
+ * 30: the quotes go as `%27` too, node-fetch writing the URL again (WHATWG)
+ * after jsforce. Measured so, a scratch org answered 18 658 characters of
+ * path and statement and refused 18 676, of two objects alike, with a 431;
+ * a statement at this budget naming 500 ids goes at about 16 030, which
+ * leaves some 2 600. A budget raised past it counts the quotes: four
+ * characters more an id. It leaves room for the API path in front of the
+ * query, the request's headers and the ` LIMIT N` a per-object cap appends.
  */
 export const MAX_STATEMENT_URI_CHARS = 14_000;
 

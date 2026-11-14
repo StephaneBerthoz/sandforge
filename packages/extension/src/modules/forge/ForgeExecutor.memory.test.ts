@@ -535,4 +535,101 @@ describeShipped('a clone of the whole org, over a million rows', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 600_000);
+
+  /*
+   * A sample of that million (`stream.sample`): drawing it reads every root's
+   * id once, a page at a time, and keeps the roots of smallest rank, no more
+   * than the budget holds; the run reads the plan's ids, a list at a time,
+   * and writes them a window at a time. What it holds is the draw's roots and
+   * the plan's ids, a few bytes a record of the sample, never the table.
+   */
+  it('draws a sample of the million and writes it, holding the plan’s ids and a window of rows, never the table', async () => {
+    const heapNow = heapMeter();
+    const dir = mkdtempSync(join(tmpdir(), 'forge-all-sample-'));
+    const store = ForgeRunStore.open(nodeRunFile(join(dir, 'run.ndjson')));
+    const KEPT = 100_000;
+    // Ids of the shape the org gives: fifteen characters of their own, the
+    // record they name, then three of a checksum. A draw tells records by the
+    // fifteen.
+    const realId = (n: number): string => `a0S${String(n).padStart(12, '0')}AAA`;
+    const rowOf = (id: string, columns: readonly string[]): Record<string, unknown> => {
+      const n = Number(id.slice(3, 15));
+      const row: Record<string, unknown> = { Id: id };
+      if (columns.includes('Name')) row['Name'] = `INV-${n}`;
+      if (columns.includes('Next__c')) row['Next__c'] = n + 1 < ROWS ? realId(n + 1) : null;
+      return row;
+    };
+    const columnsOf = (soql: string): string[] =>
+      (/^SELECT (.+?) FROM /.exec(soql)?.[1] ?? 'Id').split(', ');
+    /** The ids a statement names, `Id IN (…)`; undefined for a read of the table. */
+    const named = (soql: string): string[] | undefined =>
+      /\bId IN \((.*)\)/
+        .exec(soql)?.[1]
+        .split(', ')
+        .map((literal) => literal.slice(1, -1));
+    const { deps, sampled } = wholeOrgDeps(ROWS, heapNow);
+    const tableDeps: ForgeExecutorDeps = {
+      ...deps,
+      countRecords: async () => ROWS,
+      queryRecords: async (_org, soql) => {
+        const ids = named(soql);
+        return ids ? ids.map((id) => rowOf(id, columnsOf(soql))) : [];
+      },
+      queryPages: (_org, soql) => {
+        const ids = named(soql);
+        if (ids) {
+          return (async function* listed(): AsyncGenerator<Array<Record<string, unknown>>> {
+            yield ids.map((id) => rowOf(id, columnsOf(soql)));
+          })();
+        }
+        // The table, a page at a time, after the id a statement reads on from.
+        return (async function* scanned(): AsyncGenerator<Array<Record<string, unknown>>> {
+          const after = /Id > '(\w+)'/.exec(soql)?.[1];
+          const from = after === undefined ? 0 : Number(after.slice(3, 15)) + 1;
+          let given = 0;
+          for (let at = from; at < ROWS; at += CURSOR_PAGE) {
+            // The heap as the roots are drawn, every 100 000 ids.
+            if (++given % 50 === 0) sampled.most = Math.max(sampled.most, heapNow());
+            yield Array.from({ length: Math.min(CURSOR_PAGE, ROWS - at) }, (_, i) =>
+              rowOf(realId(at + i), columnsOf(soql)),
+            );
+          }
+        })();
+      },
+    };
+    const before = heapNow();
+
+    const summary = await new ForgeExecutor(tableDeps)
+      .execute(invoicesOf(ROWS), 'src', 'tgt', () => {}, {
+        writeApi: 'auto',
+        stream: {
+          ...wholeOrgStream(store),
+          sample: {
+            // A record named by the next is not copied for it: the chain would be the table.
+            options: { parents: 'required' },
+            budget: async () => ({
+              budget: { bytes: KEPT * 2048, limitedBy: 'storage' as const },
+              bytesLimit: 'storage' as const,
+              roomBytes: KEPT * 2048,
+            }),
+            keepAt: join(dir, 'run.sample'),
+            fingerprint: 'setup1',
+          },
+        },
+      })
+      .finally(() => {
+        store.close();
+      });
+    try {
+      const kept = summary.sample?.objects[0]?.kept ?? 0;
+      expect(kept).toBeGreaterThan(KEPT * 0.9);
+      expect(kept).toBeLessThanOrEqual(KEPT);
+      expect(summary.successCount).toBe(kept);
+      expect(sampled.inserted).toBe(kept);
+      expect(summary.errors).toEqual([]);
+      expect((sampled.most - before) / MB).toBeLessThan(MOST_HEAP_MB_ALL);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 600_000);
 });

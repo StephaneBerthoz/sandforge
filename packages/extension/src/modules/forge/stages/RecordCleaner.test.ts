@@ -293,6 +293,44 @@ describe('cleanNodeRecords', () => {
     ]);
   });
 
+  it('writes empty, and owes no second pass, a lookup at a record of a drawn object its sample does not hold, a lookup that names several objects too', () => {
+    const fieldInfos: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'WhatId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account', 'Case'],
+      },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('001INPLAN', '001TARGET');
+    const outside = new Set(['001OUTSIDE', '500OUTSIDE']);
+    const [kept, left] = cleanNodeRecords(
+      makeInput({
+        records: [
+          { Id: '003A', AccountId: '001INPLAN', WhatId: '500LATER' },
+          { Id: '003B', AccountId: '001OUTSIDE', WhatId: '500OUTSIDE', RecordTypeId: '012X' },
+        ],
+        fieldInfos,
+        remapper,
+        referenceFallback: 'keep',
+        writtenObjects: new Set(['Account', 'Contact', 'Case']),
+        creatableFields: new Set(['Name', 'AccountId', 'WhatId', 'RecordTypeId']),
+        outsideTheSample: (_field, value) => outside.has(value),
+      }),
+    );
+
+    // In the plan: remapped, or owed to the second pass as before.
+    expect(kept.cleaned).toEqual({ AccountId: '001TARGET', WhatId: '500LATER' });
+    expect(kept.lookupsOutsideTheSample).toBeUndefined();
+    // Outside it: empty, said, owed nothing; the record type is never asked about.
+    expect(left.cleaned).toEqual({ RecordTypeId: '012X' });
+    expect(left.nullifiedFks).toEqual([]);
+    expect(left.lookupsOutsideTheSample).toEqual(['AccountId', 'WhatId']);
+  });
+
   it('never nullifies RecordTypeId and never remaps it through the generic remapper', () => {
     const remapper = new IdRemapper();
     remapper.add('012SOURCE', '012ACCIDENTAL');

@@ -9,7 +9,12 @@
 
 import { BYTES_PER_MB, FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
 import type { ForgeRecordTypeMapping } from '@sandforge/shared';
-import type { ExecuteOptions, ForgeStreamCheckpoint, ForgeStreamPage } from '../ForgeExecutor.js';
+import type {
+  ExecuteOptions,
+  ForgeSampleStream,
+  ForgeStreamCheckpoint,
+  ForgeStreamPage,
+} from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
 import type { ForgeRunStore } from '../ForgeRunStore.js';
@@ -158,6 +163,8 @@ export interface ForgeStageConfig {
     readonly everything?: true;
     /** The most rows of a node a clone of the whole org reads whole: see `ExecuteOptions.stream.wholeReadBound`. */
     readonly wholeReadBound?: number;
+    /** A sample of the whole org rather than every record: see `ExecuteOptions.stream.sample`. */
+    readonly sample?: ForgeSampleStream;
   };
   /** The user's decisions about the rows, applied before they are written. */
   readonly decisions: RunDecisions;
@@ -243,6 +250,10 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
           ...(options.stream.everything === true ? { everything: true as const } : {}),
           ...(positiveWhole(options.stream.wholeReadBound) !== undefined
             ? { wholeReadBound: positiveWhole(options.stream.wholeReadBound) }
+            : {}),
+          // A sample is of the whole org alone: asked of any other run, it is none.
+          ...(options.stream.sample && options.stream.everything === true
+            ? { sample: options.stream.sample }
             : {}),
         }
       : undefined,
