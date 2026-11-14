@@ -92,6 +92,12 @@ export interface PanelRequest {
   responseType?: string;
   /** The hook's `timeoutMs`; {@link PANEL_TIMEOUT_MS} when it names none. */
   timeoutMs?: number;
+  /**
+   * The request's id, which a handler names the operation it starts by: given,
+   * a run can be stopped by it (`execution:abort`) before any of its messages
+   * has come. A random one, as the webview's, when none is.
+   */
+  id?: string;
 }
 
 /** The host, ready to take requests. */
@@ -134,6 +140,20 @@ export interface PanelHostOptions {
    * comes rather than once the run has ended.
    */
   onPost?: (message: PostedMessage) => void;
+  /**
+   * What stands in for the window where a command line has one of its own:
+   * a terminal to ask an Approval step at, the settings a file carries, a
+   * line to print a notification on. Each left out keeps the host's own: no
+   * one to ask, every setting at its default, the notification in the log.
+   */
+  services?: Partial<Pick<Services, 'askApproval' | 'getSandforgeSetting' | 'showNotification'>>;
+  /**
+   * Register a scratch org as the scratch org it is, as the extension does
+   * once the Salesforce CLI shows it with a Dev Hub. Left out, it is
+   * registered as the sandbox its Organization record says it is, as the
+   * hosts that came before typed it.
+   */
+  typeScratchOrgs?: boolean;
 }
 
 /** What the host built, as a composition of a module is handed it: see `PanelHostOptions.compose`. */
@@ -154,8 +174,17 @@ export interface PanelHostWiring {
  * edition (`orgTypeOf`), never from the alias or the instance URL: a
  * sandbox's My Domain says "sandbox" only until someone renames it.
  */
-export function orgFromIdentity(session: SfOrg, identity: OrgIdentity): SalesforceOrg {
-  const orgType = orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType });
+export function orgFromIdentity(
+  session: SfOrg,
+  identity: OrgIdentity,
+  options: { typeScratch?: boolean } = {},
+): SalesforceOrg {
+  const orgType = orgTypeOf({
+    isSandbox: identity.isSandbox,
+    edition: identity.orgType,
+    // Its Organization record says IsSandbox true: only sf tells it from one.
+    ...(options.typeScratch === true && session.scratch === true ? { isScratch: true } : {}),
+  });
   const { safetyTier, color } = orgRegistrationOf(orgType);
   return {
     id: identity.orgId,
@@ -234,6 +263,7 @@ export function problemLine(message: PostedMessage): string | undefined {
 function headlessServices(
   configStore: ReturnType<typeof fileConfigStore>,
   log: (line: string) => void,
+  given: PanelHostOptions['services'] = {},
 ): Services {
   const services: Pick<
     Services,
@@ -255,6 +285,7 @@ function headlessServices(
     showNotification: (message) => log(`  notification: ${message}`),
     // No window here: a Notification step says it printed its message.
     runsFrom: 'commandLine',
+    ...given,
   };
   return services as Services;
 }
@@ -291,7 +322,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
   const broker = new MessageBroker();
   broker.setLogFunction(log);
   const router = new MessageRouter(broker);
-  const services = headlessServices(configStore, log);
+  const services = headlessServices(configStore, log, options.services);
   const handlers = new ExtensionHandlers({
     log,
     broker,
@@ -346,7 +377,9 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
         session.accessToken,
         session.instanceUrl,
       );
-      const org = orgFromIdentity(session, identity);
+      const org = orgFromIdentity(session, identity, {
+        typeScratch: options.typeScratchOrgs === true,
+      });
       await orgRegistry.saveOrg(org, {
         loginUrl: session.instanceUrl,
         instanceUrl: session.instanceUrl,
@@ -366,7 +399,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
       // `buildMessage` in the webview: a random id, the type, a timestamp,
       // and the payload only when there is one.
       const message: PostedMessage = {
-        id: `wv-${randomUUID()}`,
+        id: request.id ?? `wv-${randomUUID()}`,
         type: request.type,
         timestamp: Date.now(),
         ...(request.payload !== undefined ? { payload: request.payload } : {}),

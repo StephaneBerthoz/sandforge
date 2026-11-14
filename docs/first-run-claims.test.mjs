@@ -522,6 +522,7 @@ const NUMBER_WORDS = [
   'eleven',
   'twelve',
   'thirteen',
+  'fourteen',
 ];
 
 test('both READMEs link the command-line scripts and say what they run on', () => {

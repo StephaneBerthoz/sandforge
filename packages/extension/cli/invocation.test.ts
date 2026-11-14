@@ -72,6 +72,9 @@ function allowedBecause(piece: Piece, at: number, name: string): string | undefi
   if (isModuleName(piece.node)) return 'a module an import loads';
   const after = piece.text.slice(at + name.length);
   if (/^\.(?:ts|js|mjs)\b/.test(after)) return 'a file';
+  // `nightly.sandforge-pipeline.json`: the name of a pipeline file, the
+  // Automation page's export, which `sandforge pipeline` reads.
+  if (piece.text.charAt(at - 1) === '.' && /^\.json\b/.test(after)) return 'a pipeline file';
   if (piece.text === name) return 'an identifier';
   if (at === 0 && /^-(?:[a-z]+-)*$/.test(after)) return "the start of an id or a folder's name";
   return undefined;

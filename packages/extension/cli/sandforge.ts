@@ -34,6 +34,7 @@ export const TOOLS = {
   frozen: 'build and replay a Frozen Dataset',
   mcp: 'the MCP server: these scripts as tools for an AI agent, on stdio',
   monitor: 'read an org the way the Monitor page does',
+  pipeline: 'plan and run an Automation pipeline exported from VS Code',
   seed: 'fill an org from a seed template',
   sync: 'run a Sync between two orgs',
 } as const;
@@ -84,8 +85,8 @@ export function helpText(): string {
     ([name, summary]) => `  ${name.padEnd(width)}  ${summary}`,
   );
   return `sandforge — SandForge's command lines, without the editor: Seed, Forge's clone, Sync,
-Checkpoints, DataOps, Frozen Dataset, the emptying of a sandbox, sandforge.yaml environments, and
-the MCP server.
+Checkpoints, DataOps, Frozen Dataset, the emptying of a sandbox, sandforge.yaml environments,
+Automation pipelines, and the MCP server.
 
 Usage:
   sandforge <command> [options]

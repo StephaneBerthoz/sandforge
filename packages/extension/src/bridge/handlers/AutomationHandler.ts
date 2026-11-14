@@ -389,6 +389,9 @@ export class AutomationHandler implements DomainHandler {
    * over and logged. A lock file that cannot be made — a read-only home —
    * holds nothing, logged: the run is still kept apart from the editor's
    * other windows by their shared markers.
+   *
+   * Hosted by the command line (`sandforge pipeline run`), the lock says so:
+   * a page refused by it named a run in VS Code that no window held.
    */
   private takeRunLock(
     pipeline: Pick<PipelineDefinition, 'id' | 'name'>,
@@ -399,7 +402,7 @@ export class AutomationHandler implements DomainHandler {
     try {
       const outcome = acquirePipelineRunLock(this.pipelinesRoot(), pipeline.id, {
         pipelineName: pipeline.name,
-        ranFrom: 'editor',
+        ranFrom: this.deps.services?.runsFrom === 'commandLine' ? 'commandLine' : 'editor',
         triggeredBy,
         ...(dryRun ? { dryRun: true } : {}),
       });

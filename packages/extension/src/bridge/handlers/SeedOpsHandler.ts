@@ -2392,11 +2392,18 @@ export class SeedOpsHandler implements DomainHandler {
       // it ended. The orchestrator runs under this id, which its result and
       // the page's removal name.
       const runId = crypto.randomUUID();
+      // A pipeline's seed names its org by Organization Id too: run from the
+      // command line (`sandforge pipeline`), its removal there is by an alias,
+      // which reaches the org that Id names or is refused.
+      const organizationId = pipeline
+        ? this.deps.orgManager.getOrg(payload.orgId)?.orgId
+        : undefined;
       const kept = this.runCreations?.recorder({
         runId,
         targetOrgId: payload.orgId,
         startedAt,
         ...(pipeline ? { pipeline: pipeline.pipeline } : {}),
+        ...(organizationId ? { targetOrganizationId: organizationId } : {}),
       });
       // The user it writes as, kept in its file for the sweep of its removal:
       // asked as the run begins, and waited for by nothing.

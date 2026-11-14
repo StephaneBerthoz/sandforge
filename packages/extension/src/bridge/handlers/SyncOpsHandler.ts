@@ -2638,6 +2638,13 @@ export class SyncOpsHandler implements DomainHandler {
     // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
     const pauseGate = new PauseGate();
     this.pauseGates.set(operationId, pauseGate);
+    // A pipeline's run names its target by Organization Id too: run from the
+    // command line (`sandforge pipeline`), its removal there is by an alias,
+    // which reaches the org that Id names or is refused.
+    const targetOrganizationId =
+      triggeredBy === 'pipeline'
+        ? this.deps.orgManager.getOrg(config.targetOrgId)?.orgId
+        : undefined;
     // What the run creates, kept under its id as it writes it, whoever started
     // it: its removal takes that back, from the history or the results.
     const creations = this.runCreations?.recorder({
@@ -2646,6 +2653,7 @@ export class SyncOpsHandler implements DomainHandler {
       configName: config.name ?? '',
       sourceOrgId: config.sourceOrgId,
       targetOrgId: config.targetOrgId,
+      ...(targetOrganizationId ? { targetOrganizationId } : {}),
     });
     // What it writes over, its values kept first in the DataOps store, as a
     // backup of the target: what its removal gives back.

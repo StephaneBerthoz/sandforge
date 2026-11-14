@@ -1170,6 +1170,78 @@ export const CHECKS = [
     },
   },
   {
+    name: 'pipeline plan stands up its host and refuses, exit 2, a file whose org it cannot reach',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        // A pipeline file as the Automation page exports one, whose org no
+        // sf of this sealed home reaches: the plan builds the host the run
+        // goes through — under this Node, every module of the editor's
+        // handlers loaded — then says the org was not reached, and runs
+        // nothing.
+        const file = join(home, 'nightly.sandforge-pipeline.json');
+        writeFileSync(
+          file,
+          JSON.stringify({
+            sandforgePipeline: 1,
+            exportedAt: '2026-11-20T10:00:00.000Z',
+            exportedBy: 'SandForge 1.81.0',
+            digest: `sha256:${'0'.repeat(64)}`,
+            pipeline: {
+              id: 'pipe-npm-check',
+              name: 'Nightly',
+              description: '',
+              steps: [
+                { id: 's1', name: 'Health', type: 'precheck', config: { orgId: 'reg-dev' } },
+                { id: 's2', name: 'Go?', type: 'approval', config: {} },
+              ],
+              variables: [],
+              tags: [],
+            },
+            schedule: null,
+            orgs: {
+              'reg-dev': {
+                alias: 'DEV',
+                organizationId: '00D000000000001AAA',
+                kind: 'sandbox',
+                staging: false,
+              },
+            },
+            syncConfigs: {},
+            seedTemplates: {},
+            maskingTemplates: {},
+            settings: {},
+            notes: [],
+          }),
+        );
+        const planned = runBin(out, ['sandforge', 'pipeline', 'plan', '--file', file, '--json'], {
+          node,
+          env: sealedEnv(home),
+          cwd: home,
+        });
+        let answer;
+        try {
+          answer = JSON.parse(planned.stdout);
+        } catch {
+          answer = undefined;
+        }
+        const refusal = answer?.refusals?.[0];
+        if (
+          planned.code !== 2 ||
+          refusal?.code !== 'ORG_NOT_CONNECTED' ||
+          !String(refusal.message).includes('Salesforce CLI (sf) not found on PATH.') ||
+          !planned.stderr.includes('Pipeline "Nightly" (2 steps), exported from SandForge 1.81.0')
+        ) {
+          throw new Error(
+            `sandforge pipeline plan ended on ${planned.code}: ${planned.stderr}${planned.stdout}`,
+          );
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     name: 'each command refuses a Node older than the package, before anything is loaded',
     run: ({ out, node }) => {
       const home = scratchFolder();

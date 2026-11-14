@@ -48,6 +48,14 @@ describe('orgFromIdentity', () => {
     expect(org.safetyTier).toBe('critical');
   });
 
+  it('types a scratch org sf shows with a Dev Hub as one when asked, and as the sandbox its record says otherwise', () => {
+    const scratch = { ...session, scratch: true as const };
+
+    expect(orgFromIdentity(scratch, identity(true), { typeScratch: true }).orgType).toBe('Scratch');
+    expect(orgFromIdentity(scratch, identity(true)).orgType).toBe('Sandbox');
+    expect(orgFromIdentity(session, identity(true), { typeScratch: true }).orgType).toBe('Sandbox');
+  });
+
   it('types a Developer Edition org, which says IsSandbox false, as the development org it is', () => {
     const org = orgFromIdentity(session, { ...identity(false), orgType: 'Developer Edition' });
     expect(org.orgType).toBe('Developer');
@@ -364,6 +372,48 @@ describe('createPanelHost', () => {
         expect.objectContaining({ module: 'automation', status: 'cancelled' }),
       ]);
       registry.dispose();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks an Approval step where the command line says, and names the run by the id its request is given', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      const asked: string[] = [];
+      const host = createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        services: {
+          askApproval: async (question) => {
+            asked.push(question.stepName);
+            return { decision: 'reject', via: 'terminal' };
+          },
+          getSandforgeSetting: <T>(key: string, fallback: T): T =>
+            (key === 'pipeline.timeout' ? 60_000 : fallback) as T,
+        },
+      });
+
+      const run = await host.request({
+        id: 'cli-run-7',
+        type: 'pipeline:execute',
+        responseType: 'pipeline:run:response',
+        payload: {
+          pipeline: {
+            id: 'p-asked',
+            name: 'Asked',
+            steps: [{ id: 's1', name: 'Gate', type: 'approval', config: { timeoutMinutes: 1 } }],
+          },
+        },
+      });
+
+      expect(asked).toEqual(['Gate']);
+      expect(run.message?.correlationId).toBe('cli-run-7');
+      expect(run.message?.payload).toMatchObject({
+        status: 'failed',
+        stepResults: [{ approval: { decision: 'rejected', via: 'terminal' } }],
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
