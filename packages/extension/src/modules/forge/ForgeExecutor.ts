@@ -6930,13 +6930,20 @@ export class ForgeExecutor {
       const heaviest = cut.heaviest
         .map((o) => `${o.objectApiName} (${o.rows} records${o.whole ? ', copied whole' : ''})`)
         .join(', ');
+      // Without floors, what does not fit is the first root itself: no floor
+      // of 0 to propose, and what the smallest sample takes to say.
+      const taken = cut.noRoot
+        ? 'the objects copied whole and the first root drawn with the records it brings'
+        : 'the objects copied whole and the roots kept of each object';
+      const ways = cut.noRoot
+        ? 'Leave objects out (--exclude-object)'
+        : 'Keep no root of each object (--fit-floor 0), leave objects out (--exclude-object)';
       throw new SampleRefusedError(
         'SAMPLE_CANNOT_FIT',
-        `No sample of the whole org fits: the objects copied whole and the roots kept of each ` +
-          `object take ${cut.rows} records, ${(cut.storageBytes / BYTES_PER_MB).toFixed(1)} MB, ` +
-          `past what the sample may take (${cut.limitedBy}); the heaviest are ${heaviest}. ` +
-          `${NOTHING_WRITTEN} Keep no root of each object (--fit-floor 0), leave objects out ` +
-          '(--exclude-object), or take more of the target (--fit-within).',
+        `No sample of the whole org fits: ${taken} take ${cut.rows} records, ` +
+          `${(cut.storageBytes / BYTES_PER_MB).toFixed(1)} MB, past what the sample may take ` +
+          `(${cut.limitedBy}); the heaviest are ${heaviest}. ${NOTHING_WRITTEN} ${ways}, or take ` +
+          'more of the target (--fit-within).',
         cut.heaviest,
       );
     }

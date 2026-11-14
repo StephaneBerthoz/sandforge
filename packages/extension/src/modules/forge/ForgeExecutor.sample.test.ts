@@ -570,6 +570,34 @@ describe('a clone of the whole org that copies a sample of it', () => {
     );
   }, 60_000);
 
+  it('refuses, writing nothing, a sample its budget holds not one root of, rather than succeed with none', async () => {
+    for (const options of [{}, { floor: 0 }]) {
+      const { executor, deps } = orgs(sourceOf(150));
+      const run = executor.execute(
+        graphOf(150, 150),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(join(plansDir(), 'tiny'), budgetOf(0), { options }),
+      );
+      await expect(run).rejects.toBeInstanceOf(SampleRefusedError);
+      await expect(run).rejects.toMatchObject({ code: 'SAMPLE_CANNOT_FIT' });
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(deps.bulkWriteRecords).not.toHaveBeenCalled();
+      // Without floors, the refusal names the smallest sample, and proposes no floor of 0 again.
+      const message = await run.then(
+        () => '',
+        (error: unknown) => (error instanceof Error ? error.message : ''),
+      );
+      if ('floor' in options) {
+        expect(message).toMatch(/the first root drawn with the records it brings take 2 records/);
+        expect(message).not.toMatch(/--fit-floor 0/);
+      } else {
+        expect(message).toMatch(/--fit-floor 0/);
+      }
+    }
+  }, 60_000);
+
   it('refuses to resume a run whose plan is gone, writing nothing', async () => {
     const source = sourceOf(150);
     const keepAt = join(plansDir(), 'run.sample');

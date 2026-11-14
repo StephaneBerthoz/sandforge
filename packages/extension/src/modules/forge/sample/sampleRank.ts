@@ -95,11 +95,13 @@ export const SMALLEST_RECORD_BYTES = 1024;
 /**
  * The most roots a sample could hold: a root is a record of the sample, of at
  * least {@link SMALLEST_RECORD_BYTES}, and the sample holds no more records
- * than `--max-total` asks. None when the budget holds none.
+ * than `--max-total` asks. One at least, whatever the budget: a sample its
+ * budget holds no root of is refused, and only a root read tells the
+ * refusal what the smallest sample would take.
  */
 export function rootsTheBudgetHolds(bytes: number, maxTotal?: number): number {
   const byBytes = Math.floor(Math.max(0, bytes) / SMALLEST_RECORD_BYTES);
-  return Math.max(0, Math.min(byBytes, maxTotal ?? Infinity));
+  return Math.max(1, Math.min(byBytes, maxTotal ?? Infinity));
 }
 
 /** A root a draw keeps: its object, its id and its rank. */

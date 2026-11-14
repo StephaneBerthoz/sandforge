@@ -73,9 +73,14 @@ describe('rootsTheBudgetHolds', () => {
     expect(rootsTheBudgetHolds(10 * 1024 + 1023)).toBe(10);
   });
 
-  it('holds no more roots than the records --max-total asks, and none of a budget of nothing', () => {
+  it('holds no more roots than the records --max-total asks', () => {
     expect(rootsTheBudgetHolds(10 * 1024, 4)).toBe(4);
-    expect(rootsTheBudgetHolds(-5)).toBe(0);
+  });
+
+  it('holds one root of a budget of nothing, so that its refusal can say what the smallest sample takes', () => {
+    expect(rootsTheBudgetHolds(0)).toBe(1);
+    expect(rootsTheBudgetHolds(-5)).toBe(1);
+    expect(rootsTheBudgetHolds(512)).toBe(1);
   });
 });
 

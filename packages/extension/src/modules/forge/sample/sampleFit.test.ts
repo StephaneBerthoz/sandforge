@@ -254,17 +254,110 @@ describe('drawTheSample: what cannot fit', () => {
       roomBytes: 1_000 * KB,
     });
     expect(cut.kind).toBe('cannotFit');
-    const none = await sampleOf(accountsAndContacts(50, 1), {
+  });
+
+  it('refuses, without floors, when not one root fits with what it brings, rather than keep nothing', async () => {
+    const { cut } = await sampleOf(accountsAndContacts(50, 1), {
       bytes: 3 * KB,
       floor: 0,
       roomBytes: 1_000 * KB,
     });
-    expect(sampled(none.cut).rows).toBe(0);
+    // The smallest sample that keeps a drawn record: one account with its contact.
+    expect(cut).toEqual({
+      kind: 'cannotFit',
+      limitedBy: 'storage',
+      noRoot: true,
+      rows: 2,
+      storageBytes: 4 * KB,
+      heaviest: [
+        { objectApiName: 'Account', rows: 1, storageBytes: 2 * KB },
+        { objectApiName: 'Contact', rows: 1, storageBytes: 2 * KB },
+      ],
+    });
+  });
+
+  it('refuses a budget of nothing, with floors or without, rather than keep nothing', async () => {
+    for (const floor of [1, 0]) {
+      const { cut } = await sampleOf(accountsAndContacts(50, 1), { bytes: 0, roomBytes: 0, floor });
+      expect(cut).toMatchObject({ kind: 'cannotFit', rows: 2, storageBytes: 4 * KB });
+    }
+  });
+
+  it('refuses a budget smaller than what any root brings, as a target with 0.502 MB left gives', async () => {
+    // 80 % of what is left past the 0.5 MB kept for rounding: 1 677 bytes.
+    const bytes = Math.floor(0.8 * 0.002 * 1024 * KB);
+    for (const floor of [1, 0]) {
+      const { cut } = await sampleOf(accountsAndContacts(50, 1), {
+        bytes,
+        roomBytes: bytes,
+        floor,
+      });
+      expect(cut).toMatchObject({ kind: 'cannotFit', rows: 2, storageBytes: 4 * KB });
+    }
   });
 });
 
 describe('drawTheSample: heavy roots', () => {
-  /** Accounts with a contact each, the one created last with sixty. */
+  /** One account with fifteen contacts: 32 KB, more than a tenth of a room of 100 KB. */
+  const oneHub: FakeObject[] = [
+    { name: 'Account', keyPrefix: '001', fields: [], records: [{ id: A(1) }] },
+    {
+      name: 'Contact',
+      keyPrefix: '003',
+      fields: [lookup('AccountId', 'Account')],
+      records: Array.from({ length: 15 }, (_, n) => ({ id: C(n + 1), refs: { AccountId: A(1) } })),
+    },
+  ];
+
+  it('keeps the first root of the draw, heavy as it is, when every root is', async () => {
+    // Twenty accounts of five contacts each: 12 KB, past a tenth of 100 KB.
+    const objects: FakeObject[] = [
+      {
+        name: 'Account',
+        keyPrefix: '001',
+        fields: [],
+        records: Array.from({ length: 20 }, (_, n) => ({ id: A(n + 1) })),
+      },
+      {
+        name: 'Contact',
+        keyPrefix: '003',
+        fields: [lookup('AccountId', 'Account')],
+        records: Array.from({ length: 100 }, (_, n) => ({
+          id: C(n + 1),
+          refs: { AccountId: A(Math.floor(n / 5) + 1) },
+        })),
+      },
+    ];
+    const sample = sampled(
+      (await sampleOf(objects, { bytes: 100 * KB, roomBytes: 100 * KB, floor: 0 })).cut,
+    );
+    expect(idsOf(sample, 'Account')).toHaveLength(1);
+    expect(idsOf(sample, 'Contact')).toHaveLength(5);
+    expect(sample.heavyRoots).toHaveLength(19);
+  });
+
+  it('never sets aside the root its object keeps as its floor: it goes in when it fits', async () => {
+    const sample = sampled((await sampleOf(oneHub, { bytes: 100 * KB, roomBytes: 100 * KB })).cut);
+    expect(sample.heavyRoots).toEqual([]);
+    expect(idsOf(sample, 'Account')).toEqual([A(1)]);
+    expect(idsOf(sample, 'Contact')).toHaveLength(15);
+  });
+
+  it('refuses, naming it, the root its object keeps as its floor when it does not fit, rather than let it go', async () => {
+    const { cut } = await sampleOf(oneHub, { bytes: 20 * KB, roomBytes: 20 * KB });
+    expect(cut).toEqual({
+      kind: 'cannotFit',
+      limitedBy: 'storage',
+      rows: 16,
+      storageBytes: 32 * KB,
+      heaviest: [
+        { objectApiName: 'Contact', rows: 15, storageBytes: 30 * KB },
+        { objectApiName: 'Account', rows: 1, storageBytes: 2 * KB },
+      ],
+    });
+  });
+
+  /** Accounts with a contact each, the one created second to last with sixty. */
   function withAHub(): FakeObject[] {
     const records: FakeRecord[] = [];
     for (let n = 1; n <= 100; n++) records.push({ id: C(n), refs: { AccountId: A(n) } });
@@ -274,7 +367,11 @@ describe('drawTheSample: heavy roots', () => {
         name: 'Account',
         keyPrefix: '001',
         fields: [],
-        records: Array.from({ length: 100 }, (_, n) => ({ id: A(n + 1), createdAt: n + 1 })),
+        // The account created last is the first root of a draw by recency, never set aside.
+        records: Array.from({ length: 100 }, (_, n) => ({
+          id: A(n + 1),
+          createdAt: n === 98 ? 101 : n + 1,
+        })),
       },
       { name: 'Contact', keyPrefix: '003', fields: [lookup('AccountId', 'Account')], records },
     ];
@@ -361,12 +458,11 @@ describe('drawTheSample: what it says', () => {
         name: 'Lead',
         keyPrefix: '00Q',
         fields: [],
-        records: Array.from({ length: 300 }, (_, n) => ({ id: fakeId('00Q', n) })),
+        records: Array.from({ length: 3 }, (_, n) => ({ id: fakeId('00Q', n) })),
       },
     ];
-    const sample = sampled(
-      (await sampleOf(objects, { bytes: 4 * KB, floor: 0, draw: 'recent' })).cut,
-    );
+    const sample = sampled((await sampleOf(objects, { bytes: 4 * KB, floor: 0 })).cut);
+    expect(sample.rows).toBeGreaterThan(0);
     expect(sample.noRecordDrawn.map((o) => o.objectApiName)).toContain('Lead');
   });
 

@@ -23,10 +23,14 @@
  * the relation that swells it, and the thresholds are found again without it.
  * The room is the target's, as for the objects copied whole, so that a
  * smaller bound sets aside the same roots and keeps a part of what a larger
- * one keeps.
+ * one keeps. Never the root an object keeps as its floor, nor the first root
+ * of the draw: set aside, a room smaller than any root's tenth let every
+ * root go, and the run wrote nothing and said it had succeeded.
  *
- * When the objects copied whole and the floor of each object do not fit
- * alone, nothing is cut: the sample cannot fit, and the heaviest are named.
+ * Nothing is cut, and the sample cannot fit, the heaviest named, when the
+ * objects copied whole and the floor of each object do not fit alone; and,
+ * without floors, when not even the first root fits with what it brings: a
+ * sample that keeps no record drawn is no sample, and is never said done.
  */
 
 import {
@@ -196,6 +200,12 @@ export interface SampleCannotFit {
   storageBytes: number;
   /** The heaviest objects of what they take, the heaviest first. */
   heaviest: Array<{ objectApiName: string; rows: number; storageBytes: number; whole?: true }>;
+  /**
+   * Set when, without floors, not one root fits: `rows` and `storageBytes`
+   * are then the smallest sample that keeps a record drawn, the objects
+   * copied whole and the first root with what it brings.
+   */
+  noRoot?: true;
 }
 
 /** The share of the room a root may bring in by itself before it is set aside. */
@@ -405,15 +415,69 @@ function settle(
   setAside: Set<number>,
 ): { thresholds: SampleThresholds; weighed: Weighed } {
   const most = HEAVY_ROOT_SHARE * Math.max(0, input.roomBytes);
+  // The floors, at rank 0, and the first root of the draw that lives: never
+  // set aside, whatever they bring. Each goes in, or the sample is refused.
+  const kept = new Set<number>();
+  if (input.draw.floor > 0) {
+    input.draw.roots.forEach((root, index) => {
+      if (root.rank === 0) kept.add(index);
+    });
+  }
+  const first = firstLivingRoot(closure);
+  if (first !== undefined) kept.add(first);
   for (;;) {
     const thresholds = closure.thresholds(setAside);
     const weighed = weigh(closure, thresholds, input);
     const heavy = [...weighed.parts]
-      .filter(([root, bytes]) => bytes > most && !setAside.has(root))
+      .filter(([root, bytes]) => bytes > most && !setAside.has(root) && !kept.has(root))
       .map(([root]) => root);
     if (heavy.length === 0) return { thresholds, weighed };
     for (const root of heavy) setAside.add(root);
   }
+}
+
+/** The index in the draw of the first root read that lives; none when none does. */
+function firstLivingRoot(closure: SampleClosure): number | undefined {
+  let first: number | undefined;
+  for (let row = 0; row < closure.rows.length; row++) {
+    const root = closure.rootOf[row];
+    if (root >= 0 && closure.alive(row) && (first === undefined || root < first)) first = root;
+  }
+  return first;
+}
+
+/** Why no sample fits at `at`: what the items within it take, and the heaviest of them. */
+function cannotFitAt(
+  closure: SampleClosure,
+  items: readonly Item[],
+  at: number,
+  bounds: SampleBounds,
+): SampleCannotFit {
+  const totals = totalsAt(items, at, false);
+  const byObject = new Map<string, { rows: number; storageBytes: number }>();
+  for (const item of items) {
+    if (item.rank > at) break;
+    const entry = byObject.get(item.objectApiName) ?? { rows: 0, storageBytes: 0 };
+    entry.rows += item.records;
+    entry.storageBytes += item.bytes;
+    byObject.set(item.objectApiName, entry);
+  }
+  return {
+    kind: 'cannotFit',
+    limitedBy: brokenAt(items, at, bounds) ?? bounds.bytesLimit,
+    rows: totals.records,
+    storageBytes: totals.bytes,
+    heaviest: [...byObject]
+      .sort(([a, x], [b, y]) => y.storageBytes - x.storageBytes || (a < b ? -1 : a > b ? 1 : 0))
+      .slice(0, HEAVIEST_NAMED)
+      .map(([objectApiName, entry]) => ({
+        objectApiName,
+        ...entry,
+        ...(closure.links.classes.get(objectApiName)?.kind === 'whole'
+          ? { whole: true as const }
+          : {}),
+      })),
+  };
 }
 
 /**
@@ -471,35 +535,14 @@ function cutOf(
     candidates.length,
     (k) => brokenAt(items, candidates[k - 1], bounds) === undefined,
   );
-  if (fitting === 0) {
-    const at = candidates[0];
-    const totals = totalsAt(items, at, false);
-    const byObject = new Map<string, { rows: number; storageBytes: number }>();
-    for (const item of items) {
-      if (item.rank > at) break;
-      const entry = byObject.get(item.objectApiName) ?? { rows: 0, storageBytes: 0 };
-      entry.rows += item.records;
-      entry.storageBytes += item.bytes;
-      byObject.set(item.objectApiName, entry);
-    }
-    return {
-      kind: 'cannotFit',
-      limitedBy: brokenAt(items, at, bounds) ?? bounds.bytesLimit,
-      rows: totals.records,
-      storageBytes: totals.bytes,
-      heaviest: [...byObject]
-        .sort(([a, x], [b, y]) => y.storageBytes - x.storageBytes || (a < b ? -1 : a > b ? 1 : 0))
-        .slice(0, HEAVIEST_NAMED)
-        .map(([objectApiName, entry]) => ({
-          objectApiName,
-          ...entry,
-          ...(closure.links.classes.get(objectApiName)?.kind === 'whole'
-            ? { whole: true as const }
-            : {}),
-        })),
-    };
-  }
+  if (fitting === 0) return cannotFitAt(closure, items, candidates[0], bounds);
   const cut = candidates[fitting - 1];
+  // A root lives, and the cut keeps none: the first, never set aside, does
+  // not fit with what it brings. The run would write no record drawn.
+  const first = firstLivingRoot(closure);
+  if (first !== undefined && roots[first].rank > cut) {
+    return { ...cannotFitAt(closure, items, roots[first].rank, bounds), noRoot: true };
+  }
   const limitedBy: WholeOrgSampleLimit =
     fitting < candidates.length
       ? (brokenAt(items, candidates[fitting], bounds) ?? bounds.bytesLimit)
