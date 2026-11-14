@@ -4895,7 +4895,7 @@
           "recordTypeNotInTarget": "ターゲットにそのレコードタイプがない"
         },
         "leftEmpty": "参照先がサンプル外のため空で書き込む参照項目: {{fields}}。",
-        "partialMasters": "詳細の一部だけを保持するマスター: {{masters}}。このようなマスターが詳細から集計する値 (商談の金額や積み上げ集計項目) は、書き込まれた詳細だけを数えます。",
+        "partialMasters": "詳細の一部だけを保持するマスター: {{masters}}。このようなマスターが詳細を集計する場合 (商談の金額や積み上げ集計項目など)、その値は書き込まれた詳細だけを数えます。",
         "partialMasterWhole": "{{object}} (丸ごとコピー): {{details}} レコード {{rows}} 件のうち {{kept}} 件 ({{details}}.{{field}})",
         "partialMasterParents": "親として取り込まれた {{object}} レコード {{rows}} 件、それ自体として抽出された {{details}} レコードのみ ({{details}}.{{field}})",
         "newestByIds": "組織が並べ替えに使える作成日がないため、ID 順で新しいものとしたオブジェクト: {{objects}}。",

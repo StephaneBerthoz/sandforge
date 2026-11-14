@@ -805,7 +805,7 @@ describe('what a sample of the whole org says', () => {
   // Run for real on a whole org: opportunities copied whole kept 3 of their 4
   // line items, drawn as roots; each amount came to the lines written, and
   // neither the dry run nor the run said so.
-  it('says on the line of a master that keeps part of its details that what it sums of them counts those written alone', () => {
+  it('says on the line of a master that keeps part of its details what it keeps of them, and that a total of them counts those written alone', () => {
     const report = sampleReport({
       objects: [
         ...sampleReport().objects,
@@ -846,14 +846,14 @@ describe('what a sample of the whole org says', () => {
     const lines = sampleLines(report, { source: 'SRC', target: 'TGT', dryRun: true });
 
     expect(lines).toContain(
-      '  Opportunity: 2 of 2 (copied whole (a small parent)); what it sums of its ' +
-        'OpportunityLineItem records (OpportunityLineItem.OpportunityId) counts only the 3 of ' +
-        '4 in the sample',
+      '  Opportunity: 2 of 2 (copied whole (a small parent)); keeps 3 of its 4 ' +
+        'OpportunityLineItem records (OpportunityLineItem.OpportunityId) in the sample: if it ' +
+        'totals them (an amount, a roll-up summary), the total counts only those',
     );
     expect(lines).toContain(
-      '  Account: 712 of 18400 (500 drawn, 0 under a parent, 212 as parents); what the 212 ' +
-        'brought in as parents sum of their Thing__c records (Thing__c.Account__c) counts only ' +
-        'those in the sample',
+      '  Account: 712 of 18400 (500 drawn, 0 under a parent, 212 as parents); the 212 brought ' +
+        'in as parents keep only the Thing__c records (Thing__c.Account__c) drawn on their own: ' +
+        'if they total them (an amount, a roll-up summary), the total counts only those',
     );
     expect(sampleJson(report).partialMasters).toEqual(report.partialMasters);
     expect(sampleJson(sampleReport()).partialMasters).toEqual([]);

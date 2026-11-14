@@ -5189,7 +5189,7 @@
           "recordTypeNotInTarget": "the target has none of their record type"
         },
         "leftEmpty": "Lookups written empty, their record outside the sample: {{fields}}.",
-        "partialMasters": "Masters that keep part of their details: {{masters}}. What such a master sums of them, an opportunity’s amount of its line items or a roll-up summary, counts only the details written.",
+        "partialMasters": "Masters that keep part of their details: {{masters}}. If such a master totals them, as an opportunity’s amount or a roll-up summary does, that total counts only the details written.",
         "partialMasterWhole": "{{object}}, copied whole: {{kept}} of the {{rows}} {{details}} records ({{details}}.{{field}})",
         "partialMasterParents": "{{rows}} {{object}} records brought in as parents, with only the {{details}} records drawn on their own ({{details}}.{{field}})",
         "newestByIds": "Newest by the order of their ids, having no creation date the org sorts by: {{objects}}.",

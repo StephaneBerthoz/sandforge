@@ -5189,7 +5189,7 @@
           "recordTypeNotInTarget": "das Ziel hat ihren Datensatztyp nicht"
         },
         "leftEmpty": "Leer geschriebene Suchen, ihr Datensatz außerhalb der Stichprobe: {{fields}}.",
-        "partialMasters": "Masterobjekte, die einen Teil ihrer Details behalten: {{masters}}. Was ein solches Masterobjekt aus ihnen summiert, der Betrag einer Opportunity oder ein Roll-up-Summenfeld, zählt nur die geschriebenen Details.",
+        "partialMasters": "Masterobjekte, die einen Teil ihrer Details behalten: {{masters}}. Falls ein solches Masterobjekt sie summiert, wie der Betrag einer Opportunity oder ein Roll-up-Summenfeld, zählt diese Summe nur die geschriebenen Details.",
         "partialMasterWhole": "{{object}}, ganz kopiert: {{kept}} von {{rows}} {{details}}-Datensätzen ({{details}}.{{field}})",
         "partialMasterParents": "{{rows}} {{object}}-Datensätze als Eltern übernommen, nur mit den für sich gezogenen {{details}}-Datensätzen ({{details}}.{{field}})",
         "newestByIds": "Die neuesten nach der Reihenfolge ihrer IDs, da es kein Erstellungsdatum gibt, nach dem die Org sortiert: {{objects}}.",

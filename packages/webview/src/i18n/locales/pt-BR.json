@@ -5189,7 +5189,7 @@
           "recordTypeNotInTarget": "o destino não tem o tipo de registro deles"
         },
         "leftEmpty": "Pesquisas gravadas vazias, com o registro fora da amostra: {{fields}}.",
-        "partialMasters": "Mestres que mantêm parte de seus detalhes: {{masters}}. O que um mestre assim soma deles, o valor de uma oportunidade ou um campo de resumo, conta apenas os detalhes gravados.",
+        "partialMasters": "Mestres que mantêm parte de seus detalhes: {{masters}}. Se um mestre assim os soma, como o valor de uma oportunidade ou um campo de resumo, esse total conta apenas os detalhes gravados.",
         "partialMasterWhole": "{{object}}, copiado inteiro: {{kept}} dos {{rows}} registros de {{details}} ({{details}}.{{field}})",
         "partialMasterParents": "{{rows}} registros de {{object}} trazidos como pais, só com os registros de {{details}} sorteados por si mesmos ({{details}}.{{field}})",
         "newestByIds": "Os mais recentes pela ordem de seus ids, por não terem data de criação pela qual a org ordene: {{objects}}.",

@@ -176,7 +176,7 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
         ]
       : []),
     // A master copied whole whose details were drawn, or brought in as a
-    // parent: what it sums of its details counts those written alone. Run
+    // parent: a total it keeps of them, where it has one, counts those written. Run
     // for real, opportunities kept 3 of their 4 line items, unsaid.
     ...(sample.partialMasters && sample.partialMasters.length > 0
       ? [

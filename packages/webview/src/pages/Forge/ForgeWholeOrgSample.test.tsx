@@ -156,7 +156,7 @@ describe('ForgeWholeOrgSample', () => {
     });
 
     expect(line('partial-masters')).toBe(
-      'Masters that keep part of their details: Opportunity, copied whole: 3 of the 4 OpportunityLineItem records (OpportunityLineItem.OpportunityId); 12 Invoice__c records brought in as parents, with only the Line__c records drawn on their own (Line__c.Invoice__c). What such a master sums of them, an opportunity’s amount of its line items or a roll-up summary, counts only the details written.',
+      'Masters that keep part of their details: Opportunity, copied whole: 3 of the 4 OpportunityLineItem records (OpportunityLineItem.OpportunityId); 12 Invoice__c records brought in as parents, with only the Line__c records drawn on their own (Line__c.Invoice__c). If such a master totals them, as an opportunity’s amount or a roll-up summary does, that total counts only the details written.',
     );
   });
 

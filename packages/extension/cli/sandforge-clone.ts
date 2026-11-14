@@ -4513,20 +4513,21 @@ function sampleLimitWords(
 
 /**
  * What the line of a master of a sample says of the details it keeps part
- * of: what it sums of them — an opportunity's amount of its line items, a
- * roll-up summary — counts those written alone.
+ * of. Not every master totals its details (a case does not sum its
+ * comments): the line says what it keeps, and that a total, where the
+ * master has one, counts those written alone.
  */
 function partialMasterWords(master: WholeOrgSamplePartialMaster): string {
   const details = `${master.details} records (${master.details}.${master.field})`;
   if (master.asParents !== undefined) {
     return (
-      `what the ${master.asParents} brought in as parents sum of their ${details} counts ` +
-      'only those in the sample'
+      `the ${master.asParents} brought in as parents keep only the ${details} drawn on their ` +
+      'own: if they total them (an amount, a roll-up summary), the total counts only those'
     );
   }
   return (
-    `what it sums of its ${details} counts only the ${master.kept ?? 0} of ` +
-    `${master.sourceRows ?? 0} in the sample`
+    `keeps ${master.kept ?? 0} of its ${master.sourceRows ?? 0} ${details} in the sample: ` +
+    'if it totals them (an amount, a roll-up summary), the total counts only those'
   );
 }
 

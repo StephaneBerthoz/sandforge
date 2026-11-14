@@ -5189,7 +5189,7 @@
           "recordTypeNotInTarget": "el destino no tiene su tipo de registro"
         },
         "leftEmpty": "Búsquedas escritas vacías, al estar su registro fuera de la muestra: {{fields}}.",
-        "partialMasters": "Maestros que conservan parte de sus detalles: {{masters}}. Lo que un maestro así suma de ellos, el importe de una oportunidad o un campo de resumen, cuenta solo los detalles escritos.",
+        "partialMasters": "Maestros que conservan parte de sus detalles: {{masters}}. Si un maestro así los suma, como el importe de una oportunidad o un campo de resumen, ese total cuenta solo los detalles escritos.",
         "partialMasterWhole": "{{object}}, copiado entero: {{kept}} de los {{rows}} registros de {{details}} ({{details}}.{{field}})",
         "partialMasterParents": "{{rows}} registros de {{object}} traídos como padres, solo con los registros de {{details}} sorteados por sí mismos ({{details}}.{{field}})",
         "newestByIds": "Los más recientes por el orden de sus ids, al no tener fecha de creación por la que ordene la org: {{objects}}.",

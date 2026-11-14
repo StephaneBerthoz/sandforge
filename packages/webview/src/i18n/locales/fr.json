@@ -5189,7 +5189,7 @@
           "recordTypeNotInTarget": "la cible n'a pas leur type d'enregistrement"
         },
         "leftEmpty": "Recherches écrites vides, leur enregistrement étant hors de l'échantillon : {{fields}}.",
-        "partialMasters": "Objets maîtres qui gardent une partie de leurs détails : {{masters}}. Ce qu'un tel maître cumule de ses détails, le montant d'une opportunité ou un champ de cumul, ne compte que les détails écrits.",
+        "partialMasters": "Objets maîtres qui gardent une partie de leurs détails : {{masters}}. Si un tel maître les cumule, comme le montant d'une opportunité ou un champ de cumul, ce total ne compte que les détails écrits.",
         "partialMasterWhole": "{{object}}, copié entier : {{kept}} des {{rows}} enregistrements {{details}} ({{details}}.{{field}})",
         "partialMasterParents": "{{rows}} enregistrements {{object}} venus comme parents, avec les seuls enregistrements {{details}} tirés pour eux-mêmes ({{details}}.{{field}})",
         "newestByIds": "Les plus récents dans l'ordre de leurs ids, faute de date de création selon laquelle l'org trie : {{objects}}.",
