@@ -5088,6 +5088,7 @@
         "near": "about {{estimate}} MB, of {{remaining}} MB left out of {{max}} MB: more than 80 % of what is left",
         "exceeds": "about {{estimate}} MB, past the {{remaining}} MB left out of {{max}} MB"
       },
+      "storageAutomation": "of it, about {{automation}} MB for what the target’s automation creates under the records",
       "storageUnread": "about {{estimate}} MB; what is left could not be read: {{reason}}",
       "targetRequests": "API requests of {{org}}, the target",
       "sourceRequests": "API requests of {{org}}, the source",
@@ -5178,6 +5179,9 @@
           "recordTypeNotInTarget": "the target has none of their record type"
         },
         "leftEmpty": "Lookups written empty, their record outside the sample: {{fields}}.",
+        "partialMasters": "Masters that keep part of their details: {{masters}}. What such a master sums of them, an opportunity’s amount of its line items or a roll-up summary, counts only the details written.",
+        "partialMasterWhole": "{{object}}, copied whole: {{kept}} of the {{rows}} {{details}} records ({{details}}.{{field}})",
+        "partialMasterParents": "{{rows}} {{object}} records brought in as parents, with only the {{details}} records drawn on their own ({{details}}.{{field}})",
         "newestByIds": "Newest by the order of their ids, having no creation date the org sorts by: {{objects}}.",
         "requests": "Drawing it sent {{requests}} API requests to {{source}}.",
         "plan": "The plan is kept on this machine for a day: {{path}} (SHA-256 {{sha}}…). Execute Forge takes it up while the run is set up the same; otherwise the run draws again, and says why."

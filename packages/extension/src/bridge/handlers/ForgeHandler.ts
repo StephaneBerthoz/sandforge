@@ -194,6 +194,7 @@ import {
   readApiBudget,
   readDataStorage,
   readEmailLimits,
+  automationBytesOf,
   storageCheckOf,
   storageRefusal,
   takeCheckpointFirst,
@@ -928,6 +929,26 @@ function removedInItsLine(
 }
 
 /**
+ * Of the rows the last part of a journal linked to a record, those linked to
+ * one the part created itself — refused as a copy of a record the run had
+ * just written, or of one a job of it wrote under no row — and not written
+ * with their record: what an entry past the bound counts so, as a run that
+ * ended counts them (`linkedToCreatedCount`).
+ */
+function linkedToCreatedOf(read: ForgeRunJournalRead): number {
+  const own = new Set(
+    [...read.created, ...(read.unattributed ?? [])].flatMap(({ ids }) =>
+      ids.map((id) => id.slice(0, 15)),
+    ),
+  );
+  const withTheirRecord = new Set(read.remap.withTheirRecord ?? []);
+  return read.remap.linked.filter((sourceId) => {
+    const target = read.remap.table[sourceId];
+    return !withTheirRecord.has(sourceId) && target !== undefined && own.has(target.slice(0, 15));
+  }).length;
+}
+
+/**
  * The history entry of the last part of a run a closed window stopped, from
  * its journal: what that part created and linked to, interrupted, set up as
  * the journal says — the part it resumed, when it resumed one, named.
@@ -938,6 +959,7 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     0,
   );
   const mapped = Object.keys(read.remap.table).length;
+  const linkedToCreated = mapped > HISTORY_IDS_BOUND ? linkedToCreatedOf(read) : 0;
   // Past the bound, the entry counts what the part created and its journal
   // keeps the ids, as for a run that ended.
   const ids =
@@ -952,6 +974,7 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
             linked: 0,
           })),
           remapInJournal: true as const,
+          ...(linkedToCreated > 0 ? { linkedToCreatedCount: linkedToCreated } : {}),
         }
       : {
           idRemapTable: read.remap.table,
@@ -3021,8 +3044,9 @@ export class ForgeHandler implements DomainHandler {
         // plan, by the one function every computation before the lease takes
         // it from: the creations of what the mute keeps quiet are not held.
         // A sample keeps room under each record it draws for what still runs
-        // creates under it: read from the same plan.
-        if ((checkpointFirst !== undefined || sampled) && 'automation' in read) {
+        // creates under it, and the gate of a clone of the whole org counts
+        // it with every record: read from the same plan.
+        if ((checkpointFirst !== undefined || sampled || wholeOrg) && 'automation' in read) {
           running = stillRunningOf(read.automation, mutePlan, writes);
         }
         targetAutomation = automation;
@@ -3104,17 +3128,14 @@ export class ForgeHandler implements DomainHandler {
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
         }
-      } else if (
-        checkpointFirst !== undefined ||
-        (wholeOrg && muteAutomation === true) ||
-        sampled
-      ) {
+      } else if (checkpointFirst !== undefined || wholeOrg || sampled) {
         // A simulation asked for the checkpoint first says what it would hold
         // and cost: what still runs is read for it, and the mute planned when
         // it is asked too — nothing assigned. A plan that cannot be made
         // leaves what the read says runs. The dry run of a clone of the whole
-        // org asked to mute plans it too: its gate prices the lease its run
-        // would hold.
+        // org reads it too: its gate counts what still runs creates under the
+        // records against the data storage, as its run's does, and, asked to
+        // mute, prices the lease its run would hold.
         const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
         if ('automation' in read) {
           const mutePlan =
@@ -3293,6 +3314,7 @@ export class ForgeHandler implements DomainHandler {
         ...(jobsUnderway && jobsUnderway.length > 0 ? { jobsUnderway } : {}),
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         updatedAfterInsert: [...updatedNames],
+        ...(wholeOrg ? { automationRoom: () => automationRoomOf(running, writes).perRecord } : {}),
         ...(wholeOrg
           ? {
               wholeOrg: {
@@ -4844,6 +4866,15 @@ export class ForgeHandler implements DomainHandler {
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
     /**
+     * Of a clone of the whole org, what the target's automation that still
+     * runs creates under one record of each object the run writes
+     * (`automationRoomOf`): counted with its records against the data
+     * storage, as a sample counts it. A flow no mute reaches, opening a task
+     * under each contact, took 2.34 MB a gate that counted the records alone
+     * let through into a target with 5 MB left.
+     */
+    automationRoom?: () => readonly { objectApiName: string; bytes: number }[];
+    /**
      * Of a sample of the whole org, told what its plan drew as the gate is
      * reached: returns it as the run says it — why it drew its own when a
      * simulation's was at hand.
@@ -4922,9 +4953,11 @@ export class ForgeHandler implements DomainHandler {
             limits: this.limitsTransportOf(whole.sourceOrgId, run.lookup),
           },
           ...(sample ? { sample } : {}),
+          ...(run.automationRoom ? { automation: run.automationRoom() } : {}),
         });
-        // Every record past the data storage the target has left: a sample
-        // that fits is offered instead.
+        // Every record past the data storage the target has left, what its
+        // automation creates under them counted: a sample that fits is
+        // offered instead.
         if (!sample && dry.storage.verdict === 'exceeds') {
           const offer = sampleBudgetTermsOf({ storage: dry.storage });
           if (offer) run.onSampleOffer?.(offer.budget);
@@ -4967,7 +5000,11 @@ export class ForgeHandler implements DomainHandler {
       if (plan.totalRows === 0) return {};
       run.lookup.requests++;
       const limits = await this.readTargetDataStorage(run.targetOrgId);
-      const storage = storageCheckOf(plan, limits);
+      const storage = storageCheckOf(
+        plan,
+        limits,
+        whole && run.automationRoom ? automationBytesOf(plan, run.automationRoom()) : 0,
+      );
       // A sample is held to what the target has left now by the terms it was
       // fitted to: drawn against more room than there is, it is refused for
       // its storage and simulated again, never cut short. A target that

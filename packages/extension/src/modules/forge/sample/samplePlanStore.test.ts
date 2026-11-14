@@ -181,6 +181,30 @@ describe('the plan of a sample', () => {
     expect((await SamplePlan.open(plan.dir)).manifest.newestByIds).toEqual(['Region__c']);
   });
 
+  it('keeps the masters a sample keeps part of the details of, and what its automation creates, for the run that takes it up to say', async () => {
+    const said: WholeOrgSampleDrawn = {
+      ...DRAWN,
+      budget: { ...DRAWN.budget, automationMB: 1.65 },
+      partialMasters: [
+        {
+          objectApiName: 'Opportunity',
+          details: 'OpportunityLineItem',
+          field: 'OpportunityId',
+          kept: 3,
+          sourceRows: 4,
+        },
+      ],
+    };
+    const plan = await keepSamplePlan(
+      dryRunPlanDirOf(storage, FINGERPRINT),
+      planOf({ sample: said }),
+    );
+
+    const { sample } = (await SamplePlan.open(plan.dir)).manifest;
+    expect(sample.partialMasters).toEqual(said.partialMasters);
+    expect(sample.budget.automationMB).toBe(1.65);
+  });
+
   it('opens again a plan the roots set aside held, every other root kept', async () => {
     const aside: WholeOrgSampleDrawn = {
       ...DRAWN,

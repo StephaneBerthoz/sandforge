@@ -4801,6 +4801,7 @@
         "near": "約 {{estimate}} MB (残り {{remaining}} MB、上限 {{max}} MB)。残りの 80 % を超えます",
         "exceeds": "約 {{estimate}} MB (残り {{remaining}} MB を超えます。上限 {{max}} MB)"
       },
+      "storageAutomation": "うち約 {{automation}} MB はターゲットの自動化がレコードの下に作成する分",
       "storageUnread": "約 {{estimate}} MB。残りを読み取れませんでした: {{reason}}",
       "targetRequests": "ターゲット {{org}} の API リクエスト",
       "sourceRequests": "ソース {{org}} の API リクエスト",
@@ -4886,6 +4887,9 @@
           "recordTypeNotInTarget": "ターゲットにそのレコードタイプがない"
         },
         "leftEmpty": "参照先がサンプル外のため空で書き込む参照項目: {{fields}}。",
+        "partialMasters": "詳細の一部だけを保持するマスター: {{masters}}。このようなマスターが詳細から集計する値 (商談の金額や積み上げ集計項目) は、書き込まれた詳細だけを数えます。",
+        "partialMasterWhole": "{{object}} (丸ごとコピー): {{details}} レコード {{rows}} 件のうち {{kept}} 件 ({{details}}.{{field}})",
+        "partialMasterParents": "親として取り込まれた {{object}} レコード {{rows}} 件、それ自体として抽出された {{details}} レコードのみ ({{details}}.{{field}})",
         "newestByIds": "組織が並べ替えに使える作成日がないため、ID 順で新しいものとしたオブジェクト: {{objects}}。",
         "requests": "抽出で {{source}} に API リクエストを {{requests}} 件送信しました。",
         "plan": "プランはこのマシンに 1 日保持されます: {{path}} (SHA-256 {{sha}}…)。設定が同じであれば、「Forge を実行」がこのプランを使います。異なる場合は再抽出し、その理由を表示します。"

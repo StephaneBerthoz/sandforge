@@ -264,6 +264,7 @@
   "Personal fields copied as they are, not anonymized, {0} in all, per object: {1}.": "匿名化されずにそのままコピーされる個人情報項目、合計 {0} 項目 (オブジェクトごと): {1}。",
   "This clone copies a sample of {0} into {1}: {2} objects, {3} records.": "このクローンは {0} のサンプルを {1} にコピーします: {2} 個のオブジェクト、{3} 件のレコード。",
   "The sample keeps {0} of the {1} records {2} holds of these objects: about {3} MB of the {4} MB it may take.": "サンプルは、{2} がこれらのオブジェクトに持つ {1} 件のレコードのうち {0} 件を保持します: 使用できる {4} MB のうち約 {3} MB です。",
+  "Of it, about {0} MB for what the automation of the target creates under its records.": "うち約 {0} MB は、ターゲットの自動化がそのレコードの下に作成する分です。",
   "Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.": "シード {0} で抽出 ({1}): 各オブジェクトのルートの {2} % と、それらがたどるレコード。上限は {3}。",
   "spread over the org": "組織全体に分散",
   "the newest first": "新しいものから",

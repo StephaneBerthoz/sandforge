@@ -697,6 +697,84 @@ export class ForgeRunStore {
     return out;
   }
 
+  /**
+   * Of the rows this part linked to a record, those linked to one this part
+   * created itself — the target refused the row as a copy of a record the
+   * run had just written, or of one a job of the part wrote under no row —
+   * and not marked as written with their record (`withTheirRecord`): a
+   * removal of the part takes that record, and they go with it. Counted as
+   * linked to a record the target held, a removal said ten of a run's own
+   * accounts would stay. Read from the journal, and only when the part linked
+   * any: three passes over its lines, a few bytes a record held, and no id.
+   */
+  linkedToCreatedCount(): number {
+    let linked = 0;
+    for (const counts of this.counts.values()) linked += counts.linked;
+    if (linked === 0) return 0;
+    const start = this.partStart === Number.POSITIVE_INFINITY ? 0 : this.partStart;
+    const targetKeyAt = (offset: number, length: number): string => {
+      const value = parseLine(this.lineAt(offset, length));
+      return value ? String(value[2]).slice(0, 15) : '';
+    };
+    /** The code of this part's latest word on the mapping a line holds, when the line is that word and names its object. */
+    const latestCode = (line: JournalLine, value: unknown[]): number | undefined => {
+      if (line.offset < start) return undefined;
+      const code = CODE_OF_TAG[String(value[0])];
+      if (code === undefined || code === READ || !value[3]) return undefined;
+      const sourceId = String(value[1]);
+      const slot = this.index.find(sourceId, hashA(sourceId), hashB(sourceId), line.offset);
+      return slot >= 0 && this.index.offsetOf(slot) === line.offset ? code : undefined;
+    };
+    const keyed = (index: SourceIdIndex, key: string, line: JournalLine): void => {
+      const a = hashA(key);
+      const b = hashB(key);
+      index.put(index.find(key, a, b), a, b, line.offset, line.length, 0);
+    };
+    const has = (index: SourceIdIndex, key: string): boolean =>
+      index.size > 0 && index.find(key, hashA(key), hashB(key)) >= 0;
+
+    // The records this part's linked rows name.
+    const named = new SourceIdIndex(targetKeyAt);
+    for (const line of this.lines()) {
+      if (!line.text.startsWith('["')) continue;
+      const value = parseLine(line.text);
+      if (!value || latestCode(line, value) !== EXISTING) continue;
+      if (this.markedWithTheirRecord(String(value[1]))) continue;
+      keyed(named, String(value[2]).slice(0, 15), line);
+    }
+    if (named.size === 0) return 0;
+    // Of them, those this part created: by a row, or by a job under no row.
+    const own = new SourceIdIndex(targetKeyAt);
+    const jobsOwn = new Set<string>();
+    for (const line of this.lines()) {
+      if (!line.text.startsWith('["') || line.offset < start) continue;
+      const value = parseLine(line.text);
+      if (!value) continue;
+      if (value[0] === UNATTRIBUTED_TAG && Array.isArray(value[2])) {
+        for (const id of value[2]) {
+          const key = String(id).slice(0, 15);
+          if (has(named, key)) jobsOwn.add(key);
+        }
+        continue;
+      }
+      if (latestCode(line, value) !== CREATED) continue;
+      const key = String(value[2]).slice(0, 15);
+      if (has(named, key)) keyed(own, key, line);
+    }
+    if (own.size === 0 && jobsOwn.size === 0) return 0;
+    // The linked rows that name one of those.
+    let count = 0;
+    for (const line of this.lines()) {
+      if (!line.text.startsWith('["')) continue;
+      const value = parseLine(line.text);
+      if (!value || latestCode(line, value) !== EXISTING) continue;
+      if (this.markedWithTheirRecord(String(value[1]))) continue;
+      const key = String(value[2]).slice(0, 15);
+      if (has(own, key) || jobsOwn.has(key)) count++;
+    }
+    return count;
+  }
+
   /** Per object, the records earlier parts mapped with it; past its checkpoint, with `pastCheckpoint`. */
   earlierRecordsOf(objectApiName: string, pastCheckpoint = false): number {
     return (

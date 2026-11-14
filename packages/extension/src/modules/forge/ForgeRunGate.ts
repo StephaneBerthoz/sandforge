@@ -1703,35 +1703,97 @@ export function forgeWriteBudgetOf(input: ForgeWriteBudgetInput): ForgeWriteBudg
   };
 }
 
-/** What the rows take against what the target has left, or why that could not be told. */
+/**
+ * What the rows take against what the target has left, or why that could not
+ * be told. `automationMB` is the part of `estimateMB` the target's automation
+ * that still runs creates under the rows ({@link automationBytesOf}), counted
+ * with them; absent when nothing is.
+ */
 export type StorageCheck =
   | {
       verdict: 'fits' | 'near' | 'exceeds';
       estimateMB: number;
       maxMB: number;
       remainingMB: number;
+      automationMB?: number;
     }
-  | { verdict: 'unread'; estimateMB: number; unread: string };
+  | { verdict: 'unread'; estimateMB: number; unread: string; automationMB?: number };
 
 /**
  * The rows' storage against the target's: `exceeds` past what it has left,
  * `near` past {@link STORAGE_NEAR_SHARE} of it, `unread` when the target did
  * not say.
+ *
+ * @param automationBytes - What the target's automation that still runs
+ *   creates under the rows ({@link automationBytesOf}): counted with them.
  */
 export function storageCheckOf(
   plan: Pick<WritePlan, 'storageBytes'>,
   storage: DataStorage | { unread: string },
+  automationBytes = 0,
 ): StorageCheck {
-  const estimateMB = plan.storageBytes / BYTES_PER_MB;
-  if ('unread' in storage) return { verdict: 'unread', estimateMB, unread: storage.unread };
+  const automation = Math.max(0, automationBytes);
+  const bytes = plan.storageBytes + automation;
+  const estimateMB = bytes / BYTES_PER_MB;
+  const said = automation > 0 ? { automationMB: automation / BYTES_PER_MB } : {};
+  if ('unread' in storage) {
+    return { verdict: 'unread', estimateMB, unread: storage.unread, ...said };
+  }
   const { maxMB, remainingMB } = storage;
   const verdict =
-    plan.storageBytes > remainingMB * BYTES_PER_MB
+    bytes > remainingMB * BYTES_PER_MB
       ? 'exceeds'
-      : plan.storageBytes > STORAGE_NEAR_SHARE * remainingMB * BYTES_PER_MB
+      : bytes > STORAGE_NEAR_SHARE * remainingMB * BYTES_PER_MB
         ? 'near'
         : 'fits';
-  return { verdict, estimateMB, maxMB, remainingMB };
+  return { verdict, estimateMB, maxMB, remainingMB, ...said };
+}
+
+/**
+ * What the target's automation that still runs creates under the rows a run
+ * writes: per object, its rows times what one record of it gets
+ * (`automationRoomOf`), every act the run makes of it counted under each
+ * record, as a sample of the whole org counts it (`sampleBudgetTermsOf`).
+ *
+ * Run for real on a whole org into a Developer Edition with 5 MB left, the
+ * gate counted 1 412 records, about 2.76 MB, and let them through, while a
+ * flow no mute reaches opens a task under each of the 1 200 contacts: 2.34 MB
+ * more, past what the target had. The run would have gone through its gate
+ * and run out of storage on the way.
+ *
+ * @param perRecord - What still runs creates under one record of each
+ *   object, per act; nothing when none was read.
+ */
+export function automationBytesOf(
+  plan: Pick<WritePlan, 'objects'>,
+  perRecord: readonly { objectApiName: string; bytes: number }[] | undefined,
+): number {
+  if (!perRecord || perRecord.length === 0) return 0;
+  const bytesOf = new Map<string, number>();
+  for (const { objectApiName, bytes } of perRecord) {
+    bytesOf.set(objectApiName, (bytesOf.get(objectApiName) ?? 0) + Math.max(0, bytes));
+  }
+  return plan.objects.reduce(
+    (sum, { objectApiName, rows }) => sum + rows * (bytesOf.get(objectApiName) ?? 0),
+    0,
+  );
+}
+
+/**
+ * What the records to write take, as a refusal and the gate's line say it:
+ * about so many MB of data storage, and of it, what the target's automation
+ * creates under them when it creates any.
+ */
+export function storageTakesWords(
+  check: Pick<StorageCheck, 'estimateMB' | 'automationMB'>,
+): string {
+  return (
+    `about ${formatMB(check.estimateMB)} MB of data storage` +
+    (check.automationMB !== undefined && check.automationMB > 0
+      ? `, about ${formatMB(check.automationMB)} MB of it for what the target's automation ` +
+        'creates under them'
+      : '')
+  );
 }
 
 /**
@@ -1927,6 +1989,10 @@ export const DELIVERABILITY_READ_MOST = 2;
  *   run's gate holds it, to what the target has left now
  *   ({@link sampleGateStopOf}) — refused in place of the data storage's own
  *   refusal, which says less.
+ * @param input.automation - What the target's automation that still runs
+ *   creates under one record of each object the run writes
+ *   (`automationRoomOf`): counted with the records against the data storage
+ *   ({@link automationBytesOf}), as the run's gate counts it.
  */
 export async function wholeOrgDryRunOf(input: {
   objects: ForgeWriteBoundary['objects'];
@@ -1940,6 +2006,7 @@ export async function wholeOrgDryRunOf(input: {
   deliverability?: number;
   sentBefore?: () => { target: number; source?: number };
   sample?: WholeOrgSample;
+  automation?: readonly { objectApiName: string; bytes: number }[];
   target: { org: string; limits: LimitsTransport };
   source: { org: string; limits: LimitsTransport };
 }): Promise<WholeOrgDryRun> {
@@ -1952,7 +2019,7 @@ export async function wholeOrgDryRunOf(input: {
       : limits.dailyApiRequests;
   const sourceBudget = await readApiBudget(input.source.limits).catch(unread);
 
-  const storage = storageCheckOf(plan, limits);
+  const storage = storageCheckOf(plan, limits, automationBytesOf(plan, input.automation));
   const overStorage = storageRefusal(storage, input.target.org);
   const sampleStop = input.sample
     ? sampleGateStopOf({ sample: input.sample, storage: limits, target: input.target.org })
@@ -3741,7 +3808,7 @@ export function filesRefusalStop(error: unknown): ForgeRunGateError | undefined 
 export function storageRefusal(check: StorageCheck, target: string): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;
   return (
-    `The records to write take about ${formatMB(check.estimateMB)} MB of data storage, and ` +
+    `The records to write take ${storageTakesWords(check)}, and ` +
     `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: leave objects out, ` +
     `lower the records per object, or free data storage in ${target}.`
   );
@@ -3756,8 +3823,7 @@ const LISTED_OBJECTS = 10;
  */
 export function writePlanLines(plan: WritePlan, check: StorageCheck, target: string): string[] {
   const lines = [
-    `write gate: ${plan.totalRows} record(s) to write to ${target}, about ` +
-      `${formatMB(check.estimateMB)} MB of data storage`,
+    `write gate: ${plan.totalRows} record(s) to write to ${target}, ${storageTakesWords(check)}`,
   ];
   for (const object of plan.objects.slice(0, LISTED_OBJECTS)) {
     lines.push(`  ${object.objectApiName.padEnd(42)}${String(object.rows).padStart(8)}`);

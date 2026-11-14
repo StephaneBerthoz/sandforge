@@ -816,10 +816,21 @@ export type ForgeWholeOrgAllowanceCheck =
     }
   | { verdict: 'unread'; estimate: number; unread: string; parts?: ForgeWholeOrgRequestParts };
 
-/** A storage of the target as the dry run of a clone of the whole org weighs it, in MB. */
+/**
+ * A storage of the target as the dry run of a clone of the whole org weighs
+ * it, in MB. Of the data storage, `automationMB` is the part of `estimateMB`
+ * the target's automation that still runs creates under the records, counted
+ * with them; absent when nothing is.
+ */
 export type ForgeWholeOrgStorageCheck =
-  | { verdict: 'fits' | 'near' | 'exceeds'; estimateMB: number; maxMB: number; remainingMB: number }
-  | { verdict: 'unread'; estimateMB: number; unread: string };
+  | {
+      verdict: 'fits' | 'near' | 'exceeds';
+      estimateMB: number;
+      maxMB: number;
+      remainingMB: number;
+      automationMB?: number;
+    }
+  | { verdict: 'unread'; estimateMB: number; unread: string; automationMB?: number };
 
 /**
  * A refusal the run of a clone of the whole org would meet at its write gate,
@@ -1012,6 +1023,23 @@ export interface WholeOrgSampleObject {
 }
 
 /**
+ * A master of a sample that keeps part of its details: copied whole, of the
+ * details the source holds, those the sample keeps (`kept`, `sourceRows`);
+ * drawn, its records brought in as a parent (`asParents`), whose details come
+ * only as far as the sample drew them on their own.
+ */
+export interface WholeOrgSamplePartialMaster {
+  /** The master object. */
+  objectApiName: string;
+  /** The detail object, and its field that names the master. */
+  details: string;
+  field: string;
+  kept?: number;
+  sourceRows?: number;
+  asParents?: number;
+}
+
+/**
  * What a sample of the whole org drew, how, and what it left out: what the
  * dry run says before anything is written, and the command line's
  * `wholeOrg.sample`. Counts and names; the ids are in the plan, on disk, but
@@ -1058,6 +1086,15 @@ export interface WholeOrgSample {
   noRecordDrawn: Array<{ objectApiName: string; sourceRows: number }>;
   /** The requests drawing the plan sent the source. */
   planRequests: { source: number };
+  /**
+   * The masters in the sample that keep part of their details, by the
+   * detail's field naming them: what a master sums of its details — an
+   * opportunity's amount of its line items, a roll-up summary — counts those
+   * written alone. Run for real, opportunities copied whole kept 3 of their 4
+   * line items, and nothing said their amounts were short. Absent when there
+   * are none.
+   */
+  partialMasters?: WholeOrgSamplePartialMaster[];
   /**
    * The objects whose newest were taken in the order of their ids, having no
    * creation date the org orders by — the roots of a draw of the most recent
@@ -2355,6 +2392,15 @@ export interface ForgeExecutionResult {
    * its ids, counted. Absent when there were none.
    */
   withTheirRecordCount?: number;
+  /**
+   * Of a run whose ids are in its journal (`remapInJournal`), the records of
+   * `linkedExistingCount` linked to a record the run created itself — the
+   * target refused the row as a copy of a record the run had just written —
+   * which its removal takes with the rest of the run's: what
+   * `forgeRunLinkedKept` leaves out of a run that keeps its ids, counted.
+   * Absent when there were none.
+   */
+  linkedToCreatedCount?: number;
   /**
    * Records this run created. The graph's per-node counts are never filled
    * in by a run, so without this the results read zero whatever was written.

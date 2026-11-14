@@ -264,6 +264,7 @@
   "Personal fields copied as they are, not anonymized, {0} in all, per object: {1}.": "Campos pessoais copiados como estão, sem anonimização, {0} no total, por objeto: {1}.",
   "This clone copies a sample of {0} into {1}: {2} objects, {3} records.": "Esta clonagem copia uma amostra de {0} para {1}: {2} objetos, {3} registros.",
   "The sample keeps {0} of the {1} records {2} holds of these objects: about {3} MB of the {4} MB it may take.": "A amostra mantém {0} dos {1} registros que {2} tem desses objetos: cerca de {3} MB dos {4} MB que pode ocupar.",
+  "Of it, about {0} MB for what the automation of the target creates under its records.": "Dos quais cerca de {0} MB para o que a automação do destino cria sob seus registros.",
   "Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.": "Sorteada com a semente {0}, {1}: {2} % das raízes de cada objeto, com os registros que elas alcançam; limitada por {3}.",
   "spread over the org": "distribuída pela org",
   "the newest first": "os mais recentes primeiro",

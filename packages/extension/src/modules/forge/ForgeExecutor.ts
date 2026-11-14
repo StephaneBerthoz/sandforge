@@ -1733,6 +1733,14 @@ export interface ExecutionSummary {
    */
   withTheirRecordCount?: number;
   /**
+   * Of a run whose ids are in its journal (`remapInJournal`), the records of
+   * `linkedCount` linked to a record the run created itself — the target
+   * refused the row as a copy of a record the run had just written — which a
+   * removal of the run takes with that record
+   * (`ForgeRunStore.linkedToCreatedCount`). Absent when there were none.
+   */
+  linkedToCreatedCount?: number;
+  /**
    * Of a run of a sample of the whole org, how it was drawn and what it wrote
    * of each object of its plan: written or linked to, gone from the source
    * since the plan, held back for a record that changed since. Absent from
@@ -10955,10 +10963,12 @@ export class ForgeExecutor {
       withTheirRecord: new Set<string>(),
     });
     const withTheirRecord = state.store?.withTheirRecordCount ?? 0;
+    const linkedToCreated = state.store?.linkedToCreatedCount() ?? 0;
     return {
       ...summary,
       remapCount: state.remapper.count,
       ...(withTheirRecord > 0 ? { withTheirRecordCount: withTheirRecord } : {}),
+      ...(linkedToCreated > 0 ? { linkedToCreatedCount: linkedToCreated } : {}),
       remapByObject: state.remapper.countsByObject(),
       ...(state.requestsBefore !== undefined && requestsNow !== undefined
         ? { apiCalls: requestsNow - state.requestsBefore }

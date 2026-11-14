@@ -874,6 +874,20 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       'The records have been counted, and nothing has been read or written yet.',
     ]);
 
+    // What the target's automation creates under its records, said after
+    // what the sample takes: run for real, 1.65 MB of tasks a flow opens
+    // under the contacts, which only the total said.
+    const wholeOrg = sampled.wholeOrg;
+    if (!wholeOrg?.sample) throw new Error('no sample');
+    const flowing = runQuestionDetail({
+      ...sampled,
+      wholeOrg: { ...wholeOrg, sample: { ...wholeOrg.sample, automationMB: 1.65 } },
+    }).split('\n');
+    const keeps = flowing.findIndex((line) => line.startsWith('The sample keeps'));
+    expect(flowing[keeps + 1]).toBe(
+      'Of it, about 1.65 MB for what the automation of the target creates under its records.',
+    );
+
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Copy the sample' as never);
     const { productionGuard } = createBackgroundComposition({
       configStore: createMockConfigStore(),

@@ -268,6 +268,18 @@ describe('the question of a clone of the whole org', () => {
     expect(own.sample).toMatchObject({ drawnBy: 'run', drawnAgain: 'tooOld' });
     expect(own.sample).not.toHaveProperty('minutesBefore');
     expect(own.sample).not.toHaveProperty('newestByIds');
+    expect(own.sample).not.toHaveProperty('automationMB');
+    // What the target's automation creates under its records, said apart:
+    // run for real, the 1.65 MB of tasks a flow opens under the contacts.
+    const flowing = wholeOrgConfirmationOf({
+      run: { source: 'SRC', graph, anonymizePII: true },
+      measures,
+      plan,
+      budget: pricedOfTheDryRun(dry),
+      sample: { ...sample, budget: { ...sample.budget, automationMB: 1.65 } },
+      now: Date.parse('2026-11-14T14:09:30.000Z'),
+    });
+    expect(flowing.sample).toMatchObject({ storageMB: 3.5, automationMB: 1.65 });
   });
 
   // The most recent records of an object with no creation date the org

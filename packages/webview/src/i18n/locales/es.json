@@ -5088,6 +5088,7 @@
         "near": "unos {{estimate}} MB, de {{remaining}} MB restantes de {{max}} MB: más del 80 % de lo que queda",
         "exceeds": "unos {{estimate}} MB, más allá de los {{remaining}} MB restantes de {{max}} MB"
       },
+      "storageAutomation": "de ellos, unos {{automation}} MB para lo que crea la automatización del destino bajo los registros",
       "storageUnread": "unos {{estimate}} MB; no se pudo leer lo que queda: {{reason}}",
       "targetRequests": "Solicitudes de API de {{org}}, el destino",
       "sourceRequests": "Solicitudes de API de {{org}}, el origen",
@@ -5178,6 +5179,9 @@
           "recordTypeNotInTarget": "el destino no tiene su tipo de registro"
         },
         "leftEmpty": "Búsquedas escritas vacías, al estar su registro fuera de la muestra: {{fields}}.",
+        "partialMasters": "Maestros que conservan parte de sus detalles: {{masters}}. Lo que un maestro así suma de ellos, el importe de una oportunidad o un campo de resumen, cuenta solo los detalles escritos.",
+        "partialMasterWhole": "{{object}}, copiado entero: {{kept}} de los {{rows}} registros de {{details}} ({{details}}.{{field}})",
+        "partialMasterParents": "{{rows}} registros de {{object}} traídos como padres, solo con los registros de {{details}} sorteados por sí mismos ({{details}}.{{field}})",
         "newestByIds": "Los más recientes por el orden de sus ids, al no tener fecha de creación por la que ordene la org: {{objects}}.",
         "requests": "La extracción envió {{requests}} solicitudes de API a {{source}}.",
         "plan": "El plan se guarda en este equipo durante un día: {{path}} (SHA-256 {{sha}}…). Ejecutar Forge lo retoma mientras la ejecución esté configurada igual; si no, la ejecución extrae de nuevo y dice por qué."

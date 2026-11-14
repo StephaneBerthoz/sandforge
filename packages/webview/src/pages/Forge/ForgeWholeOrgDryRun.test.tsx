@@ -138,6 +138,24 @@ describe('ForgeWholeOrgDryRunResult', () => {
     expect(screen.getByText('API requests of prod, the source')).toBeDefined();
   });
 
+  it('says how much of the storage is what the target’s automation creates under the records', () => {
+    // Run for real into a Developer Edition, a flow opening a task under each
+    // contact took 2.34 MB the records alone never said.
+    renderDry({
+      storage: {
+        verdict: 'exceeds',
+        estimateMB: 5.1,
+        maxMB: 5,
+        remainingMB: 5,
+        automationMB: 2.34,
+      },
+    });
+
+    expect(screen.getByTestId('forge-whole-org-dry-run-storage').textContent).toBe(
+      'about 5.1 MB, past the 5 MB left out of 5 MB; of it, about 2.3 MB for what the target’s automation creates under the records',
+    );
+  });
+
   it('says what an org would not tell, rather than a figure', () => {
     renderDry({
       sourceRequests: { verdict: 'unread', estimate: 300, unread: 'INVALID_SESSION_ID' },

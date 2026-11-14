@@ -21,6 +21,7 @@
  */
 
 import {
+  BYTES_PER_MB,
   PRICEBOOK_ENTRY_BOOK_FIELD,
   PRICEBOOK_ENTRY_CURRENCY_FIELD,
   PRICEBOOK_ENTRY_OBJECT,
@@ -628,7 +629,14 @@ export function sampleReportOf(
     parents: options.parents,
     children: options.children,
     share: cut.share,
-    budget: { ...budget, limitedBy: cut.limitedBy },
+    // What the target's automation creates under the records kept, said
+    // apart: run for real, a sample said "about 3.6 MB" and its gate "1.95
+    // MB", the 1.65 MB of tasks a flow opens under its contacts said nowhere.
+    budget: {
+      ...budget,
+      ...(cut.automationBytes > 0 ? { automationMB: cut.automationBytes / BYTES_PER_MB } : {}),
+      limitedBy: cut.limitedBy,
+    },
     rows: cut.rows,
     storageBytes: cut.storageBytes,
     objects: cut.objects,
@@ -637,6 +645,7 @@ export function sampleReportOf(
     dropped: cut.dropped,
     leftEmpty: cut.leftEmpty,
     noRecordDrawn: cut.noRecordDrawn,
+    ...(cut.partialMasters.length > 0 ? { partialMasters: cut.partialMasters } : {}),
     planRequests: { source: drawing.planRequests },
     ...(drawing.newestByIds.length > 0 ? { newestByIds: [...drawing.newestByIds] } : {}),
   };

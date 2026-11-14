@@ -383,6 +383,17 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('withTheirRecordCount');
   });
 
+  it('counts the linked records that go with a record the run created itself, of a run whose ids are in its journal', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const inJournal = summary({ remapInJournal: true, linkedCount: 13, linkedToCreatedCount: 10 });
+
+    expect(forgeRunResult(inJournal, GRAPH, run)).toMatchObject({
+      linkedExistingCount: 13,
+      linkedToCreatedCount: 10,
+    });
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('linkedToCreatedCount');
+  });
+
   it('says a simulation is one, with what it would have created and the gaps it found', () => {
     const gaps = [
       {

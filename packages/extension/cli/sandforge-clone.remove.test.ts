@@ -709,6 +709,39 @@ describe('sandforge-clone --remove', () => {
       );
     });
 
+    // Run for real on a whole org: the target refused the second of a pair of
+    // accounts as a copy of the first, which the run had written, and the
+    // second row was linked to it. The removal said "13 record(s) the target
+    // already held … stay", ten of them the run's own, and left the ten.
+    it('plans the record the run created that another of its rows is linked to, and says only what the target held stays', async () => {
+      const second = SRC('001', 9);
+      const summary = runSummary(
+        {},
+        {
+          remapTable: {
+            ...(runSummary().result as { remapTable: Record<string, string> }).remapTable,
+            [second]: TGT('001', 1),
+          },
+          existingSourceIds: [HELD, PERSON_CONTACT, second],
+        },
+      );
+      expect(await run(['--remove', file(summary), '--target', 'TGT'])).toBeUndefined();
+
+      const [, plan] = vi.mocked(removeRunRecords).mock.calls[0];
+      expect(plan).toEqual([
+        { objectApiName: 'Contact', ids: [TGT('003', 2), TGT('003', 1)] },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+      // Of the three linked: the person account's contact goes with its
+      // account, the second of the pair with the first; the held one stays,
+      // with the contact written over.
+      expect(printed).toEqual(
+        expect.arrayContaining([
+          '2 record(s) the target already held, which the run linked to or wrote over, stay',
+        ]),
+      );
+    });
+
     it("names --include-changed as this script's own to the reader of an apply, whose replace does not take it", async () => {
       // Relayed by sandforge-env apply, the plan of a replace's removal said
       // "(--include-changed takes them)": a flag no apply takes.

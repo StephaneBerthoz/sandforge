@@ -347,6 +347,34 @@ describe("a run's journal", () => {
     expect(await journal.readAt(journal.pathOf('rest'))).not.toHaveProperty('unattributed');
   });
 
+  // Run for real on a whole org, the target refused the second of a pair of
+  // accounts as a copy of the first, which the run had just written, and the
+  // second row was linked to it: the record stayed the run's.
+  it("plans the removal of a record the run created that a row is linked to, and of a job's record a row is linked to", async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('pairs', 'tgt-org', STARTED, RESUME);
+    const store = journal.open('pairs');
+    store.beginPart(STARTED);
+    const held = '001000000000990AAA';
+    const ofTheJob = '003000000000903AAA';
+    store.setMapping('created', ACCOUNT_A, NEW_ACCOUNT_A, 'Account');
+    store.setMapping('existing', ACCOUNT_B, NEW_ACCOUNT_A, 'Account');
+    store.setMapping('existing', '001000000000003AAA', held, 'Account');
+    store.createdUnattributed('Contact', [ofTheJob]);
+    store.setMapping('existing', CONTACT_A, ofTheJob, 'Contact');
+    store.close();
+
+    const read = await journal.readAt(journal.pathOf('pairs'));
+    if (!read) throw new Error('not read');
+    expect(read.created).toEqual([{ objectApiName: 'Account', ids: [NEW_ACCOUNT_A] }]);
+    expect(read.unattributed).toEqual([{ objectApiName: 'Contact', ids: [ofTheJob] }]);
+    expect(ForgeRunJournal.planOf(read)?.objects).toEqual([
+      { objectApiName: 'Contact', ids: [ofTheJob] },
+      { objectApiName: 'Account', ids: [NEW_ACCOUNT_A] },
+    ]);
+  });
+
   it('reads every part of a journal, or one of them, by its file', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

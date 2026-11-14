@@ -894,6 +894,49 @@ describe('the dry run of a clone of the whole org, stopped at its gate', () => {
     expect(source.calls).toEqual(['GET /limits']);
   });
 
+  // Run for real on a whole org into a Developer Edition with 5 MB left: the
+  // gate counted 1 412 records, about 2.76 MB, and let them through, while a
+  // flow of the target that no mute reaches opens a task under each of the
+  // 1 200 contacts, 2.34 MB more: the run would have run out of storage on
+  // the way, and a sample that fits was never offered.
+  it('counts with the records what the target’s automation creates under them, and refuses the storage it would take', async () => {
+    const contacts = [
+      counted('Contact', 1_200),
+      counted('Account', 41),
+      counted('Case', 40),
+      counted('Lead', 131),
+    ];
+    const developerEdition = () =>
+      readOnlyOrg(limitsAnswer({ DataStorageMB: { Max: 5, Remaining: 5 } }));
+    const source = () => readOnlyOrg({ DailyApiRequests: { Max: 15_000, Remaining: 14_900 } });
+    const dryRunOf = (automation?: Array<{ objectApiName: string; bytes: number }>) =>
+      wholeOrgDryRunOf({
+        objects: contacts,
+        measures: {},
+        graph,
+        anonymizePII: false,
+        ...(automation ? { automation } : {}),
+        target: { org: 'TGT-DE', limits: developerEdition() },
+        source: { org: 'SRC', limits: source() },
+      });
+    // A task, at the size the documented storage gives it, under each contact.
+    const flow = [{ objectApiName: 'Contact', bytes: 2_048 }];
+
+    const dry = await dryRunOf(flow);
+
+    expect(dry.storage).toMatchObject({ verdict: 'exceeds', remainingMB: 5 });
+    expect(dry.storage.automationMB).toBeCloseTo((1_200 * 2_048) / MB);
+    expect(dry.storage.estimateMB).toBeCloseTo(((1_412 + 1_200) * 2_048) / MB);
+    const refused = dry.wouldBeRefused.find((stop) => stop.code === 'STORAGE_EXCEEDED');
+    expect(refused?.message).toMatch(
+      /about 5\.\d+ MB of data storage, about 2\.3\d MB of it for what the target's automation creates under them/,
+    );
+    // Without anything that still runs, the same records fit.
+    const quiet = await dryRunOf();
+    expect(quiet.storage).toMatchObject({ verdict: 'fits' });
+    expect(quiet.storage).not.toHaveProperty('automationMB');
+  });
+
   it('reads the target’s requests on their own when its limits leave the storage out, and says what it could not read', async () => {
     const target = readOnlyOrg({ DailyApiRequests: { Max: 5_000_000, Remaining: 4_000_000 } });
     const source = readOnlyOrg(new Error('INSUFFICIENT_ACCESS: no API access'));

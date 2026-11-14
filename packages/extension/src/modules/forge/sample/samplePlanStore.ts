@@ -257,6 +257,18 @@ const sampleSchema = z.object({
     z.object({ objectApiName: objectNameSchema, field: z.string(), rows: countSchema }),
   ),
   noRecordDrawn: z.array(z.object({ objectApiName: objectNameSchema, sourceRows: countSchema })),
+  partialMasters: z
+    .array(
+      z.object({
+        objectApiName: objectNameSchema,
+        details: objectNameSchema,
+        field: z.string(),
+        kept: countSchema.optional(),
+        sourceRows: countSchema.optional(),
+        asParents: countSchema.optional(),
+      }),
+    )
+    .optional(),
   planRequests: z.object({ source: countSchema }),
   newestByIds: z.array(objectNameSchema).optional(),
 }) satisfies z.ZodType<WholeOrgSampleDrawn>;

@@ -58,15 +58,49 @@ describe('forgeRunCreatedRecords', () => {
     expect(accounts?.ids).toEqual([tgt('001', 1)]);
   });
 
-  it('leaves out a record a linked row points at, even one another row wrote', () => {
+  // Run for real on a whole org: ten pairs of source accounts held one external
+  // id the target keeps unique. The run wrote the first of each pair, and the
+  // target refused the second as a duplicate of the record the run had just
+  // created, which the second row was linked to. Left out as records the
+  // target held, the ten were never verified, and a removal said success with
+  // them still in the org.
+  it('keeps a record the run created when another of its rows is linked to it', () => {
     const entry = accountsThenContacts();
-    // A second source contact was refused as a copy of the first and linked to it.
-    entry.idRemapTable = { ...entry.idRemapTable, [src('003', 4)]: tgt('003', 1) };
-    entry.idRemapExisting = [src('003', 4)];
+    entry.idRemapTable = {
+      ...entry.idRemapTable,
+      // Refused as a copy of the first account, which the run had written.
+      [src('001', 3)]: tgt('001', 1),
+      // Refused as a copy of an account the target held before the run.
+      [src('001', 4)]: tgt('001', 8),
+      // Refused as a copy of the first contact, which the run had written.
+      [src('003', 4)]: tgt('003', 1),
+    };
+    entry.idRemapExisting = [src('001', 3), src('001', 4), src('003', 4)];
 
-    const contacts = forgeRunCreatedRecords(entry).find((o) => o.objectApiName === 'Contact');
+    const plan = forgeRunCreatedRecords(entry);
 
-    expect(contacts?.ids).toEqual([tgt('003', 3), tgt('003', 2)]);
+    expect(plan).toEqual([
+      { objectApiName: 'Contact', ids: [tgt('003', 3), tgt('003', 2), tgt('003', 1)] },
+      { objectApiName: 'Account', ids: [tgt('001', 2), tgt('001', 1)] },
+    ]);
+    expect(plan.flatMap((o) => o.ids)).not.toContain(tgt('001', 8));
+    expect(forgeRunCountsLeft(entry)).toEqual([
+      { objectApiName: 'Contact', count: 3 },
+      { objectApiName: 'Account', count: 2 },
+    ]);
+  });
+
+  it('never takes the record of a row the remap says was linked, whatever list names it as created', () => {
+    const entry = accountsThenContacts();
+    // The second account is linked to the target's own; a list that still
+    // names it among the created rows does not make that record the run's.
+    entry.idRemapTable = { ...entry.idRemapTable, [src('001', 2)]: tgt('001', 8) };
+    entry.idRemapExisting = [src('001', 2)];
+
+    const ids = forgeRunCreatedRecords(entry).flatMap((o) => o.ids);
+
+    expect(ids).not.toContain(tgt('001', 8));
+    expect(ids).toContain(tgt('001', 1));
   });
 
   it('leaves out what the table maps without the run having created it', () => {
@@ -143,6 +177,22 @@ describe('forgeRunLinkedKept', () => {
         idRemapWithTheirRecord: [src('003', 1), src('07k', 1), src('00T', 1)],
       }),
     ).toEqual([src('001', 2), src('003', 2)]);
+  });
+
+  it('leaves out of what a removal keeps the rows linked to a record the run created, which it takes', () => {
+    // The second of a pair the target refused as a copy of the first, which
+    // the run had written: said to stay as a record the target held, it went
+    // with the removal.
+    const entry = accountsThenContacts();
+    entry.idRemapTable = {
+      ...entry.idRemapTable,
+      [src('001', 3)]: tgt('001', 1),
+      [src('001', 4)]: tgt('001', 8),
+    };
+    entry.idRemapExisting = [src('001', 3), src('001', 4)];
+
+    expect(forgeRunLinkedKept(entry)).toEqual([src('001', 4)]);
+    expect(forgeRunLinkedKeptCount(entry)).toBe(1);
   });
 
   it('keeps every linked record of an entry recorded before it said which go with their record', () => {
@@ -470,6 +520,15 @@ describe('a run whose ids are in its journal', () => {
     expect(forgeRunLinkedKeptCount(inTheJournal({ withTheirRecordCount: 2 }))).toBe(0);
     expect(forgeRunLinkedKeptCount(inTheJournal({ withTheirRecordCount: 1 }))).toBe(1);
     expect(forgeRemovalPlanOf(inTheJournal({ withTheirRecordCount: 1 }))?.linked).toBe(1);
+  });
+
+  it('leaves out of what it keeps, counted, the rows linked to a record the run created', () => {
+    expect(forgeRunLinkedKeptCount(inTheJournal({ linkedToCreatedCount: 2 }))).toBe(0);
+    expect(forgeRunLinkedKeptCount(inTheJournal({ linkedToCreatedCount: 1 }))).toBe(1);
+    expect(
+      forgeRunLinkedKeptCount(inTheJournal({ linkedToCreatedCount: 1, withTheirRecordCount: 1 })),
+    ).toBe(0);
+    expect(forgeRemovalPlanOf(inTheJournal({ linkedToCreatedCount: 1 }))?.linked).toBe(1);
   });
 
   it('keeps a plan that names its journal and holds no id, counted as the entry counts it', () => {

@@ -4,6 +4,7 @@ import {
   emptiedOf,
   fakeId,
   lookup,
+  masterDetail,
   orphansOf,
   required,
   type FakeObject,
@@ -147,6 +148,109 @@ describe('drawTheSample: the cut', () => {
     const sample = sampled((await sampleOf(objects, { bytes: 60 * KB, draw: 'recent' })).cut);
     // Created in the reverse of their ids: the ten kept are the ten smallest ids.
     expect(idsOf(sample, 'Account')).toEqual(Array.from({ length: 10 }, (_, n) => A(n + 1)));
+  });
+
+  // Run for real into a Developer Edition, a sample counted the tasks a flow
+  // opens under its contacts and said them nowhere: its line said "about 3.6
+  // MB" and its gate "1.95 MB".
+  it('says apart, of what it takes, what the target’s automation creates under the records it inserts', async () => {
+    const { cut } = await sampleOf(accountsAndContacts(300, 2), {
+      bytes: 100 * KB,
+      automationBytes: (objectApiName) => (objectApiName === 'Contact' ? 2 * KB : 0),
+    });
+    const sample = sampled(cut);
+    const contacts = idsOf(sample, 'Contact').length;
+    expect(contacts).toBeGreaterThan(0);
+    expect(sample.automationBytes).toBe(contacts * 2 * KB);
+    expect(sample.storageBytes).toBe(sample.rows * 2 * KB + sample.automationBytes);
+
+    const quiet = sampled((await sampleOf(accountsAndContacts(300, 2), { bytes: 100 * KB })).cut);
+    expect(quiet.automationBytes).toBe(0);
+  });
+
+  // Run for real on a whole org: Opportunity, a small parent, was copied
+  // whole, and 3 of its 4 line items were drawn as roots. Each opportunity's
+  // amount came to the lines written, and neither the dry run nor the run
+  // said so.
+  it('names a master copied whole that keeps part of its details, what it sums of them counting those written alone', async () => {
+    const objects: FakeObject[] = [
+      {
+        name: 'Opportunity',
+        keyPrefix: '006',
+        fields: [],
+        records: [1, 2].map((n) => ({ id: O(n) })),
+      },
+      {
+        name: 'OpportunityLineItem',
+        keyPrefix: '00k',
+        fields: [masterDetail('OpportunityId', 'Opportunity')],
+        records: [1, 2, 3, 4].map((n) => ({
+          id: fakeId('00k', n),
+          refs: { OpportunityId: O(n <= 2 ? 1 : 2) },
+        })),
+      },
+    ];
+
+    const part = sampled((await sampleOf(objects, { bytes: 10 * KB, whole: ['Opportunity'] })).cut);
+    expect(idsOf(part, 'OpportunityLineItem')).toHaveLength(3);
+    expect(part.partialMasters).toEqual([
+      {
+        objectApiName: 'Opportunity',
+        details: 'OpportunityLineItem',
+        field: 'OpportunityId',
+        kept: 3,
+        sourceRows: 4,
+      },
+    ]);
+
+    // Every line kept: nothing to say.
+    const all = sampled((await sampleOf(objects, { bytes: 20 * KB, whole: ['Opportunity'] })).cut);
+    expect(idsOf(all, 'OpportunityLineItem')).toHaveLength(4);
+    expect(all.partialMasters).toEqual([]);
+  });
+
+  it('names a master drawn whose records come in as a parent, their details only as far as the sample drew them', async () => {
+    // Each line names its invoice, its master, and its item: an item
+    // drawn brings its lines, and they bring in their invoices as parents,
+    // without the invoices' other lines.
+    const objects: FakeObject[] = [
+      {
+        name: 'Item__c',
+        keyPrefix: 'a03',
+        fields: [],
+        records: Array.from({ length: 30 }, (_, n) => ({ id: fakeId('a03', n + 1) })),
+      },
+      {
+        name: 'Invoice__c',
+        keyPrefix: 'a01',
+        fields: [],
+        records: Array.from({ length: 30 }, (_, n) => ({ id: fakeId('a01', n + 1) })),
+      },
+      {
+        name: 'Line__c',
+        keyPrefix: 'a02',
+        fields: [masterDetail('Invoice__c', 'Invoice__c'), required('Item__c', 'Item__c')],
+        records: Array.from({ length: 90 }, (_, n) => ({
+          id: fakeId('a02', n + 1),
+          refs: {
+            Invoice__c: fakeId('a01', (n % 30) + 1),
+            Item__c: fakeId('a03', Math.floor(n / 3) + 1),
+          },
+        })),
+      },
+    ];
+
+    const part = sampled((await sampleOf(objects, { bytes: 60 * KB })).cut);
+    const invoices = part.objects.find((object) => object.objectApiName === 'Invoice__c');
+    expect(invoices?.asParents).toBeGreaterThan(0);
+    expect(part.partialMasters).toEqual([
+      {
+        objectApiName: 'Invoice__c',
+        details: 'Line__c',
+        field: 'Invoice__c',
+        asParents: invoices?.asParents,
+      },
+    ]);
   });
 
   it('keeps of a smaller budget a part of what a larger one keeps', async () => {

@@ -24,17 +24,32 @@ function recordKey(id: string): string {
   return id.slice(0, 15);
 }
 
+/** The record id an entry's remap gives a source id, when it gives one. */
+function targetsOf(
+  entry: Pick<ForgeExecutionResult, 'idRemapTable'>,
+): (sourceId: string) => string | undefined {
+  const table = entry.idRemapTable ?? {};
+  return (sourceId) => {
+    const id = Object.prototype.hasOwnProperty.call(table, sourceId) ? table[sourceId] : undefined;
+    return typeof id === 'string' && RECORD_ID.test(id) ? id : undefined;
+  };
+}
+
 /**
  * What removing a run's records takes from its target org: per object, the
  * ids of the records the run created, the objects in the order they are to be
  * removed — children before their parents, the reverse of the order the run
  * wrote them — and within an object the last record written first.
  *
- * Created means a row `idRemapCreated` names. A record any row of
- * `idRemapExisting` points at — one the target already held, linked to rather
- * than written — is never the run's to remove, whichever row names it. A row
- * whose target is not a record id, and an object whose name could not be
- * queried, are left out: the entry comes back from storage.
+ * Created means a row `idRemapCreated` names, less a row `idRemapExisting`
+ * names too: the remap's latest word on it is that it was linked to a record,
+ * or written over, and that record is not the run's. A record the run created
+ * stays the run's when another of its rows is linked to it — the target
+ * refused that row as a copy of the record the run had just written: run on
+ * a whole org, ten such accounts were left out as records the target held,
+ * and a removal said success with them still in the org. A row whose target
+ * is not a record id, and an object whose name could not be queried, are
+ * left out: the entry comes back from storage.
  *
  * Shared by the panel that asks for a removal and the extension that runs it,
  * so the counts a confirmation names are the ones the removal sets out to
@@ -46,16 +61,8 @@ function recordKey(id: string): string {
 export function forgeRunCreatedRecords(
   entry: Pick<ForgeExecutionResult, 'idRemapTable' | 'idRemapExisting' | 'idRemapCreated'>,
 ): ForgeRunObjectRecords[] {
-  const table = entry.idRemapTable ?? {};
-  const targetOf = (sourceId: string): string | undefined => {
-    const id = Object.prototype.hasOwnProperty.call(table, sourceId) ? table[sourceId] : undefined;
-    return typeof id === 'string' && RECORD_ID.test(id) ? id : undefined;
-  };
-  const linkedTargets = new Set<string>();
-  for (const sourceId of Array.isArray(entry.idRemapExisting) ? entry.idRemapExisting : []) {
-    const target = targetOf(sourceId);
-    if (target) linkedTargets.add(recordKey(target));
-  }
+  const targetOf = targetsOf(entry);
+  const linked = new Set(Array.isArray(entry.idRemapExisting) ? entry.idRemapExisting : []);
 
   const created = Array.isArray(entry.idRemapCreated) ? entry.idRemapCreated : [];
   const taken = new Set<string>();
@@ -64,10 +71,11 @@ export function forgeRunCreatedRecords(
     if (!OBJECT_NAME.test(objectApiName) || !Array.isArray(sourceIds)) continue;
     const ids: string[] = [];
     for (const sourceId of [...sourceIds].reverse()) {
+      if (linked.has(sourceId)) continue;
       const target = targetOf(sourceId);
       if (!target) continue;
       const key = recordKey(target);
-      if (linkedTargets.has(key) || taken.has(key)) continue;
+      if (taken.has(key)) continue;
       taken.add(key);
       ids.push(target);
     }
@@ -81,19 +89,33 @@ export function forgeRunCreatedRecords(
  * by source id: those `idRemapExisting` names, less those the platform wrote
  * with a record the run created (`idRemapWithTheirRecord`) — a person
  * account's contact, a contact's direct relation to its account, an email's
- * task — which it deletes with that record. Counted as kept, a removal's
- * confirmation said they stayed in the org, though they went with it.
+ * task — which it deletes with that record, and less those linked to a record
+ * the run created itself (`forgeRunCreatedRecords`), which it deletes too.
+ * Counted as kept, a removal's confirmation said they stayed in the org,
+ * though they went with it: "13 record(s) the target already held … stay",
+ * of which ten were the run's own accounts.
  *
  * @param entry - A run's history entry.
  */
 export function forgeRunLinkedKept(
-  entry: Pick<ForgeExecutionResult, 'idRemapExisting' | 'idRemapWithTheirRecord'>,
+  entry: Pick<
+    ForgeExecutionResult,
+    'idRemapTable' | 'idRemapExisting' | 'idRemapCreated' | 'idRemapWithTheirRecord'
+  >,
 ): string[] {
   const existing = Array.isArray(entry.idRemapExisting) ? entry.idRemapExisting : [];
   const withTheirRecord = new Set(
     Array.isArray(entry.idRemapWithTheirRecord) ? entry.idRemapWithTheirRecord : [],
   );
-  return existing.filter((sourceId) => !withTheirRecord.has(sourceId));
+  const created = new Set(
+    forgeRunCreatedRecords(entry).flatMap(({ ids }) => ids.map((id) => recordKey(id))),
+  );
+  const targetOf = targetsOf(entry);
+  return existing.filter((sourceId) => {
+    if (withTheirRecord.has(sourceId)) return false;
+    const target = targetOf(sourceId);
+    return target === undefined || !created.has(recordKey(target));
+  });
 }
 
 /**
@@ -301,21 +323,30 @@ export function forgeRemovalPlanCountsLeft(
  * The records a run linked to that removing its records leaves, counted:
  * {@link forgeRunLinkedKept}, or what a run whose ids are in its journal
  * counted as linked, less those the platform wrote with a record it created
- * (`withTheirRecordCount`), which go with that record as their ids say of a
+ * (`withTheirRecordCount`) and those linked to a record it created itself
+ * (`linkedToCreatedCount`), which go with that record as their ids say of a
  * run that keeps them.
  */
 export function forgeRunLinkedKeptCount(
   entry: Pick<
     ForgeExecutionResult,
+    | 'idRemapTable'
     | 'idRemapExisting'
+    | 'idRemapCreated'
     | 'idRemapWithTheirRecord'
     | 'remapInJournal'
     | 'linkedExistingCount'
     | 'withTheirRecordCount'
+    | 'linkedToCreatedCount'
   >,
 ): number {
   return entry.remapInJournal
-    ? Math.max(0, (entry.linkedExistingCount ?? 0) - (entry.withTheirRecordCount ?? 0))
+    ? Math.max(
+        0,
+        (entry.linkedExistingCount ?? 0) -
+          (entry.withTheirRecordCount ?? 0) -
+          (entry.linkedToCreatedCount ?? 0),
+      )
     : forgeRunLinkedKept(entry).length;
 }
 

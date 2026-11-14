@@ -566,6 +566,11 @@ export interface WholeOrgConfirmationSample {
   /** The data storage the sample takes in the target, and the most it may take, in MB. */
   storageMB: number;
   budgetMB: number;
+  /**
+   * Of `storageMB`, what the target's automation that still runs creates
+   * under its records, in MB. Absent when none is.
+   */
+  automationMB?: number;
   /** The seed its roots were drawn by, how, and the share of each object's roots it keeps, 0 to 1. */
   seed: number;
   draw: ForgeSampleDraw;

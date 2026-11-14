@@ -305,6 +305,33 @@ describe('sandforge-clone --verify', () => {
       expect(printed).toContain('verification: VERIFIED (2 readings of TGT)');
     });
 
+    // Run for real on a whole org: the second of a pair of accounts under one
+    // external id was linked to the first, which the run had written. Left
+    // out of the records verified, the run's own account was counted among
+    // the records its user created besides ("moreInTheWindow"), and the
+    // verification ended partial.
+    it('reads back a record the run created that another of its rows is linked to', async () => {
+      const summary = runSummary(
+        {},
+        {
+          remapTable: {
+            [SRC('001', 1)]: TGT('001', 1),
+            [SRC('003', 1)]: TGT('003', 1),
+            [SRC('001', 2)]: TGT('001', 2),
+            [SRC('001', 3)]: TGT('001', 1),
+          },
+          existingSourceIds: [SRC('001', 2), SRC('001', 3)],
+        },
+      );
+
+      expect(await run(['--verify', file(summary), '--target', 'TGT'])).toBeUndefined();
+
+      expect(verifierCalls[0]?.run.records).toEqual([
+        { objectApiName: 'Contact', ids: [TGT('003', 1)] },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
+    });
+
     it('hands the verification the run’s window and the lookups it left empty on a lookup filter’s refusal', async () => {
       const leftEmpty = [
         { objectApiName: 'Contact', field: 'ReportsToId', records: 1, recordIds: [TGT('003', 1)] },

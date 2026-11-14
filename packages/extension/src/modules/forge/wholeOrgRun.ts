@@ -198,6 +198,9 @@ function sampleQuestionOf(sample: WholeOrgSample, now: number): WholeOrgConfirma
     sourceRows,
     storageMB: sample.storageBytes / BYTES_PER_MB,
     budgetMB: sample.budget.bytes / BYTES_PER_MB,
+    ...(sample.budget.automationMB !== undefined && sample.budget.automationMB > 0
+      ? { automationMB: sample.budget.automationMB }
+      : {}),
     seed: sample.seed,
     draw: sample.draw,
     share: sample.share,

@@ -10,6 +10,7 @@ import type {
   ForgeRunVerification,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
+import { forgeRunLinkedKeptCount } from '@sandforge/shared';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
@@ -866,6 +867,30 @@ describe('a run whose ids are in its journal', () => {
       const history = await nextWindow();
       expect(history).toHaveLength(1);
       expect(history[0]).not.toHaveProperty('interrupted');
+    });
+
+    it('counts on the entry of a run past the bound it stopped the rows linked to an account the run created, which go with it', async () => {
+      // Refused as a copy of the account the run had just written, and linked
+      // to it: said to stay as a record the target held, it went with the run.
+      execute.mockImplementation(async (_graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store);
+        store?.setMapping('existing', sourceOf('001', 2), targetOf('001', 1), 'Account');
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      handler = windowOpened();
+
+      const entry = (await listed()).history[0];
+      expect(entry).toMatchObject({
+        interrupted: true,
+        remapInJournal: true,
+        linkedExistingCount: 2,
+        linkedToCreatedCount: 1,
+      });
+      // The account the target held stays; the run's own goes.
+      expect(forgeRunLinkedKeptCount(entry)).toBe(1);
     });
 
     it('lists a run that stopped once, to take up, not a second time as interrupted', async () => {

@@ -802,6 +802,63 @@ describe('what a sample of the whole org says', () => {
     );
   });
 
+  // Run for real on a whole org: opportunities copied whole kept 3 of their 4
+  // line items, drawn as roots; each amount came to the lines written, and
+  // neither the dry run nor the run said so.
+  it('says on the line of a master that keeps part of its details that what it sums of them counts those written alone', () => {
+    const report = sampleReport({
+      objects: [
+        ...sampleReport().objects,
+        {
+          objectApiName: 'Opportunity',
+          sourceRows: 2,
+          kept: 2,
+          roots: 0,
+          below: 0,
+          asParents: 0,
+          whole: true,
+        },
+        {
+          objectApiName: 'OpportunityLineItem',
+          sourceRows: 4,
+          kept: 3,
+          roots: 3,
+          below: 0,
+          asParents: 0,
+        },
+      ],
+      whole: [
+        { objectApiName: 'Region__c', why: 'smallParent' },
+        { objectApiName: 'Opportunity', why: 'smallParent' },
+      ],
+      partialMasters: [
+        { objectApiName: 'Account', details: 'Thing__c', field: 'Account__c', asParents: 212 },
+        {
+          objectApiName: 'Opportunity',
+          details: 'OpportunityLineItem',
+          field: 'OpportunityId',
+          kept: 3,
+          sourceRows: 4,
+        },
+      ],
+    });
+
+    const lines = sampleLines(report, { source: 'SRC', target: 'TGT', dryRun: true });
+
+    expect(lines).toContain(
+      '  Opportunity: 2 of 2 (copied whole (a small parent)); what it sums of its ' +
+        'OpportunityLineItem records (OpportunityLineItem.OpportunityId) counts only the 3 of ' +
+        '4 in the sample',
+    );
+    expect(lines).toContain(
+      '  Account: 712 of 18400 (500 drawn, 0 under a parent, 212 as parents); what the 212 ' +
+        'brought in as parents sum of their Thing__c records (Thing__c.Account__c) counts only ' +
+        'those in the sample',
+    );
+    expect(sampleJson(report).partialMasters).toEqual(report.partialMasters);
+    expect(sampleJson(sampleReport()).partialMasters).toEqual([]);
+  });
+
   it('says the newest by creation date of a draw of the most recent, never its seed', () => {
     const lines = sampleLines(sampleReport({ draw: 'recent', seed: 9 }), {
       source: 'SRC',
@@ -894,6 +951,7 @@ describe('what a sample of the whole org says', () => {
       'dropped',
       'leftEmpty',
       'noRecordDrawn',
+      'partialMasters',
       'planRequests',
       'plan',
     ]);
@@ -1033,6 +1091,15 @@ describe('what a sample of the whole org says', () => {
           '0\\.41 % of the roots; drawn at 2026-11-14T10:00:00\\.000Z by a dry run; 0 Bulk ' +
           'API job\\(s\\) among them',
       ),
+    );
+    // What the target's automation creates under its records, said with
+    // what it takes: run for real, 1.65 MB of tasks a flow opens.
+    const flowing = {
+      ...question,
+      sample: { ...question.sample, automationMB: 1.65 },
+    } as unknown as WholeOrgConfirmation;
+    expect(wholeOrgQuestionWords(flowing, plan, 'TGT', sampleReport())).toContain(
+      "about 3.5 MB of the 3.6 MB it may take, 1.65 MB of it for what the target's automation creates; seed 1",
     );
     // Without a sample, the words of a clone of every record, as before.
     const every = { ...question, sample: undefined };
@@ -1755,6 +1822,90 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(flowing.budget.limitedBy).toBe('within');
     expect(bare.rows).toBe(51);
     expect(flowing.rows).toBe(25);
+  });
+
+  // Run for real on a whole org into a Developer Edition, the sample counted
+  // the 844 tasks a flow opens under its contacts, 1.65 MB: its line said
+  // "about 3.6 MB of the 3.6 MB" and the gate "about 1.95 MB", and nothing
+  // said where the rest went.
+  it('says, in its line, its JSON and its question, the part of what it takes that a flow still running creates', async () => {
+    const drawn = async (taskOnTicket: boolean) => {
+      stdout = [];
+      stderr = [];
+      withFakeOrgs({
+        source: sourceOf(0, 200),
+        target: { limits: DEVELOPER_EDITION, taskOnTicket },
+      });
+      expect(
+        await run(
+          argv(
+            '--fit',
+            'share',
+            '--fit-within',
+            '0.1',
+            '--accept-automation',
+            '--dry-run',
+            '--json',
+          ),
+        ),
+      ).toBeUndefined();
+      return {
+        sample: (JSON.parse(stdout.join('')) as DryRunJson).wholeOrg.sample,
+        said: stderr.join(''),
+      };
+    };
+
+    const bare = await drawn(false);
+    expect(bare.sample.budget).not.toHaveProperty('automationMB');
+    expect(bare.said).not.toContain('for what its automation creates');
+
+    const flowing = await drawn(true);
+    // A task under each of the 25 tickets kept.
+    expect(flowing.sample.rows).toBe(25);
+    expect(flowing.sample.budget.automationMB).toBeCloseTo((25 * 2_048) / (1024 * 1024));
+    expect(flowing.said).toMatch(/sample: .* MB for what its automation creates/);
+    expect(flowing.said).toMatch(
+      /write gate: 25 record\(s\) .*of it for what the target's automation creates under them/,
+    );
+  });
+
+  // Run for real on a whole org into a Developer Edition with 5 MB left: the
+  // gate counted 1 412 records, about 2.76 MB, and let them through, while a
+  // flow no mute reaches opens a task under each of the 1 200 contacts, 2.34
+  // MB more; and --fit share was never offered.
+  it('refuses every record of the org once what a flow still running creates under them is counted past the storage, and offers --fit share', async () => {
+    const dryRunOf = async (taskOnTicket: boolean) => {
+      stdout = [];
+      stderr = [];
+      withFakeOrgs({
+        source: sourceOf(200, 1_500),
+        target: { limits: DEVELOPER_EDITION, taskOnTicket },
+      });
+      const code = await run(argv('--accept-automation', '--dry-run', '--json'));
+      return {
+        code,
+        ...(JSON.parse(stdout.join('')) as {
+          wholeOrg: { storage: { verdict: string; estimateMB: number; automationMB?: number } };
+          wouldBeRefusedCodes?: string[];
+        }),
+      };
+    };
+
+    // 1 900 records, 3.7 MB of the 5 MB: they fit, a task under each ticket
+    // aside.
+    const quiet = await dryRunOf(false);
+    expect(quiet.code).toBeUndefined();
+    expect(quiet.wholeOrg.storage.verdict).toBe('fits');
+    expect(quiet.wouldBeRefusedCodes ?? []).not.toContain('STORAGE_EXCEEDED');
+
+    const flowing = await dryRunOf(true);
+    expect(flowing.code).toBe(1);
+    expect(flowing.wholeOrg.storage.verdict).toBe('exceeds');
+    expect(flowing.wholeOrg.storage.automationMB).toBeCloseTo((1_500 * 2_048) / (1024 * 1024));
+    expect(flowing.wouldBeRefusedCodes).toContain('STORAGE_EXCEEDED');
+    const said = stderr.join('');
+    expect(said).toContain("of it for what the target's automation creates under them");
+    expect(said).toContain('copy a sample of the org that fits it (--fit share');
   });
 
   it('refuses a plan the target no longer has room for, nothing written: simulate again', async () => {

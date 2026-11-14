@@ -5088,6 +5088,7 @@
         "near": "etwa {{estimate}} MB, von {{remaining}} MB verbleibenden aus {{max}} MB: mehr als 80 % des Rests",
         "exceeds": "etwa {{estimate}} MB, über die {{remaining}} MB verbleibenden aus {{max}} MB hinaus"
       },
+      "storageAutomation": "davon etwa {{automation}} MB für das, was die Automatisierung des Ziels unter den Datensätzen erstellt",
       "storageUnread": "etwa {{estimate}} MB; der Rest konnte nicht gelesen werden: {{reason}}",
       "targetRequests": "API-Anfragen von {{org}}, dem Ziel",
       "sourceRequests": "API-Anfragen von {{org}}, der Quelle",
@@ -5178,6 +5179,9 @@
           "recordTypeNotInTarget": "das Ziel hat ihren Datensatztyp nicht"
         },
         "leftEmpty": "Leer geschriebene Suchen, ihr Datensatz außerhalb der Stichprobe: {{fields}}.",
+        "partialMasters": "Masterobjekte, die einen Teil ihrer Details behalten: {{masters}}. Was ein solches Masterobjekt aus ihnen summiert, der Betrag einer Opportunity oder ein Roll-up-Summenfeld, zählt nur die geschriebenen Details.",
+        "partialMasterWhole": "{{object}}, ganz kopiert: {{kept}} von {{rows}} {{details}}-Datensätzen ({{details}}.{{field}})",
+        "partialMasterParents": "{{rows}} {{object}}-Datensätze als Eltern übernommen, nur mit den für sich gezogenen {{details}}-Datensätzen ({{details}}.{{field}})",
         "newestByIds": "Die neuesten nach der Reihenfolge ihrer IDs, da es kein Erstellungsdatum gibt, nach dem die Org sortiert: {{objects}}.",
         "requests": "Die Ziehung hat {{requests}} API-Anfragen an {{source}} gesendet.",
         "plan": "Der Plan wird einen Tag lang auf diesem Rechner aufbewahrt: {{path}} (SHA-256 {{sha}}…). Forge ausführen übernimmt ihn, solange der Lauf gleich eingerichtet ist; sonst zieht der Lauf neu und sagt, warum."

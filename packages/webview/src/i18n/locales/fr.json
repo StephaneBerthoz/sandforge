@@ -5088,6 +5088,7 @@
         "near": "environ {{estimate}} Mo, sur {{remaining}} Mo restants sur {{max}} Mo : plus de 80 % de ce qui reste",
         "exceeds": "environ {{estimate}} Mo, au-delà des {{remaining}} Mo restants sur {{max}} Mo"
       },
+      "storageAutomation": "dont environ {{automation}} Mo pour ce que crée l'automatisation de la cible sous les enregistrements",
       "storageUnread": "environ {{estimate}} Mo ; ce qu'il reste n'a pas pu être lu : {{reason}}",
       "targetRequests": "Requêtes API de {{org}}, la cible",
       "sourceRequests": "Requêtes API de {{org}}, la source",
@@ -5178,6 +5179,9 @@
           "recordTypeNotInTarget": "la cible n'a pas leur type d'enregistrement"
         },
         "leftEmpty": "Recherches écrites vides, leur enregistrement étant hors de l'échantillon : {{fields}}.",
+        "partialMasters": "Objets maîtres qui gardent une partie de leurs détails : {{masters}}. Ce qu'un tel maître cumule de ses détails, le montant d'une opportunité ou un champ de cumul, ne compte que les détails écrits.",
+        "partialMasterWhole": "{{object}}, copié entier : {{kept}} des {{rows}} enregistrements {{details}} ({{details}}.{{field}})",
+        "partialMasterParents": "{{rows}} enregistrements {{object}} venus comme parents, avec les seuls enregistrements {{details}} tirés pour eux-mêmes ({{details}}.{{field}})",
         "newestByIds": "Les plus récents dans l'ordre de leurs ids, faute de date de création selon laquelle l'org trie : {{objects}}.",
         "requests": "Le tirage a envoyé {{requests}} requêtes API à {{source}}.",
         "plan": "Le plan est gardé sur cette machine pendant un jour : {{path}} (SHA-256 {{sha}}…). Exécuter le Forge le reprend tant que le clonage est réglé de même ; sinon le clonage tire à nouveau, et dit pourquoi."

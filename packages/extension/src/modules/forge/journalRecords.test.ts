@@ -57,8 +57,11 @@ const LINES: unknown[] = [
   ['c', src('001', 1), tgt('001', 1), 'Account'],
   ['c', src('001', 2), tgt('001', 2), 'Account'],
   ['c', src('003', 1), tgt('003', 1), 'Contact'],
-  // Linked to the contact the run created: never the part's to remove.
+  // Refused as a copy of the contact the run had just created, and linked to
+  // it: that contact stays the run's, and its removal takes it.
   ['e', src('003', 9), tgt('003', 1), 'Contact'],
+  // Linked to a contact the target held before the run: never the part's.
+  ['e', src('003', 8), tgt('003', 80), 'Contact'],
   ['c', src('00T', 1), tgt('00T', 1), ''],
   ['c', src('001', 3), tgt('001', 3), 'Account'],
   ['c', src('001', 3), tgt('001', 4), 'Account'],
@@ -123,10 +126,44 @@ describe('JournalPart', () => {
     if (!records) throw new Error('not read');
     const handed = (await collected(records)).flatMap(({ ids }) => ids);
     for (const id of handed) expect(records.has(id.slice(0, 15))).toBe(true);
-    // Linked to, a record of another part, one named without its object, one never written.
-    for (const id of [tgt('003', 1), tgt('001', 5), tgt('00T', 1), tgt('001', 99)]) {
+    // The part's own contact, though a row of it is linked to that contact.
+    expect(records.has(tgt('003', 1).slice(0, 15))).toBe(true);
+    // Held before the run, a record of another part, one named without its
+    // object, one never written.
+    for (const id of [tgt('003', 80), tgt('001', 5), tgt('00T', 1), tgt('001', 99)]) {
       expect(records.has(id.slice(0, 15))).toBe(false);
     }
+  });
+
+  // Run for real on a whole org, the target refused the second of ten pairs
+  // of accounts as a copy of the first, which the run had written, and the
+  // second row was linked to it. Read as a record the target held, each first
+  // account was left out of the removal, which said success and left ten.
+  it('hands a removal the records the part created that a row of it is linked to, and only what the target held before stays', async () => {
+    const text = [
+      HEAD,
+      { part: { n: 0, startedAt: '2026-11-14T04:58:00.000Z' } },
+      ['c', src('001', 1), tgt('001', 1), 'Account'],
+      ['e', src('001', 2), tgt('001', 1), 'Account'],
+      ['c', src('001', 3), tgt('001', 3), 'Account'],
+      ['e', src('001', 4), tgt('001', 3), 'Account'],
+      // A copy of an account the target held before the run.
+      ['e', src('001', 5), tgt('001', 90), 'Account'],
+      // A record a job wrote that no row was matched to, then a row refused
+      // as its copy and linked to it: the job's, so the run's.
+      ['n', 'Contact', [tgt('003', 7)]],
+      ['e', src('003', 7), tgt('003', 7), 'Contact'],
+    ]
+      .map((line) => JSON.stringify(line))
+      .join('\n');
+    const records = JournalPart.read(memoryRunFile(`${text}\n`), 0)?.runRecords();
+    if (!records) throw new Error('not read');
+
+    expect(await collected(records)).toEqual([
+      { objectApiName: 'Contact', ids: [tgt('003', 7)] },
+      { objectApiName: 'Account', ids: [tgt('001', 3), tgt('001', 1)] },
+    ]);
+    expect(records.has(tgt('001', 90).slice(0, 15))).toBe(false);
   });
 
   it('hands over only what the removals of the part left, as the history entry takes it', async () => {

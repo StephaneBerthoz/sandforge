@@ -54,17 +54,25 @@ export function allowanceWords(t: TFunction, check: ForgeWholeOrgAllowanceCheck)
   });
 }
 
-/** What a storage comes to, in MB: what the run takes against what is left, or why that is not known. */
+/**
+ * What a storage comes to, in MB: what the run takes against what is left, or
+ * why that is not known; and of it, what the target's automation that still
+ * runs creates under the records, when it creates any.
+ */
 function storageWords(t: TFunction, check: ForgeWholeOrgStorageCheck): string {
   const estimate = n(Math.round(check.estimateMB * 10) / 10);
-  if (check.verdict === 'unread') {
-    return t('forgeRun.wholeOrgDryRun.storageUnread', { estimate, reason: check.unread });
-  }
-  return t(`forgeRun.wholeOrgDryRun.storage.${check.verdict}`, {
-    estimate,
-    remaining: n(check.remainingMB),
-    max: n(check.maxMB),
-  });
+  const takes =
+    check.verdict === 'unread'
+      ? t('forgeRun.wholeOrgDryRun.storageUnread', { estimate, reason: check.unread })
+      : t(`forgeRun.wholeOrgDryRun.storage.${check.verdict}`, {
+          estimate,
+          remaining: n(check.remainingMB),
+          max: n(check.maxMB),
+        });
+  if (check.automationMB === undefined || check.automationMB <= 0) return takes;
+  return `${takes}; ${t('forgeRun.wholeOrgDryRun.storageAutomation', {
+    automation: n(Math.round(check.automationMB * 10) / 10),
+  })}`;
 }
 
 /**

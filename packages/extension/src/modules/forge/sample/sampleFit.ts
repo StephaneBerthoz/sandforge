@@ -40,6 +40,7 @@ import {
   type WholeOrgSampleDropReason,
   type WholeOrgSampleLimit,
   type WholeOrgSampleObject,
+  type WholeOrgSamplePartialMaster,
 } from '@sandforge/shared';
 import { ACCOUNT, CONTACT } from '../../../core/common/platformRecords.js';
 import { largestFitting } from '../fitBudget.js';
@@ -174,6 +175,12 @@ export interface SampleCut {
   /** The records it keeps in all, those of the objects copied whole included, and the data storage the sample takes in the target. */
   rows: number;
   storageBytes: number;
+  /**
+   * Of `storageBytes`, what the target's automation that still runs creates
+   * under the records the run inserts (`SampleMeasure.roomBytes`): what its
+   * report says apart, as `budget.automationMB`.
+   */
+  automationBytes: number;
   /** Of its records, those the run sends: none it links, none the platform writes; what `--max-total` counts. */
   written: number;
   objects: WholeOrgSampleObject[];
@@ -181,6 +188,8 @@ export interface SampleCut {
   dropped: WholeOrgSample['dropped'];
   leftEmpty: WholeOrgSample['leftEmpty'];
   noRecordDrawn: WholeOrgSample['noRecordDrawn'];
+  /** The masters it keeps part of the details of: see `WholeOrgSample.partialMasters`. */
+  partialMasters: WholeOrgSamplePartialMaster[];
   /** Per object, the ids of the plan in our order (`compareIds`); none for an object copied whole and not read. */
   ids: ReadonlyMap<string, readonly string[]>;
   /** Per object, the person accounts among its records, and their contacts. */
@@ -640,6 +649,8 @@ function reportAt(
     if (entry.rows.length > 0) platformRows.add(entry.rows[0]);
   let written = 0;
   let storageBytes = 0;
+  let automationBytes = 0;
+  const roomOf = (objectApiName: string): number => input.measure.roomBytes?.(objectApiName) ?? 0;
 
   for (let row = 0; row < closure.rows.length; row++) {
     const objectApiName = closure.objectOf[row];
@@ -659,7 +670,9 @@ function reportAt(
     list.push(read.id);
     ids.set(objectApiName, list);
     storageBytes += weighed.rowBytes[row];
-    written += platformRows.has(row) ? 0 : recordsOf(closure, row);
+    const records = platformRows.has(row) ? 0 : recordsOf(closure, row);
+    written += records;
+    automationBytes += records * roomOf(objectApiName);
     if (read.personAccount && (objectApiName === ACCOUNT || objectApiName === CONTACT)) {
       persons.set(objectApiName, (persons.get(objectApiName) ?? 0) + 1);
     }
@@ -694,8 +707,8 @@ function reportAt(
     if (kind.why !== 'referenceData') {
       written += count;
       storageBytes +=
-        input.measure.wholeBytes(objectApiName, count) +
-        count * (input.measure.roomBytes?.(objectApiName) ?? 0);
+        input.measure.wholeBytes(objectApiName, count) + count * roomOf(objectApiName);
+      automationBytes += count * roomOf(objectApiName);
     }
   }
   const byThePlatform = new Map<
@@ -749,18 +762,54 @@ function reportAt(
   return {
     rows: objects.reduce((sum, stat) => sum + stat.kept, 0),
     storageBytes,
+    automationBytes,
     written,
     objects,
     heavyRoots: heavyRootsOf(closure, state, setAside, roots, cut),
     dropped: [...dropped.values()].sort(byObjectThen((d) => d.reason)),
     leftEmpty: [...leftEmpty.values()].sort(byObjectThen((e) => e.field)),
     noRecordDrawn,
+    partialMasters: partialMastersOf(links, stats, input.sourceRows),
     ids: new Map([...ids].map(([objectApiName, list]) => [objectApiName, list.sort(compareIds)])),
     personAccounts: persons,
     byThePlatform: [...byThePlatform.values()].sort((a, b) =>
       a.objectApiName < b.objectApiName ? -1 : 1,
     ),
   };
+}
+
+/**
+ * The masters a cut keeps part of the details of, by the detail's field that
+ * names them: a master copied whole, when the sample keeps fewer of its
+ * details than the source holds — drawn as roots, the details reach none of
+ * their masters' others —; and a master drawn, when records of it come in
+ * as a parent of another record, never reached from above: their details
+ * come only as far as the sample drew them on their own. What such a master
+ * sums of its details counts those written alone.
+ */
+function partialMastersOf(
+  links: SampleLinks,
+  stats: ReadonlyMap<string, WholeOrgSampleObject>,
+  sourceRows: ReadonlyMap<string, number>,
+): WholeOrgSamplePartialMaster[] {
+  const partial: WholeOrgSamplePartialMaster[] = [];
+  for (const [details, own] of links.linksOf) {
+    if (links.classes.get(details)?.kind !== 'drawn') continue;
+    const kept = stats.get(details)?.kept ?? 0;
+    for (const link of own) {
+      if (!link.masterDetail || link.target === 'excluded' || link.parent === details) continue;
+      const master = stats.get(link.parent);
+      if (!master || master.kept === 0) continue;
+      const base = { objectApiName: link.parent, details, field: link.field };
+      if (link.target === 'whole') {
+        const held = sourceRows.get(details) ?? 0;
+        if (kept < held) partial.push({ ...base, kept, sourceRows: held });
+      } else if (link.carries && master.asParents > 0) {
+        partial.push({ ...base, asParents: master.asParents });
+      }
+    }
+  }
+  return partial.sort(byObjectThen((entry) => `${entry.details}\n${entry.field}`));
 }
 
 /** An order by object name, then by `then`. */

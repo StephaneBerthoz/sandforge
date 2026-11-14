@@ -859,6 +859,17 @@ function sampleLines(
       formatMB(sample.storageMB),
       formatMB(sample.budgetMB),
     ),
+    // What the target's automation creates under its records, said apart: a
+    // sample took 1.65 MB of tasks a flow opens under its contacts, and only
+    // its total said them.
+    ...(sample.automationMB !== undefined
+      ? [
+          vscode.l10n.t(
+            'Of it, about {0} MB for what the automation of the target creates under its records.',
+            formatMB(sample.automationMB),
+          ),
+        ]
+      : []),
     vscode.l10n.t(
       'Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.',
       sample.seed,

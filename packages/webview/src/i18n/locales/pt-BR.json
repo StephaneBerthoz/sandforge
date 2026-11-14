@@ -5088,6 +5088,7 @@
         "near": "cerca de {{estimate}} MB, de {{remaining}} MB restantes de {{max}} MB: mais de 80 % do que resta",
         "exceeds": "cerca de {{estimate}} MB, além dos {{remaining}} MB restantes de {{max}} MB"
       },
+      "storageAutomation": "dos quais cerca de {{automation}} MB para o que a automação do destino cria sob os registros",
       "storageUnread": "cerca de {{estimate}} MB; não foi possível ler o que resta: {{reason}}",
       "targetRequests": "Solicitações de API de {{org}}, o destino",
       "sourceRequests": "Solicitações de API de {{org}}, a origem",
@@ -5178,6 +5179,9 @@
           "recordTypeNotInTarget": "o destino não tem o tipo de registro deles"
         },
         "leftEmpty": "Pesquisas gravadas vazias, com o registro fora da amostra: {{fields}}.",
+        "partialMasters": "Mestres que mantêm parte de seus detalhes: {{masters}}. O que um mestre assim soma deles, o valor de uma oportunidade ou um campo de resumo, conta apenas os detalhes gravados.",
+        "partialMasterWhole": "{{object}}, copiado inteiro: {{kept}} dos {{rows}} registros de {{details}} ({{details}}.{{field}})",
+        "partialMasterParents": "{{rows}} registros de {{object}} trazidos como pais, só com os registros de {{details}} sorteados por si mesmos ({{details}}.{{field}})",
         "newestByIds": "Os mais recentes pela ordem de seus ids, por não terem data de criação pela qual a org ordene: {{objects}}.",
         "requests": "O sorteio enviou {{requests}} solicitações de API a {{source}}.",
         "plan": "O plano fica guardado nesta máquina por um dia: {{path}} (SHA-256 {{sha}}…). Executar Forge o retoma enquanto a execução estiver configurada da mesma forma; caso contrário, a execução sorteia de novo e diz por quê."

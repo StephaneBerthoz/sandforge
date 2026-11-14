@@ -443,6 +443,8 @@ export interface FakeSampleOptions {
   wholeRoom?: number;
   /** The room the heavy roots are weighed against; ten times the bytes by default. */
   roomBytes?: number;
+  /** What the target's automation creates under each record of an object the run inserts; nothing by default. */
+  automationBytes?: (objectApiName: string) => number;
   seed?: number;
   draw?: 'uniform' | 'recent';
   floor?: number;
@@ -478,7 +480,9 @@ export async function drawFakeSample(objects: FakeObject[], options: FakeSampleO
     draw,
     sourceRows: source.sourceRows(),
     options: { parents: 'all', children: 100, ...options.closure },
-    measure: documentedMeasure,
+    measure: options.automationBytes
+      ? { ...documentedMeasure, roomBytes: options.automationBytes }
+      : documentedMeasure,
     bounds: {
       bytes: options.bytes,
       bytesLimit: options.bytesLimit ?? 'storage',

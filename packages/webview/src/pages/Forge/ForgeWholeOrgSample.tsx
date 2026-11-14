@@ -175,6 +175,36 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
           },
         ]
       : []),
+    // A master copied whole whose details were drawn, or brought in as a
+    // parent: what it sums of its details counts those written alone. Run
+    // for real, opportunities kept 3 of their 4 line items, unsaid.
+    ...(sample.partialMasters && sample.partialMasters.length > 0
+      ? [
+          {
+            id: 'partial-masters',
+            text: t('forgeRun.wholeOrgDryRun.sample.partialMasters', {
+              masters: sample.partialMasters
+                .map((master) =>
+                  master.asParents !== undefined
+                    ? t('forgeRun.wholeOrgDryRun.sample.partialMasterParents', {
+                        object: master.objectApiName,
+                        details: master.details,
+                        field: master.field,
+                        rows: n(master.asParents),
+                      })
+                    : t('forgeRun.wholeOrgDryRun.sample.partialMasterWhole', {
+                        object: master.objectApiName,
+                        details: master.details,
+                        field: master.field,
+                        kept: n(master.kept ?? 0),
+                        rows: n(master.sourceRows ?? 0),
+                      }),
+                )
+                .join('; '),
+            }),
+          },
+        ]
+      : []),
     ...(sample.newestByIds && sample.newestByIds.length > 0
       ? [
           {

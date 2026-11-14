@@ -264,6 +264,7 @@
   "Personal fields copied as they are, not anonymized, {0} in all, per object: {1}.": "Personal fields copied as they are, not anonymized, {0} in all, per object: {1}.",
   "This clone copies a sample of {0} into {1}: {2} objects, {3} records.": "This clone copies a sample of {0} into {1}: {2} objects, {3} records.",
   "The sample keeps {0} of the {1} records {2} holds of these objects: about {3} MB of the {4} MB it may take.": "The sample keeps {0} of the {1} records {2} holds of these objects: about {3} MB of the {4} MB it may take.",
+  "Of it, about {0} MB for what the automation of the target creates under its records.": "Of it, about {0} MB for what the automation of the target creates under its records.",
   "Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.": "Drawn with seed {0}, {1}: {2} % of the roots of each object, with the records they reach; held by {3}.",
   "spread over the org": "spread over the org",
   "the newest first": "the newest first",

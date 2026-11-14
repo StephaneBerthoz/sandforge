@@ -118,6 +118,7 @@ import type {
   WholeOrgSample,
   WholeOrgSampleDropReason,
   WholeOrgSampleResult,
+  WholeOrgSamplePartialMaster,
   WholeOrgSampleWholeReason,
   WithoutRecordTypeWhy,
 } from '@sandforge/shared';
@@ -341,8 +342,10 @@ import {
   removalRiskLines,
   sendersOfNothingWritten,
   sendersOfNothingWrittenLine,
+  automationBytesOf,
   storageCheckOf,
   storageRefusal,
+  storageTakesWords,
   writePlanLines,
   writePlanOf,
   forgeWriteBudgetOf,
@@ -4303,6 +4306,9 @@ export function wholeOrgQuestionWords(
         `(of ${said.sourceRows} in ${source}) into ${target}, about ` +
         `${formatMB(said.storageMB)} MB` +
         (heldToBytes(sample.budget) ? ` of the ${formatMB(said.budgetMB)} MB it may take` : '') +
+        (said.automationMB !== undefined
+          ? `, ${formatMB(said.automationMB)} MB of it for what the target's automation creates`
+          : '') +
         `; ${drawWords(said)}, ${percentOf(said.share)} % of the roots; drawn at ` +
         `${said.drawnAt} by ${said.drawnBy === 'dryRun' ? 'a dry run' : 'this run'}; ` +
         `${bulk?.jobs ?? 0} Bulk API job(s) among them`
@@ -4368,7 +4374,7 @@ export function wholeOrgMaxTotalRefusal(rows: number, max: number): string {
 function wholeOrgStorageRefusal(check: StorageCheck, target: string): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;
   return (
-    `The records to write take about ${formatMB(check.estimateMB)} MB of data storage, and ` +
+    `The records to write take ${storageTakesWords(check)}, and ` +
     `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: copy a sample of the org ` +
     'that fits it (--fit share, its dry run first), leave objects out (--exclude-object) or ' +
     `narrow them (--filter), or free data storage in ${target}.`
@@ -4487,6 +4493,25 @@ function sampleLimitWords(
   }
 }
 
+/**
+ * What the line of a master of a sample says of the details it keeps part
+ * of: what it sums of them — an opportunity's amount of its line items, a
+ * roll-up summary — counts those written alone.
+ */
+function partialMasterWords(master: WholeOrgSamplePartialMaster): string {
+  const details = `${master.details} records (${master.details}.${master.field})`;
+  if (master.asParents !== undefined) {
+    return (
+      `what the ${master.asParents} brought in as parents sum of their ${details} counts ` +
+      'only those in the sample'
+    );
+  }
+  return (
+    `what it sums of its ${details} counts only the ${master.kept ?? 0} of ` +
+    `${master.sourceRows ?? 0} in the sample`
+  );
+}
+
 /** What a sample may take of the target, as its first line says it. */
 function sampleBudgetWords(sample: WholeOrgSample, target: string): string {
   const { budget } = sample;
@@ -4583,13 +4608,17 @@ export function sampleLines(
   ];
   for (const object of sample.objects) {
     const cut = (object.childrenCut ?? []).map(({ field, rows }) => `${field} ${rows}`);
+    const partial = (sample.partialMasters ?? []).filter(
+      (master) => master.objectApiName === object.objectApiName,
+    );
     lines.push(
       `  ${object.objectApiName}: ${object.kept} of ${object.sourceRows} ` +
         `(${keptWords(object, sample.whole)})` +
         (cut.length > 0
           ? `; left by the cap of ${sample.children} children a record, by the lookup naming ` +
             `their parent: ${cut.join(', ')}`
-          : ''),
+          : '') +
+        partial.map((master) => `; ${partialMasterWords(master)}`).join(''),
     );
   }
   if (sample.whole.length > 0) {
@@ -4716,6 +4745,9 @@ export function sampleJson(sample: WholeOrgSample) {
       objectApiName,
       sourceRows,
     })),
+    // The masters it keeps part of the details of: what they sum of them
+    // counts those written alone.
+    partialMasters: (sample.partialMasters ?? []).map((master) => ({ ...master })),
     ...(sample.newestByIds && sample.newestByIds.length > 0
       ? { newestByIds: [...sample.newestByIds] }
       : {}),
@@ -5832,11 +5864,14 @@ export function removalPlanLines(
   const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const ended = summary.result.writtenBetween?.last ?? summary.finishedAt;
   // Left where they are: the records the run linked to, but for those the
-  // platform wrote with a record it created, which go with that one, and the
-  // records --upsert wrote over.
+  // platform wrote with a record it created and those linked to a record it
+  // created itself, which go with that one, and the records --upsert wrote
+  // over.
   const stay =
     forgeRunLinkedKept({
+      idRemapTable: summary.result.remapTable,
       idRemapExisting: summary.result.existingSourceIds,
+      idRemapCreated: summary.result.createdByObject,
       idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
     }).length + summary.result.updatedSourceIds.length;
   return [
@@ -11142,6 +11177,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       });
     }
     const plan = wholeOrgWritePlanOf(boundary.objects, measures);
+    // What the target's automation that still runs creates under each record
+    // the run writes, counted with the records against the data storage, as
+    // a sample counts it.
+    const automation = automationRoomOf(
+      { firing: stillRunningOf(gated, undefined, runWrites).firing },
+      (objectApiName, act) => runWrites(objectApiName, act),
+    ).perRecord;
     // Of a sample, what its plan drew: the counts above are the plan's.
     const sampled = measures.sample?.report;
     if (sampled) {
@@ -11171,6 +11213,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         deliverability: emails?.ofRun.read?.requests ?? 0,
         sentBefore: sentBeforeTheGate,
         ...(sampled ? { sample: sampled } : {}),
+        automation,
         target: { org: args.target, limits: targetConn },
         source: { org: args.source, limits: connOf(conns, args.source) },
       });
@@ -11185,7 +11228,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         'unread' in limits
           ? await readApiBudget(targetConn).catch(unreadOf)
           : limits.dailyApiRequests;
-      storageCheck = storageCheckOf(plan, limits);
+      storageCheck = storageCheckOf(plan, limits, automationBytesOf(plan, automation));
       const overStorage = storageRefusal(storageCheck, args.target);
       // A sample is held to what the target has left now by the terms it was
       // fitted to: refused, never cut, when the target moved since its plan.

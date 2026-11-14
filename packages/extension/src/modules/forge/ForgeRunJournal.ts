@@ -1354,9 +1354,14 @@ export class ForgeRunJournal {
       objectApiName,
       sourceIds,
     }));
-    // A record a reconciliation matched to its row afterwards, or one the run
-    // links to, is the mapping's to say: never taken twice, nor a linked one.
-    const mapped = new Set([...table.values()].map(({ targetId }) => targetId.slice(0, 15)));
+    // A record a reconciliation matched to its row afterwards is among the
+    // records created already: never taken twice. One a row was linked to
+    // since — refused as its copy — is the job's all the same, so the run's.
+    const mapped = new Set(
+      [...table.values()]
+        .filter(({ created }) => created)
+        .map(({ targetId }) => targetId.slice(0, 15)),
+    );
     const unmatched = [...unattributed]
       .map(([objectApiName, ids]) => ({
         objectApiName,

@@ -714,6 +714,72 @@ describe('forge:execute of a sample of the whole org', () => {
 
       expect(lastAnswer()).not.toHaveProperty('sampleOffer');
     });
+
+    // Run for real on a whole org into a Developer Edition with 5 MB left,
+    // the gate counted the records alone and let them through, while a flow
+    // no mute reaches opens a task under each contact: 2.34 MB more, past
+    // what the target had, and no sample was offered.
+    describe('with a flow of the target that creates a task under each contact', () => {
+      /** The records fit, 0.8 MB of the 1 MB left; a task under each of the 200 contacts does not. */
+      const withAFlow = (): void => {
+        limits['tgt-org'] = {
+          ...(limits['tgt-org'] as object),
+          DataStorageMB: { Max: 5, Remaining: 1 },
+        };
+        handler.setForgeOrchestrator(orchestratorOver(source), {
+          targetAutomation: {
+            readForGraph: vi.fn(async (): Promise<ForgeTargetAutomation> => ({
+              ...QUIET,
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  flows: [
+                    {
+                      apiName: 'Contact_Follow_Up_Task',
+                      label: 'Contact follow-up task',
+                      timing: 'afterSave',
+                      startsOn: 'create',
+                      condition: 'read',
+                      permissions: [],
+                      creates: ['Task'],
+                    },
+                  ],
+                  triggers: [],
+                },
+              ],
+            })),
+          } as unknown as TargetAutomationReader,
+          runJournal: journalOnMemory(storage),
+        });
+      };
+
+      it('is simulated with what the flow creates counted against the storage, and the offer of a sample that fits', async () => {
+        withAFlow();
+
+        await simulate(EVERY_RECORD);
+
+        const answer = lastAnswer() as ReturnType<typeof lastAnswer> & {
+          wholeOrgDryRun?: { storage: { verdict: string; automationMB?: number } };
+        };
+        expect(answer.wholeOrgDryRun?.storage).toMatchObject({ verdict: 'exceeds' });
+        expect(answer.wholeOrgDryRun?.storage.automationMB).toBeCloseTo((RECORDS * 2_048) / MB);
+        expect(answer.sampleOffer).toMatchObject({ remainingMB: 1, limitedBy: 'storage' });
+      });
+
+      it('is refused for its storage, nothing written, with the offer of a sample that fits', async () => {
+        withAFlow();
+
+        await execute({ config: EVERY_RECORD });
+
+        const error = lastError();
+        expect(error.code).toBe('STORAGE_EXCEEDED');
+        expect(error.message).toContain(
+          "of it for what the target's automation creates under them",
+        );
+        expect(error.sampleOffer).toMatchObject({ remainingMB: 1, limitedBy: 'storage' });
+        expect(rowsWritten()).toBe(0);
+      });
+    });
   });
 });
 

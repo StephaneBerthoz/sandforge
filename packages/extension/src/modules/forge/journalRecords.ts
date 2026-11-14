@@ -24,11 +24,13 @@ import {
  * What it gives is what the journal's whole read gives (`ForgeRunJournal.idsOf`),
  * and what a removal's plan makes of it (`forgeRunCreatedRecords`): the part's
  * records created, by the latest word on each in that part, each object's
- * records newest first and the objects too; a record the run linked a source
- * row to left out, and a record named twice taken once. The records a Bulk API
- * job of the part wrote that no row was matched to (`createdUnattributed`)
- * are the part's too, though no source row maps to them: a removal takes them
- * with the rest of their object.
+ * records newest first and the objects too, and a record named twice taken
+ * once. A record the part created stays the part's when another of its rows
+ * is linked to it — the target refused that row as a copy of the record the
+ * run had just written. The records a Bulk API job of the part wrote that no
+ * row was matched to (`createdUnattributed`) are the part's too, though no
+ * source row maps to them, and whether or not a row was linked to them since:
+ * a removal takes them with the rest of their object.
  */
 
 /** A Salesforce id, as every id a journal holds is. */
@@ -295,9 +297,8 @@ export class JournalPart {
 
   /**
    * The records the part created, as a removal takes them: per object the
-   * newest first, the objects too, a record a source row of the run was
-   * linked to left out (`forgeRunCreatedRecords`), and of those, the ones
-   * `left` holds when given — what the part's removals left.
+   * newest first, the objects too (`forgeRunCreatedRecords`), and of those,
+   * the ones `left` holds when given — what the part's removals left.
    *
    * @param left - The keys of the records earlier removals left.
    */
@@ -311,21 +312,6 @@ export class JournalPart {
       const mapping = mappingAt(offset, length);
       return mapping ? keyOf(mapping.targetId) : '';
     };
-    // The records a source row the part did not create maps to: linked to,
-    // never the part's to remove, whichever row of its maps to them too.
-    const linked = new SourceIdIndex(targetAt);
-    for (const line of journalLines(this.file)) {
-      const mapping = mappingOf(line.text);
-      if (!mapping || mapping.object === '') continue;
-      const words = this.wordsOn(mapping.sourceId);
-      if (words.latest?.offset !== line.offset || words.createdByThePart) continue;
-      const key = keyOf(mapping.targetId);
-      const a = hashA(key);
-      const b = hashB(key);
-      linked.put(linked.find(key, a, b), a, b, line.offset, line.length, 0);
-    }
-    const isLinked = (key: string): boolean =>
-      linked.size > 0 && linked.find(key, hashA(key), hashB(key)) >= 0;
 
     // Each record once, by the first of its rows taken: the latest.
     const members = new SourceIdIndex(targetAt);
@@ -341,7 +327,6 @@ export class JournalPart {
         // Its latest word without its object: the journal's read maps it to nothing.
         if (!mapping || mapping.object === '') continue;
         const key = keyOf(mapping.targetId);
-        if (isLinked(key)) continue;
         const a = hashA(key);
         const b = hashB(key);
         const found = members.find(key, a, b);
@@ -374,7 +359,7 @@ export class JournalPart {
       if (!line) continue;
       for (const id of line.ids) {
         const key = keyOf(id);
-        if (unattributed.has(key) || isLinked(key)) continue;
+        if (unattributed.has(key)) continue;
         if (members.find(key, hashA(key), hashB(key)) >= 0) continue;
         unattributed.add(key);
         if (!left || left.has(key)) extraOf.set(line.object, (extraOf.get(line.object) ?? 0) + 1);

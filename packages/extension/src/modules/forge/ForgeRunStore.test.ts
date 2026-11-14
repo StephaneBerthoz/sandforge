@@ -319,6 +319,33 @@ describe('ForgeRunStore', () => {
       expect(again.statusesOwed()).toEqual(new Map());
     });
 
+    it('counts the rows this part linked to a record it created itself, apart from those linked to what the target held', () => {
+      // Told apart by their first fifteen characters, as a removal tells records.
+      const { store, file } = freshStore();
+      store.setMapping('created', src('001', 1), tgt('001', 1_000), 'Account');
+      // Refused as a copy of the account the run had just written.
+      store.setMapping('existing', src('001', 2), tgt('001', 1_000), 'Account');
+      store.setMapping('existing', src('001', 3), tgt('001', 1_000), 'Account');
+      // Refused as a copy of an account the target held.
+      store.setMapping('existing', src('001', 4), tgt('001', 90_000), 'Account');
+      // A record a job wrote under no row, then a row refused as its copy.
+      store.createdUnattributed('Contact', [tgt('003', 7_000)]);
+      store.setMapping('existing', src('003', 7), tgt('003', 7_000), 'Contact');
+      // Linked to a contact the platform wrote with the run's account: said apart.
+      store.setMapping('existing', src('003', 8), tgt('001', 1_000), 'Contact');
+      store.withTheirRecord(src('003', 8));
+      expect(store.linkedToCreatedCount()).toBe(3);
+      store.close();
+
+      // A part that takes the run up counts its own: a record an earlier part
+      // created is that part's to remove.
+      const again = ForgeRunStore.open(memoryRunFile(file.text()));
+      again.beginPart(at);
+      again.setMapping('existing', src('001', 5), tgt('001', 1_000), 'Account');
+      expect(again.linkedToCreatedCount()).toBe(0);
+      expect(freshStore().store.linkedToCreatedCount()).toBe(0);
+    });
+
     it("marks each record the platform wrote with one the run created once a part, and gives back this part's, in the order marked", () => {
       const { store, file } = freshStore();
       store.withTheirRecord(src('003', 1));

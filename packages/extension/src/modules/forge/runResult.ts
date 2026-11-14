@@ -100,6 +100,11 @@ export function forgeRunResult(
     ...(summary.withTheirRecordCount !== undefined && summary.withTheirRecordCount > 0
       ? { withTheirRecordCount: summary.withTheirRecordCount }
       : {}),
+    // And those linked to a record the run created itself, which the removal
+    // takes: counted as kept, it said the run's own accounts would stay.
+    ...(summary.linkedToCreatedCount !== undefined && summary.linkedToCreatedCount > 0
+      ? { linkedToCreatedCount: summary.linkedToCreatedCount }
+      : {}),
     createdCount: summary.successCount,
     // Only a run that upserted says how many records it wrote over.
     ...(summary.updatedCount > 0 ? { updatedCount: summary.updatedCount } : {}),

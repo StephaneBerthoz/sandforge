@@ -138,6 +138,28 @@ describe('ForgeWholeOrgSample', () => {
     );
   });
 
+  // Run for real on a whole org: opportunities copied whole kept 3 of their
+  // 4 line items, drawn as roots, and each amount came to the lines written,
+  // which Simulate never said.
+  it('names the masters that keep part of their details, what they sum of them counting the details written', () => {
+    renderSample({
+      partialMasters: [
+        {
+          objectApiName: 'Opportunity',
+          details: 'OpportunityLineItem',
+          field: 'OpportunityId',
+          kept: 3,
+          sourceRows: 4,
+        },
+        { objectApiName: 'Invoice__c', details: 'Line__c', field: 'Invoice__c', asParents: 12 },
+      ],
+    });
+
+    expect(line('partial-masters')).toBe(
+      'Masters that keep part of their details: Opportunity, copied whole: 3 of the 4 OpportunityLineItem records (OpportunityLineItem.OpportunityId); 12 Invoice__c records brought in as parents, with only the Line__c records drawn on their own (Line__c.Invoice__c). What such a master sums of them, an opportunity’s amount of its line items or a roll-up summary, counts only the details written.',
+    );
+  });
+
   it('says what drawing it sent the source, and where its plan is kept for the run', () => {
     renderSample();
 
@@ -161,7 +183,14 @@ describe('ForgeWholeOrgSample', () => {
       }),
     });
 
-    for (const id of ['heavy-roots', 'dropped', 'left-empty', 'no-record-drawn', 'whole']) {
+    for (const id of [
+      'heavy-roots',
+      'dropped',
+      'left-empty',
+      'no-record-drawn',
+      'whole',
+      'partial-masters',
+    ]) {
       expect(screen.queryByTestId(`forge-whole-org-sample-${id}`), id).toBeNull();
     }
     expect(screen.queryByTestId('forge-whole-org-sample-children-cut')).toBeNull();
