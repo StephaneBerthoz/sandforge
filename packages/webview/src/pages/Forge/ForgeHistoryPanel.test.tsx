@@ -997,9 +997,15 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     render(<ForgeHistoryPanel entries={[RECORD_RUN]} error={null} onReuseConfig={vi.fn()} />);
 
     expect(screen.queryByTestId('forge-history-remove-forge-record')).toBeNull();
-    expect(screen.getByTestId('forge-history-remove-unrecorded-forge-record').textContent).toBe(
+    const unrecorded =
+      screen.getByTestId('forge-history-remove-unrecorded-forge-record').textContent ?? '';
+    expect(unrecorded).toContain(
       'Recorded before runs kept what they created: its records cannot be removed from here.',
     );
+    // Said with what still takes them back: it named none.
+    expect(unrecorded).toContain('Checkpoints → Rewind…');
+    expect(unrecorded).toContain('DataOps → Cleanup → Empty objects');
+    expect(unrecorded).toContain('not this run');
   });
 
   it('says why a run whose org is no longer registered offers none', () => {
@@ -1545,9 +1551,12 @@ describe('ForgeHistoryPanel — a run whose ids are in its journal', () => {
     );
 
     expect(screen.queryByTestId('forge-history-remove-forge-journal')).toBeNull();
-    expect(screen.getByTestId('forge-history-journal-gone-forge-journal').textContent).toBe(
+    const gone = screen.getByTestId('forge-history-journal-gone-forge-journal').textContent ?? '';
+    expect(gone).toContain(
       "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here.",
     );
+    expect(gone).toContain('Checkpoints → Rewind…');
+    expect(gone).toContain('DataOps → Cleanup → Empty objects');
     expect(screen.queryByTestId('forge-history-remove-forge-older')).toBeNull();
     expect(screen.getByTestId('forge-history-older-forge-older').textContent).toContain(
       '7 records to remove from DEV-SANDBOX',

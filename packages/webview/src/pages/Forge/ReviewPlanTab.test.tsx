@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { ReviewPlanTab } from './ReviewPlanTab';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
@@ -253,6 +253,72 @@ describe('ReviewPlanTab', () => {
       expect(screen.getByTestId('review-left-out-unreadable').textContent).toContain(
         'Secret__c: INSUFFICIENT_ACCESS: no access to Secret__c',
       );
+    });
+
+    it('says under each reason what lifts it, where something does, and nothing of what Salesforce keeps', () => {
+      // Each group had its heading alone: an object missing from the target,
+      // or one the user may not write, came with no way to take it.
+      mockPlan = makePlan();
+      mockGraph = {
+        ...wholeOrgGraph(),
+        leftOut: [
+          ...(wholeOrgGraph().leftOut ?? []),
+          { objectApiName: 'Endpoints__c', reason: 'customSetting' },
+          { objectApiName: 'Knowledge__kav', reason: 'unsupportedKind' },
+          { objectApiName: 'Ledger__c', reason: 'notWritable' },
+        ],
+      };
+      render(<ReviewPlanTab />);
+      fireEvent.click(screen.getByTestId('review-left-out-toggle'));
+
+      expect(screen.getByTestId('left-out-way-missingInTarget').textContent).toContain('Compare');
+      expect(screen.getByTestId('left-out-way-notWritable').textContent).toContain(
+        'Create, Edit and Delete',
+      );
+      // It said "not copied unless asked" of a clone that has no way to ask.
+      const settings = screen.getByTestId('review-left-out-customSetting').textContent ?? '';
+      expect(settings).not.toContain('unless asked');
+      expect(screen.getByTestId('left-out-way-customSetting').textContent).toContain(
+        'Custom Settings',
+      );
+      // Knowledge versions are created by an API, as drafts.
+      expect(screen.getByTestId('left-out-way-unsupportedKind').textContent).toContain(
+        'SELECT Id FROM Knowledge__kav',
+      );
+      expect(screen.queryByTestId('left-out-way-setup')).toBeNull();
+      expect(screen.queryByTestId('left-out-way-history')).toBeNull();
+    });
+
+    it('copies for the admins the grants that would let the clone take what it leaves out for rights', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      mockPlan = makePlan();
+      mockGraph = {
+        ...buildSyntheticForgeGraph([]),
+        leftOut: [
+          { objectApiName: 'Ledger__c', reason: 'notWritable' },
+          { objectApiName: 'Grant__c', reason: 'createOnly', detail: 'noDelete' },
+          { objectApiName: 'Audit__c', reason: 'notQueryable' },
+          { objectApiName: 'Line__c', reason: 'notWritable', detail: 'parent' },
+        ],
+      };
+      try {
+        render(<ReviewPlanTab />);
+        fireEvent.click(screen.getByTestId('review-left-out-toggle'));
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('left-out-admin-copy'));
+        });
+
+        const copied = String(writeText.mock.calls[0]?.[0]);
+        expect(copied).toContain('Create, Edit and Delete on Ledger__c');
+        expect(copied).toContain('Delete on Grant__c');
+        expect(copied).toContain('Read on Audit__c');
+        // Opened by the records it hangs from: no grant on it opens it.
+        expect(copied).not.toContain('Line__c');
+        expect(copied.indexOf('Ledger__c')).toBeLessThan(copied.indexOf('Audit__c'));
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('still says them while the plan is coming, or could not be made', () => {

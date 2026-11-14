@@ -9,6 +9,7 @@ import type {
   ForgePlan,
   ForgePlanResponse,
   ForgeAnonymizationCategory,
+  ForgeMetadataDiffEntry,
   ForgeSampleOptions,
   ForgeSamplingProgress,
   ForgeWholeOrgDryRun,
@@ -58,35 +59,13 @@ export type {
   ForgeBatchStrategy,
 } from '@sandforge/shared';
 
-/** Metadata diff entry from backend. */
-export interface MetadataDiffEntry {
-  /** Object API name. */
-  objectApiName: string;
-  /** Field API name; empty for an entry about the object as a whole. */
-  fieldApiName: string;
-  /**
-   * Type of issue: `object_missing`, `unreadable` and `object_not_createable`
-   * are about the object as a whole.
-   */
-  issue:
-    | 'missing'
-    | 'type_mismatch'
-    | 'permission_denied'
-    | 'object_missing'
-    | 'unreadable'
-    | 'object_not_createable';
-  /** Severity level. */
-  severity: 'info' | 'warning' | 'error';
-  /** Human-readable description. */
-  details: string;
-  /**
-   * Of `object_not_createable`, who may create its records, as the target
-   * said: no user (`platform`, `setup`), one the feature it comes with is
-   * turned on for (`feature`), one who may edit the records it hangs from
-   * (`parent`), or one given Create on it (`user`).
-   */
-  notCreatableBy?: 'platform' | 'setup' | 'feature' | 'parent' | 'user';
-}
+/**
+ * A difference between the source's and the target's schema, as
+ * `forge:metadata-diff:response` carries it: by its code, with the types of
+ * both orgs or the org that would not describe the object, which Review's
+ * Metadata tab says in the page's language and acts on.
+ */
+export type MetadataDiffEntry = ForgeMetadataDiffEntry;
 
 /** Log entry persisted in the forge store. */
 export interface ForgeLogEntry {

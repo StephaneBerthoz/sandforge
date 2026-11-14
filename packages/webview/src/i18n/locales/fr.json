@@ -4013,6 +4013,7 @@
     "hintNoInput": "Entrez un ID ou une requête, ou choisissez un modèle",
     "hintAiUnchecked": "Rédigez une requête et faites-la valider par l'org source pour découvrir le graphe",
     "hintSameOrg": "La source et la cible doivent être différentes",
+    "hintRecordNotInSource": "L'org source choisie ne contient pas cet enregistrement : choisissez l'org d'où il vient, ou un autre enregistrement",
     "hintSoqlFilterRefused": "Raccourcissez ou réécrivez la clause WHERE pour découvrir le graphe",
     "hintSoqlAliasRefused": "Corrigez l'alias après FROM pour découvrir le graphe",
     "depthDirectTooltip": "Uniquement les objets enfants directs (1 niveau)",
@@ -4021,6 +4022,8 @@
     "depthCustomHint": "Jusqu'à {{max}} niveaux : au-delà, la découverte décrirait des milliers d'objets dans une org CRM et épuiserait ses limites d'API sans produire de graphe exploitable.",
     "depthCustomInvalid": "Saisissez un nombre entier de 1 à {{max}}.",
     "soqlPreviewHint": "L'aperçu est disponible pour les ID d'enregistrement",
+    "previewRecordNotFound": "L'enregistrement {{record}} n'est pas dans {{org}}, ou l'utilisateur connecté là-bas ne le voit pas : l'enregistrement est lu dans l'org source choisie. Choisissez comme source l'org d'où il vient, ou collez un enregistrement de {{org}}.",
+    "previewUnknownPrefix": "Aucun objet de {{org}} n'a d'Ids commençant par « {{prefix}} » : l'enregistrement est lu dans l'org source choisie. Choisissez comme source l'org d'où il vient, ou vérifiez l'Id.",
     "templatePreviewHint": "Sélectionnez un modèle pour voir sa configuration",
     "aiPreviewHint": "L'IA rédige la requête dont part la découverte ; vous la vérifiez et la lancez",
     "refreshPreview": "Rafraîchir l'aperçu",
@@ -4049,6 +4052,8 @@
     "recordLimitSmart": "Automatique (selon l'entrée)",
     "recordLimitSmartRecord": "Automatique : ne lit que ce que l'enregistrement atteint, au plus 50 000 lignes par objet, et demande avant une écriture volumineuse.",
     "recordLimitSmartSoql": "Automatique : {{limit}} par objet. Une exécution depuis une requête lit les autres objets dans leur table entière.",
+    "recordLimitSoqlCap": "Une exécution depuis une requête prend au plus {{cap}} enregistrements par objet : ses objets liés sont lus dans leur table entière. Pour davantage, clonez depuis un enregistrement, ou en ligne de commande : sandforge clone --object et --where clonent les tables nommées, --max servant de plafond.",
+    "recordLimitSoqlHeld": "{{chosen}} vaut pour une exécution depuis un enregistrement : une exécution depuis une requête prend au plus {{cap}} enregistrements par objet, ses objets liés étant lus dans leur table entière. Pour davantage, clonez depuis un enregistrement, ou en ligne de commande : sandforge clone --object et --where clonent les tables nommées, --max servant de plafond.",
     "recordLimitAll": "Tout",
     "recordLimitOpt10": "10 / objet (échantillon)",
     "recordLimitOpt50": "50 / objet",
@@ -4095,7 +4100,7 @@
       "step5": "Exécutez vers votre sandbox après la revue, ou sans elle avec Cloner directement — les IDs sont réattribués"
     },
     "soqlUnscopedWarnTitle": "Votre clause WHERE ne filtre que {{object}}.",
-    "soqlUnscopedWarnBody": "Les objets liés ne sont pas limités aux enregistrements qu’elle retient : chacun est lu dans toute sa table. Chaque objet est plafonné à {{cap}} enregistrements pour cette exécution.",
+    "soqlUnscopedWarnBody": "Les objets liés ne sont pas limités aux enregistrements qu’elle retient : chacun est lu dans toute sa table, jusqu’à {{cap}} enregistrements. Pour en limiter un aux enregistrements rattachés aux vôtres, donnez-lui un filtre dans Revue → Réglages, par exemple {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), {{lookup}} étant son champ qui pointe vers {{object}}.",
     "soqlFilterRefused": "Cette clause WHERE ne peut pas être appliquée. Elle doit compter au plus 512 caractères, ne contenir ni --, ni /*, ni */ (même dans une valeur entre guillemets), et ne pas se terminer par un point-virgule.",
     "soqlAliasRefused": "Cette requête ne peut pas être exécutée. La clause FROM déclare un alias sur une relation qui ne part pas de l'objet situé après FROM : vérifiez l'alias avant le point.",
     "history": {
@@ -4122,9 +4127,9 @@
       "statusFailure": "Échec",
       "remove": "Supprimer les enregistrements créés par cette exécution",
       "removeLeft": "Supprimer ce qui reste des enregistrements de cette exécution",
-      "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici.",
+      "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "removeOrgGone": "L'org où cette exécution a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
-      "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici.",
+      "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "sweepAction": "Reprendre ce que l'automatisation de la cible a créé"
     },
     "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
@@ -4138,7 +4143,7 @@
       "maxSizeHint": "De 1 à {{max}} Mo, ce qu'un appel à Salesforce transporte. Un fichier plus gros est laissé de côté et listé, jamais tronqué. Avant toute écriture, l'ensemble des fichiers est comparé au stockage de fichiers qui reste à l'org cible.",
       "asIsWarning": "Cette exécution anonymise ses enregistrements, et le contenu d'un fichier ne peut pas être anonymisé.",
       "asIsAccept": "J'accepte que les fichiers soient copiés tels qu'ils sont",
-      "sampleNone": "Un échantillon de toute l'org ne copie encore aucun fichier : quels fichiers ont ses enregistrements, et ce qu'ils occuperaient, n'est pas tiré."
+      "sampleNone": "Un échantillon de toute l'org ne copie aucun fichier : l'échantillon part sans les fichiers de ses enregistrements, qui ne sont ni tirés ni pesés."
     },
     "phaseName": {
       "input": "Ce qu'il faut cloner",
@@ -4205,7 +4210,7 @@
       "withTheirRecords": "copié avec les enregistrements auxquels il est rattaché",
       "excludedByUser": "Écartés par vous",
       "platformCreated": "Créés par Salesforce seul, comme les approbations, les insights Einstein et les factures",
-      "customSetting": "Paramètres personnalisés : de la configuration, non copiée sauf demande",
+      "customSetting": "Paramètres personnalisés : de la configuration, qu'un clonage ne copie jamais",
       "feature": "une fonctionnalité que la cible n'a pas activée le garde fermé",
       "parent": "ouvert par les enregistrements dont il dépend, s'il l'est",
       "noEdit": "que vous ne pouvez pas modifier",
@@ -4215,7 +4220,27 @@
     "depthAllHint": "ALL copie toute l'org source : chaque objet que la cible peut créer, chaque enregistrement de chacun, sans plafond. Les objets que Salesforce ne laisse pas créer par l'API sont écartés, et la revue les nomme. Les fichiers ne sont copiés que si vous les cochez dans la revue.",
     "allPreviewRealData": "{{source}} contient les données de vraies personnes — une org de production, ou une sandbox marquée Staging : un clonage de toute cette org anonymise leurs champs personnels, sauf si vous décochez Anonymiser les PII.",
     "recordLimitSample": "Un échantillon qui tient dans la cible",
-    "recordLimitSampleHint": "Des enregistrements tirés de chaque objet, avec leurs enfants et les enregistrements qu'ils nomment, autant que la cible a de place : aucun sans un enregistrement dont il a besoin. La revue lit la place, et règle comment ils sont tirés."
+    "recordLimitSampleHint": "Des enregistrements tirés de chaque objet, avec leurs enfants et les enregistrements qu'ils nomment, autant que la cible a de place : aucun sans un enregistrement dont il a besoin. La revue lit la place, et règle comment ils sont tirés.",
+    "leftOutWay": {
+      "missingInTarget": "Déployez-les dans la cible — Comparaison, puis Déployer depuis le diff, pour ce qui n'est que dans la source — puis relancez la découverte.",
+      "notWritable": "L'administrateur de la cible donne à l'utilisateur sous lequel SandForge écrit les droits de création, de modification et de suppression sur eux, ou active la fonctionnalité qui les apporte ; puis relancez la découverte.",
+      "createOnly": "L'administrateur de la cible donne à l'utilisateur sous lequel SandForge écrit les droits de modification et de suppression sur eux, puis relancez la découverte.",
+      "notQueryable": "L'administrateur de la source donne à l'utilisateur sous lequel SandForge lit le droit de lecture sur eux, puis relancez la découverte.",
+      "unreadable": "Chacun vient avec ce que la source a répondu : relancez la découverte une fois que la source le laisse lire.",
+      "notDescribed": "Relancez la découverte : leur description est relue.",
+      "customSetting": "Définissez leurs valeurs dans la Configuration de la cible : Paramètres personnalisés, puis Gérer à côté de chacun.",
+      "knowledge": "Les articles Knowledge comme {{object}} sont créés par une API en brouillon : un clonage depuis une requête copie ceux qui sont publiés, sur l'onglet SOQL, SELECT Id FROM {{object}} WHERE PublishStatus = 'Online', pour un utilisateur cible qui a Utilisateur Knowledge.",
+      "admin": {
+        "heading": "Modifications à faire dans la Configuration pour que SandForge clone ces objets de toute l'org :",
+        "inTarget": "Dans l'org cible :",
+        "inSource": "Dans l'org source :",
+        "grantWrite": "Donner à l'utilisateur sous lequel SandForge écrit les droits de création, de modification et de suppression sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+        "grantEdit": "Donner à l'utilisateur sous lequel SandForge écrit le droit de modification sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+        "grantDelete": "Donner à l'utilisateur sous lequel SandForge écrit le droit de suppression sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+        "grantEditDelete": "Donner à l'utilisateur sous lequel SandForge écrit les droits de modification et de suppression sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+        "grantRead": "Donner à l'utilisateur sous lequel SandForge lit le droit de lecture sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}})."
+      }
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4269,6 +4294,11 @@
     "piiFields": "Champs PII détectés",
     "anonymize": "Anonymiser",
     "includeNode": "Inclure dans l'exécution",
+    "includeAnyway": "Inclure quand même",
+    "nodeCountTimedOutIn": "L'org n'a pas répondu à temps au comptage de ses enregistrements : il reste dans l'exécution, qui en lit ce que sa portée atteint. Désactivez Inclure dans l'exécution pour l'exclure.",
+    "nodeCountTimedOutOut": "L'org n'a pas répondu à temps au comptage de ses enregistrements, et il est exclu. Inclus quand même, l'exécution en lit ce que sa portée atteint.",
+    "nodeCountRefusedIn": "L'org a refusé de compter ses enregistrements, comme le dit Erreur : il est inclus quand même, et l'exécution en lit ce que sa portée atteint, une lecture que l'org peut refuser comme elle a refusé le comptage.",
+    "nodeCountRefusedOut": "L'org a refusé de compter ses enregistrements, comme le dit Erreur, et la découverte l'a exclu. Une table que l'org ne compte pas en entier se laisse souvent lire par les enregistrements dont elle dépend : inclus quand même, l'exécution en lit ce que sa portée atteint, une lecture que l'org peut refuser comme elle a refusé le comptage.",
     "anonymizationPreview": "Aperçu de l'anonymisation",
     "contactPointsPreview": "E-mails et numéros de téléphone, tels que l'exécution les écrit",
     "fieldName": "Champ",
@@ -4345,34 +4375,47 @@
     },
     "gate": {
       "productionTarget": "Le clonage n'a pas démarré : l'org cible est une org de production, ou une org dont SandForge ne peut pas dire qu'elle est une sandbox, une scratch org ou une org Developer Edition. Forge n'écrit que dans celles-ci, et rien n'a été lu ni écrit. Choisissez l'une d'elles comme cible.",
-      "automationDeclined": "Vous avez annulé le clonage à la confirmation de ce que l'org cible exécute à l'insertion des enregistrements. Rien n'a été lu ni écrit.",
+      "automationDeclined": "Vous avez annulé le clonage à la confirmation de ce que l'org cible exécute à l'insertion des enregistrements. Rien n'a été lu ni écrit. Pour le lancer sans eux, faites désactiver ces Flows et triggers par l'admin de la cible, ou donnez à l'utilisateur sous lequel le clonage écrit un contournement qu'ils testent.",
+      "automationDeclinedMute": "Vous avez annulé le clonage à la confirmation de ce que l'org cible exécute à l'insertion des enregistrements. Rien n'a été lu ni écrit. Pour faire taire, pour ce clonage seul, ce qui teste un contournement, cochez « Rendre muettes les automatisations de la cible pour cette exécution » dans la revue, puis relancez-le ; ou faites désactiver ces Flows et triggers par l'admin de la cible.",
       "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de {{ceiling}} enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
-      "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible.",
+      "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible. Pour écrire moins, excluez des objets ou baissez Enregistrements / objet dans la revue ; Simuler dit ce qu'un clonage écrit sans l'écrire.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
       "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée.",
       "checkpointRefused": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris. Rien n'a été écrit. Lancez-le sans point de contrôle préalable, ou corrigez ce qui le refuse.",
-      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements.",
+      "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements : excluez des objets ou baissez Enregistrements / objet dans la revue.",
       "checkpointRefusedFor": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé. {{reason}} Rien n'a été écrit. Décochez Point de contrôle d'abord pour le lancer sans lui, ou corrigez ce qui le refuse.",
-      "apiBudgetExceededWithCheckpoint": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, le point de contrôle qu'il devait prendre d'abord compris, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures —, écrivez moins d'enregistrements, ou décochez Point de contrôle d'abord.",
+      "apiBudgetExceededWithCheckpoint": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, le point de contrôle qu'il devait prendre d'abord compris, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures —, écrivez moins d'enregistrements (excluez des objets ou baissez Enregistrements / objet dans la revue), ou décochez Point de contrôle d'abord.",
       "readBoundExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : une copie de toute l'org lit quelques objets en entier, et plus de {{bound}} enregistrements, autant que le réglage sandforge.forge.maxRecordsPerObject lui permet d'en garder à la fois, ont été trouvés dans {{objects}}. Augmentez le réglage, ou excluez ces objets dans la revue.",
       "storageExceededAll": "Le clonage a été refusé avant d'écrire quoi que ce soit : les enregistrements de toute l'org occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets dans la revue ou libérez du stockage de données dans l'org cible.",
       "storageExceededFiles": "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers qu'il copie occupent environ {{estimate}} Mo de stockage de fichiers, et il reste {{remaining}} Mo à l'org cible. Excluez les fichiers dans la revue ou libérez du stockage de fichiers dans l'org cible.",
-      "apiRequestsExceededTarget": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait environ {{estimate}} appels API à l'org cible, à qui il en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue.",
-      "apiRequestsExceededSource": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue.",
-      "bulkBatchesExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste.",
+      "apiRequestsExceededTarget": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait environ {{estimate}} appels API à l'org cible, à qui il en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages.",
+      "apiRequestsExceededTargetSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait environ {{estimate}} appels API à l'org cible, à qui il en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
+      "apiRequestsExceededSource": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages.",
+      "apiRequestsExceededSourceSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
+      "apiDrawingExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer l'échantillon réparti sur l'org lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Tirez les enregistrements les plus récents, ce qui ne lit que ceux qu'il garde, ou limitez les gros objets par un filtre dans Revue → Réglages.",
+      "apiDrawingExceededRecent": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer l'échantillon lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Limitez les gros objets par un filtre dans Revue → Réglages, ou tirez-le quand la source en aura de reste — la limite quotidienne se compte sur les dernières 24 heures.",
+      "bulkBatchesExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages.",
+      "bulkBatchesExceededSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
       "filesUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org source n'a ni totalisé ni listé ses fichiers, donc ce qu'ils prennent du stockage de fichiers de la cible n'est pas connu. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra.",
       "fileStorageUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org cible n'a pas dit ce qu'il lui reste de stockage de fichiers, donc les fichiers à copier n'ont pas pu y être comparés. Désactivez la copie des fichiers dans la revue, ou relancez-le quand l'org répondra.",
       "filesUnreadRecords": "Le clonage a été refusé avant d'écrire quoi que ce soit : les fichiers des enregistrements à cloner n'ont pas tous pu être recherchés dans la source, et les enregistrements seraient partis sans certains d'entre eux. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra.",
       "sampleStorageUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org cible n'a pas dit ce qu'il lui reste de stockage de données, et l'échantillon n'a rien d'autre pour le borner. Indiquez dans la revue les Mo qu'il peut prendre, ou relancez-le quand l'org répondra.",
-      "sampleCannotFit": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient. Les objets copiés en entier et le premier enregistrement tiré de chaque objet occupent à eux seuls environ {{need}} Mo, au-delà des {{budget}} Mo que l'échantillon peut prendre ; les plus lourds : {{heaviest}}. Excluez des objets, ou copiez-en moins en entier, dans la revue, ou laissez l'échantillon prendre davantage.",
+      "sampleCannotFit": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part occupent à eux seuls environ {{need}} Mo, au-delà des {{budget}} Mo que l'échantillon peut prendre ; les plus lourds : {{heaviest}}. Excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
       "sampleTooLarge": "Le clonage a été refusé avant d'écrire quoi que ce soit : le tirage de l'échantillon a lu {{rows}} enregistrements, plus que les {{most}} qu'il garde à la fois. Laissez l'échantillon prendre moins, ou excluez des objets ou lisez-les à travers un filtre dans la revue.",
       "samplePlanMismatch": "Le clonage a été refusé avant d'écrire quoi que ce soit : le plan de l'échantillon qu'il devait copier a été tiré d'une autre org ou pour un autre réglage, ou a changé depuis. Simulez de nouveau pour en tirer un nouveau.",
       "samplePlanGone": "Le clonage a été refusé avant d'écrire quoi que ce soit : le plan de son échantillon n'est plus sur cette machine, ou plus tel qu'il a été tiré, donc ses enregistrements ne peuvent pas être repris. Relancez-le depuis la revue pour tirer un nouvel échantillon, ou retirez ce qu'il a écrit depuis les Résultats.",
       "sampleTargetMoved": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'échantillon a été ajusté à {{fitted}} Mo du stockage de données de l'org cible, et ce qu'il lui reste maintenant en contient {{holds}} Mo. Simulez de nouveau pour tirer un échantillon qui tient.",
-      "sampleCannotFitNamed": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient. Les objets copiés en entier et le premier enregistrement tiré de chaque objet occupent à eux seuls plus que ce que l'échantillon peut prendre ; les plus lourds : {{heaviest}}. Excluez des objets, ou copiez-en moins en entier, dans la revue, ou laissez l'échantillon prendre davantage.",
+      "sampleCannotFitNamed": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part occupent à eux seuls plus que ce que l'échantillon peut prendre ; les plus lourds : {{heaviest}}. Excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
+      "sampleCannotFitStorage": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans le stockage de données qui reste à l'org cible. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part occupent à eux seuls environ {{need}} Mo, au-delà des {{budget}} Mo que l'échantillon peut en prendre ; les plus lourds : {{heaviest}}. Aucun réglage ne laisse l'échantillon prendre davantage : excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue ; ou libérez du stockage de données dans l'org cible.",
+      "sampleCannotFitWithin": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans les {{budget}} Mo que vous lui laissez prendre. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part occupent à eux seuls environ {{need}} Mo ; les plus lourds : {{heaviest}}. Dans les réglages de l'échantillon de la revue, laissez-le prendre davantage (Au plus), excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet.",
+      "sampleCannotFitMaxTotal": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans les enregistrements que le clonage peut écrire en tout. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part les dépassent à eux seuls ; les plus lourds : {{heaviest}}. Excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
+      "sampleCannotFitTargetRequests": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans les appels API qui restent aujourd'hui à l'org cible. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part en demandent à eux seuls davantage ; les plus lourds : {{heaviest}}. Relancez-le quand la cible en aura de reste — la limite quotidienne se compte sur les dernières 24 heures —, ou excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
+      "sampleCannotFitBulkBatches": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans les lots Bulk API qui restent à l'org cible sur les dernières 24 heures. Les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part en demandent à eux seuls davantage ; les plus lourds : {{heaviest}}. Relancez-le quand la cible en aura de reste, ou excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
+      "sampleCannotFitSourceRequests": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun échantillon ne tient dans les appels API qui restent aujourd'hui à l'org source. Lire les objets copiés en entier et les enregistrements tirés de chaque objet quelle que soit la part en demande à lui seul davantage ; les plus lourds : {{heaviest}}. Relancez-le quand la source en aura de reste — la limite quotidienne se compte sur les dernières 24 heures —, ou excluez des objets, copiez-en moins en entier, ou tirez moins d'enregistrements de chaque objet, dans les réglages de l'échantillon de la revue.",
       "sampleTooLargeUnsized": "Le clonage a été refusé avant d'écrire quoi que ce soit : le tirage de l'échantillon a lu plus d'enregistrements qu'il n'en garde à la fois. Laissez l'échantillon prendre moins, ou excluez des objets ou lisez-les à travers un filtre dans la revue.",
       "samplePlanMismatchResume": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'exécution qu'il reprend était réglée autrement, un échantillon là où celle-ci copie chaque enregistrement, ou chaque enregistrement là où celle-ci copie un échantillon. Reprenez-la telle qu'elle était réglée.",
       "simulateAgain": "Simuler de nouveau",
+      "drawNewest": "Tirer les plus récents d'abord",
       "sampleOffer": "Un échantillon qui tient en occuperait environ {{mb}} Mo."
     },
     "executionTable": {
@@ -4398,7 +4441,8 @@
       "formTitle": "Enregistrer cette exécution comme modèle",
       "saveHint": "Le modèle garde l'ID d'enregistrement ou la requête de l'exécution, sa profondeur, ses plafonds et ses options, les objets qu'elle laisse de côté, les décisions prises sur ses écarts, son anonymisation champ par champ, sa copie des fichiers (jamais l'acceptation) et l'org cible. Appliquez-le depuis l'onglet Modèle, ou exportez-le dans un fichier.",
       "nameRequired": "Nommez le modèle pour l'enregistrer.",
-      "saved": "Enregistré sous « {{name}} ». Il figure dans Vos modèles, dans l'onglet Modèle."
+      "saved": "Enregistré sous « {{name}} ». Il figure dans Vos modèles, dans l'onglet Modèle.",
+      "wholeOrg": "Un clonage de toute l'org n'est pas gardé comme modèle, qui garde un clonage depuis un enregistrement ou une requête. Une fois qu'il a tourné, Exécutions récentes sur la page Forge → Réutiliser la configuration remet ses réglages dans le formulaire."
     },
     "idMapping": {
       "title": "Correspondance des Ids",
@@ -4420,7 +4464,8 @@
       "inJournal_other": "Les Ids des {{formatted}} enregistrements que cette exécution a mis en correspondance sont gardés dans son journal, pas dans ses résultats : Enregistrer la correspondance des Ids les écrit dans un fichier."
     },
     "preview": {
-      "truncatedAction": "Graphe coupé par le plafond d'objets — augmentez-le et relancez la découverte s'il manque quelque chose",
+      "truncatedAction": "Graphe coupé par le plafond de {{cap}} objets — augmentez-le, jusqu'à {{most}}, et relancez la découverte s'il manque quelque chose",
+      "truncatedAtMost": "Graphe coupé à {{cap}} objets, le plus que prend la découverte — s'il manque quelque chose, choisissez une profondeur moindre, clonez depuis une requête, ou clonez toute l'org (ALL), qui n'a pas de plafond d'objets",
       "willClone": "Sera cloné",
       "willMap": "Sera mappé",
       "skippedExcluded": "Ignoré (exclu)",
@@ -4562,6 +4607,23 @@
       "diffsFound_one": "{{count}} différence trouvée entre la source et la cible.",
       "diffsFound_other": "{{count}} différences trouvées entre la source et la cible.",
       "objectNotCreateable": "{{object}} existe dans l'org cible, mais l'utilisateur avec lequel le clonage écrit ne peut pas y créer ses enregistrements : Exécuter le saute, après les objets écrits avant lui. Laissez-le de côté dans Écarts, ou donnez à cet utilisateur le droit de création sur cet objet.",
+      "metadata": {
+        "missing": "{{field}} existe dans la source et pas dans la cible : Exécuter écrit les lignes sans lui. Déployez-le dans la cible (Comparaison, puis Déployer depuis le diff), confiez-le à un champ que la cible a dans Revue → Réglages, ou laissez-le de côté.",
+        "typeMismatch": "{{field}} est de type {{sourceType}} dans la source et {{targetType}} dans la cible : une valeur que le type de la cible refuse fait échouer sa ligne. Changez l'un des deux types, confiez-le à un champ du même type dans Revue → Réglages, ou laissez-le de côté.",
+        "permissionDenied": "{{field}} existe dans la cible, mais l'utilisateur avec lequel le clonage écrit ne peut pas le renseigner : Exécuter écrit les lignes sans lui. Sauf si la cible le calcule, faites donner à cet utilisateur le droit de modification sur ce champ, ou laissez-le de côté.",
+        "objectMissing": "{{object}} n'est pas dans la cible, ou l'utilisateur avec lequel le clonage écrit ne le voit pas : Exécuter le saute. Déployez-le (Comparaison, puis Déployer depuis le diff), faites-y donner accès à cet utilisateur, ou laissez-le hors du clonage.",
+        "unreadableSource": "{{object}} n'a pas pu être comparé : l'org source ne l'a pas décrit ({{error}}). Comparez à nouveau quand elle répond.",
+        "unreadableTarget": "{{object}} n'a pas pu être comparé : l'org cible ne l'a pas décrit ({{error}}). Comparez à nouveau quand elle répond.",
+        "leaveField": "Laisser {{field}} de côté",
+        "keepField": "Écrire de nouveau {{field}}",
+        "fieldLeftOut": "Laissé hors des lignes",
+        "leaveObject": "Laisser {{object}} hors du clonage",
+        "objectLeftOut": "Laissé hors du clonage",
+        "compareAgain": "Comparer à nouveau",
+        "admin": {
+          "grantFieldEdit": "Donner à l'utilisateur sous lequel SandForge écrit le droit de modification sur {{field}} de {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}} > Autorisations de champ)."
+        }
+      },
       "objectNoUserCreates": "{{object}} existe dans l'org cible, mais aucun utilisateur ne peut y créer ses enregistrements, même avec Modify All Data : Exécuter le saute, et aucun droit ne l'ouvrirait.",
       "objectFeatureOff": "{{object}} existe dans l'org cible, mais même un utilisateur avec Modify All Data ne peut pas y créer ses enregistrements : une fonctionnalité ou une licence que la cible n'a pas activée le ferme. Exécuter le saute, après les objets écrits avant lui. Activez-la, ou laissez-le de côté dans Écarts.",
       "objectThroughParent": "{{object}} existe dans l'org cible, mais l'utilisateur avec lequel le clonage écrit ne peut pas y créer ses enregistrements, et aucun ensemble d'autorisations ne donne le droit de création sur cet objet : le droit de modification sur les enregistrements dont il dépend peut l'ouvrir, ou aucun utilisateur ne le peut. Exécuter le saute, après les objets écrits avant lui. Écarts dit quoi donner à cet utilisateur ; ou laissez-le de côté là.",
@@ -4741,6 +4803,9 @@
       "leftOutTitle_one": "Écartés : {{formatted}} objet de l'org source",
       "leftOutTitle_other": "Écartés : {{formatted}} objets de l'org source",
       "leftOutHint": "Les objets de l'org source que ce clonage de toute l'org ne prend pas, par motif : Salesforce ne laisse pas l'API les créer, la cible ne peut pas les recevoir, ou la source n'en a aucun.",
+      "leftOutAdmin": {
+        "copy": "Copier les modifications pour les administrateurs"
+      },
       "wholeOrg": {
         "personalAsIs_one": "{{formatted}} champ personnel, sur {{objects}} objets, arrive dans {{target}} tel que la source le détient, sans anonymisation. Rendez-le fictif dans la ligne Anonymisation.",
         "personalAsIs_other": "{{formatted}} champs personnels, sur {{objects}} objets, arrivent dans {{target}} tels que la source les détient, sans anonymisation. Rendez-les fictifs dans la ligne Anonymisation.",
@@ -4812,7 +4877,11 @@
           "legend": "Objets à copier en entier",
           "hint": "Un objet copié en entier apporte chacun de ses enregistrements, et aucun n'en est tiré."
         },
-        "offerAction": "Copier un échantillon qui tient"
+        "offerAction": "Copier un échantillon qui tient",
+        "floor": {
+          "label": "Enregistrements tirés de chaque objet, quelle que soit la part",
+          "hint": "Chaque objet garde au moins ce nombre de ses enregistrements, quelle que soit la part que lui laisse la place restante. À 0, un objet peut n'en avoir aucun de tiré : un échantillon tient alors là où ces enregistrements prenaient à eux seuls plus que ce qu'il peut prendre."
+        }
       }
     },
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
@@ -5076,10 +5145,11 @@
         "hint": "Les enregistrements d'un utilisateur source vont à l'utilisateur de la cible choisi par son nom ; l'exécution garde les deux identifiants.",
         "reading": "Lecture des utilisateurs actifs de l'org cible…",
         "error": "Les utilisateurs de l'org cible n'ont pas pu être lus : {{error}}",
-        "truncated": "L'org cible compte plus d'utilisateurs actifs : les {{listed}} premiers par nom sont listés.",
+        "truncated": "L'org cible compte plus d'utilisateurs actifs : les {{listed}} premiers par nom sont listés. Donnez-en un autre par son identifiant, qui commence par 005, dans Identifiant de l'utilisateur de la cible.",
         "item": "{{source}} confié à {{target}}",
         "source": "Identifiant de l'utilisateur source",
         "target": "Utilisateur de la cible",
+        "targetId": "Identifiant de l'utilisateur de la cible",
         "add": "Confier les enregistrements à cet utilisateur"
       },
       "refused": {

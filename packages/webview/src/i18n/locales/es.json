@@ -4013,6 +4013,7 @@
     "hintNoInput": "Ingrese un ID de registro o una consulta, o elija una plantilla",
     "hintAiUnchecked": "Redacte una consulta y deje que pase la comprobación contra la org de origen para descubrir el grafo",
     "hintSameOrg": "Origen y destino deben ser diferentes",
+    "hintRecordNotInSource": "La org de origen elegida no contiene este registro: elija la org de la que viene, u otro registro",
     "hintSoqlFilterRefused": "Acorte o reescriba la cláusula WHERE para descubrir el grafo",
     "hintSoqlAliasRefused": "Corrija el alias después de FROM para descubrir el grafo",
     "depthDirectTooltip": "Solo objetos hijos directamente relacionados (1 nivel)",
@@ -4021,6 +4022,8 @@
     "depthCustomHint": "Hasta {{max}} niveles: más allá, el descubrimiento describiría miles de objetos en una org CRM y agotaría sus límites de API sin producir un grafo útil.",
     "depthCustomInvalid": "Introduzca un número entero de 1 a {{max}}.",
     "soqlPreviewHint": "La vista previa está disponible para entrada de ID de registro",
+    "previewRecordNotFound": "El registro {{record}} no está en {{org}}, o el usuario conectado allí no puede verlo: el registro se lee de la org de origen elegida. Elija como origen la org de la que viene, o pegue un registro de {{org}}.",
+    "previewUnknownPrefix": "Ningún objeto de {{org}} tiene Ids que empiecen por «{{prefix}}»: el registro se lee de la org de origen elegida. Elija como origen la org de la que viene, o compruebe el Id.",
     "templatePreviewHint": "Seleccione una plantilla para ver su configuración",
     "aiPreviewHint": "La IA redacta la consulta de la que parte el descubrimiento; usted la revisa y la ejecuta",
     "refreshPreview": "Actualizar vista previa",
@@ -4049,6 +4052,8 @@
     "recordLimitSmart": "Inteligente (según la entrada)",
     "recordLimitSmartRecord": "Inteligente: solo lee lo que el registro alcanza, como máximo 50.000 filas por objeto, y pregunta antes de una escritura grande.",
     "recordLimitSmartSoql": "Inteligente: {{limit}} por objeto. Una ejecución desde una consulta lee los demás objetos de sus tablas completas.",
+    "recordLimitSoqlCap": "Una ejecución desde una consulta toma como mucho {{cap}} registros de cada objeto: sus objetos relacionados se leen de sus tablas completas. Para más, clone desde un registro, o desde la línea de comandos: sandforge clone --object y --where clonan las tablas indicadas, con --max como tope.",
+    "recordLimitSoqlHeld": "{{chosen}} vale para una ejecución desde un registro: una ejecución desde una consulta toma como mucho {{cap}} registros de cada objeto, y sus objetos relacionados se leen de sus tablas completas. Para más, clone desde un registro, o desde la línea de comandos: sandforge clone --object y --where clonan las tablas indicadas, con --max como tope.",
     "recordLimitAll": "Todos",
     "recordLimitOpt10": "10 / objeto (muestra)",
     "recordLimitOpt50": "50 / objeto",
@@ -4095,7 +4100,7 @@
       "step5": "Ejecute hacia su sandbox tras la revisión, o sin ella con Clonar directamente — los IDs se reasignan"
     },
     "soqlUnscopedWarnTitle": "Su cláusula WHERE solo filtra {{object}}.",
-    "soqlUnscopedWarnBody": "Los objetos relacionados no se limitan a los registros que selecciona: cada uno se lee de toda su tabla. Cada objeto está limitado a {{cap}} registros en esta ejecución.",
+    "soqlUnscopedWarnBody": "Los objetos relacionados no se limitan a los registros que selecciona: cada uno se lee de toda su tabla, hasta {{cap}} registros. Para limitar uno a los registros que cuelgan de los suyos, dele un filtro en Revisión → Ajustes, como {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), siendo {{lookup}} su campo que apunta a {{object}}.",
     "soqlFilterRefused": "Esta cláusula WHERE no se puede aplicar. Debe tener 512 caracteres o menos, no contener --, /* ni */ (ni siquiera dentro de un valor entre comillas) y no terminar en punto y coma.",
     "soqlAliasRefused": "Esta consulta no se puede ejecutar. La cláusula FROM declara un alias sobre una relación que no parte del objeto que sigue a FROM: revise el alias antes del punto.",
     "history": {
@@ -4122,9 +4127,9 @@
       "statusFailure": "Fallida",
       "remove": "Eliminar los registros que creó esta ejecución",
       "removeLeft": "Eliminar lo que queda de los registros de esta ejecución",
-      "removeNotRecorded": "Registrada antes de que las ejecuciones guardaran lo que crean: sus registros no se pueden eliminar desde aquí.",
+      "removeNotRecorded": "Registrada antes de que las ejecuciones guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
       "removeOrgGone": "La org en la que escribió esta ejecución ya no está registrada: sus registros no se pueden eliminar desde aquí.",
-      "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí.",
+      "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
       "sweepAction": "Recuperar lo que creó la automatización del destino"
     },
     "soqlObjectNameInvalid": "«{{object}}» no es un nombre de API de SObject, así que la cláusula WHERE no puede enviarse con él. Debe empezar por una letra y tener como máximo 80 letras, dígitos o guiones bajos.",
@@ -4138,7 +4143,7 @@
       "maxSizeHint": "De 1 a {{max}} MB, lo que lleva una llamada a Salesforce. Un archivo más grande se deja fuera y se lista, nunca se corta. Antes de escribir nada, los archivos en conjunto se comparan con el almacenamiento de archivos que le queda a la org de destino.",
       "asIsWarning": "Esta ejecución anonimiza sus registros, y el contenido de un archivo no se puede anonimizar.",
       "asIsAccept": "Acepto que los archivos se copien tal como están",
-      "sampleNone": "Una muestra de toda la org aún no copia ningún archivo: qué archivos tienen sus registros, y lo que ocuparían, no se extrae."
+      "sampleNone": "Una muestra de toda la org no copia ningún archivo: la muestra va sin los archivos de sus registros, que no se extraen ni se pesan."
     },
     "phaseName": {
       "input": "Qué clonar",
@@ -4205,7 +4210,7 @@
       "withTheirRecords": "se copia con los registros a los que está vinculado",
       "excludedByUser": "Dejados fuera por usted",
       "platformCreated": "Creados solo por Salesforce, como aprobaciones, insights de Einstein y facturas",
-      "customSetting": "Configuraciones personalizadas: configuración, no se copia salvo que se pida",
+      "customSetting": "Configuraciones personalizadas: configuración, que una clonación nunca copia",
       "feature": "una función que el destino no ha activado lo mantiene cerrado",
       "parent": "abierto por los registros de los que depende, si acaso",
       "noEdit": "no puede editarlos",
@@ -4215,7 +4220,27 @@
     "depthAllHint": "ALL copia toda la org de origen: cada objeto que el destino puede crear, cada registro de cada uno, sin límite. Los objetos que Salesforce no deja crear por API quedan fuera, y la revisión los nombra. Los archivos solo se copian si los marca en la revisión.",
     "allPreviewRealData": "{{source}} contiene datos de personas reales — una org de producción, o un sandbox marcado como Staging: un clon de toda ella anonimiza sus campos personales, salvo que desmarque Anonimizar PII.",
     "recordLimitSample": "Una muestra que quepa en el destino",
-    "recordLimitSampleHint": "Registros extraídos de cada objeto, con sus hijos y los registros que nombran, tantos como quepan en el destino: ninguno sin un registro que necesite. La revisión lee el espacio y fija cómo se extraen."
+    "recordLimitSampleHint": "Registros extraídos de cada objeto, con sus hijos y los registros que nombran, tantos como quepan en el destino: ninguno sin un registro que necesite. La revisión lee el espacio y fija cómo se extraen.",
+    "leftOutWay": {
+      "missingInTarget": "Despliéguelos en el destino —Comparación y luego Desplegar desde diff, para lo que solo está en el origen— y vuelva a descubrir.",
+      "notWritable": "El administrador del destino da al usuario con el que escribe SandForge los permisos de creación, edición y eliminación sobre ellos, o activa la función con la que vienen; luego vuelva a descubrir.",
+      "createOnly": "El administrador del destino da al usuario con el que escribe SandForge los permisos de edición y eliminación sobre ellos; luego vuelva a descubrir.",
+      "notQueryable": "El administrador del origen da al usuario con el que lee SandForge el permiso de lectura sobre ellos; luego vuelva a descubrir.",
+      "unreadable": "Cada uno viene con lo que respondió el origen: vuelva a descubrir cuando el origen deje leerlo.",
+      "notDescribed": "Vuelva a descubrir: su descripción se vuelve a leer.",
+      "customSetting": "Defina sus valores en la Configuración del destino: Configuraciones personalizadas y luego Gestionar junto a cada una.",
+      "knowledge": "Los artículos de Knowledge como {{object}} se crean por API como borradores: una clonación desde una consulta copia los publicados, en la pestaña SOQL, SELECT Id FROM {{object}} WHERE PublishStatus = 'Online', para un usuario de destino con Usuario de Knowledge.",
+      "admin": {
+        "heading": "Cambios por hacer en la Configuración para que SandForge clone estos objetos de toda la org:",
+        "inTarget": "En la org de destino:",
+        "inSource": "En la org de origen:",
+        "grantWrite": "Dar al usuario con el que escribe SandForge los permisos de creación, edición y eliminación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+        "grantEdit": "Dar al usuario con el que escribe SandForge el permiso de edición sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+        "grantDelete": "Dar al usuario con el que escribe SandForge el permiso de eliminación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+        "grantEditDelete": "Dar al usuario con el que escribe SandForge los permisos de edición y eliminación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+        "grantRead": "Dar al usuario con el que lee SandForge el permiso de lectura sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}})."
+      }
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4269,6 +4294,11 @@
     "piiFields": "Campos PII detectados",
     "anonymize": "Anonimizar",
     "includeNode": "Incluir en la ejecución",
+    "includeAnyway": "Incluir de todos modos",
+    "nodeCountTimedOutIn": "La org no respondió a tiempo al recuento de sus registros: sigue en la ejecución, que lee de él lo que alcanza su ámbito. Desactive Incluir en la ejecución para excluirlo.",
+    "nodeCountTimedOutOut": "La org no respondió a tiempo al recuento de sus registros, y está excluido. Incluido de todos modos, la ejecución lee de él lo que alcanza su ámbito.",
+    "nodeCountRefusedIn": "La org se negó a contar sus registros, como dice Error: está incluido de todos modos, y la ejecución lee de él lo que alcanza su ámbito, una lectura que la org puede rechazar como rechazó el recuento.",
+    "nodeCountRefusedOut": "La org se negó a contar sus registros, como dice Error, y el descubrimiento lo excluyó. Una tabla que la org no cuenta entera suele dejarse leer a través de los registros de los que cuelga: incluido de todos modos, la ejecución lee de él lo que alcanza su ámbito, una lectura que la org puede rechazar como rechazó el recuento.",
     "anonymizationPreview": "Vista previa de anonimización",
     "contactPointsPreview": "Correos y teléfonos, tal como los escribe la ejecución",
     "fieldName": "Campo",
@@ -4345,34 +4375,47 @@
     },
     "gate": {
       "productionTarget": "La ejecución no empezó: la org de destino es una org de producción, o una que SandForge no puede confirmar que sea un sandbox, una scratch org o una org Developer Edition. Forge solo escribe en esas, y no se leyó ni escribió nada. Elija una de ellas como destino.",
-      "automationDeclined": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada.",
+      "automationDeclined": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada. Para ejecutarla sin ellos, pida al admin del destino que desactive esos flujos y triggers, o dé al usuario con el que escribe la ejecución un bypass que comprueben.",
+      "automationDeclinedMute": "Canceló la ejecución en la confirmación de lo que la org de destino ejecuta al insertar los registros. No se leyó ni escribió nada. Para silenciar, solo en esta ejecución, lo que comprueba un bypass, marque «Silenciar las automatizaciones del destino en esta ejecución» en la revisión y vuelva a ejecutarla; o pida al admin del destino que desactive esos flujos y triggers.",
       "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de {{ceiling}} registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
-      "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino.",
+      "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino. Para escribir menos, excluya objetos o baje Registros por objeto en la revisión; Simular dice lo que escribe una ejecución sin escribirlo.",
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
       "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "checkpointRefused": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar. No se escribió nada. Láncela sin punto de control previo, o corrija lo que lo rechaza.",
-      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros.",
+      "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros: excluya objetos o baje Registros por objeto en la revisión.",
       "checkpointRefusedFor": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó. {{reason}} No se escribió nada. Desmarque Primero un punto de control para lanzarla sin él, o corrija lo que lo rechaza.",
-      "apiBudgetExceededWithCheckpoint": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando el punto de control que debía tomar primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, escriba menos registros o desmarque Primero un punto de control.",
+      "apiBudgetExceededWithCheckpoint": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, contando el punto de control que debía tomar primero, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas—, escriba menos registros (excluya objetos o baje Registros por objeto en la revisión) o desmarque Primero un punto de control.",
       "readBoundExceeded": "La ejecución se rechazó antes de escribir nada: una copia de toda la org lee algunos objetos enteros, y se encontraron más de {{bound}} registros, tantos como el ajuste sandforge.forge.maxRecordsPerObject le deja tener a la vez, en {{objects}}. Aumente el ajuste o excluya estos objetos en la revisión.",
       "storageExceededAll": "La ejecución se rechazó antes de escribir nada: los registros de toda la org ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos en la revisión o libere almacenamiento de datos en la org de destino.",
       "storageExceededFiles": "La ejecución se rechazó antes de escribir nada: los archivos que copia ocupan unos {{estimate}} MB de almacenamiento de archivos, y a la org de destino le quedan {{remaining}} MB. Excluya los archivos en la revisión o libere almacenamiento de archivos en la org de destino.",
-      "apiRequestsExceededTarget": "La ejecución se rechazó antes de escribir nada: necesitaría unas {{estimate}} solicitudes de API de la org de destino, a la que le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión.",
-      "apiRequestsExceededSource": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión.",
-      "bulkBatchesExceeded": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren.",
+      "apiRequestsExceededTarget": "La ejecución se rechazó antes de escribir nada: necesitaría unas {{estimate}} solicitudes de API de la org de destino, a la que le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes.",
+      "apiRequestsExceededTargetSample": "La ejecución se rechazó antes de escribir nada: necesitaría unas {{estimate}} solicitudes de API de la org de destino, a la que le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
+      "apiRequestsExceededSource": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes.",
+      "apiRequestsExceededSourceSample": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
+      "apiDrawingExceeded": "La ejecución se rechazó antes de escribir nada: extraer la muestra repartida por la org leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Extraiga los registros más recientes, lo que solo lee los que conserva, o limite los objetos grandes con un filtro en Revisión → Ajustes.",
+      "apiDrawingExceededRecent": "La ejecución se rechazó antes de escribir nada: extraer la muestra leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Limite los objetos grandes con un filtro en Revisión → Ajustes, o extráigala cuando al origen le sobren —el límite diario se cuenta sobre las últimas 24 horas.",
+      "bulkBatchesExceeded": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes.",
+      "bulkBatchesExceededSample": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
       "filesUnread": "La ejecución se rechazó antes de escribir nada: la org de origen no sumó ni enumeró sus archivos, así que no se sabe cuánto almacenamiento de archivos del destino ocupan. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda.",
       "fileStorageUnread": "La ejecución se rechazó antes de escribir nada: la org de destino no indicó cuánto almacenamiento de archivos le queda, así que los archivos que copiar no pudieron compararse con él. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando la org responda.",
       "filesUnreadRecords": "La ejecución se rechazó antes de escribir nada: no se pudieron buscar en el origen todos los archivos de los registros que clonar, y los registros habrían llegado sin algunos de ellos. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda.",
       "sampleStorageUnread": "La ejecución se rechazó antes de escribir nada: la org de destino no indicó cuánto almacenamiento de datos le queda, y nada más limita la muestra. Indique en la revisión los MB que puede ocupar, o vuelva a ejecutarla cuando la org responda.",
-      "sampleCannotFit": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe. Los objetos copiados enteros y el primer registro extraído de cada objeto ocupan por sí solos unos {{need}} MB, más de los {{budget}} MB que puede ocupar la muestra; los más pesados: {{heaviest}}. Excluya objetos, o copie menos enteros, en la revisión, o deje que la muestra ocupe más.",
+      "sampleCannotFit": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción ocupan por sí solos unos {{need}} MB, más de los {{budget}} MB que puede ocupar la muestra; los más pesados: {{heaviest}}. Excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
       "sampleTooLarge": "La ejecución se rechazó antes de escribir nada: extraer la muestra leyó {{rows}} registros, más de los {{most}} que guarda a la vez. Deje que la muestra ocupe menos, o excluya objetos o léalos a través de un filtro en la revisión.",
       "samplePlanMismatch": "La ejecución se rechazó antes de escribir nada: el plan de la muestra que debía copiar se extrajo de otra org o para otra configuración, o ha cambiado desde entonces. Simule de nuevo para extraer uno nuevo.",
       "samplePlanGone": "La ejecución se rechazó antes de escribir nada: el plan de su muestra ya no está en este equipo, o ya no es como se extrajo, así que sus registros no pueden retomarse. Vuelva a ejecutarla desde la revisión para extraer una nueva muestra, o quite lo que escribió desde Resultados.",
       "sampleTargetMoved": "La ejecución se rechazó antes de escribir nada: la muestra se ajustó a {{fitted}} MB del almacenamiento de datos de la org de destino, y lo que le queda ahora admite {{holds}} MB de una muestra. Simule de nuevo para extraer una muestra que quepa.",
-      "sampleCannotFitNamed": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe. Los objetos copiados enteros y el primer registro extraído de cada objeto ocupan por sí solos más de lo que puede ocupar la muestra; los más pesados: {{heaviest}}. Excluya objetos, o copie menos enteros, en la revisión, o deje que la muestra ocupe más.",
+      "sampleCannotFitNamed": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción ocupan por sí solos más de lo que puede ocupar la muestra; los más pesados: {{heaviest}}. Excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
+      "sampleCannotFitStorage": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en el almacenamiento de datos que le queda a la org de destino. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción ocupan por sí solos unos {{need}} MB, más de los {{budget}} MB que la muestra puede ocupar de él; los más pesados: {{heaviest}}. Ningún ajuste deja que la muestra ocupe más: excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión; o libere almacenamiento de datos en la org de destino.",
+      "sampleCannotFitWithin": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en los {{budget}} MB que le deja ocupar. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción ocupan por sí solos unos {{need}} MB; los más pesados: {{heaviest}}. En los ajustes de la muestra de la revisión, déjela ocupar más (Como máximo), excluya objetos, copie menos enteros o extraiga menos registros de cada objeto.",
+      "sampleCannotFitMaxTotal": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en los registros que la ejecución puede escribir en total. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción los superan por sí solos; los más pesados: {{heaviest}}. Excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
+      "sampleCannotFitTargetRequests": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en las solicitudes de API que le quedan hoy a la org de destino. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción necesitan por sí solos más; los más pesados: {{heaviest}}. Ejecútela cuando al destino le sobren —el límite diario se cuenta sobre las últimas 24 horas—, o excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
+      "sampleCannotFitBulkBatches": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en los lotes de Bulk API que le quedan a la org de destino en las últimas 24 horas. Los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción necesitan por sí solos más; los más pesados: {{heaviest}}. Ejecútela cuando al destino le sobren, o excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
+      "sampleCannotFitSourceRequests": "La ejecución se rechazó antes de escribir nada: ninguna muestra cabe en las solicitudes de API que le quedan hoy a la org de origen. Leer los objetos copiados enteros y los registros extraídos de cada objeto sea cual sea la proporción necesita por sí solo más; los más pesados: {{heaviest}}. Ejecútela cuando al origen le sobren —el límite diario se cuenta sobre las últimas 24 horas—, o excluya objetos, copie menos enteros o extraiga menos registros de cada objeto, en los ajustes de la muestra de la revisión.",
       "sampleTooLargeUnsized": "La ejecución se rechazó antes de escribir nada: extraer la muestra leyó más registros de los que guarda a la vez. Deje que la muestra ocupe menos, o excluya objetos o léalos a través de un filtro en la revisión.",
       "samplePlanMismatchResume": "La ejecución se rechazó antes de escribir nada: la ejecución que retoma estaba configurada de otro modo, una muestra donde esta copia cada registro, o cada registro donde esta copia una muestra. Retómela tal como estaba configurada.",
       "simulateAgain": "Simular de nuevo",
+      "drawNewest": "Extraer los más recientes primero",
       "sampleOffer": "Una muestra que quepa ocuparía unos {{mb}} MB de él."
     },
     "executionTable": {
@@ -4398,7 +4441,8 @@
       "formTitle": "Guardar esta ejecución como plantilla",
       "saveHint": "La plantilla conserva el ID de registro o la consulta de la ejecución, su profundidad, límites y opciones, los objetos que deja fuera, las decisiones tomadas sobre sus discrepancias, su anonimización campo por campo, su copia de archivos (nunca la aceptación) y la org de destino. Aplíquela desde la pestaña Plantilla o expórtela a un archivo.",
       "nameRequired": "Ponga nombre a la plantilla para guardarla.",
-      "saved": "Guardada como «{{name}}». Aparece en Sus plantillas, en la pestaña Plantilla."
+      "saved": "Guardada como «{{name}}». Aparece en Sus plantillas, en la pestaña Plantilla.",
+      "wholeOrg": "Una clonación de toda la org no se guarda como plantilla, que guarda una clonación desde un registro o una consulta. Una vez ejecutada, Ejecuciones recientes en la página Forge → Reutilizar la configuración vuelve a poner sus ajustes en el formulario."
     },
     "idMapping": {
       "title": "Correspondencia de Ids",
@@ -4420,7 +4464,8 @@
       "inJournal_other": "Los Ids de los {{formatted}} registros que esta ejecución asignó se guardan en su diario, no en sus resultados: Guardar correspondencia de Ids los escribe en un archivo."
     },
     "preview": {
-      "truncatedAction": "Grafo cortado por el tope de objetos — súbalo y vuelva a descubrir si falta algo",
+      "truncatedAction": "Grafo cortado por el tope de {{cap}} objetos — súbalo, hasta {{most}}, y vuelva a descubrir si falta algo",
+      "truncatedAtMost": "Grafo cortado en {{cap}} objetos, lo máximo que toma el descubrimiento — si falta algo, elija una profundidad menor, clone desde una consulta o clone toda la org (ALL), que no tiene tope de objetos",
       "willClone": "Se clonará",
       "willMap": "Se asignará",
       "skippedExcluded": "Omitido (excluido)",
@@ -4562,6 +4607,23 @@
       "diffsFound_one": "{{count}} diferencia encontrada entre origen y destino.",
       "diffsFound_other": "{{count}} diferencias encontradas entre origen y destino.",
       "objectNotCreateable": "{{object}} está en la org de destino, pero el usuario con el que escribe la clonación no puede crear sus registros allí: Ejecutar lo omite, después de los objetos escritos antes. Déjelo fuera en Discrepancias, o dé a ese usuario permiso de creación sobre él.",
+      "metadata": {
+        "missing": "{{field}} está en el origen y no en el destino: Ejecutar escribe las filas sin él. Despliéguelo en el destino (Comparación y luego Desplegar desde diff), asígnelo a un campo que el destino tenga en Revisión → Ajustes, o déjelo fuera.",
+        "typeMismatch": "{{field}} es de tipo {{sourceType}} en el origen y {{targetType}} en el destino: un valor que el tipo del destino rechaza hace fallar su fila. Cambie uno de los dos tipos, asígnelo a un campo del mismo tipo en Revisión → Ajustes, o déjelo fuera.",
+        "permissionDenied": "{{field}} está en el destino, pero el usuario con el que escribe la clonación no puede establecerlo allí: Ejecutar escribe las filas sin él. Salvo que el destino lo calcule, haga que den a ese usuario permiso de edición sobre él, o déjelo fuera.",
+        "objectMissing": "{{object}} no está en el destino, o el usuario con el que escribe la clonación no puede verlo: Ejecutar lo omite. Despliéguelo (Comparación y luego Desplegar desde diff), haga que den acceso a ese usuario, o déjelo fuera de la clonación.",
+        "unreadableSource": "{{object}} no se pudo comparar: la org de origen no lo describió ({{error}}). Vuelva a comparar cuando responda.",
+        "unreadableTarget": "{{object}} no se pudo comparar: la org de destino no lo describió ({{error}}). Vuelva a comparar cuando responda.",
+        "leaveField": "Dejar fuera {{field}}",
+        "keepField": "Volver a escribir {{field}}",
+        "fieldLeftOut": "Fuera de las filas",
+        "leaveObject": "Dejar {{object}} fuera de la clonación",
+        "objectLeftOut": "Fuera de la clonación",
+        "compareAgain": "Comparar de nuevo",
+        "admin": {
+          "grantFieldEdit": "Dar al usuario con el que escribe SandForge el permiso de edición sobre {{field}} de {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}} > Permisos de campo)."
+        }
+      },
       "objectNoUserCreates": "{{object}} está en la org de destino, pero ningún usuario puede crear sus registros allí, ni siquiera con Modify All Data: Ejecutar lo omite, y ningún permiso lo abriría.",
       "objectFeatureOff": "{{object}} está en la org de destino, pero ni siquiera un usuario con Modify All Data puede crear sus registros allí: una función o licencia que el destino no ha activado lo mantiene cerrado. Ejecutar lo omite, después de los objetos escritos antes. Actívela, o déjelo fuera en Discrepancias.",
       "objectThroughParent": "{{object}} está en la org de destino, pero el usuario con el que escribe la clonación no puede crear sus registros allí, y ningún conjunto de permisos da permiso de creación sobre él: la edición de los registros de los que depende puede abrirlo, o ningún usuario puede. Ejecutar lo omite, después de los objetos escritos antes. Discrepancias dice qué dar a ese usuario; o déjelo fuera allí.",
@@ -4741,6 +4803,9 @@
       "leftOutTitle_one": "Fuera: {{formatted}} objeto de la org de origen",
       "leftOutTitle_other": "Fuera: {{formatted}} objetos de la org de origen",
       "leftOutHint": "Los objetos de la org de origen que este clon de toda la org no toma, por motivo: Salesforce no deja crearlos por API, el destino no puede recibirlos o el origen no tiene ninguno.",
+      "leftOutAdmin": {
+        "copy": "Copiar los cambios para los administradores"
+      },
       "wholeOrg": {
         "personalAsIs_one": "{{formatted}} campo personal, en {{objects}} objetos, llega a {{target}} tal como lo tiene el origen, sin anonimizar. Vuélvalo ficticio en la fila Anonimización.",
         "personalAsIs_other": "{{formatted}} campos personales, en {{objects}} objetos, llegan a {{target}} tal como los tiene el origen, sin anonimizar. Vuélvalos ficticios en la fila Anonimización.",
@@ -4812,7 +4877,11 @@
           "legend": "Objetos que copiar enteros",
           "hint": "Un objeto copiado entero trae cada uno de sus registros, y ninguno se extrae."
         },
-        "offerAction": "Copiar una muestra que quepa"
+        "offerAction": "Copiar una muestra que quepa",
+        "floor": {
+          "label": "Registros extraídos de cada objeto, sea cual sea la proporción",
+          "hint": "Cada objeto conserva al menos esta cantidad de sus registros, sea cual sea la proporción que le deja el espacio restante. En 0, puede que no se extraiga ninguno de un objeto: entonces cabe una muestra donde esos registros ocupaban por sí solos más de lo que puede ocupar."
+        }
       }
     },
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
@@ -5076,10 +5145,11 @@
         "hint": "Los registros de un usuario de origen pasan al usuario del destino elegido por su nombre; la ejecución guarda ambos identificadores.",
         "reading": "Leyendo los usuarios activos de la org de destino…",
         "error": "No se pudieron leer los usuarios de la org de destino: {{error}}",
-        "truncated": "La org de destino tiene más usuarios activos: se listan los {{listed}} primeros por nombre.",
+        "truncated": "La org de destino tiene más usuarios activos: se listan los {{listed}} primeros por nombre. Indique otro por su Id., que empieza por 005, en Id. del usuario del destino.",
         "item": "{{source}} asignado a {{target}}",
         "source": "Id. del usuario de origen",
         "target": "Usuario del destino",
+        "targetId": "Id. del usuario del destino",
         "add": "Asignar los registros a este usuario"
       },
       "refused": {

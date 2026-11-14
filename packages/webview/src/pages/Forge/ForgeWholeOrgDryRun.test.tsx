@@ -49,8 +49,9 @@ describe('ForgeWholeOrgDryRunResult', () => {
       'listitem',
     );
     expect(refusals.map((item) => item.textContent)).toEqual([
-      'The run was refused before it wrote anything: its Bulk API jobs would take about 16,000 batches of the target org, which has 2,000 left over the last 24 hours. Run it once the org has more to spare.',
-      'The run was refused before it wrote anything: reading the source org would take about 120,000 of its API requests, and it has 4,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+      // A dry run of every record names the sample, which takes fewer of them.
+      'The run was refused before it wrote anything: its Bulk API jobs would take about 16,000 batches of the target org, which has 2,000 left over the last 24 hours. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).',
+      'The run was refused before it wrote anything: reading the source org would take about 120,000 of its API requests, and it has 4,000 left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).',
     ]);
   });
 

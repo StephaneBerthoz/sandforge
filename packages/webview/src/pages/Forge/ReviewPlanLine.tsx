@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 import type { ForgeGraph, ForgePlan } from '@sandforge/shared';
 import { uiLocale } from '../../utils/formatters';
 import { forgeRunBuckets } from './reviewSummaries';
+import { DEFAULT_OBJECT_CAP, MOST_OBJECTS_OFFERED } from './forgeUtils';
 
 /** The objects named on the line, the rest being counted: all of them are in its title. */
 const OBJECTS_NAMED = 4;
@@ -40,6 +41,8 @@ export interface ReviewPlanLineProps {
    * left out.
    */
   oneRecord?: boolean;
+  /** The object cap discovery was given (`ForgeConfig.maxNodes`); absent, the default. */
+  maxNodes?: number;
 }
 
 /**
@@ -53,8 +56,19 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
   cycleCount,
   truncated,
   oneRecord = false,
+  maxNodes,
 }) => {
   const { t } = useTranslation();
+  /*
+   * A graph cut short at the highest cap the page offers: "raise it" said a
+   * way out the select does not have. Below it, the cap is named with how
+   * far it goes.
+   */
+  const cap = maxNodes ?? DEFAULT_OBJECT_CAP;
+  const truncatedWords =
+    cap >= MOST_OBJECTS_OFFERED
+      ? t('forgeRun.preview.truncatedAtMost', { cap })
+      : t('forgeRun.preview.truncatedAction', { cap, most: MOST_OBJECTS_OFFERED });
   const buckets = useMemo(() => forgeRunBuckets(graph), [graph]);
   /**
    * Discovery counts each object's whole table: a clone of one case's graph
@@ -129,7 +143,7 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
           className="flex items-center gap-1.5 text-xs text-status-warning"
         >
           <AlertTriangle size={11} aria-hidden="true" className="shrink-0" />
-          {t('forgeRun.preview.truncatedAction')}
+          {truncatedWords}
         </span>
       )}
       {buckets.cloneRecordsUnknown && (

@@ -84,6 +84,7 @@ function refusalWords(
   t: TFunction,
   refusal: ForgeWholeOrgRefusal,
   checkpointAsked: boolean,
+  sampled: boolean,
 ): string {
   const stop = forgeRunGateStopOf({
     code: refusal.code,
@@ -93,7 +94,9 @@ function refusalWords(
     ...(refusal.sample ? { sample: refusal.sample } : {}),
     ...(refusal.refusal ? { reason: refusal.refusal.code } : {}),
   });
-  return stop ? gateStopSentence(t, stop, { checkpointAsked, wholeOrg: true }) : refusal.message;
+  return stop
+    ? gateStopSentence(t, stop, { checkpointAsked, wholeOrg: true, sampled })
+    : refusal.message;
 }
 
 /**
@@ -328,7 +331,7 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
             <ul className="list-disc pl-4" data-testid="forge-whole-org-dry-run-refusals">
               {dry.wouldBeRefused.map((refusal, index) => (
                 <li key={`${refusal.code}-${String(index)}`} data-code={refusal.code}>
-                  {refusalWords(t, refusal, checkpointAsked)}
+                  {refusalWords(t, refusal, checkpointAsked, dry.sample !== undefined)}
                 </li>
               ))}
             </ul>

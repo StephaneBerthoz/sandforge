@@ -20,6 +20,35 @@ describe('ForgeSoqlNotices', () => {
     expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
   });
 
+  it('names the filter of Review → Controls that narrows a related object, as a semi-join on the query’s object', () => {
+    // It said only that related objects were read from their whole tables:
+    // a clone of a few accounts read every contact, and nothing said what
+    // narrows them.
+    render(
+      <ForgeSoqlNotices
+        query="SELECT Id FROM Account WHERE Industry = 'Energy'"
+        objectNameRefused={false}
+      />,
+    );
+
+    const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
+    expect(warning).toContain('Review → Controls');
+    expect(warning).toContain('AccountId IN (SELECT Id FROM Account WHERE …)');
+  });
+
+  it('gives a custom object’s example lookup the object’s own name', () => {
+    render(
+      <ForgeSoqlNotices
+        query="SELECT Id FROM Invoice__c WHERE Status__c = 'Open'"
+        objectNameRefused={false}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-soql-where-warning').textContent).toContain(
+      'Invoice__c IN (SELECT Id FROM Invoice__c WHERE …)',
+    );
+  });
+
   it('refuses a clause the extension would reject, and gives no warning beside it', () => {
     render(
       <ForgeSoqlNotices

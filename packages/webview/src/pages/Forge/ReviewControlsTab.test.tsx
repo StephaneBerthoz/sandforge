@@ -310,9 +310,34 @@ describe('ReviewControlsTab', () => {
       truncated: true,
     });
 
-    expect(screen.getByTestId('controls-users-truncated').textContent).toBe(
+    expect(screen.getByTestId('controls-users-truncated').textContent).toContain(
       'The target org holds more active users: the first 1 by name are listed.',
     );
+  });
+
+  it('gives the records to a target user past those listed, by the id typed', () => {
+    // The list carries the first 2,000 users by name: an org with more had no
+    // way to give records to anyone after them.
+    act(() => useForgeStore.getState().updateConfig((c) => ({ ...c, targetOrgId: 'org-big' })));
+    answer('forge:users:request', 'forge:users:response', {
+      orgId: 'org-big',
+      users: [{ id: ADA, name: 'Ada Admin', username: 'ada@example.invalid' }],
+      truncated: true,
+    });
+    expect(screen.getByTestId('controls-users-truncated').textContent).toContain(
+      "Target user's id",
+    );
+
+    const PAST = '005000000000999AAA';
+    fireEvent.change(screen.getByTestId('controls-owner-source'), { target: { value: OWNER } });
+    fireEvent.change(screen.getByTestId('controls-owner-target-id'), { target: { value: PAST } });
+    fireEvent.click(screen.getByTestId('controls-owner-add'));
+
+    expect(config().ownerMappings).toEqual({ [OWNER]: PAST });
+  });
+
+  it('asks no id of a target whose users are all listed', () => {
+    expect(screen.queryByTestId('controls-owner-target-id')).toBeNull();
   });
 
   it("says when the target's users could not be read", () => {

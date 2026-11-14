@@ -4013,6 +4013,7 @@
     "hintNoInput": "Geben Sie eine Datensatz-ID oder eine Abfrage ein, oder wählen Sie eine Vorlage",
     "hintAiUnchecked": "Entwerfen Sie eine Abfrage, die die Prüfung gegen die Quell-Org besteht, um den Graph zu ermitteln",
     "hintSameOrg": "Quelle und Ziel müssen unterschiedlich sein",
+    "hintRecordNotInSource": "Die gewählte Quell-Org enthält diesen Datensatz nicht: Wählen Sie die Org, aus der er stammt, oder einen anderen Datensatz",
     "hintSoqlFilterRefused": "Kürzen oder überarbeiten Sie die WHERE-Klausel, um den Graph zu ermitteln",
     "hintSoqlAliasRefused": "Korrigieren Sie den Alias nach FROM, um den Graph zu ermitteln",
     "depthDirectTooltip": "Nur direkt verknüpfte untergeordnete Objekte (1 Ebene)",
@@ -4021,6 +4022,8 @@
     "depthCustomHint": "Bis zu {{max}} Ebenen: Darüber hinaus würde die Ermittlung in einer CRM-Org Tausende von Objekten beschreiben und ihre API-Limits aufbrauchen, ohne einen brauchbaren Graphen zu liefern.",
     "depthCustomInvalid": "Geben Sie eine ganze Zahl von 1 bis {{max}} ein.",
     "soqlPreviewHint": "Vorschau ist bei Datensatz-ID-Eingabe verfügbar",
+    "previewRecordNotFound": "Der Datensatz {{record}} ist nicht in {{org}}, oder der dort verbundene Benutzer sieht ihn nicht: Der Datensatz wird aus der gewählten Quell-Org gelesen. Wählen Sie die Org, aus der er stammt, als Quelle, oder fügen Sie einen Datensatz von {{org}} ein.",
+    "previewUnknownPrefix": "Kein Objekt von {{org}} hat Ids, die mit „{{prefix}}“ beginnen: Der Datensatz wird aus der gewählten Quell-Org gelesen. Wählen Sie die Org, aus der er stammt, als Quelle, oder prüfen Sie die Id.",
     "templatePreviewHint": "Wählen Sie eine Vorlage, um ihre Konfiguration zu sehen",
     "aiPreviewHint": "Die KI entwirft die Abfrage, von der die Ermittlung ausgeht; Sie prüfen und starten sie",
     "refreshPreview": "Vorschau aktualisieren",
@@ -4049,6 +4052,8 @@
     "recordLimitSmart": "Automatisch (je nach Eingabe)",
     "recordLimitSmartRecord": "Automatisch: liest nur, was der Datensatz erreicht, höchstens 50.000 Zeilen pro Objekt, und fragt vor einem großen Schreibvorgang.",
     "recordLimitSmartSoql": "Automatisch: {{limit}} pro Objekt. Ein Lauf aus einer Abfrage liest die übrigen Objekte aus ihren ganzen Tabellen.",
+    "recordLimitSoqlCap": "Ein Lauf aus einer Abfrage nimmt höchstens {{cap}} Datensätze pro Objekt: Seine verknüpften Objekte werden aus ihren ganzen Tabellen gelesen. Für mehr klonen Sie aus einem Datensatz oder über die Befehlszeile: sandforge clone --object und --where klonen die genannten Tabellen, mit --max als Grenze.",
+    "recordLimitSoqlHeld": "{{chosen}} gilt für einen Lauf aus einem Datensatz: Ein Lauf aus einer Abfrage nimmt höchstens {{cap}} Datensätze pro Objekt, seine verknüpften Objekte werden aus ihren ganzen Tabellen gelesen. Für mehr klonen Sie aus einem Datensatz oder über die Befehlszeile: sandforge clone --object und --where klonen die genannten Tabellen, mit --max als Grenze.",
     "recordLimitAll": "Alle",
     "recordLimitOpt10": "10 / Objekt (Stichprobe)",
     "recordLimitOpt50": "50 / Objekt",
@@ -4095,7 +4100,7 @@
       "step5": "Nach der Überprüfung in Ihre Sandbox ausführen, oder ohne sie mit Direkt klonen — IDs werden neu vergeben"
     },
     "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel filtert nur {{object}}.",
-    "soqlUnscopedWarnBody": "Verknüpfte Objekte werden nicht auf die Datensätze eingeschränkt, die sie trifft: Jedes wird aus seiner gesamten Tabelle gelesen. Jedes Objekt ist für diesen Lauf auf {{cap}} Datensätze begrenzt.",
+    "soqlUnscopedWarnBody": "Verknüpfte Objekte werden nicht auf die Datensätze eingeschränkt, die sie trifft: Jedes wird aus seiner gesamten Tabelle gelesen, bis zu {{cap}} Datensätze. Um eines auf die Datensätze unter Ihren einzuschränken, geben Sie ihm unter Überprüfung → Einstellungen einen Filter, etwa {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), wobei {{lookup}} sein Feld ist, das auf {{object}} zeigt.",
     "soqlFilterRefused": "Diese WHERE-Klausel kann nicht angewendet werden. Sie darf höchstens 512 Zeichen lang sein, weder --, /* noch */ enthalten (auch nicht in einem Wert in Anführungszeichen) und nicht mit einem Semikolon enden.",
     "soqlAliasRefused": "Diese Abfrage kann nicht ausgeführt werden. Die FROM-Klausel deklariert einen Alias über eine Beziehung, die nicht beim Objekt nach FROM beginnt — prüfen Sie den Alias vor dem Punkt.",
     "history": {
@@ -4122,9 +4127,9 @@
       "statusFailure": "Fehlgeschlagen",
       "remove": "Die von diesem Durchlauf erstellten Datensätze entfernen",
       "removeLeft": "Die verbliebenen Datensätze dieses Durchlaufs entfernen",
-      "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen.",
+      "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "removeOrgGone": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
-      "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern.",
+      "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat"
     },
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
@@ -4138,7 +4143,7 @@
       "maxSizeHint": "Von 1 bis {{max}} MB, so viel trägt ein Aufruf an Salesforce. Eine größere Datei wird ausgelassen und aufgeführt, nie gekürzt. Bevor etwas geschrieben wird, werden alle Dateien zusammen mit dem Dateispeicher abgeglichen, der der Ziel-Org bleibt.",
       "asIsWarning": "Dieser Durchlauf anonymisiert seine Datensätze, und der Inhalt einer Datei lässt sich nicht anonymisieren.",
       "asIsAccept": "Ich akzeptiere, dass die Dateien so kopiert werden, wie sie sind",
-      "sampleNone": "Eine Stichprobe der gesamten Org kopiert noch keine Dateien: Welche Dateien ihre Datensätze haben und was sie belegen würden, wird nicht gezogen."
+      "sampleNone": "Eine Stichprobe der gesamten Org kopiert keine Dateien: Die Stichprobe geht ohne die Dateien ihrer Datensätze, die weder gezogen noch gewogen werden."
     },
     "phaseName": {
       "input": "Was geklont wird",
@@ -4205,7 +4210,7 @@
       "withTheirRecords": "mit den Datensätzen kopiert, an denen sie hängt",
       "excludedByUser": "Von Ihnen ausgelassen",
       "platformCreated": "Nur von Salesforce erstellt, etwa Genehmigungen, Einstein-Insights und Rechnungen",
-      "customSetting": "Benutzerdefinierte Einstellungen: Konfiguration, nur auf Wunsch kopiert",
+      "customSetting": "Benutzerdefinierte Einstellungen: Konfiguration, die ein Klon nie kopiert",
       "feature": "eine Funktion, die das Ziel nicht aktiviert hat, hält es verschlossen",
       "parent": "wenn überhaupt, über die Datensätze geöffnet, an denen es hängt",
       "noEdit": "von Ihnen nicht bearbeitbar",
@@ -4215,7 +4220,27 @@
     "depthAllHint": "ALL kopiert die gesamte Quell-Org: jedes Objekt, das das Ziel erstellen kann, jeden Datensatz davon, ohne Obergrenze. Objekte, die Salesforce nicht per API erstellen lässt, werden ausgelassen, und die Überprüfung nennt sie. Dateien werden nur kopiert, wenn Sie sie in der Überprüfung ankreuzen.",
     "allPreviewRealData": "{{source}} enthält Daten echter Personen – eine Produktions-Org oder eine als Staging markierte Sandbox: Ein Klon der gesamten Org anonymisiert ihre personenbezogenen Felder, sofern Sie PII anonymisieren nicht abwählen.",
     "recordLimitSample": "Eine Stichprobe, die in das Ziel passt",
-    "recordLimitSampleHint": "Aus jedem Objekt gezogene Datensätze, mit ihren untergeordneten Datensätzen und den Datensätzen, die sie nennen, so viele, wie das Ziel Platz hat: keiner ohne einen Datensatz, den er braucht. Die Überprüfung liest den Platz und legt fest, wie gezogen wird."
+    "recordLimitSampleHint": "Aus jedem Objekt gezogene Datensätze, mit ihren untergeordneten Datensätzen und den Datensätzen, die sie nennen, so viele, wie das Ziel Platz hat: keiner ohne einen Datensatz, den er braucht. Die Überprüfung liest den Platz und legt fest, wie gezogen wird.",
+    "leftOutWay": {
+      "missingInTarget": "Stellen Sie sie im Ziel bereit – Vergleich, dann Aus Diff bereitstellen, für das, was nur in der Quelle ist – und erkennen Sie dann erneut.",
+      "notWritable": "Der Administrator des Ziels gibt dem Benutzer, mit dem SandForge schreibt, Erstell-, Bearbeitungs- und Löschrecht darauf oder aktiviert die Funktion, mit der sie kommen; erkennen Sie dann erneut.",
+      "createOnly": "Der Administrator des Ziels gibt dem Benutzer, mit dem SandForge schreibt, Bearbeitungs- und Löschrecht darauf; erkennen Sie dann erneut.",
+      "notQueryable": "Der Administrator der Quelle gibt dem Benutzer, mit dem SandForge liest, Leserecht darauf; erkennen Sie dann erneut.",
+      "unreadable": "Bei jedem steht, was die Quelle geantwortet hat: Erkennen Sie erneut, sobald die Quelle es lesen lässt.",
+      "notDescribed": "Erkennen Sie erneut: Ihre Beschreibung wird neu gelesen.",
+      "customSetting": "Legen Sie ihre Werte im Setup des Ziels fest: Benutzerdefinierte Einstellungen, dann Verwalten neben jeder.",
+      "knowledge": "Knowledge-Artikel wie {{object}} legt eine API als Entwürfe an: Ein Klon aus einer Abfrage kopiert die veröffentlichten, auf der Registerkarte SOQL, SELECT Id FROM {{object}} WHERE PublishStatus = 'Online', für einen Zielbenutzer mit Knowledge-Benutzer.",
+      "admin": {
+        "heading": "Änderungen im Setup, damit SandForge diese Objekte der ganzen Org klont:",
+        "inTarget": "In der Ziel-Org:",
+        "inSource": "In der Quell-Org:",
+        "grantWrite": "Dem Benutzer, mit dem SandForge schreibt, Erstell-, Bearbeitungs- und Löschrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+        "grantEdit": "Dem Benutzer, mit dem SandForge schreibt, das Bearbeitungsrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+        "grantDelete": "Dem Benutzer, mit dem SandForge schreibt, das Löschrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+        "grantEditDelete": "Dem Benutzer, mit dem SandForge schreibt, Bearbeitungs- und Löschrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+        "grantRead": "Dem Benutzer, mit dem SandForge liest, das Leserecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}})."
+      }
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4269,6 +4294,11 @@
     "piiFields": "PII-Felder erkannt",
     "anonymize": "Anonymisieren",
     "includeNode": "In Ausführung einbeziehen",
+    "includeAnyway": "Trotzdem einbeziehen",
+    "nodeCountTimedOutIn": "Die Org hat auf die Zählung seiner Datensätze nicht rechtzeitig geantwortet: Es bleibt im Lauf, der davon liest, was sein Umfang erreicht. Schalten Sie In Ausführung einbeziehen aus, um es wegzulassen.",
+    "nodeCountTimedOutOut": "Die Org hat auf die Zählung seiner Datensätze nicht rechtzeitig geantwortet, und es ist weggelassen. Trotzdem einbezogen, liest der Lauf davon, was sein Umfang erreicht.",
+    "nodeCountRefusedIn": "Die Org hat die Zählung seiner Datensätze abgelehnt, wie unter Fehler steht: Es ist trotzdem einbezogen, und der Lauf liest davon, was sein Umfang erreicht – ein Lesen, das die Org ablehnen kann wie die Zählung.",
+    "nodeCountRefusedOut": "Die Org hat die Zählung seiner Datensätze abgelehnt, wie unter Fehler steht, und die Erkennung hat es weggelassen. Eine Tabelle, die die Org nicht ganz zählt, lässt sich oft über die Datensätze lesen, an denen sie hängt: Trotzdem einbezogen, liest der Lauf davon, was sein Umfang erreicht – ein Lesen, das die Org ablehnen kann wie die Zählung.",
     "anonymizationPreview": "Anonymisierungs-Vorschau",
     "contactPointsPreview": "E-Mail-Adressen und Telefonnummern, wie der Lauf sie schreibt",
     "fieldName": "Feld",
@@ -4345,34 +4375,47 @@
     },
     "gate": {
       "productionTarget": "Der Lauf wurde nicht gestartet: Die Ziel-Org ist eine Produktions-Org oder eine, von der SandForge nicht sagen kann, dass sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org ist. Forge schreibt nur in solche, und es wurde nichts gelesen oder geschrieben. Wählen Sie eine davon als Ziel.",
-      "automationDeclined": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben.",
+      "automationDeclined": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben. Um ihn ohne sie zu starten, lassen Sie den Admin des Ziels diese Flows und Trigger deaktivieren, oder geben Sie dem Benutzer, als der der Lauf schreibt, eine Umgehung, die sie prüfen.",
+      "automationDeclinedMute": "Sie haben den Lauf bei der Bestätigung dessen abgebrochen, was die Ziel-Org beim Einfügen der Datensätze ausführt. Es wurde nichts gelesen oder geschrieben. Um für diesen Lauf allein stummzuschalten, was eine Umgehung prüft, aktivieren Sie in der Überprüfung „Automatisierungen der Ziel-Org für diesen Durchlauf stummschalten“ und starten Sie ihn erneut; oder lassen Sie den Admin des Ziels diese Flows und Trigger deaktivieren.",
       "readDeclined": "Sie haben den Lauf bei der Bestätigung der Tabellen abgebrochen, die er ohne Obergrenze pro Objekt liest, jede mit mehr als {{ceiling}} Datensätzen. Es wurde nichts gelesen oder geschrieben. Stellen Sie Datensätze pro Objekt ein, um weniger zu lesen.",
-      "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben.",
+      "writeDeclined": "Sie haben den Lauf abgebrochen, bevor er etwas geschrieben hat. Die Quelldatensätze wurden gelesen; in die Ziel-Org wurde nichts geschrieben. Um weniger zu schreiben, lassen Sie in der Überprüfung Objekte weg oder senken Sie Datensätze pro Objekt; Simulieren sagt, was ein Lauf schreibt, ohne es zu schreiben.",
       "storageExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie Objekte weg, verringern Sie die Datensätze pro Objekt oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "confirmationUnavailable": "Der Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und es konnte keine eingeholt werden.",
       "checkpointRefused": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt oder konnte nicht erstellt werden. Es wurde nichts geschrieben. Starten Sie ihn ohne vorherigen Prüfpunkt, oder beheben Sie, was ihn ablehnt.",
-      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder schreiben Sie weniger Datensätze.",
+      "apiBudgetExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder schreiben Sie weniger Datensätze: Lassen Sie in der Überprüfung Objekte weg oder senken Sie Datensätze pro Objekt.",
       "checkpointRefusedFor": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Prüfpunkt, den er zuerst von den Objekten nehmen sollte, die er schreibt, wurde abgelehnt. {{reason}} Es wurde nichts geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“, um ihn ohne zu starten, oder beheben Sie, was ihn ablehnt.",
-      "apiBudgetExceededWithCheckpoint": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, der Prüfpunkt, den er zuerst erstellen sollte, eingerechnet, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, schreiben Sie weniger Datensätze, oder deaktivieren Sie „Zuerst ein Prüfpunkt“.",
+      "apiBudgetExceededWithCheckpoint": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, der Prüfpunkt, den er zuerst erstellen sollte, eingerechnet, und wäre mittendrin stehen geblieben. Starten Sie ihn, sobald die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, schreiben Sie weniger Datensätze (lassen Sie in der Überprüfung Objekte weg oder senken Sie Datensätze pro Objekt), oder deaktivieren Sie „Zuerst ein Prüfpunkt“.",
       "readBoundExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Eine Kopie der gesamten Org liest einige Objekte vollständig, und in {{objects}} wurden mehr als {{bound}} Datensätze gefunden, so viele, wie die Einstellung sandforge.forge.maxRecordsPerObject sie auf einmal halten lässt. Erhöhen Sie die Einstellung, oder lassen Sie diese Objekte in der Prüfung weg.",
       "storageExceededAll": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Datensätze der gesamten Org belegen etwa {{estimate}} MB Datenspeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie in der Überprüfung Objekte weg oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "storageExceededFiles": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Dateien, die er kopiert, belegen etwa {{estimate}} MB Dateispeicher, und die Ziel-Org hat noch {{remaining}} MB frei. Lassen Sie die Dateien in der Überprüfung weg oder geben Sie Dateispeicher in der Ziel-Org frei.",
-      "apiRequestsExceededTarget": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte etwa {{estimate}} API-Anfragen der Ziel-Org, der heute noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg.",
-      "apiRequestsExceededSource": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg.",
-      "bulkBatchesExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat.",
+      "apiRequestsExceededTarget": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte etwa {{estimate}} API-Anfragen der Ziel-Org, der heute noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein.",
+      "apiRequestsExceededTargetSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte etwa {{estimate}} API-Anfragen der Ziel-Org, der heute noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
+      "apiRequestsExceededSource": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein.",
+      "apiRequestsExceededSourceSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
+      "apiDrawingExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die über die Org verteilte Ziehung der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Ziehen Sie die neuesten Datensätze, wofür nur die gelesen werden, die sie behält, oder schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein.",
+      "apiDrawingExceededRecent": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziehung der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein, oder ziehen Sie sie, sobald die Quelle wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden.",
+      "bulkBatchesExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein.",
+      "bulkBatchesExceededSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
       "filesUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Quell-Org hat ihre Dateien weder summiert noch aufgelistet, daher ist nicht bekannt, wie viel Dateispeicher des Ziels sie belegen. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Quelle antwortet.",
       "fileStorageUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziel-Org hat nicht angegeben, wie viel Dateispeicher ihr bleibt, daher konnten die zu kopierenden Dateien nicht daran gemessen werden. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Org antwortet.",
       "filesUnreadRecords": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Dateien der zu klonenden Datensätze konnten in der Quelle nicht alle nachgeschlagen werden, und die Datensätze wären ohne einige davon angekommen. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Quelle antwortet.",
       "sampleStorageUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziel-Org hat nicht angegeben, wie viel Datenspeicher ihr bleibt, und nichts anderes begrenzt die Stichprobe. Geben Sie in der Überprüfung an, wie viele MB sie belegen darf, oder starten Sie ihn erneut, sobald die Org antwortet.",
-      "sampleCannotFit": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt. Die vollständig kopierten Objekte und der erste gezogene Datensatz jedes Objekts belegen allein etwa {{need}} MB, mehr als die {{budget}} MB, die die Stichprobe belegen darf; die schwersten: {{heaviest}}. Lassen Sie in der Überprüfung Objekte weg oder kopieren Sie weniger vollständig, oder lassen Sie die Stichprobe mehr belegen.",
+      "sampleCannotFit": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts belegen allein etwa {{need}} MB, mehr als die {{budget}} MB, die die Stichprobe belegen darf; die schwersten: {{heaviest}}. Lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
       "sampleTooLarge": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Ziehen der Stichprobe hat {{rows}} Datensätze gelesen, mehr als die {{most}}, die sie auf einmal hält. Lassen Sie die Stichprobe weniger belegen, oder lassen Sie in der Überprüfung Objekte weg oder lesen Sie sie über einen Filter.",
       "samplePlanMismatch": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Plan der Stichprobe, die er kopieren sollte, wurde aus einer anderen Org oder für eine andere Einstellung gezogen, oder hat sich seitdem geändert. Simulieren Sie erneut, um einen neuen zu ziehen.",
       "samplePlanGone": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Plan seiner Stichprobe ist nicht mehr auf diesem Rechner oder nicht mehr so, wie er gezogen wurde, daher können seine Datensätze nicht wieder aufgenommen werden. Starten Sie ihn aus der Überprüfung erneut, um eine neue Stichprobe zu ziehen, oder entfernen Sie unter Ergebnisse, was er geschrieben hat.",
       "sampleTargetMoved": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Stichprobe wurde auf {{fitted}} MB des Datenspeichers der Ziel-Org zugeschnitten, und was der Ziel-Org jetzt bleibt, fasst {{holds}} MB einer Stichprobe. Simulieren Sie erneut, um eine passende Stichprobe zu ziehen.",
-      "sampleCannotFitNamed": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt. Die vollständig kopierten Objekte und der erste gezogene Datensatz jedes Objekts belegen allein mehr, als die Stichprobe belegen darf; die schwersten: {{heaviest}}. Lassen Sie in der Überprüfung Objekte weg oder kopieren Sie weniger vollständig, oder lassen Sie die Stichprobe mehr belegen.",
+      "sampleCannotFitNamed": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts belegen allein mehr, als die Stichprobe belegen darf; die schwersten: {{heaviest}}. Lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
+      "sampleCannotFitStorage": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in den Datenspeicher, der der Ziel-Org bleibt. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts belegen allein etwa {{need}} MB, mehr als die {{budget}} MB, die die Stichprobe davon belegen darf; die schwersten: {{heaviest}}. Keine Einstellung lässt die Stichprobe mehr belegen: Lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung; oder geben Sie Datenspeicher in der Ziel-Org frei.",
+      "sampleCannotFitWithin": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in die {{budget}} MB, die Sie ihr lassen. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts belegen allein etwa {{need}} MB; die schwersten: {{heaviest}}. Lassen Sie sie in den Einstellungen der Stichprobe in der Überprüfung mehr belegen (Höchstens), lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts.",
+      "sampleCannotFitMaxTotal": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in die Datensätze, die der Lauf insgesamt schreiben darf. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts liegen allein darüber; die schwersten: {{heaviest}}. Lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
+      "sampleCannotFitTargetRequests": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in die API-Anfragen, die der Ziel-Org heute bleiben. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts brauchen allein mehr; die schwersten: {{heaviest}}. Starten Sie ihn, sobald das Ziel wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden –, oder lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
+      "sampleCannotFitBulkBatches": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in die Bulk-API-Batches, die der Ziel-Org über die letzten 24 Stunden bleiben. Die vollständig kopierten Objekte und die unabhängig vom Anteil gezogenen Datensätze jedes Objekts brauchen allein mehr; die schwersten: {{heaviest}}. Starten Sie ihn, sobald das Ziel wieder genug davon hat, oder lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
+      "sampleCannotFitSourceRequests": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Keine Stichprobe passt in die API-Anfragen, die der Quell-Org heute bleiben. Das Lesen der vollständig kopierten Objekte und der unabhängig vom Anteil gezogenen Datensätze jedes Objekts braucht allein mehr; die schwersten: {{heaviest}}. Starten Sie ihn, sobald die Quelle wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden –, oder lassen Sie Objekte weg, kopieren Sie weniger vollständig oder ziehen Sie weniger Datensätze jedes Objekts, in den Einstellungen der Stichprobe in der Überprüfung.",
       "sampleTooLargeUnsized": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Ziehen der Stichprobe hat mehr Datensätze gelesen, als sie auf einmal hält. Lassen Sie die Stichprobe weniger belegen, oder lassen Sie in der Überprüfung Objekte weg oder lesen Sie sie über einen Filter.",
       "samplePlanMismatchResume": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Lauf, den er fortsetzt, war anders eingestellt, eine Stichprobe, wo dieser jeden Datensatz kopiert, oder jeder Datensatz, wo dieser eine Stichprobe kopiert. Setzen Sie ihn so fort, wie er eingestellt war.",
       "simulateAgain": "Erneut simulieren",
+      "drawNewest": "Die neuesten zuerst ziehen",
       "sampleOffer": "Eine passende Stichprobe würde etwa {{mb}} MB davon belegen."
     },
     "executionTable": {
@@ -4398,7 +4441,8 @@
       "formTitle": "Diesen Durchlauf als Vorlage speichern",
       "saveHint": "Die Vorlage behält die Datensatz-ID oder Abfrage des Durchlaufs, seine Tiefe, Obergrenzen und Optionen, die Objekte, die er auslässt, die zu seinen Abweichungen getroffenen Entscheidungen, seine Anonymisierung Feld für Feld, seine Dateikopie (nie die Zustimmung) und die Ziel-Org. Wenden Sie sie im Tab „Vorlage“ an, oder exportieren Sie sie in eine Datei.",
       "nameRequired": "Geben Sie der Vorlage einen Namen, um sie zu speichern.",
-      "saved": "Als „{{name}}“ gespeichert. Sie steht unter „Ihre Vorlagen“ im Tab „Vorlage“."
+      "saved": "Als „{{name}}“ gespeichert. Sie steht unter „Ihre Vorlagen“ im Tab „Vorlage“.",
+      "wholeOrg": "Ein Klon der ganzen Org wird nicht als Vorlage gespeichert, die einen Klon aus einem Datensatz oder einer Abfrage festhält. Sobald er gelaufen ist, setzt Letzte Durchläufe auf der Forge-Seite → Konfiguration wiederverwenden seine Einstellungen wieder ins Formular."
     },
     "idMapping": {
       "title": "Datensatz-Id-Zuordnung",
@@ -4420,7 +4464,8 @@
       "inJournal_other": "Die Ids der {{formatted}} Datensätze, die dieser Durchlauf zugeordnet hat, liegen in seinem Journal, nicht in seinen Ergebnissen: Id-Zuordnung speichern schreibt sie in eine Datei."
     },
     "preview": {
-      "truncatedAction": "Graph durch die Objektgrenze abgeschnitten — erhöhen Sie sie und erkennen Sie erneut, wenn etwas fehlt",
+      "truncatedAction": "Graph durch die Objektgrenze von {{cap}} abgeschnitten — erhöhen Sie sie, bis {{most}}, und erkennen Sie erneut, wenn etwas fehlt",
+      "truncatedAtMost": "Graph bei {{cap}} Objekten abgeschnitten, dem Höchsten, das die Erkennung nimmt — wenn etwas fehlt, wählen Sie eine geringere Tiefe, klonen Sie aus einer Abfrage oder klonen Sie die ganze Org (ALL), die keine Objektgrenze hat",
       "willClone": "Wird geklont",
       "willMap": "Wird zugeordnet",
       "skippedExcluded": "Übersprungen (ausgeschlossen)",
@@ -4562,6 +4607,23 @@
       "diffsFound_one": "{{count}} Unterschied zwischen Quelle und Ziel gefunden.",
       "diffsFound_other": "{{count}} Unterschiede zwischen Quelle und Ziel gefunden.",
       "objectNotCreateable": "{{object}} ist in der Ziel-Org, aber der Benutzer, mit dem der Klon schreibt, darf dort keine Datensätze davon erstellen: Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Lassen Sie es unter Abweichungen aus, oder geben Sie diesem Benutzer das Erstellrecht dafür.",
+      "metadata": {
+        "missing": "{{field}} ist in der Quelle und nicht im Ziel: Ausführen schreibt die Zeilen ohne es. Stellen Sie es im Ziel bereit (Vergleich, dann Aus Diff bereitstellen), geben Sie es unter Überprüfung → Einstellungen einem Feld des Ziels, oder lassen Sie es weg.",
+        "typeMismatch": "{{field}} ist in der Quelle vom Typ {{sourceType}} und im Ziel vom Typ {{targetType}}: Ein Wert, den der Typ des Ziels ablehnt, lässt seine Zeile scheitern. Ändern Sie einen der beiden Typen, geben Sie es unter Überprüfung → Einstellungen einem Feld desselben Typs, oder lassen Sie es weg.",
+        "permissionDenied": "{{field}} ist im Ziel, aber der Benutzer, mit dem der Klon schreibt, darf es dort nicht setzen: Ausführen schreibt die Zeilen ohne es. Sofern das Ziel es nicht berechnet, lassen Sie diesem Benutzer das Bearbeitungsrecht darauf geben, oder lassen Sie es weg.",
+        "objectMissing": "{{object}} ist nicht im Ziel, oder der Benutzer, mit dem der Klon schreibt, sieht es nicht: Ausführen überspringt es. Stellen Sie es bereit (Vergleich, dann Aus Diff bereitstellen), lassen Sie diesem Benutzer Zugriff darauf geben, oder lassen Sie es aus dem Klon weg.",
+        "unreadableSource": "{{object}} konnte nicht verglichen werden: Die Quell-Org hat es nicht beschrieben ({{error}}). Vergleichen Sie erneut, sobald sie antwortet.",
+        "unreadableTarget": "{{object}} konnte nicht verglichen werden: Die Ziel-Org hat es nicht beschrieben ({{error}}). Vergleichen Sie erneut, sobald sie antwortet.",
+        "leaveField": "{{field}} weglassen",
+        "keepField": "{{field}} wieder schreiben",
+        "fieldLeftOut": "Aus den Zeilen weggelassen",
+        "leaveObject": "{{object}} aus dem Klon weglassen",
+        "objectLeftOut": "Aus dem Klon weggelassen",
+        "compareAgain": "Erneut vergleichen",
+        "admin": {
+          "grantFieldEdit": "Dem Benutzer, mit dem SandForge schreibt, das Bearbeitungsrecht für {{field}} von {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}} > Feldberechtigungen)."
+        }
+      },
       "objectNoUserCreates": "{{object}} ist in der Ziel-Org, aber kein Benutzer kann dort Datensätze davon erstellen, auch nicht mit Modify All Data: Ausführen überspringt es, und keine Berechtigung würde es öffnen.",
       "objectFeatureOff": "{{object}} ist in der Ziel-Org, aber selbst ein Benutzer mit Modify All Data darf dort keine Datensätze davon erstellen: Eine Funktion oder Lizenz, die das Ziel nicht aktiviert hat, hält es geschlossen. Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Aktivieren Sie sie, oder lassen Sie es unter Abweichungen aus.",
       "objectThroughParent": "{{object}} ist in der Ziel-Org, aber der Benutzer, mit dem der Klon schreibt, darf dort keine Datensätze davon erstellen, und kein Berechtigungssatz gibt das Erstellrecht dafür: Das Bearbeitungsrecht für die Datensätze, an denen es hängt, kann es öffnen, oder kein Benutzer kann es. Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Abweichungen sagt, was dieser Benutzer braucht; oder lassen Sie es dort aus.",
@@ -4741,6 +4803,9 @@
       "leftOutTitle_one": "Ausgelassen: {{formatted}} Objekt der Quell-Org",
       "leftOutTitle_other": "Ausgelassen: {{formatted}} Objekte der Quell-Org",
       "leftOutHint": "Die Objekte der Quell-Org, die dieser Klon der gesamten Org nicht übernimmt, nach Grund: Salesforce lässt sie nicht per API erstellen, das Ziel kann sie nicht aufnehmen, oder die Quelle hat keine.",
+      "leftOutAdmin": {
+        "copy": "Änderungen für die Administratoren kopieren"
+      },
       "wholeOrg": {
         "personalAsIs_one": "{{formatted}} personenbezogenes Feld, auf {{objects}} Objekten, geht so nach {{target}}, wie die Quelle es hält, nicht anonymisiert. Machen Sie es in der Zeile Anonymisierung fiktiv.",
         "personalAsIs_other": "{{formatted}} personenbezogene Felder, auf {{objects}} Objekten, gehen so nach {{target}}, wie die Quelle sie hält, nicht anonymisiert. Machen Sie sie in der Zeile Anonymisierung fiktiv.",
@@ -4812,7 +4877,11 @@
           "legend": "Vollständig zu kopierende Objekte",
           "hint": "Ein vollständig kopiertes Objekt bringt jeden seiner Datensätze mit, und keiner davon wird gezogen."
         },
-        "offerAction": "Passende Stichprobe kopieren"
+        "offerAction": "Passende Stichprobe kopieren",
+        "floor": {
+          "label": "Gezogene Datensätze jedes Objekts, unabhängig vom Anteil",
+          "hint": "Jedes Objekt behält mindestens so viele seiner Datensätze, welchen Anteil der verbleibende Platz ihm auch gibt. Bei 0 wird von einem Objekt vielleicht keiner gezogen: Eine Stichprobe passt dann dort, wo diese Datensätze allein mehr belegten, als sie belegen darf."
+        }
       }
     },
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
@@ -5076,10 +5145,11 @@
         "hint": "Die Datensätze eines Quellbenutzers gehen an den nach Namen gewählten Benutzer des Ziels; der Lauf behält beide IDs.",
         "reading": "Aktive Benutzer der Ziel-Org werden gelesen…",
         "error": "Die Benutzer der Ziel-Org konnten nicht gelesen werden: {{error}}",
-        "truncated": "Die Ziel-Org hat mehr aktive Benutzer: die ersten {{listed}} nach Namen werden aufgeführt.",
+        "truncated": "Die Ziel-Org hat mehr aktive Benutzer: die ersten {{listed}} nach Namen werden aufgeführt. Geben Sie einen anderen mit seiner ID, die mit 005 beginnt, unter ID des Benutzers im Ziel an.",
         "item": "{{source}} an {{target}} zugewiesen",
         "source": "ID des Quellbenutzers",
         "target": "Benutzer im Ziel",
+        "targetId": "ID des Benutzers im Ziel",
         "add": "Datensätze diesem Benutzer zuweisen"
       },
       "refused": {

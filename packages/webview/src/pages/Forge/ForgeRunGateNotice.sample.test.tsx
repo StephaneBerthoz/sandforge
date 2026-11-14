@@ -133,6 +133,100 @@ describe('ForgeRunGateNotice, of a sample of the whole org', () => {
     expect(sentRuns).toEqual([]);
   });
 
+  it('says a drawing refused past its share of the source as the drawing’s, and draws the newest first from the notice', () => {
+    // Said as a run past all the source has left, it offered the newest
+    // records to a draw that took them already, and no way to ask for them.
+    onReview({ ...WHOLE_ORG, sample: { seed: 3 } });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'API_BUDGET_EXCEEDED',
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 1_200,
+          remaining: 9_000,
+          drawing: { share: 0.1, draw: 'uniform' },
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+    expect(said).toContain('drawing the sample spread over the org');
+    expect(said).toContain('more than the 10 % of the 9,000 it has left today');
+    expect(said).toContain('Draw the newest records');
+
+    fireEvent.click(screen.getByTestId('forge-run-gate-draw-newest'));
+
+    expect(useForgeStore.getState().config?.sample).toEqual({ seed: 3, draw: 'recent' });
+    expect(useForgeRunGateStore.getState().stop).toBeNull();
+  });
+
+  it('offers the newest first to no drawing that took them already', () => {
+    onReview({ ...WHOLE_ORG, sample: { draw: 'recent' } });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'API_BUDGET_EXCEEDED',
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 1_200,
+          remaining: 9_000,
+          drawing: { share: 0.1, draw: 'recent' },
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+    expect(said).not.toContain('Draw the newest');
+    expect(said).toContain('filter in Review → Controls');
+    expect(screen.queryByTestId('forge-run-gate-draw-newest')).toBeNull();
+  });
+
+  it.each([
+    ['the target’s requests', { kind: 'requests' as const, org: 'target' as const }],
+    ['the source’s requests', { kind: 'requests' as const, org: 'source' as const }],
+    ['the target’s Bulk API batches', { kind: 'bulkBatches' as const, org: 'target' as const }],
+  ])(
+    'offers a sample that fits to a clone of every record past %s, and names the filter that narrows an object',
+    (_what, api) => {
+      // It said to wait or leave objects out: a sample, which takes fewer of
+      // them with its records, went unnamed.
+      onReview();
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'API_BUDGET_EXCEEDED',
+          api: { ...api, estimate: 60_000, remaining: 5_000 },
+        }),
+      );
+      render(<ForgeRunGateNotice />);
+
+      const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+      expect(said).toContain('copy a sample of the org that fits the target');
+      expect(said).toContain('filter in Review → Controls');
+      fireEvent.click(screen.getByTestId('forge-run-gate-copy-sample-budget'));
+      expect(useForgeStore.getState().config?.sample).toEqual({});
+      expect(useForgeRunGateStore.getState().stop).toBeNull();
+    },
+  );
+
+  it('names no sample to a run past the requests that copies one already', () => {
+    onReview({ ...WHOLE_ORG, sample: {} });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'API_BUDGET_EXCEEDED',
+        api: { kind: 'requests', org: 'target', estimate: 60_000, remaining: 5_000 },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+    expect(said).not.toContain('sample');
+    expect(said).toContain('filter in Review → Controls');
+    expect(screen.queryByTestId('forge-run-gate-copy-sample-budget')).toBeNull();
+  });
+
   it('offers no sample to a run that copies one already', () => {
     onReview({ ...WHOLE_ORG, sample: {} });
     act(() =>

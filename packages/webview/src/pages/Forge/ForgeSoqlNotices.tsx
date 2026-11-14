@@ -11,6 +11,16 @@ export interface ForgeSoqlNoticesProps {
 }
 
 /**
+ * The field an object's lookup to `object` is usually named by: `AccountId`
+ * for a standard object, the custom object's own name for a custom one, as
+ * Salesforce names a lookup created from it. Only the example of a filter
+ * names it; the user writes the field their object has.
+ */
+function usualLookupTo(object: string): string {
+  return /__c$/i.test(object) ? object : `${object}Id`;
+}
+
+/**
  * The verdicts a SOQL-mode run carries, under whichever field holds its query.
  *
  * The WHERE clause filters the object after FROM, and nothing else: related
@@ -18,6 +28,11 @@ export interface ForgeSoqlNoticesProps {
  * a filter would otherwise expect the whole graph to follow it. A clause the
  * extension would refuse, and an object name its schema would refuse, are
  * said here before Discover, which stays off, rather than after the trip.
+ *
+ * What narrows a related object is said with it: a filter of its own on
+ * Review → Controls, the records under the query's by a semi-join. The
+ * notice said only that nothing narrowed them, and a clone of a few accounts
+ * read every contact of the org.
  */
 export const ForgeSoqlNotices: React.FC<ForgeSoqlNoticesProps> = ({ query, objectNameRefused }) => {
   const { t } = useTranslation();
@@ -53,7 +68,11 @@ export const ForgeSoqlNotices: React.FC<ForgeSoqlNoticesProps> = ({ query, objec
           <strong className="font-semibold">
             {t('forge.soqlUnscopedWarnTitle', { object: root.objectApiName })}
           </strong>{' '}
-          {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
+          {t('forge.soqlUnscopedWarnBody', {
+            cap: SOQL_UNSCOPED_RECORD_CAP,
+            object: root.objectApiName,
+            lookup: usualLookupTo(root.objectApiName),
+          })}
         </div>
       )}
     </>

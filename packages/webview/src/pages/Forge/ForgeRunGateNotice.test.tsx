@@ -57,7 +57,7 @@ describe('ForgeRunGateNotice', () => {
   it.each([
     [
       'AUTOMATION_DECLINED' as const,
-      'You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.',
+      "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written. To run it without them, have the target's admin turn those flows and triggers off, or give the user the run writes as a bypass they test.",
     ],
     [
       'READ_DECLINED' as const,
@@ -65,7 +65,7 @@ describe('ForgeRunGateNotice', () => {
     ],
     [
       'WRITE_DECLINED' as const,
-      'You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.',
+      'You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org. To write less, leave objects out or lower Records per object on Review; Simulate says what a run writes without writing it.',
     ],
   ])('tells, without alarm, of a run the user cancelled at a question (%s)', (code, text) => {
     act(() => useForgeRunGateStore.getState().setStop({ code }));
@@ -73,6 +73,17 @@ describe('ForgeRunGateNotice', () => {
 
     expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('status');
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
+  });
+
+  it('tells a run cancelled at what the target runs to tick the mute, where Review offers it', () => {
+    // It said only that nothing was read or written: the box beside it, which
+    // silences for the run alone what tests a bypass, went unnamed.
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'AUTOMATION_DECLINED' }));
+    render(<ForgeRunGateNotice muteOffered />);
+
+    const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+    expect(said).toContain("tick “Mute the target's automation for this run” on Review");
+    expect(said).toContain('turn those flows and triggers off');
   });
 
   it('says the most rows of one object the run was set to read, past which the user cancelled', () => {
@@ -100,7 +111,7 @@ describe('ForgeRunGateNotice', () => {
     ],
     [
       'API_BUDGET_EXCEEDED' as const,
-      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.',
+      'The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records: leave objects out or lower Records per object on Review.',
     ],
   ])('alerts that the run was refused at its write gate (%s)', (code, text) => {
     act(() => useForgeRunGateStore.getState().setStop({ code }));
@@ -175,7 +186,7 @@ describe('ForgeRunGateNotice', () => {
           code: 'API_BUDGET_EXCEEDED',
           api: { kind: 'requests', org: 'source', estimate: 120_000, remaining: 4_000 },
         },
-        'The run was refused before it wrote anything: reading the source org would take about 120,000 of its API requests, and it has 4,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+        'The run was refused before it wrote anything: reading the source org would take about 120,000 of its API requests, and it has 4,000 left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).',
       ],
       [
         "its writes past the target's requests",
@@ -183,7 +194,7 @@ describe('ForgeRunGateNotice', () => {
           code: 'API_BUDGET_EXCEEDED',
           api: { kind: 'requests', org: 'target', estimate: 60_000, remaining: 5_000 },
         },
-        'The run was refused before it wrote anything: it would take about 60,000 API requests of the target org, which has 5,000 left today. Run it once the org has more to spare, or leave objects out on Review.',
+        'The run was refused before it wrote anything: it would take about 60,000 API requests of the target org, which has 5,000 left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).',
       ],
       [
         "its jobs past the target's Bulk API batches",
@@ -191,7 +202,7 @@ describe('ForgeRunGateNotice', () => {
           code: 'API_BUDGET_EXCEEDED',
           api: { kind: 'bulkBatches', org: 'target', estimate: 16_000, remaining: 2_000 },
         },
-        'The run was refused before it wrote anything: its Bulk API jobs would take about 16,000 batches of the target org, which has 2,000 left over the last 24 hours. Run it once the org has more to spare.',
+        'The run was refused before it wrote anything: its Bulk API jobs would take about 16,000 batches of the target org, which has 2,000 left over the last 24 hours. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).',
       ],
       [
         'files the source would neither sum nor list',
@@ -227,7 +238,7 @@ describe('ForgeRunGateNotice', () => {
           code: 'SAMPLE_CANNOT_FIT',
           sample: { needMB: 7.5, budgetMB: 3.6, heaviest: ['Case', 'Pricebook2'] },
         },
-        'The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take about 7.5 MB, past the 3.6 MB the sample may take; the heaviest: Case, Pricebook2. Leave objects out, or copy fewer whole, on Review, or let the sample take more.',
+        "The run was refused before it wrote anything: no sample fits. The objects copied whole and the records drawn of each object whatever the share alone take about 7.5 MB, past the 3.6 MB the sample may take; the heaviest: Case, Pricebook2. Leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
       ],
       [
         'a sample too large to hold',
@@ -257,7 +268,7 @@ describe('ForgeRunGateNotice', () => {
       [
         'a sample that cannot fit, as the executor names its heaviest objects alone',
         { code: 'SAMPLE_CANNOT_FIT', sample: { heaviest: ['Case', 'Pricebook2'] } },
-        'The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take more than the sample may take; the heaviest: Case, Pricebook2. Leave objects out, or copy fewer whole, on Review, or let the sample take more.',
+        "The run was refused before it wrote anything: no sample fits. The objects copied whole and the records drawn of each object whatever the share alone take more than the sample may take; the heaviest: Case, Pricebook2. Leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
       ],
       [
         'a sample too large to hold, said without its records',
@@ -276,6 +287,59 @@ describe('ForgeRunGateNotice', () => {
       expect(screen.getByTestId('forge-run-gate-notice').getAttribute('role')).toBe('alert');
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
     });
+
+    /*
+     * Past the data storage the target has left, no setting lets the sample
+     * take more: the refusal said to let it take more whatever held it.
+     */
+    it.each([
+      [
+        'the data storage the target has left',
+        { limitedBy: 'storage', needMB: 7.5, budgetMB: 3.6 },
+        ['free data storage in the target org', 'No setting lets the sample take more', '7.5 MB'],
+        ['let it take more'],
+      ],
+      [
+        'the MB asked',
+        { limitedBy: 'within', needMB: 7.5, budgetMB: 3.6 },
+        ['within the 3.6 MB you let it take', 'let it take more (Within)'],
+        ['free data storage'],
+      ],
+      [
+        'the target’s API requests',
+        { limitedBy: 'targetRequests' },
+        ['API requests the target org has left today', 'once the target has more to spare'],
+        ['let it take more', 'free data storage'],
+      ],
+      [
+        'the source’s API requests',
+        { limitedBy: 'sourceRequests' },
+        ['API requests the source org has left today', 'once the source has more to spare'],
+        ['let it take more', 'free data storage'],
+      ],
+      [
+        'the target’s Bulk API batches',
+        { limitedBy: 'bulkBatches' },
+        ['Bulk API batches the target org has left'],
+        ['let it take more'],
+      ],
+    ])(
+      'says a sample that cannot fit is held by %s, and only what lifts that',
+      (_what, held, said, unsaid) => {
+        act(() =>
+          useForgeRunGateStore.getState().setStop({
+            code: 'SAMPLE_CANNOT_FIT',
+            sample: { ...held, heaviest: ['Case'] } as ForgeRunGateStop['sample'],
+          }),
+        );
+        render(<ForgeRunGateNotice />);
+
+        const text = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+        for (const words of said) expect(text).toContain(words);
+        for (const words of unsaid) expect(text).not.toContain(words);
+        expect(text).toContain('draw fewer records of each object');
+      },
+    );
 
     it('says a target with less room than the sample was fitted to in the panel’s language', async () => {
       act(() =>

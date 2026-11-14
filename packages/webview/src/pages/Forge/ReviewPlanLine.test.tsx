@@ -52,6 +52,42 @@ function renderCard(nodes: ForgeGraphNode[]): void {
 }
 
 describe('ReviewPlanLine', () => {
+  it('says of a graph cut short at the highest object cap what lifts it, never to raise the cap', () => {
+    // "Raise it and discover again" of a graph cut at 500, the most the
+    // select offers.
+    render(
+      <ReviewPlanLine
+        graph={graphOf([node('Account', { level: 0 })])}
+        plan={null}
+        cycleCount={0}
+        truncated
+        maxNodes={500}
+      />,
+    );
+
+    const said = screen.getByTestId('forge-preview-truncated').textContent ?? '';
+    expect(said).not.toMatch(/raise/i);
+    expect(said).toContain('500');
+    expect(said).toMatch(/lower depth/);
+    expect(said).toMatch(/query/);
+    expect(said).toMatch(/ALL/);
+  });
+
+  it('names the cap a graph was cut short at, and how far it goes, below the highest', () => {
+    render(
+      <ReviewPlanLine
+        graph={graphOf([node('Account', { level: 0 })])}
+        plan={null}
+        cycleCount={0}
+        truncated
+      />,
+    );
+
+    const said = screen.getByTestId('forge-preview-truncated').textContent ?? '';
+    expect(said).toContain('50');
+    expect(said).toContain('500');
+  });
+
   it('counts the empty tables discovery left out as empty, and only what the user left out as excluded', () => {
     // With "Skip empty objects" on, discovery leaves every empty table out,
     // and each was counted as excluded: a clone of one opportunity read

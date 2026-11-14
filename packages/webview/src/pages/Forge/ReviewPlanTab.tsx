@@ -4,7 +4,14 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { ForgeLeftOutObject } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { formatEstimateSec, uiLocale } from '../../utils/formatters';
-import { leftOutByReason, leftOutDetail, leftOutReasonLabel } from './forgeLeftOut';
+import {
+  leftOutAdminText,
+  leftOutByReason,
+  leftOutDetail,
+  leftOutReasonLabel,
+  leftOutWayOut,
+} from './forgeLeftOut';
+import { ReviewAdminCopy } from './ReviewAdminCopy';
 
 /**
  * Reasons an object is left out for whose detail is the org's own words — a
@@ -27,6 +34,7 @@ const ReviewLeftOutObjects: React.FC<{ leftOut: readonly ForgeLeftOutObject[] | 
   const [open, setOpen] = useState(false);
   const listId = useId();
   const groups = useMemo(() => leftOutByReason(leftOut), [leftOut]);
+  const adminText = useMemo(() => leftOutAdminText(t, groups), [t, groups]);
   if (groups.length === 0) return null;
   const count = leftOut?.length ?? 0;
   return (
@@ -83,8 +91,24 @@ const ReviewLeftOutObjects: React.FC<{ leftOut: readonly ForgeLeftOutObject[] | 
                     .join(', ')}
                 </p>
               )}
+              {/* What lifts it, where something does. */}
+              {leftOutWayOut(t, group) && (
+                <p
+                  data-testid={`left-out-way-${group.reason}`}
+                  className="text-[10px] text-text-primary"
+                >
+                  {leftOutWayOut(t, group)}
+                </p>
+              )}
             </div>
           ))}
+          {adminText !== '' && (
+            <ReviewAdminCopy
+              text={adminText}
+              testId="left-out-admin-copy"
+              labelKey="forgeRun.review.leftOutAdmin.copy"
+            />
+          )}
         </div>
       )}
     </section>

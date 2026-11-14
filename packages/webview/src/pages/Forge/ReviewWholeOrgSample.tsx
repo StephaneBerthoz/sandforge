@@ -24,6 +24,15 @@ import { mbOf, sampleNumber as n, wholeReasonWords } from './sampleWords';
 /** The caps on the children of a record per relation the list offers, the default among them. */
 const CHILDREN_PRESETS = [10, 50, 100, 500, 1_000] as const;
 
+/**
+ * The records drawn of each object whatever the sample's share (`floor`)
+ * the list offers, the default among them. The page had none to set: a
+ * sample refused because the first record drawn of each object alone took
+ * more than it may take could be let through only from the command line
+ * (`--fit-floor 0`).
+ */
+const FLOOR_PRESETS = [0, 1, 5, 10, 50, 100] as const;
+
 /** The most MB a sample may be asked to take, as the extension bounds it. */
 const MOST_MB = 1_000_000;
 
@@ -150,6 +159,8 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
   const parentsId = useId();
   const childrenId = useId();
   const childrenHintId = useId();
+  const floorId = useId();
+  const floorHintId = useId();
   const wholeListId = useId();
   const sample = config?.sample;
   const sampled = sample !== undefined;
@@ -219,6 +230,8 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
     .sort((a, b) => a - b)
     .map((value): number | 'all' => value);
   childrenOptions.push('all');
+  const floor = sample?.floor ?? FORGE_SAMPLE_DEFAULTS.floor;
+  const floorOptions = [...new Set<number>([...FLOOR_PRESETS, floor])].sort((a, b) => a - b);
 
   const cost = budget?.planReads;
   const selectClass = cn(
@@ -459,6 +472,35 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                   </select>
                   <p id={childrenHintId} className="text-text-secondary">
                     {t('forgeRun.review.sample.children.hint')}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label htmlFor={floorId} className="text-text-primary">
+                    {t('forgeRun.review.sample.floor.label')}
+                  </label>
+                  <select
+                    id={floorId}
+                    data-testid="review-sample-floor"
+                    aria-describedby={floorHintId}
+                    value={String(floor)}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      change((o) => ({
+                        ...o,
+                        floor: value === FORGE_SAMPLE_DEFAULTS.floor ? undefined : value,
+                      }));
+                    }}
+                    className={cn(selectClass, 'self-start')}
+                  >
+                    {floorOptions.map((value) => (
+                      <option key={value} value={String(value)}>
+                        {n(value)}
+                      </option>
+                    ))}
+                  </select>
+                  <p id={floorHintId} className="text-text-secondary">
+                    {t('forgeRun.review.sample.floor.hint')}
                   </p>
                 </div>
 

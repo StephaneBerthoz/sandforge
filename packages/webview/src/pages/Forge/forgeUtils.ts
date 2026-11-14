@@ -96,6 +96,15 @@ export function extractSalesforceDomain(url: string): string | null {
  */
 export const SOQL_UNSCOPED_RECORD_CAP = 200;
 
+/** The object cap discovery takes when the page names none, as the extension's discovery does. */
+export const DEFAULT_OBJECT_CAP = 50;
+
+/**
+ * The highest object cap the page offers. A graph cut short at it is not
+ * lifted by raising the cap: a lower depth, a query or ALL is.
+ */
+export const MOST_OBJECTS_OFFERED = 500;
+
 /** The object a SOQL query reads and its WHERE clause, as SOQL mode applies them. */
 export interface SoqlRootFilter {
   /** The object after the top-level FROM. */

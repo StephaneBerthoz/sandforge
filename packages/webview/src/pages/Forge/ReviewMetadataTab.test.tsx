@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import '../../i18n';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
@@ -7,6 +9,10 @@ import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 /* ---- Mocks ---- */
 
 let mockDiffs: MetadataDiffEntry[] = [];
+let mockConfig: ForgeConfig | null = null;
+let mockGraph: ForgeGraph | null = null;
+const mockUpdateConfig = vi.fn();
+const mockSetNodesIncluded = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -15,6 +21,14 @@ vi.mock('../../stores/useForgeStore', () => {
         get metadataDiffs() {
           return mockDiffs;
         },
+        get config() {
+          return mockConfig;
+        },
+        get graph() {
+          return mockGraph;
+        },
+        updateConfig: mockUpdateConfig,
+        setNodesIncluded: mockSetNodesIncluded,
       }),
     {
       getState: () => ({
@@ -204,5 +218,163 @@ describe('ReviewMetadataTab', () => {
     render(<ReviewMetadataTab />);
     const tab = screen.getByTestId('review-metadata-tab');
     expect(tab.textContent).toContain('2');
+  });
+
+  describe('what each difference asks, and what the page does about it', () => {
+    const CONFIG: ForgeConfig = {
+      inputMode: 'record',
+      recordId: '001000000000001AAA',
+      depth: 'direct',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+
+    beforeEach(() => {
+      mockConfig = { ...CONFIG };
+      mockGraph = buildSyntheticForgeGraph(['Account', 'Invoice__c']);
+      mockUpdateConfig.mockClear();
+      mockSetNodesIncluded.mockClear();
+    });
+
+    it("says each code in the page's words, with the types of both orgs and the org that would not describe", () => {
+      // Each said what Execute does in the extension's English.
+      mockDiffs = [
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'Score__c',
+          issue: 'type_mismatch',
+          severity: 'warning',
+          details: 'English of the host',
+          sourceType: 'double',
+          targetType: 'string',
+        },
+        {
+          objectApiName: 'Case',
+          fieldApiName: '',
+          issue: 'unreadable',
+          severity: 'warning',
+          details: 'English of the host',
+          unreadIn: 'target',
+          orgError: 'REQUEST_LIMIT_EXCEEDED',
+        },
+      ];
+      render(<ReviewMetadataTab />);
+
+      const type = screen.getByTestId('diff-0').textContent ?? '';
+      expect(type).toContain('double');
+      expect(type).toContain('string');
+      expect(type).not.toContain('English of the host');
+      const unread = screen.getByTestId('diff-1').textContent ?? '';
+      expect(unread).toContain('target org');
+      expect(unread).toContain('REQUEST_LIMIT_EXCEEDED');
+      expect(unread).not.toContain('English of the host');
+    });
+
+    it("leaves a field out of its object's rows, and keeps it again", () => {
+      mockDiffs = [
+        {
+          objectApiName: 'Account',
+          fieldApiName: 'Region__c',
+          issue: 'missing',
+          severity: 'error',
+          details: 'x',
+        },
+      ];
+      const { unmount } = render(<ReviewMetadataTab />);
+      fireEvent.click(screen.getByTestId('diff-0-leave-field'));
+
+      const change = mockUpdateConfig.mock.calls[0]?.[0] as (c: ForgeConfig) => ForgeConfig;
+      expect(change(CONFIG).fieldExclusions).toEqual({ Account: ['Region__c'] });
+      unmount();
+
+      mockConfig = { ...CONFIG, fieldExclusions: { Account: ['Region__c'] } };
+      render(<ReviewMetadataTab />);
+      expect(screen.getByTestId('diff-0-left-out')).toBeDefined();
+      fireEvent.click(screen.getByTestId('diff-0-leave-field'));
+      const back = mockUpdateConfig.mock.calls[1]?.[0] as (c: ForgeConfig) => ForgeConfig;
+      expect(back(mockConfig).fieldExclusions).toBeUndefined();
+    });
+
+    it('leaves out of the clone an object the target lacks', () => {
+      mockDiffs = [
+        {
+          objectApiName: 'Invoice__c',
+          fieldApiName: '',
+          issue: 'object_missing',
+          severity: 'error',
+          details: 'x',
+        },
+      ];
+      render(<ReviewMetadataTab />);
+
+      expect(screen.getByTestId('diff-0').textContent).toContain('Deploy from Diff');
+      fireEvent.click(screen.getByTestId('diff-0-leave-object'));
+      expect(mockSetNodesIncluded).toHaveBeenCalledWith(['Invoice__c'], false);
+    });
+
+    it('compares again an object an org would not describe', () => {
+      const again = vi.fn();
+      mockDiffs = [
+        {
+          objectApiName: 'Case',
+          fieldApiName: '',
+          issue: 'unreadable',
+          severity: 'warning',
+          details: 'x',
+          unreadIn: 'source',
+          orgError: 'timeout',
+        },
+      ];
+      render(<ReviewMetadataTab onCompareAgain={again} />);
+
+      fireEvent.click(screen.getByTestId('diff-0-compare-again'));
+      expect(again).toHaveBeenCalledTimes(1);
+    });
+
+    it("copies for the target's admin the grants the differences ask", async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      mockDiffs = [
+        {
+          objectApiName: 'Lead',
+          fieldApiName: 'Status',
+          issue: 'permission_denied',
+          severity: 'warning',
+          details: 'x',
+        },
+        {
+          objectApiName: 'Case',
+          fieldApiName: '',
+          issue: 'object_not_createable',
+          severity: 'error',
+          details: 'x',
+        },
+        {
+          objectApiName: 'Report',
+          fieldApiName: '',
+          issue: 'object_not_createable',
+          severity: 'info',
+          details: 'x',
+          notCreatableBy: 'setup',
+        },
+      ];
+      try {
+        render(<ReviewMetadataTab />);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('metadata-admin-copy'));
+        });
+
+        const copied = String(writeText.mock.calls[0]?.[0]);
+        expect(copied).toContain('Edit on Status of Lead');
+        expect(copied).toContain('Create on Case');
+        // No user creates a report: no grant to ask.
+        expect(copied).not.toContain('Report');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

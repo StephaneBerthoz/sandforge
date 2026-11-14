@@ -52,9 +52,9 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 3. Tune the options, on the same form, above "Discover Graph":
      • Depth: "Direct only" / "Deep (5 levels)" / "Custom depth"
      • "Records per object" — cap rows per object (Smart / 10…1000 / All);
-       Smart caps nothing of one record's graph and 100 of a SOQL run, and
-       Results, a simulation and the confirmation before the write name
-       the objects a cap stopped with rows left
+       Smart caps nothing of one record's graph and 100 of a SOQL run, a
+       SOQL run takes 200 at most and greys the choices past it, and Results,
+       a simulation and the confirmation name the objects a cap stopped
      • "Anonymize PII" — protect sensitive fields on the way in
      • "Skip empty objects" / "Auto-fetch parents"
      • "Keep emails and phone numbers as they are" — off by default:

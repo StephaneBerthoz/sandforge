@@ -572,6 +572,13 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
   const owners = Object.entries(config.ownerMappings ?? {});
   const [source, setSource] = useState('');
   const [target, setTarget] = useState('');
+  /*
+   * A target user past the users listed, by the id typed: the list carries
+   * the first 2,000 by name, and an org with more had no way to give records
+   * to anyone after them. Typed, it stands in for the one picked.
+   */
+  const [targetId, setTargetId] = useState('');
+  const givenTo = target !== '' ? target : targetId.trim();
 
   return (
     <fieldset data-testid="controls-owners" className="flex flex-col gap-1">
@@ -625,10 +632,11 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
         className="flex flex-wrap items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (source.trim() === '' || target === '') return;
-          if (apply(withOwnerMapping(config, source.trim(), target), 'ownerMappings')) {
+          if (source.trim() === '' || givenTo === '') return;
+          if (apply(withOwnerMapping(config, source.trim(), givenTo), 'ownerMappings')) {
             setSource('');
             setTarget('');
+            setTargetId('');
           }
         }}
       >
@@ -665,12 +673,29 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
             ))}
           </select>
         </div>
+        {listed?.truncated && (
+          <div className="flex flex-col gap-0.5">
+            <label htmlFor={`${idPrefix}-owner-target-id`} className="text-text-secondary">
+              {t('forgeRun.controls.owners.targetId')}
+            </label>
+            <input
+              id={`${idPrefix}-owner-target-id`}
+              data-testid="controls-owner-target-id"
+              type="text"
+              maxLength={18}
+              value={targetId}
+              disabled={target !== ''}
+              onChange={(e) => setTargetId(e.target.value)}
+              className={cn(INPUT_CLASS, 'w-44 font-mono')}
+            />
+          </div>
+        )}
         <Button
           type="submit"
           variant="secondary"
           size="sm"
           data-testid="controls-owner-add"
-          disabled={source.trim() === '' || target === ''}
+          disabled={source.trim() === '' || givenTo === ''}
         >
           {t('forgeRun.controls.owners.add')}
         </Button>

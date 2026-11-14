@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { BaseMessage } from '@sandforge/shared';
+import { useTranslation } from 'react-i18next';
+import type { BaseMessage, ForgePreviewErrorMessage } from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { extractRecordId } from '../../utils/recordId';
@@ -13,6 +14,12 @@ export interface RecordPreviewState {
   previewLoading: boolean;
   /** Error message from the last preview request, if any. */
   previewError: string | null;
+  /**
+   * The source org picked holds no record of the id, or none the user
+   * connected there sees (`RECORD_NOT_FOUND`), or no object of its prefix
+   * (`UNKNOWN_KEY_PREFIX`): a clone from it would read nothing of its root.
+   */
+  previewNotInSource: boolean;
   /** Fetch a preview of the record from the source org. */
   handlePreview: () => void;
   /** Clear both preview and error (used when the record input changes). */
@@ -32,6 +39,10 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
   const [preview, setPreview] = useState<RecordPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewNotInSource, setPreviewNotInSource] = useState(false);
+  /** The id the last preview asked for, which the words of a record not found name. */
+  const requestedIdRef = useRef('');
+  const { t } = useTranslation();
 
   /**
    * Last-call-wins correlation guard. The extension echoes the request id as
@@ -57,20 +68,36 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
         setPreview(msg.payload);
         setPreviewLoading(false);
         setPreviewError(null);
+        setPreviewNotInSource(false);
       },
       [isStaleResponse],
     ),
   );
 
-  useMessageListener<BaseMessage & { payload: { message: string } }>(
+  useMessageListener<BaseMessage & { payload: ForgePreviewErrorMessage['payload'] }>(
     'forge:preview:error',
     useCallback(
       (msg) => {
         if (isStaleResponse(msg.correlationId)) return;
         setPreviewLoading(false);
-        setPreviewError(msg.payload.message);
+        const { code, orgName, message } = msg.payload;
+        // A record the source does not hold is said in the page's language,
+        // naming the org it was looked for in: "Record not found: 003…"
+        // named none, and a record pasted from another org read as one gone.
+        const notInSource = code === 'RECORD_NOT_FOUND' || code === 'UNKNOWN_KEY_PREFIX';
+        setPreviewNotInSource(notInSource);
+        if (notInSource && orgName) {
+          const record = requestedIdRef.current;
+          setPreviewError(
+            code === 'RECORD_NOT_FOUND'
+              ? t('forge.previewRecordNotFound', { record, org: orgName })
+              : t('forge.previewUnknownPrefix', { prefix: record.slice(0, 3), org: orgName }),
+          );
+          return;
+        }
+        setPreviewError(message);
       },
-      [isStaleResponse],
+      [isStaleResponse, t],
     ),
   );
 
@@ -81,6 +108,7 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
     pendingRequestIdRef.current = '';
     setPreview(null);
     setPreviewError(null);
+    setPreviewNotInSource(false);
   }, []);
 
   /** Dismiss only the preview card (close button on the card). */
@@ -94,7 +122,9 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
     if (!id || !sourceOrgId) return;
     setPreviewLoading(true);
     setPreviewError(null);
+    setPreviewNotInSource(false);
     setPreview(null);
+    requestedIdRef.current = id;
     const request = buildMessage<{ recordId: string; orgId: string }>('forge:preview', {
       recordId: id,
       orgId: sourceOrgId,
@@ -125,6 +155,7 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
     preview,
     previewLoading,
     previewError,
+    previewNotInSource,
     handlePreview,
     resetPreview,
     closePreview,

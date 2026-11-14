@@ -114,6 +114,35 @@ describe('ForgeSaveTemplate', () => {
     expect(template.recordCount).toBe(20);
   });
 
+  it('greys Save as template for a clone of the whole org, and names what keeps its settings', () => {
+    // Active, it opened the form, and the save came back INVALID_PAYLOAD: a
+    // template keeps a walk from a record or a query.
+    useForgeStore.getState().setConfig({
+      inputMode: 'org',
+      depth: 'all',
+      sourceOrgId: 'org-source',
+      targetOrgId: 'org-target',
+      anonymizePII: true,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+    render(<Review />);
+
+    const opener = screen.getByTestId('review-save-template-open') as HTMLButtonElement;
+    expect(opener.disabled).toBe(true);
+    const hint = screen.getByTestId('review-save-template-whole-org');
+    expect(opener.getAttribute('aria-describedby')).toBe(hint.id);
+    expect(hint.textContent).toContain('Recent runs');
+    expect(hint.textContent).toContain('Reuse configuration');
+    fireEvent.click(opener);
+    expect(screen.queryByTestId('review-save-template-form')).toBeNull();
+    expect(
+      mockPostMessage.mock.calls.filter(
+        (call) => (call[0] as { payload: BaseMessage }).payload.type === 'forge:templates:save',
+      ),
+    ).toHaveLength(0);
+  });
+
   it('counts the records the screen gives it, under the ids of that screen', () => {
     render(
       <ForgeSaveTemplate

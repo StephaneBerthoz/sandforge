@@ -27,9 +27,20 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { soqlRootFilter, starterTemplateKeys } from './forgeUtils';
+import { soqlRootFilter, starterTemplateKeys, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 import { extractRecordId } from '../../utils/recordId';
 import { orgDisplayName } from '@sandforge/shared';
+
+/**
+ * The choices of Records per object past the cap of a run from a query
+ * ({@link SOQL_UNSCOPED_RECORD_CAP}), with the words they are listed in: a
+ * run from a query holds each object to the cap, whichever is picked.
+ */
+const SOQL_HELD_LIMITS: ReadonlyMap<string, string> = new Map([
+  ['500', 'forge.recordLimitOpt500'],
+  ['1000', 'forge.recordLimitOpt1000'],
+  ['all', 'forge.recordLimitAll'],
+]);
 
 /** A starter template's name in the panel's language, as its Template tab says it. */
 function starterName(
@@ -352,7 +363,10 @@ export const ForgeInput: React.FC = () => {
                         </p>
                       )}
                       {form.previewError && (
-                        <div className="p-2 rounded-md text-sm text-status-error bg-status-error/10 border border-status-error/20">
+                        <div
+                          data-testid="forge-preview-error"
+                          className="p-2 rounded-md text-sm text-status-error bg-status-error/10 border border-status-error/20"
+                        >
                           {form.previewError}
                         </div>
                       )}
@@ -588,7 +602,9 @@ export const ForgeInput: React.FC = () => {
               aria-describedby={
                 form.wholeOrg
                   ? 'forge-record-limit-hint forge-record-limit-all'
-                  : 'forge-record-limit-hint'
+                  : form.runsSoql
+                    ? 'forge-record-limit-hint forge-record-limit-soql'
+                    : 'forge-record-limit-hint'
               }
               data-testid="forge-record-limit"
               value={form.wholeOrg ? (form.sampled ? 'sample' : 'every') : form.recordLimit}
@@ -617,12 +633,38 @@ export const ForgeInput: React.FC = () => {
                   <option value="10">{t('forge.recordLimitOpt10')}</option>
                   <option value="50">{t('forge.recordLimitOpt50')}</option>
                   <option value="100">{t('forge.recordLimitOpt100')}</option>
-                  <option value="500">{t('forge.recordLimitOpt500')}</option>
-                  <option value="1000">{t('forge.recordLimitOpt1000')}</option>
-                  <option value="all">{t('forge.recordLimitAll')}</option>
+                  {/* Past the cap a run from a query holds each object to,
+                      greyed: chosen, they were brought back to it unsaid. */}
+                  <option value="500" disabled={form.runsSoql}>
+                    {t('forge.recordLimitOpt500')}
+                  </option>
+                  <option value="1000" disabled={form.runsSoql}>
+                    {t('forge.recordLimitOpt1000')}
+                  </option>
+                  <option value="all" disabled={form.runsSoql}>
+                    {t('forge.recordLimitAll')}
+                  </option>
                 </>
               )}
             </select>
+            {/* The cap of a run from a query, said with or without a WHERE
+                clause, and what reads more: a clone from a record, or the
+                command line's tables. A choice past it made on another tab
+                is said held to it. */}
+            {form.runsSoql && (
+              <p
+                id="forge-record-limit-soql"
+                data-testid="forge-record-limit-soql"
+                className="mt-1.5 text-[10px] text-text-secondary"
+              >
+                {SOQL_HELD_LIMITS.has(form.recordLimit)
+                  ? t('forge.recordLimitSoqlHeld', {
+                      cap: SOQL_UNSCOPED_RECORD_CAP,
+                      chosen: t(SOQL_HELD_LIMITS.get(form.recordLimit) ?? ''),
+                    })
+                  : t('forge.recordLimitSoqlCap', { cap: SOQL_UNSCOPED_RECORD_CAP })}
+              </p>
+            )}
             {/* What Smart applies to this run: no cap to one record's graph,
                 a cap to a run from a query. It named the root object's whole
                 table "the org" and sized the cap of a one-record clone by it. */}
@@ -694,17 +736,19 @@ export const ForgeInput: React.FC = () => {
                   ? t('forge.hintNoTarget')
                   : form.sameOrgSelected
                     ? t('forge.hintSameOrg')
-                    : form.whereClauseRefused
-                      ? t(
-                          aliasRefused
-                            ? 'forge.hintSoqlAliasRefused'
-                            : 'forge.hintSoqlFilterRefused',
-                        )
-                      : form.objectNameRefused
-                        ? t('forge.hintSoqlObjectNameInvalid')
-                        : form.inputMode === 'ai'
-                          ? t('forge.hintAiUnchecked')
-                          : t('forge.hintNoInput')}
+                    : form.recordNotInSource
+                      ? t('forge.hintRecordNotInSource')
+                      : form.whereClauseRefused
+                        ? t(
+                            aliasRefused
+                              ? 'forge.hintSoqlAliasRefused'
+                              : 'forge.hintSoqlFilterRefused',
+                          )
+                        : form.objectNameRefused
+                          ? t('forge.hintSoqlObjectNameInvalid')
+                          : form.inputMode === 'ai'
+                            ? t('forge.hintAiUnchecked')
+                            : t('forge.hintNoInput')}
             </p>
           )}
 

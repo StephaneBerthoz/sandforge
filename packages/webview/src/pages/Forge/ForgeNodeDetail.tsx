@@ -185,6 +185,16 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
 }) => {
   const { t } = useTranslation();
   const preview = previewRows(node, anonymize, keepContactPoints);
+  /*
+   * A node whose records nobody could count: the org gave no answer in time
+   * (`recordCountUnknown`, kept in the run), or refused the count of an
+   * object it described (`error`, left out). Its zero read as an empty
+   * table, and the page offered nothing for the second: a table the org will
+   * not count whole is often one it reads through the records it hangs from.
+   */
+  const countRefused = node.status === 'error' && node.fieldCount > 0;
+  const notCounted = node.recordCountUnknown === true || countRefused;
+  const includeAnyway = notCounted && !node.included;
 
   return (
     <m.div
@@ -209,7 +219,9 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {/* Stats row */}
       <m.div variants={slideUp} className="flex gap-4 text-sm text-text-secondary">
         <span data-testid="node-record-count">
-          {t('common.recordCount', { count: node.recordCount })}
+          {notCounted
+            ? t('forgeRun.preview.recordsNotCounted')
+            : t('common.recordCount', { count: node.recordCount })}
         </span>
         <span data-testid="node-field-count">
           {t('common.fieldCount', { count: node.fieldCount })}
@@ -239,6 +251,34 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           />
         </button>
       </m.div>
+
+      {/* Why it has no count, what the run does with it, and the way to take
+          it all the same when it is left out. */}
+      {notCounted && (
+        <m.div variants={slideUp} className="flex flex-col gap-2">
+          <p data-testid="node-not-counted" className="text-xs text-text-secondary">
+            {t(
+              countRefused
+                ? node.included
+                  ? 'forgeRun.nodeCountRefusedIn'
+                  : 'forgeRun.nodeCountRefusedOut'
+                : node.included
+                  ? 'forgeRun.nodeCountTimedOutIn'
+                  : 'forgeRun.nodeCountTimedOutOut',
+            )}
+          </p>
+          {includeAnyway && (
+            <button
+              type="button"
+              data-testid="node-include-anyway"
+              onClick={onToggleIncluded}
+              className="self-start rounded-md border border-forge/40 px-2 py-1 text-xs font-medium text-hue-forge hover:bg-forge/10"
+            >
+              {t('forgeRun.includeAnyway')}
+            </button>
+          )}
+        </m.div>
+      )}
 
       {/* PII Fields section */}
       {node.piiFields.length > 0 && (

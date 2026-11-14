@@ -52,8 +52,11 @@ describe('ReviewFilesOption', () => {
     expect(toggle.getAttribute('aria-describedby')).toContain(
       screen.getByTestId('forge-files-sample').id,
     );
+    // "Yet" read as a way that was coming: a sample goes without the files,
+    // and the copy of every record with them is what the sample was asked
+    // in place of.
     expect(screen.getByTestId('forge-files-sample').textContent).toBe(
-      'A sample of the whole org copies no file yet: which files its records have, and what they would take, is not drawn.',
+      'A sample of the whole org copies no files: the sample goes without the files of its records, which are neither drawn nor weighed.',
     );
   });
 

@@ -7,6 +7,7 @@ import {
   FORGE_READ_CEILING_PER_OBJECT,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
+  type WholeOrgSampleLimit,
 } from '@sandforge/shared';
 import { checkpointRefusalWords } from '../../utils/runCheckpoint';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
@@ -45,6 +46,24 @@ const STOP_KEYS: Record<ForgeRunGateCode, string> = {
   SAMPLE_PLAN_GONE: 'forgeRun.gate.samplePlanGone',
 };
 
+/**
+ * The sentence of a sample that cannot fit, by what held it (`limitedBy`):
+ * past the data storage the target has left, no setting lets it take more,
+ * and the refusal said "let the sample take more" whatever held it. What it
+ * needs and may take in MB is said of the two bounds in MB alone. A bound
+ * that holds no sample that cannot fit — the heavy roots, the objects copied
+ * whole —, and a refusal that names none, keep the words that promise no
+ * bound to raise.
+ */
+const CANNOT_FIT_KEYS: Partial<Record<WholeOrgSampleLimit, string>> = {
+  storage: 'forgeRun.gate.sampleCannotFitStorage',
+  within: 'forgeRun.gate.sampleCannotFitWithin',
+  maxTotal: 'forgeRun.gate.sampleCannotFitMaxTotal',
+  targetRequests: 'forgeRun.gate.sampleCannotFitTargetRequests',
+  bulkBatches: 'forgeRun.gate.sampleCannotFitBulkBatches',
+  sourceRequests: 'forgeRun.gate.sampleCannotFitSourceRequests',
+};
+
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
 const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
   'AUTOMATION_DECLINED',
@@ -65,12 +84,35 @@ const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
  * words that need none, and a run resumed otherwise than it was set up apart
  * from a plan of another org or setup.
  */
-function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: boolean): string {
+function sentenceOf(
+  stop: ForgeRunGateStop,
+  checkpointAsked: boolean,
+  wholeOrg: boolean,
+  muteOffered: boolean,
+  sampled: boolean,
+): string {
   if (stop.code === 'CHECKPOINT_REFUSED' && stop.reason !== undefined) {
     return 'forgeRun.gate.checkpointRefusedFor';
   }
-  if (stop.code === 'SAMPLE_CANNOT_FIT' && stop.sample?.needMB === undefined) {
-    return 'forgeRun.gate.sampleCannotFitNamed';
+  if (stop.code === 'SAMPLE_CANNOT_FIT') {
+    const limit = stop.sample?.limitedBy;
+    const sized = stop.sample?.needMB !== undefined;
+    const held = limit !== undefined ? CANNOT_FIT_KEYS[limit] : undefined;
+    if (held && (sized || (limit !== 'storage' && limit !== 'within'))) return held;
+    if (!sized) return 'forgeRun.gate.sampleCannotFitNamed';
+  }
+  // Cancelled at the question of what the target runs: muting it is the way
+  // to say only where Review offers it, ticking it is what is asked.
+  if (stop.code === 'AUTOMATION_DECLINED' && muteOffered) {
+    return 'forgeRun.gate.automationDeclinedMute';
+  }
+  // A sample's drawing past its share of what the source has left: said as
+  // the drawing's, not as a run past all the source has left, with the way
+  // its draw leaves.
+  if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api?.drawing) {
+    return stop.api.drawing.draw === 'uniform'
+      ? 'forgeRun.gate.apiDrawingExceeded'
+      : 'forgeRun.gate.apiDrawingExceededRecent';
   }
   if (stop.code === 'SAMPLE_TOO_LARGE' && stop.sample?.rows === undefined) {
     return 'forgeRun.gate.sampleTooLargeUnsized';
@@ -84,9 +126,21 @@ function sentenceOf(stop: ForgeRunGateStop, checkpointAsked: boolean, wholeOrg: 
     if (wholeOrg) return 'forgeRun.gate.storageExceededAll';
   }
   if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api) {
-    if (stop.api.kind === 'bulkBatches') return 'forgeRun.gate.bulkBatchesExceeded';
-    return stop.api.org === 'source'
-      ? 'forgeRun.gate.apiRequestsExceededSource'
+    // A sample that fits takes fewer requests and batches with its records:
+    // named to a clone of every record of the whole org, never to a sample.
+    const offered = wholeOrg && !sampled;
+    if (stop.api.kind === 'bulkBatches') {
+      return offered
+        ? 'forgeRun.gate.bulkBatchesExceededSample'
+        : 'forgeRun.gate.bulkBatchesExceeded';
+    }
+    if (stop.api.org === 'source') {
+      return offered
+        ? 'forgeRun.gate.apiRequestsExceededSourceSample'
+        : 'forgeRun.gate.apiRequestsExceededSource';
+    }
+    return offered
+      ? 'forgeRun.gate.apiRequestsExceededTargetSample'
       : 'forgeRun.gate.apiRequestsExceededTarget';
   }
   if (stop.code === 'API_BUDGET_EXCEEDED' && checkpointAsked) {
@@ -117,33 +171,46 @@ function asksToSimulateAgain(stop: ForgeRunGateStop): boolean {
  *
  * @param run.checkpointAsked - The run was to take a checkpoint first.
  * @param run.wholeOrg - The run clones the whole org.
+ * @param run.muteOffered - Review offers to mute the target's automation and it is not ticked.
+ * @param run.sampled - The run copies a sample of the whole org rather than every record.
  */
 export function gateStopSentence(
   t: TFunction,
   stop: ForgeRunGateStop,
-  run: { checkpointAsked: boolean; wholeOrg: boolean },
+  run: { checkpointAsked: boolean; wholeOrg: boolean; muteOffered?: boolean; sampled?: boolean },
 ): string {
   const locale = uiLocale();
-  return t(sentenceOf(stop, run.checkpointAsked, run.wholeOrg), {
-    estimate: (stop.api?.estimate ?? stop.storage?.estimateMB ?? 0).toLocaleString(locale),
-    remaining: (stop.api?.remaining ?? stop.storage?.remainingMB ?? 0).toLocaleString(locale),
-    // The number the run held, which the settings may have raised.
-    ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
-    reason: checkpointRefusalWords(stop.reason, t),
-    // A clone of the whole org refused for an object it reads whole: the
-    // bound it held, and each object past it.
-    bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
-    objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
-    // A sample refused: what it needs and may take, the heaviest objects,
-    // the records it read and holds at once, and what it was fitted to.
-    need: (stop.sample?.needMB ?? 0).toLocaleString(locale),
-    budget: (stop.sample?.budgetMB ?? 0).toLocaleString(locale),
-    heaviest: (stop.sample?.heaviest ?? []).join(', '),
-    rows: (stop.sample?.rows ?? 0).toLocaleString(locale),
-    most: (stop.sample?.most ?? 0).toLocaleString(locale),
-    fitted: (stop.sample?.fittedMB ?? 0).toLocaleString(locale),
-    holds: (stop.sample?.holdsMB ?? 0).toLocaleString(locale),
-  });
+  return t(
+    sentenceOf(
+      stop,
+      run.checkpointAsked,
+      run.wholeOrg,
+      run.muteOffered === true,
+      run.sampled === true,
+    ),
+    {
+      // The share of what the source has left a sample's drawing may read.
+      share: Math.round((stop.api?.drawing?.share ?? 0) * 100).toLocaleString(locale),
+      estimate: (stop.api?.estimate ?? stop.storage?.estimateMB ?? 0).toLocaleString(locale),
+      remaining: (stop.api?.remaining ?? stop.storage?.remainingMB ?? 0).toLocaleString(locale),
+      // The number the run held, which the settings may have raised.
+      ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
+      reason: checkpointRefusalWords(stop.reason, t),
+      // A clone of the whole org refused for an object it reads whole: the
+      // bound it held, and each object past it.
+      bound: (stop.readBound?.bound ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(locale),
+      objects: (stop.readBound?.objects ?? []).map((o) => o.objectApiName).join(', '),
+      // A sample refused: what it needs and may take, the heaviest objects,
+      // the records it read and holds at once, and what it was fitted to.
+      need: (stop.sample?.needMB ?? 0).toLocaleString(locale),
+      budget: (stop.sample?.budgetMB ?? 0).toLocaleString(locale),
+      heaviest: (stop.sample?.heaviest ?? []).join(', '),
+      rows: (stop.sample?.rows ?? 0).toLocaleString(locale),
+      most: (stop.sample?.most ?? 0).toLocaleString(locale),
+      fitted: (stop.sample?.fittedMB ?? 0).toLocaleString(locale),
+      holds: (stop.sample?.holdsMB ?? 0).toLocaleString(locale),
+    },
+  );
 }
 
 /**
@@ -165,7 +232,14 @@ export function gateStopSentence(
  * free: nowhere, or within the page, as the phase group the page hands it to
  * on each phase. A control elsewhere keeps it.
  */
-export const ForgeRunGateNotice: React.FC = () => {
+export const ForgeRunGateNotice: React.FC<{
+  /**
+   * Review offers to mute the target's automation for the run, unticked:
+   * a run cancelled at the question of what the target runs is told to tick
+   * it. Absent where nothing offers it, as on the results.
+   */
+  muteOffered?: boolean;
+}> = ({ muteOffered = false }) => {
   const { t } = useTranslation();
   const stop = useForgeRunGateStore((s) => s.stop);
   const checkpointAsked = useForgeRunGateStore((s) => s.checkpointAsked);
@@ -177,6 +251,7 @@ export const ForgeRunGateNotice: React.FC = () => {
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
   const sampled = useForgeStore((s) => s.config?.sample !== undefined);
+  const sample = useForgeStore((s) => s.config?.sample);
   // What the notice offers to do is done from Review alone: the results a
   // retry stopped on are another run's.
   const onReview = useForgeStore((s) => s.phase === 'review');
@@ -212,6 +287,20 @@ export const ForgeRunGateNotice: React.FC = () => {
   const cancelled = CANCELLED.has(stop.code);
   const simulateAgain = onReview && asksToSimulateAgain(stop);
   const offer = onReview && wholeOrg && !sampled && sampleOffer;
+  // A clone of every record past the requests or the Bulk API batches left:
+  // a sample takes fewer of them, offered as the words name it.
+  const sampleForBudget =
+    onReview &&
+    wholeOrg &&
+    !sampled &&
+    stop.code === 'API_BUDGET_EXCEEDED' &&
+    stop.api !== undefined &&
+    stop.api.drawing === undefined;
+  // The newest records first read only those it keeps: offered to a sample
+  // drawn spread over the org whose drawing was refused, from Review, where
+  // the draw is set — never to one that drew the newest already.
+  const newest =
+    onReview && sampled && stop.api?.drawing?.draw === 'uniform' && sample?.draw !== 'recent';
   return (
     <div
       ref={noticeRef}
@@ -231,8 +320,22 @@ export const ForgeRunGateNotice: React.FC = () => {
       />
       <div className="flex flex-1 flex-col gap-1">
         <p data-testid="forge-run-gate-reason">
-          {gateStopSentence(t, stop, { checkpointAsked, wholeOrg })}
+          {gateStopSentence(t, stop, { checkpointAsked, wholeOrg, muteOffered, sampled })}
         </p>
+        {newest && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            data-testid="forge-run-gate-draw-newest"
+            onClick={() => {
+              setSample({ ...sample, draw: 'recent' });
+              clear();
+            }}
+          >
+            {t('forgeRun.gate.drawNewest')}
+          </Button>
+        )}
         {/* Every record past the storage: the sample that fits, offered. */}
         {offer && (
           <div className="flex flex-wrap items-center gap-2">
@@ -251,6 +354,20 @@ export const ForgeRunGateNotice: React.FC = () => {
               {t('forgeRun.review.sample.offerAction')}
             </Button>
           </div>
+        )}
+        {sampleForBudget && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            data-testid="forge-run-gate-copy-sample-budget"
+            onClick={() => {
+              setSample({});
+              clear();
+            }}
+          >
+            {t('forgeRun.review.sample.offerAction')}
+          </Button>
         )}
         {simulateAgain && (
           <Button

@@ -294,6 +294,20 @@ describe('ReviewWholeOrgSample', () => {
     expect(sample()).toEqual({ children: 500 });
   });
 
+  it('sets the records drawn of each object whatever the share, 1 by default, down to none', () => {
+    // A sample refused because the first record of each object alone took
+    // more than it may take could be let through from the command line alone.
+    renderBlock({ ...WHOLE_ORG, sample: {} });
+    const floor = screen.getByTestId('review-sample-floor') as HTMLSelectElement;
+    expect(floor.value).toBe('1');
+    expect(floor.getAttribute('aria-describedby')).not.toBeNull();
+
+    fireEvent.change(floor, { target: { value: '0' } });
+    expect(sample()).toEqual({ floor: 0 });
+    fireEvent.change(floor, { target: { value: '1' } });
+    expect(sample()).toEqual({});
+  });
+
   it('shows a cap a past run set that the list does not offer', () => {
     renderBlock({ ...WHOLE_ORG, sample: { children: 25 } });
 

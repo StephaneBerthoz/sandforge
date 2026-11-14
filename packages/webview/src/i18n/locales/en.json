@@ -4013,6 +4013,7 @@
     "hintNoInput": "Enter a record ID or a query, or pick a template",
     "hintAiUnchecked": "Draft a query and let it pass the check against the source org to discover the graph",
     "hintSameOrg": "Source and target must be different",
+    "hintRecordNotInSource": "The source org picked does not hold this record: pick the org it comes from, or another record",
     "hintSoqlFilterRefused": "Shorten or rewrite the WHERE clause to discover the graph",
     "hintSoqlAliasRefused": "Fix the alias after FROM to discover the graph",
     "depthDirectTooltip": "Only directly related child objects (1 level)",
@@ -4021,6 +4022,8 @@
     "depthCustomHint": "Up to {{max}} levels: past that, discovery would describe thousands of objects in a CRM org and spend its API limits without producing a usable graph.",
     "depthCustomInvalid": "Enter a whole number from 1 to {{max}}.",
     "soqlPreviewHint": "Preview is available for Record ID input",
+    "previewRecordNotFound": "Record {{record}} is not in {{org}}, or the user connected there cannot see it: the record is read from the source org picked. Pick the org it comes from as the source, or paste a record of {{org}}.",
+    "previewUnknownPrefix": "No object of {{org}} has ids starting \"{{prefix}}\": the record is read from the source org picked. Pick the org it comes from as the source, or check the id.",
     "templatePreviewHint": "Select a template to see its configuration",
     "aiPreviewHint": "The AI drafts the query discovery starts from; you check it and run it",
     "refreshPreview": "Refresh preview",
@@ -4049,6 +4052,8 @@
     "recordLimitSmart": "Smart (set by the input)",
     "recordLimitSmartRecord": "Smart: reads only what the record reaches, at most 50,000 rows per object, and asks before a large write.",
     "recordLimitSmartSoql": "Smart: {{limit}} per object. A run from a query reads the other objects from their whole tables.",
+    "recordLimitSoqlCap": "A run from a query takes {{cap}} records of each object at most: its related objects are read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.",
+    "recordLimitSoqlHeld": "{{chosen}} is for a run from a record: a run from a query takes {{cap}} records of each object at most, its related objects being read from their whole tables. For more, clone from a record, or from the command line: sandforge clone --object and --where clone the tables named, with --max as the cap.",
     "recordLimitAll": "All",
     "recordLimitOpt10": "10 / object (sample)",
     "recordLimitOpt50": "50 / object",
@@ -4095,7 +4100,7 @@
       "step5": "Execute toward your sandbox after Review, or without it with Clone directly — IDs are remapped"
     },
     "soqlUnscopedWarnTitle": "Your WHERE clause filters {{object}} only.",
-    "soqlUnscopedWarnBody": "Related objects are not narrowed to the records it matches: each one is read from its whole table. Every object is capped at {{cap}} records for this run.",
+    "soqlUnscopedWarnBody": "Related objects are not narrowed to the records it matches: each one is read from its whole table, up to {{cap}} records. To narrow one to the records under yours, give it a filter in Review → Controls, such as {{lookup}} IN (SELECT Id FROM {{object}} WHERE …), {{lookup}} being its field that points at {{object}}.",
     "soqlFilterRefused": "This WHERE clause cannot be applied. It must be 512 characters or fewer, contain no --, /* or */ (not even inside a quoted value), and not end with a semicolon.",
     "soqlAliasRefused": "This query cannot be run. The FROM clause declares an alias over a relationship that does not start from the object after FROM — check the alias before the dot.",
     "history": {
@@ -4122,9 +4127,9 @@
       "statusFailure": "Failed",
       "remove": "Remove the records this run created",
       "removeLeft": "Remove what is left of this run's records",
-      "removeNotRecorded": "Recorded before runs kept what they created: its records cannot be removed from here.",
+      "removeNotRecorded": "Recorded before runs kept what they created: its records cannot be removed from here. A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone.",
       "removeOrgGone": "The org this run wrote to is no longer registered: its records cannot be removed from here.",
-      "journalGone": "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here.",
+      "journalGone": "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here. A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone.",
       "sweepAction": "Take back what the target's automation created"
     },
     "soqlObjectNameInvalid": "\"{{object}}\" is not an SObject API name, so the WHERE clause cannot be sent under it. It must start with a letter and hold at most 80 letters, digits or underscores.",
@@ -4138,7 +4143,7 @@
       "maxSizeHint": "From 1 to {{max}} MB, what one call to Salesforce carries. A larger file is left out and listed, never cut. Before anything is written, the files together are checked against the file storage the target org has left.",
       "asIsWarning": "This run anonymizes its records, and the content of a file cannot be anonymized.",
       "asIsAccept": "I accept that files are copied as they are",
-      "sampleNone": "A sample of the whole org copies no file yet: which files its records have, and what they would take, is not drawn."
+      "sampleNone": "A sample of the whole org copies no files: the sample goes without the files of its records, which are neither drawn nor weighed."
     },
     "phaseName": {
       "input": "What to clone",
@@ -4205,7 +4210,7 @@
       "withTheirRecords": "copied with the records it hangs on",
       "excludedByUser": "Left out by you",
       "platformCreated": "Created by Salesforce alone, such as approvals, Einstein insights and invoices",
-      "customSetting": "Custom settings: configuration, not copied unless asked",
+      "customSetting": "Custom settings: configuration, which a clone never copies",
       "feature": "a feature the target has not turned on keeps it closed",
       "parent": "opened by the records it hangs from, if at all",
       "noEdit": "not edited by you",
@@ -4215,7 +4220,27 @@
     "depthAllHint": "ALL copies the whole source org: every object the target can create, every record of each, with no cap. Objects Salesforce does not let an API create are left out, and Review names them. Files are copied only if you tick them on Review.",
     "allPreviewRealData": "{{source}} holds real people’s data — a production org, or a sandbox marked Staging: a clone of the whole of it anonymizes their personal fields unless you untick Anonymize PII.",
     "recordLimitSample": "A sample that fits the target",
-    "recordLimitSampleHint": "Records drawn from each object, with their children and the records they name, as many as the target has room for: none left without a record it needs. Review reads the room, and sets how they are drawn."
+    "recordLimitSampleHint": "Records drawn from each object, with their children and the records they name, as many as the target has room for: none left without a record it needs. Review reads the room, and sets how they are drawn.",
+    "leftOutWay": {
+      "missingInTarget": "Deploy them to the target — Compare Org, then Deploy from Diff, for what is only in the source — then discover again.",
+      "notWritable": "The target's admin gives the user SandForge writes as Create, Edit and Delete on them, or turns on the feature they come with; then discover again.",
+      "createOnly": "The target's admin gives the user SandForge writes as Edit and Delete on them, then discover again.",
+      "notQueryable": "The source's admin gives the user SandForge reads as Read on them, then discover again.",
+      "unreadable": "Each comes with what the source answered: discover again once the source lets it be read.",
+      "notDescribed": "Discover again: their description is read again.",
+      "customSetting": "Set their values in the target's own Setup: Custom Settings, then Manage beside each.",
+      "knowledge": "Knowledge articles such as {{object}} are created by an API as drafts: a clone from a query copies the published ones, on the SOQL tab, SELECT Id FROM {{object}} WHERE PublishStatus = 'Online', for a target user with Knowledge User.",
+      "admin": {
+        "heading": "Changes to make in Setup for SandForge to clone these objects of the whole org:",
+        "inTarget": "In the target org:",
+        "inSource": "In the source org:",
+        "grantWrite": "Give the user SandForge writes as Create, Edit and Delete on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+        "grantEdit": "Give the user SandForge writes as Edit on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+        "grantDelete": "Give the user SandForge writes as Delete on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+        "grantEditDelete": "Give the user SandForge writes as Edit and Delete on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}}).",
+        "grantRead": "Give the user SandForge reads as Read on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}})."
+      }
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4269,6 +4294,11 @@
     "piiFields": "PII Fields Detected",
     "anonymize": "Anonymize",
     "includeNode": "Include in execution",
+    "includeAnyway": "Include anyway",
+    "nodeCountTimedOutIn": "The org gave no answer in time to the count of its records: it stays in the run, which reads what its scope reaches of it. Turn Include in execution off to leave it out.",
+    "nodeCountTimedOutOut": "The org gave no answer in time to the count of its records, and it is left out. Included anyway, the run reads what its scope reaches of it.",
+    "nodeCountRefusedIn": "The org refused to count its records, as said under Error: it is included all the same, and the run reads what its scope reaches of it, a read the org may refuse as it refused the count.",
+    "nodeCountRefusedOut": "The org refused to count its records, as said under Error, and discovery left it out. A table the org will not count whole is often one it lets be read through the records it hangs from: included anyway, the run reads what its scope reaches of it, a read the org may refuse as it refused the count.",
     "anonymizationPreview": "Anonymization Preview",
     "contactPointsPreview": "Emails and phone numbers, as the run writes them",
     "fieldName": "Field",
@@ -4345,34 +4375,47 @@
     },
     "gate": {
       "productionTarget": "The run did not start: the target org is a production org, or one SandForge cannot tell is a sandbox, a scratch org or a Developer Edition org. Forge writes to those only, and nothing was read or written. Pick one of them as the target.",
-      "automationDeclined": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.",
+      "automationDeclined": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written. To run it without them, have the target's admin turn those flows and triggers off, or give the user the run writes as a bypass they test.",
+      "automationDeclinedMute": "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written. To silence for this run alone what tests a bypass, tick “Mute the target's automation for this run” on Review, then run it again; or have the target's admin turn those flows and triggers off.",
       "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past {{ceiling}} records. Nothing was read or written. Set Records per object to read fewer.",
-      "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org.",
+      "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org. To write less, leave objects out or lower Records per object on Review; Simulate says what a run writes without writing it.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
-      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records.",
+      "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records: leave objects out or lower Records per object on Review.",
       "checkpointRefusedFor": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused. {{reason}} Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
-      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, write fewer records, or untick Checkpoint first.",
+      "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, write fewer records (leave objects out or lower Records per object on Review), or untick Checkpoint first.",
       "readBoundExceeded": "The run was refused before it wrote anything: a clone of the whole org reads a few objects whole, and more than {{bound}} records, as many as the sandforge.forge.maxRecordsPerObject setting lets it hold at once, were found in {{objects}}. Raise the setting, or leave these objects out on Review.",
       "storageExceededAll": "The run was refused before it wrote anything: the records of the whole org take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out on Review, or free data storage in the target org.",
       "storageExceededFiles": "The run was refused before it wrote anything: the files it copies take about {{estimate}} MB of file storage, and the target org has {{remaining}} MB left. Leave the files out on Review, or free file storage in the target org.",
-      "apiRequestsExceededTarget": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
-      "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review.",
-      "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare.",
+      "apiRequestsExceededTarget": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review or narrow them with a filter in Review → Controls.",
+      "apiRequestsExceededTargetSample": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
+      "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review or narrow them with a filter in Review → Controls.",
+      "apiRequestsExceededSourceSample": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
+      "apiDrawingExceeded": "The run was refused before it wrote anything: drawing the sample spread over the org would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Draw the newest records, which reads only those it keeps, or narrow the large objects with a filter in Review → Controls.",
+      "apiDrawingExceededRecent": "The run was refused before it wrote anything: drawing the sample would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.",
+      "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare, or leave objects out on Review or narrow them with a filter in Review → Controls.",
+      "bulkBatchesExceededSample": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
       "filesUnread": "The run was refused before it wrote anything: the source org would neither sum nor list its files, so what they take of the target’s file storage is not known. Turn the copy of files off on Review, or run it again once the source answers.",
       "fileStorageUnread": "The run was refused before it wrote anything: the target org would not say what file storage it has left, so the files to copy could not be weighed against it. Turn the copy of files off on Review, or run it again once the org answers.",
       "filesUnreadRecords": "The run was refused before it wrote anything: the files of the records to clone could not all be looked up in the source, and the records would have gone without some of them. Turn the copy of files off on Review, or run it again once the source answers.",
       "sampleStorageUnread": "The run was refused before it wrote anything: the target org would not say what data storage it has left, and the sample has nothing else to be held to. Set the MB it may take on Review, or run it again once the org answers.",
-      "sampleCannotFit": "The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take about {{need}} MB, past the {{budget}} MB the sample may take; the heaviest: {{heaviest}}. Leave objects out, or copy fewer whole, on Review, or let the sample take more.",
+      "sampleCannotFit": "The run was refused before it wrote anything: no sample fits. The objects copied whole and the records drawn of each object whatever the share alone take about {{need}} MB, past the {{budget}} MB the sample may take; the heaviest: {{heaviest}}. Leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
       "sampleTooLarge": "The run was refused before it wrote anything: drawing the sample read {{rows}} records, more than the {{most}} it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.",
       "samplePlanMismatch": "The run was refused before it wrote anything: the plan of the sample it was to copy was drawn of another org or for another setup, or has changed since. Simulate again to draw a new one.",
       "samplePlanGone": "The run was refused before it wrote anything: the plan of its sample is no longer on this machine, or no longer as it was drawn, so its records cannot be taken up. Run it again from Review to draw a new sample, or remove what it wrote from Results.",
       "sampleTargetMoved": "The run was refused before it wrote anything: the sample was fitted to {{fitted}} MB of the target org’s data storage, and what the target has left now holds {{holds}} MB of a sample. Simulate again to draw a sample that fits.",
-      "sampleCannotFitNamed": "The run was refused before it wrote anything: no sample fits. The objects copied whole and the first record drawn of each object alone take more than the sample may take; the heaviest: {{heaviest}}. Leave objects out, or copy fewer whole, on Review, or let the sample take more.",
+      "sampleCannotFitNamed": "The run was refused before it wrote anything: no sample fits. The objects copied whole and the records drawn of each object whatever the share alone take more than the sample may take; the heaviest: {{heaviest}}. Leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
+      "sampleCannotFitStorage": "The run was refused before it wrote anything: no sample fits the data storage the target org has left. The objects copied whole and the records drawn of each object whatever the share alone take about {{need}} MB, past the {{budget}} MB the sample may take of it; the heaviest: {{heaviest}}. No setting lets the sample take more: leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review; or free data storage in the target org.",
+      "sampleCannotFitWithin": "The run was refused before it wrote anything: no sample fits within the {{budget}} MB you let it take. The objects copied whole and the records drawn of each object whatever the share alone take about {{need}} MB; the heaviest: {{heaviest}}. In the sample's settings on Review, let it take more (Within), leave objects out, copy fewer whole, or draw fewer records of each object.",
+      "sampleCannotFitMaxTotal": "The run was refused before it wrote anything: no sample fits the records the run may write in all. The objects copied whole and the records drawn of each object whatever the share alone are past it; the heaviest: {{heaviest}}. Leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
+      "sampleCannotFitTargetRequests": "The run was refused before it wrote anything: no sample fits the API requests the target org has left today. The objects copied whole and the records drawn of each object whatever the share alone take more; the heaviest: {{heaviest}}. Run it once the target has more to spare — the daily limit is counted over the last 24 hours —, or leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
+      "sampleCannotFitBulkBatches": "The run was refused before it wrote anything: no sample fits the Bulk API batches the target org has left over the last 24 hours. The objects copied whole and the records drawn of each object whatever the share alone take more; the heaviest: {{heaviest}}. Run it once the target has more to spare, or leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
+      "sampleCannotFitSourceRequests": "The run was refused before it wrote anything: no sample fits the API requests the source org has left today. Reading the objects copied whole and the records drawn of each object whatever the share alone takes more; the heaviest: {{heaviest}}. Run it once the source has more to spare — the daily limit is counted over the last 24 hours —, or leave objects out, copy fewer whole, or draw fewer records of each object, in the sample's settings on Review.",
       "sampleTooLargeUnsized": "The run was refused before it wrote anything: drawing the sample read more records than it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.",
       "samplePlanMismatchResume": "The run was refused before it wrote anything: the run it resumes was set up otherwise, a sample where this one copies every record, or every record where this one copies a sample. Resume it as it was set up.",
       "simulateAgain": "Simulate again",
+      "drawNewest": "Draw the newest first",
       "sampleOffer": "A sample that fits would take about {{mb}} MB of it."
     },
     "executionTable": {
@@ -4398,7 +4441,8 @@
       "formTitle": "Save this run as a template",
       "saveHint": "It keeps the run's record ID or query, its depth, caps and options, the objects it leaves out, the decisions taken on its gaps, its anonymization down to each field, its file copy (never the acceptance) and the target org. Apply it from the Template tab, or export it to a file.",
       "nameRequired": "Name the template to save it.",
-      "saved": "Saved as “{{name}}”. It is listed under Your templates in the Template tab."
+      "saved": "Saved as “{{name}}”. It is listed under Your templates in the Template tab.",
+      "wholeOrg": "A clone of the whole org is not kept as a template, which keeps a clone from a record or a query. Once it has run, Recent runs on the Forge page → Reuse configuration puts its settings back in the form."
     },
     "idMapping": {
       "title": "Record Id mapping",
@@ -4420,7 +4464,8 @@
       "inJournal_other": "The ids of the {{formatted}} records this run mapped are kept in its journal, not in its results: Save the Id map writes them to a file."
     },
     "preview": {
-      "truncatedAction": "Graph cut short by the object cap — raise it and discover again if something is missing",
+      "truncatedAction": "Graph cut short by the object cap of {{cap}} — raise it, up to {{most}}, and discover again if something is missing",
+      "truncatedAtMost": "Graph cut short at {{cap}} objects, the most discovery takes — if something is missing, pick a lower depth, clone from a query, or clone the whole org (ALL), which has no object cap",
       "willClone": "Will clone",
       "willMap": "Will map",
       "skippedExcluded": "Skipped (excluded)",
@@ -4562,6 +4607,23 @@
       "diffsFound_one": "{{count}} difference found between source and target.",
       "diffsFound_other": "{{count}} differences found between source and target.",
       "objectNotCreateable": "{{object}} is in the target org, but the user the clone writes as may not create its records there: Execute skips it, after the objects written before it. Leave it out in Gaps, or give that user Create on it.",
+      "metadata": {
+        "missing": "{{field}} is in the source and not in the target: Execute writes the rows without it. Deploy it to the target (Compare Org, then Deploy from Diff), give it to a field the target has in Review → Controls, or leave it out.",
+        "typeMismatch": "{{field}} is a {{sourceType}} in the source and a {{targetType}} in the target: a value the target's type refuses fails its row. Change one of the two types, give it to a field of the same type in Review → Controls, or leave it out.",
+        "permissionDenied": "{{field}} is in the target, but the user the clone writes as may not set it there: Execute writes the rows without it. Unless the target calculates it, have that user given Edit on it, or leave it out.",
+        "objectMissing": "{{object}} is not in the target, or the user the clone writes as cannot see it: Execute skips it. Deploy it (Compare Org, then Deploy from Diff), have that user given access to it, or leave it out of the clone.",
+        "unreadableSource": "{{object}} could not be compared: the source org did not describe it ({{error}}). Compare again once it answers.",
+        "unreadableTarget": "{{object}} could not be compared: the target org did not describe it ({{error}}). Compare again once it answers.",
+        "leaveField": "Leave {{field}} out",
+        "keepField": "Write {{field}} again",
+        "fieldLeftOut": "Left out of the rows",
+        "leaveObject": "Leave {{object}} out of the clone",
+        "objectLeftOut": "Left out of the clone",
+        "compareAgain": "Compare again",
+        "admin": {
+          "grantFieldEdit": "Give the user SandForge writes as Edit on {{field}} of {{object}} (Setup > their profile or a permission set > Object Settings > {{object}} > Field Permissions)."
+        }
+      },
       "objectNoUserCreates": "{{object}} is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it, and no grant would open it.",
       "objectFeatureOff": "{{object}} is in the target org, but even a user with Modify All Data may not create its records there: a feature or licence the target has not turned on keeps it closed. Execute skips it, after the objects written before it. Turn it on, or leave it out in Gaps.",
       "objectThroughParent": "{{object}} is in the target org, but the user the clone writes as may not create its records there, and no permission set gives Create on it: Edit on the records it hangs from may open it, or no user can. Execute skips it, after the objects written before it. Gaps says what to give that user; or leave it out there.",
@@ -4741,6 +4803,9 @@
       "leftOutTitle_one": "Left out: {{formatted}} object of the source org",
       "leftOutTitle_other": "Left out: {{formatted}} objects of the source org",
       "leftOutHint": "The objects of the source org this clone of the whole org does not take, by why: Salesforce does not let an API create them, the target cannot take them, or the source holds none.",
+      "leftOutAdmin": {
+        "copy": "Copy the changes for the admins"
+      },
       "wholeOrg": {
         "personalAsIs_one": "{{formatted}} personal field, on {{objects}} objects, goes into {{target}} as the source holds it, not anonymized. Turn it into fiction on the Anonymization row.",
         "personalAsIs_other": "{{formatted}} personal fields, on {{objects}} objects, go into {{target}} as the source holds them, not anonymized. Turn them into fiction on the Anonymization row.",
@@ -4812,7 +4877,11 @@
           "legend": "Objects to copy whole",
           "hint": "An object copied whole brings every record of it, and none of it is drawn."
         },
-        "offerAction": "Copy a sample that fits"
+        "offerAction": "Copy a sample that fits",
+        "floor": {
+          "label": "Records drawn of each object, whatever the share",
+          "hint": "Each object keeps at least this many of its records, whatever the share the room left gives it. At 0, an object may have none drawn: a sample then fits where these records alone took more than it may take."
+        }
       }
     },
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
@@ -5076,10 +5145,11 @@
         "hint": "The records a source user owns go to the target's user picked by name; the run keeps both ids.",
         "reading": "Reading the target org's active users…",
         "error": "The target org's users could not be read: {{error}}",
-        "truncated": "The target org holds more active users: the first {{listed}} by name are listed.",
+        "truncated": "The target org holds more active users: the first {{listed}} by name are listed. Give another by its id, starting 005, in Target user's id.",
         "item": "{{source}} given to {{target}}",
         "source": "Source user's id",
         "target": "Target user",
+        "targetId": "Target user's id",
         "add": "Give the records to this user"
       },
       "refused": {

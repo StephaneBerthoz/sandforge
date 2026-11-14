@@ -83,6 +83,66 @@ describe('ForgeNodeDetail', () => {
     expect(screen.getByTestId('node-record-count').textContent).toContain('42');
   });
 
+  it('says a table whose count got no answer in time is not counted, kept in the run', () => {
+    // Its placeholder zero read "0 records", an empty table.
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ recordCount: 0, recordCountUnknown: true })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('node-record-count').textContent).toBe('records not counted');
+    expect(screen.getByTestId('node-not-counted').textContent).toBe(
+      i18n.t('forgeRun.nodeCountTimedOutIn'),
+    );
+    expect(screen.queryByTestId('node-include-anyway')).toBeNull();
+  });
+
+  it('offers to include anyway a table the org refused to count, which discovery left out', () => {
+    // It showed "Record count unavailable: …" and nothing to do about it.
+    const onToggleIncluded = vi.fn();
+    render(
+      <ForgeNodeDetail
+        node={makeNode({
+          objectApiName: 'Vote',
+          recordCount: 0,
+          status: 'error',
+          included: false,
+          errors: ['Record count unavailable: MALFORMED_QUERY: Implementation restriction'],
+        })}
+        onToggleIncluded={onToggleIncluded}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('node-not-counted').textContent).toBe(
+      i18n.t('forgeRun.nodeCountRefusedOut'),
+    );
+    fireEvent.click(screen.getByTestId('node-include-anyway'));
+    expect(onToggleIncluded).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers nothing to include of an object the org would not describe', () => {
+    render(
+      <ForgeNodeDetail
+        node={makeNode({
+          recordCount: 0,
+          fieldCount: 0,
+          status: 'error',
+          included: false,
+          errors: ['Describe unavailable: INVALID_TYPE'],
+        })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('node-include-anyway')).toBeNull();
+    expect(screen.queryByTestId('node-not-counted')).toBeNull();
+  });
+
   it('should display field count with Fields label, not Object', () => {
     render(
       <ForgeNodeDetail

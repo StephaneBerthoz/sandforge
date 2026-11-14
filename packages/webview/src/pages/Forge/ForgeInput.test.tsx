@@ -392,8 +392,48 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-record-limit-smart-hint').textContent).toBe(
       i18n.t('forge.recordLimitSmartSoql', { limit: 100 }),
     );
-    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '500' } });
+    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '50' } });
     expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
+  });
+
+  it('greys the records per object past the cap of a run from a query, and says the cap and what reads more', () => {
+    // 500, 1000 and All were brought back to 200 unsaid, and the cap was said
+    // only under a WHERE clause.
+    render(<ForgeInput />);
+    const option = (value: string): HTMLOptionElement =>
+      screen
+        .getByTestId('forge-record-limit')
+        .querySelector(`option[value="${value}"]`) as HTMLOptionElement;
+
+    expect(option('500').disabled).toBe(false);
+    expect(screen.queryByTestId('forge-record-limit-soql')).toBeNull();
+
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+
+    expect(option('500').disabled).toBe(true);
+    expect(option('1000').disabled).toBe(true);
+    expect(option('all').disabled).toBe(true);
+    expect(option('100').disabled).toBe(false);
+    const said = screen.getByTestId('forge-record-limit-soql').textContent ?? '';
+    expect(said).toBe(i18n.t('forge.recordLimitSoqlCap', { cap: SOQL_UNSCOPED_RECORD_CAP }));
+    expect(said).toContain(`${SOQL_UNSCOPED_RECORD_CAP} records of each object`);
+    expect(said).toContain('sandforge clone --object');
+    expect(screen.getByTestId('forge-record-limit').getAttribute('aria-describedby')).toContain(
+      'forge-record-limit-soql',
+    );
+  });
+
+  it('says a limit picked for a record held to the cap once the run is from a query', () => {
+    render(<ForgeInput />);
+    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '1000' } });
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+
+    expect(screen.getByTestId('forge-record-limit-soql').textContent).toBe(
+      i18n.t('forge.recordLimitSoqlHeld', {
+        cap: SOQL_UNSCOPED_RECORD_CAP,
+        chosen: i18n.t('forge.recordLimitOpt1000'),
+      }),
+    );
   });
 
   it('says in plain words how wide discovery may go and what Smart reads, its number written the English way', () => {
@@ -804,6 +844,52 @@ describe('ForgeInput', () => {
       'Names, addresses and other personal fields go as they are; Anonymize PII masks them.',
     );
   });
+
+  it.each([
+    [
+      'RECORD_NOT_FOUND',
+      'Record 003XXXXXXXXXXXXXXX is not in DEV-SOURCE, or the user connected there cannot see it',
+    ],
+    ['UNKNOWN_KEY_PREFIX', 'No object of DEV-SOURCE has ids starting "003"'],
+  ])(
+    'says a record the source does not hold (%s) in the page’s words, names the org, and holds Discover back with why',
+    (code, words) => {
+      // "Record not found: 003…" named no org, in English whatever the
+      // page's language, and Discover went on all the same.
+      render(<ForgeInput />);
+      selectOrg('forge-target-org', 'org-tgt');
+      fireEvent.change(screen.getByTestId('forge-input-record'), {
+        target: { value: '003XXXXXXXXXXXXXXX' },
+      });
+      fireEvent.click(screen.getByTestId('forge-preview-btn'));
+      const request = mockPostMessage.mock.calls
+        .map((call) => call[0] as { payload: BaseMessage })
+        .filter((envelope) => envelope.payload.type === 'forge:preview')
+        .pop();
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'preview-refused',
+              type: 'forge:preview:error',
+              timestamp: Date.now(),
+              correlationId: request?.payload.id,
+              payload: { code, orgName: 'DEV-SOURCE', message: 'English words of the host' },
+            },
+          }),
+        );
+      });
+
+      expect(screen.getByTestId('forge-preview-error').textContent).toContain(words);
+      expect(screen.getByTestId('forge-preview-error').textContent).not.toContain(
+        'English words of the host',
+      );
+      expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+        i18n.t('forge.hintRecordNotInSource'),
+      );
+    },
+  );
 
   it('should pass plain 18-char ID as-is when discovering', () => {
     render(<ForgeInput />);

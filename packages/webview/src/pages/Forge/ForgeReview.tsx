@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
   ForgeAutomationResponse,
+  ForgeConfig,
   ForgeGraph,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
@@ -148,6 +149,20 @@ function requestTargetAutomation(targetOrgId: string, graph: ForgeGraph, wholeOr
  */
 const METADATA_DIFF_MAX_OBJECTS = 100;
 
+/** Ask the extension to diff the source's and the target's schemas of the graph's objects. */
+function requestMetadataDiff(config: ForgeConfig, graph: ForgeGraph): void {
+  sendBridgeMessage<{ sourceOrgId: string; targetOrgId: string; objectApiNames: string[] }>(
+    'forge:metadata-diff:request',
+    {
+      sourceOrgId: config.sourceOrgId,
+      targetOrgId: config.targetOrgId,
+      objectApiNames: graph.nodes
+        .slice(0, METADATA_DIFF_MAX_OBJECTS)
+        .map((node) => node.objectApiName),
+    },
+  );
+}
+
 /**
  * Main review phase component for the Forge wizard.
  *
@@ -232,16 +247,7 @@ export const ForgeReview: React.FC = () => {
     if (!graph || !config || metadataRequested.current) return;
     metadataRequested.current = true;
     setMetadataPending(true);
-    sendBridgeMessage<{ sourceOrgId: string; targetOrgId: string; objectApiNames: string[] }>(
-      'forge:metadata-diff:request',
-      {
-        sourceOrgId: config.sourceOrgId,
-        targetOrgId: config.targetOrgId,
-        objectApiNames: graph.nodes
-          .slice(0, METADATA_DIFF_MAX_OBJECTS)
-          .map((node) => node.objectApiName),
-      },
-    );
+    requestMetadataDiff(config, graph);
     // What the target runs on the records the run writes, read with the diff
     // and once as well: a clone fired the target's flows on every record it
     // created, emails among them, and nothing said so before the run.
@@ -251,6 +257,17 @@ export const ForgeReview: React.FC = () => {
     // its API budget. The extension reads an object the user left out too.
     requestGaps(config, graph);
   }, [graph, config, requestGaps]);
+
+  /**
+   * Compare the two orgs' schemas again: an object an org would not describe
+   * was said with "run discovery again", which compares nothing.
+   */
+  const compareMetadataAgain = useCallback(() => {
+    if (!graph || !config) return;
+    setMetadataError(null);
+    setMetadataPending(true);
+    requestMetadataDiff(config, graph);
+  }, [graph, config]);
 
   /**
    * Read the target's automation again: the extension reads the org for each
@@ -509,7 +526,7 @@ export const ForgeReview: React.FC = () => {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         {/* Why the last run stopped before it wrote anything, when it did:
             refused, or cancelled at one of its questions, it came back here. */}
-        <ForgeRunGateNotice />
+        <ForgeRunGateNotice muteOffered={muteOffered(muteOffer) && !muteAutomation} />
         {/* One line where it fits: held to 21em, the sentence of a run
             between two short aliases took two lines of a 1280 pixel panel. */}
         {graph && buckets && (
@@ -609,6 +626,7 @@ export const ForgeReview: React.FC = () => {
                   cycleCount={plan?.cycleResolutions.length ?? 0}
                   truncated={graph.truncated === true}
                   oneRecord={oneRecord}
+                  maxNodes={config?.maxNodes}
                 />
               ) : (
                 t('forgeRun.review.planLoading')
@@ -690,7 +708,11 @@ export const ForgeReview: React.FC = () => {
             open={openRows.has('metadata')}
             onToggle={() => toggleRow('metadata')}
           >
-            <ReviewMetadataTab pending={metadataPending} error={metadataError} />
+            <ReviewMetadataTab
+              pending={metadataPending}
+              error={metadataError}
+              onCompareAgain={compareMetadataAgain}
+            />
           </ReviewRow>
           <ReviewRow
             id="automation"

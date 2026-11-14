@@ -198,6 +198,12 @@ export interface ForgeFormState {
   setRecordLimit: (v: string) => void;
   recordLimitValue: number | undefined;
   /**
+   * Whether the run reads its root from a SOQL query — typed, drafted, or
+   * saved in a template — and so takes {@link SOQL_UNSCOPED_RECORD_CAP}
+   * records of each object at most, whatever Records per object says.
+   */
+  runsSoql: boolean;
+  /**
    * Under ALL, the run copies a sample of the whole org that fits the target
    * rather than every record: never unless asked. Its options are set on
    * Review, where the target's room and the cost of the draw are read.
@@ -210,6 +216,11 @@ export interface ForgeFormState {
   preview: RecordPreviewState['preview'];
   previewLoading: boolean;
   previewError: string | null;
+  /**
+   * The source org picked holds no record of the id the Record tab gives, as
+   * its preview said: Discover is held back, with the reason.
+   */
+  recordNotInSource: boolean;
   handlePreview: () => void;
   resetPreview: () => void;
   closePreview: () => void;
@@ -489,8 +500,15 @@ export function useForgeForm(): ForgeFormState {
   }, [adoptWholeOrgAgain]);
 
   /* ---- Record preview (composed hook) ---- */
-  const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =
-    useRecordPreview(recordId, sourceOrgId);
+  const {
+    preview,
+    previewLoading,
+    previewError,
+    previewNotInSource,
+    handlePreview,
+    resetPreview,
+    closePreview,
+  } = useRecordPreview(recordId, sourceOrgId);
 
   /* ---- AI tab (composed hook): a checked draft is checked against the source org ---- */
   const ai = useForgeAIPlan(sourceOrgId);
@@ -703,8 +721,12 @@ export function useForgeForm(): ForgeFormState {
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
   // A query refused on a tab ALL greys out is not sent, and holds nothing back.
+  // A clone from a record the source does not hold reads nothing of its
+  // root: its preview said so, and Discover went on all the same.
+  const recordNotInSource = !wholeOrg && inputMode === 'record' && previewNotInSource;
   const canDiscover =
     hasInput() &&
+    !recordNotInSource &&
     sourceOrgId.length > 0 &&
     targetOrgId.length > 0 &&
     !sameOrgSelected &&
@@ -1146,11 +1168,13 @@ export function useForgeForm(): ForgeFormState {
     recordLimit,
     setRecordLimit,
     recordLimitValue,
+    runsSoql: runsSoql && !wholeOrg,
     sampled: wholeOrg && sample !== undefined,
     setSampled,
     preview,
     previewLoading,
     previewError,
+    recordNotInSource,
     handlePreview,
     resetPreview,
     closePreview,

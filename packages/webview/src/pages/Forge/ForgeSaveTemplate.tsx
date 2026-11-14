@@ -4,7 +4,7 @@ import { Save } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { templateFromRun } from './forgeRunConfig';
+import { clonesWholeOrg, templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 
 /** Props of {@link ForgeSaveTemplate}. */
@@ -41,6 +41,13 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
 }) => {
   const { t } = useTranslation();
   const config = useForgeStore((s) => s.config);
+  /*
+   * A template keeps a walk from a record or a query: one of a clone of the
+   * whole org was refused by the extension as an invalid payload after the
+   * form was filled. Greyed, with what keeps its settings instead.
+   */
+  const wholeOrg = clonesWholeOrg(config);
+  const wholeOrgHintId = `${idPrefix}-whole-org`;
   const graph = useForgeStore((s) => s.graph);
   const plan = useForgeStore((s) => s.plan);
   const anonymizationRules = useForgeStore((s) => s.anonymizationRules);
@@ -114,16 +121,26 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
           variant="secondary"
           size={size}
           icon={<Save size={size === 'sm' ? 12 : 14} />}
-          disabled={!config}
-          aria-expanded={open}
+          disabled={!config || wholeOrg}
+          aria-expanded={open && !wholeOrg}
           aria-controls={formId}
+          aria-describedby={wholeOrg ? wholeOrgHintId : undefined}
           onClick={() => setOpen((was) => !was)}
           data-testid={openerTestId}
         >
           {t('forgeRun.saveTemplate')}
         </Button>
       </div>
-      {open && (
+      {wholeOrg && (
+        <p
+          id={wholeOrgHintId}
+          data-testid={`${idPrefix}-whole-org`}
+          className="text-xs text-text-secondary"
+        >
+          {t('forgeRun.savedTemplate.wholeOrg')}
+        </p>
+      )}
+      {open && !wholeOrg && (
         <form
           id={formId}
           data-testid={formId}

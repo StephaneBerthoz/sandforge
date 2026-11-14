@@ -1712,8 +1712,9 @@ describe('ForgeResults', () => {
       useForgeRunGateStore.getState().setStop({ code: 'AUTOMATION_DECLINED' });
       render(<ForgeResults />);
 
+      // On the results, which offer no mute: said with what runs it without them.
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
-        'You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written.',
+        "You cancelled the run at the confirmation of what the target org runs as the records are inserted. Nothing was read or written. To run it without them, have the target's admin turn those flows and triggers off, or give the user the run writes as a bypass they test.",
       );
       expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
 
