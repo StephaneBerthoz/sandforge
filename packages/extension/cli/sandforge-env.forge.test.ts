@@ -999,3 +999,79 @@ describe('the codes of a refused plan', () => {
     expect(marked('Account')).toEqual([]);
   });
 });
+
+describe('a forge resource of records, the records a query chooses', () => {
+  /** A file cloning the accounts a query chooses, at most `limit`, and what each reaches. */
+  const recordsFile = (where: string, limit = 10): Record<string, unknown> =>
+    file({
+      resources: {
+        chosen: {
+          kind: 'forge',
+          source: 'uat',
+          records: { object: 'Account', where, limit },
+          depth: 'direct',
+        },
+      },
+    });
+  const plansDir = (): string => join(journalDir, 'forge-roots');
+
+  it('clones the records its query chooses with what each reaches, its run writing those its dry run chose', async () => {
+    writeFileSync(fileOf, JSON.stringify(recordsFile(`Name = '${MARK}'`)));
+
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--json', '--accept-no-state']);
+
+    expect(applied.code, applied.said).toBe(0);
+    expect(marked('Account')).toHaveLength(2);
+    expect(marked('Contact')).toHaveLength(2);
+    expect(world.records('Account').some((row) => row['Name'] === 'Not marked')).toBe(false);
+    const dry = world.calls.find((call) => call.args.includes('--dry-run'))?.args ?? [];
+    const ran = world.calls.find((call) => call.args.includes('--summary'))?.args ?? [];
+    for (const line of [dry, ran]) {
+      expect(line[line.indexOf('--query') + 1]).toBe(
+        `SELECT Id FROM Account WHERE (Name = '${MARK}') ORDER BY Id LIMIT 10`,
+      );
+      expect(line[line.indexOf('--max-roots') + 1]).toBe('10');
+    }
+    // The plan its dry run kept, which its run took: the same file, gone once the run is over.
+    const kept = dry[dry.indexOf('--roots-plan') + 1];
+    expect(kept).toBe(join(plansDir(), `env-${ORG_ID.slice(0, 15)}-clone-flow-chosen.json`));
+    expect(ran[ran.indexOf('--roots-plan') + 1]).toBe(kept);
+    expect(existsSync(kept ?? '')).toBe(false);
+
+    // Taken back with destroy, from the summary its run wrote.
+    const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
+    expect(destroyed.code, destroyed.said).toBe(0);
+    expect(marked('Account')).toEqual([]);
+    expect(marked('Contact')).toEqual([]);
+    expect(
+      world.calls.some(
+        (call) => call.args.includes('--remove') && !call.args.includes('--preview'),
+      ),
+    ).toBe(true);
+  });
+
+  it('blocks it at the plan when its query chooses no record, saying how to count them', async () => {
+    writeFileSync(fileOf, JSON.stringify(recordsFile("Name = 'Nobody'")));
+
+    const planned = await plan();
+
+    expect(planned.plan.actions[0]).toMatchObject({ action: 'blocked' });
+    expect(planned.plan.actions[0]?.refusal).toBe(
+      "its records query chooses no Account in the uat org (SRC) (WHERE Name = 'Nobody'): " +
+        'there is nothing to clone. Count what it chooses there with sf data query -o SRC -q ' +
+        `"SELECT COUNT() FROM Account WHERE Name = 'Nobody'", and check its where`,
+    );
+    expect(world.calls.filter((call) => call.args.includes('--dry-run'))).toEqual([]);
+  });
+
+  it('plans it again when the records its query chooses are others', async () => {
+    writeFileSync(fileOf, JSON.stringify(recordsFile(`Name = '${MARK}'`)));
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--accept-no-state']);
+    expect(applied.code, applied.said).toBe(0);
+    expect((await plan()).plan.actions.map((action) => action.action)).toEqual(['keep']);
+
+    seedTheSource(1);
+
+    expect((await plan()).plan.actions.map((action) => action.action)).toEqual(['replace']);
+  });
+});

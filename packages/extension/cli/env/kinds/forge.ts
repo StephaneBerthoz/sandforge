@@ -7,8 +7,15 @@
  * template entry of the project's own templates file when it names one, the
  * file's depth, caps, anonymization and contact points over it — and checked
  * by `forgeTemplateSchema`, as `sandforge-clone --template` reads it. What it
- * clones is given on the line beside it: `--record`, or each table's
- * `--object` and `--where`.
+ * clones is given on the line beside it: `--record`, the query of its
+ * `records` (`--query`, at most its `limit`), or each table's `--object` and
+ * `--where`.
+ *
+ * The records a query chooses (`records`) are read at each plan, as a record
+ * named by a query is, and their SHA-256 goes into the fingerprint: other
+ * records are another clone. A query that chooses none blocks the resource.
+ * Its dry run keeps the records it chose in a plan of roots (`--roots-plan`),
+ * and its run writes those and no record the query chooses after.
  *
  * A record named by a query is read on its source at each plan, and the
  * query must answer exactly one row: a source scratch org made again gives
@@ -55,11 +62,14 @@ import {
   forgeTemplateSchema,
   type EnvDocumentPath,
   type EnvForgeFit,
+  type EnvForgeRecords,
   type EnvForgeResource,
   type EnvForgeRun,
   type EnvForgeTable,
   type ForgeTemplateInput,
 } from '@sandforge/shared';
+import { rootsSha256, rootsStatement } from '../../../src/modules/forge/stages/QueryRoots.js';
+import { rootsDirOf } from '../../../src/modules/forge/roots/rootPlanStore.js';
 import {
   isProductionTarget,
   typeTarget,
@@ -94,7 +104,16 @@ const TEMPLATES_FILE_MAX_BYTES = 1_000_000;
 // ─── The resource, converted ─────────────────────────────────────────────────
 
 /** The input a template's config holds, which the line gives instead. */
-const INPUT_KEYS = ['inputMode', 'recordId', 'soqlQuery', 'templateId', 'aiPrompt', 'dryRun'];
+const INPUT_KEYS = [
+  'inputMode',
+  'recordId',
+  'soqlQuery',
+  'queryScope',
+  'maxRoots',
+  'templateId',
+  'aiPrompt',
+  'dryRun',
+];
 
 /** The query a clone of whole tables is discovered from: the first table, under its condition. */
 export function tablesQueryOf(tables: readonly EnvForgeTable[]): string {
@@ -289,6 +308,7 @@ export function forgeRunOfResource(
       source: resource.source,
       template: checked.data,
       ...(resource.record !== undefined ? { record: { ...resource.record } } : {}),
+      ...(resource.records !== undefined ? { records: { ...resource.records } } : {}),
       ...(resource.tables !== undefined
         ? { tables: resource.tables.map((table) => ({ ...table })) }
         : {}),
@@ -303,6 +323,7 @@ export function forgeRunOfResource(
 /** The objects a forge resource names, counted by its dry run alone: what `validate` lists. */
 export function forgeObjectsOf(run: EnvForgeRun): Array<{ object: string }> {
   if (run.tables !== undefined) return run.tables.map((table) => ({ object: table.object }));
+  if (run.records !== undefined) return [{ object: run.records.object }];
   return run.record?.object !== undefined ? [{ object: run.record.object }] : [];
 }
 
@@ -315,7 +336,52 @@ export function forgeObjectsOf(run: EnvForgeRun): Array<{ object: string }> {
  * cloned, which blocks the resource.
  */
 export type EnvSourceRead =
-  { organizationId: string; recordId?: string; production?: true } | { refusal: string };
+  | {
+      organizationId: string;
+      recordId?: string;
+      /** The records the query of `records` chooses: how many, and their SHA-256. */
+      roots?: { count: number; sha256: string };
+      production?: true;
+    }
+  | { refusal: string };
+
+/**
+ * The query the records of a forge resource are chosen by, as `--query`
+ * takes it and the run reads them: their object, its condition, its order —
+ * `Id` unless the file says otherwise — and its limit.
+ */
+export function forgeRecordsQueryOf(records: EnvForgeRecords): string {
+  return rootsStatement(
+    records.object,
+    {
+      ...(records.where !== undefined ? { where: records.where } : {}),
+      ...(records.orderBy !== undefined ? { orderBy: records.orderBy } : {}),
+      limit: records.limit,
+    },
+    undefined,
+    records.limit,
+  );
+}
+
+/**
+ * Where the plan of the records a forge resource's dry run chose is kept, for
+ * its run to write those (`--roots-plan`): the folder the clone keeps the
+ * plans of roots in under the journal directory, one file per org,
+ * environment and resource. They are a production's ids: the apply removes
+ * the file once its run is over, and the plan sweeps those a day old.
+ */
+export function forgeRootsPlanFileOf(
+  journalDir: string,
+  organizationId: string,
+  env: string,
+  resource: string,
+): string {
+  const part = (text: string): string => text.replace(/[^A-Za-z0-9_-]/g, '-');
+  return join(
+    rootsDirOf(journalDir),
+    `env-${part(organizationId.slice(0, 15))}-${part(env)}-${part(resource)}.json`,
+  );
+}
 
 /**
  * Whether what a forge resource clones is anonymized: its template
@@ -425,6 +491,28 @@ export async function readForgeSource(
     if (refused !== undefined) return { refusal: refused };
   }
   const read = { organizationId, ...(production ? { production: true as const } : {}) };
+  // The records a query chooses, read as the run reads them: the same
+  // statement, the same order, the same limit. None is a clone of nothing.
+  if (run.records !== undefined) {
+    const { records } = run;
+    try {
+      const rows = (await conn.query<{ Id?: string }>(forgeRecordsQueryOf(records))).records;
+      const ids = rows.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
+      if (ids.length === 0) {
+        const where = records.where !== undefined ? ` WHERE ${records.where}` : '';
+        return {
+          refusal:
+            `its records query chooses no ${records.object} in ${what}` +
+            `${where !== '' ? ` (${where.trim()})` : ''}: there is nothing to clone. Count what ` +
+            `it chooses there with sf data query -o ${alias} -q "SELECT COUNT() FROM ` +
+            `${records.object}${where}", and check its where`,
+        };
+      }
+      return { ...read, roots: { count: ids.length, sha256: rootsSha256(ids) } };
+    } catch (err: unknown) {
+      return { refusal: `its records query could not be read in ${what}: ${messageOf(err)}` };
+    }
+  }
   const record = run.record;
   if (record?.object === undefined || record.where === undefined) return read;
   const where = `${record.object} WHERE ${record.where}`;
@@ -477,6 +565,11 @@ export function forgeWritten(
     // Only of a clone of the whole org: a resource of a record or of tables
     // keeps the fingerprint it was applied from.
     ...(run.wholeOrg ? { wholeOrg: run.wholeOrg } : {}),
+    // Only of a clone from records: its query, and the SHA-256 of the records
+    // it chose at this plan. Other records are another clone.
+    ...(run.records
+      ? { records: { ...run.records, roots: source?.roots?.sha256 ?? { unread: true } } }
+      : {}),
   };
 }
 
@@ -493,8 +586,11 @@ export interface ForgeRunLine {
    * a clone of the whole org, its choices as `--config` reads them.
    */
   templateFile: string;
-  /** The record it clones; the tables when absent. */
+  /** The record it clones; the records a query chooses, or the tables, when absent. */
   recordId?: string;
+  records?: EnvForgeRecords;
+  /** Of `records`, the plan of the roots its dry run keeps and its run takes (`--roots-plan`). */
+  rootsPlanFile?: string;
   tables?: readonly EnvForgeTable[];
   /** A clone of the whole org, in place of a record or tables: see `EnvForgeRun.wholeOrg`. */
   wholeOrg?: EnvForgeRun['wholeOrg'];
@@ -507,8 +603,14 @@ export interface ForgeRunLine {
 /** What a run and its dry run are given alike: the same records, planned then written. */
 function forgeRunSwitches(input: ForgeRunLine): string[] {
   if (input.wholeOrg) return wholeOrgSwitches(input, input.wholeOrg);
-  if (input.recordId === undefined && (input.tables ?? []).length === 0) {
-    throw new Error('A forge resource clones a record or tables: its line names neither.');
+  if (
+    input.recordId === undefined &&
+    input.records === undefined &&
+    (input.tables ?? []).length === 0
+  ) {
+    throw new Error(
+      'A forge resource clones a record, the records a query chooses or tables: its line names none.',
+    );
   }
   return [
     '--source',
@@ -517,11 +619,21 @@ function forgeRunSwitches(input: ForgeRunLine): string[] {
     valueOf('--target', input.target),
     ...(input.recordId !== undefined
       ? ['--record', valueOf('--record', input.recordId)]
-      : (input.tables ?? []).flatMap((table) => [
-          '--object',
-          valueOf('--object', table.object),
-          ...(table.where !== undefined ? ['--where', valueOf('--where', table.where)] : []),
-        ])),
+      : input.records !== undefined
+        ? [
+            '--query',
+            valueOf('--query', forgeRecordsQueryOf(input.records)),
+            '--max-roots',
+            String(input.records.limit),
+            ...(input.rootsPlanFile !== undefined
+              ? ['--roots-plan', valueOf('--roots-plan', input.rootsPlanFile)]
+              : []),
+          ]
+        : (input.tables ?? []).flatMap((table) => [
+            '--object',
+            valueOf('--object', table.object),
+            ...(table.where !== undefined ? ['--where', valueOf('--where', table.where)] : []),
+          ])),
     '--template',
     valueOf('--template', input.templateFile),
     '--max-total',

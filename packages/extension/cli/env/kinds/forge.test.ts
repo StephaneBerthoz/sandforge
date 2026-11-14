@@ -38,6 +38,7 @@ import {
   parseVerifyArgs,
 } from '../../sandforge-clone.js';
 import { EnvWorld } from '../../testing/envWorld.js';
+import { rootsSha256 } from '../../../src/modules/forge/stages/QueryRoots.js';
 import { StepAnswerError } from './common.js';
 import {
   FORGE_SCRIPT,
@@ -45,7 +46,10 @@ import {
   forgeApplyLine,
   forgeDryRunCount,
   forgeDryRunLine,
+  forgeObjectsOf,
   forgePreviewLine,
+  forgeRecordsQueryOf,
+  forgeRootsPlanFileOf,
   forgeRemoveLine,
   forgeRunCount,
   forgeRunOfResource,
@@ -585,9 +589,9 @@ describe('the lines of a forge resource', () => {
     ).toEqual({ summaryPath: summary, target: 'TGT', source: 'SRC', json: true, audit: undefined });
   });
 
-  it('refuses a line that names neither a record nor a table, and a value that reads as a flag', () => {
+  it('refuses a line that names no record, no records and no table, and a value that reads as a flag', () => {
     expect(() => forgeDryRunLine({ ...input, tables: [] })).toThrow(
-      'A forge resource clones a record or tables: its line names neither.',
+      'A forge resource clones a record, the records a query chooses or tables: its line names none.',
     );
     expect(() => forgeDryRunLine({ ...input, source: '-SRC' })).toThrow(
       '--source cannot be "-SRC"',
@@ -1077,5 +1081,116 @@ describe('a forge resource of depth: all, the whole org', () => {
       ],
       created: 60_002,
     });
+  });
+});
+
+describe('a forge resource of records, the records a query chooses', () => {
+  const energy: EnvForgeResource = {
+    kind: 'forge',
+    source: 'uat',
+    records: { object: 'Account', where: "Industry = 'Energy'", limit: 50 },
+  };
+  const ONE = '001000000000001AAA';
+  const TWO = '001000000000002AAA';
+
+  /** A source answering its Organization record, and `ids` to the query of the records. */
+  function sourceOf(ids: string[]) {
+    const queries: string[] = [];
+    const conn = {
+      query: vi.fn(async (soql: string) => {
+        queries.push(soql);
+        if (soql.includes('FROM Organization')) {
+          return {
+            totalSize: 1,
+            done: true,
+            records: [{ Id: '00D000000000008AAA', IsSandbox: true }],
+          };
+        }
+        return { totalSize: ids.length, done: true, records: ids.map((Id) => ({ Id })) };
+      }),
+    } as unknown as Pick<Connection, 'query'>;
+    return { conn, queries };
+  }
+
+  it('converts into a template with no input of its own, the records on the line, their object listed', () => {
+    const run = converted(energy);
+
+    expect(run.records).toEqual(energy.records);
+    expect(run.template.config).not.toHaveProperty('soqlQuery');
+    expect(run.template.config).not.toHaveProperty('queryScope');
+    expect(run.template.config).not.toHaveProperty('maxRoots');
+    expect(forgeObjectsOf(run)).toEqual([{ object: 'Account' }]);
+    expect(forgeRecordsQueryOf({ ...energy.records!, orderBy: 'CreatedDate DESC' })).toBe(
+      "SELECT Id FROM Account WHERE (Industry = 'Energy') ORDER BY CreatedDate DESC LIMIT 50",
+    );
+  });
+
+  it('reads the records its query chooses at the plan, as the run reads them, and refuses none with the way to count them', async () => {
+    const { conn, queries } = sourceOf([TWO, ONE]);
+
+    expect(await readForgeSource(conn, converted(energy), 'uat', 'SRC')).toEqual({
+      organizationId: '00D000000000008AAA',
+      roots: { count: 2, sha256: rootsSha256([ONE, TWO]) },
+    });
+    expect(queries).toContain(
+      "SELECT Id FROM Account WHERE (Industry = 'Energy') ORDER BY Id LIMIT 50",
+    );
+    expect(await readForgeSource(sourceOf([]).conn, converted(energy), 'uat', 'SRC')).toEqual({
+      refusal:
+        "its records query chooses no Account in the uat org (SRC) (WHERE Industry = 'Energy'): " +
+        'there is nothing to clone. Count what it chooses there with sf data query -o SRC -q ' +
+        `"SELECT COUNT() FROM Account WHERE Industry = 'Energy'", and check its where`,
+    });
+  });
+
+  it('fingerprints its query and the records it chose, and a resource of a record as before', () => {
+    const read = (ids: string[]) => ({
+      organizationId: '00D000000000008AAA',
+      roots: { count: ids.length, sha256: rootsSha256(ids) },
+    });
+    const run = converted(energy);
+
+    expect(forgeWritten(run, read([ONE, TWO]))).toMatchObject({
+      records: { ...energy.records, roots: rootsSha256([ONE, TWO]) },
+    });
+    expect(forgeWritten(run, read([ONE, TWO]))).toEqual(forgeWritten(run, read([TWO, ONE])));
+    expect(forgeWritten(run, read([ONE]))).not.toEqual(forgeWritten(run, read([ONE, TWO])));
+    expect(Object.keys(forgeWritten(converted(tables), read([ONE])))).not.toContain('records');
+  });
+
+  it('gives the clone lines it reads: its query, the most it takes, and the plan its dry run keeps for its run', () => {
+    const template = join(dir, 'template.json');
+    writeFileSync(template, JSON.stringify(converted(energy).template));
+    const plan = forgeRootsPlanFileOf(join(dir, 'journal'), '00D000000000008AAA', 'demo', 'cloned');
+    const input = {
+      source: 'SRC',
+      target: 'TGT',
+      templateFile: template,
+      records: energy.records!,
+      rootsPlanFile: plan,
+      maxTotal: 40,
+      acceptAutomation: false,
+    };
+
+    const dry = parseCloneArgs(['node', 'sandforge-clone.ts', ...forgeDryRunLine(input)]);
+    expect(dry).toMatchObject({
+      dryRun: true,
+      record: undefined,
+      roots: {
+        query: {
+          objectApiName: 'Account',
+          roots: { where: "(Industry = 'Energy')", orderBy: 'Id', limit: 50 },
+        },
+        cap: 50,
+        plan,
+      },
+    });
+    const run = parseCloneArgs([
+      'node',
+      'sandforge-clone.ts',
+      ...forgeApplyLine({ ...input, summary: join(dir, '1.summary.json') }),
+    ]);
+    expect(run).toMatchObject({ dryRun: false, maxTotal: 40, roots: { cap: 50, plan } });
+    expect(plan).toBe(join(dir, 'journal', 'forge-roots', 'env-00D000000000008-demo-cloned.json'));
   });
 });

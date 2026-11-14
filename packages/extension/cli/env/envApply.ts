@@ -63,7 +63,7 @@
  * to it would take back what this apply wrote and leave the state naming it.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   EnvActionKind,
@@ -122,6 +122,7 @@ import {
 } from './envState.js';
 import { StepAnswerError, reasonLineOf, type EnvRunCount } from './kinds/common.js';
 import {
+  forgeRootsPlanFileOf,
   forgeRunCount,
   forgeVerifyLine,
   readForgeRun,
@@ -791,6 +792,12 @@ async function runResourceStep(
   );
   // Held to its dry run's count: a scope that widened since is refused, not written.
   const maxTotal = dryRunTotalOf(dry);
+  // Of the records a query chooses, those its dry run chose and kept: the run
+  // writes those, and none the query chooses after.
+  const rootsPlanFile =
+    resource.kind === 'forge' && resource.run.records !== undefined
+      ? forgeRootsPlanFileOf(deps.journalDir, where.organizationId, env, resource.name)
+      : undefined;
   const line = withEmailsAccepted(
     applyLineOf(resource, {
       target: target.alias,
@@ -798,10 +805,14 @@ async function runResourceStep(
       runId: '',
       summaryFile,
       ...(maxTotal !== undefined ? { maxTotal } : {}),
+      ...(rootsPlanFile !== undefined ? { rootsPlanFile } : {}),
     }),
     input.acceptEmails,
   );
   const ran = await deps.runner(line.script, line.args, signal);
+  // A production's ids, which no run takes up after this one: a run taken
+  // back and made again is planned again.
+  if (rootsPlanFile !== undefined) rmSync(rootsPlanFile, { force: true });
   // The summary as the clone wrote it, read back: it says what the run
   // created however it ended, where stdout says nothing of a run killed.
   const kept = existsSync(summaryFile) ? readFileSync(summaryFile, 'utf8') : undefined;

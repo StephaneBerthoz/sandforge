@@ -424,6 +424,8 @@ export interface EnvForgeRun {
   wholeOrg?: { anonymize: boolean; keepContactPoints: boolean; fit?: EnvForgeFit };
   /** One record, by its id or by the query read at each plan; or the tables. */
   record?: EnvForgeRecord;
+  /** The records a query chooses, each with what the clone of that record copies: `--query`. */
+  records?: EnvForgeRecords;
   tables?: EnvForgeTable[];
   /** The most records a run may write, the file's; the plan's count holds it lower. */
   maxTotal?: number;

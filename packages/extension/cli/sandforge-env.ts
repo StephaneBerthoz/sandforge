@@ -120,7 +120,8 @@ import {
 import { createdByResource, drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
 import { refusalOfDryRun } from './runRefused.js';
-import { readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
+import { forgeRootsPlanFileOf, readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
+import { sweepRootPlans } from '../src/modules/forge/roots/rootPlanStore.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
 import { maskStoreOf } from './env/kinds/mask.js';
 import {
@@ -1272,6 +1273,9 @@ async function dryRun(
   );
   if (runs.size === 0) return dryRuns;
   const env = resolved.checked.file.name;
+  // The plans of roots a dry run kept a day ago or more, which no run takes
+  // up any longer: a production's ids, gone first.
+  await sweepRootPlans(prepared.journalDir, new Date()).catch(() => 0);
   const folder = mkdtempSync(join(tmpdir(), 'sandforge-env-plan-'));
   try {
     for (const resource of resolved.resources) {
@@ -1288,6 +1292,12 @@ async function dryRun(
       const drawn = draws[resource.name];
       if (drawn !== undefined && drawn.refusals.length > 0) continue;
       const templateFile = join(folder, `${resource.name}.json`);
+      // The records a query chooses, kept by the dry run for the run that
+      // follows it to write those, and none the query chooses after.
+      const rootsPlanFile =
+        resource.kind === 'forge' && resource.run.records !== undefined
+          ? forgeRootsPlanFileOf(prepared.journalDir, target.organizationId, env, resource.name)
+          : undefined;
       let storeFile: string | undefined;
       let sasDir: string | undefined;
       let goneFirstFile: string | undefined;
@@ -1329,6 +1339,7 @@ async function dryRun(
           ...(seed !== undefined ? { seed } : {}),
           ...(storeFile !== undefined ? { storeFile } : {}),
           ...(goneFirstFile !== undefined ? { goneFirstFile } : {}),
+          ...(rootsPlanFile !== undefined ? { rootsPlanFile } : {}),
           // A store of the plan's own: a dry run saves the rules as a template,
           // and the resource's store keeps what its runs did alone.
           ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),

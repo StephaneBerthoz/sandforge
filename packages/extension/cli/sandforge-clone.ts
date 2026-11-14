@@ -119,6 +119,8 @@ import type {
   ForgeTemplateInput,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  ForgeReadRecords,
+  ForgeRootsQuery,
   RecordTypeGiven,
   WholeOrgSample,
   WholeOrgSampleDropReason,
@@ -129,6 +131,8 @@ import type {
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  FORGE_ROOTS_DEFAULT,
+  FORGE_ROOTS_MAX,
   FORGE_SAMPLE_DEFAULTS,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   FORGE_READ_CEILING_PER_OBJECT,
@@ -154,6 +158,9 @@ import {
   leftOutAsEmptyTable,
   mergeGaps,
   removalRisksOf,
+  soqlRootIssueWords,
+  soqlRootQuery,
+  soqlRootQueryIssue,
 } from '@sandforge/shared';
 import {
   DEFAULT_MAX_NODES,
@@ -434,6 +441,19 @@ import {
 import type { ForgeRunPartEnd, ForgeRunResumeHead } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
 import {
+  forgeRunStopWords,
+  forgeRunWriting,
+  forgeRunWritingWords,
+  lockForgeRun,
+} from '../src/modules/forge/ForgeRunLock.js';
+import type { LinkedLock } from '../src/modules/checkpoint/linkedLock.js';
+import type { ForgeRootsOptions } from '../src/modules/forge/stages/QueryRoots.js';
+import {
+  RootPlanError,
+  openRootPlan,
+  type RootPlan,
+} from '../src/modules/forge/roots/rootPlanStore.js';
+import {
   inFlightLines,
   inFlightTargetOf,
   uncertainRows,
@@ -467,6 +487,7 @@ import type {
 } from '@sandforge/shared';
 import {
   OTHER_ORG,
+  RUN_WRITING,
   refusalOfSummary,
   refusedLine,
   refusedRemovalSummary,
@@ -498,8 +519,19 @@ import { holdOutputWhole } from './wholeOutput.js';
 import { commandOf } from './invocation.js';
 
 export interface CliArgs {
-  /** The record a clone of one record starts from; undefined for a clone of whole tables. */
+  /**
+   * The record a clone of one record starts from, the first of those named
+   * of a clone of several (`roots.ids`); undefined for a clone of whole
+   * tables, of the records a query chooses, or of the whole org.
+   */
   record: string | undefined;
+  /**
+   * Of a clone from records, the records it takes as its roots, each cloned
+   * with what the clone of that record copies: those a query chooses
+   * (`--query`), or several named one by one (`--record` given more than
+   * once). undefined for any other clone.
+   */
+  roots?: CliRoots;
   /**
    * The tables a clone of whole tables reads (`--object`, each with its
    * `--where`), the first the one discovery starts from; undefined for a
@@ -674,6 +706,27 @@ export interface CliSample {
   maxTotalGiven: boolean;
 }
 
+/** A clone from records as the line asks it: see {@link rootsArgsOf}. */
+export interface CliRoots {
+  /**
+   * The query that chooses the records (`--query`): as typed, its object,
+   * and its WHERE, ORDER BY and LIMIT as the run reads them. Absent of
+   * records named one by one.
+   */
+  query?: { soql: string; objectApiName: string; roots: ForgeRootsQuery };
+  /** The records named one by one, each once, of one object. Absent of a query. */
+  ids?: string[];
+  /** The most records the run takes as its roots: `--max-roots`, or {@link FORGE_ROOTS_DEFAULT}. */
+  cap: number;
+  /**
+   * The plan of the roots (`--roots-plan`), resolved: where a dry run keeps
+   * the records it chose, and where a run takes them from.
+   */
+  plan?: string;
+  /** The most records the run reads in all before it writes (`--max-read-total`). */
+  readTotal?: number;
+}
+
 /** The flags that read a run's choices from a file. */
 type ChoicesFlag = '--config' | '--template';
 
@@ -683,6 +736,10 @@ to a target sandbox, or remove what a run of it created.
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --record <id> --source <alias> --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --query "<SOQL>" | --record <id> --record <id>... \\
+    --source <alias> --target <alias> [--max-roots <n>] [--roots-plan <file>]
+    [--max-read-total <n>] [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --object <ApiName> [--where <condition>] [--object <ApiName> [--where <condition>]]... \\
     --source <alias> --target <alias> [options]
@@ -752,10 +809,68 @@ Usage:
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically);
-                         may come from --template instead; --object (below)
-                         clones whole tables instead
+                         may come from --template instead; --query (below)
+                         clones the records a query chooses, --object whole
+                         tables
   --source <alias>       sf CLI alias of the source org
   --target <alias>       sf CLI alias of the target sandbox
+
+Clone records and what each reaches, in place of one --record:
+  --query "<SOQL>"       the records a query chooses, each cloned with what the
+                         clone of that record copies: a record they share is
+                         read and written once, and a record of the query's
+                         object they name comes as a parent, as a clone of one
+                         record brings it. The query is SELECT Id FROM <Object>
+                         [WHERE …] [ORDER BY …] [LIMIT n]; its WHERE chooses
+                         the records and filters no other read. They are read
+                         by their ids first, ORDER BY Id unless the query
+                         orders them: a LIMIT without an order would choose
+                         other records each time. A GROUP BY, HAVING, OFFSET,
+                         FOR, WITH, USING SCOPE, UPDATE or an aggregate would
+                         have the clone read other records than the query
+                         returns, and is refused (ROOTS_QUERY_REFUSED), exit 2.
+                         Not with --record, --object, --where, --depth all, or
+                         --fit and the flags a sample is drawn by.
+  --record <id> --record <id>...
+                         records named one by one, of one object, each cloned
+                         with what the clone of that record copies
+  --max-roots <n>        the most records a run takes this way, 1 to 2000
+                                                          (default: 200)
+                         A query that chooses more, without a LIMIT, is refused
+                         before anything else is read (ROOTS_EXCEEDED), exit 1:
+                         add ORDER BY CreatedDate DESC LIMIT <n> to take the
+                         newest, narrow its WHERE, or raise --max-roots; past
+                         2000, copy a sample of the whole org (--depth all
+                         --fit share) with a filter on its roots. A query that
+                         chooses none is refused too (NO_ROOTS), exit 1.
+  --roots-plan <file>    a dry run keeps there the records its query chose, in
+                         place of what a dry run before it kept; a run given it
+                         writes those records and no other: one the query
+                         chooses after the dry run is not written, and one
+                         deleted since is said gone. A plan of another org,
+                         another query or records, or whose ids changed, is
+                         refused (ROOTS_PLAN_MISMATCH), and one that is not
+                         there (ROOTS_PLAN_GONE), exit 2; a plan a day old or
+                         more has the query read again, and the run says so.
+                         Not with --resume: a run taken up writes the records
+                         its journal names.
+  --max-read-total <n>   the most records the run reads in all before it
+                         writes                                (default: 50000)
+                         It holds every record it reads until it writes. Past
+                         it, refused with nothing written
+                         (READ_BOUND_EXCEEDED), exit 1: fewer records, a
+                         shallower --depth, --exclude-object, or a higher bound.
+                         The read of what the records reach is held besides to
+                         a tenth of the requests the source has left today
+                         (API_BUDGET_EXCEEDED), exit 1.
+                         The run says where its records came from, what its
+                         read came to in records and requests of the source,
+                         per object how its rows came in — the records, those
+                         read under them, those they name —, and the records
+                         written of those chosen; with --json, under roots,
+                         reads and each object of readByObject (origin,
+                         readUnder). --verify says how many of them the target
+                         holds.
 
 Clone whole tables, in place of --record:
   --object <ApiName>     a table to clone; repeat for more. The first is where
@@ -769,12 +884,11 @@ Clone whole tables, in place of --record:
   --where <condition>    the rows of the --object before it: a SOQL condition,
                          written without WHERE         (default: every row)
                          It narrows that table alone: every other --object is
-                         read whole, whatever rows the first keeps. To hold a
-                         table to the rows of another, give it a --where of
-                         its own that names them, e.g. --object Account
-                         --where "Industry = 'Energy'" --object Contact
-                         --where "AccountId IN (SELECT Id FROM Account WHERE
-                         Industry = 'Energy')".
+                         read whole, whatever rows the first keeps. For records
+                         with what each of them reaches — the accounts of an
+                         industry with their contacts, opportunities and cases
+                         — give --query "SELECT Id FROM Account WHERE Industry
+                         = 'Energy'" instead.
                          The run is the panel's run of a query: each table read
                          with the org's cursor in the order of its ids and
                          written a page at a time, so the run holds a page of
@@ -1144,7 +1258,10 @@ Remove what a run created:
                          first, never a record the target already held, and a
                          record kept while records that stay depend on it. The
                          target must be the org the run wrote to. A dry run's
-                         summary is refused: it created nothing.
+                         summary is refused: it created nothing. So is a run
+                         that still writes its journal, from a terminal or
+                         from VS Code, and the preview of its removal
+                         (RUN_WRITING), the run named: stop it, or let it end.
                          What a removal wrote to the records it left is kept
                          beside the summary, clone-summary.removals.json for
                          clone-summary.json, and the next --remove of that
@@ -1332,13 +1449,20 @@ Exit codes:
      (CONFIRMATION_UNAVAILABLE) or that was declined (WRITE_DECLINED), or
      whose dry run says a real run would be refused; a sample of it that
      could not be drawn (SAMPLE_STORAGE_UNREAD, SAMPLE_CANNOT_FIT,
-     SAMPLE_TOO_LARGE)
+     SAMPLE_TOO_LARGE); a query that chooses no record (NO_ROOTS) or more
+     than --max-roots (ROOTS_EXCEEDED), records that reach more than
+     --max-read-total (READ_BOUND_EXCEEDED); a removal of a run that still
+     writes its journal, or its preview, and a --resume of it (RUN_WRITING)
   2  a bad command line, an --exclude that names no field of the source
      (FIELD_EXCLUSION_UNMATCHED), an --object no clone writes
      (TABLE_NEVER_CLONED), or a summary --remove cannot take a run back from, or
      a file beside it that is not what a removal kept there; the plan of a
      sample --fit-plan gives or --resume takes up gone, or drawn of another
-     org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH)
+     org or setup (SAMPLE_PLAN_GONE, SAMPLE_PLAN_MISMATCH); a query that
+     cannot choose the records it clones (ROOTS_QUERY_REFUSED); the plan of
+     roots --roots-plan gives gone, or of another org, query or records
+     (ROOTS_PLAN_GONE, ROOTS_PLAN_MISMATCH), and a run taken up whose journal
+     names none of the roots it read (ROOTS_PLAN_GONE)
   3  the run was partial and --fail-on-partial was given, or was a clone of
      the whole org; the removal left
      records of the run in the org: kept, or refused, or found neither in the
@@ -1772,23 +1896,39 @@ export function tablesExecuteOptions(
 
 /**
  * The input of a run, as a Forge config holds it: the record a clone of one
- * record starts from, or the query a clone of whole tables is discovered
- * from. Exported so it can be tested.
+ * record starts from — the first named, of a clone of several —, the query
+ * a clone of whole tables is discovered from, or the query whose records a
+ * clone takes as its roots (`queryScope: 'records'`, at most `maxRoots`).
+ * Exported so it can be tested.
  */
 export function cloneInputOf(
-  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth'>>,
-): Pick<ForgeConfig, 'inputMode' | 'recordId' | 'soqlQuery'> {
+  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth' | 'roots'>>,
+): Pick<ForgeConfig, 'inputMode' | 'recordId' | 'soqlQuery' | 'queryScope' | 'maxRoots'> {
   if (args.depth === 'all') return { inputMode: 'org' };
+  if (args.roots?.query) {
+    return {
+      inputMode: 'soql',
+      soqlQuery: args.roots.query.soql,
+      queryScope: 'records',
+      maxRoots: args.roots.cap,
+    };
+  }
   return args.tables
     ? { inputMode: 'soql', soqlQuery: tablesQueryOf(args.tables) }
     : { inputMode: 'record', recordId: args.record };
 }
 
-/** The run's first line names what it clones: its record, each table under its condition, or the whole org. */
+/**
+ * The run's first line names what it clones: its record, the records it
+ * names or the query that chooses them, each table under its condition, or
+ * the whole org.
+ */
 export function cloneInputLine(
-  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth'>>,
+  args: Pick<CliArgs, 'record' | 'tables'> & Partial<Pick<CliArgs, 'depth' | 'roots'>>,
 ): string {
   if (args.depth === 'all') return 'the whole org';
+  if (args.roots?.query) return `query=${args.roots.query.soql}`;
+  if (args.roots?.ids) return `records=${args.roots.ids.join(', ')}`;
   if (!args.tables) return `record=${args.record ?? ''}`;
   return `tables=${args.tables
     .map((table) => (table.where ? `${table.objectApiName} (${table.where})` : table.objectApiName))
@@ -1798,16 +1938,43 @@ export function cloneInputLine(
 /** The most objects a run's line names by name: a clone of the whole org copies hundreds. */
 const SUBJECT_OBJECTS_NAMED = 12;
 
+/** What a run's summary says it cloned, as {@link cloneSubjectOf} takes it. */
+function subjectOfSummary(summary: RunSummary): Parameters<typeof cloneSubjectOf>[0] {
+  const { roots, result, ...rest } = summary;
+  return {
+    ...(rest.record !== undefined ? { record: rest.record } : {}),
+    ...(rest.objects ? { objects: rest.objects } : {}),
+    ...(rest.wholeOrg ? { wholeOrg: true as const } : {}),
+    ...(roots
+      ? {
+          roots: {
+            ...roots,
+            ...(result.roots !== undefined ? { count: result.roots.read } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 /**
- * What a run's lines and summary call what it cloned: its record, or the
- * tables it read — the first of them by name, and how many more, past
+ * What a run's lines and summary call what it cloned: the records it took as
+ * its roots — "37 Account records (query)" —, its record, or the tables it
+ * read — the first of them by name, and how many more, past
  * {@link SUBJECT_OBJECTS_NAMED} — or the whole org.
  */
 export function cloneSubjectOf(run: {
   record?: string;
   objects?: ReadonlyArray<{ objectApiName: string }>;
   wholeOrg?: true;
+  roots?: { objectApiName: string; from: 'query' | 'records'; count?: number };
 }): string {
+  if (run.roots) {
+    const { objectApiName, from, count } = run.roots;
+    const how = from === 'query' ? 'query' : 'named';
+    return count !== undefined
+      ? `${count} ${objectApiName} record${count === 1 ? '' : 's'} (${how})`
+      : `the ${objectApiName} records ${from === 'query' ? 'a query chose' : 'named'}`;
+  }
   if (run.record) return run.record;
   const objects = (run.objects ?? []).map((object) => object.objectApiName);
   const named =
@@ -2033,6 +2200,11 @@ const CLONE_FLAGS: CommandFlags = {
     // A sample of the whole org's own, refused with any other depth below.
     '--fit',
     ...SAMPLE_FLAGS,
+    // A clone from records' own, refused on any other line below.
+    '--query',
+    '--max-roots',
+    '--roots-plan',
+    '--max-read-total',
     ...CHECKPOINT_FIRST_FLAGS.values,
   ],
 };
@@ -2273,6 +2445,184 @@ export function sampleArgsOf(
   return { options, maxTotalGiven: run.maxTotalGiven };
 }
 
+/** The flags of a clone from records, besides `--record` given more than once. */
+const ROOTS_FLAGS = ['--query', '--max-roots', '--roots-plan', '--max-read-total'] as const;
+
+/**
+ * What `--query` does not go with: what reads a record, whole tables, or the
+ * whole org and the sample of it — `--fit` and every flag a sample is drawn
+ * by (`SAMPLE_FLAGS`), those to come with it.
+ */
+const NOT_WITH_A_QUERY: readonly string[] = [
+  '--record',
+  '--object',
+  '--where',
+  '--fit',
+  ...SAMPLE_FLAGS,
+];
+
+/**
+ * The records a clone from records takes as its roots, as the line asks
+ * them, or nothing for any other clone: the records a query chooses
+ * (`--query`), or several named one by one (`--record` given more than
+ * once); the most it takes (`--max-roots`); the plan of them a dry run keeps
+ * and a run takes (`--roots-plan`); and the most records it reads in all
+ * before it writes (`--max-read-total`).
+ *
+ * Exits 2, nothing reached, on a line that does not read, each in its words:
+ * `--query` with a flag of another clone, or a query that cannot choose the
+ * records it clones (`ROOTS_QUERY_REFUSED`); a LIMIT past the most the run
+ * takes; records named of two objects, or more of them than it takes;
+ * `--roots-plan` with `--resume`, which takes its roots from its journal, or
+ * with a line that reads no record; a flag of a clone from records on any
+ * other line. Exported so it can be tested.
+ */
+export function rootsArgsOf(args: readonly string[]): CliRoots | undefined {
+  const has = (flag: string): boolean => args.includes(flag);
+  const valuesOf = (flag: string): Array<string | undefined> =>
+    args.flatMap((arg, i) => (arg === flag ? [args[i + 1]] : []));
+  const refuse = (line: string): never => {
+    process.stderr.write(`${line}\n`);
+    return process.exit(2);
+  };
+  const queries = valuesOf('--query');
+  const records = valuesOf('--record');
+  if (queries.length === 0 && records.length < 2) {
+    const given = ROOTS_FLAGS.filter((flag) => has(flag));
+    if (given.length > 0) {
+      refuse(
+        `${given.join(', ')} ${given.length === 1 ? 'goes' : 'go'} with --query, or with ` +
+          '--record given more than once: a clone of one record, of tables or of the whole ' +
+          'org takes no roots of its own.',
+      );
+    }
+    return undefined;
+  }
+  const whole = (flag: string, raw: string | undefined, most: number): number => {
+    const n = Number(raw);
+    if (raw === undefined || raw.startsWith('--') || !Number.isInteger(n) || n < 1 || n > most) {
+      return refuse(`${flag} takes a whole number, 1 to ${most.toLocaleString('en-US')}.`);
+    }
+    return n;
+  };
+  const once = (flag: string): string | undefined => {
+    const given = valuesOf(flag);
+    if (given.length > 1) refuse(`${flag} is given ${given.length} times: give it once.`);
+    return given[0];
+  };
+  const capRaw = once('--max-roots');
+  const cap =
+    capRaw === undefined && !has('--max-roots')
+      ? FORGE_ROOTS_DEFAULT
+      : whole('--max-roots', capRaw, FORGE_ROOTS_MAX);
+  const totalRaw = once('--max-read-total');
+  const readTotal =
+    totalRaw === undefined && !has('--max-read-total')
+      ? undefined
+      : whole('--max-read-total', totalRaw, Number.MAX_SAFE_INTEGER);
+  const planRaw = once('--roots-plan');
+  if (has('--roots-plan')) {
+    if (planRaw === undefined || planRaw.startsWith('--')) {
+      refuse('--roots-plan takes the file a dry run keeps the records it chooses in.');
+    }
+    const without: Array<[string, string]> = [
+      ['--resume', 'a run taken up writes the roots its journal names'],
+      ['--list-objects', 'it reads no record'],
+      ['--rehearse', 'a rehearsal keeps nothing of what it reads'],
+    ];
+    const refused = without.filter(([flag]) => has(flag));
+    if (refused.length > 0) {
+      refuse(
+        `--roots-plan does not go with ${refused.map(([flag, why]) => `${flag}: ${why}`).join('; ')}.`,
+      );
+    }
+  }
+  const plan = planRaw !== undefined ? resolvePath(planRaw) : undefined;
+  const bounds = {
+    cap,
+    ...(plan !== undefined ? { plan } : {}),
+    ...(readTotal ? { readTotal } : {}),
+  };
+
+  if (queries.length > 0) {
+    const others = [
+      ...NOT_WITH_A_QUERY.filter((flag) => has(flag)),
+      ...(valuesOf('--depth').includes('all') ? ['--depth all'] : []),
+    ];
+    if (others.length > 0) {
+      refuse(
+        `--query clones the records a query chooses, each with what the clone of that record ` +
+          `copies: it does not go with ${others.join(', ')} (--record names records one by one, ` +
+          '--object reads whole tables, --depth all copies the whole org or a sample of it).',
+      );
+    }
+    const soql = once('--query');
+    if (soql === undefined || soql.trim() === '' || soql.startsWith('--')) {
+      return refuse('--query takes a SOQL query, as SELECT Id FROM Account WHERE …');
+    }
+    const issue = soqlRootQueryIssue(soql);
+    const read = soqlRootQuery(soql);
+    if (issue !== undefined || !read) {
+      return refuse(
+        refusedLine({
+          code: 'ROOTS_QUERY_REFUSED',
+          message: `${soqlRootIssueWords(issue ?? { kind: 'noObject' })}. Nothing was read or written.`,
+        }),
+      );
+    }
+    if (read.limit !== null && read.limit > cap) {
+      refuse(
+        `--query: its LIMIT ${read.limit} is past the ${cap} records a run clones: give ` +
+          `--max-roots ${read.limit} (up to ${FORGE_ROOTS_MAX.toLocaleString('en-US')}), or a ` +
+          'lower LIMIT.',
+      );
+    }
+    return {
+      query: {
+        soql: soql.trim(),
+        objectApiName: read.objectApiName,
+        roots: {
+          ...(read.where !== null ? { where: read.where } : {}),
+          ...(read.orderBy !== null ? { orderBy: read.orderBy } : {}),
+          ...(read.limit !== null ? { limit: read.limit } : {}),
+        },
+      },
+      ...bounds,
+    };
+  }
+
+  // Several records named one by one: one object's, each once, no more than
+  // the run takes. The line says it all, and is refused before any org is
+  // reached.
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const id of records) {
+    if (id === undefined || !SF_ID_RE.test(id)) {
+      refuse(`--record takes the 15- or 18-character id of a record: "${id ?? ''}" is none.`);
+    }
+    const key = (id ?? '').slice(0, 15);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ids.push(id ?? '');
+  }
+  const prefixes = [...new Set(ids.map((id) => id.slice(0, 3)))];
+  if (prefixes.length > 1) {
+    refuse(
+      `--record names records of ${prefixes.length} objects (${prefixes.map((p) => `${p}…`).join(', ')}): ` +
+        'a clone from records takes the records of one object; clone each object’s apart, or ' +
+        'choose them with --query.',
+    );
+  }
+  if (ids.length > cap) {
+    refuse(
+      `--record names ${ids.length} records, past the ${cap} a run clones: give --max-roots ` +
+        `${Math.min(ids.length, FORGE_ROOTS_MAX)} (up to ${FORGE_ROOTS_MAX.toLocaleString('en-US')}), ` +
+        'or name fewer.',
+    );
+  }
+  return { ids, ...bounds };
+}
+
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
   const args = argv.slice(2);
@@ -2324,6 +2674,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     choices = read.file;
   }
   const template = choices?.kind === 'template' ? choices.template : undefined;
+  // The records a query chooses, or several named one by one: what goes with
+  // neither is refused before anything else is read.
+  const roots = rootsArgsOf(args);
   // The whole org instead of a record or tables: what goes with a walk from
   // a root is refused before anything else is read, each flag in its words.
   const wholeOrg = get('--depth') === 'all';
@@ -2378,17 +2731,18 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   }
   const templateRecord =
     template?.config.inputMode === 'record' ? template.config.recordId : undefined;
-  if (template && !tables && !has('--record') && !templateRecord) {
+  if (template && !tables && !roots?.query && !has('--record') && !templateRecord) {
     process.stderr.write(
       `${templateWithoutInputWords(template.config.inputMode, queryRoot, queryWhere)}\n`,
     );
     process.exit(2);
   }
-  const record = tables || wholeOrg ? undefined : (get('--record') ?? templateRecord);
+  const record =
+    tables || wholeOrg || roots?.query ? undefined : (get('--record') ?? templateRecord);
   const source = get('--source');
   const target = get('--target');
   const missing = [
-    ...(!record && !tables && !wholeOrg ? ['what to clone'] : []),
+    ...(!record && !tables && !wholeOrg && !roots ? ['what to clone'] : []),
     ...(!source ? ['--source'] : []),
     ...(!target ? ['--target'] : []),
   ];
@@ -2637,11 +2991,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     ? forgeConfigSchemaStrict
     : forgeConfigSchemaStrict.safeExtend({ depth: forgeDepthSchema });
   const checked = schema.safeParse({
-    ...(wholeOrg
-      ? { inputMode: 'org' }
-      : tables
-        ? { inputMode: 'soql', soqlQuery: tablesQueryOf(tables) }
-        : { inputMode: 'record', recordId: record }),
+    ...cloneInputOf({ record, tables, depth: wholeOrg ? 'all' : undefined, roots }),
     depth: depthRaw,
     customDepth: depthRaw === 'custom' ? customDepth : undefined,
     sourceOrgId: source,
@@ -2673,6 +3023,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
 
   return {
     record,
+    ...(roots ? { roots } : {}),
     tables,
     source,
     target,
@@ -2926,6 +3277,17 @@ export function cliRunSetup(
     // Only a clone of whole tables names them: a clone of one record keeps
     // the fingerprint its journals were begun with.
     ...(args.tables ? { tables: args.tables } : {}),
+    // Of a clone from records, what chooses its roots and the most it takes:
+    // the query's object, WHERE, ORDER BY and LIMIT, or the records named.
+    // The roots themselves are held by the plan a run is given — its SHA-256
+    // checked as the run takes it — and by the journal a run takes up: a
+    // fingerprint that named them would refuse every run taken up of one
+    // that read its query.
+    ...(args.roots?.query
+      ? { query: { objectApiName: args.roots.query.objectApiName, ...args.roots.query.roots } }
+      : {}),
+    ...(args.roots?.ids ? { records: [...args.roots.ids].sort() } : {}),
+    ...(args.roots ? { maxRoots: args.roots.cap } : {}),
     depth: args.depth,
     customDepth: args.depth === 'custom' ? args.customDepth : null,
     maxNodes: args.maxNodes ?? null,
@@ -4047,6 +4409,153 @@ export function summaryLines(
   return lines;
 }
 
+/**
+ * What a clone from records was asked, as its summary says it: the object
+ * of its roots, whether a query chose them — and which — or the line named
+ * them, the most it takes, and the plan it was given or kept. Exported so it
+ * can be tested.
+ */
+export function rootsAskedJson(
+  roots: CliRoots,
+  graph: Pick<ForgeGraph, 'nodes'>,
+): {
+  objectApiName: string;
+  from: 'query' | 'records';
+  query?: string;
+  ids?: string[];
+  cap: number;
+  plan?: string;
+  readTotal?: number;
+} {
+  const root = graph.nodes.find((node) => node.level === 0) ?? graph.nodes[0];
+  return {
+    objectApiName: root?.objectApiName ?? roots.query?.objectApiName ?? '',
+    from: roots.query ? 'query' : 'records',
+    ...(roots.query ? { query: roots.query.soql } : { ids: [...(roots.ids ?? [])] }),
+    cap: roots.cap,
+    ...(roots.plan !== undefined ? { plan: roots.plan } : {}),
+    ...(roots.readTotal !== undefined ? { readTotal: roots.readTotal } : {}),
+  };
+}
+
+/** The roots a line names by id, past which it says how many more. */
+const ROOTS_NAMED = 10;
+
+/** Up to {@link ROOTS_NAMED} ids, and how many more. */
+function someIds(ids: readonly string[]): string {
+  const more = ids.length - ROOTS_NAMED;
+  return `${ids.slice(0, ROOTS_NAMED).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
+/** `n thing`, or `n things`. */
+function counted(n: number, thing: string): string {
+  return `${n.toLocaleString('en-US')} ${thing}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * What a clone from records says of its roots once it ran, or ran dry:
+ * where they came from — the query, with its order and limit, the records
+ * named, or the plan of a dry run, with its SHA-256 and when it was read —,
+ * the most it takes, those gone from the source since they were chosen, a
+ * plan too old that the query was read again in place of; what its read
+ * came to, in records, objects and requests of the source; per object, its
+ * rows by how they came in, and the objects they were read under; and its
+ * roots written, linked and refused. Nothing for any other run. Exported so
+ * it can be tested.
+ *
+ * @param plan - The plan file the run was given, or the dry run kept.
+ */
+export function rootsLines(
+  summary: Pick<ExecutionSummary, 'roots' | 'reads' | 'readByObject'>,
+  at: { source: string; target: string; dryRun: boolean; plan?: string; resumed?: boolean },
+): string[] {
+  const roots = summary.roots;
+  if (!roots) return [];
+  const object = roots.objectApiName;
+  const order = roots.query
+    ? `ORDER BY ${roots.query.orderBy ?? 'Id'}${roots.query.limit !== undefined ? `, LIMIT ${roots.query.limit}` : ''}; `
+    : '';
+  const taken = at.resumed
+    ? 'the journal of the run taken up'
+    : `the dry run's plan${at.plan !== undefined ? ` ${at.plan}` : ''}`;
+  const lines = [
+    roots.from === 'plan'
+      ? `roots: ${counted(roots.read, `${object} record`)} taken from ${taken} ` +
+        `(sha256 ${roots.sha256.slice(0, 12)}…, read ${roots.readAt}; at most ${roots.cap})`
+      : roots.from === 'query'
+        ? `roots: ${counted(roots.read, `${object} record`)} the query returns (${order}at most ${roots.cap})`
+        : `roots: ${counted(roots.read, `${object} record`)} named (at most ${roots.cap})`,
+  ];
+  if (roots.from !== 'plan' && at.dryRun && at.plan !== undefined) {
+    lines.push(
+      `roots: kept in ${at.plan} (sha256 ${roots.sha256.slice(0, 12)}…): the run given ` +
+        '--roots-plan with it writes these records, and none the query chooses after',
+    );
+  }
+  if (roots.readAgain) {
+    lines.push(
+      `roots: the dry run's plan of ${roots.readAgain.readAt} (${counted(roots.readAgain.roots, 'record')}) ` +
+        'was a day old or more: the query was read again in its place',
+    );
+  }
+  if (roots.gone.length > 0) {
+    lines.push(
+      `roots gone from ${at.source} since they were chosen: ${roots.gone.length} ` +
+        `(${someIds(roots.gone)}), none written`,
+    );
+  }
+  const read = summary.readByObject.filter((entry) => entry.read > 0);
+  const total = read.reduce((sum, entry) => sum + entry.read, 0);
+  lines.push(
+    `read: ${counted(total, 'record')} of ${counted(read.length, 'object')}` +
+      (summary.reads ? `, ${counted(summary.reads.source, 'request')} of ${at.source}` : ''),
+  );
+  for (const entry of read) lines.push(...originLine(entry));
+  const linked =
+    roots.linked > 0 ? `, ${roots.linked} linked to records ${at.target} already held` : '';
+  const withTheirAccount =
+    (roots.withTheirAccount ?? 0) > 0
+      ? `, ${roots.withTheirAccount} of them with their person account`
+      : '';
+  lines.push(
+    `${at.dryRun ? 'roots that would be written' : 'roots written'}: ${roots.written} of ` +
+      `${roots.read}${withTheirAccount}${linked}`,
+  );
+  if (roots.failed.length > 0) {
+    lines.push(`roots refused: ${roots.failed.length}`);
+    for (const { id, reason } of roots.failed.slice(0, ROOTS_NAMED)) {
+      lines.push(`  ${id}: ${reason}`);
+    }
+    if (roots.failed.length > ROOTS_NAMED) {
+      lines.push(`  and ${roots.failed.length - ROOTS_NAMED} more`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * The line of one object of a clone from records: its rows by how they came
+ * in — the roots, those read under a record of the clone, those named by
+ * one — and the objects they were read under. Nothing for an object without
+ * an origin.
+ */
+function originLine(entry: ForgeReadRecords): string[] {
+  const origin = entry.origin;
+  if (!origin) return [];
+  const parts = [
+    ...(origin.roots > 0 ? [counted(origin.roots, 'root')] : []),
+    ...(origin.under > 0 ? [`${origin.under} under the clone's records`] : []),
+    ...(origin.named > 0 ? [`${origin.named} named by the clone's records`] : []),
+  ];
+  const under =
+    entry.readUnder && entry.readUnder.length > 0
+      ? ` (read under ${entry.readUnder.join(', ')})`
+      : '';
+  const sum =
+    parts.length > 1 ? `${entry.read} = ${parts.join(' + ')}` : (parts[0] ?? `${entry.read}`);
+  return [`  ${entry.objectApiName}: ${sum}${under}`];
+}
+
 /** What a gap's detail says on its line: a length, digits, the value written instead, where to map. */
 function gapDetail(gap: ForgeGap): string {
   const detail = gap.detail ?? {};
@@ -4454,6 +4963,13 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
       : {}),
     // Of a sample of the whole org, per object what the run wrote of its plan.
     ...(summary.sample ? { sample: sampleResultJson(summary.sample) } : {}),
+    // Of a clone from records, what it did of its roots — where they came
+    // from, read, gone, written, linked, refused, their SHA-256 —, and the
+    // requests reading what they reach sent the source; per object, in
+    // readByObject, how its rows came in (`origin`) and what they were read
+    // under (`readUnder`).
+    ...(summary.roots ? { roots: summary.roots } : {}),
+    ...(summary.reads ? { reads: summary.reads } : {}),
   };
 }
 
@@ -5487,15 +6003,27 @@ export function samplingProgressPrinter(
   };
 }
 
+/** The refusals before the first write that a line given otherwise answers: exit 2. */
+const REFUSED_FOR_THE_LINE: ReadonlySet<string> = new Set([
+  SAMPLE_PLAN_GONE,
+  SAMPLE_PLAN_MISMATCH,
+  'ROOTS_QUERY_REFUSED',
+  'ROOTS_PLAN_MISMATCH',
+  'ROOTS_PLAN_GONE',
+]);
+
 /**
- * The exit code of a sample refused before its first write: 2 for a plan
- * the line gave or its journal names that cannot be written — gone, or
- * another than this run's (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`), a
- * line to give otherwise; 1 for one the orgs refuse — a storage unread, a
- * sample that cannot fit, too large to draw. Exported so it can be tested.
+ * The exit code of a run refused before its first write: 2 for a plan the
+ * line gave or its journal names that cannot be written — gone, or another
+ * than this run's (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`,
+ * `ROOTS_PLAN_GONE`, `ROOTS_PLAN_MISMATCH`) — and for a query that cannot
+ * choose the records a clone takes (`ROOTS_QUERY_REFUSED`), a line to give
+ * otherwise; 1 for one the orgs refuse — a storage unread, a sample that
+ * cannot fit, too large to draw, a query that chooses no record or more than
+ * the run takes. Exported so it can be tested.
  */
 export function sampleRefusalExit(code: string): number {
-  return code === SAMPLE_PLAN_GONE || code === SAMPLE_PLAN_MISMATCH ? 2 : 1;
+  return REFUSED_FOR_THE_LINE.has(code) ? 2 : 1;
 }
 
 /**
@@ -5614,10 +6142,14 @@ export function executeOptions(
   graph: ForgeGraph,
   recordTypeMappings: RecordTypeMapping[],
   personalFieldsOf?: (fields: PIIFieldInfo[]) => string[],
+  handed: RootsHanded = {},
 ): ExecuteOptions {
+  const roots = rootsOptionsOf(args, graph, handed);
   return {
-    rootRecordId: args.record,
-    rootObjectApiName: graph.nodes[0]?.objectApiName ?? '',
+    // A clone from records reads its roots, one record's clone each; a clone
+    // of one record starts from its record, by its id, as it always did.
+    ...(roots ? { roots } : { rootRecordId: args.record }),
+    rootObjectApiName: roots?.objectApiName ?? graph.nodes[0]?.objectApiName ?? '',
     dryRun: args.dryRun,
     recordTypeMappings,
     maxRecordsPerObject: args.maxRecordsPerObject,
@@ -5662,6 +6194,45 @@ export function executeOptions(
       ceiling: args.readCeiling,
       ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
     },
+  };
+}
+
+/**
+ * What a clone from records hands its executor beside its line: the plan of
+ * roots a run takes (`--roots-plan`, opened), where a dry run keeps the
+ * roots it reads, and what the source has left of its requests today.
+ */
+export interface RootsHanded {
+  plan?: RootPlan;
+  keepAt?: string;
+  sourceRequestsLeft?: number;
+}
+
+/**
+ * The roots a clone from records reads (`ExecuteOptions.roots`), or nothing
+ * for any other clone: the object at the root of the graph, the query's
+ * WHERE, ORDER BY and LIMIT or the records named, the most it takes, the
+ * most it reads in all, and what the run hands beside them. Exported so it
+ * can be tested.
+ */
+export function rootsOptionsOf(
+  args: Pick<CliArgs, 'roots'>,
+  graph: Pick<ForgeGraph, 'nodes'>,
+  handed: RootsHanded = {},
+): ForgeRootsOptions | undefined {
+  const roots = args.roots;
+  if (!roots) return undefined;
+  const root = graph.nodes.find((node) => node.level === 0) ?? graph.nodes[0];
+  return {
+    objectApiName: root?.objectApiName ?? roots.query?.objectApiName ?? '',
+    ...(roots.query ? { query: { ...roots.query.roots } } : { ids: [...(roots.ids ?? [])] }),
+    cap: roots.cap,
+    ...(roots.readTotal !== undefined ? { readTotal: roots.readTotal } : {}),
+    ...(handed.sourceRequestsLeft !== undefined
+      ? { sourceRequestsLeft: handed.sourceRequestsLeft }
+      : {}),
+    ...(handed.plan ? { plan: handed.plan } : {}),
+    ...(handed.keepAt !== undefined ? { keepAt: handed.keepAt } : {}),
   };
 }
 
@@ -6290,6 +6861,15 @@ const runSummarySchema = z.object({
     .optional(),
   // A clone of the whole org: its removal says the sweep is off unless asked.
   wholeOrg: z.literal(true).optional(),
+  // A clone from records: the object of its roots, and whether a query chose
+  // them or the line named them. One that does not read is left unsaid.
+  roots: z
+    .object({
+      objectApiName: z.string().regex(API_NAME_RE, 'not an API name'),
+      from: z.enum(['query', 'records']),
+    })
+    .optional()
+    .catch(undefined),
   dryRun: z.literal(false),
   // Below none in a summary a clone wrote across a clock the machine set
   // back (`elapsedSince`): read as a run that took none, never refused.
@@ -6301,6 +6881,9 @@ const runSummarySchema = z.object({
   part: z.number().int().nonnegative().optional(),
   result: z.object({
     remapInJournal: z.literal(true).optional(),
+    // Of a clone from records, its roots as the run read them: what its
+    // lines count it by.
+    roots: z.object({ read: z.number().int().nonnegative() }).optional().catch(undefined),
     remapTable: z.record(summaryIdSchema, summaryIdSchema),
     existingSourceIds: z.array(summaryIdSchema),
     updatedSourceIds: z.array(summaryIdSchema),
@@ -6446,11 +7029,27 @@ async function runSummaryOfJournal(
   const elapsed = Date.parse(recordedAt) - Date.parse(read.startedAt);
   const startedWith = read.resume?.startedWith;
   const record = read.resume?.recordId ?? startedWith?.config.recordId;
+  // A clone from records names its roots, as its journal does once it read
+  // them: their object, and whether a query chose them.
+  const fromRecords = read.roots ?? (startedWith?.config.queryScope === 'records' ? {} : undefined);
+  const rootObject =
+    read.roots?.objectApiName ??
+    startedWith?.graph.nodes.find((node) => node.level === 0)?.objectApiName;
+  const roots =
+    fromRecords && rootObject !== undefined
+      ? {
+          objectApiName: rootObject,
+          from:
+            startedWith?.config.inputMode === 'soql' || read.roots?.query !== undefined
+              ? ('query' as const)
+              : ('records' as const),
+        }
+      : undefined;
   // A clone of whole tables names the tables its graph took, each under its
   // filter; a clone of the whole org, the objects it copied.
   const wholeOrg = !record && startedWith?.config.inputMode === 'org';
   const objects =
-    !record && startedWith && (startedWith.config.inputMode === 'soql' || wholeOrg)
+    !record && !fromRecords && startedWith && (startedWith.config.inputMode === 'soql' || wholeOrg)
       ? startedWith.graph.nodes
           .filter((node) => node.included)
           .map(({ objectApiName }) => {
@@ -6467,11 +7066,13 @@ async function runSummaryOfJournal(
     record: record ?? (objects ? undefined : ''),
     ...(objects ? { objects } : {}),
     ...(wholeOrg ? { wholeOrg: true } : {}),
+    ...(roots ? { roots } : {}),
     dryRun: false,
     elapsedMs: Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0,
     finishedAt: recordedAt,
     journal: filePath,
     result: {
+      ...(read.roots ? { roots: { read: read.roots.ids.length } } : {}),
       remapTable: read.remap.table,
       existingSourceIds: read.remap.linked,
       updatedSourceIds: [],
@@ -6591,7 +7192,7 @@ export function removalPlanLines(
   const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const ended = summary.result.writtenBetween?.last ?? summary.finishedAt;
   return [
-    `the clone of ${cloneSubjectOf(summary)} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
+    `the clone of ${cloneSubjectOf(subjectOfSummary(summary))} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
       `a removal deletes the ${planned} record(s) it created, children first:`,
     ...plan.map((object) => `  ${object.objectApiName}: ${object.ids.length}`),
     ...quoteCopiesLines(plan),
@@ -8385,6 +8986,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
   }
+  // A run still writing its journal is no run to take back: its records would
+  // be deleted under it as it goes on, and what it writes after never offered
+  // for removal. Refused before any org is reached, its preview too, the run
+  // named as the lock it holds on its journal names it.
+  const writing =
+    read.summary.journal !== undefined ? forgeRunWriting(read.summary.journal) : undefined;
+  if (writing) {
+    refuseBeforeAnyRead({
+      code: RUN_WRITING,
+      message:
+        `${forgeRunWritingWords(writing)}. A removal now would delete under it what it goes on ` +
+        `writing: ${forgeRunStopWords(writing)}, then remove it. Nothing was read or deleted.`,
+    });
+  }
   if (args.preview) return previewRemoval(args, read.summary, say, t0);
   /** The org, reached once: before the plan when the run's journal has calls to look for. */
   let reached: { session: SfOrg; conn: Connection; org: TypedOrg } | undefined;
@@ -9891,6 +10506,11 @@ export function verificationLines(verification: ForgeRunVerification, target: st
       ? `verification: UNSTABLE — no two of ${verification.attempts} readings of ${target} agreed: ` +
         "something still writes to the run's records; verify again once it is done"
       : `verification: ${verification.verdict.toUpperCase()} (${verification.attempts} readings of ${target})`,
+    // Of a clone from records, its roots the run wrote or linked to, and of
+    // them those the target holds.
+    ...(verification.roots
+      ? [`  roots: ${verification.roots.inTarget} of ${verification.roots.of} in ${target}`]
+      : []),
   ];
   const changed: string[] = [];
   for (const o of verification.objects) {
@@ -10114,6 +10734,12 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   summary = await datedFromItsJournal(conn, summary);
+  // Of a clone from records, its roots by their source ids, as its journal
+  // names them: how many of those it wrote or linked to the target holds.
+  const roots =
+    summary.roots !== undefined && summary.journal !== undefined && existsSync(summary.journal)
+      ? (await nodeRunJournal(journalDirOf()).readAt(summary.journal, 'all'))?.roots
+      : undefined;
   const sourceAlias = args.source ?? summary.source;
   let source: SourceOrg | { unavailable: string };
   try {
@@ -10164,6 +10790,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
       ...(summary.result.withTheirRecordSourceIds
         ? { withTheirRecord: summary.result.withTheirRecordSourceIds }
         : {}),
+      ...(roots ? { roots: { objectApiName: roots.objectApiName, sourceIds: roots.ids } } : {}),
     });
   } catch (err: unknown) {
     recordVerification({ outcome: 'failure' });
@@ -10326,13 +10953,14 @@ export async function rootNeverCreatedRefusal(
 }
 
 /**
- * The objects a clone starts from: each table named, or the object the record
- * is of, as the source's global describe tells it by the record's key prefix.
- * None when the source names no object of that prefix, or would not list its
- * objects: discovery says so.
+ * The objects a clone starts from: each table named, the object after the
+ * FROM of the query that chooses its records, or the object the record is
+ * of — the records named, of one object — as the source's global describe
+ * tells it by the record's key prefix. None when the source names no object
+ * of that prefix, or would not list its objects: discovery says so.
  */
 async function cloneRootsOf(
-  args: Pick<CliArgs, 'record' | 'tables' | 'source'>,
+  args: Pick<CliArgs, 'record' | 'tables' | 'source'> & Partial<Pick<CliArgs, 'roots'>>,
   describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix?: string | null }>>,
 ): Promise<CloneRoot[]> {
   if (args.tables) {
@@ -10340,6 +10968,10 @@ async function cloneRootsOf(
       objectApiName,
       named: `--object ${objectApiName}`,
     }));
+  }
+  if (args.roots?.query) {
+    const object = args.roots.query.objectApiName;
+    return [{ objectApiName: object, named: `--query (FROM ${object})` }];
   }
   const record = args.record ?? '';
   if (record === '') return [];
@@ -10351,7 +10983,17 @@ async function cloneRootsOf(
     return [];
   }
   const object = listed.find((entry) => entry.keyPrefix === prefix)?.name;
-  return object ? [{ objectApiName: object, named: `--record ${record} (a ${object})` }] : [];
+  if (!object) return [];
+  const named = args.roots?.ids;
+  return [
+    {
+      objectApiName: object,
+      named:
+        named !== undefined
+          ? `--record ${named.length} times (${object} records)`
+          : `--record ${record} (a ${object})`,
+    },
+  ];
 }
 
 /**
@@ -10525,14 +11167,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     await cloneMain(argv, interrupts);
   } finally {
     // However the clone ended, a refusal at one of its gates included, its
-    // Ctrl-C goes with it.
+    // Ctrl-C goes with it, and so does the lock it held on its journal.
     interrupts.release?.();
+    interrupts.journalLock?.release();
   }
 }
 
-/** How a clone hears Ctrl-C, for {@link main} to let it go however the clone ends. */
+/**
+ * How a clone hears Ctrl-C, and the lock it holds on the journal it writes,
+ * for {@link main} to let them go however the clone ends.
+ */
 interface CloneInterrupts {
   release?: () => void;
+  journalLock?: LinkedLock;
 }
 
 /**
@@ -10556,6 +11203,84 @@ class QuestionInterrupted extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'QuestionInterrupted';
+  }
+}
+
+/**
+ * The plan of roots a clone from records is given (`--roots-plan`), read
+ * before any org is reached: a run takes the roots it holds, and is refused
+ * when it is not there (`ROOTS_PLAN_GONE`) or no longer as it was kept
+ * (`ROOTS_PLAN_MISMATCH`), exit 2, the dry run to run first named; a dry run
+ * keeps the roots it reads there, and is refused when the file there is no
+ * plan, which it would put its own in the place of. Nothing for any other
+ * line, or a dry run.
+ */
+async function rootsPlanOf(args: CliArgs, t0: number): Promise<RootPlan | undefined> {
+  const file = args.roots?.plan;
+  if (file === undefined) return undefined;
+  const refuse = (refused: RunRefusal): never => {
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+          },
+          refused,
+        ),
+      );
+    }
+    return process.exit(2);
+  };
+  const dryRun = `${commandOf('clone')} … --dry-run --roots-plan ${file}`;
+  if (args.dryRun) {
+    if (!existsSync(file)) return undefined;
+    try {
+      await openRootPlan(file);
+    } catch (err: unknown) {
+      if (!(err instanceof RootPlanError)) throw err;
+      // A plan whose ids changed is a plan all the same: the dry run's own goes in its place.
+      let isPlan = false;
+      try {
+        const kept = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null;
+        isPlan = kept?.['version'] === 1 && Array.isArray(kept['ids']);
+      } catch {
+        // Not JSON: no plan.
+      }
+      if (!isPlan) {
+        process.stderr.write(
+          `--roots-plan ${file} exists, and is no plan of roots: a dry run puts the records ` +
+            'it chooses in its place. Give another file, or move it.\n',
+        );
+        process.exit(2);
+      }
+    }
+    return undefined;
+  }
+  try {
+    return await openRootPlan(file);
+  } catch (err: unknown) {
+    if (!(err instanceof RootPlanError)) throw err;
+    return refuse(
+      err.fault === 'gone'
+        ? {
+            code: 'ROOTS_PLAN_GONE',
+            message:
+              `--roots-plan ${file}: no plan of roots is there. The dry run keeps the records ` +
+              `its query chooses there, for the run to write those and no other: run ${dryRun} ` +
+              'first. Nothing was read or written.',
+          }
+        : {
+            code: 'ROOTS_PLAN_MISMATCH',
+            message:
+              `--roots-plan ${file}: ${err.message} Run ${dryRun} again, and give the run the ` +
+              'plan it keeps. Nothing was read or written.',
+          },
+    );
   }
 }
 
@@ -10583,6 +11308,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say('files: copied as the run taken up was begun, with --files');
     }
   }
+  // The plan of roots a run takes (`--roots-plan`), opened before any org is
+  // reached; a dry run keeps the roots it reads there, in place of what a
+  // dry run before it kept, never in place of a file that is no plan.
+  const rootsPlan = await rootsPlanOf(args, t0);
 
   const sourceOrg = await loadOrg(args.source);
   const targetOrg = await loadOrg(args.target);
@@ -11224,6 +11953,25 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let muteAutomation = args.muteAutomation;
   if (journals && targetOrgId !== undefined && args.resume) {
     journalPath = resumedJournalPath(args.resume, journals);
+    // Its lock taken before the journal is read for the calls under way, which
+    // writes to it: a run that still writes the journal, in another terminal
+    // or in VS Code, is named, and nothing is done — two runs taking it up at
+    // once would each write what the other writes.
+    const held = lockForgeRun(journalPath, {
+      journalId: basename(journalPath).replace(/\.ndjson$/, ''),
+      ranFrom: 'commandLine',
+      target: args.target,
+      resumes: true,
+    });
+    if ('busy' in held) {
+      return refuseBeforeRead({
+        code: RUN_WRITING,
+        message:
+          `--resume ${journalPath}: ${forgeRunWritingWords(held.busy)}. Two runs would write ` +
+          `it at once: ${forgeRunStopWords(held.busy)}, then take it up. Nothing was written.`,
+      });
+    }
+    interrupts.journalLock = held.lock;
     const resumedOrg = targetOrgId;
     const refusal = await resumeRefusal(journals, journalPath, {
       target: args.target,
@@ -11788,6 +12536,25 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     },
   };
 
+  // Of a clone from records, what its executor is handed beside the line:
+  // what the source has left of its requests today, read once — the read of
+  // what its roots reach is held to a tenth of it —, the plan a run takes,
+  // and where a dry run keeps the roots it reads, in place of the last one's.
+  const rootsHanded: RootsHanded = {};
+  if (args.roots) {
+    try {
+      rootsHanded.sourceRequestsLeft = (await readApiBudget(conns.get(args.source)!)).remaining;
+    } catch {
+      // Not told: the read is held to the requests a source that would not
+      // say is held to, which a refusal past them names.
+    }
+    if (rootsPlan) rootsHanded.plan = rootsPlan;
+    if (args.dryRun && args.roots.plan !== undefined) {
+      rmSync(args.roots.plan, { force: true });
+      rootsHanded.keepAt = args.roots.plan;
+    }
+  }
+
   // A rehearsal instead of the run: every row read and prepared by the run's
   // own executor, with a writer that keeps the rows instead of writing them,
   // then a sample created in the target in calls each rolled back whole.
@@ -11807,8 +12574,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             args.target,
             () => {},
             {
-              ...executeOptions(args, graph, recordTypeMappings, (fields) =>
-                discovery.personalFields(fields),
+              ...executeOptions(
+                args,
+                graph,
+                recordTypeMappings,
+                (fields) => discovery.personalFields(fields),
+                rootsHanded,
               ),
               dryRun: false,
               files: undefined,
@@ -12513,7 +13284,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       ? { objects: args.tables }
       : wholeOrg
         ? { wholeOrg: true as const }
-        : { record: args.record }),
+        : args.roots
+          ? { roots: rootsAskedJson(args.roots, graph) }
+          : { record: args.record }),
     dryRun: args.dryRun,
     upsert: args.upsert,
     expandOrphans: args.expandOrphans,
@@ -12711,6 +13484,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     } else {
       journalId = `sandforge-clone-${new Date(t0).toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
       journalPath = journals.pathOf(journalId);
+      // Held from before its first line to its part's end: a removal of the
+      // run, from this terminal or another, or from VS Code, is refused while
+      // it writes. Its name is its own, which no other run holds.
+      const held = lockForgeRun(journalPath, {
+        journalId,
+        ranFrom: 'commandLine',
+        target: args.target,
+      });
+      if ('lock' in held) interrupts.journalLock = held.lock;
       await journals.begin(
         journalId,
         targetOrgId,
@@ -12783,6 +13565,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.stderr.write(
         `The journal ${path} could not be ended (${extractErrorMessage(err)}).\n`,
       );
+    } finally {
+      // Its part ended, the run writes the journal no more: a removal may
+      // take it back while the command still says what it did.
+      interrupts.journalLock?.release();
     }
   };
 
@@ -12998,8 +13784,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
                 ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
                     discovery.personalFields(fields),
                   )
-                : executeOptions(args, graph, recordTypeMappings, (fields) =>
-                    discovery.personalFields(fields),
+                : executeOptions(
+                    args,
+                    graph,
+                    recordTypeMappings,
+                    (fields) => discovery.personalFields(fields),
+                    rootsHanded,
                   )),
             beforeWrite: leaseAtTheGate,
           },
@@ -13198,6 +13988,17 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const muteAssigns = (mute?.plan?.assign.length ?? 0) > 0;
     for (const line of summaryLines(summary, args.dryRun, args.readCeiling, muteAssigns)) {
       console.log(line);
+    }
+    if (summary.roots) {
+      console.log('');
+      const at = {
+        source: args.source,
+        target: args.target,
+        dryRun: args.dryRun,
+        ...(args.roots?.plan !== undefined ? { plan: args.roots.plan } : {}),
+        ...(args.resume !== undefined ? { resumed: true } : {}),
+      };
+      for (const line of rootsLines(summary, at)) console.log(line);
     }
     if (summary.sample) {
       console.log('');

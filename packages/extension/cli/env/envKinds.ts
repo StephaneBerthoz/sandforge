@@ -315,6 +315,12 @@ export interface EnvDryRunContext {
    * saved plan's, so that its dry run draws again what the plan counted.
    */
   seed?: number;
+  /**
+   * Of a forge resource of `records`, the plan of the roots its dry run keeps
+   * and its run takes (`--roots-plan`): the run writes the records the dry
+   * run chose, and none the query chooses after.
+   */
+  rootsPlanFile?: string;
 }
 
 /**
@@ -350,6 +356,7 @@ export function dryRunLineOf(
           ...forgeLineOf(resource),
           target: context.target,
           templateFile: context.templateFile,
+          ...(context.rootsPlanFile !== undefined ? { rootsPlanFile: context.rootsPlanFile } : {}),
           // Its own ceiling, so the dry run says what a run past it would meet.
           maxTotal: resource.run.maxTotal ?? FORGE_DEFAULT_MAX_TOTAL,
         }),
@@ -387,10 +394,14 @@ function storeOf(resource: EnvFileResource, context: { store?: string }): string
   return context.store;
 }
 
-/** What a forge resource's lines share: its source's alias, and the record, the tables or the whole org it clones. */
+/**
+ * What a forge resource's lines share: its source's alias, and the record,
+ * the records a query chooses, the tables or the whole org it clones.
+ */
 function forgeLineOf(resource: Extract<EnvFileResource, { kind: 'forge' }>): {
   source: string;
   recordId?: string;
+  records?: EnvForgeRun['records'];
   tables?: EnvForgeRun['tables'];
   wholeOrg?: EnvForgeRun['wholeOrg'];
   acceptAutomation: boolean;
@@ -401,6 +412,9 @@ function forgeLineOf(resource: Extract<EnvFileResource, { kind: 'forge' }>): {
   }
   if (run.tables !== undefined) {
     return { source: source.alias, tables: run.tables, acceptAutomation: run.acceptAutomation };
+  }
+  if (run.records !== undefined) {
+    return { source: source.alias, records: run.records, acceptAutomation: run.acceptAutomation };
   }
   const read = source.read;
   const recordId =
@@ -508,6 +522,7 @@ export function applyLineOf(
           ...forgeLineOf(resource),
           target: context.target,
           templateFile: context.templateFile,
+          ...(context.rootsPlanFile !== undefined ? { rootsPlanFile: context.rootsPlanFile } : {}),
           maxTotal: context.maxTotal,
           summary: context.summaryFile,
         }),

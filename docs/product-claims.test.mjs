@@ -5805,9 +5805,25 @@ test('the Forge reference and the exit codes say every --fit flag, the JSON and 
   );
   assert.match(
     exportedFunction(clone, cliFile, 'sampleRefusalExit'),
-    /return code === SAMPLE_PLAN_GONE \|\| code === SAMPLE_PLAN_MISMATCH \? 2 : 1;/,
+    /return REFUSED_FOR_THE_LINE\.has\(code\) \? 2 : 1;/,
     'the exit codes of a sample’s refusals changed — re-point this gate',
   );
+  const forTheLine = clone.slice(
+    clone.indexOf('const REFUSED_FOR_THE_LINE'),
+    clone.indexOf(']);', clone.indexOf('const REFUSED_FOR_THE_LINE')),
+  );
+  for (const code of ['SAMPLE_PLAN_GONE', 'SAMPLE_PLAN_MISMATCH']) {
+    assert.match(forTheLine, new RegExp(`\\b${code}\\b`), `${code} no longer exits 2`);
+  }
+  for (const code of [
+    'STORAGE_UNREAD',
+    'CANNOT_FIT',
+    'TOO_LARGE',
+    'API_BUDGET',
+    'STORAGE_EXCEEDED',
+  ]) {
+    assert.doesNotMatch(forTheLine, new RegExp(code), `a refusal of ${code} exits 2`);
+  }
 
   // The table of exit codes every script shares says them too.
   const rows = read('ci-examples', 'README.md').split('\n');
