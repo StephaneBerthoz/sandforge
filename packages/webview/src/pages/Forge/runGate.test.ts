@@ -139,6 +139,38 @@ describe('a Forge run stopped at its gate', () => {
     expect(useForgeRunGateStore.getState().sampleOffer).toBeUndefined();
   });
 
+  it('keeps what refused a draw, which its code alone does not say, and the words of no other stop', () => {
+    const drawRefused = stoppedAtTheGate({ code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } });
+    fromTheExtension({
+      ...drawRefused,
+      payload: {
+        ...(drawRefused.payload as Record<string, unknown>),
+        message: '  Account.Name is a string field, of too many values to stratify by.  ',
+      },
+    });
+    expect(useForgeRunGateStore.getState().said).toBe(
+      'Account.Name is a string field, of too many values to stratify by.',
+    );
+
+    // Any other stop is said in the page's words alone.
+    startForgeRun();
+    fromTheExtension(stoppedAtTheGate({ code: 'WRITE_DECLINED' }));
+    expect(useForgeRunGateStore.getState().said).toBeUndefined();
+
+    // A message past what a notice holds is cut.
+    startForgeRun();
+    fromTheExtension({
+      ...drawRefused,
+      payload: {
+        ...(drawRefused.payload as Record<string, unknown>),
+        code: 'SAMPLE_DRAW_EMPTY',
+        gate: { code: 'SAMPLE_DRAW_EMPTY' },
+        message: 'x'.repeat(5_000),
+      },
+    });
+    expect(useForgeRunGateStore.getState().said).toHaveLength(4_000);
+  });
+
   it('leaves the error of a run that failed on the execution screen', () => {
     fromTheExtension({
       type: 'forge:execute:error',

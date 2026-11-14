@@ -9,6 +9,7 @@ import {
   FORGE_ROOTS_MAX,
   type ForgeRunGateCode,
   type ForgeRunGateStop,
+  type ForgeSampleDraw,
   type WholeOrgSampleLimit,
 } from '@sandforge/shared';
 import { checkpointRefusalWords } from '../../utils/runCheckpoint';
@@ -20,6 +21,7 @@ import { useForgeRunGateStore } from './runGate';
 import { clonesWholeOrg } from './forgeRunConfig';
 import { startForgeRun } from './startForgeRun';
 import { mbOf } from './sampleWords';
+import { openSampleRoots } from './ReviewSampleRoots';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
 /**
@@ -76,6 +78,19 @@ const CANNOT_FIT_KEYS: Partial<Record<WholeOrgSampleLimit, string>> = {
   sourceRequests: 'forgeRun.gate.sampleCannotFitSourceRequests',
 };
 
+/** The sentence of a sample's drawing refused for the source's requests, by how it drew. */
+const DRAWING_KEYS: Record<ForgeSampleDraw, string> = {
+  uniform: 'forgeRun.gate.apiDrawingExceeded',
+  recent: 'forgeRun.gate.apiDrawingExceededRecent',
+  oldest: 'forgeRun.gate.apiDrawingExceededOldest',
+};
+
+/** The stops of a draw refused, whose way out is in Which roots, on Review. */
+const DRAW_REFUSED: ReadonlySet<ForgeRunGateCode> = new Set([
+  'SAMPLE_DRAW_INVALID',
+  'SAMPLE_DRAW_EMPTY',
+]);
+
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */
 const CANCELLED: ReadonlySet<ForgeRunGateCode> = new Set([
   'AUTOMATION_DECLINED',
@@ -120,11 +135,10 @@ function sentenceOf(
   }
   // A sample's drawing past its share of what the source has left: said as
   // the drawing's, not as a run past all the source has left, with the way
-  // its draw leaves.
+  // its draw leaves — a drawing of the oldest in its own words, where it was
+  // said in those of the newest.
   if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api?.drawing) {
-    return stop.api.drawing.draw === 'uniform'
-      ? 'forgeRun.gate.apiDrawingExceeded'
-      : 'forgeRun.gate.apiDrawingExceededRecent';
+    return DRAWING_KEYS[stop.api.drawing.draw];
   }
   if (stop.code === 'SAMPLE_TOO_LARGE' && stop.sample?.rows === undefined) {
     return 'forgeRun.gate.sampleTooLargeUnsized';
@@ -265,6 +279,7 @@ export const ForgeRunGateNotice: React.FC<{
   const revealed = useForgeRunGateStore((s) => s.revealed);
   const markRevealed = useForgeRunGateStore((s) => s.markRevealed);
   const sampleOffer = useForgeRunGateStore((s) => s.sampleOffer);
+  const said = useForgeRunGateStore((s) => s.said);
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const wholeOrg = useForgeStore((s) => clonesWholeOrg(s.config));
   const sampled = useForgeStore((s) => s.config?.sample !== undefined);
@@ -313,11 +328,16 @@ export const ForgeRunGateNotice: React.FC<{
     stop.code === 'API_BUDGET_EXCEEDED' &&
     stop.api !== undefined &&
     stop.api.drawing === undefined;
-  // The newest records first read only those it keeps: offered to a sample
-  // drawn spread over the org whose drawing was refused, from Review, where
-  // the draw is set — never to one that drew the newest already.
-  const newest =
-    onReview && sampled && stop.api?.drawing?.draw === 'uniform' && sample?.draw !== 'recent';
+  // The newest or the oldest records first read only those they keep:
+  // offered to a sample drawn spread over the org whose drawing was refused,
+  // from Review, where the draw is set — never the one it draws already.
+  const spreadRefused = onReview && sampled && stop.api?.drawing?.draw === 'uniform';
+  const newest = spreadRefused && sample?.draw !== 'recent';
+  const oldest = spreadRefused && sample?.draw !== 'oldest';
+  // Fewer roots read fewer requests, whatever the draw; and a draw refused
+  // for the roots it was asked to draw among is set again where they are.
+  const chooseRoots =
+    onReview && sampled && (stop.api?.drawing !== undefined || DRAW_REFUSED.has(stop.code));
   return (
     <div
       ref={noticeRef}
@@ -339,19 +359,54 @@ export const ForgeRunGateNotice: React.FC<{
         <p data-testid="forge-run-gate-reason">
           {gateStopSentence(t, stop, { checkpointAsked, wholeOrg, muteOffered, sampled })}
         </p>
-        {newest && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="self-start"
-            data-testid="forge-run-gate-draw-newest"
-            onClick={() => {
-              setSample({ ...sample, draw: 'recent' });
-              clear();
-            }}
-          >
-            {t('forgeRun.gate.drawNewest')}
-          </Button>
+        {/* What refused the draw — a field, a condition, a window, in its
+            words or the source's —, which the sentence above can only list. */}
+        {said !== undefined && (
+          <p data-testid="forge-run-gate-said" className="[overflow-wrap:anywhere]">
+            {t('forgeRun.gate.drawSaid', { said })}
+          </p>
+        )}
+        {(newest || oldest || chooseRoots) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {newest && (
+              <Button
+                variant="secondary"
+                size="sm"
+                data-testid="forge-run-gate-draw-newest"
+                onClick={() => {
+                  setSample({ ...sample, draw: 'recent' });
+                  clear();
+                }}
+              >
+                {t('forgeRun.gate.drawNewest')}
+              </Button>
+            )}
+            {oldest && (
+              <Button
+                variant="secondary"
+                size="sm"
+                data-testid="forge-run-gate-draw-oldest"
+                onClick={() => {
+                  setSample({ ...sample, draw: 'oldest' });
+                  clear();
+                }}
+              >
+                {t('forgeRun.gate.drawOldest')}
+              </Button>
+            )}
+            {/* Opens Which roots with the keyboard on it; the notice stays,
+                its words beside what is changed. */}
+            {chooseRoots && (
+              <Button
+                variant="secondary"
+                size="sm"
+                data-testid="forge-run-gate-choose-roots"
+                onClick={openSampleRoots}
+              >
+                {t('forgeRun.gate.chooseRoots')}
+              </Button>
+            )}
+          </div>
         )}
         {/* Every record past the storage: the sample that fits, offered. */}
         {offer && (

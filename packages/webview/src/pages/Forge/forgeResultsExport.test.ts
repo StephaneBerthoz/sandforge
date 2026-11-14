@@ -291,6 +291,46 @@ describe('a sample of the whole org in the report and the file', () => {
     expect(sampleReportWords(wholeOrgSampleResult())).toMatch(/drawn 2026-11-14T14:02:00\.000Z$/);
   });
 
+  it('says a draw of the oldest as such, never as spread over the org', () => {
+    expect(sampleReportWords(wholeOrgSampleResult({ draw: 'oldest' }))).toMatch(
+      /^0\.4 % of the roots of each object, seed 1, the oldest first; plan /,
+    );
+  });
+
+  it('says how the roots were chosen, its share then of the roots in the draw', () => {
+    expect(
+      sampleReportWords(
+        wholeOrgSampleResult({
+          draw: 'oldest',
+          roots: {
+            window: {
+              field: 'CreatedDate',
+              from: '2025-01-01T00:00:00Z',
+              to: '2025-07-01T00:00:00Z',
+            },
+            whereObjects: ['Account'],
+            strataFields: ['Account.RecordTypeId'],
+          },
+        }),
+      ),
+    ).toMatch(
+      /^0\.4 % of the roots in the draw of each object, seed 1, the oldest first; roots made from 2025-01-01T00:00:00Z to before 2025-07-01T00:00:00Z \(UTC\), the roots of Account filtered, stratified by Account\.RecordTypeId; plan /,
+    );
+    expect(
+      sampleReportWords(
+        wholeOrgSampleResult({
+          roots: {
+            window: { field: 'LastModifiedDate', lastDays: 30, from: '2026-10-15T10:00:00Z' },
+          },
+        }),
+      ),
+    ).toMatch(/roots last modified in the last 30 days \(from 2026-10-15T10:00:00Z, UTC\); plan /);
+    // Strata alone keep every root in the draw: the share is of every root.
+    expect(
+      sampleReportWords(wholeOrgSampleResult({ roots: { strataFields: ['Lead.Status'] } })),
+    ).toMatch(/^0\.4 % of the roots of each object, .*; stratified by Lead\.Status; plan /);
+  });
+
   it('gives the sample a row of the results file', () => {
     const lines = objectResultsCsv([], {
       idRemapByObject: [],

@@ -9,6 +9,7 @@ import {
   type ForgeGraph,
   type ForgeSampleBudget,
   type ForgeSampleBudgetResponse,
+  type ForgeSampleDraw,
   type ForgeSampleOptions,
   type ForgeWholeOrgStorageCheck,
   type WholeOrgSampleBudget,
@@ -20,6 +21,7 @@ import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { allowanceWords } from './ForgeWholeOrgDryRun';
 import { mbOf, sampleNumber as n, wholeReasonWords } from './sampleWords';
+import { ReviewSampleRoots } from './ReviewSampleRoots';
 
 /** The caps on the children of a record per relation the list offers, the default among them. */
 const CHILDREN_PRESETS = [10, 50, 100, 500, 1_000] as const;
@@ -61,20 +63,70 @@ function settled(options: ForgeSampleOptions): ForgeSampleOptions {
 /**
  * What the budget of a sample is read with: the options that change what it
  * may take, the objects it copies whole and what drawing it reads — the MB
- * asked, the objects asked whole, the draw. The seed, the parents and the
- * children change none of it, and a change of them reads nothing again.
+ * asked, the objects asked whole, the draw, and the roots it draws among: a
+ * window or a filter of an object's roots counts the roots of the source a
+ * second time, and makes what it reads at most what is said. Read without
+ * them, a draw held to a window was priced as a draw of every root. The
+ * seed, the parents and the children change none of it, and a change of them
+ * reads nothing again.
  */
 function budgetConfigOf(config: ForgeConfig): ForgeConfig {
   if (!config.sample) return config;
-  const { withinMB, whole, draw } = config.sample;
+  const { withinMB, whole, draw, window, rootWhere, strata } = config.sample;
   return {
     ...config,
     sample: settled({
       ...(withinMB !== undefined ? { withinMB } : {}),
       ...(whole ? { whole } : {}),
       ...(draw !== undefined ? { draw } : {}),
+      ...(window ? { window } : {}),
+      ...(rootWhere ? { rootWhere } : {}),
+      ...(strata ? { strata } : {}),
     }),
   };
+}
+
+/** The draws Review offers, as the select lists them, each by its name. */
+const DRAW_KEYS: Record<ForgeSampleDraw, string> = {
+  uniform: 'forgeRun.review.sample.draw.uniform',
+  recent: 'forgeRun.review.sample.draw.recent',
+  oldest: 'forgeRun.review.sample.draw.oldest',
+};
+
+/** What each draw reads of the source, and what the sample leans to. */
+const DRAW_HINT_KEYS: Record<ForgeSampleDraw, string> = {
+  uniform: 'forgeRun.review.sample.draw.uniformHint',
+  recent: 'forgeRun.review.sample.draw.recentHint',
+  oldest: 'forgeRun.review.sample.draw.oldestHint',
+};
+
+/** A draw picked in the select, its default left out as the config keeps it. */
+function drawPicked(value: string): ForgeSampleDraw | undefined {
+  return value === 'recent' || value === 'oldest' ? value : undefined;
+}
+
+/**
+ * `options` with `object` copied whole: every record of it comes, and none is
+ * drawn, so the filter of its roots and its own stratum go with it — kept,
+ * the extension would refuse the run for them.
+ */
+function wholeAsked(options: ForgeSampleOptions, object: string): ForgeSampleOptions {
+  const rootWhere = { ...options.rootWhere };
+  delete rootWhere[object];
+  const strata = (options.strata ?? []).filter(
+    (spec) => !spec.toLowerCase().startsWith(`${object.toLowerCase()}.`),
+  );
+  return {
+    ...options,
+    whole: [...(options.whole ?? []), object].sort(),
+    rootWhere: Object.keys(rootWhere).length > 0 ? rootWhere : undefined,
+    strata: strata.length > 0 ? strata : undefined,
+  };
+}
+
+/** `options` with `object` drawn again rather than copied whole. */
+function wholeTakenBack(options: ForgeSampleOptions, object: string): ForgeSampleOptions {
+  return { ...options, whole: (options.whole ?? []).filter((w) => w !== object) };
 }
 
 /** What every record of the whole org takes against what the target has left. */
@@ -162,6 +214,7 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
   const floorId = useId();
   const floorHintId = useId();
   const wholeListId = useId();
+  const drawAgainHintId = useId();
   const sample = config?.sample;
   const sampled = sample !== undefined;
 
@@ -219,6 +272,14 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
       .map((node) => node.objectApiName)
       .sort();
   }, [graph, config?.excludedObjects]);
+  /**
+   * The objects whose roots may be chosen: those the run takes, neither
+   * asked whole nor copied whole of itself, whose every record comes.
+   */
+  const drawable = useMemo(
+    () => taken.filter((name) => !asked.has(name) && !wholeOfItself.has(name)),
+    [taken, asked, wholeOfItself],
+  );
 
   const seed = sample?.seed ?? FORGE_SAMPLE_DEFAULTS.seed;
   const draw = sample?.draw ?? FORGE_SAMPLE_DEFAULTS.draw;
@@ -309,16 +370,14 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                 data-testid="review-sample-draw"
                 aria-describedby={drawHintId}
                 value={draw}
-                onChange={(e) =>
-                  change((o) => ({
-                    ...o,
-                    draw: e.target.value === 'recent' ? 'recent' : undefined,
-                  }))
-                }
+                onChange={(e) => change((o) => ({ ...o, draw: drawPicked(e.target.value) }))}
                 className={selectClass}
               >
-                <option value="uniform">{t('forgeRun.review.sample.draw.uniform')}</option>
-                <option value="recent">{t('forgeRun.review.sample.draw.recent')}</option>
+                {(Object.keys(DRAW_KEYS) as ForgeSampleDraw[]).map((value) => (
+                  <option key={value} value={value}>
+                    {t(DRAW_KEYS[value])}
+                  </option>
+                ))}
               </select>
             </div>
             <p
@@ -326,19 +385,20 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
               data-testid="review-sample-draw-hint"
               className="text-text-secondary"
             >
-              {t(
-                draw === 'recent'
-                  ? 'forgeRun.review.sample.draw.recentHint'
-                  : 'forgeRun.review.sample.draw.uniformHint',
-              )}
+              {t(DRAW_HINT_KEYS[draw])}
             </p>
             {cost && (
               <p data-testid="review-sample-cost" className="text-text-primary">
-                {t('forgeRun.review.sample.cost', {
-                  source,
-                  allowance: allowanceWords(t, cost.source),
-                  duration: formatEstimateSec(cost.seconds),
-                })}
+                {/* Held to a window or filters of the roots, which discovery's
+                    counts know nothing of: what it reads is at most that. */}
+                {t(
+                  cost.atMost ? 'forgeRun.review.sample.costAtMost' : 'forgeRun.review.sample.cost',
+                  {
+                    source,
+                    allowance: allowanceWords(t, cost.source),
+                    duration: formatEstimateSec(cost.seconds),
+                  },
+                )}
               </p>
             )}
             {cost?.source.verdict === 'exceeds' && (
@@ -346,7 +406,12 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                 data-testid="review-sample-cost-refused"
                 className="rounded-md border border-status-warning/40 bg-status-warning/10 px-2 py-1 text-text-primary"
               >
-                {t('forgeRun.review.sample.costRefused', { source })}
+                {t(
+                  draw === 'uniform'
+                    ? 'forgeRun.review.sample.costRefused'
+                    : 'forgeRun.review.sample.costRefusedByDate',
+                  { source },
+                )}
               </p>
             )}
             {budget && budget.whole.length > 0 && (
@@ -359,6 +424,16 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                     .join(', '),
                 })}
               </p>
+            )}
+
+            {config && (
+              <ReviewSampleRoots
+                sample={sample ?? {}}
+                change={change}
+                objects={drawable}
+                sourceOrgId={config.sourceOrgId}
+                targetOrgId={config.targetOrgId}
+              />
             )}
 
             <details data-testid="review-sample-more" className="text-xs">
@@ -409,16 +484,30 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                   <span data-testid="review-sample-seed" className="text-text-primary">
                     {t('forgeRun.review.sample.seed', { seed: n(seed) })}
                   </span>
+                  {/* The newest or the oldest are the same records whatever the
+                      seed: another seed would draw nothing else. */}
                   <Button
                     variant="secondary"
                     size="sm"
                     data-testid="review-sample-draw-again"
+                    disabled={draw !== 'uniform'}
+                    aria-describedby={draw !== 'uniform' ? drawAgainHintId : undefined}
                     onClick={() => change((o) => ({ ...o, seed: seed + 1 }))}
                   >
                     {t('forgeRun.review.sample.drawAgain')}
                   </Button>
                 </div>
-                <p className="text-text-secondary">{t('forgeRun.review.sample.seedHint')}</p>
+                <p
+                  id={drawAgainHintId}
+                  data-testid="review-sample-seed-hint"
+                  className="text-text-secondary"
+                >
+                  {t(
+                    draw === 'uniform'
+                      ? 'forgeRun.review.sample.seedHint'
+                      : 'forgeRun.review.sample.seedHintByDate',
+                  )}
+                </p>
 
                 <div className="flex flex-col gap-1">
                   <label htmlFor={parentsId} className="text-text-primary">
@@ -544,12 +633,7 @@ export const ReviewWholeOrgSample: React.FC<ReviewWholeOrgSampleProps> = ({
                               disabled={why !== undefined}
                               onChange={(e) => {
                                 const on = e.target.checked;
-                                change((o) => ({
-                                  ...o,
-                                  whole: on
-                                    ? [...(o.whole ?? []), name].sort()
-                                    : (o.whole ?? []).filter((w) => w !== name),
-                                }));
+                                change((o) => (on ? wholeAsked(o, name) : wholeTakenBack(o, name)));
                               }}
                             />
                             <span className="font-mono">{name}</span>

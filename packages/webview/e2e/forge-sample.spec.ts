@@ -11,6 +11,7 @@ import {
   wholeOrgDryRun,
   wholeOrgGraph,
   wholeOrgSample,
+  wholeOrgSampleOfTheRoots,
   wholeOrgSampleResult,
 } from '../src/pages/Forge/testing/wholeOrg';
 
@@ -227,6 +228,9 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('review-sample-cost-refused')).toBeVisible();
 
       await page.getByTestId('review-sample-more').locator('summary').click();
+      // The newest are the same records whatever the seed: greyed, with why.
+      await expect(page.getByTestId('review-sample-draw-again')).toBeDisabled();
+      await page.getByTestId('review-sample-draw').selectOption('uniform');
       await page.getByTestId('review-sample-draw-again').click();
       await expect(page.getByTestId('review-sample-seed')).toHaveText('Seed 2');
       await page.getByTestId('review-sample-whole-toggle').click();
@@ -321,6 +325,196 @@ for (const theme of THEMES) {
       );
       const results = await checkAccessibility(page);
       expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+    });
+  });
+}
+
+for (const theme of THEMES) {
+  test.describe(`the roots a sample draws among (${theme})`, () => {
+    test('Review draws the oldest first among the roots of a window, a condition and a stratum, prices it with them, and passes axe', async ({
+      page,
+    }) => {
+      await openReview(page, theme, true);
+
+      await page.getByTestId('review-sample-draw').selectOption('oldest');
+      await expect(page.getByTestId('review-sample-draw-hint')).toContainText(
+        'The records made first, by their creation date',
+      );
+      await page.getByTestId('review-sample-roots').locator('summary').click();
+      await page.getByTestId('review-sample-window-from').fill('2025-01-01');
+      await page.getByTestId('review-sample-window-to').fill('2025-06-30');
+      await page.getByTestId('review-sample-where-object').selectOption('Account');
+      await page.getByTestId('review-sample-where-text').fill("BillingCountry = 'France'");
+      await page.getByTestId('review-sample-where-apply').click();
+      await page.getByTestId('review-sample-strata-record-type').check();
+      await page.getByTestId('review-sample-stratum-object').selectOption('Lead');
+      await expect.poll(() => requestIds(page, 'sync:describe-fields')).not.toEqual([]);
+      await answerAll(page, 'sync:describe-fields', 'sync:describe-fields:response', {
+        objectApiName: 'Lead',
+        sourceFields: [
+          { apiName: 'LastName', label: 'Last Name', type: 'string' },
+          { apiName: 'Status', label: 'Status', type: 'picklist' },
+        ],
+        targetFields: [],
+      });
+      await page.getByTestId('review-sample-stratum-field').selectOption('Status');
+      await page.getByTestId('review-sample-stratum-add').click();
+      await expect(page.getByTestId('review-sample-roots-summary')).toHaveText('4 conditions');
+
+      // The budget is read with the roots it draws among, not as a draw of every root.
+      const chosen = {
+        draw: 'oldest',
+        window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', to: '2025-07-01T00:00:00Z' },
+        rootWhere: { Account: "BillingCountry = 'France'" },
+        strata: ['RecordTypeId', 'Lead.Status'],
+      };
+      await expect
+        .poll(async () => {
+          const budgets = await sentPayloads(page, 'forge:sample-budget:request');
+          return (budgets.slice(-1)[0]?.config as Record<string, unknown> | undefined)?.sample;
+        })
+        .toEqual(chosen);
+      await answerBudget(page, {
+        ...sampleBudget({
+          planReads: {
+            source: { verdict: 'fits', estimate: 1_951, max: 15_000, remaining: 14_000 },
+            seconds: 240,
+            atMost: true,
+          },
+        }),
+      });
+      await expect(page.getByTestId('review-sample-cost')).toContainText(
+        'Drawing it reads API requests of DevSandbox, at most',
+      );
+      // Draw again draws nothing else of the oldest: greyed, with why.
+      await page.getByTestId('review-sample-more').locator('summary').click();
+      await expect(page.getByTestId('review-sample-draw-again')).toBeDisabled();
+      const review = await checkAccessibility(page);
+      expect(review.violations.length, formatViolations(review.violations)).toBe(0);
+
+      // A window that starts after its end is refused where it is typed.
+      await page.getByTestId('review-sample-window-to').fill('2024-12-01');
+      await expect(page.getByTestId('review-sample-window-refused')).toBeVisible();
+      await expect(page.getByTestId('review-sample-window-to')).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      );
+      const refused = await checkAccessibility(page);
+      expect(refused.violations.length, formatViolations(refused.violations)).toBe(0);
+
+      await startRun(page, true);
+      const [execute] = (await sentPayloads(page, 'forge:execute')).slice(-1);
+      expect((execute.config as Record<string, unknown>).sample).toEqual(chosen);
+    });
+
+    test('its simulation says how the roots were chosen, its strata and what the draw held, and passes axe', async ({
+      page,
+    }) => {
+      await openReview(page, theme, true);
+      const run = await startRun(page, true);
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:response',
+        id: 'dry',
+        correlationId: run,
+        payload: {
+          result: runResult({ status: 'failure', createdCount: 0, dryRun: true }),
+          operationId: 'forge-execute-1',
+          wholeOrgDryRun: wholeOrgDryRun({
+            sample: wholeOrgSampleOfTheRoots(),
+            wouldBeRefused: [],
+          }),
+        },
+      });
+
+      await expect(page.getByTestId('forge-whole-org-sample-kept')).toContainText(
+        '100 % of the roots in the draw of each object, seed 1, the oldest first',
+      );
+      await expect(page.getByTestId('forge-whole-org-sample-taken')).toContainText(
+        'held by the draw: every root of the window and the filters of the roots is in it',
+      );
+      await expect(page.getByTestId('forge-whole-org-sample-roots')).toContainText(
+        "Account where BillingCountry = 'France'; Account stratified by RecordTypeId",
+      );
+      await expect(
+        page.getByRole('table', { name: 'The strata: the roots of each value, and those kept' }),
+      ).toBeVisible();
+      await expect(page.getByTestId('forge-whole-org-sample-no-root-in-the-draw')).toContainText(
+        'Lead (2,500 in the source)',
+      );
+      const results = await checkAccessibility(page);
+      expect(results.violations.length, formatViolations(results.violations)).toBe(0);
+    });
+
+    test('a draw refused for its roots says what refused it, opens Which roots from the notice, and passes axe', async ({
+      page,
+    }) => {
+      await openReview(page, theme, true);
+      const run = await startRun(page, true);
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'gate-stop',
+        correlationId: run,
+        payload: {
+          message:
+            'Account.Description is a textarea field, of too many values to stratify by. Its roots are stratified by a field of few values — a picklist, a checkbox, the record type (RecordTypeId) or the owner (OwnerId): of Account, RecordTypeId, OwnerId, Type. Nothing was written, and no request was sent.',
+          code: 'SAMPLE_DRAW_INVALID',
+          retryable: true,
+          gate: { code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } },
+        },
+      });
+
+      await expect(page.getByTestId('forge-run-gate-reason')).toContainText(
+        'its roots cannot be drawn as asked',
+      );
+      await expect(page.getByTestId('forge-run-gate-said')).toContainText(
+        'What refused it: Account.Description is a textarea field',
+      );
+      const notice = await checkAccessibility(page);
+      expect(notice.violations.length, formatViolations(notice.violations)).toBe(0);
+
+      await page.getByTestId('forge-run-gate-choose-roots').click();
+      await expect(page.getByTestId('review-sample-roots')).toHaveAttribute('open', '');
+      await expect(page.getByTestId('review-sample-roots').locator('summary')).toBeFocused();
+      // The notice stays, its words beside what is changed.
+      await expect(page.getByTestId('forge-run-gate-notice')).toBeVisible();
+      const opened = await checkAccessibility(page);
+      expect(opened.violations.length, formatViolations(opened.violations)).toBe(0);
+    });
+
+    test('a drawing spread over the org refused offers the newest, the oldest and fewer roots, and passes axe', async ({
+      page,
+    }) => {
+      await openReview(page, theme, true);
+      const run = await startRun(page);
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:error',
+        id: 'gate-stop',
+        correlationId: run,
+        payload: {
+          message: 'The host says it in English.',
+          code: 'API_BUDGET_EXCEEDED',
+          retryable: true,
+          gate: {
+            code: 'API_BUDGET_EXCEEDED',
+            api: {
+              kind: 'requests',
+              org: 'source',
+              estimate: 9_000,
+              remaining: 14_000,
+              drawing: { share: 0.1, draw: 'uniform' },
+            },
+          },
+        },
+      });
+
+      await expect(page.getByTestId('forge-run-gate-draw-newest')).toBeVisible();
+      await expect(page.getByTestId('forge-run-gate-choose-roots')).toBeVisible();
+      const notice = await checkAccessibility(page);
+      expect(notice.violations.length, formatViolations(notice.violations)).toBe(0);
+      await page.getByTestId('forge-run-gate-draw-oldest').click();
+
+      await expect(page.getByTestId('forge-run-gate-notice')).toHaveCount(0);
+      await expect(page.getByTestId('review-sample-draw')).toHaveValue('oldest');
     });
   });
 }

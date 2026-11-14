@@ -77,13 +77,15 @@ const field = (name: string, overrides: Partial<FieldInfo> = {}): FieldInfo => (
 const FIELDS: Record<string, FieldInfo[]> = {
   Account: [
     field('Id'),
-    field('Name'),
+    field('Name', { type: 'string' }),
     field('ParentId', { isReference: true, referenceTo: ['Account'], nillable: true }),
+    field('CreatedDate', { createable: false, updateable: false, type: 'datetime' }),
   ],
   Contact: [
     field('Id'),
     field('LastName'),
     field('AccountId', { isReference: true, referenceTo: ['Account'], nillable: false }),
+    field('CreatedDate', { createable: false, updateable: false, type: 'datetime' }),
   ],
 };
 
@@ -149,9 +151,13 @@ const EVERY_RECORD: ForgeConfig = {
 
 const SAMPLE: ForgeConfig = { ...EVERY_RECORD, sample: {} };
 
-/** A source of `RECORDS` accounts, each with one contact. */
+/**
+ * A source of `RECORDS` accounts, each with one contact, made a minute apart
+ * over the hours before the test: a window of the last days holds them all.
+ */
 function sourceOrg(): SampleSourceOrg {
   const org = new SampleSourceOrg();
+  const madeAt = (n: number): string => new Date(Date.now() - n * 60_000).toISOString();
   org.columns.set('Account', ['Id', 'Name', 'ParentId', 'CreatedDate', 'IsDeleted']);
   org.columns.set('Contact', ['Id', 'LastName', 'AccountId', 'CreatedDate', 'IsDeleted']);
   for (let n = 1; n <= RECORDS; n++) {
@@ -159,12 +165,14 @@ function sourceOrg(): SampleSourceOrg {
       Id: fakeId('001', 'S', n),
       Name: `A${n}`,
       ParentId: null,
+      CreatedDate: madeAt(n),
       IsDeleted: false,
     });
     org.add('Contact', {
       Id: fakeId('003', 'S', n),
       LastName: `C${n}`,
       AccountId: fakeId('001', 'S', n),
+      CreatedDate: madeAt(n),
       IsDeleted: false,
     });
   }
@@ -680,6 +688,113 @@ describe('forge:execute of a sample of the whole org', () => {
     });
   });
 
+  describe('the roots it draws among, as Review sets them', () => {
+    /** A sample of the whole org with `sample` as its options. */
+    const drawn = (sample: NonNullable<ForgeConfig['sample']>): ForgeConfig => ({
+      ...SAMPLE,
+      sample,
+    });
+
+    it('takes the window, the filters of the roots and the strata the page sends', async () => {
+      await simulate(
+        drawn({
+          window: { field: 'CreatedDate', lastDays: 30 },
+          rootWhere: { Account: "Name IN ('A1', 'A2', 'A3')" },
+          draw: 'oldest',
+        }),
+      );
+
+      const sample = lastAnswer().wholeOrgDryRun?.sample;
+      expect(sample?.draw).toBe('oldest');
+      expect(sample?.roots?.window).toMatchObject({ field: 'CreatedDate', lastDays: 30 });
+      expect(sample?.roots?.where).toEqual([
+        { objectApiName: 'Account', where: "Name IN ('A1', 'A2', 'A3')" },
+      ]);
+      // The roots counted under the condition, and the source's beside them.
+      const sent = source.sent.map(({ soql }) => soql).join('\n');
+      expect(sent).toContain("Name IN ('A1', 'A2', 'A3')");
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it('is refused at its gate, nothing written, for a field no stratum is drawn by, in words the page can follow', async () => {
+      await simulate(drawn({ strata: ['Account.Name'] }));
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'SAMPLE_DRAW_INVALID',
+        gate: { code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } },
+      });
+      expect(String(error.message)).toMatch(/Account\.Name/);
+      expect(posted('forge:execute:response')).toEqual([]);
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it('is refused at its gate in the source’s words for a condition of the roots it cannot read, naming no flag of the command line', async () => {
+      await simulate(drawn({ rootWhere: { Account: "Nope__c = 'x'" } }));
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'SAMPLE_DRAW_INVALID',
+        gate: { code: 'SAMPLE_DRAW_INVALID' },
+      });
+      const message = String(error.message);
+      expect(message).toMatch(/Nope__c/);
+      // The page has no flag to set: it sets the roots under Which roots.
+      expect(message).not.toMatch(/--[a-z]/);
+      expect(message).toMatch(/Which roots/);
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it('is refused before a request for a filter of an object with no root, offering the filter of the object above where the page sets it', async () => {
+      await simulate(drawn({ rootWhere: { Contact: "LastName = 'C1'" } }));
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'SAMPLE_DRAW_INVALID',
+        gate: { sample: { requests: 0 } },
+      });
+      expect(String(error.message)).toContain(
+        'Filter the roots of Account instead, under Which roots: Id IN (SELECT AccountId FROM Contact WHERE …).',
+      );
+      expect(String(error.message)).not.toMatch(/--[a-z]/);
+      expect(source.requests).toBe(0);
+    });
+
+    it('is refused once counted when its window holds no root, the counts said, naming no flag of the command line', async () => {
+      await simulate(
+        drawn({
+          window: {
+            field: 'CreatedDate',
+            from: '2001-01-01T00:00:00Z',
+            to: '2001-02-01T00:00:00Z',
+          },
+        }),
+      );
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'SAMPLE_DRAW_EMPTY',
+        gate: { code: 'SAMPLE_DRAW_EMPTY', sample: { requests: expect.any(Number) } },
+      });
+      const message = String(error.message);
+      expect(message).toMatch(/No object has a root in the draw/);
+      expect(message).not.toMatch(/--[a-z]/);
+      expect(message).toMatch(/Which roots/);
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it('draws its own when the simulation drew among other roots, and says why', async () => {
+      await simulate(drawn({ window: { field: 'CreatedDate', lastDays: 30 } }));
+
+      await execute({ config: drawn({ window: { field: 'CreatedDate', lastDays: 90 } }) });
+
+      expect(writeQuestions()[0].wholeOrg?.sample).toMatchObject({
+        drawnBy: 'run',
+        drawnAgain: 'setUpOtherwise',
+      });
+    });
+  });
+
   describe('a run stopped part way', () => {
     /** A simulation, then its run stopped once it wrote some of the plan: the run's entry. */
     async function stoppedRun(): Promise<{ forgeId: string; planned: number }> {
@@ -944,6 +1059,32 @@ describe('forge:sample-budget:request', () => {
 
     const { budget } = answers()[0].payload as { budget: ForgeSampleBudget };
     expect(budget.budget).toMatchObject({ bytes: MB, withinMB: 1, limitedBy: 'within' });
+  });
+
+  it('prices a draw held to a filter of the roots, the source’s roots counted beside, as at most', async () => {
+    await ask(EVERY_RECORD);
+    const every = (answers()[0].payload as { budget: ForgeSampleBudget }).budget;
+
+    await ask({ ...SAMPLE, sample: { rootWhere: { Account: "BillingCountry = 'France'" } } });
+
+    const held = (answers()[1].payload as { budget: ForgeSampleBudget }).budget;
+    // The accounts counted a second time, without their filter.
+    expect(held.planReads.source.estimate).toBe(every.planReads.source.estimate + 1);
+    expect(held.planReads).toMatchObject({ atMost: true });
+    expect(every.planReads).not.toHaveProperty('atMost');
+  });
+
+  it('prices a draw held to a window, with strata, as at most', async () => {
+    await ask({
+      ...SAMPLE,
+      sample: {
+        window: { field: 'CreatedDate', lastDays: 90 },
+        strata: ['Account.RecordTypeId'],
+      },
+    });
+
+    const { budget } = answers()[0].payload as { budget: ForgeSampleBudget };
+    expect(budget.planReads).toMatchObject({ atMost: true });
   });
 
   it('is refused of a config walked from a record', async () => {

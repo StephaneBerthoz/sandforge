@@ -30,6 +30,14 @@ export interface ForgeRunGateState {
    */
   sampleOffer: WholeOrgSampleBudget | undefined;
   /**
+   * Of a draw refused (`SAMPLE_DRAW_INVALID`, `SAMPLE_DRAW_EMPTY`), what the
+   * extension said of it: each problem — a field, a condition, a window —
+   * in its words or the source's, and the way out where the page sets it.
+   * The stop says the code alone, and the notice's sentence could only list
+   * what may be wrong. Undefined for any other stop.
+   */
+  said: string | undefined;
+  /**
    * Whether the notice has been brought into view and handed the keyboard
    * for this stop. Once per stop: the page drawn again with the same stop —
    * left and come back to — does not scroll to it again.
@@ -42,6 +50,7 @@ export interface ForgeRunGateState {
       checkpointAsked: boolean;
       checkpoint?: RunCheckpointInfo | undefined;
       sampleOffer?: WholeOrgSampleBudget | undefined;
+      said?: string | undefined;
     },
   ) => void;
   /** Say the notice of this stop has been brought into view. */
@@ -50,19 +59,31 @@ export interface ForgeRunGateState {
   clear: () => void;
 }
 
+/** The stops whose message the notice shows: a draw refused, by what refused it. */
+const SAID_OF: ReadonlySet<ForgeRunGateStop['code']> = new Set([
+  'SAMPLE_DRAW_INVALID',
+  'SAMPLE_DRAW_EMPTY',
+]);
+
+/** The most of a message the notice shows: the problems of a draw, every one at once. */
+const SAID_MOST = 4_000;
+
 /** Zustand store for why the last Forge run stopped at its gate. */
 export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
   stop: null,
   checkpointAsked: false,
   checkpoint: undefined,
   sampleOffer: undefined,
+  said: undefined,
   revealed: false,
   setStop(stop, run) {
+    const said = run?.said?.trim();
     set({
       stop,
       checkpointAsked: run?.checkpointAsked ?? false,
       checkpoint: run?.checkpoint,
       sampleOffer: stop.code === 'STORAGE_EXCEEDED' ? run?.sampleOffer : undefined,
+      said: SAID_OF.has(stop.code) && said ? said.slice(0, SAID_MOST) : undefined,
       revealed: false,
     });
   },
@@ -75,6 +96,7 @@ export const useForgeRunGateStore = create<ForgeRunGateState>((set) => ({
       checkpointAsked: false,
       checkpoint: undefined,
       sampleOffer: undefined,
+      said: undefined,
       revealed: false,
     });
   },
@@ -99,7 +121,7 @@ export function takeGateStop(event: MessageEvent): void {
     { type?: unknown; correlationId?: unknown; payload?: unknown } | null | undefined;
   if (!data || typeof data !== 'object' || data.type !== 'forge:execute:error') return;
   const payload = data.payload as
-    { gate?: unknown; checkpoint?: unknown; sampleOffer?: unknown } | undefined;
+    { gate?: unknown; checkpoint?: unknown; sampleOffer?: unknown; message?: unknown } | undefined;
   const stop = forgeRunGateStopOf(payload?.gate);
   if (!stop) return;
   const forge = useForgeStore.getState();
@@ -109,6 +131,7 @@ export function takeGateStop(event: MessageEvent): void {
     checkpointAsked: forge.checkpointFirst,
     checkpoint: runCheckpointOf(payload?.checkpoint),
     sampleOffer: sampleBudgetOf(payload?.sampleOffer),
+    said: typeof payload?.message === 'string' ? payload.message : undefined,
   });
   if (forge.retrying && forge.result) forge.backToResults();
   else forge.reviewAgain();

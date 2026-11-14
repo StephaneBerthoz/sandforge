@@ -4394,7 +4394,8 @@
       "sample": "Amostra: {{share}} % das raízes, semente {{seed}}, {{draw}}",
       "sampleDraw": {
         "uniform": "distribuída pela org",
-        "recent": "os mais recentes primeiro"
+        "recent": "os mais recentes primeiro",
+        "oldest": "os mais antigos primeiro"
       },
       "statusSuccess": "Bem-sucedida",
       "statusPartial": "Parcial",
@@ -4407,7 +4408,9 @@
       "journalGone": "Os Ids dos registros desta execução ficavam no seu diário, que não existe mais: eles não podem mais ser removidos, verificados, tentados de novo nem salvos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
       "sweepAction": "Recuperar o que a automação do destino criou",
       "roots_one": "{{formatted}} registro {{object}} escolhido pela consulta, {{written}} deles no destino",
-      "roots_other": "{{formatted}} registros {{object}} escolhidos pela consulta, {{written}} deles no destino"
+      "roots_other": "{{formatted}} registros {{object}} escolhidos pela consulta, {{written}} deles no destino",
+      "sampleRoots": "Raízes: {{roots}}",
+      "sampleRootsFollowing": "Raízes: {{roots}} — executada de novo, a janela acompanha o dia"
     },
     "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
     "files": {
@@ -4542,7 +4545,23 @@
         "limit": "O LIMIT da consulta é um número inteiro de 1 a {{most}}: acima disso, copie uma amostra da org inteira com um filtro sobre suas raízes."
       }
     },
-    "hintRootsQuery": "Corrija a consulta para descobrir o grafo: ela escolhe os registros a clonar"
+    "hintRootsQuery": "Corrija a consulta para descobrir o grafo: ela escolhe os registros a clonar",
+    "sampleRoots": {
+      "window": {
+        "created": "criadas",
+        "modified": "modificadas por último",
+        "between": "raízes {{made}} de {{from}} até antes de {{to}}",
+        "from": "raízes {{made}} a partir de {{from}}",
+        "to": "raízes {{made}} antes de {{to}}",
+        "last_one": "raízes {{made}} no último dia",
+        "last_other": "raízes {{made}} nos últimos {{days}} dias",
+        "lastFrom": "{{last}}, a partir de {{from}}"
+      },
+      "where": "{{object}} onde {{where}}",
+      "whereObjects": "raízes de {{objects}} filtradas",
+      "stratum": "{{object}} estratificado por {{field}}",
+      "strataFields": "estratificado por {{fields}}"
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4694,8 +4713,8 @@
       "apiRequestsExceededTargetSample": "A execução foi recusada antes de gravar qualquer coisa: ela precisaria de cerca de {{estimate}} solicitações de API da org de destino, que tem {{remaining}} restantes hoje. Execute-a quando a org tiver de sobra, exclua objetos na revisão ou limite-os com um filtro em Revisão → Ajustes, ou copie uma amostra da org que caiba no destino (Registros por objeto: Uma amostra que caiba no destino).",
       "apiRequestsExceededSource": "A execução foi recusada antes de gravar qualquer coisa: ler a org de origem precisaria de cerca de {{estimate}} de suas solicitações de API, e restam {{remaining}} hoje. Execute-a quando a org tiver de sobra, ou exclua objetos na revisão ou limite-os com um filtro em Revisão → Ajustes.",
       "apiRequestsExceededSourceSample": "A execução foi recusada antes de gravar qualquer coisa: ler a org de origem precisaria de cerca de {{estimate}} de suas solicitações de API, e restam {{remaining}} hoje. Execute-a quando a org tiver de sobra, exclua objetos na revisão ou limite-os com um filtro em Revisão → Ajustes, ou copie uma amostra da org que caiba no destino (Registros por objeto: Uma amostra que caiba no destino).",
-      "apiDrawingExceeded": "A execução foi recusada antes de gravar qualquer coisa: sortear a amostra espalhada pela org leria cerca de {{estimate}} solicitações de API da org de origem, mais do que os {{share}} % das {{remaining}} que restam hoje que um sorteio pode usar. Nenhum Id foi lido além das contagens. Sorteie os registros mais recentes, o que só lê os que ele mantém, ou limite os objetos grandes com um filtro em Revisão → Ajustes.",
-      "apiDrawingExceededRecent": "A execução foi recusada antes de gravar qualquer coisa: sortear a amostra leria cerca de {{estimate}} solicitações de API da org de origem, mais do que os {{share}} % das {{remaining}} que restam hoje que um sorteio pode usar. Nenhum Id foi lido além das contagens. Limite os objetos grandes com um filtro em Revisão → Ajustes, ou sorteie-a quando a origem tiver de sobra — o limite diário é contado nas últimas 24 horas.",
+      "apiDrawingExceeded": "A execução foi recusada antes de gravar qualquer coisa: sortear a amostra espalhada pela org leria cerca de {{estimate}} solicitações de API da org de origem, mais do que os {{share}} % das {{remaining}} que restam hoje que um sorteio pode usar. Nenhum Id foi lido além das contagens. Sorteie os registros mais recentes ou os mais antigos, o que só lê os que ele mantém, escolha menos raízes em Quais raízes, ou limite os objetos grandes com um filtro em Revisão → Ajustes.",
+      "apiDrawingExceededRecent": "A execução foi recusada antes de gravar qualquer coisa: sortear os registros mais recentes da amostra leria cerca de {{estimate}} solicitações de API da org de origem, mais do que os {{share}} % das {{remaining}} que restam hoje que um sorteio pode usar. Nenhum Id foi lido além das contagens. Escolha menos raízes em Quais raízes, limite os objetos grandes com um filtro em Revisão → Ajustes, ou sorteie-a quando a origem tiver de sobra — o limite diário é contado nas últimas 24 horas.",
       "bulkBatchesExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus jobs da Bulk API precisariam de cerca de {{estimate}} lotes da org de destino, que tem {{remaining}} restantes nas últimas 24 horas. Execute-a quando a org tiver de sobra, ou exclua objetos na revisão ou limite-os com um filtro em Revisão → Ajustes.",
       "bulkBatchesExceededSample": "A execução foi recusada antes de gravar qualquer coisa: seus jobs da Bulk API precisariam de cerca de {{estimate}} lotes da org de destino, que tem {{remaining}} restantes nas últimas 24 horas. Execute-a quando a org tiver de sobra, exclua objetos na revisão ou limite-os com um filtro em Revisão → Ajustes, ou copie uma amostra da org que caiba no destino (Registros por objeto: Uma amostra que caiba no destino).",
       "filesUnread": "A execução foi recusada antes de gravar qualquer coisa: a org de origem não somou nem listou seus arquivos, então não se sabe quanto armazenamento de arquivos do destino eles ocupam. Desative a cópia de arquivos na revisão, ou execute de novo quando a origem responder.",
@@ -4706,8 +4725,8 @@
       "sampleTooLarge": "A execução foi recusada antes de gravar qualquer coisa: sortear a amostra leu {{rows}} registros, mais do que os {{most}} que ela mantém de uma vez. Deixe a amostra ocupar menos, ou exclua objetos ou leia-os por um filtro na revisão.",
       "samplePlanMismatch": "A execução foi recusada antes de gravar qualquer coisa: o plano da amostra que ela devia copiar foi sorteado de outra org ou para outra configuração, ou mudou desde então. Simule de novo para sortear um novo.",
       "samplePlanGone": "A execução foi recusada antes de gravar qualquer coisa: o plano da sua amostra não está mais nesta máquina, ou não está mais como foi sorteado, então seus registros não podem ser retomados. Execute de novo a partir da revisão para sortear uma nova amostra, ou remova o que ela gravou em Resultados.",
-      "sampleDrawInvalid": "A execução foi recusada antes de gravar qualquer coisa: suas raízes não podem ser sorteadas como pedido — um campo de estrato que não é lista de opções, caixa de seleção nem pesquisa, ou que tem valores demais; um filtro das raízes que a org de origem recusou; ou um filtro em um objeto copiado inteiro ou sem raiz. Mude entre quais raízes ela sorteia nas configurações da amostra, na revisão.",
-      "sampleDrawEmpty": "A execução foi recusada antes de gravar qualquer coisa: nenhum objeto tem raiz na janela, nos filtros das raízes e nos estratos pedidos. Amplie a janela, mude os filtros ou sorteie sem eles nas configurações da amostra, na revisão.",
+      "sampleDrawInvalid": "A execução foi recusada antes de gravar qualquer coisa: suas raízes não podem ser sorteadas como pedido — um campo de estrato que não é lista de opções, caixa de seleção nem pesquisa, ou que tem valores demais; um filtro das raízes que a org de origem recusou; ou um filtro em um objeto copiado inteiro ou sem raiz. Mude entre quais raízes ela sorteia em Quais raízes, na revisão.",
+      "sampleDrawEmpty": "A execução foi recusada antes de gravar qualquer coisa: nenhum objeto tem raiz na janela, nos filtros das raízes e nos estratos pedidos. Amplie a janela, mude os filtros ou sorteie sem eles, em Quais raízes, na revisão.",
       "rootsQueryRefused": "A execução não começou: sua consulta não consegue escolher os registros a clonar — uma cláusula que muda as linhas que ela retorna (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE ou um COUNT()), um alias que não leva de volta ao seu objeto, ou um WHERE, ORDER BY ou LIMIT fora das regras. Nada foi lido nem gravado. Corrija a consulta, escolhendo seus registros por WHERE, ORDER BY e LIMIT.",
       "noRoots": "A execução foi recusada antes de gravar qualquer coisa: sua consulta não escolhe nenhum registro {{object}} da org de origem. Verifique o WHERE dela na org de origem.",
       "rootsExceeded": "A execução foi recusada antes de ler qualquer outra coisa: sua consulta escolhe mais registros {{object}} do que os {{cap}} que ela clona, e nada foi gravado. Adicione ORDER BY CreatedDate DESC LIMIT {{limit}} à consulta para clonar os mais recentes, ou restrinja o WHERE dela.",
@@ -4725,7 +4744,11 @@
       "samplePlanMismatchResume": "A execução foi recusada antes de gravar qualquer coisa: a execução que ela retoma foi configurada de outro modo, uma amostra onde esta copia todos os registros, ou todos os registros onde esta copia uma amostra. Retome-a como foi configurada.",
       "simulateAgain": "Simular de novo",
       "drawNewest": "Sortear os mais recentes primeiro",
-      "sampleOffer": "Uma amostra que caiba ocuparia cerca de {{mb}} MB dele."
+      "sampleOffer": "Uma amostra que caiba ocuparia cerca de {{mb}} MB dele.",
+      "apiDrawingExceededOldest": "A execução foi recusada antes de gravar qualquer coisa: sortear os registros mais antigos da amostra leria cerca de {{estimate}} solicitações de API da org de origem, mais do que os {{share}} % das {{remaining}} que restam hoje que um sorteio pode usar. Nenhum Id foi lido além das contagens. Escolha menos raízes em Quais raízes, limite os objetos grandes com um filtro em Revisão → Ajustes, ou sorteie-a quando a origem tiver de sobra — o limite diário é contado nas últimas 24 horas.",
+      "drawOldest": "Sortear os mais antigos primeiro",
+      "chooseRoots": "Escolher as raízes",
+      "drawSaid": "O que a recusou: {{said}}"
     },
     "executionTable": {
       "leftOut": "excluído",
@@ -5162,10 +5185,12 @@
           "uniform": "Distribuída pela org",
           "recent": "Os mais recentes primeiro",
           "uniformHint": "Registros sorteados em cada objeto inteiro por um hash dos seus ids com semente: o sorteio lê o id de cada registro que pode sortear, e a amostra representa a org inteira.",
-          "recentHint": "Os registros criados por último, pela data de criação: o sorteio lê apenas os que mantém, e a amostra pende para os dados mais recentes."
+          "recentHint": "Os registros criados por último, pela data de criação: o sorteio lê apenas os que mantém, e a amostra pende para os dados mais recentes.",
+          "oldest": "Os mais antigos primeiro",
+          "oldestHint": "Os registros criados primeiro, pela data de criação: o sorteio lê apenas os que mantém, e a amostra pende para os dados mais antigos."
         },
         "cost": "Sorteá-la lê solicitações de API de {{source}}: {{allowance}}. Leva cerca de {{duration}}.",
-        "costRefused": "Isso passa de um décimo do que resta hoje a {{source}}: o sorteio seria recusado antes de ler um id. Sorteie os mais recentes primeiro, ou exclua os maiores objetos.",
+        "costRefused": "Isso passa de um décimo do que resta hoje a {{source}}: o sorteio seria recusado antes de ler um id. Sorteie os mais recentes ou os mais antigos primeiro, escolha menos raízes em Quais raízes, ou exclua os maiores objetos.",
         "whole": "Copiados inteiros por conta própria: {{objects}}.",
         "why": {
           "referenceData": "dados de referência pareados pelo nome, nunca gravados",
@@ -5195,12 +5220,62 @@
           "toggle_one": "Copiar inteiros: {{formatted}} objeto",
           "toggle_other": "Copiar inteiros: {{formatted}} objetos",
           "legend": "Objetos a copiar inteiros",
-          "hint": "Um objeto copiado inteiro traz cada um de seus registros, e nenhum é sorteado."
+          "hint": "Um objeto copiado inteiro traz todos os seus registros, e nenhum é sorteado: o filtro das suas raízes e o seu estrato, em Quais raízes, são retirados."
         },
         "offerAction": "Copiar uma amostra que caiba",
         "floor": {
           "label": "Registros sorteados de cada objeto, qualquer que seja a proporção",
           "hint": "Cada objeto mantém pelo menos esta quantidade de seus registros, qualquer que seja a proporção que o espaço restante lhe dá. Em 0, pode ser que nenhum seja sorteado de um objeto: uma amostra então cabe onde esses registros sozinhos ocupavam mais do que ela pode ocupar."
+        },
+        "costAtMost": "Sorteá-la lê no máximo solicitações de API de {{source}}: {{allowance}}. Leva no máximo cerca de {{duration}}: a janela e os filtros das raízes deixam menos raízes do que a descoberta contou.",
+        "costRefusedByDate": "Isso passa de um décimo do que resta hoje a {{source}}: o sorteio seria recusado antes de ler um id. Escolha menos raízes em Quais raízes — uma janela mais estreita, filtros das raízes, menos estratos —, ou exclua os maiores objetos.",
+        "seedHintByDate": "Os mais recentes ou os mais antigos são os mesmos registros qualquer que seja a semente: Sortear de novo só sorteia outros quando as raízes são distribuídas pela org.",
+        "roots": {
+          "title": "Quais raízes",
+          "every": "todas as raízes",
+          "conditions_one": "{{formatted}} condição",
+          "conditions_other": "{{formatted}} condições",
+          "hint": "As raízes são os registros sorteados no topo de cada história — contas, leads, um caso sem conta —, cada uma com os registros abaixo dela e os que ela nomeia. O que vem abaixo de uma raiz ou acima dela chega qualquer que seja sua data ou seus valores.",
+          "pick": "Escolher…",
+          "remove": "Remover",
+          "removeLabel": "Remover {{what}}",
+          "window": {
+            "legend": "Janela de datas, em UTC",
+            "field": "Data",
+            "created": "Criação",
+            "modified": "Última modificação",
+            "from": "De (UTC)",
+            "to": "Até (UTC, o dia inteiro)",
+            "lastDays_one": "Último dia",
+            "lastDays_other": "Últimos {{days}} dias",
+            "clear": "Limpar a janela",
+            "following_one": "As raízes do último dia, contado a partir do sorteio da amostra: executada outro dia, a janela acompanha esse dia.",
+            "following_other": "As raízes dos últimos {{days}} dias, contados a partir do sorteio da amostra: executada outro dia, a janela acompanha esse dia.",
+            "refused": "A janela começa depois do fim: coloque o início no último dia ou antes. Ela não foi alterada.",
+            "hint": "Conta uma raiz criada, ou modificada por último, no primeiro dia, e o último dia conta inteiro. Sorteadas as mais recentes ou as mais antigas primeiro, as raízes são ordenadas pela data de criação, mesmo com uma janela sobre a última modificação. Um objeto sem essa data não tem raiz na janela, e é indicado à parte."
+          },
+          "where": {
+            "legend": "Filtro das raízes",
+            "hint": "As raízes de um objeto são sorteadas só entre os registros que atendem a uma condição. O que vem abaixo ou acima delas chega independentemente dela, e nenhuma pesquisa fica vazia por causa dela: para deixar registros fora da cópia, use o filtro do objeto em Revisão → Ajustes.",
+            "object": "Objeto",
+            "label": "Condição sobre as raízes de {{object}}, em SOQL sem WHERE",
+            "apply": "Aplicar",
+            "refused": "A execução seria recusada com esta condição: no máximo 512 caracteres, sem marca de comentário (--, /*, */), sem ponto e vírgula no final. Ela não foi aplicada.",
+            "item": "{{object}}: {{where}}",
+            "notDrawn": "{{object}} está fora da execução ou é copiado inteiro: não tem raiz a filtrar, e a execução seria recusada com este filtro. Remova-o."
+          },
+          "strata": {
+            "legend": "Estratos",
+            "hint": "Cada valor de um campo mantém a mesma parte das raízes, e pelo menos os registros sorteados de cada objeto qualquer que seja a parte. Um campo de poucos valores: uma lista de opções, uma caixa de seleção, um tipo de registro ou um proprietário. Os registros abaixo das raízes não são estratificados.",
+            "recordType": "Tipo de registro, em cada objeto que tiver um",
+            "everyObject": "{{field}}, em cada objeto que o tiver",
+            "item": "{{object}} por {{field}}",
+            "field": "Campo",
+            "add": "Estratificar",
+            "reading": "Lendo os campos de {{object}}…",
+            "error": "Não foi possível ler os campos de {{object}}: {{error}}",
+            "none": "{{object}} não tem lista de opções, caixa de seleção nem pesquisa que a execução grave."
+          }
         }
       }
     },
@@ -5580,11 +5655,13 @@
           "bulkBatches": "os lotes diários da Bulk API de {{target}}",
           "sourceRequests": "as solicitações de API diárias de {{source}}",
           "heavyRoots": "os registros deixados de lado abaixo, cada um acima de um décimo do espaço que {{target}} tem: todas as outras raízes cabem",
-          "whole": "nada: todos os registros cabem"
+          "whole": "nada: todos os registros cabem",
+          "draw": "o sorteio: todas as raízes da janela e dos filtros das raízes estão nele — amplie-os para levar mais"
         },
         "draw": {
           "uniform": "distribuída pela org",
-          "recent": "os mais recentes primeiro"
+          "recent": "os mais recentes primeiro",
+          "oldest": "os mais antigos primeiro"
         },
         "byObject": "O que a amostra mantém, por objeto",
         "column": {
@@ -5617,7 +5694,30 @@
         "partialMasterParents": "{{rows}} registros de {{object}} trazidos como pais, só com os registros de {{details}} sorteados por si mesmos ({{details}}.{{field}})",
         "newestByIds": "Os mais recentes pela ordem de seus ids, por não terem data de criação pela qual a org ordene: {{objects}}.",
         "requests": "O sorteio enviou {{requests}} solicitações de API a {{source}}.",
-        "plan": "O plano fica guardado nesta máquina por um dia: {{path}} (SHA-256 {{sha}}…). Executar Forge o retoma enquanto a execução estiver configurada da mesma forma; caso contrário, a execução sorteia de novo e diz por quê."
+        "plan": "O plano fica guardado nesta máquina por um dia: {{path}} (SHA-256 {{sha}}…). Executar Forge o retoma enquanto a execução estiver configurada da mesma forma; caso contrário, a execução sorteia de novo e diz por quê.",
+        "keptInTheDraw": "{{kept}} dos {{total}} registros de {{source}}, de {{objects}} objetos: {{share}} % das raízes do sorteio de cada objeto, semente {{seed}}, {{draw}}, com os registros que elas alcançam.",
+        "rootsChosen": "Como as raízes foram escolhidas: {{roots}}.",
+        "inTheDraw": "Raízes do sorteio, das raízes da origem: {{objects}}.",
+        "inTheDrawOf": "{{object}} {{drawn}} de {{roots}}",
+        "inTheDrawOnly": "{{object}} {{drawn}}",
+        "noRootInTheDraw": "Objetos de {{source}} sem raiz na janela nem nos filtros das raízes, dos quais nenhum registro é mantido: {{objects}}.",
+        "notWindowed": "Objetos sem {{field}}, que não têm raiz na janela: {{objects}}.",
+        "oldestByIds": "Os mais antigos pela ordem de seus ids, por não terem data de criação pela qual a org ordene: {{objects}}.",
+        "strata": {
+          "caption": "Os estratos: as raízes de cada valor, e as mantidas",
+          "column": {
+            "stratum": "Campo",
+            "value": "Valor",
+            "roots": "Raízes",
+            "kept": "Mantidas"
+          },
+          "none": "(vazio)",
+          "checked": "marcada",
+          "unchecked": "desmarcada",
+          "more_one": "{{formatted}} valor a mais, não listado",
+          "more_other": "{{formatted}} valores a mais, não listados",
+          "under": "Os registros abaixo das raízes não são estratificados."
+        }
       }
     },
     "sampleResult": {
@@ -5656,7 +5756,9 @@
       "gone_one": "{{formatted}} sumido de {{source}} desde a amostra: não gravado, e não é falha.",
       "gone_other": "{{formatted}} sumidos de {{source}} desde a amostra: não gravados, e não é falha.",
       "changed_one": "{{formatted}} retido: um registro sem o qual ele não pode ser gravado mudou desde a amostra.",
-      "changed_other": "{{formatted}} retidos: um registro sem o qual eles não podem ser gravados mudou desde a amostra."
+      "changed_other": "{{formatted}} retidos: um registro sem o qual eles não podem ser gravados mudou desde a amostra.",
+      "drawnInTheDraw": "Sorteada com a semente {{seed}}, {{draw}}: {{share}} % das raízes do sorteio de cada objeto. Plano SHA-256 {{sha}}…, sorteado em {{at}}.",
+      "roots": "Suas raízes: {{roots}}."
     },
     "sampling": {
       "at": "Sorteando a amostra, antes de gravar qualquer coisa: {{step}}.",

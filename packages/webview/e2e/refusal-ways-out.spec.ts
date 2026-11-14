@@ -751,7 +751,7 @@ test.describe('a sample of the whole org: its floor, and the ways out of a refus
     });
 
     await expect(page.getByTestId('forge-run-gate-reason')).toHaveText(
-      'The run was refused before it wrote anything: drawing the sample spread over the org would read about 9,000 API requests of the source org, more than the 50 % of the 14,000 it has left today a drawing may take. No id was read past the counts. Draw the newest records, which reads only those it keeps, or narrow the large objects with a filter in Review → Controls.',
+      'The run was refused before it wrote anything: drawing the sample spread over the org would read about 9,000 API requests of the source org, more than the 50 % of the 14,000 it has left today a drawing may take. No id was read past the counts. Draw the newest or the oldest records, which read only those they keep, choose fewer roots under Which roots, or narrow the large objects with a filter in Review → Controls.',
     );
     // A sample already: no sample offered in its place.
     await expect(page.getByTestId('forge-run-gate-copy-sample-budget')).toHaveCount(0);
@@ -782,7 +782,7 @@ test.describe('a sample of the whole org: its floor, and the ways out of a refus
     });
 
     await expect(page.getByTestId('forge-run-gate-reason')).toHaveText(
-      'The run was refused before it wrote anything: drawing the sample would read about 9,000 API requests of the source org, more than the 50 % of the 14,000 it has left today a drawing may take. No id was read past the counts. Narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.',
+      'The run was refused before it wrote anything: drawing the newest records of the sample would read about 9,000 API requests of the source org, more than the 50 % of the 14,000 it has left today a drawing may take. No id was read past the counts. Choose fewer roots under Which roots, narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.',
     );
     await expect(page.getByTestId('forge-run-gate-draw-newest')).toHaveCount(0);
   });

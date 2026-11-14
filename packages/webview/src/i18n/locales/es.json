@@ -4394,7 +4394,8 @@
       "sample": "Muestra: {{share}} % de las raíces, semilla {{seed}}, {{draw}}",
       "sampleDraw": {
         "uniform": "repartida por la org",
-        "recent": "los más recientes primero"
+        "recent": "los más recientes primero",
+        "oldest": "los más antiguos primero"
       },
       "statusSuccess": "Correcta",
       "statusPartial": "Parcial",
@@ -4407,7 +4408,9 @@
       "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
       "sweepAction": "Recuperar lo que creó la automatización del destino",
       "roots_one": "{{formatted}} registro {{object}} que eligió su consulta, {{written}} de ellos en el destino",
-      "roots_other": "{{formatted}} registros {{object}} que eligió su consulta, {{written}} de ellos en el destino"
+      "roots_other": "{{formatted}} registros {{object}} que eligió su consulta, {{written}} de ellos en el destino",
+      "sampleRoots": "Raíces: {{roots}}",
+      "sampleRootsFollowing": "Raíces: {{roots}} —ejecutada de nuevo, la ventana sigue el día"
     },
     "hintSoqlObjectNameInvalid": "Corrija el nombre del objeto después de FROM para descubrir el grafo",
     "files": {
@@ -4542,7 +4545,23 @@
         "limit": "El LIMIT de la consulta es un número entero de 1 a {{most}}: más allá, copie una muestra de toda la org con un filtro sobre sus raíces."
       }
     },
-    "hintRootsQuery": "Corrija la consulta para descubrir el grafo: elige los registros que se clonan"
+    "hintRootsQuery": "Corrija la consulta para descubrir el grafo: elige los registros que se clonan",
+    "sampleRoots": {
+      "window": {
+        "created": "creadas",
+        "modified": "modificadas por última vez",
+        "between": "raíces {{made}} desde el {{from}} hasta antes del {{to}}",
+        "from": "raíces {{made}} desde el {{from}}",
+        "to": "raíces {{made}} antes del {{to}}",
+        "last_one": "raíces {{made}} el último día",
+        "last_other": "raíces {{made}} en los últimos {{days}} días",
+        "lastFrom": "{{last}}, desde el {{from}}"
+      },
+      "where": "{{object}} donde {{where}}",
+      "whereObjects": "raíces de {{objects}} filtradas",
+      "stratum": "{{object}} estratificado por {{field}}",
+      "strataFields": "estratificado por {{fields}}"
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4694,8 +4713,8 @@
       "apiRequestsExceededTargetSample": "La ejecución se rechazó antes de escribir nada: necesitaría unas {{estimate}} solicitudes de API de la org de destino, a la que le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
       "apiRequestsExceededSource": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes.",
       "apiRequestsExceededSourceSample": "La ejecución se rechazó antes de escribir nada: leer la org de origen necesitaría unas {{estimate}} de sus solicitudes de API, y le quedan {{remaining}} hoy. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
-      "apiDrawingExceeded": "La ejecución se rechazó antes de escribir nada: extraer la muestra repartida por la org leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Extraiga los registros más recientes, lo que solo lee los que conserva, o limite los objetos grandes con un filtro en Revisión → Ajustes.",
-      "apiDrawingExceededRecent": "La ejecución se rechazó antes de escribir nada: extraer la muestra leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Limite los objetos grandes con un filtro en Revisión → Ajustes, o extráigala cuando al origen le sobren —el límite diario se cuenta sobre las últimas 24 horas.",
+      "apiDrawingExceeded": "La ejecución se rechazó antes de escribir nada: extraer la muestra repartida por la org leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Extraiga los registros más recientes o los más antiguos, lo que solo lee los que conserva, elija menos raíces en Qué raíces, o limite los objetos grandes con un filtro en Revisión → Ajustes.",
+      "apiDrawingExceededRecent": "La ejecución se rechazó antes de escribir nada: extraer los registros más recientes de la muestra leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Elija menos raíces en Qué raíces, limite los objetos grandes con un filtro en Revisión → Ajustes, o extráigala cuando al origen le sobren —el límite diario se cuenta sobre las últimas 24 horas.",
       "bulkBatchesExceeded": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren, o excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes.",
       "bulkBatchesExceededSample": "La ejecución se rechazó antes de escribir nada: sus trabajos de Bulk API necesitarían unos {{estimate}} lotes de la org de destino, a la que le quedan {{remaining}} en las últimas 24 horas. Ejecútela cuando a la org le sobren, excluya objetos en la revisión o limítelos con un filtro en Revisión → Ajustes, o copie una muestra de la org que quepa en el destino (Registros por objeto: Una muestra que quepa en el destino).",
       "filesUnread": "La ejecución se rechazó antes de escribir nada: la org de origen no sumó ni enumeró sus archivos, así que no se sabe cuánto almacenamiento de archivos del destino ocupan. Desactive la copia de archivos en la revisión, o vuelva a ejecutarla cuando el origen responda.",
@@ -4706,8 +4725,8 @@
       "sampleTooLarge": "La ejecución se rechazó antes de escribir nada: extraer la muestra leyó {{rows}} registros, más de los {{most}} que guarda a la vez. Deje que la muestra ocupe menos, o excluya objetos o léalos a través de un filtro en la revisión.",
       "samplePlanMismatch": "La ejecución se rechazó antes de escribir nada: el plan de la muestra que debía copiar se extrajo de otra org o para otra configuración, o ha cambiado desde entonces. Simule de nuevo para extraer uno nuevo.",
       "samplePlanGone": "La ejecución se rechazó antes de escribir nada: el plan de su muestra ya no está en este equipo, o ya no es como se extrajo, así que sus registros no pueden retomarse. Vuelva a ejecutarla desde la revisión para extraer una nueva muestra, o quite lo que escribió desde Resultados.",
-      "sampleDrawInvalid": "La ejecución se rechazó antes de escribir nada: sus raíces no pueden extraerse como se pidió — un campo de estrato que no es lista de selección, casilla de verificación ni búsqueda, o que tiene demasiados valores; un filtro de las raíces que la org de origen rechazó; o un filtro sobre un objeto copiado entero o sin raíz. Cambie entre qué raíces extrae en los ajustes de la muestra, en la revisión.",
-      "sampleDrawEmpty": "La ejecución se rechazó antes de escribir nada: ningún objeto tiene una raíz en la ventana, los filtros de las raíces y los estratos pedidos. Amplíe la ventana, cambie los filtros o extraiga sin ellos en los ajustes de la muestra, en la revisión.",
+      "sampleDrawInvalid": "La ejecución se rechazó antes de escribir nada: sus raíces no pueden extraerse como se pidió — un campo de estrato que no es lista de selección, casilla de verificación ni búsqueda, o que tiene demasiados valores; un filtro de las raíces que la org de origen rechazó; o un filtro sobre un objeto copiado entero o sin raíz. Cambie entre qué raíces extrae en Qué raíces, en la revisión.",
+      "sampleDrawEmpty": "La ejecución se rechazó antes de escribir nada: ningún objeto tiene una raíz en la ventana, los filtros de las raíces y los estratos pedidos. Amplíe la ventana, cambie los filtros o extraiga sin ellos, en Qué raíces, en la revisión.",
       "rootsQueryRefused": "La ejecución no empezó: su consulta no puede elegir los registros que clonar — una cláusula que cambia las filas que devuelve (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE o un COUNT()), un alias que no lleva de vuelta a su objeto, o un WHERE, ORDER BY o LIMIT fuera de las reglas. No se leyó ni escribió nada. Corrija la consulta eligiendo sus registros con WHERE, ORDER BY y LIMIT.",
       "noRoots": "La ejecución se rechazó antes de escribir nada: su consulta no elige ningún registro {{object}} de la org de origen. Compruebe su WHERE en la org de origen.",
       "rootsExceeded": "La ejecución se rechazó antes de leer nada más: su consulta elige más registros {{object}} que los {{cap}} que clona, y no se escribió nada. Añada ORDER BY CreatedDate DESC LIMIT {{limit}} a la consulta para clonar los más recientes, o acote su WHERE.",
@@ -4725,7 +4744,11 @@
       "samplePlanMismatchResume": "La ejecución se rechazó antes de escribir nada: la ejecución que retoma estaba configurada de otro modo, una muestra donde esta copia cada registro, o cada registro donde esta copia una muestra. Retómela tal como estaba configurada.",
       "simulateAgain": "Simular de nuevo",
       "drawNewest": "Extraer los más recientes primero",
-      "sampleOffer": "Una muestra que quepa ocuparía unos {{mb}} MB de él."
+      "sampleOffer": "Una muestra que quepa ocuparía unos {{mb}} MB de él.",
+      "apiDrawingExceededOldest": "La ejecución se rechazó antes de escribir nada: extraer los registros más antiguos de la muestra leería unas {{estimate}} solicitudes de API de la org de origen, más del {{share}} % de las {{remaining}} que le quedan hoy que puede tomar una extracción. No se leyó ningún Id más allá de los recuentos. Elija menos raíces en Qué raíces, limite los objetos grandes con un filtro en Revisión → Ajustes, o extráigala cuando al origen le sobren —el límite diario se cuenta sobre las últimas 24 horas.",
+      "drawOldest": "Extraer los más antiguos primero",
+      "chooseRoots": "Elegir las raíces",
+      "drawSaid": "Lo que la rechazó: {{said}}"
     },
     "executionTable": {
       "leftOut": "excluido",
@@ -5162,10 +5185,12 @@
           "uniform": "Repartida por la org",
           "recent": "Los más recientes primero",
           "uniformHint": "Registros extraídos de todo cada objeto mediante un hash de sus ids con semilla: la extracción lee el id de cada registro del que puede extraer, y la muestra representa toda la org.",
-          "recentHint": "Los registros creados al final, según su fecha de creación: la extracción solo lee los que conserva, y la muestra se inclina hacia los datos más recientes."
+          "recentHint": "Los registros creados al final, según su fecha de creación: la extracción solo lee los que conserva, y la muestra se inclina hacia los datos más recientes.",
+          "oldest": "Los más antiguos primero",
+          "oldestHint": "Los registros creados primero, según su fecha de creación: la extracción solo lee los que conserva, y la muestra se inclina hacia los datos más antiguos."
         },
         "cost": "Extraerla lee solicitudes de API de {{source}}: {{allowance}}. Tarda unos {{duration}}.",
-        "costRefused": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Extraiga los más recientes primero, o excluya los objetos más grandes.",
+        "costRefused": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Extraiga los más recientes o los más antiguos primero, elija menos raíces en Qué raíces, o excluya los objetos más grandes.",
         "whole": "Copiados enteros por sí solos: {{objects}}.",
         "why": {
           "referenceData": "datos de referencia emparejados por nombre, nunca escritos",
@@ -5195,12 +5220,62 @@
           "toggle_one": "Copiar enteros: {{formatted}} objeto",
           "toggle_other": "Copiar enteros: {{formatted}} objetos",
           "legend": "Objetos que copiar enteros",
-          "hint": "Un objeto copiado entero trae cada uno de sus registros, y ninguno se extrae."
+          "hint": "Un objeto copiado entero trae todos sus registros, y ninguno se extrae: el filtro de sus raíces y su estrato, en Qué raíces, se quitan."
         },
         "offerAction": "Copiar una muestra que quepa",
         "floor": {
           "label": "Registros extraídos de cada objeto, sea cual sea la proporción",
           "hint": "Cada objeto conserva al menos esta cantidad de sus registros, sea cual sea la proporción que le deja el espacio restante. En 0, puede que no se extraiga ninguno de un objeto: entonces cabe una muestra donde esos registros ocupaban por sí solos más de lo que puede ocupar."
+        },
+        "costAtMost": "Extraerla lee como máximo solicitudes de API de {{source}}: {{allowance}}. Tarda como máximo unos {{duration}}: la ventana y los filtros de las raíces dejan menos raíces de las que contó el descubrimiento.",
+        "costRefusedByDate": "Eso supera una décima parte de lo que le queda hoy a {{source}}: la extracción se rechazaría antes de leer un id. Elija menos raíces en Qué raíces —una ventana más estrecha, filtros de las raíces, menos estratos—, o excluya los objetos más grandes.",
+        "seedHintByDate": "Los más recientes o los más antiguos son los mismos registros sea cual sea la semilla: Extraer de nuevo solo extrae otros cuando las raíces se reparten por la org.",
+        "roots": {
+          "title": "Qué raíces",
+          "every": "todas las raíces",
+          "conditions_one": "{{formatted}} condición",
+          "conditions_other": "{{formatted}} condiciones",
+          "hint": "Las raíces son los registros extraídos en lo alto de cada historia —cuentas, candidatos, un caso sin cuenta—, cada una con los registros que tiene debajo y los que nombra. Lo que viene debajo de una raíz o por encima llega sea cual sea su fecha o sus valores.",
+          "pick": "Elegir…",
+          "remove": "Quitar",
+          "removeLabel": "Quitar {{what}}",
+          "window": {
+            "legend": "Ventana de fechas, en UTC",
+            "field": "Fecha",
+            "created": "Creación",
+            "modified": "Última modificación",
+            "from": "Desde (UTC)",
+            "to": "Hasta (UTC, el día entero)",
+            "lastDays_one": "Último día",
+            "lastDays_other": "Últimos {{days}} días",
+            "clear": "Borrar la ventana",
+            "following_one": "Las raíces del último día, contado desde que se extrae la muestra: ejecutada otro día, la ventana sigue ese día.",
+            "following_other": "Las raíces de los últimos {{days}} días, contados desde que se extrae la muestra: ejecutada otro día, la ventana sigue ese día.",
+            "refused": "La ventana empieza después de su fin: ponga su inicio en su último día o antes. No se ha cambiado.",
+            "hint": "Cuenta una raíz creada, o modificada por última vez, el primer día, y el último día cuenta entero. Extraídas las más recientes o las más antiguas primero, las raíces se ordenan por su fecha de creación, incluso con una ventana sobre su última modificación. Un objeto sin esa fecha no tiene raíz en la ventana, y se indica aparte."
+          },
+          "where": {
+            "legend": "Filtro de las raíces",
+            "hint": "Las raíces de un objeto se extraen solo entre los registros que cumplen una condición. Lo que viene debajo o por encima llega diga lo que diga, y ninguna búsqueda queda vacía por ella: para dejar registros fuera de la copia, use el filtro del objeto en Revisión → Ajustes.",
+            "object": "Objeto",
+            "label": "Condición sobre las raíces de {{object}}, en SOQL sin WHERE",
+            "apply": "Aplicar",
+            "refused": "La ejecución se rechazaría con esta condición: 512 caracteres como máximo, sin marca de comentario (--, /*, */), sin punto y coma al final. No se ha aplicado.",
+            "item": "{{object}}: {{where}}",
+            "notDrawn": "{{object}} está excluido de la ejecución o se copia entero: no tiene raíces que filtrar, y la ejecución se rechazaría con este filtro. Quítelo."
+          },
+          "strata": {
+            "legend": "Estratos",
+            "hint": "Cada valor de un campo conserva la misma parte de las raíces, y al menos los registros extraídos de cada objeto sea cual sea la parte. Un campo de pocos valores: una lista de selección, una casilla de verificación, un tipo de registro o un propietario. Los registros bajo las raíces no se estratifican.",
+            "recordType": "Tipo de registro, en cada objeto que tenga uno",
+            "everyObject": "{{field}}, en cada objeto que lo tenga",
+            "item": "{{object}} por {{field}}",
+            "field": "Campo",
+            "add": "Estratificar",
+            "reading": "Leyendo los campos de {{object}}…",
+            "error": "No se pudieron leer los campos de {{object}}: {{error}}",
+            "none": "{{object}} no tiene lista de selección, casilla de verificación ni búsqueda que la ejecución escriba."
+          }
         }
       }
     },
@@ -5580,11 +5655,13 @@
           "bulkBatches": "los lotes diarios de Bulk API de {{target}}",
           "sourceRequests": "las solicitudes de API diarias de {{source}}",
           "heavyRoots": "los registros apartados más abajo, cada uno por encima de una décima parte del espacio que tiene {{target}}: todas las demás raíces caben",
-          "whole": "nada: todos los registros caben"
+          "whole": "nada: todos los registros caben",
+          "draw": "la extracción: todas las raíces de la ventana y de los filtros de las raíces están en ella —amplíelos para tomar más"
         },
         "draw": {
           "uniform": "repartida por la org",
-          "recent": "los más recientes primero"
+          "recent": "los más recientes primero",
+          "oldest": "los más antiguos primero"
         },
         "byObject": "Lo que conserva la muestra, por objeto",
         "column": {
@@ -5617,7 +5694,30 @@
         "partialMasterParents": "{{rows}} registros de {{object}} traídos como padres, solo con los registros de {{details}} sorteados por sí mismos ({{details}}.{{field}})",
         "newestByIds": "Los más recientes por el orden de sus ids, al no tener fecha de creación por la que ordene la org: {{objects}}.",
         "requests": "La extracción envió {{requests}} solicitudes de API a {{source}}.",
-        "plan": "El plan se guarda en este equipo durante un día: {{path}} (SHA-256 {{sha}}…). Ejecutar Forge lo retoma mientras la ejecución esté configurada igual; si no, la ejecución extrae de nuevo y dice por qué."
+        "plan": "El plan se guarda en este equipo durante un día: {{path}} (SHA-256 {{sha}}…). Ejecutar Forge lo retoma mientras la ejecución esté configurada igual; si no, la ejecución extrae de nuevo y dice por qué.",
+        "keptInTheDraw": "{{kept}} de los {{total}} registros de {{source}}, de {{objects}} objetos: el {{share}} % de las raíces de la extracción de cada objeto, semilla {{seed}}, {{draw}}, con los registros que alcanzan.",
+        "rootsChosen": "Cómo se eligieron las raíces: {{roots}}.",
+        "inTheDraw": "Raíces de la extracción, de las raíces del origen: {{objects}}.",
+        "inTheDrawOf": "{{object}} {{drawn}} de {{roots}}",
+        "inTheDrawOnly": "{{object}} {{drawn}}",
+        "noRootInTheDraw": "Objetos de {{source}} sin raíz en la ventana ni en los filtros de las raíces, de los que no se conserva ningún registro: {{objects}}.",
+        "notWindowed": "Objetos sin {{field}}, que no tienen raíz en la ventana: {{objects}}.",
+        "oldestByIds": "Los más antiguos por el orden de sus ids, al no tener fecha de creación por la que ordene la org: {{objects}}.",
+        "strata": {
+          "caption": "Los estratos: las raíces de cada valor, y las conservadas",
+          "column": {
+            "stratum": "Campo",
+            "value": "Valor",
+            "roots": "Raíces",
+            "kept": "Conservadas"
+          },
+          "none": "(vacío)",
+          "checked": "marcada",
+          "unchecked": "desmarcada",
+          "more_one": "{{formatted}} valor más, no listado",
+          "more_other": "{{formatted}} valores más, no listados",
+          "under": "Los registros bajo las raíces no se estratifican."
+        }
       }
     },
     "sampleResult": {
@@ -5656,7 +5756,9 @@
       "gone_one": "{{formatted}} desaparecido de {{source}} desde la muestra: no escrito, y no es un fallo.",
       "gone_other": "{{formatted}} desaparecidos de {{source}} desde la muestra: no escritos, y no es un fallo.",
       "changed_one": "{{formatted}} retenido: un registro sin el que no puede escribirse cambió desde la muestra.",
-      "changed_other": "{{formatted}} retenidos: un registro sin el que no pueden escribirse cambió desde la muestra."
+      "changed_other": "{{formatted}} retenidos: un registro sin el que no pueden escribirse cambió desde la muestra.",
+      "drawnInTheDraw": "Extraída con la semilla {{seed}}, {{draw}}: el {{share}} % de las raíces de la extracción de cada objeto. Plan SHA-256 {{sha}}…, extraído el {{at}}.",
+      "roots": "Sus raíces: {{roots}}."
     },
     "sampling": {
       "at": "Extrayendo la muestra, antes de escribir nada: {{step}}.",

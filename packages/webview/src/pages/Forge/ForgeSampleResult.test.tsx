@@ -118,6 +118,34 @@ describe('ForgeSampleResult', () => {
     );
   });
 
+  it('says a sample drawn the oldest first among chosen roots, its share of the roots in the draw', () => {
+    renderResult({
+      draw: 'oldest',
+      share: 0.25,
+      roots: {
+        window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z' },
+        whereObjects: ['Account', 'Lead'],
+        strataFields: ['Account.RecordTypeId'],
+      },
+    });
+
+    expect(screen.getByTestId('forge-sample-result-drawn').textContent).toMatch(
+      /^Drawn with seed 1, the oldest first: 25 % of the roots in the draw of each object\./,
+    );
+    expect(screen.getByTestId('forge-sample-result-roots').textContent).toBe(
+      'Its roots: roots made from Jan 1, 2025, 12:00 AM UTC on; the roots of Account, Lead filtered; stratified by Account.RecordTypeId.',
+    );
+  });
+
+  it('says nothing of the roots of a sample drawn among every root', () => {
+    renderResult();
+
+    expect(screen.getByTestId('forge-sample-result-drawn').textContent).toContain(
+      'of the roots of each object',
+    );
+    expect(screen.queryByTestId('forge-sample-result-roots')).toBeNull();
+  });
+
   it('says the lookups written empty, their record outside the sample', () => {
     renderResult();
 

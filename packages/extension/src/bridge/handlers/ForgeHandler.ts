@@ -23,6 +23,7 @@ import type {
   ForgeWrittenBetween,
   ForgeWholeOrgDryRun,
   ForgeSamplingProgress,
+  ForgeRunGateCode,
   WholeOrgSample,
   WholeOrgSampleResult,
   WholeOrgSampleBudget,
@@ -831,6 +832,48 @@ const previewRootsPayloadSchema = z.object({
   soqlQuery: z.string().min(1).max(20_000),
   maxRoots: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
 });
+
+/**
+ * How the page says the ways out of a draw refused (`SAMPLE_DRAW_INVALID`,
+ * `SAMPLE_DRAW_EMPTY`): the drawing words them in the command line's flags,
+ * which the page has none of. It chooses the roots under Which roots, on
+ * Review, leaves an object out there and filters its records in Review →
+ * Controls; what the source or the options said is kept as it was written.
+ * Each pattern is one the drawing writes (`sampleDrawOptions.ts`,
+ * `sampleReader.ts`, `sampleDrawing.ts`).
+ */
+const PAGE_DRAW_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
+  // The condition offered on the object above, its object named before it.
+  [/ instead: --fit-where "[^"=]+=([^"]*)"/g, ' instead, under Which roots: $1'],
+  [/ \(--fit-(?:window|where|strata)\b[^)]*\)/g, ' (under Which roots)'],
+  [/ \(--exclude-object\)/g, ' (left out on Review)'],
+  [
+    /--filter leaves records of it out of the copy\./g,
+    'Its filter, in Review → Controls, leaves records of it out of the copy.',
+  ],
+];
+
+/** The codes of a draw refused, whose words the page shows as they are written. */
+const DRAW_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'SAMPLE_DRAW_INVALID',
+  'SAMPLE_DRAW_EMPTY',
+] as const satisfies ReadonlyArray<ForgeRunGateCode>);
+
+/**
+ * `refusal` as the page is told it: of a draw refused, its message with its
+ * ways out where the page sets them (`PAGE_DRAW_WORDS`), its stop the same;
+ * any other as it is.
+ */
+function drawRefusalForThePage(refusal: ForgeRunGateError): ForgeRunGateError {
+  if (!DRAW_REFUSAL_CODES.has(refusal.code)) return refusal;
+  const message = PAGE_DRAW_WORDS.reduce(
+    (text, [pattern, words]) => text.replace(pattern, words),
+    refusal.message,
+  );
+  return new ForgeRunGateError(refusal.code, message, undefined, undefined, undefined, {
+    ...(refusal.sample ? { sample: refusal.sample } : {}),
+  });
+}
 
 /**
  * Why a sample of the whole org was refused before anything was read: its
@@ -4116,7 +4159,10 @@ export class ForgeHandler implements DomainHandler {
       }
       await endJournal();
       const taken = checkpointTaken && checkpointInfo ? { checkpoint: checkpointInfo } : {};
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
+      // A draw refused is said on the page in its words, its ways out where
+      // the page sets them rather than in the command line's flags.
+      const said = gate && isForgeRunGateError(gate) ? drawRefusalForThePage(gate) : error;
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, said, {
         code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
         retryable: true,
         ...(stoppedRun

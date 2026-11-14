@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { Dices } from 'lucide-react';
 import type { WholeOrgSampleResult, WholeOrgSampleWritten } from '@sandforge/shared';
 import { uiLocale } from '../../utils/formatters';
-import { drawWords, percentOf, sampleNumber as n } from './sampleWords';
+import { drawWords, percentOf, rootsChosenWords, sampleNumber as n } from './sampleWords';
 
 /** How the records of one object came into the sample, as its line says it. */
 function howWords(t: TFunction, object: WholeOrgSampleWritten): string {
@@ -125,6 +125,9 @@ export const ForgeSampleResult: React.FC<ForgeSampleResultProps> = ({ sample, so
   }
   const complete = changed === 0 && short === 0;
   const why = drawnWhyWords(t, sample);
+  // How its roots were chosen, as its question said: the share is then of
+  // the roots in the draw. The filters' text is in the run's config.
+  const chosen = sample.roots ? rootsChosenWords(t, sample.roots) : '';
 
   return (
     <section
@@ -137,16 +140,26 @@ export const ForgeSampleResult: React.FC<ForgeSampleResultProps> = ({ sample, so
         {t('forgeRun.sampleResult.title')}
       </h3>
       <p data-testid="forge-sample-result-drawn" className="text-text-secondary">
-        {t('forgeRun.sampleResult.drawn', {
-          seed: n(sample.seed),
-          draw: drawWords(t, sample.draw),
-          share: percentOf(sample.share),
-          sha: sample.sha256.slice(0, 12),
-          at: Number.isNaN(drawnAt.getTime())
-            ? sample.drawnAt
-            : drawnAt.toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
-        })}
+        {t(
+          sample.roots?.window !== undefined || (sample.roots?.whereObjects ?? []).length > 0
+            ? 'forgeRun.sampleResult.drawnInTheDraw'
+            : 'forgeRun.sampleResult.drawn',
+          {
+            seed: n(sample.seed),
+            draw: drawWords(t, sample.draw),
+            share: percentOf(sample.share),
+            sha: sample.sha256.slice(0, 12),
+            at: Number.isNaN(drawnAt.getTime())
+              ? sample.drawnAt
+              : drawnAt.toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
+          },
+        )}
       </p>
+      {chosen && (
+        <p data-testid="forge-sample-result-roots" className="text-text-secondary">
+          {t('forgeRun.sampleResult.roots', { roots: chosen })}
+        </p>
+      )}
       {why && (
         <p data-testid="forge-sample-result-why" className="text-text-secondary">
           {why}

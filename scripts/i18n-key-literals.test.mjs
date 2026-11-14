@@ -277,6 +277,20 @@ const UNION_BACKED = [
     prefix: 'forgeRun.nodeStatus.',
     from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeNodeStatus' },
   },
+  // A sample's draw and the bound that held it, said by the simulation and the
+  // history: `oldest` and `draw` came to the unions with no word on the page.
+  {
+    prefix: 'forgeRun.wholeOrgDryRun.sample.draw.',
+    from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeSampleDraw' },
+  },
+  {
+    prefix: 'forge.history.sampleDraw.',
+    from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeSampleDraw' },
+  },
+  {
+    prefix: 'forgeRun.wholeOrgDryRun.sample.limitedBy.',
+    from: { file: 'packages/shared/src/types/forge.types.ts', union: 'WholeOrgSampleLimit' },
+  },
   {
     prefix: 'frozen.loadPhase.',
     from: { file: 'packages/shared/src/types/frozen.types.ts', union: 'FrozenLoadPhase' },

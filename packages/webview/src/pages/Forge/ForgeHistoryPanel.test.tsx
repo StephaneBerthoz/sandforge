@@ -261,6 +261,39 @@ describe('ForgeHistoryPanel', () => {
     expect(screen.getByTestId('forge-history-sample-forge-sample').textContent).toBe(
       'Sample: 67 % of the roots, seed 2, spread over the org',
     );
+    expect(screen.queryByTestId('forge-history-sample-roots-forge-sample')).toBeNull();
+  });
+
+  it('says a sample drawn the oldest first, how its roots were chosen, and that a window of the last days follows the day', () => {
+    const sampled: ForgeExecutionResult = {
+      ...RECORD_RUN,
+      forgeId: 'forge-oldest',
+      config: {
+        inputMode: 'org',
+        depth: 'all',
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+        sample: { draw: 'oldest' },
+      },
+      sample: wholeOrgSampleResult({
+        share: 0.5,
+        draw: 'oldest',
+        roots: {
+          window: { field: 'LastModifiedDate', lastDays: 30, from: '2026-10-15T10:00:00Z' },
+          whereObjects: ['Account'],
+          strataFields: ['Lead.Status'],
+        },
+      }),
+    };
+    render(<ForgeHistoryPanel entries={[sampled]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.getByTestId('forge-history-sample-forge-oldest').textContent).toBe(
+      'Sample: 50 % of the roots, seed 1, the oldest first',
+    );
+    expect(screen.getByTestId('forge-history-sample-roots-forge-oldest').textContent).toBe(
+      'Roots: roots last modified in the last 30 days, from Oct 15, 2026, 10:00 AM UTC; the roots of Account filtered; stratified by Lead.Status — run again, the window follows the day',
+    );
   });
 
   it('says how many records a clone from a query chose, of which object, and how many of them are in the target', () => {

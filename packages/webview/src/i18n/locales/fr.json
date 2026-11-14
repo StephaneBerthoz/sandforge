@@ -4394,7 +4394,8 @@
       "sample": "Échantillon : {{share}} % des racines, graine {{seed}}, {{draw}}",
       "sampleDraw": {
         "uniform": "réparti sur l'org",
-        "recent": "les plus récents d'abord"
+        "recent": "les plus récents d'abord",
+        "oldest": "les plus anciens d'abord"
       },
       "statusSuccess": "Réussie",
       "statusPartial": "Partielle",
@@ -4407,7 +4408,9 @@
       "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "sweepAction": "Reprendre ce que l'automatisation de la cible a créé",
       "roots_one": "{{formatted}} enregistrement {{object}} choisi par sa requête, {{written}} dans la cible",
-      "roots_other": "{{formatted}} enregistrements {{object}} choisis par sa requête, dont {{written}} dans la cible"
+      "roots_other": "{{formatted}} enregistrements {{object}} choisis par sa requête, dont {{written}} dans la cible",
+      "sampleRoots": "Racines : {{roots}}",
+      "sampleRootsFollowing": "Racines : {{roots}} — relancé, la fenêtre suit le jour"
     },
     "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
     "files": {
@@ -4542,7 +4545,23 @@
         "limit": "Le LIMIT de la requête est un nombre entier de 1 à {{most}} : au-delà, copiez un échantillon de toute l’org avec un filtre sur ses racines."
       }
     },
-    "hintRootsQuery": "Corrigez la requête pour découvrir le graphe : elle choisit les enregistrements à cloner"
+    "hintRootsQuery": "Corrigez la requête pour découvrir le graphe : elle choisit les enregistrements à cloner",
+    "sampleRoots": {
+      "window": {
+        "created": "créées",
+        "modified": "modifiées en dernier",
+        "between": "racines {{made}} du {{from}} jusqu'avant le {{to}}",
+        "from": "racines {{made}} à partir du {{from}}",
+        "to": "racines {{made}} avant le {{to}}",
+        "last_one": "racines {{made}} le dernier jour",
+        "last_other": "racines {{made}} les {{days}} derniers jours",
+        "lastFrom": "{{last}}, à partir du {{from}}"
+      },
+      "where": "{{object}} où {{where}}",
+      "whereObjects": "racines de {{objects}} filtrées",
+      "stratum": "{{object}} stratifié par {{field}}",
+      "strataFields": "stratifié par {{fields}}"
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4694,8 +4713,8 @@
       "apiRequestsExceededTargetSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : il demanderait environ {{estimate}} appels API à l'org cible, à qui il en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
       "apiRequestsExceededSource": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages.",
       "apiRequestsExceededSourceSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : lire l'org source demanderait environ {{estimate}} de ses appels API, et il lui en reste {{remaining}} aujourd'hui. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
-      "apiDrawingExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer l'échantillon réparti sur l'org lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Tirez les enregistrements les plus récents, ce qui ne lit que ceux qu'il garde, ou limitez les gros objets par un filtre dans Revue → Réglages.",
-      "apiDrawingExceededRecent": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer l'échantillon lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Limitez les gros objets par un filtre dans Revue → Réglages, ou tirez-le quand la source en aura de reste — la limite quotidienne se compte sur les dernières 24 heures.",
+      "apiDrawingExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer l'échantillon réparti sur l'org lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Tirez les enregistrements les plus récents ou les plus anciens, ce qui ne lit que ceux qu'il garde, choisissez moins de racines sous Quelles racines, ou limitez les gros objets par un filtre dans Revue → Réglages.",
+      "apiDrawingExceededRecent": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer les enregistrements les plus récents de l'échantillon lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Choisissez moins de racines sous Quelles racines, limitez les gros objets par un filtre dans Revue → Réglages, ou tirez-le quand la source en aura de reste — la limite quotidienne se compte sur les dernières 24 heures.",
       "bulkBatchesExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste, ou excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages.",
       "bulkBatchesExceededSample": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses jobs Bulk API demanderaient environ {{estimate}} lots à l'org cible, à qui il en reste {{remaining}} sur les dernières 24 heures. Relancez-le quand l'org en aura de reste, excluez des objets dans la revue ou limitez-les par un filtre dans Revue → Réglages, ou copiez un échantillon de l'org qui tient dans la cible (Enregistrements / objet : Un échantillon qui tient dans la cible).",
       "filesUnread": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'org source n'a ni totalisé ni listé ses fichiers, donc ce qu'ils prennent du stockage de fichiers de la cible n'est pas connu. Désactivez la copie des fichiers dans la revue, ou relancez-le quand la source répondra.",
@@ -4706,8 +4725,8 @@
       "sampleTooLarge": "Le clonage a été refusé avant d'écrire quoi que ce soit : le tirage de l'échantillon a lu {{rows}} enregistrements, plus que les {{most}} qu'il garde à la fois. Laissez l'échantillon prendre moins, ou excluez des objets ou lisez-les à travers un filtre dans la revue.",
       "samplePlanMismatch": "Le clonage a été refusé avant d'écrire quoi que ce soit : le plan de l'échantillon qu'il devait copier a été tiré d'une autre org ou pour un autre réglage, ou a changé depuis. Simulez de nouveau pour en tirer un nouveau.",
       "samplePlanGone": "Le clonage a été refusé avant d'écrire quoi que ce soit : le plan de son échantillon n'est plus sur cette machine, ou plus tel qu'il a été tiré, donc ses enregistrements ne peuvent pas être repris. Relancez-le depuis la revue pour tirer un nouvel échantillon, ou retirez ce qu'il a écrit depuis les Résultats.",
-      "sampleDrawInvalid": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses racines ne peuvent pas être tirées comme demandé — un champ de strate qui n'est ni une liste de sélection, ni une case à cocher, ni une référence, ou qui a trop de valeurs ; un filtre des racines que l'org source a refusé ; ou un filtre sur un objet copié en entier ou sans racine. Changez les racines parmi lesquelles il tire dans les réglages de l'échantillon, dans la revue.",
-      "sampleDrawEmpty": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun objet n'a de racine dans la fenêtre, les filtres des racines et les strates demandés. Élargissez la fenêtre, changez les filtres, ou tirez sans eux dans les réglages de l'échantillon, dans la revue.",
+      "sampleDrawInvalid": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses racines ne peuvent pas être tirées comme demandé — un champ de strate qui n'est ni une liste de sélection, ni une case à cocher, ni une référence, ou qui a trop de valeurs ; un filtre des racines que l'org source a refusé ; ou un filtre sur un objet copié en entier ou sans racine. Changez les racines parmi lesquelles il tire sous Quelles racines, dans la revue.",
+      "sampleDrawEmpty": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun objet n'a de racine dans la fenêtre, les filtres des racines et les strates demandés. Élargissez la fenêtre, changez les filtres, ou tirez sans eux, sous Quelles racines dans la revue.",
       "rootsQueryRefused": "Le clonage n'a pas démarré : sa requête ne peut pas choisir les enregistrements à cloner — une clause qui change les lignes qu'elle renvoie (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE ou un COUNT()), un alias qui ne ramène pas à son objet, ou un WHERE, un ORDER BY ou une LIMIT hors des règles. Rien n'a été lu ni écrit. Corrigez la requête en choisissant ses enregistrements par WHERE, ORDER BY et LIMIT.",
       "noRoots": "Le clonage a été refusé avant d'écrire quoi que ce soit : sa requête ne choisit aucun enregistrement {{object}} de l'org source. Vérifiez son WHERE sur l'org source.",
       "rootsExceeded": "Le clonage a été refusé avant de lire quoi que ce soit d'autre : sa requête choisit plus d'enregistrements {{object}} que les {{cap}} qu'il clone, et rien n'a été écrit. Ajoutez ORDER BY CreatedDate DESC LIMIT {{limit}} à la requête pour cloner les plus récents, ou resserrez son WHERE.",
@@ -4725,7 +4744,11 @@
       "samplePlanMismatchResume": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'exécution qu'il reprend était réglée autrement, un échantillon là où celle-ci copie chaque enregistrement, ou chaque enregistrement là où celle-ci copie un échantillon. Reprenez-la telle qu'elle était réglée.",
       "simulateAgain": "Simuler de nouveau",
       "drawNewest": "Tirer les plus récents d'abord",
-      "sampleOffer": "Un échantillon qui tient en occuperait environ {{mb}} Mo."
+      "sampleOffer": "Un échantillon qui tient en occuperait environ {{mb}} Mo.",
+      "apiDrawingExceededOldest": "Le clonage a été refusé avant d'écrire quoi que ce soit : tirer les enregistrements les plus anciens de l'échantillon lirait environ {{estimate}} appels API de l'org source, plus que les {{share}} % des {{remaining}} qui lui restent aujourd'hui qu'un tirage peut prendre. Aucun Id n'a été lu au-delà des comptages. Choisissez moins de racines sous Quelles racines, limitez les gros objets par un filtre dans Revue → Réglages, ou tirez-le quand la source en aura de reste — la limite quotidienne se compte sur les dernières 24 heures.",
+      "drawOldest": "Tirer les plus anciens d'abord",
+      "chooseRoots": "Choisir les racines",
+      "drawSaid": "Ce qui l'a refusé : {{said}}"
     },
     "executionTable": {
       "leftOut": "écarté",
@@ -5162,10 +5185,12 @@
           "uniform": "Réparti sur l'org",
           "recent": "Les plus récents d'abord",
           "uniformHint": "Des enregistrements tirés dans tout chaque objet par un hachage de leurs ids, à graine : le tirage lit l'id de chaque enregistrement qu'il peut tirer, et l'échantillon représente toute l'org.",
-          "recentHint": "Les enregistrements créés en dernier, selon leur date de création : le tirage ne lit que ceux qu'il garde, et l'échantillon penche vers les données les plus récentes."
+          "recentHint": "Les enregistrements créés en dernier, selon leur date de création : le tirage ne lit que ceux qu'il garde, et l'échantillon penche vers les données les plus récentes.",
+          "oldest": "Les plus anciens d'abord",
+          "oldestHint": "Les enregistrements créés en premier, selon leur date de création : le tirage ne lit que ceux qu'il garde, et l'échantillon penche vers les données les plus anciennes."
         },
         "cost": "Le tirer lit des requêtes API de {{source}} : {{allowance}}. Cela prend environ {{duration}}.",
-        "costRefused": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Tirez les plus récents d'abord, ou excluez les plus gros objets.",
+        "costRefused": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Tirez les plus récents ou les plus anciens d'abord, choisissez moins de racines sous Quelles racines, ou excluez les plus gros objets.",
         "whole": "Copiés en entier d'office : {{objects}}.",
         "why": {
           "referenceData": "données de référence appariées par nom, jamais écrites",
@@ -5195,12 +5220,62 @@
           "toggle_one": "Copier en entier : {{formatted}} objet",
           "toggle_other": "Copier en entier : {{formatted}} objets",
           "legend": "Objets à copier en entier",
-          "hint": "Un objet copié en entier apporte chacun de ses enregistrements, et aucun n'en est tiré."
+          "hint": "Un objet copié en entier apporte chacun de ses enregistrements, et aucun n'en est tiré : le filtre de ses racines et sa strate, sous Quelles racines, sont retirés."
         },
         "offerAction": "Copier un échantillon qui tient",
         "floor": {
           "label": "Enregistrements tirés de chaque objet, quelle que soit la part",
           "hint": "Chaque objet garde au moins ce nombre de ses enregistrements, quelle que soit la part que lui laisse la place restante. À 0, un objet peut n'en avoir aucun de tiré : un échantillon tient alors là où ces enregistrements prenaient à eux seuls plus que ce qu'il peut prendre."
+        },
+        "costAtMost": "Le tirer lit au plus des requêtes API de {{source}} : {{allowance}}. Cela prend au plus environ {{duration}} : la fenêtre et les filtres des racines laissent moins de racines que la découverte n'en a comptées.",
+        "costRefusedByDate": "C'est au-delà d'un dixième de ce qu'il reste aujourd'hui à {{source}} : le tirage serait refusé avant de lire un id. Choisissez moins de racines sous Quelles racines — une fenêtre plus étroite, des filtres des racines, moins de strates —, ou excluez les plus gros objets.",
+        "seedHintByDate": "Les plus récents ou les plus anciens sont les mêmes enregistrements quelle que soit la graine : Tirer à nouveau n'en tire d'autres que si les racines sont réparties sur l'org.",
+        "roots": {
+          "title": "Quelles racines",
+          "every": "toutes les racines",
+          "conditions_one": "{{formatted}} condition posée",
+          "conditions_other": "{{formatted}} conditions posées",
+          "hint": "Les racines sont les enregistrements tirés en haut de chaque histoire — comptes, pistes, une requête sans compte —, chacune avec les enregistrements sous elle et ceux qu'elle nomme. Ce qui vient sous une racine ou au-dessus vient quelles que soient sa date ou ses valeurs.",
+          "pick": "Choisir…",
+          "remove": "Retirer",
+          "removeLabel": "Retirer {{what}}",
+          "window": {
+            "legend": "Fenêtre de dates, en UTC",
+            "field": "Date",
+            "created": "Création",
+            "modified": "Dernière modification",
+            "from": "Du (UTC)",
+            "to": "Au (UTC, le jour entier)",
+            "lastDays_one": "Dernier jour",
+            "lastDays_other": "{{days}} derniers jours",
+            "clear": "Effacer la fenêtre",
+            "following_one": "Les racines du dernier jour, compté depuis le moment où l'échantillon est tiré : relancé un autre jour, la fenêtre suit ce jour.",
+            "following_other": "Les racines des {{days}} derniers jours, comptés depuis le moment où l'échantillon est tiré : relancé un autre jour, la fenêtre suit ce jour.",
+            "refused": "La fenêtre commence après sa fin : placez son début au plus tard à son dernier jour. Elle n'a pas été changée.",
+            "hint": "Une racine créée, ou modifiée en dernier, le premier jour compte, et le dernier jour compte en entier. Tirées les plus récentes ou les plus anciennes d'abord, les racines sont ordonnées par leur date de création, même avec une fenêtre sur leur dernière modification. Un objet sans cette date n'a aucune racine dans la fenêtre, et il est signalé à part."
+          },
+          "where": {
+            "legend": "Filtre des racines",
+            "hint": "Les racines d'un objet tirées seulement parmi les enregistrements qui remplissent une condition. Ce qui vient sous elles ou au-dessus vient quoi qu'elle dise, et aucune référence n'est laissée vide pour elle : pour retirer des enregistrements de la copie, utilisez le filtre de l'objet dans Revue → Réglages.",
+            "object": "Objet",
+            "label": "Condition sur les racines de {{object}}, en SOQL sans WHERE",
+            "apply": "Appliquer",
+            "refused": "L'exécution serait refusée avec cette condition : 512 caractères au plus, pas de marque de commentaire (--, /*, */), pas de point-virgule à la fin. Elle n'a pas été appliquée.",
+            "item": "{{object}} : {{where}}",
+            "notDrawn": "{{object}} est exclu du clonage ou copié en entier : il n'a pas de racine à filtrer, et l'exécution serait refusée avec ce filtre. Retirez-le."
+          },
+          "strata": {
+            "legend": "Strates",
+            "hint": "Chaque valeur d'un champ garde la même part des racines, et au moins les enregistrements tirés de chaque objet quelle que soit la part. Un champ de peu de valeurs : une liste de sélection, une case à cocher, un type d'enregistrement ou un propriétaire. Les enregistrements sous les racines ne sont pas stratifiés.",
+            "recordType": "Type d'enregistrement, sur chaque objet qui en a un",
+            "everyObject": "{{field}}, sur chaque objet qui l'a",
+            "item": "{{object}} par {{field}}",
+            "field": "Champ",
+            "add": "Stratifier",
+            "reading": "Lecture des champs de {{object}}…",
+            "error": "Les champs de {{object}} n'ont pas pu être lus : {{error}}",
+            "none": "{{object}} n'a ni liste de sélection, ni case à cocher, ni référence que le clonage écrit."
+          }
         }
       }
     },
@@ -5580,11 +5655,13 @@
           "bulkBatches": "les lots Bulk API quotidiens de {{target}}",
           "sourceRequests": "les requêtes API quotidiennes de {{source}}",
           "heavyRoots": "les enregistrements mis de côté plus bas, chacun au-delà d'un dixième de la place dont dispose {{target}} : toutes les autres racines tiennent",
-          "whole": "rien : chaque enregistrement tient"
+          "whole": "rien : chaque enregistrement tient",
+          "draw": "le tirage : chaque racine de la fenêtre et des filtres des racines y est — élargissez-les pour en prendre plus"
         },
         "draw": {
           "uniform": "réparti sur l'org",
-          "recent": "les plus récents d'abord"
+          "recent": "les plus récents d'abord",
+          "oldest": "les plus anciens d'abord"
         },
         "byObject": "Ce que garde l'échantillon, par objet",
         "column": {
@@ -5617,7 +5694,30 @@
         "partialMasterParents": "{{rows}} enregistrements {{object}} venus comme parents, avec les seuls enregistrements {{details}} tirés pour eux-mêmes ({{details}}.{{field}})",
         "newestByIds": "Les plus récents dans l'ordre de leurs ids, faute de date de création selon laquelle l'org trie : {{objects}}.",
         "requests": "Le tirage a envoyé {{requests}} requêtes API à {{source}}.",
-        "plan": "Le plan est gardé sur cette machine pendant un jour : {{path}} (SHA-256 {{sha}}…). Exécuter le Forge le reprend tant que le clonage est réglé de même ; sinon le clonage tire à nouveau, et dit pourquoi."
+        "plan": "Le plan est gardé sur cette machine pendant un jour : {{path}} (SHA-256 {{sha}}…). Exécuter le Forge le reprend tant que le clonage est réglé de même ; sinon le clonage tire à nouveau, et dit pourquoi.",
+        "keptInTheDraw": "{{kept}} des {{total}} enregistrements de {{source}}, de {{objects}} objets : {{share}} % des racines du tirage de chaque objet, graine {{seed}}, {{draw}}, avec les enregistrements qu'elles atteignent.",
+        "rootsChosen": "Comment les racines ont été choisies : {{roots}}.",
+        "inTheDraw": "Racines du tirage, sur les racines de la source : {{objects}}.",
+        "inTheDrawOf": "{{object}} {{drawn}} sur {{roots}}",
+        "inTheDrawOnly": "{{object}} {{drawn}}",
+        "noRootInTheDraw": "Objets de {{source}} sans racine dans la fenêtre ou les filtres des racines, dont aucun enregistrement n'est gardé : {{objects}}.",
+        "notWindowed": "Objets sans {{field}}, qui n'ont aucune racine dans la fenêtre : {{objects}}.",
+        "oldestByIds": "Les plus anciens dans l'ordre de leurs ids, faute de date de création selon laquelle l'org trie : {{objects}}.",
+        "strata": {
+          "caption": "Les strates : les racines de chaque valeur, et celles gardées",
+          "column": {
+            "stratum": "Champ",
+            "value": "Valeur",
+            "roots": "Racines",
+            "kept": "Gardées"
+          },
+          "none": "(vide)",
+          "checked": "cochée",
+          "unchecked": "décochée",
+          "more_one": "{{formatted}} valeur de plus, non listée",
+          "more_other": "{{formatted}} valeurs de plus, non listées",
+          "under": "Les enregistrements sous les racines ne sont pas stratifiés."
+        }
       }
     },
     "sampleResult": {
@@ -5656,7 +5756,9 @@
       "gone_one": "{{formatted}} disparu de {{source}} depuis l'échantillon : pas écrit, et aucun échec.",
       "gone_other": "{{formatted}} disparus de {{source}} depuis l'échantillon : pas écrits, et aucun échec.",
       "changed_one": "{{formatted}} retenu : un enregistrement sans lequel il ne peut être écrit a changé depuis l'échantillon.",
-      "changed_other": "{{formatted}} retenus : un enregistrement sans lequel ils ne peuvent être écrits a changé depuis l'échantillon."
+      "changed_other": "{{formatted}} retenus : un enregistrement sans lequel ils ne peuvent être écrits a changé depuis l'échantillon.",
+      "drawnInTheDraw": "Tiré avec la graine {{seed}}, {{draw}} : {{share}} % des racines du tirage de chaque objet. Plan SHA-256 {{sha}}…, tiré le {{at}}.",
+      "roots": "Ses racines : {{roots}}."
     },
     "sampling": {
       "at": "Tirage de l'échantillon, avant toute écriture : {{step}}.",

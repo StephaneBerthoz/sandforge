@@ -5,6 +5,7 @@ import type { ForgeConfig } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useForgeRunGateStore } from './runGate';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
+import { useSampleRootsAsk } from './ReviewSampleRoots';
 import { sampleBudgetTerms, wholeOrgGraph } from './testing/wholeOrg';
 
 const sentRuns = vi.hoisted(() => [] as Array<{ type: string; payload: unknown }>);
@@ -154,7 +155,7 @@ describe('ForgeRunGateNotice, of a sample of the whole org', () => {
     const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
     expect(said).toContain('drawing the sample spread over the org');
     expect(said).toContain('more than the 10 % of the 9,000 it has left today');
-    expect(said).toContain('Draw the newest records');
+    expect(said).toContain('Draw the newest or the oldest records');
 
     fireEvent.click(screen.getByTestId('forge-run-gate-draw-newest'));
 
@@ -225,6 +226,110 @@ describe('ForgeRunGateNotice, of a sample of the whole org', () => {
     expect(said).not.toContain('sample');
     expect(said).toContain('filter in Review → Controls');
     expect(screen.queryByTestId('forge-run-gate-copy-sample-budget')).toBeNull();
+  });
+
+  it('offers a drawing spread over the org refused the oldest first, and fewer roots', () => {
+    onReview({ ...WHOLE_ORG, sample: { seed: 3 } });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'API_BUDGET_EXCEEDED',
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 1_200,
+          remaining: 9_000,
+          drawing: { share: 0.1, draw: 'uniform' },
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+    expect(screen.getByTestId('forge-run-gate-choose-roots').textContent).toBe('Choose the roots');
+
+    fireEvent.click(screen.getByTestId('forge-run-gate-draw-oldest'));
+
+    expect(useForgeStore.getState().config?.sample).toEqual({ seed: 3, draw: 'oldest' });
+    expect(useForgeRunGateStore.getState().stop).toBeNull();
+  });
+
+  it('says a drawing of the oldest refused in its own words, and offers fewer roots, never another draw', () => {
+    // Said in the words of the newest, as a drawing of the newest was.
+    onReview({ ...WHOLE_ORG, sample: { draw: 'oldest' } });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'API_BUDGET_EXCEEDED',
+        api: {
+          kind: 'requests',
+          org: 'source',
+          estimate: 1_200,
+          remaining: 9_000,
+          drawing: { share: 0.1, draw: 'oldest', restricted: true },
+        },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    const said = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+    expect(said).toContain('drawing the oldest records of the sample would read about 1,200');
+    expect(said).not.toContain('newest');
+    expect(said).toContain('Choose fewer roots under Which roots');
+    expect(screen.queryByTestId('forge-run-gate-draw-newest')).toBeNull();
+    expect(screen.queryByTestId('forge-run-gate-draw-oldest')).toBeNull();
+    const before = useSampleRootsAsk.getState().asked;
+
+    fireEvent.click(screen.getByTestId('forge-run-gate-choose-roots'));
+
+    // Which roots is opened; the notice stays, its words beside the change.
+    expect(useSampleRootsAsk.getState().asked).toBe(before + 1);
+    expect(useForgeRunGateStore.getState().stop).not.toBeNull();
+  });
+
+  it.each([
+    [
+      'SAMPLE_DRAW_INVALID' as const,
+      'its roots cannot be drawn as asked',
+      'Account.Name is a string field, of too many values to stratify by. Nothing was written, and no request was sent.',
+    ],
+    [
+      'SAMPLE_DRAW_EMPTY' as const,
+      'no object has a root in the window',
+      'No object has a root in the draw: roots made from 2001-01-01T00:00:00Z to before 2001-02-01T00:00:00Z. Widen the window (under Which roots), or draw without them.',
+    ],
+  ])(
+    'says what refused a draw (%s) beside its sentence, and opens Which roots',
+    (code, sentence, message) => {
+      onReview({ ...WHOLE_ORG, sample: { strata: ['Account.Name'] } });
+      act(() =>
+        useForgeRunGateStore
+          .getState()
+          .setStop({ code, sample: { requests: 0 } }, { checkpointAsked: false, said: message }),
+      );
+      render(<ForgeRunGateNotice />);
+
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(sentence);
+      expect(screen.getByTestId('forge-run-gate-reason').textContent).toContain(
+        'under Which roots',
+      );
+      expect(screen.getByTestId('forge-run-gate-said').textContent).toBe(
+        `What refused it: ${message}`,
+      );
+      const before = useSampleRootsAsk.getState().asked;
+      fireEvent.click(screen.getByTestId('forge-run-gate-choose-roots'));
+      expect(useSampleRootsAsk.getState().asked).toBe(before + 1);
+    },
+  );
+
+  it('offers no choice of roots to a stop the roots have nothing to do with', () => {
+    onReview({ ...WHOLE_ORG, sample: {} });
+    act(() =>
+      useForgeRunGateStore.getState().setStop({
+        code: 'SAMPLE_TOO_LARGE',
+        sample: { rows: 2_000_000, most: 1_000_000 },
+      }),
+    );
+    render(<ForgeRunGateNotice />);
+
+    expect(screen.queryByTestId('forge-run-gate-choose-roots')).toBeNull();
+    expect(screen.queryByTestId('forge-run-gate-said')).toBeNull();
   });
 
   it('offers no sample to a run that copies one already', () => {

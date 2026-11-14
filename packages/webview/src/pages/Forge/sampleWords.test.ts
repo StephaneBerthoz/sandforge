@@ -10,5 +10,6 @@ describe('the words of a sample', () => {
     expect(wholeReasonWords(t, 'asked')).toBe('asked');
     expect(drawWords(t, 'uniform')).toBe('spread over the org');
     expect(drawWords(t, 'recent')).toBe('the newest first');
+    expect(drawWords(t, 'oldest')).toBe('the oldest first');
   });
 });

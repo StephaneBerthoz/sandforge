@@ -4394,7 +4394,8 @@
       "sample": "Sample: {{share}} % of the roots, seed {{seed}}, {{draw}}",
       "sampleDraw": {
         "uniform": "spread over the org",
-        "recent": "the newest first"
+        "recent": "the newest first",
+        "oldest": "the oldest first"
       },
       "statusSuccess": "Success",
       "statusPartial": "Partial",
@@ -4407,7 +4408,9 @@
       "journalGone": "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here. A checkpoint taken before the run takes the org back to before it: Checkpoints → Rewind…. Without one, DataOps → Cleanup → Empty objects empties the objects it wrote — every record of them, not this run's alone.",
       "sweepAction": "Take back what the target's automation created",
       "roots_one": "{{formatted}} {{object}} record its query chose, {{written}} of them in the target",
-      "roots_other": "{{formatted}} {{object}} records its query chose, {{written}} of them in the target"
+      "roots_other": "{{formatted}} {{object}} records its query chose, {{written}} of them in the target",
+      "sampleRoots": "Roots: {{roots}}",
+      "sampleRootsFollowing": "Roots: {{roots}} — run again, the window follows the day"
     },
     "hintSoqlObjectNameInvalid": "Fix the object name after FROM to discover the graph",
     "files": {
@@ -4542,7 +4545,23 @@
         "limit": "The query’s LIMIT is a whole number from 1 to {{most}}: past it, copy a sample of the whole org with a filter on its roots."
       }
     },
-    "hintRootsQuery": "Correct the query to discover the graph: it chooses the records to clone"
+    "hintRootsQuery": "Correct the query to discover the graph: it chooses the records to clone",
+    "sampleRoots": {
+      "window": {
+        "created": "made",
+        "modified": "last modified",
+        "between": "roots {{made}} from {{from}} to before {{to}}",
+        "from": "roots {{made}} from {{from}} on",
+        "to": "roots {{made}} before {{to}}",
+        "last_one": "roots {{made}} in the last day",
+        "last_other": "roots {{made}} in the last {{days}} days",
+        "lastFrom": "{{last}}, from {{from}}"
+      },
+      "where": "{{object}} where {{where}}",
+      "whereObjects": "the roots of {{objects}} filtered",
+      "stratum": "{{object}} stratified by {{field}}",
+      "strataFields": "stratified by {{fields}}"
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4694,8 +4713,8 @@
       "apiRequestsExceededTargetSample": "The run was refused before it wrote anything: it would take about {{estimate}} API requests of the target org, which has {{remaining}} left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
       "apiRequestsExceededSource": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, or leave objects out on Review or narrow them with a filter in Review → Controls.",
       "apiRequestsExceededSourceSample": "The run was refused before it wrote anything: reading the source org would take about {{estimate}} of its API requests, and it has {{remaining}} left today. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
-      "apiDrawingExceeded": "The run was refused before it wrote anything: drawing the sample spread over the org would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Draw the newest records, which reads only those it keeps, or narrow the large objects with a filter in Review → Controls.",
-      "apiDrawingExceededRecent": "The run was refused before it wrote anything: drawing the sample would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.",
+      "apiDrawingExceeded": "The run was refused before it wrote anything: drawing the sample spread over the org would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Draw the newest or the oldest records, which read only those they keep, choose fewer roots under Which roots, or narrow the large objects with a filter in Review → Controls.",
+      "apiDrawingExceededRecent": "The run was refused before it wrote anything: drawing the newest records of the sample would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Choose fewer roots under Which roots, narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.",
       "bulkBatchesExceeded": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare, or leave objects out on Review or narrow them with a filter in Review → Controls.",
       "bulkBatchesExceededSample": "The run was refused before it wrote anything: its Bulk API jobs would take about {{estimate}} batches of the target org, which has {{remaining}} left over the last 24 hours. Run it once the org has more to spare, leave objects out on Review or narrow them with a filter in Review → Controls, or copy a sample of the org that fits the target (Records per object: A sample that fits the target).",
       "filesUnread": "The run was refused before it wrote anything: the source org would neither sum nor list its files, so what they take of the target’s file storage is not known. Turn the copy of files off on Review, or run it again once the source answers.",
@@ -4706,8 +4725,8 @@
       "sampleTooLarge": "The run was refused before it wrote anything: drawing the sample read {{rows}} records, more than the {{most}} it holds at once. Let the sample take less, or leave objects out or read them through a filter on Review.",
       "samplePlanMismatch": "The run was refused before it wrote anything: the plan of the sample it was to copy was drawn of another org or for another setup, or has changed since. Simulate again to draw a new one.",
       "samplePlanGone": "The run was refused before it wrote anything: the plan of its sample is no longer on this machine, or no longer as it was drawn, so its records cannot be taken up. Run it again from Review to draw a new sample, or remove what it wrote from Results.",
-      "sampleDrawInvalid": "The run was refused before it wrote anything: its roots cannot be drawn as asked — a field to stratify by that is no picklist, checkbox or lookup, or has too many values; a filter of the roots the source org refused; or a filter on an object copied whole or with no root. Change which roots it draws among in the sample's settings on Review.",
-      "sampleDrawEmpty": "The run was refused before it wrote anything: no object has a root in the window, the filters of the roots and the strata asked. Widen the window, change the filters, or draw without them in the sample's settings on Review.",
+      "sampleDrawInvalid": "The run was refused before it wrote anything: its roots cannot be drawn as asked — a field to stratify by that is no picklist, checkbox or lookup, or has too many values; a filter of the roots the source org refused; or a filter on an object copied whole or with no root. Change which roots it draws among under Which roots, on Review.",
+      "sampleDrawEmpty": "The run was refused before it wrote anything: no object has a root in the window, the filters of the roots and the strata asked. Widen the window, change the filters, or draw without them, under Which roots on Review.",
       "rootsQueryRefused": "The run did not start: its query cannot choose the records to clone — a clause that changes the rows it returns (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE or a COUNT()), an alias that does not lead back to its object, or a WHERE, ORDER BY or LIMIT past the rules. Nothing was read or written. Correct the query, choosing its records by WHERE, ORDER BY and LIMIT.",
       "noRoots": "The run was refused before it wrote anything: its query chooses no {{object}} record of the source org. Check its WHERE against the source org.",
       "rootsExceeded": "The run was refused before it read anything else: its query chooses more {{object}} records than the {{cap}} it clones, and nothing was written. Add ORDER BY CreatedDate DESC LIMIT {{limit}} to the query to clone the newest, or narrow its WHERE.",
@@ -4725,7 +4744,11 @@
       "samplePlanMismatchResume": "The run was refused before it wrote anything: the run it resumes was set up otherwise, a sample where this one copies every record, or every record where this one copies a sample. Resume it as it was set up.",
       "simulateAgain": "Simulate again",
       "drawNewest": "Draw the newest first",
-      "sampleOffer": "A sample that fits would take about {{mb}} MB of it."
+      "sampleOffer": "A sample that fits would take about {{mb}} MB of it.",
+      "apiDrawingExceededOldest": "The run was refused before it wrote anything: drawing the oldest records of the sample would read about {{estimate}} API requests of the source org, more than the {{share}} % of the {{remaining}} it has left today a drawing may take. No id was read past the counts. Choose fewer roots under Which roots, narrow the large objects with a filter in Review → Controls, or draw it once the source has more to spare — the daily limit is counted over the last 24 hours.",
+      "drawOldest": "Draw the oldest first",
+      "chooseRoots": "Choose the roots",
+      "drawSaid": "What refused it: {{said}}"
     },
     "executionTable": {
       "leftOut": "left out",
@@ -5162,10 +5185,12 @@
           "uniform": "Spread over the org",
           "recent": "The newest first",
           "uniformHint": "Records drawn across each object by a seeded hash of their ids: drawing reads the id of every record it may draw from, and the sample stands for the whole org.",
-          "recentHint": "The records made last, by their creation date: drawing reads only those it keeps, and the sample leans to the newest data."
+          "recentHint": "The records made last, by their creation date: drawing reads only those it keeps, and the sample leans to the newest data.",
+          "oldest": "The oldest first",
+          "oldestHint": "The records made first, by their creation date: drawing reads only those it keeps, and the sample leans to the oldest data."
         },
         "cost": "Drawing it reads API requests of {{source}}: {{allowance}}. It takes about {{duration}}.",
-        "costRefused": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Draw the newest first, or leave the largest objects out.",
+        "costRefused": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Draw the newest or the oldest first, choose fewer roots under Which roots, or leave the largest objects out.",
         "whole": "Copied whole of itself: {{objects}}.",
         "why": {
           "referenceData": "reference data matched by name, never written",
@@ -5195,12 +5220,62 @@
           "toggle_one": "Copy whole: {{formatted}} object",
           "toggle_other": "Copy whole: {{formatted}} objects",
           "legend": "Objects to copy whole",
-          "hint": "An object copied whole brings every record of it, and none of it is drawn."
+          "hint": "An object copied whole brings every record of it, and none of it is drawn: the filter of its roots and its stratum, under Which roots, are taken off."
         },
         "offerAction": "Copy a sample that fits",
         "floor": {
           "label": "Records drawn of each object, whatever the share",
           "hint": "Each object keeps at least this many of its records, whatever the share the room left gives it. At 0, an object may have none drawn: a sample then fits where these records alone took more than it may take."
+        },
+        "costAtMost": "Drawing it reads API requests of {{source}}, at most: {{allowance}}. It takes about {{duration}} at most: the window and the filters of the roots leave fewer roots than discovery counted.",
+        "costRefusedByDate": "That is past a tenth of what {{source}} has left today: the draw would be refused before an id is read. Choose fewer roots under Which roots — a narrower window, filters of the roots, fewer strata —, or leave the largest objects out.",
+        "seedHintByDate": "The newest or the oldest are the same records whatever the seed: Draw again draws others only when the roots are spread over the org.",
+        "roots": {
+          "title": "Which roots",
+          "every": "every root",
+          "conditions_one": "{{formatted}} condition",
+          "conditions_other": "{{formatted}} conditions",
+          "hint": "The roots are the records drawn at the top of each story — accounts, leads, a case without an account —, each with the records under it and those it names. What comes under a root or above it comes whatever its date or values.",
+          "pick": "Choose…",
+          "remove": "Remove",
+          "removeLabel": "Remove {{what}}",
+          "window": {
+            "legend": "Window of dates, in UTC",
+            "field": "Date",
+            "created": "Created",
+            "modified": "Last modified",
+            "from": "From (UTC)",
+            "to": "To (UTC, the whole day)",
+            "lastDays_one": "Last {{days}} day",
+            "lastDays_other": "Last {{days}} days",
+            "clear": "Clear the window",
+            "following_one": "The roots of the last day, counted back from when the sample is drawn: run again another day, the window follows that day.",
+            "following_other": "The roots of the last {{days}} days, counted back from when the sample is drawn: run again another day, the window follows that day.",
+            "refused": "The window starts after its end: set its start on or before its last day. It was not changed.",
+            "hint": "A root made, or last modified, on the first day counts, and the last day counts whole. Drawn the newest or the oldest first, the roots are ordered by their creation date, even with a window on their last change. An object without the date has no root in the window, and is said apart."
+          },
+          "where": {
+            "legend": "Filter of the roots",
+            "hint": "An object's roots drawn only among the records that meet a condition. What comes under or above them comes whatever it says, and no lookup is left empty for it: to leave records out of the copy, use the object's filter in Review → Controls.",
+            "object": "Object",
+            "label": "Condition on the roots of {{object}}, in SOQL without WHERE",
+            "apply": "Apply",
+            "refused": "The run would be refused with this condition: 512 characters at most, no comment marker (--, /*, */), no semicolon at the end. It was not applied.",
+            "item": "{{object}}: {{where}}",
+            "notDrawn": "{{object}} is left out of the run or copied whole: it has no root to filter, and the run would be refused with this filter. Remove it."
+          },
+          "strata": {
+            "legend": "Strata",
+            "hint": "Each value of a field keeps the same share of the roots, and at least the records drawn of each object whatever the share. A field of few values: a picklist, a checkbox, a record type or an owner. Records under the roots are not stratified.",
+            "recordType": "Record type, on every object that has one",
+            "everyObject": "{{field}}, on every object that has it",
+            "item": "{{object}} by {{field}}",
+            "field": "Field",
+            "add": "Stratify",
+            "reading": "Reading the fields of {{object}}…",
+            "error": "The fields of {{object}} could not be read: {{error}}",
+            "none": "{{object}} has no picklist, checkbox or lookup the run writes."
+          }
         }
       }
     },
@@ -5580,11 +5655,13 @@
           "bulkBatches": "the daily Bulk API batches of {{target}}",
           "sourceRequests": "the daily API requests of {{source}}",
           "heavyRoots": "the records set aside below, each past a tenth of the room {{target}} has: every other root fits",
-          "whole": "nothing: every record fits"
+          "whole": "nothing: every record fits",
+          "draw": "the draw: every root of the window and the filters of the roots is in it — widen them to take more"
         },
         "draw": {
           "uniform": "spread over the org",
-          "recent": "the newest first"
+          "recent": "the newest first",
+          "oldest": "the oldest first"
         },
         "byObject": "What the sample keeps, by object",
         "column": {
@@ -5617,7 +5694,30 @@
         "partialMasterParents": "{{rows}} {{object}} records brought in as parents, with only the {{details}} records drawn on their own ({{details}}.{{field}})",
         "newestByIds": "Newest by the order of their ids, having no creation date the org sorts by: {{objects}}.",
         "requests": "Drawing it sent {{requests}} API requests to {{source}}.",
-        "plan": "The plan is kept on this machine for a day: {{path}} (SHA-256 {{sha}}…). Execute Forge takes it up while the run is set up the same; otherwise the run draws again, and says why."
+        "plan": "The plan is kept on this machine for a day: {{path}} (SHA-256 {{sha}}…). Execute Forge takes it up while the run is set up the same; otherwise the run draws again, and says why.",
+        "keptInTheDraw": "{{kept}} of {{total}} records of {{source}}, from {{objects}} objects: {{share}} % of the roots in the draw of each object, seed {{seed}}, {{draw}}, with the records they reach.",
+        "rootsChosen": "How the roots were chosen: {{roots}}.",
+        "inTheDraw": "Roots in the draw, of the roots of the source: {{objects}}.",
+        "inTheDrawOf": "{{object}} {{drawn}} of {{roots}}",
+        "inTheDrawOnly": "{{object}} {{drawn}}",
+        "noRootInTheDraw": "Objects of {{source}} with no root in the window or the filters of the roots, none of their records kept: {{objects}}.",
+        "notWindowed": "Objects without {{field}}, which have no root in the window: {{objects}}.",
+        "oldestByIds": "Oldest by the order of their ids, having no creation date the org sorts by: {{objects}}.",
+        "strata": {
+          "caption": "The strata: the roots of each value, and those kept",
+          "column": {
+            "stratum": "Field",
+            "value": "Value",
+            "roots": "Roots",
+            "kept": "Kept"
+          },
+          "none": "(empty)",
+          "checked": "checked",
+          "unchecked": "unchecked",
+          "more_one": "{{formatted}} more value, not listed",
+          "more_other": "{{formatted}} more values, not listed",
+          "under": "Records under the roots are not stratified."
+        }
       }
     },
     "sampleResult": {
@@ -5656,7 +5756,9 @@
       "gone_one": "{{formatted}} gone from {{source}} since the sample: not written, and no failure.",
       "gone_other": "{{formatted}} gone from {{source}} since the sample: not written, and no failure.",
       "changed_one": "{{formatted}} held back: a record it cannot be written without changed since the sample.",
-      "changed_other": "{{formatted}} held back: a record they cannot be written without changed since the sample."
+      "changed_other": "{{formatted}} held back: a record they cannot be written without changed since the sample.",
+      "drawnInTheDraw": "Drawn with seed {{seed}}, {{draw}}: {{share}} % of the roots in the draw of each object. Plan SHA-256 {{sha}}…, drawn on {{at}}.",
+      "roots": "Its roots: {{roots}}."
     },
     "sampling": {
       "at": "Drawing the sample, before anything is written: {{step}}.",

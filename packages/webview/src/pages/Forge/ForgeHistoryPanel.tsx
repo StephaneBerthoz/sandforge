@@ -40,6 +40,7 @@ import {
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark, useRemovalSweep } from './ForgeRemovalSweep';
 import { percentOf, sampleNumber } from './sampleFigures';
+import { rootsChosenWords } from './sampleRootsWords';
 
 /** Map a run's outcome to its i18n key. */
 const STATUS_KEYS: Record<ForgeExecutionResult['status'], string> = {
@@ -494,6 +495,23 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                       // In the history's own words: the page loads no Review's.
                       draw: t(`forge.history.sampleDraw.${entry.sample.draw}`),
                     })}
+                  </span>
+                )}
+                {/* How its roots were chosen — a window, the objects whose
+                    roots it filtered, the fields it stratified by —: the
+                    share above is then of the roots in the draw. A window of
+                    the last days follows the day it is run again on. */}
+                {entry.sample?.roots && (
+                  <span
+                    data-testid={`forge-history-sample-roots-${entry.forgeId}`}
+                    className="block text-[11px] text-text-secondary"
+                  >
+                    {t(
+                      entry.sample.roots.window?.lastDays !== undefined
+                        ? 'forge.history.sampleRootsFollowing'
+                        : 'forge.history.sampleRoots',
+                      { roots: rootsChosenWords(t, entry.sample.roots) },
+                    )}
                   </span>
                 )}
                 {/* Which records a clone from a query took: its line named

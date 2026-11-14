@@ -4394,7 +4394,8 @@
       "sample": "Stichprobe: {{share}} % der Wurzeln, Startwert {{seed}}, {{draw}}",
       "sampleDraw": {
         "uniform": "über die Org verteilt",
-        "recent": "die neuesten zuerst"
+        "recent": "die neuesten zuerst",
+        "oldest": "die ältesten zuerst"
       },
       "statusSuccess": "Erfolgreich",
       "statusPartial": "Teilweise",
@@ -4407,7 +4408,9 @@
       "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat",
       "roots_one": "{{formatted}} {{object}}-Datensatz, von seiner Abfrage ausgewählt, davon {{written}} im Ziel",
-      "roots_other": "{{formatted}} {{object}}-Datensätze, von seiner Abfrage ausgewählt, davon {{written}} im Ziel"
+      "roots_other": "{{formatted}} {{object}}-Datensätze, von seiner Abfrage ausgewählt, davon {{written}} im Ziel",
+      "sampleRoots": "Wurzeln: {{roots}}",
+      "sampleRootsFollowing": "Wurzeln: {{roots}} – erneut ausgeführt, folgt das Zeitfenster dem Tag"
     },
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
     "files": {
@@ -4542,7 +4545,23 @@
         "limit": "Das LIMIT der Abfrage ist eine ganze Zahl von 1 bis {{most}}: Darüber hinaus kopieren Sie eine Stichprobe der ganzen Org mit einem Filter auf ihre Wurzeln."
       }
     },
-    "hintRootsQuery": "Korrigieren Sie die Abfrage, um den Graphen zu ermitteln: Sie wählt die Datensätze zum Klonen aus"
+    "hintRootsQuery": "Korrigieren Sie die Abfrage, um den Graphen zu ermitteln: Sie wählt die Datensätze zum Klonen aus",
+    "sampleRoots": {
+      "window": {
+        "created": "erstellt",
+        "modified": "zuletzt geändert",
+        "between": "Wurzeln, {{made}} ab {{from}} bis vor {{to}}",
+        "from": "Wurzeln, {{made}} ab {{from}}",
+        "to": "Wurzeln, {{made}} vor {{to}}",
+        "last_one": "Wurzeln, {{made}} am letzten Tag",
+        "last_other": "Wurzeln, {{made}} in den letzten {{days}} Tagen",
+        "lastFrom": "{{last}}, ab {{from}}"
+      },
+      "where": "{{object}} mit {{where}}",
+      "whereObjects": "Wurzeln von {{objects}} gefiltert",
+      "stratum": "{{object}} nach {{field}} geschichtet",
+      "strataFields": "geschichtet nach {{fields}}"
+    }
   },
   "forgeRun": {
     "rehearsal": {
@@ -4694,8 +4713,8 @@
       "apiRequestsExceededTargetSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Er bräuchte etwa {{estimate}} API-Anfragen der Ziel-Org, der heute noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
       "apiRequestsExceededSource": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein.",
       "apiRequestsExceededSourceSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Lesen der Quell-Org bräuchte etwa {{estimate}} ihrer API-Anfragen, und ihr bleiben heute noch {{remaining}}. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
-      "apiDrawingExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die über die Org verteilte Ziehung der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Ziehen Sie die neuesten Datensätze, wofür nur die gelesen werden, die sie behält, oder schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein.",
-      "apiDrawingExceededRecent": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziehung der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein, oder ziehen Sie sie, sobald die Quelle wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden.",
+      "apiDrawingExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die über die Org verteilte Ziehung der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Ziehen Sie die neuesten oder die ältesten Datensätze, wofür nur die gelesen werden, die sie behält, wählen Sie unter Welche Wurzeln weniger Wurzeln, oder schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein.",
+      "apiDrawingExceededRecent": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziehung der neuesten Datensätze der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Wählen Sie unter Welche Wurzeln weniger Wurzeln, schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein, oder ziehen Sie sie, sobald die Quelle wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden.",
       "bulkBatchesExceeded": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, oder lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein.",
       "bulkBatchesExceededSample": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Bulk-API-Jobs bräuchten etwa {{estimate}} Batches der Ziel-Org, der in den letzten 24 Stunden noch {{remaining}} bleiben. Starten Sie ihn, sobald die Org wieder genug davon hat, lassen Sie in der Überprüfung Objekte weg oder schränken Sie sie mit einem Filter unter Überprüfung → Einstellungen ein, oder kopieren Sie eine Stichprobe der Org, die in das Ziel passt (Datensätze pro Objekt: Eine Stichprobe, die in das Ziel passt).",
       "filesUnread": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Quell-Org hat ihre Dateien weder summiert noch aufgelistet, daher ist nicht bekannt, wie viel Dateispeicher des Ziels sie belegen. Schalten Sie das Kopieren der Dateien in der Überprüfung aus, oder starten Sie ihn erneut, sobald die Quelle antwortet.",
@@ -4706,8 +4725,8 @@
       "sampleTooLarge": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Das Ziehen der Stichprobe hat {{rows}} Datensätze gelesen, mehr als die {{most}}, die sie auf einmal hält. Lassen Sie die Stichprobe weniger belegen, oder lassen Sie in der Überprüfung Objekte weg oder lesen Sie sie über einen Filter.",
       "samplePlanMismatch": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Plan der Stichprobe, die er kopieren sollte, wurde aus einer anderen Org oder für eine andere Einstellung gezogen, oder hat sich seitdem geändert. Simulieren Sie erneut, um einen neuen zu ziehen.",
       "samplePlanGone": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Plan seiner Stichprobe ist nicht mehr auf diesem Rechner oder nicht mehr so, wie er gezogen wurde, daher können seine Datensätze nicht wieder aufgenommen werden. Starten Sie ihn aus der Überprüfung erneut, um eine neue Stichprobe zu ziehen, oder entfernen Sie unter Ergebnisse, was er geschrieben hat.",
-      "sampleDrawInvalid": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Wurzeln können nicht wie gewünscht gezogen werden — ein Schichtungsfeld, das weder Auswahlliste noch Kontrollkästchen noch Nachschlagefeld ist oder zu viele Werte hat; ein Filter der Wurzeln, den die Quell-Org abgelehnt hat; oder ein Filter auf einem vollständig kopierten Objekt oder einem ohne Wurzel. Ändern Sie in den Einstellungen der Stichprobe unter Überprüfung, unter welchen Wurzeln er zieht.",
-      "sampleDrawEmpty": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Kein Objekt hat eine Wurzel im Zeitfenster, in den Filtern der Wurzeln und den angeforderten Schichten. Erweitern Sie das Zeitfenster, ändern Sie die Filter oder ziehen Sie ohne sie, in den Einstellungen der Stichprobe unter Überprüfung.",
+      "sampleDrawInvalid": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Wurzeln können nicht wie gewünscht gezogen werden — ein Schichtungsfeld, das weder Auswahlliste noch Kontrollkästchen noch Nachschlagefeld ist oder zu viele Werte hat; ein Filter der Wurzeln, den die Quell-Org abgelehnt hat; oder ein Filter auf einem vollständig kopierten Objekt oder einem ohne Wurzel. Ändern Sie unter Welche Wurzeln in der Überprüfung, unter welchen Wurzeln er zieht.",
+      "sampleDrawEmpty": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Kein Objekt hat eine Wurzel im Zeitfenster, in den Filtern der Wurzeln und den angeforderten Schichten. Erweitern Sie das Zeitfenster, ändern Sie die Filter oder ziehen Sie ohne sie, unter Welche Wurzeln in der Überprüfung.",
       "rootsQueryRefused": "Der Lauf wurde nicht gestartet: Seine Abfrage kann die zu klonenden Datensätze nicht auswählen — eine Klausel, die die zurückgegebenen Zeilen ändert (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE oder ein COUNT()), ein Alias, der nicht zu seinem Objekt zurückführt, oder ein WHERE, ORDER BY oder LIMIT außerhalb der Regeln. Es wurde nichts gelesen oder geschrieben. Korrigieren Sie die Abfrage und wählen Sie ihre Datensätze über WHERE, ORDER BY und LIMIT aus.",
       "noRoots": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Abfrage wählt keinen {{object}}-Datensatz der Quell-Org aus. Prüfen Sie ihr WHERE an der Quell-Org.",
       "rootsExceeded": "Der Lauf wurde abgelehnt, bevor er etwas anderes gelesen hat: Seine Abfrage wählt mehr {{object}}-Datensätze aus als die {{cap}}, die er klont, und es wurde nichts geschrieben. Fügen Sie der Abfrage ORDER BY CreatedDate DESC LIMIT {{limit}} hinzu, um die neuesten zu klonen, oder grenzen Sie ihr WHERE ein.",
@@ -4725,7 +4744,11 @@
       "samplePlanMismatchResume": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Der Lauf, den er fortsetzt, war anders eingestellt, eine Stichprobe, wo dieser jeden Datensatz kopiert, oder jeder Datensatz, wo dieser eine Stichprobe kopiert. Setzen Sie ihn so fort, wie er eingestellt war.",
       "simulateAgain": "Erneut simulieren",
       "drawNewest": "Die neuesten zuerst ziehen",
-      "sampleOffer": "Eine passende Stichprobe würde etwa {{mb}} MB davon belegen."
+      "sampleOffer": "Eine passende Stichprobe würde etwa {{mb}} MB davon belegen.",
+      "apiDrawingExceededOldest": "Der Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Die Ziehung der ältesten Datensätze der Stichprobe läse etwa {{estimate}} API-Anfragen der Quell-Org, mehr als die {{share}} % der heute verbleibenden {{remaining}}, die eine Ziehung nehmen darf. Über die Zählungen hinaus wurde keine Id gelesen. Wählen Sie unter Welche Wurzeln weniger Wurzeln, schränken Sie die großen Objekte mit einem Filter unter Überprüfung → Einstellungen ein, oder ziehen Sie sie, sobald die Quelle wieder genug davon hat – das Tageslimit zählt über die letzten 24 Stunden.",
+      "drawOldest": "Die ältesten zuerst ziehen",
+      "chooseRoots": "Wurzeln wählen",
+      "drawSaid": "Was ihn abgelehnt hat: {{said}}"
     },
     "executionTable": {
       "leftOut": "ausgelassen",
@@ -5162,10 +5185,12 @@
           "uniform": "Über die Org verteilt",
           "recent": "Die neuesten zuerst",
           "uniformHint": "Datensätze, die über jedes Objekt hinweg per Hash ihrer IDs mit Startwert gezogen werden: Die Ziehung liest die ID jedes Datensatzes, aus dem sie ziehen kann, und die Stichprobe steht für die gesamte Org.",
-          "recentHint": "Die zuletzt erstellten Datensätze, nach ihrem Erstellungsdatum: Die Ziehung liest nur die, die sie behält, und die Stichprobe neigt zu den neuesten Daten."
+          "recentHint": "Die zuletzt erstellten Datensätze, nach ihrem Erstellungsdatum: Die Ziehung liest nur die, die sie behält, und die Stichprobe neigt zu den neuesten Daten.",
+          "oldest": "Die ältesten zuerst",
+          "oldestHint": "Die zuerst erstellten Datensätze, nach ihrem Erstellungsdatum: Die Ziehung liest nur die, die sie behält, und die Stichprobe neigt zu den ältesten Daten."
         },
         "cost": "Die Ziehung liest API-Anfragen von {{source}}: {{allowance}}. Sie dauert etwa {{duration}}.",
-        "costRefused": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Ziehen Sie die neuesten zuerst, oder lassen Sie die größten Objekte weg.",
+        "costRefused": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Ziehen Sie die neuesten oder die ältesten zuerst, wählen Sie unter Welche Wurzeln weniger Wurzeln, oder lassen Sie die größten Objekte weg.",
         "whole": "Von selbst vollständig kopiert: {{objects}}.",
         "why": {
           "referenceData": "nach Namen zugeordnete Referenzdaten, nie geschrieben",
@@ -5195,12 +5220,62 @@
           "toggle_one": "Vollständig kopieren: {{formatted}} Objekt",
           "toggle_other": "Vollständig kopieren: {{formatted}} Objekte",
           "legend": "Vollständig zu kopierende Objekte",
-          "hint": "Ein vollständig kopiertes Objekt bringt jeden seiner Datensätze mit, und keiner davon wird gezogen."
+          "hint": "Ein vollständig kopiertes Objekt bringt jeden seiner Datensätze mit, und keiner davon wird gezogen: Der Filter seiner Wurzeln und seine Schicht unter Welche Wurzeln werden entfernt."
         },
         "offerAction": "Passende Stichprobe kopieren",
         "floor": {
           "label": "Gezogene Datensätze jedes Objekts, unabhängig vom Anteil",
           "hint": "Jedes Objekt behält mindestens so viele seiner Datensätze, welchen Anteil der verbleibende Platz ihm auch gibt. Bei 0 wird von einem Objekt vielleicht keiner gezogen: Eine Stichprobe passt dann dort, wo diese Datensätze allein mehr belegten, als sie belegen darf."
+        },
+        "costAtMost": "Die Ziehung liest höchstens API-Anfragen von {{source}}: {{allowance}}. Sie dauert höchstens etwa {{duration}}: Das Zeitfenster und die Filter der Wurzeln lassen weniger Wurzeln übrig, als die Erkennung gezählt hat.",
+        "costRefusedByDate": "Das ist mehr als ein Zehntel dessen, was {{source}} heute noch frei hat: Die Ziehung würde abgelehnt, bevor eine ID gelesen wird. Wählen Sie unter Welche Wurzeln weniger Wurzeln – ein engeres Zeitfenster, Filter der Wurzeln, weniger Schichten –, oder lassen Sie die größten Objekte weg.",
+        "seedHintByDate": "Die neuesten oder die ältesten sind unabhängig vom Startwert dieselben Datensätze: Neu ziehen zieht nur dann andere, wenn die Wurzeln über die Org verteilt werden.",
+        "roots": {
+          "title": "Welche Wurzeln",
+          "every": "alle Wurzeln",
+          "conditions_one": "{{formatted}} Bedingung",
+          "conditions_other": "{{formatted}} Bedingungen",
+          "hint": "Die Wurzeln sind die Datensätze, die oben in jeder Geschichte gezogen werden – Accounts, Leads, ein Kundenvorgang ohne Account –, jeweils mit den Datensätzen darunter und denen, die sie nennen. Was unter einer Wurzel oder darüber liegt, kommt unabhängig von Datum oder Werten mit.",
+          "pick": "Wählen…",
+          "remove": "Entfernen",
+          "removeLabel": "{{what}} entfernen",
+          "window": {
+            "legend": "Zeitfenster, in UTC",
+            "field": "Datum",
+            "created": "Erstellt",
+            "modified": "Zuletzt geändert",
+            "from": "Von (UTC)",
+            "to": "Bis (UTC, ganzer Tag)",
+            "lastDays_one": "Letzter Tag",
+            "lastDays_other": "Letzte {{days}} Tage",
+            "clear": "Zeitfenster löschen",
+            "following_one": "Die Wurzeln des letzten Tages, ab dem Zeitpunkt der Ziehung zurückgezählt: An einem anderen Tag erneut ausgeführt, folgt das Zeitfenster diesem Tag.",
+            "following_other": "Die Wurzeln der letzten {{days}} Tage, ab dem Zeitpunkt der Ziehung zurückgezählt: An einem anderen Tag erneut ausgeführt, folgt das Zeitfenster diesem Tag.",
+            "refused": "Das Zeitfenster beginnt nach seinem Ende: Legen Sie den Anfang spätestens auf den letzten Tag. Es wurde nicht geändert.",
+            "hint": "Eine am ersten Tag erstellte oder zuletzt geänderte Wurzel zählt, und der letzte Tag zählt ganz. Werden die neuesten oder die ältesten zuerst gezogen, sind die Wurzeln nach ihrem Erstellungsdatum geordnet, auch bei einem Zeitfenster auf ihrer letzten Änderung. Ein Objekt ohne dieses Datum hat keine Wurzel im Zeitfenster und wird gesondert genannt."
+          },
+          "where": {
+            "legend": "Filter der Wurzeln",
+            "hint": "Die Wurzeln eines Objekts werden nur unter den Datensätzen gezogen, die eine Bedingung erfüllen. Was darunter oder darüber liegt, kommt unabhängig von ihr mit, und kein Nachschlagefeld bleibt ihretwegen leer: Um Datensätze aus der Kopie herauszunehmen, nutzen Sie den Filter des Objekts unter Überprüfung → Einstellungen.",
+            "object": "Objekt",
+            "label": "Bedingung für die Wurzeln von {{object}}, in SOQL ohne WHERE",
+            "apply": "Anwenden",
+            "refused": "Mit dieser Bedingung würde der Lauf abgelehnt: höchstens 512 Zeichen, keine Kommentarmarke (--, /*, */), kein Semikolon am Ende. Sie wurde nicht angewendet.",
+            "item": "{{object}}: {{where}}",
+            "notDrawn": "{{object}} ist vom Lauf ausgeschlossen oder wird vollständig kopiert: Es hat keine Wurzel zu filtern, und mit diesem Filter würde der Lauf abgelehnt. Entfernen Sie ihn."
+          },
+          "strata": {
+            "legend": "Schichten",
+            "hint": "Jeder Wert eines Feldes behält denselben Anteil der Wurzeln und mindestens die unabhängig vom Anteil gezogenen Datensätze jedes Objekts. Ein Feld mit wenigen Werten: eine Auswahlliste, ein Kontrollkästchen, ein Datensatztyp oder ein Inhaber. Datensätze unter den Wurzeln werden nicht geschichtet.",
+            "recordType": "Datensatztyp, bei jedem Objekt, das einen hat",
+            "everyObject": "{{field}}, bei jedem Objekt, das es hat",
+            "item": "{{object}} nach {{field}}",
+            "field": "Feld",
+            "add": "Schichten",
+            "reading": "Felder von {{object}} werden gelesen…",
+            "error": "Die Felder von {{object}} konnten nicht gelesen werden: {{error}}",
+            "none": "{{object}} hat keine Auswahlliste, kein Kontrollkästchen und kein Nachschlagefeld, das der Lauf schreibt."
+          }
         }
       }
     },
@@ -5580,11 +5655,13 @@
           "bulkBatches": "die täglichen Bulk-API-Batches von {{target}}",
           "sourceRequests": "die täglichen API-Anfragen von {{source}}",
           "heavyRoots": "die unten beiseitegelegten Datensätze, jeder über einem Zehntel des Platzes, den {{target}} hat: alle anderen Wurzeln passen",
-          "whole": "nichts: Alle Datensätze passen"
+          "whole": "nichts: Alle Datensätze passen",
+          "draw": "die Ziehung: Jede Wurzel des Zeitfensters und der Filter der Wurzeln ist darin – erweitern Sie sie, um mehr zu nehmen"
         },
         "draw": {
           "uniform": "über die Org verteilt",
-          "recent": "die neuesten zuerst"
+          "recent": "die neuesten zuerst",
+          "oldest": "die ältesten zuerst"
         },
         "byObject": "Was die Stichprobe behält, nach Objekt",
         "column": {
@@ -5617,7 +5694,30 @@
         "partialMasterParents": "{{rows}} {{object}}-Datensätze als Eltern übernommen, nur mit den für sich gezogenen {{details}}-Datensätzen ({{details}}.{{field}})",
         "newestByIds": "Die neuesten nach der Reihenfolge ihrer IDs, da es kein Erstellungsdatum gibt, nach dem die Org sortiert: {{objects}}.",
         "requests": "Die Ziehung hat {{requests}} API-Anfragen an {{source}} gesendet.",
-        "plan": "Der Plan wird einen Tag lang auf diesem Rechner aufbewahrt: {{path}} (SHA-256 {{sha}}…). Forge ausführen übernimmt ihn, solange der Lauf gleich eingerichtet ist; sonst zieht der Lauf neu und sagt, warum."
+        "plan": "Der Plan wird einen Tag lang auf diesem Rechner aufbewahrt: {{path}} (SHA-256 {{sha}}…). Forge ausführen übernimmt ihn, solange der Lauf gleich eingerichtet ist; sonst zieht der Lauf neu und sagt, warum.",
+        "keptInTheDraw": "{{kept}} der {{total}} Datensätze von {{source}}, aus {{objects}} Objekten: {{share}} % der Wurzeln in der Ziehung jedes Objekts, Startwert {{seed}}, {{draw}}, mit den Datensätzen, die sie erreichen.",
+        "rootsChosen": "Wie die Wurzeln gewählt wurden: {{roots}}.",
+        "inTheDraw": "Wurzeln in der Ziehung, von den Wurzeln der Quelle: {{objects}}.",
+        "inTheDrawOf": "{{object}} {{drawn}} von {{roots}}",
+        "inTheDrawOnly": "{{object}} {{drawn}}",
+        "noRootInTheDraw": "Objekte von {{source}} ohne Wurzel im Zeitfenster oder in den Filtern der Wurzeln, von denen kein Datensatz behalten wird: {{objects}}.",
+        "notWindowed": "Objekte ohne {{field}}, die keine Wurzel im Zeitfenster haben: {{objects}}.",
+        "oldestByIds": "Die ältesten nach der Reihenfolge ihrer IDs, da es kein Erstellungsdatum gibt, nach dem die Org sortiert: {{objects}}.",
+        "strata": {
+          "caption": "Die Schichten: die Wurzeln jedes Werts und die behaltenen",
+          "column": {
+            "stratum": "Feld",
+            "value": "Wert",
+            "roots": "Wurzeln",
+            "kept": "Behalten"
+          },
+          "none": "(leer)",
+          "checked": "aktiviert",
+          "unchecked": "deaktiviert",
+          "more_one": "{{formatted}} weiterer Wert, nicht aufgeführt",
+          "more_other": "{{formatted}} weitere Werte, nicht aufgeführt",
+          "under": "Datensätze unter den Wurzeln werden nicht geschichtet."
+        }
       }
     },
     "sampleResult": {
@@ -5656,7 +5756,9 @@
       "gone_one": "{{formatted}} seit der Stichprobe aus {{source}} verschwunden: nicht geschrieben, und kein Fehler.",
       "gone_other": "{{formatted}} seit der Stichprobe aus {{source}} verschwunden: nicht geschrieben, und kein Fehler.",
       "changed_one": "{{formatted}} zurückgehalten: Ein Datensatz, ohne den er nicht geschrieben werden kann, hat sich seit der Stichprobe geändert.",
-      "changed_other": "{{formatted}} zurückgehalten: Ein Datensatz, ohne den sie nicht geschrieben werden können, hat sich seit der Stichprobe geändert."
+      "changed_other": "{{formatted}} zurückgehalten: Ein Datensatz, ohne den sie nicht geschrieben werden können, hat sich seit der Stichprobe geändert.",
+      "drawnInTheDraw": "Gezogen mit Startwert {{seed}}, {{draw}}: {{share}} % der Wurzeln in der Ziehung jedes Objekts. Plan SHA-256 {{sha}}…, gezogen am {{at}}.",
+      "roots": "Seine Wurzeln: {{roots}}."
     },
     "sampling": {
       "at": "Die Stichprobe wird gezogen, bevor etwas geschrieben wird: {{step}}.",

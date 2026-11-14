@@ -2,6 +2,8 @@ import type {
   ForgeExecutionError,
   ForgeExecutionResult,
   ForgeNodeStatus,
+  ForgeSampleDraw,
+  ForgeSampleWindow,
   WholeOrgSampleDrawnAgain,
   WholeOrgSampleResult,
 } from '@sandforge/shared';
@@ -98,11 +100,52 @@ const DRAWN_AGAIN_WORDS: Readonly<Record<WholeOrgSampleDrawnAgain, string>> = {
   planGone: 'the plan of the run this one retried was gone',
 };
 
+/** How a sample's roots were ordered, in the report's words. */
+const DRAW_WORDS: Readonly<Record<ForgeSampleDraw, string>> = {
+  uniform: 'spread over the org',
+  recent: 'the newest first',
+  oldest: 'the oldest first',
+};
+
+/** The dates a sample's roots were drawn in, in the report's words: instants as kept, in UTC. */
+function windowReportWords(window: ForgeSampleWindow): string {
+  const made = window.field === 'LastModifiedDate' ? 'last modified' : 'made';
+  if (window.lastDays !== undefined) {
+    return (
+      `roots ${made} in the last ${String(window.lastDays)} days` +
+      (window.from !== undefined ? ` (from ${window.from}, UTC)` : '')
+    );
+  }
+  const from = window.from !== undefined ? ` from ${window.from}` : '';
+  const to = window.to !== undefined ? ` to before ${window.to}` : '';
+  return `roots ${made}${from}${to} (UTC)`;
+}
+
+/**
+ * How a sample's roots were chosen, in the report's words: its window, the
+ * objects whose roots it filtered and the fields it stratified by. Empty for
+ * a draw among every root.
+ */
+function rootsReportWords(roots: WholeOrgSampleResult['roots']): string {
+  if (!roots) return '';
+  return [
+    ...(roots.window ? [windowReportWords(roots.window)] : []),
+    ...(roots.whereObjects && roots.whereObjects.length > 0
+      ? [`the roots of ${roots.whereObjects.join(', ')} filtered`]
+      : []),
+    ...(roots.strataFields && roots.strataFields.length > 0
+      ? [`stratified by ${roots.strataFields.join(', ')}`]
+      : []),
+  ].join(', ');
+}
+
 /**
  * What the copied report and the results file say of a sample of the whole
  * org, in English as the rest of them: the share of each object's roots it
- * kept, its seed, how its roots were drawn, the SHA-256 of its plan and who
- * drew it. Neither said the run had copied a sample, nor which.
+ * kept — of the roots in the draw, when a window or filters held them —, its
+ * seed, how its roots were drawn and chosen, the SHA-256 of its plan and who
+ * drew it. Neither said the run had copied a sample, nor which; a draw of
+ * the oldest was said spread over the org.
  */
 export function sampleReportWords(sample: WholeOrgSampleResult): string {
   const percent = Math.round(sample.share * 1000) / 10;
@@ -110,9 +153,12 @@ export function sampleReportWords(sample: WholeOrgSampleResult): string {
     ? `; ${DRAWN_BY_WORDS[sample.ofTheRunRetried ? 'retried' : sample.drawnBy]}` +
       (sample.drawnAgain ? ` (${DRAWN_AGAIN_WORDS[sample.drawnAgain]})` : '')
     : '';
+  const held = sample.roots?.window !== undefined || (sample.roots?.whereObjects ?? []).length > 0;
+  const chosen = rootsReportWords(sample.roots);
   return (
-    `${String(percent)} % of the roots of each object, seed ${String(sample.seed)}, ` +
-    `${sample.draw === 'recent' ? 'the newest first' : 'spread over the org'}; ` +
+    `${String(percent)} % of the roots${held ? ' in the draw' : ''} of each object, ` +
+    `seed ${String(sample.seed)}, ${DRAW_WORDS[sample.draw]}; ` +
+    (chosen ? `${chosen}; ` : '') +
     `plan SHA-256 ${sample.sha256.slice(0, 12)}…, drawn ${sample.drawnAt}${by}`
   );
 }

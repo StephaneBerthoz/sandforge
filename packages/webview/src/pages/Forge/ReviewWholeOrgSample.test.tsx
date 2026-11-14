@@ -215,6 +215,7 @@ describe('ReviewWholeOrgSample', () => {
     expect([...draw.options].map((option) => option.textContent)).toEqual([
       'Spread over the org',
       'The newest first',
+      'The oldest first',
     ]);
 
     fireEvent.change(draw, { target: { value: 'recent' } });
@@ -234,7 +235,7 @@ describe('ReviewWholeOrgSample', () => {
       }),
     );
     expect(screen.getByTestId('review-sample-cost-refused').textContent).toBe(
-      'That is past a tenth of what prod has left today: the draw would be refused before an id is read. Draw the newest first, or leave the largest objects out.',
+      'That is past a tenth of what prod has left today: the draw would be refused before an id is read. Choose fewer roots under Which roots — a narrower window, filters of the roots, fewer strata —, or leave the largest objects out.',
     );
   });
 
@@ -354,5 +355,113 @@ describe('ReviewWholeOrgSample', () => {
     render(<ReviewWholeOrgSample graph={wholeOrgGraph()} source="prod" target="dev" />);
 
     expect(requests().slice(-1)[0].muteAutomation).toBe(true);
+  });
+
+  it('draws the oldest first once asked, says what it reads, and offers the choice of roots past a tenth of the day', () => {
+    renderBlock({ ...WHOLE_ORG, sample: {} });
+
+    fireEvent.change(screen.getByTestId('review-sample-draw'), { target: { value: 'oldest' } });
+
+    expect(sample()).toEqual({ draw: 'oldest' });
+    expect(requests().slice(-1)[0].config.sample).toEqual({ draw: 'oldest' });
+    expect(screen.getByTestId('review-sample-draw-hint').textContent).toBe(
+      'The records made first, by their creation date: drawing reads only those it keeps, and the sample leans to the oldest data.',
+    );
+    answer(
+      sampleBudget({
+        planReads: {
+          source: { verdict: 'exceeds', estimate: 9_000, max: 15_000, remaining: 14_000 },
+          seconds: 1_200,
+        },
+      }),
+    );
+    expect(screen.getByTestId('review-sample-cost-refused').textContent).toContain(
+      'Choose fewer roots under Which roots',
+    );
+
+    fireEvent.change(screen.getByTestId('review-sample-draw'), { target: { value: 'uniform' } });
+    expect(sample()).toEqual({});
+  });
+
+  it('offers a draw spread over the org refused past a tenth of the day the newest, the oldest and fewer roots', () => {
+    renderBlock({ ...WHOLE_ORG, sample: {} });
+    answer(
+      sampleBudget({
+        planReads: {
+          source: { verdict: 'exceeds', estimate: 9_000, max: 15_000, remaining: 14_000 },
+          seconds: 1_200,
+        },
+      }),
+    );
+
+    expect(screen.getByTestId('review-sample-cost-refused').textContent).toBe(
+      'That is past a tenth of what prod has left today: the draw would be refused before an id is read. Draw the newest or the oldest first, choose fewer roots under Which roots, or leave the largest objects out.',
+    );
+  });
+
+  it('reads the budget with the roots it draws among, and says what drawing them reads as at most', () => {
+    // Read without them, a draw held to a window was priced as a draw of
+    // every root, the count of the source's roots it adds unsaid.
+    const chosen = {
+      window: { field: 'CreatedDate' as const, lastDays: 90 },
+      rootWhere: { Account: "BillingCountry = 'France'" },
+      strata: ['Account.RecordTypeId'],
+    };
+    renderBlock({ ...WHOLE_ORG, sample: { ...chosen, seed: 3 } });
+
+    expect(requests().slice(-1)[0].config.sample).toEqual(chosen);
+    answer(
+      sampleBudget({
+        planReads: {
+          source: { verdict: 'fits', estimate: 1_951, max: 15_000, remaining: 14_000 },
+          seconds: 240,
+          atMost: true,
+        },
+      }),
+    );
+    expect(screen.getByTestId('review-sample-cost').textContent).toBe(
+      'Drawing it reads API requests of prod, at most: about 1,951, of 14,000 left today out of 15,000. It takes about 4min at most: the window and the filters of the roots leave fewer roots than discovery counted.',
+    );
+  });
+
+  it('greys Draw again for the newest or the oldest, which the seed does not change, and says why', () => {
+    renderBlock({ ...WHOLE_ORG, sample: { draw: 'recent' } });
+
+    const again = screen.getByTestId('review-sample-draw-again') as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    const hint = screen.getByTestId('review-sample-seed-hint');
+    expect(again.getAttribute('aria-describedby')).toBe(hint.id);
+    expect(hint.textContent).toBe(
+      'The newest or the oldest are the same records whatever the seed: Draw again draws others only when the roots are spread over the org.',
+    );
+  });
+
+  it('takes an object asked whole out of the roots it filters and stratifies, which it no longer draws', () => {
+    renderBlock({
+      ...WHOLE_ORG,
+      sample: {
+        rootWhere: { Account: "BillingCountry = 'France'", Lead: "Status = 'Open'" },
+        strata: ['Account.RecordTypeId', 'RecordTypeId'],
+      },
+    });
+    answer(sampleBudget());
+    fireEvent.click(screen.getByTestId('review-sample-whole-toggle'));
+
+    fireEvent.click(screen.getByTestId('review-sample-whole-Account'));
+
+    expect(sample()).toEqual({
+      whole: ['Account'],
+      rootWhere: { Lead: "Status = 'Open'" },
+      strata: ['RecordTypeId'],
+    });
+  });
+
+  it('chooses the roots among the objects it draws: neither those copied whole nor those left out', () => {
+    renderBlock({ ...WHOLE_ORG, excludedObjects: ['Lead'], sample: { whole: ['Contact'] } });
+    answer(sampleBudget());
+    fireEvent.click(within(screen.getByTestId('review-sample-roots')).getByText('Which roots'));
+
+    const objects = screen.getByTestId('review-sample-where-object') as HTMLSelectElement;
+    expect([...objects.options].map((option) => option.value)).toEqual(['', 'Account']);
   });
 });

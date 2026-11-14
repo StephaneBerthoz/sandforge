@@ -1,12 +1,21 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { cn } from '../../theme';
 import type {
   WholeOrgSample,
   WholeOrgSampleBudget,
   WholeOrgSampleDropReason,
+  WholeOrgSampleRoots,
 } from '@sandforge/shared';
-import { drawWords, mbOf, percentOf, sampleNumber as n, wholeReasonWords } from './sampleWords';
+import {
+  drawWords,
+  mbOf,
+  percentOf,
+  rootsChosenWords,
+  sampleNumber as n,
+  wholeReasonWords,
+} from './sampleWords';
 
 /** What makes the bytes the sample may take: the share of what is left, the MB asked, the automation's room. */
 function termsWords(t: TFunction, budget: WholeOrgSampleBudget): string {
@@ -42,6 +51,29 @@ function limitWords(
 /** Why a record the draw reached is left out, as the list says it. */
 function dropWords(t: TFunction, reason: WholeOrgSampleDropReason): string {
   return t(`forgeRun.wholeOrgDryRun.sample.dropReason.${reason}`);
+}
+
+/**
+ * Whether a sample's roots were held to a window or to filters on them: its
+ * share is then of the roots in the draw, not of those of the source.
+ */
+function heldToTheDraw(roots: WholeOrgSampleRoots | undefined): boolean {
+  return roots?.window !== undefined || (roots?.where ?? []).length > 0;
+}
+
+/** A value of a stratum as the table names it: its label, its value, or none. */
+function stratumValueWords(
+  t: TFunction,
+  value: { value: string | boolean | null; label?: string },
+): string {
+  if (value.label !== undefined) return value.label;
+  if (value.value === null) return t('forgeRun.wholeOrgDryRun.sample.strata.none');
+  if (typeof value.value === 'boolean') {
+    return value.value
+      ? t('forgeRun.wholeOrgDryRun.sample.strata.checked')
+      : t('forgeRun.wholeOrgDryRun.sample.strata.unchecked');
+  }
+  return value.value;
 }
 
 /** Props for {@link ForgeWholeOrgSample}. */
@@ -82,7 +114,72 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
   );
   const { budget } = sample;
   const terms = termsWords(t, budget);
+  const held = heldToTheDraw(sample.roots);
+  const chosen = sample.roots ? rootsChosenWords(t, sample.roots) : '';
+  // Of a draw held to a window or filters, each object's roots in the draw
+  // against those of the source: the share is of the first.
+  const inTheDraw = sample.objects.flatMap((object) =>
+    object.rootsInTheDraw === undefined
+      ? []
+      : [
+          object.rootsInTheSource !== undefined
+            ? t('forgeRun.wholeOrgDryRun.sample.inTheDrawOf', {
+                object: object.objectApiName,
+                drawn: n(object.rootsInTheDraw),
+                roots: n(object.rootsInTheSource),
+              })
+            : t('forgeRun.wholeOrgDryRun.sample.inTheDrawOnly', {
+                object: object.objectApiName,
+                drawn: n(object.rootsInTheDraw),
+              }),
+        ],
+  );
+  // An object the window or a filter left no root to draw is said apart:
+  // its records are in the source, none of them in the draw.
+  const noRoot = sample.noRecordDrawn.filter((object) => object.noRootInTheDraw === true);
+  const noRecord = sample.noRecordDrawn.filter((object) => object.noRootInTheDraw !== true);
+  const notWindowed = sample.roots?.notWindowed ?? [];
   const facts: Array<{ id: string; text: string }> = [
+    ...(chosen
+      ? [{ id: 'roots', text: t('forgeRun.wholeOrgDryRun.sample.rootsChosen', { roots: chosen }) }]
+      : []),
+    ...(inTheDraw.length > 0
+      ? [
+          {
+            id: 'in-the-draw',
+            text: t('forgeRun.wholeOrgDryRun.sample.inTheDraw', { objects: inTheDraw.join('; ') }),
+          },
+        ]
+      : []),
+    ...(noRoot.length > 0
+      ? [
+          {
+            id: 'no-root-in-the-draw',
+            text: t('forgeRun.wholeOrgDryRun.sample.noRootInTheDraw', {
+              source,
+              objects: noRoot
+                .map(({ objectApiName, sourceRows: rows }) =>
+                  t('forgeRun.wholeOrgDryRun.sample.inTheSource', {
+                    object: objectApiName,
+                    rows: n(rows),
+                  }),
+                )
+                .join(', '),
+            }),
+          },
+        ]
+      : []),
+    ...(notWindowed.length > 0
+      ? [
+          {
+            id: 'not-windowed',
+            text: t('forgeRun.wholeOrgDryRun.sample.notWindowed', {
+              field: sample.roots?.window?.field ?? 'CreatedDate',
+              objects: notWindowed.join(', '),
+            }),
+          },
+        ]
+      : []),
     ...(sample.whole.length > 0
       ? [
           {
@@ -106,13 +203,13 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
           },
         ]
       : []),
-    ...(sample.noRecordDrawn.length > 0
+    ...(noRecord.length > 0
       ? [
           {
             id: 'no-record-drawn',
             text: t('forgeRun.wholeOrgDryRun.sample.noRecordDrawn', {
               source,
-              objects: sample.noRecordDrawn
+              objects: noRecord
                 .map(({ objectApiName, sourceRows: rows }) =>
                   t('forgeRun.wholeOrgDryRun.sample.inTheSource', {
                     object: objectApiName,
@@ -215,6 +312,16 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
           },
         ]
       : []),
+    ...(sample.oldestByIds && sample.oldestByIds.length > 0
+      ? [
+          {
+            id: 'oldest-by-ids',
+            text: t('forgeRun.wholeOrgDryRun.sample.oldestByIds', {
+              objects: sample.oldestByIds.join(', '),
+            }),
+          },
+        ]
+      : []),
     {
       id: 'requests',
       text: t('forgeRun.wholeOrgDryRun.sample.requests', {
@@ -241,15 +348,20 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
         {t('forgeRun.wholeOrgDryRun.sample.title')}
       </h4>
       <p data-testid="forge-whole-org-sample-kept">
-        {t('forgeRun.wholeOrgDryRun.sample.kept', {
-          kept: n(sample.rows),
-          total: n(sourceRows),
-          source,
-          objects: n(sample.objects.length),
-          share: percentOf(sample.share),
-          seed: n(sample.seed),
-          draw: drawWords(t, sample.draw),
-        })}
+        {t(
+          held
+            ? 'forgeRun.wholeOrgDryRun.sample.keptInTheDraw'
+            : 'forgeRun.wholeOrgDryRun.sample.kept',
+          {
+            kept: n(sample.rows),
+            total: n(sourceRows),
+            source,
+            objects: n(sample.objects.length),
+            share: percentOf(sample.share),
+            seed: n(sample.seed),
+            draw: drawWords(t, sample.draw),
+          },
+        )}
       </p>
       <p data-testid="forge-whole-org-sample-taken">
         {budget.limitedBy === 'whole'
@@ -313,6 +425,75 @@ export const ForgeWholeOrgSample: React.FC<ForgeWholeOrgSampleProps> = ({
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {(sample.roots?.strata ?? []).length > 0 && (
+        // A value a row: an owner stratum has as many as the org has owners,
+        // and the box scrolls within, which the keyboard reaches to scroll it.
+        <div
+          role="region"
+          aria-labelledby={`${tableId}-strata`}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the strata scroll, and none of their rows is a control to reach them by: the region takes the focus itself, so the keyboard can scroll it.
+          tabIndex={0}
+          data-testid="forge-whole-org-sample-strata"
+          className="max-h-72 overflow-y-auto rounded-md border border-subtle focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent)"
+        >
+          <table className="w-full text-left">
+            <caption id={`${tableId}-strata`} className="px-2 py-1.5 text-left font-semibold">
+              {t('forgeRun.wholeOrgDryRun.sample.strata.caption')}
+            </caption>
+            <thead className="sticky top-0 bg-surface-2">
+              <tr>
+                {(['stratum', 'value', 'roots', 'kept'] as const).map((column) => (
+                  <th
+                    key={column}
+                    scope="col"
+                    className={cn(
+                      'px-2 py-1 font-medium',
+                      (column === 'roots' || column === 'kept') && 'text-right',
+                    )}
+                  >
+                    {t(`forgeRun.wholeOrgDryRun.sample.strata.column.${column}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(sample.roots?.strata ?? []).flatMap((stratum) => {
+                const name = `${stratum.objectApiName}.${stratum.field}`;
+                return [
+                  ...stratum.values.map((value, index) => (
+                    <tr key={`${name}:${String(index)}`} className="border-t border-subtle">
+                      <th scope="row" className="px-2 py-1 text-left font-mono font-normal">
+                        {name}
+                      </th>
+                      <td className="px-2 py-1">{stratumValueWords(t, value)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{n(value.roots)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{n(value.kept)}</td>
+                    </tr>
+                  )),
+                  ...(stratum.more !== undefined && stratum.more > 0
+                    ? [
+                        <tr key={`${name}:more`} className="border-t border-subtle">
+                          <th scope="row" className="px-2 py-1 text-left font-mono font-normal">
+                            {name}
+                          </th>
+                          <td colSpan={3} className="px-2 py-1">
+                            {t('forgeRun.wholeOrgDryRun.sample.strata.more', {
+                              count: stratum.more,
+                              formatted: n(stratum.more),
+                            })}
+                          </td>
+                        </tr>,
+                      ]
+                    : []),
+                ];
+              })}
+            </tbody>
+          </table>
+          <p data-testid="forge-whole-org-sample-strata-under" className="px-2 py-1">
+            {t('forgeRun.wholeOrgDryRun.sample.strata.under')}
+          </p>
         </div>
       )}
       {facts.map((fact) => (

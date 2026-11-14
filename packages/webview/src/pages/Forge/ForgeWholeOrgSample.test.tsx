@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import '../../i18n';
 import { ForgeWholeOrgSample } from './ForgeWholeOrgSample';
-import { wholeOrgSample } from './testing/wholeOrg';
+import { wholeOrgSample, wholeOrgSampleOfTheRoots } from './testing/wholeOrg';
 
 /** What the simulation drew, as its results draw it, the source `prod` into `dev`. */
 function renderSample(over: Parameters<typeof wholeOrgSample>[0] = {}): void {
@@ -190,9 +190,106 @@ describe('ForgeWholeOrgSample', () => {
       'no-record-drawn',
       'whole',
       'partial-masters',
+      'roots',
+      'in-the-draw',
+      'no-root-in-the-draw',
+      'not-windowed',
+      'oldest-by-ids',
+      'strata',
     ]) {
       expect(screen.queryByTestId(`forge-whole-org-sample-${id}`), id).toBeNull();
     }
     expect(screen.queryByTestId('forge-whole-org-sample-children-cut')).toBeNull();
+  });
+});
+
+/*
+ * A sample drawn among chosen roots says how they were chosen, its share of
+ * the roots in the draw rather than of the source, each object's roots in
+ * the draw against the source's, the objects the window left no root or
+ * could not date, each stratum's values, and that the draw held it: never
+ * that the whole org fits.
+ */
+describe('ForgeWholeOrgSample, of roots chosen', () => {
+  function renderChosen(over: Parameters<typeof wholeOrgSampleOfTheRoots>[0] = {}): void {
+    render(
+      <ForgeWholeOrgSample sample={wholeOrgSampleOfTheRoots(over)} source="prod" target="dev" />,
+    );
+  }
+
+  it('says its share of the roots in the draw, the oldest first, and how the roots were chosen', () => {
+    renderChosen();
+
+    expect(line('kept')).toBe(
+      '1,812 of 9,400 records of prod, from 3 objects: 100 % of the roots in the draw of each object, seed 1, the oldest first, with the records they reach.',
+    );
+    expect(line('roots')).toBe(
+      "How the roots were chosen: roots made from Jan 1, 2025, 12:00 AM UTC to before Jul 1, 2025, 12:00 AM UTC; Account where BillingCountry = 'France'; Account stratified by RecordTypeId; Contact stratified by HasOptedOutOfEmail.",
+    );
+    expect(line('in-the-draw')).toBe(
+      'Roots in the draw, of the roots of the source: Account 500 of 1,100; Contact 12.',
+    );
+  });
+
+  it('says the draw held it, to be widened, never that every record fits', () => {
+    renderChosen();
+
+    expect(line('taken')).toContain(
+      'held by the draw: every root of the window and the filters of the roots is in it — widen them to take more.',
+    );
+    expect(line('taken')).not.toContain('Every record fits');
+  });
+
+  it('says apart the objects with no root in the draw, those it cannot date, and those read by their ids', () => {
+    renderChosen();
+
+    expect(line('no-root-in-the-draw')).toBe(
+      'Objects of prod with no root in the window or the filters of the roots, none of their records kept: Lead (2,500 in the source).',
+    );
+    // Not said as an object of which the sample merely keeps nothing.
+    expect(screen.queryByTestId('forge-whole-org-sample-no-record-drawn')).toBeNull();
+    expect(line('not-windowed')).toBe(
+      'Objects without CreatedDate, which have no root in the window: Task.',
+    );
+    expect(line('oldest-by-ids')).toBe(
+      'Oldest by the order of their ids, having no creation date the org sorts by: Campaign.',
+    );
+  });
+
+  it('lists each stratum’s values in a table, a record type by its name, an empty value and a checkbox in words', () => {
+    renderChosen();
+
+    const table = within(screen.getByTestId('forge-whole-org-sample-strata')).getByRole('table', {
+      name: 'The strata: the roots of each value, and those kept',
+    });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['Field', 'Value', 'Roots', 'Kept']);
+    const rows = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => [...row.querySelectorAll('th, td')].map((cell) => cell.textContent));
+    expect(rows).toEqual([
+      ['Account.RecordTypeId', 'Business', '400', '400'],
+      ['Account.RecordTypeId', '(empty)', '100', '100'],
+      ['Account.RecordTypeId', '3 more values, not listed'],
+      ['Contact.HasOptedOutOfEmail', 'checked', '2', '2'],
+      ['Contact.HasOptedOutOfEmail', 'unchecked', '10', '10'],
+    ]);
+    expect(within(table).getAllByRole('rowheader')[0].getAttribute('scope')).toBe('row');
+    expect(screen.getByTestId('forge-whole-org-sample-strata-under').textContent).toBe(
+      'Records under the roots are not stratified.',
+    );
+  });
+
+  it('says its share of every root when strata alone chose them', () => {
+    renderChosen({
+      roots: { strata: wholeOrgSampleOfTheRoots().roots?.strata },
+      share: 0.5,
+    });
+
+    expect(line('kept')).toContain('50 % of the roots of each object');
   });
 });

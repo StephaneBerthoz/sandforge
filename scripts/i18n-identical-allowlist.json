@@ -26,6 +26,8 @@
     "forge.starter.leadToOpp.name",
     "forgeRun.node.errors_one",
     "forgeRun.review.row.compliance.report",
+    "forgeRun.review.sample.roots.where.item",
+    "forgeRun.wholeOrgDryRun.sample.inTheDrawOnly",
     "frozen.manifest.version",
     "grappe.partitionCount_one",
     "grappe.partitionCount_other",

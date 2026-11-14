@@ -253,3 +253,55 @@ export function wholeOrgSampleResult(
     ...over,
   };
 }
+
+/**
+ * What the simulation of that org's sample drew among chosen roots: the
+ * oldest first, the accounts made in the first half of 2025 and in France,
+ * stratified by record type, the contacts without an account by whether they
+ * opted out of email; Lead with no root in the window, Task with no creation
+ * date to window, Campaign read by its ids. Every root of the draw fits: held
+ * by the draw, never by the whole org.
+ */
+export function wholeOrgSampleOfTheRoots(over: Partial<WholeOrgSample> = {}): WholeOrgSample {
+  const sample = wholeOrgSample();
+  return {
+    ...sample,
+    draw: 'oldest',
+    share: 1,
+    budget: sampleBudgetTerms({ automationMB: 0.1, limitedBy: 'draw' }),
+    objects: sample.objects.map((object) =>
+      object.objectApiName === 'Account'
+        ? { ...object, rootsInTheSource: 1_100, rootsInTheDraw: 500 }
+        : object.objectApiName === 'Contact'
+          ? { ...object, rootsInTheDraw: 12 }
+          : object,
+    ),
+    noRecordDrawn: [{ objectApiName: 'Lead', sourceRows: 2_500, noRootInTheDraw: true }],
+    roots: {
+      window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z', to: '2025-07-01T00:00:00Z' },
+      notWindowed: ['Task'],
+      where: [{ objectApiName: 'Account', where: "BillingCountry = 'France'" }],
+      strata: [
+        {
+          objectApiName: 'Account',
+          field: 'RecordTypeId',
+          values: [
+            { value: '012000000000001AAA', label: 'Business', roots: 400, kept: 400 },
+            { value: null, roots: 100, kept: 100 },
+          ],
+          more: 3,
+        },
+        {
+          objectApiName: 'Contact',
+          field: 'HasOptedOutOfEmail',
+          values: [
+            { value: true, roots: 2, kept: 2 },
+            { value: false, roots: 10, kept: 10 },
+          ],
+        },
+      ],
+    },
+    oldestByIds: ['Campaign'],
+    ...over,
+  };
+}
