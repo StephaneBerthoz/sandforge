@@ -425,6 +425,10 @@ interface SyncReaders {
   deltaReads: SyncDeltaReads;
   /** What a configuration that copies files reads and writes: see `SyncFiles`. */
   files: SyncFileDeps;
+  /** The most records of one object either read holds (`sandforge.sync.maxRecordsPerObject`). */
+  readCap: number;
+  /** The objects whose read of the source the bound cut, as the reads went. */
+  cutAtReadCap: ReadonlySet<string>;
 }
 
 /**
@@ -1672,9 +1676,14 @@ export class SyncOpsHandler implements DomainHandler {
 
       const simulated = await orchestrator.simulate(config);
       const planned = checkpoint?.planned();
+      // The bound each object was read to, and the objects it cut: said on a
+      // toast as the reads went, and nowhere in the results.
+      const cut = [...readers.cutAtReadCap];
       const result: SyncSimulationResult = {
         ...simulated,
         ...(planned ? { checkpoint: planned } : {}),
+        readCap: readers.readCap,
+        ...(cut.length > 0 ? { cutAtReadCap: cut } : {}),
         operationId,
       };
       if (result.cancelled) {
@@ -1787,6 +1796,8 @@ export class SyncOpsHandler implements DomainHandler {
      * requests is held by its gate (`SyncRunGate`, API_BUDGET_EXCEEDED).
      */
     const readCap = this.readCap();
+    /** The objects whose read of the source the bound cut: a simulation's results name them. */
+    const cutAtReadCap = new Set<string>();
 
     // Build query functions with retry wrapping and dynamic limits
     const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
@@ -1873,6 +1884,7 @@ export class SyncOpsHandler implements DomainHandler {
           // past the bound is never compared. Saying "the sync copies this
           // subset" on the target read would be the wrong warning.
           const side = orgId === config.sourceOrgId ? 'source' : 'target';
+          if (side === 'source') cutAtReadCap.add(objectConfig.objectApiName);
           const consequence =
             side === 'source'
               ? 'this sync copies a subset, not the whole object'
@@ -2106,6 +2118,8 @@ export class SyncOpsHandler implements DomainHandler {
       countPersonAccounts,
       deltaReads,
       files,
+      readCap,
+      cutAtReadCap,
     };
   }
 

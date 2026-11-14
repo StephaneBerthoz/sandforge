@@ -16,6 +16,7 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
   RecordTypeGiven,
+  SentAgainForALock,
 } from '../common.types.js';
 import type { RunCheckpointInfo, RunCheckpointRequest } from '../checkpoint.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
@@ -81,12 +82,14 @@ export interface AutopilotSchemaResult extends BaseMessage {
   };
 }
 
-/** Request to generate an execution plan from the graph */
+/**
+ * Request to generate an execution plan from the graph. The records each
+ * object copies are bounded by the scan, from `sandforge.forge.maxRecordsPerObject`.
+ */
 export interface AutopilotGeneratePlanRequest extends BaseMessage {
   type: 'autopilot:generate-plan';
   payload: {
     complianceFramework: ComplianceFrameworkType;
-    maxRecordsPerObject: number;
     objectFilters: Record<string, string>;
     overrides: AnonymizationOverride[];
   };
@@ -210,6 +213,8 @@ export interface AutopilotNodeProgress extends BaseMessage {
     recordTypeGiven?: RecordTypeGiven;
     /** Records read that came to name one the fit cut, held back with it. */
     cutSinceFit?: number;
+    /** Records refused for a lock and sent again, and what became of them. */
+    sentAgainForALock?: SentAgainForALock;
     /** What the node failed on: the target's first refusal, or why its write threw. */
     error?: string;
     /** API calls this node cost, so the page can total them as the run goes. */

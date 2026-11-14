@@ -22,6 +22,7 @@ import type {
   RecordTypeGiven,
   RecordTypeGivenBasis,
   RecordTypeNamed,
+  SentAgainForALock,
   WithoutRecordTypeWhy,
 } from '@sandforge/shared';
 import {
@@ -343,16 +344,6 @@ export interface ObjectOutcome {
    * how many times they went. Absent when none was sent again.
    */
   sentAgainForALock?: SentAgainForALock;
-}
-
-/** See {@link ObjectOutcome.sentAgainForALock}. */
-export interface SentAgainForALock {
-  /** Records sent again, once or more. */
-  rows: number;
-  /** Of them, the records the target took. */
-  written: number;
-  /** Of them, the records the lock still held after their last send. */
-  stillLocked: number;
 }
 
 /**

@@ -17,6 +17,7 @@ import type { RecordCountResult } from '../../modules/sync/QuickSyncPreviewEstim
 import { AutoFieldMapper } from '../../modules/sync/AutoFieldMapper.js';
 import type { AutoMapFieldInfo } from '../../modules/sync/AutoFieldMapper.js';
 import { describeCached } from '../../core/connection/describeCache.js';
+import { syncReadCapOf } from '../../modules/sync/syncReadCap.js';
 
 /** Message types handled by QuickSyncHandler. */
 const QUICKSYNC_TYPES = new Set([
@@ -229,17 +230,25 @@ export class QuickSyncHandler implements DomainHandler {
         ...new Set([...payload.selectedObjects, ...(payload.parentObjects ?? [])]),
       ];
       const recordCounts: RecordCountResult[] = [];
+      // The run reads each object to the setting's bound, as the Sync tab's
+      // run does: counted past it, the preview said every record and its
+      // calls, and the run copied the bound's worth.
+      const readCap = syncReadCapOf(
+        this.deps.services?.getSandforgeSetting?.<unknown>('sync.maxRecordsPerObject', undefined),
+      );
 
       for (const objectApiName of allObjects) {
         const result = await conn.query<{ expr0: number }>(`SELECT COUNT() FROM ${objectApiName}`);
+        const held = result.totalSize ?? 0;
         recordCounts.push({
           objectApiName,
-          count: result.totalSize ?? 0,
+          count: Math.min(held, readCap),
+          ...(held > readCap ? { heldInSource: held } : {}),
         });
       }
 
       const parentSet = new Set(payload.parentObjects ?? []);
-      const preview = this.previewEstimator.estimate(recordCounts, parentSet);
+      const preview = { ...this.previewEstimator.estimate(recordCounts, parentSet), readCap };
 
       const response = buildResponse(this.deps, msg, 'quicksync:preview:response', { preview });
       this.deps.broker.postToWebview(response);

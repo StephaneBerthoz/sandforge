@@ -260,6 +260,24 @@ export interface RecordTypeGiven {
 }
 
 /**
+ * The records of one object the target refused because it could not lock a
+ * record their write needed (`UNABLE_TO_LOCK_ROW`, or a trigger whose update
+ * met the lock), sent again — up to three times, after a wait that doubles
+ * each time — and what became of them. Those still refused for the lock are
+ * among the object's refusals too, their message saying how many times they
+ * went. Said in the results: the run's log alone said a send again had
+ * written them.
+ */
+export interface SentAgainForALock {
+  /** Records sent again, once or more. */
+  rows: number;
+  /** Of them, the records the target took. */
+  written: number;
+  /** Of them, the records the lock still held after their last send. */
+  stillLocked: number;
+}
+
+/**
  * What the target's automation creates that a storage budget does not count,
  * named rather than taken for nothing: an Apex trigger, whose code is not
  * read; a flow, process or rule whose definition was not read; and the

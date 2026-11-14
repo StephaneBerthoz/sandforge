@@ -1631,6 +1631,8 @@
       "validationRules_other": "{{count}} reglas de validación activas del destino, que una simulación no puede evaluar: un registro que una de ellas rechace se cuenta como escrito.",
       "validationRulesUnread": "No se pudieron listar las reglas de validación del destino ({{reason}}): cualquiera de ellas puede rechazar un registro contado como escrito.",
       "stoppedAt": "La simulación se detuvo en {{object}}: {{error}}. Una ejecución también se detendría ahí.",
+      "readCut": "La lectura se detuvo en {{cap}} registros, el límite: una ejecución copia una parte de este objeto. Para copiar el resto, suba sandforge.sync.maxRecordsPerObject (50.000 como máximo), o léalo por tramos con un filtro sobre CreatedDate, un rango por ejecución.",
+      "readCutAtMost": "La lectura se detuvo en {{cap}} registros, lo máximo que una ejecución guarda de un objeto: una ejecución copia una parte. Para copiar el resto, léalo por tramos con un filtro sobre CreatedDate, un rango por ejecución.",
       "runNow": "Ejecutar la sincronización ahora",
       "alreadyCopied_one": "{{count}} ya copiado por una ejecución anterior de esta configuración, se deja como está.",
       "alreadyCopied_other": "{{count}} ya copiados por una ejecución anterior de esta configuración, se dejan como están.",
@@ -1695,7 +1697,8 @@
         "fits": "Solicitudes de API: unas {{estimate}}, de las {{remaining}} que le quedan a la org de destino de sus {{max}} diarias.",
         "near": "Solicitudes de API: unas {{estimate}}, que dejarían a la org de destino con menos de una décima parte de sus {{max}} diarias ({{remaining}} restantes).",
         "exceeds": "Solicitudes de API: unas {{estimate}}, más que las {{remaining}} que le quedan a la org de destino de sus {{max}} diarias.",
-        "unread": "Solicitudes de API: unas {{estimate}}. Lo que le queda hoy a la org de destino no se pudo leer ({{reason}})."
+        "unread": "Solicitudes de API: unas {{estimate}}. Lo que le queda hoy a la org de destino no se pudo leer ({{reason}}).",
+        "lockResends": "Las filas que la org de destino rechaza por un bloqueo de registro se envían de nuevo por sí solas, hasta 3 veces cada una: hasta 3 solicitudes más por cada 200 de ellas, que esta estimación no puede contar antes de la escritura."
       }
     },
     "runControls": {
@@ -4504,6 +4507,9 @@
       "present": "{{present}} de {{expected}} presentes",
       "withTheirRecord_one": "más {{formatted}} escrito por la plataforma con su registro",
       "withTheirRecord_other": "más {{formatted}} escritos por la plataforma con su registro",
+      "noneByTheRun": "ninguno escrito por la ejecución",
+      "withTheirRecordAlone_one": "{{formatted}} escrito por la plataforma con su registro",
+      "withTheirRecordAlone_other": "{{formatted}} escritos por la plataforma con su registro",
       "deleted_one": "{{formatted}} en la papelera de reciclaje",
       "deleted_other": "{{formatted}} en la papelera de reciclaje",
       "notVisible_one": "{{formatted}} ni presente ni en la papelera de reciclaje: fuera de su vista, no contado como eliminado",
@@ -4630,6 +4636,11 @@
         "compareAgain": "Comparar de nuevo",
         "admin": {
           "grantFieldEdit": "Dar al usuario con el que escribe SandForge el permiso de edición sobre {{field}} de {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}} > Permisos de campo)."
+        },
+        "severity": {
+          "info": "Info",
+          "warning": "Advertencia",
+          "error": "Error"
         }
       },
       "objectNoUserCreates": "{{object}} está en la org de destino, pero ningún usuario puede crear sus registros allí, ni siquiera con Modify All Data: Ejecutar lo omite, y ningún permiso lo abriría.",
@@ -6589,6 +6600,14 @@
       "byLookupFilter": "registro indicado rechazado por un filtro de búsqueda",
       "byInactiveOwner": "propietario rechazado por la org de destino, donde está inactivo"
     },
+    "sentAgainForALock": {
+      "lead_one": "{{count}} registro que la org de destino rechazó porque no pudo bloquear un registro que su escritura necesitaba (UNABLE_TO_LOCK_ROW) se envió de nuevo por sí solo, hasta 3 veces, con una espera más larga cada vez. Escritos: {{written}}.",
+      "lead_other": "{{count}} registros que la org de destino rechazó porque no pudo bloquear un registro que su escritura necesitaba (UNABLE_TO_LOCK_ROW) se enviaron de nuevo por sí solos, hasta 3 veces, con una espera más larga cada vez. Escritos: {{written}}.",
+      "stillLocked_one": "{{count}} sigue rechazado por el bloqueo, entre los rechazos.",
+      "stillLocked_other": "{{count}} siguen rechazados por el bloqueo, entre los rechazos.",
+      "otherwise_one": "{{count}} rechazado por otro motivo, entre los rechazos.",
+      "otherwise_other": "{{count}} rechazados por otro motivo, entre los rechazos."
+    },
     "checkpointNow": {
       "why": "Antes de que empiecen sus evaluadores, conserve {{org}} tal como está ahora como el punto al que volver. Retroceder la devuelve después a ese punto, quienquiera que la cambie a continuación.",
       "take": "Crear un punto de control ahora"
@@ -6825,6 +6844,7 @@
     "againInserts": "Si se vuelve a ejecutar, un Sync rápido inserta estos registros una segunda vez: elimine primero lo que creó esta ejecución, o haga un upsert sobre un ID externo en el asistente completo.",
     "syncInto": "Sincronizar en {{target}}",
     "insertsNeutralized": "Inserta cada registro; los correos y los números de teléfono se neutralizan.",
+    "readCut": "{{read}} de los {{held}} registros de la org de origen: el resto no se copia.",
     "refusal": {
       "storage": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino. Sync rápido no tiene filtro: quite objetos aquí, o ábralos en el asistente, donde cada objeto admite un filtro. Para copiar una parte del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino. O libere almacenamiento de datos en la org de destino: DataOps → Limpieza → Vaciar objetos elimina lo que contiene de estos objetos.",
       "openInWizard": "Abrir en el asistente",

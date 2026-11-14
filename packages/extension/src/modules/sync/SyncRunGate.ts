@@ -92,6 +92,7 @@ import {
 import { SNAPSHOT_PAGE_ROWS } from '../checkpoint/rewindEstimate.js';
 import { FORGE_QUERY_MAX_RECORDS } from '../forge/queryAllPages.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { sourceReadWhere } from './SyncDelta.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
 import {
@@ -996,7 +997,8 @@ export function syncGateStops(
   }
   // Past the requests the target has left today, whoever answers for it: it
   // would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED.
-  const overBudget = apiBudgetRefusal(api, input.org);
+  // The rows a lock refuses go again past what was counted: said, with their bound.
+  const overBudget = apiBudgetRefusal(api, input.org, LOCK_RESENDS_NOT_COUNTED);
   if (overBudget) stops.push({ code: API_BUDGET_EXCEEDED, message: overBudget });
   if (input.policy !== 'ask') {
     const over = emailRefusal(emails, input.org);

@@ -182,6 +182,7 @@ export const AutopilotPage: React.FC = () => {
       pricesSettled: msg.payload.pricesSettled,
       cutSinceFit: msg.payload.cutSinceFit,
       recordTypeGiven: msg.payload.recordTypeGiven,
+      sentAgainForALock: msg.payload.sentAgainForALock,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);

@@ -1631,6 +1631,8 @@
       "validationRules_other": "{{count}} regras de validação ativas do destino, que uma simulação não consegue avaliar: um registro que uma delas recuse é contado como gravado.",
       "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado como gravado.",
       "stoppedAt": "A simulação parou em {{object}}: {{error}}. Uma execução também pararia ali.",
+      "readCut": "A leitura parou em {{cap}} registros, o limite: uma execução copia uma parte deste objeto. Para copiar o restante, aumente sandforge.sync.maxRecordsPerObject (50.000 no máximo), ou leia-o em fatias com um filtro em CreatedDate, um intervalo por execução.",
+      "readCutAtMost": "A leitura parou em {{cap}} registros, o máximo que uma execução mantém de um objeto: uma execução copia uma parte dele. Para copiar o restante, leia-o em fatias com um filtro em CreatedDate, um intervalo por execução.",
       "runNow": "Executar a sincronização agora",
       "alreadyCopied_one": "{{count}} já copiado por uma execução anterior desta configuração, deixado como está.",
       "alreadyCopied_other": "{{count}} já copiados por uma execução anterior desta configuração, deixados como estão.",
@@ -1695,7 +1697,8 @@
         "fits": "Solicitações de API: cerca de {{estimate}}, das {{remaining}} que restam à org de destino de suas {{max}} diárias.",
         "near": "Solicitações de API: cerca de {{estimate}}, o que deixaria a org de destino com menos de um décimo de suas {{max}} diárias ({{remaining}} restantes).",
         "exceeds": "Solicitações de API: cerca de {{estimate}}, mais do que as {{remaining}} que restam à org de destino de suas {{max}} diárias.",
-        "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje à org de destino não pôde ser lido ({{reason}})."
+        "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje à org de destino não pôde ser lido ({{reason}}).",
+        "lockResends": "As linhas que a org de destino recusa por um bloqueio de registro são enviadas de novo sozinhas, até 3 vezes cada: até 3 solicitações a mais a cada 200 delas, que esta estimativa não consegue contar antes da gravação."
       }
     },
     "runControls": {
@@ -4504,6 +4507,9 @@
       "present": "{{present}} de {{expected}} presentes",
       "withTheirRecord_one": "mais {{formatted}} gravado pela plataforma com seu registro",
       "withTheirRecord_other": "mais {{formatted}} gravados pela plataforma com seu registro",
+      "noneByTheRun": "nenhum gravado pela execução",
+      "withTheirRecordAlone_one": "{{formatted}} gravado pela plataforma com seu registro",
+      "withTheirRecordAlone_other": "{{formatted}} gravados pela plataforma com seu registro",
       "deleted_one": "{{formatted}} na lixeira",
       "deleted_other": "{{formatted}} na lixeira",
       "notVisible_one": "{{formatted}} nem presente nem na lixeira: fora da sua visão, não contado como excluído",
@@ -4630,6 +4636,11 @@
         "compareAgain": "Comparar de novo",
         "admin": {
           "grantFieldEdit": "Dar ao usuário com que o SandForge grava a permissão de edição em {{field}} de {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}} > Permissões de campo)."
+        },
+        "severity": {
+          "info": "Info",
+          "warning": "Aviso",
+          "error": "Erro"
         }
       },
       "objectNoUserCreates": "{{object}} está na org de destino, mas nenhum usuário pode criar seus registros lá, nem com Modify All Data: Executar o pula, e nenhuma permissão o abriria.",
@@ -6589,6 +6600,14 @@
       "byLookupFilter": "registro indicado recusado por um filtro de pesquisa",
       "byInactiveOwner": "proprietário recusado pela org de destino, onde está inativo"
     },
+    "sentAgainForALock": {
+      "lead_one": "{{count}} registro que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foi enviado de novo sozinho, até 3 vezes, com uma espera mais longa a cada vez. Gravados: {{written}}.",
+      "lead_other": "{{count}} registros que a org de destino recusou porque não conseguiu bloquear um registro de que sua gravação precisava (UNABLE_TO_LOCK_ROW) foram enviados de novo sozinhos, até 3 vezes, com uma espera mais longa a cada vez. Gravados: {{written}}.",
+      "stillLocked_one": "{{count}} ainda recusado pelo bloqueio, entre as recusas.",
+      "stillLocked_other": "{{count}} ainda recusados pelo bloqueio, entre as recusas.",
+      "otherwise_one": "{{count}} recusado por outro motivo, entre as recusas.",
+      "otherwise_other": "{{count}} recusados por outro motivo, entre as recusas."
+    },
     "checkpointNow": {
       "why": "Antes que seus testadores comecem, guarde {{org}} como está agora como o ponto ao qual voltar. Retroceder depois a devolve a esse ponto, não importa quem a altere em seguida.",
       "take": "Criar um ponto de verificação agora"
@@ -6825,6 +6844,7 @@
     "againInserts": "Executado de novo, um Sync rápido insere estes registros uma segunda vez: remova primeiro o que esta execução criou, ou faça um upsert sobre um ID externo no assistente completo.",
     "syncInto": "Sincronizar em {{target}}",
     "insertsNeutralized": "Insere cada registro; e-mails e números de telefone são neutralizados.",
+    "readCut": "{{read}} dos {{held}} registros da org de origem: o restante não é copiado.",
     "refusal": {
       "storage": "A sincronização foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta à org de destino. O Sync rápido não tem filtro: retire objetos aqui, ou abra-os no assistente, onde cada objeto aceita um filtro. Para copiar uma parte da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino. Ou libere armazenamento de dados na org de destino: DataOps → Limpeza → Esvaziar objetos exclui o que ela contém desses objetos.",
       "openInWizard": "Abrir no assistente",

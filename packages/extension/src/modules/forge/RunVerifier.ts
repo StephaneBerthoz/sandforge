@@ -19,13 +19,16 @@
  *     back, and those the platform wrote with them, a person account's
  *     contact among them — a resume that wrote again a call under way when
  *     its run was killed left 200 contacts twice, and every one the run
- *     named was there;
+ *     named was there. What the platform wrote of an object the run wrote
+ *     none of, the contact role of an opportunity created with its contact,
+ *     gets a line of its own, counted so;
  *   - **settling**: the first reading comes after a pause, and readings
  *     repeat until two in a row agree (three at most, two seconds apart, as
  *     Frozen's post-load check does); otherwise the verdict is `unstable`.
  */
 
 import type { Connection } from 'jsforce';
+import * as z from 'zod';
 import type {
   ForgeLookupsLeftEmpty,
   ForgeRunObjectRecords,
@@ -61,6 +64,12 @@ export interface VerifiedOrg {
   queryAll(soql: string): Promise<{ totalSize: number; records: unknown[] }>;
   describe(objectApiName: string): Promise<unknown>;
   /**
+   * The org's objects, with the key prefix of their ids: what names the
+   * object of a record the platform wrote with the run's, of an object the
+   * run wrote none of.
+   */
+  describeGlobal?(): Promise<unknown>;
+  /**
    * The org's clock now, as it writes a date: a run whose writes the target
    * did not date is dated by when it was recorded, read on that clock.
    */
@@ -81,6 +90,7 @@ export function verifiedOrg(conn: Connection, context: string): VerifiedOrg {
   return {
     query: (soql) => session.query(soql),
     describe: (objectApiName) => session.describe(objectApiName),
+    describeGlobal: () => session.describeGlobal(),
     queryAll: async (soql) => {
       const answer = await conn.query<Record<string, unknown>>(soql, { scanAll: true });
       checkApiLimits(conn.limitInfo, context);
@@ -269,12 +279,24 @@ const CREATED_BY = 'CreatedById';
 /** When a record was created, by the org's clock. */
 const CREATED_DATE = 'CreatedDate';
 
+/** The objects of `describeGlobal`, as far as a verification reads them: each by its key prefix. */
+const globalObjectsSchema = z
+  .object({
+    sobjects: z.array(z.object({ name: z.string(), keyPrefix: z.string().nullish() }).loose()),
+  })
+  .loose();
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A record by its first fifteen characters: the same record, whichever length its id is written in. */
 function recordKey(id: string): string {
   return id.slice(0, 15);
+}
+
+/** The key prefix of a record's id, which every record of its object shares. */
+function prefixOf(id: string): string {
+  return id.slice(0, 3);
 }
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
@@ -339,6 +361,7 @@ export class RunVerifier {
     let attempts = 0;
     const explaining = this.explaining(run, runEnd);
     const user = explaining.window ? await this.runUser(run) : undefined;
+    const ofThePlatform = await this.writtenByThePlatformAlone(run, explaining);
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       attempts = attempt;
       await sleep(intervalMs);
@@ -347,6 +370,9 @@ export class RunVerifier {
         last.push(
           await this.read(run, object, runEnd, plans.get(object.objectApiName), explaining, user),
         );
+      }
+      for (const object of ofThePlatform) {
+        last.push(await this.readWrittenByThePlatform(object, explaining, user));
       }
       const serialized = stableSerialize(last);
       if (previous !== null && serialized === previous) {
@@ -673,8 +699,8 @@ export class RunVerifier {
   private async withTheirRecordThere(
     object: ForgeRunObjectRecords,
     explaining: Explaining,
+    prefix: string | undefined = object.ids[0]?.slice(0, 3),
   ): Promise<number> {
-    const prefix = object.ids[0]?.slice(0, 3);
     if (prefix === undefined) return 0;
     const own = new Set(object.ids.map(recordKey));
     const ids = explaining.withTheirRecord.filter(
@@ -692,6 +718,69 @@ export class RunVerifier {
     } catch {
       return 0;
     }
+  }
+
+  /**
+   * The objects of the records the platform wrote with the run's that the
+   * run wrote none of, named by the key prefix of their ids: the contact role
+   * the platform writes as it takes an opportunity with its contact, the
+   * opportunity's own created by the run. Counted under no object, they had
+   * no line: neither there, nor more than the run wrote. None when the
+   * target will not list its objects, as before.
+   */
+  private async writtenByThePlatformAlone(
+    run: RunToVerify,
+    explaining: Explaining,
+  ): Promise<Array<{ objectApiName: string; prefix: string }>> {
+    const written = new Set(run.records.flatMap((object) => object.ids.slice(0, 1)).map(prefixOf));
+    const prefixes = [...new Set(explaining.withTheirRecord.map(prefixOf))].filter(
+      (prefix) => !written.has(prefix),
+    );
+    const list = this.deps.target.describeGlobal;
+    if (prefixes.length === 0 || !list) return [];
+    try {
+      const { sobjects } = globalObjectsSchema.parse(await list.call(this.deps.target));
+      return prefixes.flatMap((prefix) => {
+        const object = sobjects.find((o) => o.keyPrefix === prefix);
+        return object ? [{ objectApiName: object.name, prefix }] : [];
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * One reading of an object the run wrote none of, and the platform wrote
+   * records of with the run's: those read back, as a person account's
+   * contacts are counted beside the run's own, and the records the run's
+   * user created of it in the run's window, which more than those are.
+   */
+  private async readWrittenByThePlatform(
+    object: { objectApiName: string; prefix: string },
+    explaining: Explaining,
+    user?: string,
+  ): Promise<ObjectReading> {
+    const reading: ObjectReading = {
+      objectApiName: object.objectApiName,
+      expected: 0,
+      present: 0,
+      deletedIds: [],
+      notVisibleIds: [],
+      changed: [],
+      linksChecked: 0,
+      broken: [],
+      explained: [],
+      withTheirRecord: await this.withTheirRecordThere(
+        { objectApiName: object.objectApiName, ids: [] },
+        explaining,
+        object.prefix,
+      ),
+    };
+    if (user !== undefined && explaining.counted) {
+      const counted = await this.countInTheWindow(object.objectApiName, user, explaining.counted);
+      if (counted !== undefined) reading.createdInTheWindow = counted;
+    }
+    return reading;
   }
 
   /** One reading of one object's records in the target. */

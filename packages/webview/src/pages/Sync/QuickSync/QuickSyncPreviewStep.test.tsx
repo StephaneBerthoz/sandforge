@@ -171,6 +171,54 @@ describe('QuickSyncPreviewStep', () => {
     expect(objects).toContain('7 estimated API calls');
   });
 
+  it('says the bound each object is read to, and what the source holds past it is not copied', () => {
+    // The toast and Review said the bound, and the preview counted every
+    // record: 120 000 contacts read as 120 000, where the run copied 50 000.
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        preview={{
+          objects: [
+            {
+              objectApiName: 'Account',
+              recordCount: 500,
+              estimatedApiCalls: 3,
+              isParentDependency: false,
+            },
+            {
+              objectApiName: 'Contact',
+              recordCount: 50_000,
+              heldInSource: 120_000,
+              estimatedApiCalls: 250,
+              isParentDependency: false,
+            },
+          ],
+          totalRecords: 50_500,
+          totalApiCalls: 253,
+          estimatedDurationSec: 506,
+          readCap: 50_000,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-sync-preview-read-cap').textContent).toBe(
+      'Each object is read up to 50,000 records, from either org, as ' +
+        'sandforge.sync.maxRecordsPerObject sets it (50,000 at most): one holding more is copied ' +
+        'in part, and the run says so. To copy part of a larger org that fits the target, use ' +
+        'Forge with Depth ALL and Records per object set to A sample that fits the target.',
+    );
+    expect(screen.getByTestId('quick-sync-preview-read-cut-Contact').textContent).toBe(
+      '50,000 of the 120,000 records the source org holds: the rest is not copied.',
+    );
+    expect(screen.queryByTestId('quick-sync-preview-read-cut-Account')).toBeNull();
+  });
+
+  it('says no bound for a preview that does not carry one', () => {
+    render(<QuickSyncPreviewStep {...defaultProps} />);
+
+    expect(screen.queryByTestId('quick-sync-preview-read-cap')).toBeNull();
+  });
+
   it('leaves the two orgs to the ribbon over the page, and names the target on its button', () => {
     // The ribbon names Quick Sync's pair while it is open: two badges here
     // named both orgs a second time on the screen.

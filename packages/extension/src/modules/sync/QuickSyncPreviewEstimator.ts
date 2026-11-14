@@ -4,8 +4,10 @@ import type { QuickSyncPreview, QuickSyncObjectPreview } from '@sandforge/shared
 export interface RecordCountResult {
   /** Salesforce object API name. */
   objectApiName: string;
-  /** Number of records. */
+  /** Number of records the run reads: those counted, up to the bound it reads to. */
   count: number;
+  /** The records counted, when past that bound. */
+  heldInSource?: number;
 }
 
 /** Default batch size for API call estimation. */
@@ -39,6 +41,7 @@ export class QuickSyncPreviewEstimator {
     const objects: QuickSyncObjectPreview[] = recordCounts.map((rc) => ({
       objectApiName: rc.objectApiName,
       recordCount: rc.count,
+      ...(rc.heldInSource !== undefined ? { heldInSource: rc.heldInSource } : {}),
       estimatedApiCalls: rc.count > 0 ? Math.ceil(rc.count / effectiveBatchSize) : 0,
       isParentDependency: parentObjects.has(rc.objectApiName),
     }));

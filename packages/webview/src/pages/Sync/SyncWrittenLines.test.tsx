@@ -78,6 +78,19 @@ describe('SyncWrittenLines', () => {
     );
   });
 
+  it('says the records sent again for a lock and what they came to, which only the log said', () => {
+    const result = { sentAgainForALock: { rows: 150, written: 150, stillLocked: 0 } };
+    render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-sentAgainForALock').tagName).toBe('LI');
+    expect(screen.getByTestId('lines-sentAgainForALock').textContent).toBe(
+      '150 records the target org refused because it could not lock a record their write ' +
+        'needed (UNABLE_TO_LOCK_ROW) went again on their own, up to 3 times, waiting longer ' +
+        'each time: 150 written.',
+    );
+  });
+
   it('says nothing of a write that linked no record and left no lookup out', () => {
     render(<SyncWrittenLines result={{}} testId="lines" />);
 

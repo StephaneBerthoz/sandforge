@@ -12,6 +12,7 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
   RecordTypeGiven,
+  SentAgainForALock,
   StorageFitBudget,
 } from './common.types.js';
 
@@ -115,6 +116,11 @@ export interface AutopilotNode {
    * Absent when there is nothing to say.
    */
   recordTypeGiven?: RecordTypeGiven;
+  /**
+   * The records the target refused for a lock and the run sent again, and
+   * what became of them. Absent when none was sent again.
+   */
+  sentAgainForALock?: SentAgainForALock;
 }
 
 /**

@@ -62,6 +62,7 @@ import {
 } from '../../../core/common/governorLimit.js';
 import { LookupPatchSet } from '../../../core/common/lookupPatches.js';
 import { LOOKUP_FILTER_REFUSAL } from '../../../core/common/refusedFields.js';
+import { refusedForALock as refusedForTheLock } from '../../../core/engine/lockedRows.js';
 import { RetryStrategy } from '../../../core/engine/RetryStrategy.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
@@ -178,9 +179,6 @@ export interface CycleFkPatchInput {
   onLeftOutsideTheSample?: (objectApiName: string, field: string) => void;
 }
 
-/** The code the target refuses a row with when it could not lock a record the write needed. */
-const LOCK_REFUSAL = 'UNABLE_TO_LOCK_ROW';
-
 /** The code a duplicate rule refuses a row with: a job carries no header that waives it. */
 const DUPLICATE_RULE_REFUSAL = 'DUPLICATES_DETECTED';
 
@@ -199,13 +197,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Whether every error an update was refused with is a lock the target could not get. */
+/**
+ * Whether every error an update was refused with is a lock the target could
+ * not get: under its own code, or under a trigger's whose update met it
+ * (`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY … first error: UNABLE_TO_LOCK_ROW`),
+ * as the writes of the run's rows read it.
+ */
 function refusedForALock(result: UpdateResult): boolean {
   const details = result.errorDetails ?? [];
-  if (details.length > 0 && details.length === result.errors.length) {
-    return details.every((detail) => detail.statusCode === LOCK_REFUSAL);
-  }
-  return result.errors.length > 0 && result.errors.every((error) => error.startsWith(LOCK_REFUSAL));
+  return refusedForTheLock(
+    result.errors,
+    details.length === result.errors.length ? details : undefined,
+  );
 }
 
 /**
@@ -218,7 +221,7 @@ function goesAgainByRest(result: UpdateResult): boolean {
   return (
     details?.length !== 1 ||
     details[0].statusCode === DUPLICATE_RULE_REFUSAL ||
-    details[0].statusCode === LOCK_REFUSAL
+    refusedForALock(result)
   );
 }
 

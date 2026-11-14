@@ -420,6 +420,33 @@ describe('AutopilotHandler — what each node came to', () => {
     expect(progress.at(-1)?.payload).toMatchObject({ pricesSettled: [prices] });
   });
 
+  it('ends a node on the records it sent again for a lock and what they came to, which its detail says', async () => {
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 40,
+      totalFailure: 2,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Account: {
+          written: 40,
+          linked: 0,
+          failed: 2,
+          refusals: [],
+          sentAgainForALock: { rows: 12, written: 10, stillLocked: 2 },
+        },
+      },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({
+      sentAgainForALock: { rows: 12, written: 10, stillLocked: 2 },
+    });
+  });
+
   it('ends a node born a draft on the statuses given back, and why the others were not', async () => {
     const refusedStatus = {
       statusCode: 'FIELD_INTEGRITY_EXCEPTION',

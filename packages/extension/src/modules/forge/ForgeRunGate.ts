@@ -840,15 +840,26 @@ function partsWords(parts: RunRequestParts | undefined): string {
  */
 export const API_BUDGET_EXCEEDED = 'API_BUDGET_EXCEEDED';
 
-/** Why a run cannot be written for the API requests it takes, or nothing when it can. */
-export function apiBudgetRefusal(check: ApiBudgetCheck, target: string): string | undefined {
+/**
+ * Why a run cannot be written for the API requests it takes, or nothing when it can.
+ *
+ * @param notCounted - What the run may send past the estimate, said before
+ *   "Nothing was written": Sync's sends again for a lock.
+ */
+export function apiBudgetRefusal(
+  check: ApiBudgetCheck,
+  target: string,
+  notCounted?: string,
+): string | undefined {
   if (check.verdict !== 'exceeds') return undefined;
   return (
     `The run takes about ${check.estimate} API requests${partsWords(check.parts)}, and ${target} ` +
     `has ${check.remaining} ` +
     `of its ${check.max} daily requests left: it would stop part way through, its records ` +
     'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
-    'limit is counted over the last 24 hours — or write fewer records. Nothing was written.'
+    'limit is counted over the last 24 hours — or write fewer records. ' +
+    (notCounted ? `${notCounted} ` : '') +
+    'Nothing was written.'
   );
 }
 

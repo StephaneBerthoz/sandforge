@@ -6,6 +6,7 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
   RecordTypeGiven,
+  SentAgainForALock,
 } from './common.types.js';
 import type {
   ForgeContactPointsReport,
@@ -765,6 +766,12 @@ export interface SyncObjectResult {
    * Master.
    */
   recordTypeGiven?: RecordTypeGiven;
+  /**
+   * The records the target refused for a lock and the run sent again, and
+   * what became of them; those it still refused are among `errors` too.
+   * Absent when none was sent again.
+   */
+  sentAgainForALock?: SentAgainForALock;
 }
 
 /** See {@link SyncObjectResult.writtenWithoutFields}. */
@@ -1153,6 +1160,16 @@ export interface SyncSimulationResult {
   checkpoint?: RunCheckpointEstimate;
   /** Why the records could not be counted before the first write, when they could not. */
   writeCheckUnread?: string;
+  /**
+   * The most records of one object a run reads, of either org
+   * (`sandforge.sync.maxRecordsPerObject`), as the simulation read them.
+   */
+  readCap?: number;
+  /**
+   * The objects whose read of the source the bound cut: a run copies part
+   * of each. Said on a toast alone, and not in the results. Absent when none.
+   */
+  cutAtReadCap?: ApiName[];
 }
 
 /**

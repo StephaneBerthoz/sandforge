@@ -198,6 +198,7 @@ import {
 import { BulkDataWriter, syncWriterCalls } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
+import { LOCK_RESENDS_NOT_COUNTED_LINE } from '../src/core/engine/lockedRows.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import {
   SYNC_READ_CAP_DEFAULT,
@@ -1372,6 +1373,8 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
                 ? ': it would leave less than a tenth of them'
                 : ''),
     );
+    // What the count cannot know before the write: the rows a lock refuses, sent again.
+    lines.push(`    ${LOCK_RESENDS_NOT_COUNTED_LINE}`);
   }
   // The objects the target takes none of, as the run writes them, and the
   // rows of the objects after them it holds back for their records.

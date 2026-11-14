@@ -171,6 +171,13 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                       })}
                 </p>
               )}
+              {/* What the count cannot know before the write: the rows a
+                  lock refuses, sent again on their own past it. */}
+              {check.apiRequests && (
+                <p className="text-text-secondary" data-testid="sync-write-check-api-lock-resends">
+                  {t('sync.writeCheck.apiRequests.lockResends')}
+                </p>
+              )}
               {check.emails.map((email) => (
                 <p
                   key={email.limit}

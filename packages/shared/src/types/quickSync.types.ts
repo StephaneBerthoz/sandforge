@@ -21,8 +21,13 @@ export interface QuickSyncConfig {
 export interface QuickSyncObjectPreview {
   /** Salesforce object API name. */
   objectApiName: string;
-  /** Number of records to sync. */
+  /** Number of records to sync: those the run reads, up to {@link QuickSyncPreview.readCap}. */
   recordCount: number;
+  /**
+   * The records the source holds, when past the bound the run reads to: the
+   * rest is not copied. Absent when the run reads them all.
+   */
+  heldInSource?: number;
   /** Estimated number of API calls for this object. */
   estimatedApiCalls: number;
   /** Whether this object was auto-added as a parent dependency. */
@@ -39,6 +44,12 @@ export interface QuickSyncPreview {
   totalApiCalls: number;
   /** Estimated duration in seconds (rough estimate). */
   estimatedDurationSec: number;
+  /**
+   * The most records of one object the run reads, from the setting
+   * `sandforge.sync.maxRecordsPerObject`: the preview counted every record
+   * of an object, and the run read to the bound.
+   */
+  readCap?: number;
 }
 
 /** Smart object suggestion returned by SmartObjectSuggester. */

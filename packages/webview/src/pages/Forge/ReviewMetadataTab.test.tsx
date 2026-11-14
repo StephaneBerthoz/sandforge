@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 
@@ -109,7 +111,7 @@ describe('ReviewMetadataTab', () => {
       'Report is in the target org, but no user can create its records there, not even one with ' +
         'Modify All Data: Execute skips it, and no grant would open it.',
     );
-    expect(screen.getByTestId('diff-0').textContent).toContain('INFO');
+    expect(screen.getByTestId('diff-0-severity').textContent).toBe('Info');
     expect(screen.getByTestId('diff-1').textContent).toContain(
       'a feature or licence the target has not turned on keeps it closed',
     );
@@ -183,19 +185,47 @@ describe('ReviewMetadataTab', () => {
     expect(title?.textContent).toBe('Invoice__c');
   });
 
-  it('should display severity badge text in uppercase', () => {
-    mockDiffs = [
-      {
-        objectApiName: 'Account',
-        fieldApiName: 'Name',
-        issue: 'missing',
-        severity: 'warning',
-        details: 'Missing field',
-      },
-    ];
-    render(<ReviewMetadataTab />);
-    const diff0 = screen.getByTestId('diff-0');
-    expect(diff0.textContent).toContain('WARNING');
+  it("says each difference's severity in the page's language, not as the code's English", async () => {
+    const severities: Array<MetadataDiffEntry['severity']> = ['info', 'warning', 'error'];
+    mockDiffs = severities.map((severity, i) => ({
+      objectApiName: 'Account',
+      fieldApiName: `Field${i}__c`,
+      issue: 'missing',
+      severity,
+      details: 'Missing field',
+    }));
+    const { unmount } = render(<ReviewMetadataTab />);
+    expect(severities.map((_, i) => screen.getByTestId(`diff-${i}-severity`).textContent)).toEqual([
+      'Info',
+      'Warning',
+      'Error',
+    ]);
+    unmount();
+
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    i18n.addResourceBundle('ja', 'translation', ja, true, true);
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      const french = render(<ReviewMetadataTab />);
+      expect(
+        severities.map((_, i) => screen.getByTestId(`diff-${i}-severity`).textContent),
+      ).toEqual(['Info', 'Avertissement', 'Erreur']);
+      french.unmount();
+
+      await act(async () => {
+        await i18n.changeLanguage('ja');
+      });
+      render(<ReviewMetadataTab />);
+      expect(
+        severities.map((_, i) => screen.getByTestId(`diff-${i}-severity`).textContent),
+      ).toEqual(['情報', '警告', 'エラー']);
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('should display diff count in summary text', () => {

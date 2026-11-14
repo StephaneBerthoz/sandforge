@@ -38,6 +38,8 @@ interface FakeTable {
   refused?: string[];
   /** Whether a `queryAll` of it is refused. */
   binRefused?: boolean;
+  /** The first three characters of its ids, as `describeGlobal` lists them. */
+  keyPrefix?: string;
 }
 
 /** What a fake org was asked. */
@@ -92,6 +94,13 @@ function fakeOrg(tables: Record<string, FakeTable>): VerifiedOrg & SourceOrg & {
         fields: table.fields.map((f) => ({ label: f.name, ...f })),
       };
     }),
+    describeGlobal: vi.fn(async () => ({
+      sobjects: Object.entries(tables).map(([name, table]) => ({
+        name,
+        label: name,
+        keyPrefix: table.keyPrefix ?? null,
+      })),
+    })),
   };
 }
 
@@ -965,8 +974,21 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
     Opportunity: [...AUDIT, ref('AccountId', ['Account']), ref('SyncedQuoteId', ['Quote'], false)],
     Quote: [...AUDIT, ref('OpportunityId', ['Opportunity'])],
     Task: [...AUDIT, ref('WhatId', ['Opportunity'])],
+    OpportunityContactRole: [
+      ...AUDIT,
+      ref('OpportunityId', ['Opportunity']),
+      ref('ContactId', ['Contact']),
+    ],
   };
   type Name = keyof typeof FIELDS;
+  const PREFIXES: Record<Name, string> = {
+    Account: '001',
+    Contact: '003',
+    Opportunity: '006',
+    Quote: '0Q0',
+    Task: '00T',
+    OpportunityContactRole: '00K',
+  };
   type Table = Map<string, Record<string, unknown>>;
 
   /** The business account, the person account, and their records, by id in each org. */
@@ -980,6 +1002,8 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
   const T1 = { s: sid('00T', 1), t: tid('00T', 1) };
   /** The task the platform wrote with an email the run created. */
   const T2 = { s: sid('00T', 2), t: tid('00T', 2) };
+  /** The contact role the platform wrote with the opportunity, for the contact it went in with. */
+  const R1 = { s: sid('00K', 1), t: tid('00K', 1) };
 
   /**
    * An org of `rows` per object, which also answers what a verification
@@ -991,7 +1015,7 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
       Object.fromEntries(
         (Object.keys(FIELDS) as Name[]).map((name) => [
           name,
-          { fields: FIELDS[name], rows: rows[name], deleted },
+          { fields: FIELDS[name], rows: rows[name], deleted, keyPrefix: PREFIXES[name] },
         ]),
       ),
     );
@@ -1033,6 +1057,7 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
       Opportunity: table({ Id: O1.s, AccountId: A1.s, SyncedQuoteId: Q1.s }),
       Quote: table({ Id: Q1.s, OpportunityId: O1.s }),
       Task: table({ Id: T1.s, WhatId: O1.s }, { Id: T2.s, WhatId: O1.s }),
+      OpportunityContactRole: table({ Id: R1.s, OpportunityId: O1.s, ContactId: C1.s }),
     });
     const rows: Record<Name, Table> = {
       Account: table({ Id: A1.t, ...run }, { Id: A2.t, ...run }),
@@ -1044,6 +1069,7 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
       Opportunity: table({ Id: O1.t, AccountId: A1.t, SyncedQuoteId: null, ...run }),
       Quote: table({ Id: Q1.t, OpportunityId: O1.t, ...run }),
       Task: table({ Id: T1.t, WhatId: O1.t, ...run }, { Id: T2.t, WhatId: O1.t, ...run }),
+      OpportunityContactRole: table({ Id: R1.t, OpportunityId: O1.t, ContactId: C1.t, ...run }),
     };
     const toVerify: RunToVerify = {
       records: [
@@ -1053,10 +1079,12 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
         { objectApiName: 'Contact', ids: [C1.t] },
         { objectApiName: 'Account', ids: [A1.t, A2.t] },
       ],
-      remapTable: Object.fromEntries([A1, A2, C1, PC2, O1, Q1, T1, T2].map(({ s, t }) => [s, t])),
+      remapTable: Object.fromEntries(
+        [A1, A2, C1, PC2, O1, Q1, T1, T2, R1].map(({ s, t }) => [s, t]),
+      ),
       runStartedAt: new Date(RUN_START),
       runEndedAt: new Date(RUN_END),
-      withTheirRecord: [PC2.s, T2.s],
+      withTheirRecord: [PC2.s, T2.s, R1.s],
       leftEmptyByTheRun: lookupsLeftEmptyByTheRun(true),
     };
     return { source, rows, run: toVerify };
@@ -1088,6 +1116,60 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
       linksBroken: 0,
       linksLeftEmptyByTheRun: 1,
     });
+  });
+
+  it('gives a line of its own, as the contacts of person accounts are counted, to the contact role the platform wrote with an opportunity the run created', async () => {
+    // The run creates no contact role: the platform wrote it as it took the
+    // opportunity with its contact, and the verification had no line for it,
+    // neither there nor more than the run wrote.
+    const { source, rows, run } = wholeOrgClone();
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    const roles = objectOf(verification, 'OpportunityContactRole');
+    expect(roles).toMatchObject({
+      expected: 0,
+      present: 0,
+      deleted: 0,
+      notVisible: 0,
+      withTheirRecord: 1,
+    });
+    expect(roles.moreInTheWindow).toBeUndefined();
+    expect(verification.verdict).toBe('verified');
+  });
+
+  it('counts a contact role the run’s user created in the run’s window past the one the platform wrote', async () => {
+    const { source, rows, run } = wholeOrgClone();
+    const another = tid('00K', 2);
+    rows.OpportunityContactRole.set(another, {
+      Id: another,
+      OpportunityId: O1.t,
+      ContactId: C1.t,
+      ...stamps(RUN_USER, DURING),
+    });
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'OpportunityContactRole')).toMatchObject({
+      withTheirRecord: 1,
+      moreInTheWindow: 1,
+    });
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('says no line of the platform’s records when the target will not list its objects', async () => {
+    const { source, rows, run } = wholeOrgClone();
+    const target = org(rows);
+    target.describeGlobal = vi.fn(async () => {
+      throw new Error('REQUEST_LIMIT_EXCEEDED');
+    });
+
+    const verification = await new RunVerifier({ target, source }).verify(run, NO_WAIT);
+
+    expect(verification.objects.map((o) => o.objectApiName)).not.toContain(
+      'OpportunityContactRole',
+    );
+    expect(verification.verdict).toBe('verified');
   });
 
   it('keeps as broken the synced quote of a run that does not say it leaves it empty', async () => {

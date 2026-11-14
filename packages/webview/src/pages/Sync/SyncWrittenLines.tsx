@@ -6,6 +6,7 @@ import type {
   SyncObjectResult,
 } from '@sandforge/shared';
 import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
+import { SentAgainForALockLine } from '../shared/SentAgainForALockLine';
 
 /** What an object's result says its write did beside its refusals. */
 type WrittenResult = Pick<
@@ -17,6 +18,7 @@ type WrittenResult = Pick<
   | 'writtenWithoutFields'
   | 'encryptedLeftOut'
   | 'recordTypeGiven'
+  | 'sentAgainForALock'
 >;
 
 /** Props for {@link SyncWrittenLines}. */
@@ -52,7 +54,8 @@ export function hasWrittenLines(result: WrittenResult): boolean {
     result.lookupsSetAfter !== undefined ||
     result.writtenWithoutFields !== undefined ||
     (result.encryptedLeftOut?.length ?? 0) > 0 ||
-    (result.recordTypeGiven?.rows ?? 0) > 0
+    (result.recordTypeGiven?.rows ?? 0) > 0 ||
+    (result.sentAgainForALock?.rows ?? 0) > 0
   );
 }
 
@@ -75,8 +78,9 @@ export function linkedOf(
  * written without lookups they held, with why, those given lookups at an
  * object written after them, those written again without the fields the
  * target refused them on, the encrypted fields every record went without,
- * read masked from the source, and the record type the target gave those it
- * created without one, in the panel's language.
+ * read masked from the source, the record type the target gave those it
+ * created without one, and the records sent again for a lock, in the panel's
+ * language.
  *
  * Each was a sentence among the object's errors, which the pages list as
  * refusals: "1 × LINKED_TO_EXISTING", "1 × 12 record(s) written without
@@ -162,6 +166,12 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
         stage="written"
         stillRan={stillRan}
         testId={`${testId}-recordType`}
+      />
+      {/* Written once sent again, or refused still: the log alone said it. */}
+      <SentAgainForALockLine
+        as="li"
+        entry={result.sentAgainForALock}
+        testId={`${testId}-sentAgainForALock`}
       />
     </ul>
   );

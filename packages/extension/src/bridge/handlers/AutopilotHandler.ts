@@ -1496,6 +1496,12 @@ export class AutopilotHandler implements DomainHandler {
                   ...(outcome.cutSinceFit !== undefined
                     ? { cutSinceFit: outcome.cutSinceFit }
                     : {}),
+                  // The records sent again for a lock and what they came to:
+                  // the command line said them, and the panel only the
+                  // refusals of those the lock still held.
+                  ...(outcome.sentAgainForALock
+                    ? { sentAgainForALock: outcome.sentAgainForALock }
+                    : {}),
                 }
               : {}),
             ...(statuses

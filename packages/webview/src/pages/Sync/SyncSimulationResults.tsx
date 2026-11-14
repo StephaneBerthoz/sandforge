@@ -10,6 +10,14 @@ import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
 import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
 import { RecordTypeGivenLine } from '../shared/RecordTypeGivenLine';
 import { RunDeliverabilityLine } from '../shared/RunDeliverabilityLine';
+import { formatNumber } from '../../utils/formatters';
+
+/**
+ * The most records of one object a run holds, which no setting raises: the
+ * maximum of `sandforge.sync.maxRecordsPerObject`. A read cut at it offers
+ * slices alone.
+ */
+const READ_CAP_MOST = 50_000;
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
@@ -54,6 +62,8 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
     (o) => o.operation === 'delete' || o.delta?.deletionsChecked === true,
   );
   const strategy = t(`sync.conflicts.${simulation.conflictStrategy}`);
+  const cutAtReadCap = new Set(simulation.cutAtReadCap ?? []);
+  const readCap = simulation.readCap;
 
   return (
     <div className="flex flex-col gap-3" data-testid="sync-simulation-results">
@@ -90,6 +100,13 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         )}
       </div>
       <p className="text-xs text-text-secondary">{t('sync.simulation.nothingWritten')}</p>
+      {/* The bound each object was read to, as Review says it: a toast said
+          it as the reads went, and the counts below read as the whole. */}
+      {readCap !== undefined && (
+        <p className="text-xs text-text-secondary" data-testid="sync-simulation-read-cap">
+          {t('sync.reviewObjects.readCap', { cap: formatNumber(readCap) })}
+        </p>
+      )}
       {/* What a run would meet before its first write, as its gate measures it. */}
       <SyncWriteCheckCard
         check={simulation.writeCheck}
@@ -146,6 +163,19 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
             })}`}
           />
           <CardBody>
+            {readCap !== undefined && cutAtReadCap.has(o.objectApiName) && (
+              <p
+                className="mb-2 text-xs text-status-warning"
+                data-testid={`sync-simulation-read-cut-${o.objectApiName}`}
+              >
+                {t(
+                  readCap < READ_CAP_MOST
+                    ? 'sync.simulation.readCut'
+                    : 'sync.simulation.readCutAtMost',
+                  { cap: formatNumber(readCap) },
+                )}
+              </p>
+            )}
             {o.delta && (
               <div className="mb-2">
                 <SyncDeltaLine

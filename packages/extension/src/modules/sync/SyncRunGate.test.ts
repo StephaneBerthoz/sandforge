@@ -1110,6 +1110,14 @@ describe('gateSyncWrite', () => {
       ).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
     }
     expect(confirm).not.toHaveBeenCalled();
+    // The rows the target refuses for a lock go again, which no count made
+    // before the write knows of: said, with their bound, before what to do.
+    const [stop] = syncGateStops(measured, { policy: 'ask', org: 'TRAP' });
+    expect(stop?.message).toContain(
+      'or write fewer records. Rows the target refuses for a record lock go again on their ' +
+        'own, up to 3 times each: up to 3 more requests for every 200 of them, which no ' +
+        'estimate made before the write can count. Nothing was written.',
+    );
   });
 
   it('says in the question it asks anyway that the run would leave the target short of API requests', async () => {

@@ -28,6 +28,16 @@ const SEVERITY_STYLES: Record<string, string> = {
   error: 'bg-status-error/10 text-status-error',
 };
 
+/**
+ * Each severity in the page's language: the badge said the code's English in
+ * capitals, INFO, WARNING, ERROR, beside a sentence in French or Japanese.
+ */
+const SEVERITY_KEYS: Readonly<Record<MetadataDiffEntry['severity'], string>> = {
+  info: 'forgeRun.review.metadata.severity.info',
+  warning: 'forgeRun.review.metadata.severity.warning',
+  error: 'forgeRun.review.metadata.severity.error',
+};
+
 /** The issues about a field, which the run can leave out of its object's rows. */
 const FIELD_ISSUES: ReadonlySet<MetadataDiffEntry['issue']> = new Set([
   'missing',
@@ -253,8 +263,9 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
               </span>
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded-sm ${SEVERITY_STYLES[diff.severity]}`}
+                data-testid={`diff-${idx}-severity`}
               >
-                {diff.severity.toUpperCase()}
+                {t(SEVERITY_KEYS[diff.severity])}
               </span>
             </div>
             <p className="text-text-secondary text-[10px]">

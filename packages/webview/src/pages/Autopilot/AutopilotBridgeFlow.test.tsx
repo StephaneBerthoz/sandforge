@@ -289,7 +289,6 @@ describe('Autopilot bridge flow', () => {
     const firstPlan = lastRequestOfType('autopilot:generate-plan');
     expect(firstPlan.payload).toEqual({
       complianceFramework: 'none',
-      maxRecordsPerObject: 0,
       objectFilters: {},
       overrides: [],
     });
@@ -302,7 +301,6 @@ describe('Autopilot bridge flow', () => {
     const planRequest = lastRequestOfType('autopilot:generate-plan');
     expect(planRequest.payload).toEqual({
       complianceFramework: 'gdpr',
-      maxRecordsPerObject: 0,
       objectFilters: {},
       overrides: [],
     });
@@ -344,6 +342,24 @@ describe('Autopilot bridge flow', () => {
       .graph?.nodes.find((n) => n.objectApiName === 'Account');
     expect(accountNode?.status).toBe('completed');
     expect(accountNode?.successCount).toBe(100);
+
+    // What it sent again for a lock, settled with it, reaches the node's detail.
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Account',
+        objectName: 'Account',
+        status: 'completed',
+        wave: 0,
+        recordCount: 100,
+        sentAgainForALock: { rows: 4, written: 4, stillLocked: 0 },
+      },
+      executeRequest.id,
+    );
+    expect(
+      useAutopilotStore.getState().graph?.nodes.find((n) => n.objectApiName === 'Account')
+        ?.sentAgainForALock,
+    ).toEqual({ rows: 4, written: 4, stillLocked: 0 });
 
     /*
      * And the panel headed "live stats" is live. These two numbers used to be

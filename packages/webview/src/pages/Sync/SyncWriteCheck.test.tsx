@@ -347,6 +347,12 @@ describe('SyncWriteCheckCard', () => {
     expect(screen.getByTestId('sync-write-check-api').textContent).toBe(
       'API requests: about 15, which would leave the target org less than a tenth of its 15,000 a day (900 left).',
     );
+    // What no count made before the write knows of: the rows a lock refuses, sent again.
+    expect(screen.getByTestId('sync-write-check-api-lock-resends').textContent).toBe(
+      'Rows the target org refuses for a record lock go again on their own, up to 3 times ' +
+        'each: up to 3 more requests for every 200 of them, which this estimate cannot count ' +
+        'before the write.',
+    );
   });
 
   it('says a run past the storage is refused before it writes anything', () => {

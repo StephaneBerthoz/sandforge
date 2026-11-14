@@ -455,6 +455,45 @@ describe('BatchWriter', () => {
       ]);
     });
 
+    it("sends again a row a trigger's update refused for the lock it met, by code or by text", async () => {
+      // How the platform words a lock a trigger's own update met: the
+      // trigger threw, under its own code, and the lock is in its message.
+      const message =
+        'ParentRollup: execution of AfterInsert caused by: System.DmlException: Update failed. ' +
+        'First exception on row 0 with id 001000000000009AAA; first error: UNABLE_TO_LOCK_ROW, ' +
+        'unable to obtain exclusive access to this record: []';
+      const nested: InsertResult[] = [
+        {
+          id: '',
+          success: false,
+          errors: [`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ${message}`],
+          errorDetails: [
+            { statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', message, fields: [] },
+          ],
+        },
+        // As a Bulk API job's `sf__Error` reads it, with no detail to go by.
+        { id: '', success: false, errors: [`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY:${message}:--`] },
+      ];
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockResolvedValueOnce(nested)
+        .mockResolvedValueOnce([written('001NEW0'), written('001NEW1')]);
+
+      const result = await new BatchWriter({ insertRecords }, undefined, noWait()).writeNode(
+        makeInput([
+          { Id: '001OLD0', Name: 'R0' },
+          { Id: '001OLD1', Name: 'R1' },
+        ]),
+      );
+
+      expect(insertRecords).toHaveBeenCalledTimes(2);
+      expect(insertRecords.mock.calls[1]?.[2]).toEqual([
+        { Id: '001OLD0', Name: 'R0' },
+        { Id: '001OLD1', Name: 'R1' },
+      ]);
+      expect(result).toMatchObject({ successCount: 2, failureCount: 0, errorSamples: [] });
+    });
+
     it('never sends again a row refused for a lock and for something else', async () => {
       const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
         {

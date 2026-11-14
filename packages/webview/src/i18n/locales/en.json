@@ -1631,6 +1631,8 @@
       "validationRules_other": "{{count}} active validation rules of the target, which a simulation cannot evaluate: a record one of them refuses is counted as written.",
       "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted as written.",
       "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
+      "readCut": "The read stopped at {{cap}} records, the bound: a run copies part of this object. To copy the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at most), or read it in slices with a filter on CreatedDate, one range per run.",
+      "readCutAtMost": "The read stopped at {{cap}} records, the most a run holds of an object: a run copies part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run.",
       "runNow": "Run the sync now",
       "alreadyCopied_one": "{{count}} already copied by an earlier run of this configuration, left as it is.",
       "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are.",
@@ -1695,7 +1697,8 @@
         "fits": "API requests: about {{estimate}}, of the {{remaining}} the target org has left of its {{max}} a day.",
         "near": "API requests: about {{estimate}}, which would leave the target org less than a tenth of its {{max}} a day ({{remaining}} left).",
         "exceeds": "API requests: about {{estimate}}, more than the {{remaining}} the target org has left of its {{max}} a day.",
-        "unread": "API requests: about {{estimate}}. What the target org has left today could not be read ({{reason}})."
+        "unread": "API requests: about {{estimate}}. What the target org has left today could not be read ({{reason}}).",
+        "lockResends": "Rows the target org refuses for a record lock go again on their own, up to 3 times each: up to 3 more requests for every 200 of them, which this estimate cannot count before the write."
       }
     },
     "runControls": {
@@ -4504,6 +4507,9 @@
       "present": "{{present}} of {{expected}} there",
       "withTheirRecord_one": "plus {{formatted}} written by the platform with their record",
       "withTheirRecord_other": "plus {{formatted}} written by the platform with their record",
+      "noneByTheRun": "none written by the run",
+      "withTheirRecordAlone_one": "{{formatted}} written by the platform with their record",
+      "withTheirRecordAlone_other": "{{formatted}} written by the platform with their record",
       "deleted_one": "{{formatted}} in the recycle bin",
       "deleted_other": "{{formatted}} in the recycle bin",
       "notVisible_one": "{{formatted}} neither there nor in the recycle bin: out of your sight, not taken for deleted",
@@ -4630,6 +4636,11 @@
         "compareAgain": "Compare again",
         "admin": {
           "grantFieldEdit": "Give the user SandForge writes as Edit on {{field}} of {{object}} (Setup > their profile or a permission set > Object Settings > {{object}} > Field Permissions)."
+        },
+        "severity": {
+          "info": "Info",
+          "warning": "Warning",
+          "error": "Error"
         }
       },
       "objectNoUserCreates": "{{object}} is in the target org, but no user can create its records there, not even one with Modify All Data: Execute skips it, and no grant would open it.",
@@ -6589,6 +6600,14 @@
       "byLookupFilter": "a lookup filter refused the record it names",
       "byInactiveOwner": "the target refused its owner, inactive there"
     },
+    "sentAgainForALock": {
+      "lead_one": "{{count}} record the target org refused because it could not lock a record its write needed (UNABLE_TO_LOCK_ROW) went again on its own, up to 3 times, waiting longer each time: {{written}} written.",
+      "lead_other": "{{count}} records the target org refused because it could not lock a record their write needed (UNABLE_TO_LOCK_ROW) went again on their own, up to 3 times, waiting longer each time: {{written}} written.",
+      "stillLocked_one": "{{count}} still refused for the lock, among the refusals.",
+      "stillLocked_other": "{{count}} still refused for the lock, among the refusals.",
+      "otherwise_one": "{{count}} refused for another reason, among the refusals.",
+      "otherwise_other": "{{count}} refused for another reason, among the refusals."
+    },
     "checkpointNow": {
       "why": "Before your testers start, keep {{org}} as it is now: it becomes the point to come back to, and a rewind returns it there, whoever changes it next.",
       "take": "Take a checkpoint now"
@@ -6825,6 +6844,7 @@
     "againInserts": "Run again, a Quick Sync inserts these records a second time: remove what this run created first, or upsert them on an External ID in the full wizard.",
     "syncInto": "Sync into {{target}}",
     "insertsNeutralized": "Inserts every record; emails and phone numbers are neutralized.",
+    "readCut": "{{read}} of the {{held}} records the source org holds: the rest is not copied.",
     "refusal": {
       "storage": "The sync was refused before it wrote anything: its records take more data storage than the target org has left. Quick Sync has no filter: leave objects out here, or open them in the wizard, where each object takes a filter. To copy part of the source that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target. Or free data storage in the target org: DataOps → Cleanup → Empty objects deletes what it holds of these objects.",
       "openInWizard": "Open in the wizard",

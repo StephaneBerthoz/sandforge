@@ -1504,6 +1504,8 @@ describe("a Sync run's write of rows the target refused for a record it could no
 
     expect(result.success).toBe(250);
     expect(result.failed).toBe(0);
+    // Said in the object's result, which the page shows: the log alone said it.
+    expect(result.sentAgainForALock).toEqual({ rows: 150, written: 150, stillLocked: 0 });
     // The job, then the 150 rows on the account alone, once it was let go.
     expect(org.jobs.map((job) => job.rows.length)).toEqual([250]);
     expect(org.rest.map((call) => call.rows.length)).toEqual([150]);
@@ -1554,6 +1556,46 @@ describe("a Sync run's write of rows the target refused for a record it could no
       );
     }
     expect(logged.join('\n')).toContain('0 written, 4 still refused for the lock');
+  });
+
+  it("says in the object's result the rows the lock still held after their last send, among its refusals", async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: Infinity });
+    const { writer } = runWriter(org);
+    const dataSync = new DataSync({
+      insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+      upsert: (objectName, key, records, batchSize) =>
+        writer.upsert(objectName, key, records, batchSize),
+      update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+      delete: (objectName, ids, batchSize) => writer.delete(objectName, ids, batchSize),
+    });
+
+    const result = await dataSync.sync(
+      {
+        objectApiName: 'Contact',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 1,
+      },
+      contacts(10, 4),
+    );
+
+    expect(result).toMatchObject({ success: 6, failed: 4 });
+    expect(result.sentAgainForALock).toEqual({ rows: 4, written: 0, stillLocked: 4 });
+    expect(result.errors).toHaveLength(4);
+  });
+
+  it('says nothing sent again in the result of a write the lock never met', async () => {
+    const org = lockedParentOrg({ parent: HUB, heldFor: 0 });
+    const { writer } = runWriter(org);
+
+    const outcomes = await writer.insert('Contact', contacts(5), 200);
+
+    expect(outcomes.every((outcome) => outcome.success)).toBe(true);
+    expect(outcomes.some((outcome) => outcome.lockResends !== undefined)).toBe(false);
   });
 
   it("sends again the rows a trigger's update refused for the lock it met", async () => {

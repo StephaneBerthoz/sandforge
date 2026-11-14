@@ -80,6 +80,54 @@ describe('SyncSimulationResults', () => {
     );
   });
 
+  it('says the bound each object is read to, and beside an object whose read it cut that a run copies part of it', () => {
+    // The bound was said on a toast as the reads went: the results counted
+    // 50 000 accounts read as though the source held no more.
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={simulation({ readCap: 12, cutAtReadCap: ['Account'] })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-read-cap').textContent).toBe(
+      'Each object is read up to 12 records, from either org, as ' +
+        'sandforge.sync.maxRecordsPerObject sets it (50,000 at most): one holding more is copied ' +
+        'in part, and the run says so. To copy part of a larger org that fits the target, use ' +
+        'Forge with Depth ALL and Records per object set to A sample that fits the target.',
+    );
+    expect(screen.getByTestId('sync-simulation-read-cut-Account').textContent).toBe(
+      'The read stopped at 12 records, the bound: a run copies part of this object. To copy ' +
+        'the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at most), or read it in ' +
+        'slices with a filter on CreatedDate, one range per run.',
+    );
+    expect(screen.queryByTestId('sync-simulation-read-cut-Contact')).toBeNull();
+  });
+
+  it('offers no raise of a bound already at the most a run holds', () => {
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        simulation={simulation({ readCap: 50_000, cutAtReadCap: ['Contact'] })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-read-cut-Contact').textContent).toBe(
+      'The read stopped at 50,000 records, the most a run holds of an object: a run copies ' +
+        'part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range ' +
+        'per run.',
+    );
+  });
+
+  it('says nothing of a bound a simulation did not carry', () => {
+    render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={vi.fn()} />);
+
+    expect(screen.queryByTestId('sync-simulation-read-cap')).toBeNull();
+    expect(screen.queryByTestId('sync-simulation-read-cut-Account')).toBeNull();
+  });
+
   it('says nothing of a checkpoint a simulation was not asked about', () => {
     render(<SyncSimulationResults targetOrg="TGT-DEV" simulation={simulation()} onRun={vi.fn()} />);
     expect(screen.queryByTestId('sync-simulation-checkpoint')).toBeNull();

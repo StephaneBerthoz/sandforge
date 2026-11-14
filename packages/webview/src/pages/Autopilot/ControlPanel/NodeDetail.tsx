@@ -10,6 +10,7 @@ import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { AutopilotNodeFit } from '../AutopilotWizard/AutopilotFitPanel';
 import { RecordTypeGivenLine } from '../../shared/RecordTypeGivenLine';
+import { SentAgainForALockLine } from '../../shared/SentAgainForALockLine';
 
 /**
  * What a refusal means and what to do about it, from the error catalogue: the
@@ -158,6 +159,14 @@ export const NodeDetail: React.FC = () => {
           </span>
         </div>
       )}
+
+      {/* Sent again for a lock: those the lock still held are among the
+          refusals below, which say how many times they went. */}
+      <SentAgainForALockLine
+        entry={selectedNode.sentAgainForALock}
+        testId="node-sent-again-for-a-lock"
+        className="text-xs text-text-secondary"
+      />
 
       {selectedNode.refusals && selectedNode.refusals.length > 0 && (
         <RefusalList

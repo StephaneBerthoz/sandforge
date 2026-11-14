@@ -87,6 +87,7 @@ import {
 import { whatTheWriteLeft, type ThrownWrite } from '../../../core/common/thrownWrite.js';
 import type { BulkApiManager } from '../../../core/engine/BulkApiManager.js';
 import { buildBulkCsv } from '../../../core/engine/bulkCsv.js';
+import { refusedForALock as refusedForTheLock } from '../../../core/engine/lockedRows.js';
 import { RetryStrategy } from '../../../core/engine/RetryStrategy.js';
 import {
   ACCOUNT_CONTACT_RELATION,
@@ -173,9 +174,6 @@ const RESENDS_OF_AN_UNREACHED_CALL = 3;
  * transaction held the lock past the ten seconds the platform waits for one.
  */
 const RESENDS_OF_A_LOCKED_ROW = 3;
-
-/** The code the target refuses a row with when it could not lock a record the write needed. */
-const LOCK_REFUSAL = 'UNABLE_TO_LOCK_ROW';
 
 /**
  * Rounds a row goes again without the fields the target refused it on: a
@@ -804,13 +802,20 @@ function countLinkedToCreated(tally: BatchWriteResult): void {
   tally.linkedToCreatedCount = (tally.linkedToCreatedCount ?? 0) + 1;
 }
 
-/** Whether every error the target refused a row with is its failure to lock a record the write needed. */
+/**
+ * Whether every error the target refused a row with is its failure to lock a
+ * record the write needed: under its own code, or under a trigger's whose
+ * update met the lock (`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY … first error:
+ * UNABLE_TO_LOCK_ROW`), as Sync, Seed and Autopilot read it. Read by the
+ * code alone, a trigger's lock failed the row, and every record hanging from
+ * it, where a send again once the parent was let go wrote it.
+ */
 function refusedForALock(result: InsertResult): boolean {
   const details = result.errorDetails ?? [];
-  if (details.length > 0 && details.length === result.errors.length) {
-    return details.every((detail) => detail.statusCode === LOCK_REFUSAL);
-  }
-  return result.errors.length > 0 && result.errors.every((error) => error.startsWith(LOCK_REFUSAL));
+  return refusedForTheLock(
+    result.errors,
+    details.length === result.errors.length ? details : undefined,
+  );
 }
 
 /** The fields a row went again without, as a sample says them. */

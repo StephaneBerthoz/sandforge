@@ -423,6 +423,41 @@ describe('ForgeVerificationView', () => {
     );
   });
 
+  it('says of an object the run wrote none of what the platform wrote of it with the run’s records, and more of it in the run’s window', () => {
+    const role = {
+      objectApiName: 'OpportunityContactRole',
+      expected: 0,
+      present: 0,
+      deleted: 0,
+      notVisible: 0,
+      changed: 0,
+      changedRecords: [],
+      deletedIds: [],
+      notVisibleIds: [],
+      linksChecked: 0,
+      linksBroken: 0,
+      brokenLinks: [],
+      withTheirRecord: 1,
+    };
+    render(
+      <ForgeVerificationView
+        verification={{
+          verdict: 'partial',
+          verifiedAt: '2026-10-01T09:00:00.000Z',
+          attempts: 2,
+          objects: [role, { ...role, objectApiName: 'OpportunityTeamMember', moreInTheWindow: 2 }],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-verification-OpportunityContactRole').textContent).toBe(
+      'OpportunityContactRole: none written by the run · 1 written by the platform with their record',
+    );
+    expect(screen.getByTestId('forge-verification-OpportunityTeamMember').textContent).toContain(
+      'none written by the run · 1 written by the platform with their record · ',
+    );
+  });
+
   it('says an unstable verification as one to run again, and the lookups it could not check', () => {
     render(
       <ForgeVerificationView

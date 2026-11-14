@@ -11,6 +11,7 @@ import type {
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
 import { RECORD_TYPE_READ_BACK_IDS } from '../../core/metadata/recordTypeGiven.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
+import { refusedForALock } from '../../core/engine/lockedRows.js';
 import {
   addWrittenWithoutFields,
   refusedFields,
@@ -94,6 +95,12 @@ export interface OperationOutcome {
    * per kind, with how many records it held, rather than once per record.
    */
   heldBack?: true;
+  /**
+   * Set on a record the target refused because it could not lock a record
+   * its write needed, and the write sent again: how many times it went
+   * (`BulkDataWriter.locksAgain`). Its result says it, written or refused.
+   */
+  lockResends?: number;
 }
 
 /**
@@ -1173,8 +1180,16 @@ export function buildObjectResult(
   const errors: string[] = [];
   let refused = 0;
   const split = { created: 0, updated: 0 };
+  const lockResent = { rows: 0, written: 0, stillLocked: 0 };
 
   for (const outcome of outcomes) {
+    // Sent again for a lock: written, still refused for it, or refused for
+    // another reason, as the log line of its write counts them.
+    if (outcome.lockResends !== undefined) {
+      lockResent.rows++;
+      if (outcome.success) lockResent.written++;
+      else if (refusedForALock(outcome.errors, outcome.errorDetails)) lockResent.stillLocked++;
+    }
     if (outcome.success) {
       success++;
       if (outcome.created === true) split.created++;
@@ -1210,6 +1225,7 @@ export function buildObjectResult(
       : {}),
     ...(lookupsLeftOut.length > 0 ? { lookupsLeftOut: [...lookupsLeftOut] } : {}),
     ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
+    ...(lockResent.rows > 0 ? { sentAgainForALock: lockResent } : {}),
     ...(refusalsDropped > 0 ? { refusalsDropped } : {}),
     // What each upserted record became, as the org said: the audit trail
     // counts them as created or updated rather than as "upserted".

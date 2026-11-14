@@ -55,6 +55,18 @@ function counted(
 function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
   if (object.error !== undefined)
     return [t('forgeRun.verify.objectUnread', { reason: object.error })];
+  // An object the run wrote none of, and the platform wrote records of with
+  // the run's — the contact role of an opportunity created with its contact:
+  // what it wrote, and more of it in the run's window. "0 of 0 there" and
+  // "no lookup the run set to check" said nothing of it.
+  if (object.expected === 0 && (object.withTheirRecord ?? 0) > 0) {
+    const more = object.moreInTheWindow ?? 0;
+    return [
+      t('forgeRun.verify.noneByTheRun'),
+      counted(t, 'forgeRun.verify.withTheirRecordAlone', object.withTheirRecord ?? 0),
+      ...(more > 0 ? [counted(t, 'forgeRun.verify.moreInTheWindow', more)] : []),
+    ];
+  }
   const parts = [
     t('forgeRun.verify.present', {
       present: formatNumber(object.present),

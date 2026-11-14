@@ -355,9 +355,10 @@ describe('AutopilotWizard', () => {
     // No compliance step between the objects and the review: the plan is
     // asked at once, for the framework chosen so far.
     expect(mockPlanMutate).toHaveBeenCalledTimes(1);
+    // No cap of records: the extension holds the plan to the records-per-object
+    // setting as it scans, and a 0 sent here was read by nothing.
     expect(mockPlanMutate).toHaveBeenLastCalledWith({
       complianceFramework: 'none',
-      maxRecordsPerObject: 0,
       objectFilters: {},
       overrides: [],
     });
@@ -437,7 +438,6 @@ describe('AutopilotWizard', () => {
     expect(useAutopilotStore.getState().complianceFramework).toBe('gdpr');
     expect(mockPlanMutate).toHaveBeenLastCalledWith({
       complianceFramework: 'gdpr',
-      maxRecordsPerObject: 0,
       objectFilters: {},
       overrides: [],
     });

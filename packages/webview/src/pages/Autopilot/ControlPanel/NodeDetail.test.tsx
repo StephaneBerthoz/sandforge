@@ -44,6 +44,25 @@ describe('NodeDetail', () => {
     expect(screen.getByTestId('node-record-type').textContent).toContain('Retail');
   });
 
+  it('says the records sent again for a lock and what they came to, once the outcome says it', () => {
+    const store = useAutopilotStore.getState();
+    store.setGraph(graphOf());
+    store.selectNode('Opportunity');
+    render(<NodeDetail />);
+    expect(screen.queryByTestId('node-sent-again-for-a-lock')).toBeNull();
+
+    act(() =>
+      store.updateNodeOutcome('Opportunity', {
+        sentAgainForALock: { rows: 3, written: 2, stillLocked: 1 },
+      }),
+    );
+
+    const line = screen.getByTestId('node-sent-again-for-a-lock');
+    expect(line.textContent).toContain('3 records the target org refused');
+    expect(line.textContent).toContain('2 written.');
+    expect(line.textContent).toContain('1 still refused for the lock');
+  });
+
   it('says how many records stayed without which lookup and why, and that they are written', () => {
     const store = useAutopilotStore.getState();
     store.setGraph(graphOf());

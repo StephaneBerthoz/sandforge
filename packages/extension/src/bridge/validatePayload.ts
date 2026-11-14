@@ -1686,10 +1686,12 @@ export const autopilotScanSchemaPayloadSchema = z.object({
   maxObjects: z.number().int().min(1).max(500).optional(),
 });
 
-/** Plan request: the framework is the only field the handler consumes. */
+/**
+ * Plan request: the framework is the only field the handler consumes. The
+ * records per object are the scan's, from the setting: none is asked here.
+ */
 export const autopilotGeneratePlanPayloadSchema = z.object({
   complianceFramework: complianceFrameworkTypeSchema,
-  maxRecordsPerObject: z.number().int().nonnegative().max(SEED_MAX_RECORDS_PER_OBJECT).optional(),
   objectFilters: z.record(z.string(), whereClauseSchema).optional(),
   overrides: z
     .array(

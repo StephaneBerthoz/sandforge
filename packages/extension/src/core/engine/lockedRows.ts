@@ -30,6 +30,27 @@ export const RESENDS_OF_A_LOCKED_ROW = 3;
 /** The wait before the first of those sends: doubled before each next one, up to half of it left to chance. */
 export const LOCKED_ROW_RESEND_DELAY_MS = 2_000;
 
+/** The rows one send again of rows refused for a lock carries: a REST call's. */
+const LOCKED_ROWS_PER_CALL = 200;
+
+/**
+ * What a gate says of the requests the sends again for a lock may add to a
+ * write, which its estimate does not count: no row's refusal is known before
+ * the write. At worst {@link RESENDS_OF_A_LOCKED_ROW} calls for every
+ * {@link LOCKED_ROWS_PER_CALL} rows refused; counted so for every row of
+ * every run, a run would be priced at four times its writes.
+ */
+export const LOCK_RESENDS_NOT_COUNTED =
+  `Rows the target refuses for a record lock go again on their own, up to ` +
+  `${RESENDS_OF_A_LOCKED_ROW} times each: up to ${RESENDS_OF_A_LOCKED_ROW} more requests for ` +
+  `every ${LOCKED_ROWS_PER_CALL} of them, which no estimate made before the write can count.`;
+
+/** The same, as a line under the requests a dry run or a gate counted. */
+export const LOCK_RESENDS_NOT_COUNTED_LINE =
+  `rows the target refuses for a record lock go again, up to ${RESENDS_OF_A_LOCKED_ROW} times ` +
+  `each: up to ${RESENDS_OF_A_LOCKED_ROW} more requests for every ${LOCKED_ROWS_PER_CALL} of ` +
+  'them, not counted above';
+
 /**
  * The code a trigger's refusal comes under when the update it made met the
  * lock: `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: <trigger>: execution of

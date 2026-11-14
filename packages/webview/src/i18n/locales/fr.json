@@ -1631,6 +1631,8 @@
       "validationRules_other": "{{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer : un enregistrement que l'une d'elles refuse est compté comme écrit.",
       "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté comme écrit.",
       "stoppedAt": "La simulation s'est arrêtée sur {{object}} : {{error}}. Une exécution s'y arrêterait aussi.",
+      "readCut": "La lecture s'est arrêtée à {{cap}} enregistrements, la borne : une exécution copie une partie de cet objet. Pour copier le reste, relevez sandforge.sync.maxRecordsPerObject (50 000 au plus), ou lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution.",
+      "readCutAtMost": "La lecture s'est arrêtée à {{cap}} enregistrements, le plus qu'une exécution tienne d'un objet : une exécution en copie une partie. Pour copier le reste, lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution.",
       "runNow": "Lancer la synchronisation maintenant",
       "alreadyCopied_one": "{{count}} déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
       "alreadyCopied_other": "{{count}} déjà copiés par une exécution précédente de cette configuration, laissés tels quels.",
@@ -1695,7 +1697,8 @@
         "fits": "Requêtes d'API : environ {{estimate}}, sur les {{remaining}} qu'il reste à l'org cible de ses {{max}} par jour.",
         "near": "Requêtes d'API : environ {{estimate}}, ce qui laisserait à l'org cible moins d'un dixième de ses {{max}} par jour ({{remaining}} restantes).",
         "exceeds": "Requêtes d'API : environ {{estimate}}, plus que les {{remaining}} qu'il reste à l'org cible de ses {{max}} par jour.",
-        "unread": "Requêtes d'API : environ {{estimate}}. Ce qu'il reste aujourd'hui à l'org cible n'a pas pu être lu ({{reason}})."
+        "unread": "Requêtes d'API : environ {{estimate}}. Ce qu'il reste aujourd'hui à l'org cible n'a pas pu être lu ({{reason}}).",
+        "lockResends": "Les lignes que l'org cible refuse pour un verrou d'enregistrement repartent seules, jusqu'à 3 fois chacune : jusqu'à 3 requêtes de plus pour 200 d'entre elles, que cette estimation ne peut compter avant l'écriture."
       }
     },
     "runControls": {
@@ -4504,6 +4507,9 @@
       "present": "{{present}} sur {{expected}} présents",
       "withTheirRecord_one": "plus {{formatted}} écrit par la plateforme avec son enregistrement",
       "withTheirRecord_other": "plus {{formatted}} écrits par la plateforme avec leur enregistrement",
+      "noneByTheRun": "aucun écrit par l'exécution",
+      "withTheirRecordAlone_one": "{{formatted}} écrit par la plateforme avec son enregistrement",
+      "withTheirRecordAlone_other": "{{formatted}} écrits par la plateforme avec leur enregistrement",
       "deleted_one": "{{formatted}} dans la corbeille",
       "deleted_other": "{{formatted}} dans la corbeille",
       "notVisible_one": "{{formatted}} ni présent ni dans la corbeille : hors de votre vue, pas compté comme supprimé",
@@ -4630,6 +4636,11 @@
         "compareAgain": "Comparer à nouveau",
         "admin": {
           "grantFieldEdit": "Donner à l'utilisateur sous lequel SandForge écrit le droit de modification sur {{field}} de {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}} > Autorisations de champ)."
+        },
+        "severity": {
+          "info": "Info",
+          "warning": "Avertissement",
+          "error": "Erreur"
         }
       },
       "objectNoUserCreates": "{{object}} existe dans l'org cible, mais aucun utilisateur ne peut y créer ses enregistrements, même avec Modify All Data : Exécuter le saute, et aucun droit ne l'ouvrirait.",
@@ -6589,6 +6600,14 @@
       "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche",
       "byInactiveOwner": "propriétaire refusé par l'org cible, où il est inactif"
     },
+    "sentAgainForALock": {
+      "lead_one": "{{count}} enregistrement que l'org cible a refusé, faute de pouvoir verrouiller un enregistrement dont son écriture avait besoin (UNABLE_TO_LOCK_ROW), est reparti seul, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Écrits : {{written}}.",
+      "lead_other": "{{count}} enregistrements que l'org cible a refusés, faute de pouvoir verrouiller un enregistrement dont leur écriture avait besoin (UNABLE_TO_LOCK_ROW), sont repartis seuls, jusqu'à 3 fois, avec une attente plus longue à chaque fois. Écrits : {{written}}.",
+      "stillLocked_one": "{{count}} encore refusé pour le verrou, parmi les refus.",
+      "stillLocked_other": "{{count}} encore refusés pour le verrou, parmi les refus.",
+      "otherwise_one": "{{count}} refusé pour une autre raison, parmi les refus.",
+      "otherwise_other": "{{count}} refusés pour une autre raison, parmi les refus."
+    },
     "checkpointNow": {
       "why": "Avant que vos testeurs ne commencent, gardez {{org}} telle qu'elle est maintenant comme point où revenir. Revenir à ce point l'y ramène ensuite, quel que soit l'auteur des changements à venir.",
       "take": "Créer un point de contrôle maintenant"
@@ -6825,6 +6844,7 @@
     "againInserts": "Relancé, un Sync rapide insère ces enregistrements une seconde fois : retirez d'abord ce que cette exécution a créé, ou faites un upsert sur un ID externe dans l'assistant complet.",
     "syncInto": "Synchroniser vers {{target}}",
     "insertsNeutralized": "Insère chaque enregistrement ; les e-mails et les numéros de téléphone sont neutralisés.",
+    "readCut": "{{read}} des {{held}} enregistrements de l'org source : le reste n'est pas copié.",
     "refusal": {
       "storage": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste à l'org cible. Sync rapide n'a pas de filtre : retirez des objets ici, ou ouvrez-les dans l'assistant, où chaque objet prend un filtre. Pour copier une partie de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible. Ou libérez du stockage de données dans l'org cible : DataOps → Nettoyage → Vider des objets supprime ce qu'elle contient de ces objets.",
       "openInWizard": "Ouvrir dans l'assistant",

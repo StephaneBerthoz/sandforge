@@ -9865,12 +9865,18 @@ export function verificationLines(verification: ForgeRunVerification, target: st
                 ...explained,
               ].join(', ');
     lines.push(
-      `  ${o.objectApiName}: ${o.present} of ${o.expected} there` +
-        (missing.length > 0 ? `, ${missing.join(', ')}` : '') +
-        (withTheirRecord > 0
-          ? `, and ${withTheirRecord} written by the platform with their record`
-          : '') +
-        `; ${links}`,
+      // An object the run wrote none of has a line for what the platform
+      // wrote of it with the run's records: the contact role of an
+      // opportunity created with its contact. "0 of 0 there" said nothing.
+      o.expected === 0 && withTheirRecord > 0
+        ? `  ${o.objectApiName}: none written by the run, and ${withTheirRecord} written by ` +
+            'the platform with their record there'
+        : `  ${o.objectApiName}: ${o.present} of ${o.expected} there` +
+            (missing.length > 0 ? `, ${missing.join(', ')}` : '') +
+            (withTheirRecord > 0
+              ? `, and ${withTheirRecord} written by the platform with their record`
+              : '') +
+            `; ${links}`,
     );
     for (const link of o.brokenLinks) {
       lines.push(

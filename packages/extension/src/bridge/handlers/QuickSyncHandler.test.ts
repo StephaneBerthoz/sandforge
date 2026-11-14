@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QuickSyncHandler } from './QuickSyncHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, QuickSyncPreview } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -167,6 +167,76 @@ describe('QuickSyncHandler', () => {
     expect(response.payload.preview.totalApiCalls).toBe(2); // ceil(250/200)
     expect(response.payload.preview.objects).toHaveLength(1);
     expect(response.payload.preview.objects[0].objectApiName).toBe('Account');
+  });
+
+  it('counts each object up to the bound a run reads it to, and says the bound and what the source holds past it', async () => {
+    // A run reads each object to sandforge.sync.maxRecordsPerObject, and the
+    // preview counted every record of it: 250 accounts read as 250, and their
+    // calls, where the run read 100.
+    mockGetConn.mockResolvedValue({
+      query: vi.fn(async (soql: string) => ({ totalSize: soql.includes('Account') ? 250 : 40 })),
+      limitInfo: undefined,
+    } as never);
+    deps.services = {
+      getSandforgeSetting: (key: string, fallback: unknown) =>
+        key === 'sync.maxRecordsPerObject' ? 100 : fallback,
+    } as unknown as HandlerDeps['services'];
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-preview-bound',
+        type: 'quicksync:preview',
+        timestamp: Date.now(),
+        payload: {
+          sourceOrgId: 'org-src',
+          selectedObjects: ['Account', 'Contact'],
+          parentObjects: [],
+        },
+      }),
+    );
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { preview: QuickSyncPreview };
+    };
+    expect(response.payload.preview.readCap).toBe(100);
+    expect(response.payload.preview.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Account',
+        recordCount: 100,
+        heldInSource: 250,
+        estimatedApiCalls: 1,
+      }),
+      expect.objectContaining({ objectApiName: 'Contact', recordCount: 40 }),
+    ]);
+    expect(response.payload.preview.objects[1]).not.toHaveProperty('heldInSource');
+    expect(response.payload.preview.totalRecords).toBe(140);
+  });
+
+  it('says the bound of 50 000 a run reads to when no setting asks for another', async () => {
+    mockGetConn.mockResolvedValue({
+      query: vi.fn().mockResolvedValue({ totalSize: 60_000 }),
+      limitInfo: undefined,
+    } as never);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-preview-default',
+        type: 'quicksync:preview',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'org-src', selectedObjects: ['Account'], parentObjects: [] },
+      }),
+    );
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { preview: QuickSyncPreview };
+    };
+    expect(response.payload.preview.readCap).toBe(50_000);
+    expect(response.payload.preview.objects[0]).toMatchObject({
+      recordCount: 50_000,
+      heldInSource: 60_000,
+    });
   });
 
   it('handles quicksync:execute with valid config and returns sync config', async () => {

@@ -264,6 +264,36 @@ describe('sync:simulate', () => {
     expect(writes.destroy).not.toHaveBeenCalled();
   });
 
+  it('says the bound each object is read to, and the objects whose read it cut, which the toast alone said', async () => {
+    mockOrgs();
+
+    await simulate(handler, 'sim-bound-default', upsertConfig());
+
+    const whole = posted(deps, 'sync:simulate:response')[0]?.payload as unknown as
+      SyncSimulationResult | undefined;
+    expect(whole?.readCap).toBe(50_000);
+    expect(whole?.cutAtReadCap).toBeUndefined();
+
+    // Set to one record: the source's two accounts are read to the first.
+    deps.services = {
+      ...deps.services,
+      getSandforgeSetting: (key: string, fallback: unknown) =>
+        key === 'sync.maxRecordsPerObject' ? 1 : fallback,
+    } as unknown as HandlerDeps['services'];
+    handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation(QUIET_TARGET);
+    mockOrgs();
+
+    await simulate(handler, 'sim-bound-one', upsertConfig());
+
+    const cut = posted(deps, 'sync:simulate:response').find(
+      (message) => message.correlationId === 'sim-bound-one',
+    )?.payload as unknown as SyncSimulationResult | undefined;
+    expect(cut?.objects[0]).toMatchObject({ objectApiName: 'Account', read: 1 });
+    expect(cut?.readCap).toBe(1);
+    expect(cut?.cutAtReadCap).toEqual(['Account']);
+  });
+
   it("lists the target's active validation rules on the object it would write", async () => {
     const { tooling } = mockOrgs([
       {

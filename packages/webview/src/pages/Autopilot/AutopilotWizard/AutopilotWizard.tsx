@@ -233,13 +233,16 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     if (data) useAutopilotStore.getState().addObjectCounts(data.counts);
   }, [countMutation.data]);
 
-  /** The plan of the scanned selection, for a framework. */
+  /**
+   * The plan of the scanned selection, for a framework. Its records per
+   * object are the extension's to bound, by the setting it read as it
+   * scanned: a `maxRecordsPerObject: 0` sent here was read by nothing.
+   */
   const askPlan = planMutation.mutate;
   const requestPlan = useCallback(
     (framework: ComplianceFrameworkType) =>
       askPlan({
         complianceFramework: framework,
-        maxRecordsPerObject: 0,
         objectFilters: {},
         overrides: [],
       }),

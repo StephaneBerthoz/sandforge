@@ -170,6 +170,45 @@ describe('patchCycleFkUpdates — updates sent as Bulk API jobs', () => {
     expect(error).toMatchObject({ objectApiName: '__pass2__', failedCount: 1 });
   });
 
+  it("sends again by REST the updates a trigger's own update refused for the lock it met", async () => {
+    // A trigger on the object that updates the record the lookup names: the
+    // trigger throws under its own code, the lock in its message.
+    const message =
+      'ParentRollup: execution of AfterUpdate caused by: System.DmlException: Update failed. ' +
+      'First exception on row 0 with id 001000000000009AAA; first error: UNABLE_TO_LOCK_ROW, ' +
+      'unable to obtain exclusive access to this record: []';
+    const NESTED: UpdateResult = {
+      id: '',
+      success: false,
+      errors: [`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ${message}`],
+      errorDetails: [{ statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', message, fields: [] }],
+    };
+    const { pending, remapper } = owing(2_000);
+    const bulkUpdate = vi.fn<BulkUpdateFn>().mockImplementation(async (_o, records) => {
+      const answer = allTaken(records);
+      answer.answers[0] = NESTED;
+      answer.answers[1] = NESTED;
+      return answer;
+    });
+    // The first send by REST meets the lock again on the first update.
+    let sends = 0;
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) => {
+        sends++;
+        return records.map((r, i) => (i === 0 && sends === 1 ? NESTED : taken(r)));
+      });
+    const wait = vi.fn<(ms: number) => Promise<void>>().mockResolvedValue(undefined);
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ pendingFkUpdates: pending, remapper, updateRecords, bulkUpdate, wait }),
+    );
+
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([2, 1]);
+    expect(wait).toHaveBeenCalledTimes(1);
+    expect(error).toBeNull();
+  });
+
   it('updates by REST what a job wrote nothing of, and counts as left empty what a lost job may have written', async () => {
     const { pending, remapper } = owing(2_000);
     const updateRecords = takingEvery();

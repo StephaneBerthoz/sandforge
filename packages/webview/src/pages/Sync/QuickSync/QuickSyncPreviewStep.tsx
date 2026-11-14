@@ -22,6 +22,7 @@ import { MutedAutomationResult } from '../../../components/ui/MutedAutomationRes
 import { RewindBeforeRun } from '../../../components/ui/RewindBeforeRun';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { orgDisplayName } from '@sandforge/shared';
+import { formatNumber } from '../../../utils/formatters';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -270,12 +271,37 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                     each batch of them — and are said to be one, as the
                     summary above says its own. */}
                 <div className="flex items-center gap-4 text-[10px] text-(--sf-text-secondary)">
-                  <span>{t('common.recordCount', { count: obj.recordCount })}</span>
+                  {/* Counted past the bound a run reads to: said, as the
+                      run copies the bound's worth alone. */}
+                  {obj.heldInSource !== undefined ? (
+                    <span
+                      className="text-status-warning"
+                      data-testid={`quick-sync-preview-read-cut-${obj.objectApiName}`}
+                    >
+                      {t('quickSync.readCut', {
+                        read: formatNumber(obj.recordCount),
+                        held: formatNumber(obj.heldInSource),
+                      })}
+                    </span>
+                  ) : (
+                    <span>{t('common.recordCount', { count: obj.recordCount })}</span>
+                  )}
                   <span>{t('common.estimatedApiCallCount', { count: obj.estimatedApiCalls })}</span>
                 </div>
               </div>
             ))}
           </div>
+
+          {/* The bound of each read, said before the run as Review says it:
+              the preview counted every record, the run read the bound's worth. */}
+          {preview.readCap !== undefined && (
+            <p
+              className="text-xs text-(--sf-text-secondary)"
+              data-testid="quick-sync-preview-read-cap"
+            >
+              {t('sync.reviewObjects.readCap', { cap: formatNumber(preview.readCap) })}
+            </p>
+          )}
         </>
       )}
 

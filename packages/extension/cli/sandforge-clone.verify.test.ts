@@ -744,6 +744,38 @@ describe('sandforge-clone verification lines', () => {
     ]);
   });
 
+  it('says of an object the run wrote none of what the platform wrote of it with the run’s records, with no count of the run’s own', () => {
+    const lines = verificationLines(
+      {
+        verdict: 'verified',
+        verifiedAt: '2026-11-14T10:00:00.000Z',
+        attempts: 2,
+        objects: [
+          {
+            objectApiName: 'OpportunityContactRole',
+            expected: 0,
+            present: 0,
+            deleted: 0,
+            notVisible: 0,
+            changed: 0,
+            changedRecords: [],
+            deletedIds: [],
+            notVisibleIds: [],
+            linksChecked: 0,
+            linksBroken: 0,
+            brokenLinks: [],
+            withTheirRecord: 1,
+          },
+        ],
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'verification: VERIFIED (2 readings of TGT)',
+      '  OpportunityContactRole: none written by the run, and 1 written by the platform with their record there',
+    ]);
+  });
+
   it('says an unstable verification as one to run again, and the lookups it could not check', () => {
     const lines = verificationLines(
       verification({ verdict: 'unstable', attempts: 3, linksUnchecked: 'not kept' }),

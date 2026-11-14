@@ -705,8 +705,10 @@ export class BulkDataWriter {
    * write needed, sent again through REST, in calls of {@link REST_CALL_MAX},
    * after a wait that doubles each time, three times at most, and only those
    * (`sendLockedRowsAgain`): each outcome in its place, but theirs, which the
-   * last send answers. Said in the log with what became of them; a row the
-   * lock still held after its last send says it in its refusal.
+   * last send answers. Said in the log with what became of them, and on each
+   * row sent again, by how many times it went (`lockResends`), which the
+   * object's result counts; a row the lock still held after its last send
+   * says it in its refusal.
    *
    * A row refused so was not written, its call or its job's chunk committing
    * each row on its own: run into a parent other writes held, a Bulk API
@@ -728,13 +730,16 @@ export class BulkDataWriter {
     calls: WriterCalls | undefined = this.deps.calls,
     externalIdField?: string,
   ): Promise<OperationOutcome[]> {
+    /** How many times each row went again, by its place: what its outcome carries. */
+    const sends = new Map<number, number>();
     const again = await sendLockedRowsAgain({
       outcomes: outcomes.slice(0, items.length),
       locked: refusedForTheLock,
       written: (outcome) => outcome.success,
       send: async (at) => {
+        let answers: OperationOutcome[];
         try {
-          return await this.executeRestBatches(
+          answers = await this.executeRestBatches(
             operation,
             objectName,
             at.map((i) => items[i]),
@@ -747,8 +752,10 @@ export class BulkDataWriter {
           );
         } catch (err: unknown) {
           if (!(err instanceof WriteCancelledError)) throw err;
-          return err.written;
+          answers = err.written;
         }
+        for (const i of at.slice(0, answers.length)) sends.set(i, (sends.get(i) ?? 0) + 1);
+        return answers;
       },
       note: stillLocked,
       wait: (ms) => this.wait(ms),
@@ -757,7 +764,11 @@ export class BulkDataWriter {
     const line = lockedRowsLine('row(s)', again);
     if (line === undefined) return outcomes;
     this.deps.log(`[INFO] ${operation} ${objectName}: ${line}`);
-    return [...again.outcomes, ...outcomes.slice(items.length)];
+    const marked = again.outcomes.map((outcome, i) => {
+      const times = sends.get(i);
+      return times === undefined ? outcome : { ...outcome, lockResends: times };
+    });
+    return [...marked, ...outcomes.slice(items.length)];
   }
 
   /**

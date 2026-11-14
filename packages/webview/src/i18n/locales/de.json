@@ -1631,6 +1631,8 @@
       "validationRules_other": "{{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den eine von ihnen ablehnt, wird als geschrieben gezählt.",
       "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als geschrieben gezählten Datensatz ablehnen.",
       "stoppedAt": "Die Simulation hat bei {{object}} angehalten: {{error}}. Ein Lauf würde dort ebenfalls anhalten.",
+      "readCut": "Das Lesen endete bei {{cap}} Datensätzen, der Grenze: Ein Lauf kopiert einen Teil dieses Objekts. Um den Rest zu kopieren, erhöhen Sie sandforge.sync.maxRecordsPerObject (höchstens 50.000) oder lesen Sie es in Abschnitten mit einem Filter auf CreatedDate, ein Bereich pro Lauf.",
+      "readCutAtMost": "Das Lesen endete bei {{cap}} Datensätzen, dem Höchsten, das ein Lauf von einem Objekt hält: Ein Lauf kopiert einen Teil davon. Um den Rest zu kopieren, lesen Sie es in Abschnitten mit einem Filter auf CreatedDate, ein Bereich pro Lauf.",
       "runNow": "Synchronisierung jetzt starten",
       "alreadyCopied_one": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleibt, wie er ist.",
       "alreadyCopied_other": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleiben, wie sie sind.",
@@ -1695,7 +1697,8 @@
         "fits": "API-Anfragen: etwa {{estimate}}, von den {{remaining}}, die der Ziel-Org von ihren {{max}} pro Tag bleiben.",
         "near": "API-Anfragen: etwa {{estimate}}, womit der Ziel-Org weniger als ein Zehntel ihrer {{max}} pro Tag bliebe ({{remaining}} übrig).",
         "exceeds": "API-Anfragen: etwa {{estimate}}, mehr als die {{remaining}}, die der Ziel-Org von ihren {{max}} pro Tag bleiben.",
-        "unread": "API-Anfragen: etwa {{estimate}}. Was der Ziel-Org heute bleibt, konnte nicht gelesen werden ({{reason}})."
+        "unread": "API-Anfragen: etwa {{estimate}}. Was der Ziel-Org heute bleibt, konnte nicht gelesen werden ({{reason}}).",
+        "lockResends": "Zeilen, die die Ziel-Org wegen einer Datensatzsperre ablehnt, gehen allein erneut, jede bis zu 3-mal: bis zu 3 Anfragen mehr je 200 davon, die diese Schätzung vor dem Schreiben nicht zählen kann."
       }
     },
     "runControls": {
@@ -4504,6 +4507,9 @@
       "present": "{{present}} von {{expected}} vorhanden",
       "withTheirRecord_one": "dazu {{formatted}} von der Plattform mit seinem Datensatz geschrieben",
       "withTheirRecord_other": "dazu {{formatted}} von der Plattform mit ihrem Datensatz geschrieben",
+      "noneByTheRun": "keiner vom Lauf geschrieben",
+      "withTheirRecordAlone_one": "{{formatted}} von der Plattform mit seinem Datensatz geschrieben",
+      "withTheirRecordAlone_other": "{{formatted}} von der Plattform mit ihrem Datensatz geschrieben",
       "deleted_one": "{{formatted}} im Papierkorb",
       "deleted_other": "{{formatted}} im Papierkorb",
       "notVisible_one": "{{formatted}} weder vorhanden noch im Papierkorb: für Sie nicht sichtbar, nicht als gelöscht gezählt",
@@ -4630,6 +4636,11 @@
         "compareAgain": "Erneut vergleichen",
         "admin": {
           "grantFieldEdit": "Dem Benutzer, mit dem SandForge schreibt, das Bearbeitungsrecht für {{field}} von {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}} > Feldberechtigungen)."
+        },
+        "severity": {
+          "info": "Info",
+          "warning": "Warnung",
+          "error": "Fehler"
         }
       },
       "objectNoUserCreates": "{{object}} ist in der Ziel-Org, aber kein Benutzer kann dort Datensätze davon erstellen, auch nicht mit Modify All Data: Ausführen überspringt es, und keine Berechtigung würde es öffnen.",
@@ -6589,6 +6600,14 @@
       "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt",
       "byInactiveOwner": "Inhaber von der Ziel-Org abgelehnt, da dort inaktiv"
     },
+    "sentAgainForALock": {
+      "lead_one": "{{count}} Datensatz, den die Ziel-Org abgelehnt hat, weil sie einen für sein Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), ging allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} geschrieben.",
+      "lead_other": "{{count}} Datensätze, die die Ziel-Org abgelehnt hat, weil sie einen für ihr Schreiben nötigen Datensatz nicht sperren konnte (UNABLE_TO_LOCK_ROW), gingen allein erneut, bis zu 3-mal, mit jedes Mal längerer Wartezeit: {{written}} geschrieben.",
+      "stillLocked_one": "{{count}} weiterhin wegen der Sperre abgelehnt, unter den Ablehnungen.",
+      "stillLocked_other": "{{count}} weiterhin wegen der Sperre abgelehnt, unter den Ablehnungen.",
+      "otherwise_one": "{{count}} aus einem anderen Grund abgelehnt, unter den Ablehnungen.",
+      "otherwise_other": "{{count}} aus einem anderen Grund abgelehnt, unter den Ablehnungen."
+    },
     "checkpointNow": {
       "why": "Bevor Ihre Tester beginnen, halten Sie {{org}} im jetzigen Stand als Punkt fest, zu dem Sie zurückkehren können. Das Zurücksetzen bringt die Org dann dorthin zurück, egal wer sie danach ändert.",
       "take": "Jetzt einen Prüfpunkt erstellen"
@@ -6825,6 +6844,7 @@
     "againInserts": "Erneut gestartet, fügt ein Schnell-Sync diese Datensätze ein zweites Mal ein: Entfernen Sie zuerst, was dieser Lauf erstellt hat, oder führen Sie im vollständigen Assistenten einen Upsert über eine externe ID aus.",
     "syncInto": "In {{target}} synchronisieren",
     "insertsNeutralized": "Fügt jeden Datensatz ein; E-Mail-Adressen und Telefonnummern werden neutralisiert.",
+    "readCut": "{{read}} der {{held}} Datensätze der Quell-Org: Der Rest wird nicht kopiert.",
     "refusal": {
       "storage": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als der Ziel-Org bleibt. Schnell-Sync hat keinen Filter: Lassen Sie hier Objekte weg, oder öffnen Sie sie im Assistenten, wo jedes Objekt einen Filter erhält. Um einen Teil der Quelle zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt. Oder geben Sie Datenspeicher in der Ziel-Org frei: DataOps → Bereinigung → Objekte leeren löscht, was sie von diesen Objekten enthält.",
       "openInWizard": "Im Assistenten öffnen",

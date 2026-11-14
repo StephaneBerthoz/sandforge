@@ -1337,9 +1337,14 @@ describe('what a run says before its first write', () => {
       'TRAP',
     );
 
-    expect(lines).toContain(
+    const api =
       '  API requests: about 1, of the 900 TRAP has left of its 15000 a day: it would leave less ' +
-        'than a tenth of them',
+      'than a tenth of them';
+    expect(lines).toContain(api);
+    // Uncounted, as no row's refusal is known before the write: said under it.
+    expect(lines[lines.indexOf(api) + 1]).toBe(
+      '    rows the target refuses for a record lock go again, up to 3 times each: up to 3 more ' +
+        'requests for every 200 of them, not counted above',
     );
     expect(lines).toContain(
       '  Case: 120 record(s) TRAP takes none of — the user the run writes as may not create its records',
