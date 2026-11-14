@@ -66,6 +66,7 @@ export * from './types/smart-action.types.js';
 export * from './types/checkpoint.types.js';
 export * from './types/env.types.js';
 export * from './types/scenario.types.js';
+export * from './types/pipelineFile.types.js';
 
 // Barrel exports — Bridge
 // NOTE: PROTOCOL_VERSION + isVersionCompatible are re-exported as named exports
@@ -395,6 +396,32 @@ export {
   type PipelineSeedStepConfig,
 } from './utils/pipelineStepRules.js';
 export { pipelineWriteVerdict, type PipelineWriteVerdict } from './utils/pipelineWriteVerdict.js';
+export {
+  PIPELINE_FILE_NOTE_CODES,
+  PIPELINE_FILE_SETTINGS,
+  PIPELINE_FILE_SUFFIX,
+  PIPELINE_FILE_VERSION,
+  PIPELINE_STEP_ORG_FIELDS,
+  exporterVersionOf,
+  parsePipelineFile,
+  pipelineFileDigest,
+  pipelineFileNameOf,
+  pipelineFileOrgRefs,
+  readPipelineFile,
+  sandforgePipelineFileSchema,
+  writePipelineFile,
+  type PipelineFileSettingRule,
+} from './utils/pipelineFile.js';
+export {
+  convertCronZone,
+  readCron,
+  zoneOffsetMinutes,
+  type CronFields,
+  type CronInZone,
+  type CronOffsetChange,
+  type CronZoneRefusal,
+  type CronZoneRefusalCode,
+} from './utils/cronZone.js';
 export {
   freeSyncConfigName,
   syncConfigNameRefused,

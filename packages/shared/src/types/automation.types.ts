@@ -42,8 +42,13 @@ export type RetiredPipelineStepType = 'script' | 'loop' | 'parallel';
  */
 export type PipelineApprovalDecision = 'approved' | 'rejected' | 'timedOut' | 'cancelled';
 
-/** Where a person answered an Approval step: the VS Code notification, or the Automation page. */
-export type PipelineApprovalChannel = 'notification' | 'page';
+/**
+ * Where a person answered an Approval step: the VS Code notification, the
+ * Automation page, the terminal a command-line run asked in (`terminal`), or
+ * the command line itself, answered ahead by `--approve "<step>"`
+ * (`commandLine`).
+ */
+export type PipelineApprovalChannel = 'notification' | 'page' | 'terminal' | 'commandLine';
 
 /** Who answered an Approval step, when, and how: what the run history and the audit trail keep. */
 export interface PipelineApprovalRecord {
@@ -53,9 +58,10 @@ export interface PipelineApprovalRecord {
   /** When the step was answered, or gave up waiting. */
   at: ISODateString;
   /**
-   * Who answered: the account the VS Code window runs under, as a short hash
-   * (`sha256:` and twelve hex characters), never the account name itself.
-   * Absent when nobody answered, or when the account could not be read.
+   * Who answered: the account the VS Code window, or the command line, runs
+   * under, as a short hash (`sha256:` and twelve hex characters), never the
+   * account name itself. Absent when nobody answered, or when the account
+   * could not be read.
    */
   by?: string;
 }
@@ -175,6 +181,34 @@ export interface PipelineDefinition {
   tags: string[];
   createdAt: ISODateString;
   updatedAt: ISODateString;
+  /**
+   * Set when its schedule was handed over to a launcher at export: the
+   * editor's schedule triggers are then off, and the page says who starts
+   * the pipeline instead, since when, and from which file.
+   */
+  runsOutside?: PipelineRunsOutside;
+}
+
+/**
+ * What starts a pipeline whose schedule was handed over at export: cron
+ * with the bash launcher, Task Scheduler with the PowerShell one, or a
+ * GitHub Actions workflow.
+ */
+export type PipelineOutsideRunner = 'cron' | 'taskScheduler' | 'githubActions';
+
+/** A pipeline started outside the editor since an export (see {@link PipelineDefinition.runsOutside}). */
+export interface PipelineRunsOutside {
+  /** When the schedule was handed over. */
+  since: ISODateString;
+  runner: PipelineOutsideRunner;
+  /** The pipeline file's name, without its folder: a path would carry the account's home folder. */
+  file: string;
+  /**
+   * The digest of the file exported (`SandforgePipelineFile.digest`): a save
+   * that changes what an export would write no longer matches it, and the
+   * page says the file lacks the change.
+   */
+  digest: string;
 }
 
 /** Pipeline step definition */
@@ -341,7 +375,17 @@ export interface PipelineHistoryEntry {
   steps?: PipelineHistoryStep[];
   /** Why no run started, on a `missed` entry. */
   missed?: PipelineMissedStart;
+  /**
+   * Where the run ran: in the editor, or by the command line on this machine
+   * (`sandforge pipeline run`), whose history the editor reads beside its
+   * own. Absent from the entries the editor wrote before the command line
+   * ran pipelines: they ran in the editor.
+   */
+  ranFrom?: PipelineRunOrigin;
 }
+
+/** Where a pipeline run ran: in the editor, or by the command line. */
+export type PipelineRunOrigin = 'editor' | 'commandLine';
 
 /**
  * Why a schedule or sandbox refresh trigger starts nothing:
