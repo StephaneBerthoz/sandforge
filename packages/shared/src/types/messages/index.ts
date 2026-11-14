@@ -336,6 +336,8 @@ import type {
   PipelineRewindGrantResponse,
   PipelineRewindRevokeRequest,
   PipelineRewindRevokeResponse,
+  PipelineExportRequest,
+  PipelineExportResponse,
   MigrationPickFileRequest,
   MigrationPickFileResponse,
   MigrationImportSfdmuRequest,
@@ -771,6 +773,7 @@ export type WebViewToExtensionMessage =
   | PipelineRewindStepsRequest
   | PipelineRewindGrantRequest
   | PipelineRewindRevokeRequest
+  | PipelineExportRequest
   | MigrationPickFileRequest
   | MigrationImportSfdmuRequest
   | MigrationSaveSyncConfigRequest
@@ -1061,6 +1064,7 @@ export type ExtensionToWebViewMessage =
   | PipelineRewindStepsResponse
   | PipelineRewindGrantResponse
   | PipelineRewindRevokeResponse
+  | PipelineExportResponse
   | MigrationPickFileResponse
   | MigrationImportSfdmuResponse
   | MigrationSaveSyncConfigResponse

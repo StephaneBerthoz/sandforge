@@ -243,6 +243,15 @@ describe('ExtensionHandlers', () => {
     });
   });
 
+  describe("a pipeline's dry run", () => {
+    it('gives the Automation page the dry run that follows the run without writing', async () => {
+      const { applyDryRun } = await import('../modules/automation/pipelineDryRun.js');
+      const automation = (handlers as unknown as { automationHandler: { dryRunApplier?: unknown } })
+        .automationHandler;
+      expect(automation.dryRunApplier).toBe(applyDryRun);
+    });
+  });
+
   describe("where the Seed page's runs keep what they create", () => {
     it('hands the store to the CSV import and the clone, and lists a run either has under way as running', () => {
       const inner = handlers as unknown as {

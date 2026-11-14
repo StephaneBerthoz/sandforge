@@ -189,6 +189,7 @@ import {
   type MaskingAsked,
   type MaskingResult,
   type PipelineMaskingOutcome,
+  type PipelineMaskingPreview,
   type PipelineMaskingRequest,
 } from './anonymizePipeline.js';
 import {
@@ -5051,6 +5052,137 @@ export class DataOpsHandler implements DomainHandler {
     // What its mute took back is known once the lease was given back, after
     // the result: said with it, as a rewind's step says it.
     return { operationId, result: mutedAutomation ? { ...result, mutedAutomation } : result };
+  }
+
+  /**
+   * What a pipeline's Anonymize step would mask, for its dry run: what
+   * {@link anonymizeForPipeline} reads of the org before Production Guard is
+   * asked, in the order its run reads it, and nothing it writes. The step's
+   * own refusals before the org is read (`pipelineMaskingAsked`), a set of
+   * slices of the template left open on the org, then each object counted
+   * under the step's condition, the fields its rules mask there, and the
+   * refusals the run meets once counted: rules that mask nothing or a field
+   * the org hides (`maskingNotCovered`), a field the user may not edit, an
+   * object past what one snapshot holds — a pipeline's step masks no slices
+   * —, and what the org runs as the records are written, on the step's own
+   * acceptances (`readDataOpsAct`). Its tier is the step's check's to judge,
+   * and the guard is not asked: no snapshot is taken, nothing is masked,
+   * nothing is recorded.
+   *
+   * @throws With the `code` and the words the run would be refused with, or
+   *   the error a count met, as the run's; a {@link StepCancelledError} once
+   *   `signal` is aborted.
+   */
+  async previewMaskingForPipeline(
+    request: PipelineMaskingRequest,
+    signal?: AbortSignal,
+  ): Promise<PipelineMaskingPreview> {
+    const refused = (code: string, message: string): Error & { code: string } =>
+      pipelineMaskingRefusal(code, message);
+    const stopped = (): StepCancelledError =>
+      new StepCancelledError('The dry run of the masking was stopped: nothing was masked.');
+    if (!this.deps.orgManager.getOrg(request.orgId)) {
+      throw refused(
+        PIPELINE_MASKING_REFUSAL.orgUnknown,
+        `The org the masking writes to is not connected to SandForge (${request.orgId}): ` +
+          'connect it, or choose another. Nothing was masked.',
+      );
+    }
+    const chosen = pipelineMaskingAsked(request, (id) => this.findTemplate(id) !== undefined);
+    if ('refusal' in chosen) throw chosen.refusal;
+    const payload = chosen.asked;
+    const template = this.findTemplate(payload.templateId);
+    if (!template) throw templateNotFound(payload.templateId);
+    const openSet = this.sliceSets.openFor(payload.orgId, payload.templateId);
+    if (openSet) {
+      throw refused(SLICE_REFUSAL.runOpen, this.sliceRunOpenMessage(openSet, 'step'));
+    }
+    const conn = await getJsforceConnection(
+      payload.orgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+    const described = describedOnce(conn);
+    const planned = await this.plannedObjectsIn(described, payload, template);
+    const work: MaskingWork[] = [];
+    for (const objectName of planned) {
+      if (signal?.aborted) throw stopped();
+      const objectRules = rulesOfObject(template, objectName);
+      const personRules = personRulesOfObject(template, objectName);
+      if (objectRules.length === 0 && personRules.length === 0) continue;
+      const objectApiName = sanitizeSoqlObjectName(objectName);
+      const where = whereOfObject(payload, template, objectName);
+      let total: number;
+      try {
+        total = await this.countRows(conn, objectApiName, undefined, where);
+      } catch (err: unknown) {
+        throw this.countGaveUp(err, objectApiName);
+      }
+      work.push({
+        objectName,
+        ...(where !== undefined ? { where } : {}),
+        objectRules,
+        personRules,
+        tally: {
+          objectApiName,
+          total,
+          masked: 0,
+          nothingToMask: 0,
+          refused: 0,
+          unanswered: 0,
+          done: total === 0,
+        },
+        progress: { objectApiName, done: total === 0, refused: [] },
+      });
+    }
+    const uncovered = await this.maskingNotCovered(described, template, planned, work);
+    if (uncovered) throw refused(uncovered.code, uncovered.message);
+    const counted = work.filter((w) => w.tally.total > 0);
+    const denials = await maskingWritesDenied(
+      described,
+      counted.map((w) => ({
+        objectApiName: w.tally.objectApiName,
+        rules: [...w.objectRules, ...w.personRules],
+      })),
+    );
+    if (denials.length > 0) throw refused(CRUD_FLS_DENIED, crudFlsDenials(denials));
+    const cap = this.backupCap();
+    if (work.some((w) => w.tally.total > cap)) {
+      throw refused(
+        SNAPSHOT_NOT_TAKEN,
+        `Nothing was masked: ${work
+          .filter((w) => w.tally.total > cap)
+          .map((w) => `${w.tally.objectApiName} holds ${w.tally.total} record(s)`)
+          .join(', ')}, more than the ${cap} a snapshot holds of one object. ` +
+          this.snapshotCapWay(work, 'step'),
+      );
+    }
+    if (signal?.aborted) throw stopped();
+    const gated = await this.readAct(
+      conn,
+      payload.orgId,
+      'masking',
+      work.map((w) => ({ objectApiName: w.tally.objectApiName, records: w.tally.total })),
+      request.accord ?? {},
+      'step',
+    );
+    const gateRefused = dataOpsStop(gated.answer);
+    if (gateRefused) throw refused(gateRefused.code, gateRefused.message);
+    const objects: PipelineMaskingPreview['objects'] = [];
+    for (const w of work) {
+      const { rules } = await this.maskedFields(
+        described,
+        w.tally.objectApiName,
+        this.maskingRules(w.objectName, w.objectRules),
+        this.maskingRules(w.objectName, w.personRules),
+      );
+      objects.push({
+        objectApiName: w.tally.objectApiName,
+        records: w.tally.total,
+        fields: [...new Set(rules.map((rule) => rule.fieldApiName))].filter((f) => f !== 'Id'),
+      });
+    }
+    return { objects, records: objects.reduce((sum, object) => sum + object.records, 0) };
   }
 
   private async handleAnonymize(msg: InboundRequest): Promise<void> {

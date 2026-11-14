@@ -63,6 +63,19 @@ export interface PipelineMaskingRequest {
 /** The result of a masking run, as the DataOps page is answered it. */
 export type MaskingResult = DataOpsAnonymizeResponse['payload'];
 
+/**
+ * What a pipeline's masking would do, read from its org as its run reads it
+ * before Production Guard is asked, nothing written
+ * (`DataOpsHandler.previewMaskingForPipeline`): the rows of each object it
+ * would mask, and the fields its rules mask there.
+ */
+export interface PipelineMaskingPreview {
+  /** Each object the run addresses, its rows counted as the run counts them, under its condition. */
+  objects: Array<{ objectApiName: string; records: number; fields: string[] }>;
+  /** The rows of every object together: what the run's snapshot would hold before its first write. */
+  records: number;
+}
+
 /** How a pipeline's masking ended, once it ran. */
 export interface PipelineMaskingOutcome {
   /** The id its operation went under, in Live Operations and in the audit trail. */

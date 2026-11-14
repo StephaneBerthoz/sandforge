@@ -822,4 +822,95 @@ describe('DataOpsHandler.anonymizeForPipeline', () => {
       ]);
     });
   });
+
+  describe("the step's dry run (previewMaskingForPipeline)", () => {
+    const preview = (request: Partial<PipelineMaskingRequest> = {}, signal?: AbortSignal) =>
+      handler.previewMaskingForPipeline(
+        {
+          orgId: 'org-dev',
+          templateId: 'tpl-gdpr-standard',
+          object: 'Contact',
+          pipeline: { name: 'Nightly refresh' },
+          answer: { approved: true },
+          ...request,
+        },
+        signal,
+      );
+
+    /** What a call was refused with: its code and words. */
+    const refusalOf = async (call: Promise<unknown>) => {
+      const err = (await call.then(
+        () => undefined,
+        (e: unknown) => e,
+      )) as { code?: string; message?: string } | undefined;
+      return { code: err?.code, message: err?.message };
+    };
+
+    it('counts the rows under its condition and names the fields it masks, and writes, keeps and asks nothing', async () => {
+      const { update, upsert } = orgOf(contactsOf(5, 2));
+      const check = vi.spyOn(guard, 'check');
+
+      const dry = await preview({ where: WHERE });
+
+      expect(dry.records).toBe(2);
+      expect(dry.objects).toHaveLength(1);
+      expect(dry.objects[0]).toMatchObject({ objectApiName: 'Contact', records: 2 });
+      expect(dry.objects[0].fields).toEqual(expect.arrayContaining(['Email', 'Phone']));
+      expect(dry.objects[0].fields).not.toContain('Department');
+      expect(update).not.toHaveBeenCalled();
+      expect(upsert).not.toHaveBeenCalled();
+      expect(check).not.toHaveBeenCalled();
+      expect(store.getKeysByPrefix('backup:')).toEqual([]);
+      expect(trail()).toEqual([]);
+      expect(tracker.getAll()).toEqual([]);
+    });
+
+    it('is refused with the code and the words its run is refused with, past what a snapshot holds', async () => {
+      cap = 100;
+      const { update } = orgOf(contactsOf(150));
+
+      const dry = await refusalOf(preview());
+      const run = await refusalOf(mask());
+
+      expect(dry.code).toBe('SNAPSHOT_NOT_TAKEN');
+      expect(dry).toEqual(run);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('is refused with the code and the words its run is refused with, for a field the org hides', async () => {
+      const hidden = describeOf(
+        'Contact',
+        CONTACT_FIELDS.filter((f) => f !== 'Email'),
+      );
+      orgOf(contactsOf(3), { describes: { Contact: hidden } });
+
+      const dry = await refusalOf(preview());
+      const run = await refusalOf(mask());
+
+      expect(dry.code).toBe(PIPELINE_MASKING_REFUSAL.fieldsUnseen);
+      expect(dry).toEqual(run);
+      // The dry run recorded nothing; the run recorded its own refusal.
+      expect(trail()).toHaveLength(1);
+    });
+
+    it('is refused for retries before a connection opens, as its run is', async () => {
+      orgOf(contactsOf(3));
+
+      const dry = await refusalOf(preview({ retries: 1 }));
+
+      expect(dry.code).toBe(PIPELINE_MASKING_REFUSAL.retries);
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+    });
+
+    it('stops once its signal is aborted, having read nothing more', async () => {
+      const { query } = orgOf(contactsOf(3));
+      const stop = new AbortController();
+      stop.abort();
+
+      await expect(preview({}, stop.signal)).rejects.toBeInstanceOf(StepCancelledError);
+      expect(query.mock.calls.some(([soql]) => String(soql).startsWith('SELECT COUNT()'))).toBe(
+        false,
+      );
+    });
+  });
 });

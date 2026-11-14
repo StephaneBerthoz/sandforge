@@ -6,6 +6,7 @@ import type {
   PipelineApprovalRecord,
   PipelineMaskingTemplateInfo,
   PipelineRewindStepInfo,
+  PipelineRunOrigin,
   PipelineSeedTemplateInfo,
   PipelineStep,
   PipelineStepResult,
@@ -14,6 +15,7 @@ import type {
   SeedTemplate,
   SyncConfig,
   SyncExecutionResult,
+  SyncSimulationResult,
   TriggerType,
 } from '@sandforge/shared';
 import {
@@ -50,12 +52,15 @@ import { pipelineMaskingAsked } from './anonymizePipeline.js';
 import type {
   MaskingResult,
   PipelineMaskingOutcome,
+  PipelineMaskingPreview,
   PipelineMaskingRequest,
 } from './anonymizePipeline.js';
 import {
   CheckpointStepRefused,
   type CheckpointPipelineRewindOutcome,
+  type CheckpointPipelineRewindPreview,
   type CheckpointPipelineRewindRequest,
+  type CheckpointPipelineTakeEstimate,
   type CheckpointPipelineTakeOutcome,
   type CheckpointPipelineTakeRequest,
   type VerifiedRewindGrant,
@@ -302,6 +307,45 @@ export interface PipelineStepRunners {
     request: CheckpointPipelineRewindRequest,
     signal?: AbortSignal,
   ) => Promise<CheckpointPipelineRewindOutcome>;
+  /**
+   * Where the steps run: in the VS Code window (absent), or from the command
+   * line, which has no window: a Notification step prints its message there,
+   * and an Approval step asks at the terminal, or takes the answer given
+   * ahead with `--approve`.
+   */
+  ranFrom?: PipelineRunOrigin;
+  /**
+   * What the steps that write do in a dry run, each through its module's own
+   * reading of the org and nothing written (`pipelineDryRun.ts`). Sync's
+   * simulation of a saved configuration (`SyncOpsHandler.simulateForPipeline`):
+   * both orgs read and compared as its run reads them, its watermarks among
+   * them, no guard asked. Rejects as the run would be refused before it reads.
+   */
+  simulateSync?: (config: SyncConfig, signal?: AbortSignal) => Promise<SyncSimulationResult>;
+  /**
+   * What a masking for a pipeline would mask, and the refusal it would meet
+   * before Production Guard is asked (`DataOpsHandler.previewMaskingForPipeline`).
+   */
+  previewMasking?: (
+    request: PipelineMaskingRequest,
+    signal?: AbortSignal,
+  ) => Promise<PipelineMaskingPreview>;
+  /**
+   * The scope of a take for a pipeline, its estimate and the refusal it would
+   * meet (`CheckpointHandler.estimateTakeForPipeline`).
+   */
+  estimateTake?: (
+    request: CheckpointPipelineTakeRequest,
+    signal?: AbortSignal,
+  ) => Promise<CheckpointPipelineTakeEstimate>;
+  /**
+   * A rewind's own preview and its bounds, as the step reads them before it
+   * writes (`CheckpointHandler.previewRewindForPipeline`).
+   */
+  previewRewind?: (
+    request: CheckpointPipelineRewindRequest,
+    signal?: AbortSignal,
+  ) => Promise<CheckpointPipelineRewindPreview>;
 }
 
 /** A masking template as a pipeline's Anonymize step reads it: what its rules name, and where it comes from. */
@@ -655,16 +699,75 @@ function notificationHandler(runners: PipelineStepRunners): StepHandler {
     // Shown, not awaited: a notification stays until it is read, and the run
     // does not wait for someone to read it.
     runners.notify(context.pipelineName ? `${context.pipelineName}: ${message}` : message);
-    return completed(step, startTime, { message }, 'Showed a notification in VS Code.');
+    // Said where it went: the command line has no window, and its run printed
+    // the message while the step said it showed one in VS Code.
+    return completed(
+      step,
+      startTime,
+      { message },
+      runners.ranFrom === 'commandLine'
+        ? 'Printed the message: a run from the command line has no VS Code window to show it in.'
+        : 'Showed a notification in VS Code.',
+    );
   };
 }
 
-function checkApproval(runners: PipelineStepRunners): StepCheck {
-  return (step) => {
-    const who = `Approval step "${step.name}"`;
-    if (!runners.askApproval) {
-      return `${who} cannot ask anyone: there is no VS Code window to ask in.`;
+/**
+ * Why an Approval step has nobody to ask, where the steps run: no VS Code
+ * window in a host of the extension; no terminal on the command line, where
+ * the step is answered ahead with `--approve` — unless it stands before a
+ * write to a sandbox marked Staging, which only a person at a terminal
+ * approves. Checked on its own, as it runs, the step is not told what comes
+ * after it, and is sent to a terminal.
+ */
+function nobodyToAsk(
+  runners: PipelineStepRunners,
+  step: PipelineStep,
+  context: StepCheckContext | undefined,
+): string {
+  const who = `Approval step "${step.name}"`;
+  if (runners.ranFrom !== 'commandLine') {
+    return `${who} cannot ask anyone: there is no VS Code window to ask in.`;
+  }
+  const noTerminal = `${who} cannot ask anyone: this run has no terminal to ask in.`;
+  if (context === undefined) return `${noTerminal} Run it in a terminal.`;
+  const staging = stagingWriteAfter(runners, context);
+  return staging !== undefined
+    ? `${noTerminal} Run it in a terminal: it stands before a write to ${staging}, a sandbox ` +
+        'marked Staging, which only a person at a terminal approves, never --approve.'
+    : `${noTerminal} Run it in a terminal, or answer it ahead with --approve "${step.name}".`;
+}
+
+/**
+ * The org marked Staging a step after the Approval checked writes to, before
+ * the next Approval step: a Sync, a Seed or an Anonymize step whose
+ * Production Guard question that Approval's answer stands for. Undefined
+ * when none does.
+ */
+function stagingWriteAfter(
+  runners: PipelineStepRunners,
+  context: StepCheckContext,
+): string | undefined {
+  for (const later of context.steps.slice(context.index + 1)) {
+    if (later.type === 'approval') return undefined;
+    let orgId: string | undefined;
+    if (later.type === 'sync') {
+      const saved = readSavedSync(runners, later);
+      orgId = 'problem' in saved ? undefined : saved.config.targetOrgId;
+    } else if (later.type === 'seed' || later.type === 'anonymize') {
+      orgId = text((later.config ?? {})['orgId']);
     }
+    if (orgId !== undefined && runners.orgTier?.(orgId) === 'staging') {
+      return runners.orgName(orgId) ?? orgId;
+    }
+  }
+  return undefined;
+}
+
+function checkApproval(runners: PipelineStepRunners): StepCheck {
+  return (step, context) => {
+    const who = `Approval step "${step.name}"`;
+    if (!runners.askApproval) return nobodyToAsk(runners, step, context);
     switch (approvalDefect(step.config)) {
       case 'timeout':
         return `${who} waits for a time it cannot keep: set a whole number of minutes from 1 to ${APPROVAL_MAX_TIMEOUT_MINUTES} (a day).`;
@@ -678,9 +781,18 @@ function checkApproval(runners: PipelineStepRunners): StepCheck {
 
 /** Where an answer was given, as a sentence goes on: " on the Automation page". */
 function answeredVia(record: PipelineApprovalRecord): string {
-  if (record.via === 'page') return ' on the Automation page';
-  if (record.via === 'notification') return ' in the VS Code notification';
-  return '';
+  switch (record.via) {
+    case 'page':
+      return ' on the Automation page';
+    case 'notification':
+      return ' in the VS Code notification';
+    case 'terminal':
+      return ' at the terminal';
+    case 'commandLine':
+      return ' ahead, on the command line (--approve)';
+    default:
+      return '';
+  }
 }
 
 function approvalHandler(runners: PipelineStepRunners): StepHandler {
@@ -688,12 +800,7 @@ function approvalHandler(runners: PipelineStepRunners): StepHandler {
     const startTime = new Date().toISOString();
     const who = `Approval step "${step.name}"`;
     if (!runners.askApproval) {
-      return failed(
-        step,
-        startTime,
-        {},
-        `${who} cannot ask anyone: there is no VS Code window to ask in.`,
-      );
+      return failed(step, startTime, {}, nobodyToAsk(runners, step, undefined));
     }
     const minutes = approvalTimeoutMinutes(step.config) ?? APPROVAL_DEFAULT_TIMEOUT_MINUTES;
     const text = step.config?.['message'];
@@ -747,7 +854,7 @@ function approvalHandler(runners: PipelineStepRunners): StepHandler {
 }
 
 /** A saved Sync configuration read for a step: as stored and checked, or what is wrong with it. */
-type SavedSync = { config: SyncConfig; name: string } | { problem: string };
+export type SavedSync = { config: SyncConfig; name: string } | { problem: string };
 
 /**
  * The Sync configuration a step names, read as Sync's schedule reads one: the
@@ -755,7 +862,7 @@ type SavedSync = { config: SyncConfig; name: string } | { problem: string };
  * checked with. A configuration deleted on the Sync page, or one an older
  * release wrote that no longer reads, refuses the step.
  */
-function readSavedSync(runners: PipelineStepRunners, step: PipelineStep): SavedSync {
+export function readSavedSync(runners: PipelineStepRunners, step: PipelineStep): SavedSync {
   const who = `Sync step "${step.name}"`;
   const configId = (step.config ?? {})['configId'];
   if (typeof configId !== 'string' || configId.trim() === '') {
@@ -1193,7 +1300,7 @@ function checkAnonymize(runners: PipelineStepRunners): StepCheck {
 }
 
 /** What an Anonymize step's configuration says of each acceptance, those it does not name left out. */
-function acceptancesOf(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
+export function acceptancesOf(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return Object.fromEntries(
     (['acceptAutomation', 'acceptEmails', 'muteAutomation'] as const).flatMap((key) =>
       config[key] === undefined ? [] : [[key, config[key]]],
@@ -1428,15 +1535,23 @@ function checkpointHandler(runners: PipelineStepRunners): StepHandler {
   };
 }
 
-/** Why a checkpoint a Rewind step names cannot be rewound to, as a clause that goes on from its name. */
+/**
+ * Why a checkpoint a Rewind step names cannot be rewound to, as a clause that
+ * goes on from its name. One of a sandbox refreshed since, or of a scratch org
+ * expired, no longer rewinds its org, and is still exported and replayed in
+ * another: the step said it could only be deleted.
+ */
 const CHECKPOINT_UNUSABLE: Readonly<Record<CheckpointInvalidReason, string>> = {
   damaged: 'whose file cannot be read: it can only be deleted',
   taking: 'whose take is under way or never ended',
   failed: 'whose take failed: it can only be deleted',
   refreshed:
-    'of the org a sandbox was before its refresh: the sandbox is another org now, and the ' +
-    'checkpoint can only be deleted. Take a checkpoint of it again, and choose it',
-  scratchExpired: 'of a scratch org that has expired: it can only be deleted',
+    'of the org a sandbox was before its refresh: the sandbox is another org now, which the ' +
+    'checkpoint no longer rewinds; exported, it is still replayed in another org. Take a ' +
+    'checkpoint of the sandbox again, and choose it',
+  scratchExpired:
+    'of a scratch org that has expired, which it no longer rewinds; exported, it is still ' +
+    'replayed in another org',
 };
 
 /**

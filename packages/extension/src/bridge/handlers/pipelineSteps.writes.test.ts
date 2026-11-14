@@ -671,6 +671,37 @@ describe('the Rewind step', () => {
     expect(executor.check(step('rewind', REWIND))).toContain(words);
   });
 
+  it.each([
+    [
+      'refreshed',
+      'Rewind step "Step" rewinds to the checkpoint \'Baseline\', of the org a sandbox was ' +
+        'before its refresh: the sandbox is another org now, which the checkpoint no longer ' +
+        'rewinds; exported, it is still replayed in another org. Take a checkpoint of the ' +
+        'sandbox again, and choose it.',
+    ],
+    [
+      'scratchExpired',
+      'Rewind step "Step" rewinds to the checkpoint \'Baseline\', of a scratch org that has ' +
+        'expired, which it no longer rewinds; exported, it is still replayed in another org.',
+    ],
+  ] as const)(
+    'says a checkpoint %s no longer rewinds its org, and is still replayed in another',
+    (why, said) => {
+      const executor = executorWith(
+        runners({
+          checkpointKept: () => ({
+            kept: true,
+            organizationId: '00D000000000001',
+            name: 'Baseline',
+            valid: false,
+            why,
+          }),
+        }),
+      );
+      expect(executor.check(step('rewind', REWIND))).toBe(said);
+    },
+  );
+
   it('leaves its checkpoint to the run when it was not read for the check', () => {
     const executor = executorWith(runners({ checkpointKept: () => undefined }));
     expect(executor.check(step('rewind', REWIND))).toBeUndefined();

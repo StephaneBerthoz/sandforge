@@ -5,7 +5,10 @@ import type {
   BaseMessage,
   PipelineApprovalRecord,
   PipelineDefinition,
+  PipelineExportOutcome,
+  PipelineExportResponse,
   PipelineHistoryEntry,
+  PipelineOutsideStatus,
   PipelineRewindGrantResponse,
   PipelineRewindStepInfo,
   PipelineHistoryStep,
@@ -59,7 +62,27 @@ import {
   marketplaceInstallPayloadSchema,
   savedPipelineSchema,
   payloadIssues,
+  pipelineExportPayloadSchema,
+  pipelineRunsOutsideSchema,
 } from '../validatePayload.js';
+import type { StepExecutor } from '../../modules/automation/StepExecutor.js';
+import {
+  acquirePipelineRunLock,
+  defaultPipelinesRoot,
+  pipelineLockTakenOverLine,
+  pipelineRunningRefusal,
+  type PipelineRunLockHolder,
+} from '../../modules/automation/PipelineRunLock.js';
+import { cliRunHistory, type CliRunHistoryReader } from '../../modules/automation/cliRunHistory.js';
+import {
+  buildPipelineExport,
+  pipelineExportDigest,
+  type ExportedOrgSource,
+  type PipelineExportInput,
+} from '../../modules/automation/pipelineExport.js';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
+import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
@@ -221,7 +244,32 @@ interface RunWiring {
   holdBudget: (held: boolean) => void;
   /** How the run was started: a rewind records it in the audit trail. */
   triggeredBy?: TriggerType;
+  /**
+   * A dry run: the steps that write say what they would do
+   * ({@link PipelineDryRunApplier}), and neither the history nor the audit
+   * trail keeps the run.
+   */
+  dryRun?: boolean;
 }
+
+/**
+ * What turns a run into a dry run, on the steps registered for it: each step
+ * that writes says what it would do instead, through the module flows'
+ * previews; the steps that read run as they are. Given the step executor and
+ * the module flows the steps were registered with.
+ */
+export type PipelineDryRunApplier = (
+  stepExecutor: StepExecutor,
+  runners: PipelineStepRunners,
+) => void | Promise<void>;
+
+/** Why a dry run is refused in a host that cannot make one: nothing is run for real in its place. */
+const DRY_RUN_UNAVAILABLE =
+  'A dry run of a pipeline is not available here: nothing ran. Run it, or try the dry run again ' +
+  'once SandForge has finished starting.';
+
+/** A lock that holds nothing: a run of a pipeline with no id, or one whose lock file could not be made. */
+const NO_LOCK = { release: (): void => undefined };
 
 /** The steps a pipeline holds as saved, read loosely: a step may carry no id, or no config. */
 type SavedSteps = ReadonlyArray<{ id?: unknown; type?: unknown; config?: unknown; name?: unknown }>;
@@ -258,6 +306,7 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:rewind-steps',
   'pipeline:rewind-grant',
   'pipeline:rewind-revoke',
+  'pipeline:export',
   'marketplace:list',
   'marketplace:install',
 ]);
@@ -294,9 +343,77 @@ export class AutomationHandler implements DomainHandler {
    * Cancel that reaches its registry entry.
    */
   private liveTracker?: LiveOperationTracker;
+  /** What makes a run a dry run, once the composition root gives it; until then a dry run is refused. */
+  private dryRunApplier?: PipelineDryRunApplier;
+  /**
+   * The pipelines' folder the run locks and the command line's history are
+   * in, in place of the one `SANDFORGE_JOURNAL_DIR` or the home names.
+   */
+  private pipelinesRootOverride?: string;
+  /** The command line's history of each pipeline, read as History is listed; built on first use. */
+  private commandLineHistory?: CliRunHistoryReader;
+  /** This SandForge's version, in place of the one the host's checkpoint dialogs name. */
+  private sandforgeVersion?: string;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject what makes a run a dry run (`pipeline:execute` with `dryRun`).
+   * Without it a dry run is refused, never run for real in its place.
+   */
+  setDryRunApplier(applier: PipelineDryRunApplier): void {
+    this.dryRunApplier = applier;
+  }
+
+  /** Keep the run locks and read the command line's history in `root`, in place of the default folder. */
+  setPipelinesRoot(root: string): void {
+    this.pipelinesRootOverride = root;
+    this.commandLineHistory = undefined;
+  }
+
+  /** Name `version` as this SandForge's in an export, for a host that has no checkpoint dialogs to say it. */
+  setSandforgeVersion(version: string): void {
+    this.sandforgeVersion = version;
+  }
+
+  /** The pipelines' folder: where the run locks and the command line's history are. */
+  private pipelinesRoot(): string {
+    return this.pipelinesRootOverride ?? defaultPipelinesRoot();
+  }
+
+  /**
+   * Take a pipeline's run lock on this machine for a run in the editor: the
+   * lock a run from the command line takes too (`PipelineRunLock`). One a run
+   * from the command line holds is said; one whose process is gone is taken
+   * over and logged. A lock file that cannot be made — a read-only home —
+   * holds nothing, logged: the run is still kept apart from the editor's
+   * other windows by their shared markers.
+   */
+  private takeRunLock(
+    pipeline: Pick<PipelineDefinition, 'id' | 'name'>,
+    triggeredBy: TriggerType,
+    dryRun: boolean,
+  ): { release(): void } | { busy: PipelineRunLockHolder } {
+    if (typeof pipeline.id !== 'string' || pipeline.id === '') return NO_LOCK;
+    try {
+      const outcome = acquirePipelineRunLock(this.pipelinesRoot(), pipeline.id, {
+        pipelineName: pipeline.name,
+        ranFrom: 'editor',
+        triggeredBy,
+        ...(dryRun ? { dryRun: true } : {}),
+      });
+      if ('busy' in outcome) return outcome;
+      if (outcome.tookOver) this.deps.log(`[INFO] ${pipelineLockTakenOverLine(outcome.tookOver)}`);
+      return outcome.lock;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] the run lock of pipeline "${pipeline.name}" could not be taken ` +
+          `(${extractErrorMessage(err)}): a run from the command line is not kept apart from this one.`,
+      );
+      return NO_LOCK;
+    }
+  }
 
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
@@ -340,7 +457,8 @@ export class AutomationHandler implements DomainHandler {
     run.holdBudget(true);
     try {
       const record = await this.approvals().ask({ ...ask, operationId: run.operationId }, signal);
-      this.recordApproval(ask, record, run.operationId);
+      // A dry run keeps nothing in the audit trail.
+      if (!run.dryRun) this.recordApproval(ask, record, run.operationId);
       return record;
     } finally {
       run.holdBudget(false);
@@ -543,6 +661,17 @@ export class AutomationHandler implements DomainHandler {
       triggeredBy,
     });
     if ('busy' in hold) return { started: false, busy: hold.busy };
+    // A run from the command line of this machine — a launcher the schedule
+    // was handed over to — holds the pipeline as a run of a window does.
+    const lock = this.takeRunLock(pipeline, triggeredBy, false);
+    if ('busy' in lock) {
+      hold.release();
+      this.deps.log(`[pipeline-triggers] ${pipelineRunningRefusal(lock.busy, pipeline.name)}`);
+      return {
+        started: false,
+        busy: { startedAt: lock.busy.acquiredAt, triggeredBy: lock.busy.triggeredBy },
+      };
+    }
     const operationId = `${TRIGGERED_RUN_PREFIX}${crypto.randomUUID()}`;
     const run = this.runPipeline(pipeline, {}, triggeredBy, operationId)
       .catch((err: unknown) => {
@@ -556,7 +685,10 @@ export class AutomationHandler implements DomainHandler {
         });
         throw err;
       })
-      .finally(() => hold.release());
+      .finally(() => {
+        lock.release();
+        hold.release();
+      });
     return { started: true, run };
   }
 
@@ -609,6 +741,9 @@ export class AutomationHandler implements DomainHandler {
       case 'pipeline:rewind-revoke':
         this.handleRewindRevoke(msg);
         return true;
+      case 'pipeline:export':
+        await this.handlePipelineExport(msg);
+        return true;
       case 'marketplace:list':
         this.handleMarketplaceList(msg);
         return true;
@@ -631,6 +766,18 @@ export class AutomationHandler implements DomainHandler {
     const operationId = msg.id;
     const failure: OperationFailureContext = { module: 'automation', operation: msg.type };
     const pipeline = payload.pipeline as unknown as PipelineDefinition;
+    const dryRun = payload.dryRun === true;
+    if (dryRun && (!this.dryRunApplier || !this.stepRunners)) {
+      sendHandlerError(
+        this.deps,
+        'pipeline:execute',
+        'pipeline:error',
+        msg,
+        new Error(DRY_RUN_UNAVAILABLE),
+        { code: 'DRY_RUN_UNAVAILABLE', retryable: true },
+      );
+      return;
+    }
 
     // One run of a pipeline at a time: a run its schedule started, in this
     // window or another, holds it until it ends. A definition sent with no id
@@ -653,6 +800,20 @@ export class AutomationHandler implements DomainHandler {
       );
       return;
     }
+    // And one run on this machine: a run from the command line holds it too.
+    const lock = this.takeRunLock(pipeline, 'manual', dryRun);
+    if ('busy' in lock) {
+      hold.release();
+      sendHandlerError(
+        this.deps,
+        'pipeline:execute',
+        'pipeline:error',
+        msg,
+        new Error(pipelineRunningRefusal(lock.busy, pipeline.name)),
+        { code: 'PIPELINE_RUNNING', retryable: true },
+      );
+      return;
+    }
 
     try {
       const result = await this.runPipeline(
@@ -660,13 +821,12 @@ export class AutomationHandler implements DomainHandler {
         payload.variables ?? {},
         'manual',
         operationId,
+        { dryRun },
       );
-      const response = buildResponse(
-        this.deps,
-        msg,
-        'pipeline:run:response',
-        result as unknown as Record<string, unknown>,
-      );
+      const response = buildResponse(this.deps, msg, 'pipeline:run:response', {
+        ...(result as unknown as Record<string, unknown>),
+        ...(dryRun ? { dryRun: true } : {}),
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -679,6 +839,7 @@ export class AutomationHandler implements DomainHandler {
         context: failure,
       });
     } finally {
+      lock.release();
       hold.release();
     }
   }
@@ -1004,6 +1165,20 @@ export class AutomationHandler implements DomainHandler {
     run?: RunWiring,
     pipeline?: Pick<PipelineDefinition, 'id' | 'steps'>,
   ): Promise<PipelineOrchestrator> {
+    return (await this.buildRunParts(run, pipeline)).orchestrator;
+  }
+
+  /**
+   * The orchestrator of {@link buildOrchestrator}, with the step executor it
+   * runs and checks the steps with: an export reads each step's check from
+   * it, where the step sits, as a run makes it before its first step. For a
+   * dry run, the steps are registered as for a run, then turned into what
+   * they would do by the dry-run applier.
+   */
+  private async buildRunParts(
+    run?: RunWiring,
+    pipeline?: Pick<PipelineDefinition, 'id' | 'steps'>,
+  ): Promise<{ orchestrator: PipelineOrchestrator; stepExecutor: StepExecutor }> {
     const { PipelineBuilder } = await import('../../modules/automation/PipelineBuilder.js');
     const { TriggerEngine } = await import('../../modules/automation/TriggerEngine.js');
     const { StepLibrary } = await import('../../modules/automation/StepLibrary.js');
@@ -1069,13 +1244,19 @@ export class AutomationHandler implements DomainHandler {
           : {}),
       });
     }
+    if (wiring.dryRun) {
+      // Checked by the caller before the run is held: a dry run with no way
+      // to make it is refused, never run for real in its place.
+      if (!this.dryRunApplier || !this.stepRunners) throw new Error(DRY_RUN_UNAVAILABLE);
+      await this.dryRunApplier(stepExecutor, this.stepRunners);
+    }
 
     if (!this.deps.services) {
       throw new Error(
         'AutomationHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
       );
     }
-    return this.deps.services.automationOrchestrator({
+    const orchestrator = this.deps.services.automationOrchestrator({
       builder: new PipelineBuilder(),
       triggerEngine: new TriggerEngine(),
       stepLibrary: new StepLibrary(),
@@ -1084,6 +1265,7 @@ export class AutomationHandler implements DomainHandler {
       history: new PipelineHistory(),
       services: this.deps.services,
     });
+    return { orchestrator, stepExecutor };
   }
 
   /**
@@ -1096,6 +1278,8 @@ export class AutomationHandler implements DomainHandler {
    *
    * @param operationId - The run's operation id: the page's request id, or a
    *   trigger's (see `TRIGGERED_RUN_PREFIX`).
+   * @param options - `dryRun`: the steps that write say what they would do,
+   *   and the run is not written to the history.
    * @returns The run as it ended — failed when it ran out of time.
    */
   private async runPipeline(
@@ -1103,7 +1287,9 @@ export class AutomationHandler implements DomainHandler {
     variables: Record<string, string>,
     triggeredBy: TriggerType,
     operationId: string,
+    options: { dryRun?: boolean } = {},
   ): Promise<PipelineRun> {
+    const dryRun = options.dryRun === true;
     const failure: OperationFailureContext = {
       module: 'automation',
       operation: 'pipeline:execute',
@@ -1123,12 +1309,13 @@ export class AutomationHandler implements DomainHandler {
         operationId,
         holdBudget: (held) => (held ? budget.hold() : budget.resume()),
         triggeredBy,
+        ...(dryRun ? { dryRun: true } : {}),
       },
       pipeline,
     );
 
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
-    const description = `Pipeline: ${pipeline.name}`;
+    const description = `${dryRun ? 'Pipeline dry run' : 'Pipeline'}: ${pipeline.name}`;
     sendOperationStarted(this.deps, operationId, 'automation', description);
     // Listed in Live Operations as it starts; registered in the registry, where
     // its Cancel reaches it, below, before anything is awaited.
@@ -1256,7 +1443,8 @@ export class AutomationHandler implements DomainHandler {
     else live.complete();
 
     this.deps.infraServices?.performanceTracker?.complete(operationId);
-    this.recordRun(result, pipeline);
+    // A dry run did nothing a later reader of History should take for a run.
+    if (!dryRun) this.recordRun(result, pipeline);
 
     if (result.status === 'failed') {
       sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', ranOutOfTime, {
@@ -1369,6 +1557,121 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
+  /**
+   * What an export of `pipeline` reads, from the registry, the stores and the
+   * settings of this window: the same for the export and for the digest a
+   * hand-over is compared with.
+   */
+  private exportInput(pipeline: PipelineDefinition, sandforgeVersion: string): PipelineExportInput {
+    const store = this.deps.configStore;
+    const services = this.deps.services;
+    return {
+      pipeline,
+      org: (orgId) => this.deps.orgManager.getOrg(orgId) as ExportedOrgSource | undefined,
+      syncConfig: (configId) => new SyncConfigStore(store).load(configId),
+      seedTemplate: (templateId) => new SeedTemplateStore(store).load(templateId),
+      maskingTemplate: (templateId) => new AnonymizationTemplateStore(store).load(templateId),
+      setting: <T>(key: string, fallback: T): T =>
+        services?.getSandforgeSetting ? services.getSandforgeSetting<T>(key, fallback) : fallback,
+      sandforgeVersion,
+      exportedAt: new Date().toISOString(),
+      machineTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      now: Date.now(),
+    };
+  }
+
+  /**
+   * Each saved pipeline whose schedule was handed over at an export, with
+   * whether an export now writes the digest it was handed over with: a save,
+   * a setting or an org changed since makes the file exported then lack it.
+   */
+  private outsideStatuses(saved: readonly unknown[]): PipelineOutsideStatus[] {
+    const statuses: PipelineOutsideStatus[] = [];
+    for (const value of saved) {
+      const parsed = savedPipelineSchema.safeParse(value);
+      if (!parsed.success || parsed.data.runsOutside === undefined) continue;
+      const pipeline = parsed.data as unknown as PipelineDefinition;
+      try {
+        // The digest does not cover the release that writes the file.
+        const digest = pipelineExportDigest(this.exportInput(pipeline, '0.0.0'));
+        statuses.push({
+          pipelineId: pipeline.id,
+          matches: digest === parsed.data.runsOutside.digest,
+          ...(digest !== undefined ? { digest } : {}),
+        });
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] pipeline "${pipeline.name}": whether its exported file is up to date was not ` +
+            `read: ${extractErrorMessage(err)}`,
+        );
+        statuses.push({ pipelineId: pipeline.id, matches: false });
+      }
+    }
+    return statuses;
+  }
+
+  /**
+   * Export a saved pipeline, as saved: its file, what each step, org and
+   * variable does where VS Code is not, and its launchers. Each step is
+   * checked where it sits, as the editor checks it before a run; nothing is
+   * written, and no org is asked anything.
+   */
+  async exportPipeline(pipelineId: string): Promise<PipelineExportOutcome> {
+    const saved = this.savedPipeline(pipelineId);
+    if (!saved) {
+      return {
+        exported: false,
+        pipelineId,
+        code: 'NOT_SAVED',
+        message:
+          'No pipeline is saved under this id: save the pipeline, then export it. An export ' +
+          'takes the pipeline as saved.',
+      };
+    }
+    const sandforgeVersion =
+      this.sandforgeVersion ?? this.deps.infraServices?.checkpointFiles?.sandforgeVersion;
+    if (sandforgeVersion === undefined) {
+      return {
+        exported: false,
+        pipelineId,
+        code: 'VERSION_UNKNOWN',
+        message:
+          'This SandForge does not say which release it is, which the file and its launchers ' +
+          'name: nothing was exported.',
+      };
+    }
+    const { stepExecutor, orchestrator } = await this.buildRunParts(undefined, saved);
+    const declared = new Set((saved.variables ?? []).map((variable) => variable.name));
+    return buildPipelineExport({
+      ...this.exportInput(saved, sandforgeVersion),
+      stepRefusal: (step, index) =>
+        stepExecutor.check(step, { steps: saved.steps, index, declared }),
+      problems: orchestrator.check(saved),
+    });
+  }
+
+  /** `pipeline:export`: the saved pipeline exported, or why it was not (see {@link exportPipeline}). */
+  private async handlePipelineExport(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(pipelineExportPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    try {
+      const outcome = await this.exportPipeline(parsed.pipelineId);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'pipeline:export:response',
+        outcome as unknown as PipelineExportResponse['payload'] & Record<string, unknown>,
+      );
+      this.deps.broker.postToWebview(response);
+      this.deps.log(
+        `[TX] ${response.type} ${outcome.exported ? `exported ${outcome.fileName}` : `refused ${outcome.code}`}`,
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:export', 'pipeline:error', msg, err);
+    }
+  }
+
   private handlePipelineTemplates(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const response = buildResponse(this.deps, msg, 'pipeline:templates:response', {
@@ -1394,9 +1697,11 @@ export class AutomationHandler implements DomainHandler {
       }));
       const triggers = await this.triggerScheduler().statuses();
       await this.revokeVoidGrants();
+      const outside = this.outsideStatuses(Object.values(savedEntries));
       const response = buildResponse(this.deps, msg, 'pipeline:list:response', {
         pipelines,
         triggers,
+        ...(outside.length > 0 ? { outside } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:list:response (${pipelines.length} pipelines)`);
@@ -1406,8 +1711,28 @@ export class AutomationHandler implements DomainHandler {
   }
 
   /**
+   * The runs the command line made of the pipelines on this machine
+   * (`sandforge pipeline run`), each marked `ranFrom: 'commandLine'`. None
+   * when they cannot be read: the editor's own history is still listed, and
+   * the log says why.
+   */
+  private commandLineRuns(): Array<Record<string, unknown>> {
+    try {
+      this.commandLineHistory ??= cliRunHistory(this.pipelinesRoot(), this.deps.log);
+      return this.commandLineHistory.read() as unknown as Array<Record<string, unknown>>;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] the pipeline runs of the command line are not listed: ${extractErrorMessage(err)}`,
+      );
+      return [];
+    }
+  }
+
+  /**
    * Handle pipeline:history -- load execution history from ConfigStore.
-   * Retrieves all entries in the 'pipeline-history' category, sorted by timestamp descending.
+   * Retrieves all entries in the 'pipeline-history' category, with the runs
+   * the command line made on this machine beside them, sorted by timestamp
+   * descending.
    */
   private handlePipelineHistory(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -1417,13 +1742,14 @@ export class AutomationHandler implements DomainHandler {
       // the History tab reads it, and a pipeline variable can hold a secret
       // default value, so the snapshot stays in extension storage rather than
       // crossing the bridge on every visit to the tab.
-      const rawHistory: Array<Record<string, unknown>> = Object.values(historyEntries).map(
-        (value) => {
+      const rawHistory: Array<Record<string, unknown>> = [
+        ...Object.values(historyEntries).map((value) => {
           const entry = { ...(value as Record<string, unknown>) };
           delete entry['pipeline'];
           return entry;
-        },
-      );
+        }),
+        ...this.commandLineRuns(),
+      ];
       const history = rawHistory.sort((a, b) => {
         const tsA = typeof a['timestamp'] === 'number' ? a['timestamp'] : 0;
         const tsB = typeof b['timestamp'] === 'number' ? b['timestamp'] : 0;
@@ -1447,6 +1773,23 @@ export class AutomationHandler implements DomainHandler {
       const parsed = validatePayload(pipelineSavePayloadSchema, msg, 'pipeline:error', this.deps);
       if (!parsed) return;
       const payload = parsed;
+      // A hand-over the triggers could not read would leave the pipeline out
+      // of its triggers, said in the log alone: refused here, nothing saved.
+      const outside = payload.config['runsOutside'];
+      if (outside !== undefined) {
+        const read = pipelineRunsOutsideSchema.safeParse(outside);
+        if (!read.success) {
+          sendHandlerError(
+            this.deps,
+            'pipeline:save',
+            'pipeline:error',
+            msg,
+            new Error(`The pipeline was not saved: runsOutside.${payloadIssues(read.error)}`),
+            { code: 'INVALID_PAYLOAD', retryable: false },
+          );
+          return;
+        }
+      }
       const pipelineId = payload.id || crypto.randomUUID();
       const storageKey = `pipeline:saved:${pipelineId}`;
       this.deps.configStore.set(

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,11 @@ import { createPanelHost, orgFromIdentity, problemLine, settles } from './panelH
 import type { PostedMessage } from './panelHost.js';
 import type { InfraServices } from '../src/bridge/ExtensionHandlers.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
+import type { ExtensionHandlers } from '../src/bridge/ExtensionHandlers.js';
+import type { PipelineStepRunners } from '../src/bridge/handlers/pipelineSteps.js';
+import { CheckpointHandler } from '../src/bridge/handlers/CheckpointHandler.js';
+import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
+import { SyncOpsHandler } from '../src/bridge/handlers/SyncOpsHandler.js';
 import {
   expiredScratchWords,
   renewSessionsFrom,
@@ -211,9 +216,59 @@ describe('createPanelHost', () => {
       expect(run.outcome).toBe('answered');
       expect((run.message?.payload as { status?: string }).status).toBe('completed');
       expect(lines).toContain('  notification: Headless: Done.');
+      // The step says what this host did with its message: no window shows one here.
+      const answer = JSON.stringify(run.message?.payload);
+      expect(answer).toContain(
+        'Printed the message: a run from the command line has no VS Code window to show it in.',
+      );
+      expect(answer).not.toContain('Showed a notification in VS Code');
       // Each step reached the page as it went.
       expect(host.posted.filter((m) => m.type === 'pipeline:step')).toHaveLength(4);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives a pipeline's dry run the previews of the handlers its run writes through, and says the run is the command line's", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    const simulate = vi
+      .spyOn(SyncOpsHandler.prototype, 'simulateForPipeline')
+      .mockRejectedValue(new Error('simulated'));
+    const mask = vi
+      .spyOn(DataOpsHandler.prototype, 'previewMaskingForPipeline')
+      .mockRejectedValue(new Error('masked'));
+    const take = vi
+      .spyOn(CheckpointHandler.prototype, 'estimateTakeForPipeline')
+      .mockRejectedValue(new Error('scoped'));
+    const rewind = vi
+      .spyOn(CheckpointHandler.prototype, 'previewRewindForPipeline')
+      .mockRejectedValue(new Error('previewed'));
+    try {
+      let built: ExtensionHandlers | undefined;
+      createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        compose: ({ handlers }) => {
+          built = handlers;
+        },
+      });
+      const runners = (
+        built as unknown as { automationHandler: { stepRunners?: PipelineStepRunners } }
+      ).automationHandler.stepRunners;
+
+      expect(runners?.ranFrom).toBe('commandLine');
+      const asked = { pipeline: { name: 'p' }, answer: { approved: true } };
+      await expect(runners?.simulateSync?.({} as never)).rejects.toThrow('simulated');
+      await expect(
+        runners?.previewMasking?.({ orgId: 'o', templateId: 't', ...asked }),
+      ).rejects.toThrow('masked');
+      await expect(runners?.estimateTake?.({} as never)).rejects.toThrow('scoped');
+      await expect(runners?.previewRewind?.({} as never)).rejects.toThrow('previewed');
+      expect([simulate, mask, take, rewind].map((spy) => spy.mock.calls.length)).toEqual([
+        1, 1, 1, 1,
+      ]);
+    } finally {
+      vi.restoreAllMocks();
       rmSync(dir, { recursive: true, force: true });
     }
   });

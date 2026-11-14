@@ -12,6 +12,7 @@ import type { AuthProvider } from '../core/connection/AuthProvider.js';
 import type { SfdxBridge } from '../core/connection/SfdxBridge.js';
 import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace.js';
+import { applyDryRun } from '../modules/automation/pipelineDryRun.js';
 import type { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { Services } from '../services.js';
@@ -431,7 +432,21 @@ export class ExtensionHandlers {
       takeCheckpoint: (request, signal) => this.checkpointHandler.takeForPipeline(request, signal),
       rewind: (request, signal) => this.checkpointHandler.rewindForPipeline(request, signal),
       readCheckpoint: (checkpointId) => this.readCheckpointForRewind(checkpointId),
+      // Where its Notification and Approval steps say they showed and asked.
+      ...(deps.services?.runsFrom ? { ranFrom: deps.services.runsFrom } : {}),
+      // A dry run's steps that write read the org through the same handlers,
+      // each as its own preview reads it, and write nothing.
+      simulateSync: (config, signal) => this.syncHandler.simulateForPipeline(config, signal),
+      previewMasking: (request, signal) =>
+        this.dataOpsHandler.previewMaskingForPipeline(request, signal),
+      estimateTake: (request, signal) =>
+        this.checkpointHandler.estimateTakeForPipeline(request, signal),
+      previewRewind: (request, signal) =>
+        this.checkpointHandler.previewRewindForPipeline(request, signal),
     });
+    // A pipeline's dry run follows the run's own route, step by step, without
+    // writing: without it the page's Dry run is refused, never run for real.
+    this.automationHandler.setDryRunApplier(applyDryRun);
     // A checkpoint deleted, or swept past its day, leaves the confirmations
     // of the Rewind steps that name it void: they are taken back.
     this.checkpointHandler.onCheckpointsChanged(() => {
@@ -1204,6 +1219,7 @@ export class ExtensionHandlers {
         'pipeline:rewind-steps',
         'pipeline:rewind-grant',
         'pipeline:rewind-revoke',
+        'pipeline:export',
         'marketplace:list',
         'marketplace:install',
       ],

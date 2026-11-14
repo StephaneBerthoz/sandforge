@@ -18,6 +18,8 @@ import { CompareOrchestrator } from './modules/compare/CompareOrchestrator.js';
 import type { CompareDependencies } from './modules/compare/CompareOrchestrator.js';
 import { PipelineOrchestrator } from './modules/automation/PipelineOrchestrator.js';
 import type { PipelineOrchestratorDependencies } from './modules/automation/PipelineOrchestrator.js';
+import type { ApprovalAnswer } from './modules/automation/ApprovalGate.js';
+import type { PipelineRunOrigin } from '@sandforge/shared';
 
 /** What the approval notification names: the pipeline, the step, its message, and when it stops waiting. */
 export interface ApprovalQuestionText {
@@ -105,7 +107,14 @@ export interface CoreServices {
    * Optional for the same test reason; where it is absent, an Approval step is
    * refused before the run.
    */
-  askApproval?: (question: ApprovalQuestionText) => Promise<'approve' | 'reject' | undefined>;
+  askApproval?: (question: ApprovalQuestionText) => Promise<ApprovalAnswer | undefined>;
+  /**
+   * Where this host's pipelines run: in the VS Code window (absent), or from
+   * the command line, which has no window — a Notification step prints its
+   * message, and an Approval step is asked at the terminal, or answered ahead
+   * with `--approve`.
+   */
+  runsFrom?: PipelineRunOrigin;
   /**
    * Tell the person who pressed Approve or Reject on a question that no
    * longer waits — answered on the page, out of time, its run cancelled —

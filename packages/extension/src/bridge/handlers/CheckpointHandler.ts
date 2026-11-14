@@ -401,6 +401,36 @@ export interface CheckpointPipelineRewindOutcome {
 }
 
 /**
+ * What a pipeline's Checkpoint step would take, as its take scopes it before
+ * reading a record (`estimateTakeForPipeline`): nothing is kept.
+ */
+export interface CheckpointPipelineTakeEstimate {
+  /** The objects it would hold. */
+  objects: number;
+  /** Their records now, all objects together. */
+  records: number;
+  /** The objects it would leave out, each for its reason. */
+  leftOut: number;
+  /** What it would cost: requests phase by phase, its replay annex's among them, time and bytes. */
+  estimate: CheckpointEstimate;
+}
+
+/**
+ * What a pipeline's Rewind step would do, read as the step reads it before it
+ * writes (`previewRewindForPipeline`): its own preview, held to its bounds.
+ */
+export interface CheckpointPipelineRewindPreview {
+  checkpointId: string;
+  /** Records it would delete, give their values back, bring back from the recycle bin, and make again. */
+  toDelete: number;
+  toGiveBack: number;
+  toBringBack: number;
+  toRecreate: number;
+  /** What the preview prices the rewind at. */
+  estimate: CheckpointEstimate;
+}
+
+/**
  * Why a pipeline's Checkpoint or Rewind step did not go through: a refusal
  * before it wrote, its code and its words, or — `UNDELETABLE_UNATTENDED` — a
  * rewind that ran and was left untouched where nobody could be asked, with
@@ -1516,6 +1546,215 @@ export class CheckpointHandler implements DomainHandler {
         checkpointId: checkpoint.checkpointId,
         result,
         notes,
+        estimate: preview.estimate,
+      };
+    } catch (err: unknown) {
+      throw stepErrorOf(err);
+    }
+  }
+
+  /**
+   * What a pipeline's Checkpoint step would take, for its dry run: the scope
+   * the page's Checkpoint reads before a take (`checkpoint:scope`), of the
+   * step's configuration — the guard read live, the lock, a run writing, the
+   * objects and their records counted, and the estimate, the reads of the
+   * replay annex among its requests. No record is read and nothing is kept.
+   *
+   * @throws {CheckpointStepRefused} When the take would be refused, with the
+   *   refusal's code and words, as {@link takeForPipeline} is refused.
+   */
+  async estimateTakeForPipeline(
+    request: CheckpointPipelineTakeRequest,
+    signal?: AbortSignal,
+  ): Promise<CheckpointPipelineTakeEstimate> {
+    try {
+      const read = pipelineCheckpointStepConfigSchema.safeParse(request.config);
+      if (!read.success) {
+        throw new Refused(
+          'CONFIG_INVALID',
+          `The Checkpoint step "${request.origin.step}" does not read: ` +
+            `${read.error.issues[0]?.message ?? 'its configuration is not one'}. Nothing was read.`,
+        );
+      }
+      const config = read.data;
+      const org = this.registeredOrg(config.orgId);
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const conn = await this.connect(org);
+      if (signal?.aborted) throw new Refused(CANCELLED, new m.CheckpointTakeStopped().message);
+      const scope = await m.scopeCheckpoint(
+        {
+          org: m.takeOrgOf(conn),
+          store,
+          handler: this.deps,
+          runWriting: this.runWriting(
+            org.id,
+            nameOf(org),
+            'take the checkpoint',
+            'No record was read.',
+          ),
+          ...(signal ? { signal } : {}),
+        },
+        // The objects the step's take is asked for, as `takeForPipeline` asks them.
+        this.takeRequestOf(org, {
+          mode: config.mode,
+          ...(config.objects !== undefined ? { objects: config.objects } : {}),
+          ...(config.excluded !== undefined ? { excluded: config.excluded } : {}),
+          ...(config.maxTotal !== undefined ? { maxTotal: config.maxTotal } : {}),
+        }),
+      );
+      if (scope.refusal) throw this.refusalOf(scope.refusal);
+      return {
+        objects: scope.objects.length,
+        records: scope.objects.reduce((total, object) => total + object.records, 0),
+        leftOut: scope.leftOut.length,
+        estimate: scope.estimate,
+      };
+    } catch (err: unknown) {
+      throw stepErrorOf(err);
+    }
+  }
+
+  /**
+   * What a pipeline's Rewind step would do, for its dry run: the steps 1 to 4
+   * of {@link rewindForPipeline} — the confirmation, the checkpoint, a fresh
+   * preview of its own and the step's bounds — and not the rewind. Nothing
+   * is written to the org, and nothing to the audit trail: the preview is
+   * kept on this machine as the page's are.
+   *
+   * @throws {CheckpointStepRefused} When the rewind would be refused: the
+   *   first refusal's code, and every refusal's words, the preview's own
+   *   first, as the step is refused.
+   * @throws {StepCancelledError} When it was stopped.
+   */
+  async previewRewindForPipeline(
+    request: CheckpointPipelineRewindRequest,
+    signal?: AbortSignal,
+  ): Promise<CheckpointPipelineRewindPreview> {
+    const { grant, origin } = request;
+    try {
+      const m = await this.modules();
+      const read = pipelineRewindStepConfigSchema.safeParse(request.config);
+      if (!read.success) {
+        throw new Refused(
+          'CONFIG_INVALID',
+          `The Rewind step "${origin.step}" does not read: ` +
+            `${read.error.issues[0]?.message ?? 'its configuration is not one'}. No record was ` +
+            'read or written.',
+        );
+      }
+      const config = read.data;
+      if (
+        grant.digest !== rewindGrantDigest(config) ||
+        grant.checkpointId !== config.checkpointId
+      ) {
+        throw this.refusalOf(m.notConfirmedRefusal(origin.step, true));
+      }
+      const store = await this.openedStore();
+      const { folder, checkpoint } = await this.checkpointOf(store, config.checkpointId);
+      if (!sameOrganization(grant.organizationId, checkpoint.org.organizationId)) {
+        throw this.refusalOf(m.notConfirmedRefusal(origin.step, true));
+      }
+      this.usable(m, checkpoint, 'rewind');
+      const org = this.registeredOrg(config.orgId);
+      if (
+        !sameOrganization(org.orgId, checkpoint.org.organizationId) &&
+        !sameOrganization(
+          this.deps.sandboxRefreshes?.organizationIdOf(org.id),
+          checkpoint.org.organizationId,
+        )
+      ) {
+        throw new Refused(
+          'OTHER_ORG',
+          `The checkpoint '${checkpoint.name}' is not of ${nameOf(org)}, the org the Rewind step ` +
+            `"${origin.step}" names. No record was read or written.`,
+        );
+      }
+      const objects = heldObjectsOf(checkpoint, config.objects);
+      const conn = await this.connect(org);
+      const orgName = nameOf(org);
+      if (signal?.aborted) throw new Refused(CANCELLED, new m.RewindStopped().message);
+      const preview = await m.previewCheckpoint(
+        {
+          org: m.takeOrgOf(conn),
+          store,
+          readAutomation: (written) => this.readAutomation(org.id, written),
+          runWriting: this.runWriting(
+            org.id,
+            orgName,
+            'rewind',
+            'No record would be read or written.',
+          ),
+          ...(signal ? { signal } : {}),
+        },
+        {
+          checkpoint,
+          folder,
+          orgName,
+          registered: org,
+          username: org.username,
+          ...(objects !== undefined ? { objects } : {}),
+          reusesPreview: true,
+          ...(config.muteAutomation ? { muteAutomation: true } : {}),
+          acceptOutside: config.acceptOutside,
+        },
+      );
+      if (!preview.previewed) throw this.refusalOf(preview.refusal);
+      const acted =
+        objects !== undefined
+          ? m.selectionDiff(
+              preview.diff,
+              await m.planSelection({
+                checkpoint,
+                previewDir: m.previewDirOf(folder, preview.diff.previewId),
+                readAt: preview.diff.readAt,
+                objects: new Set(objects),
+                acceptOutside: config.acceptOutside,
+                heldRows: m.snapshotRowsOf(checkpoint, folder),
+                ...(signal ? { signal } : {}),
+              }),
+            )
+          : preview.diff;
+      const running =
+        config.muteAutomation && preview.automation
+          ? planMute(preview.automation, removalStepsWrites(m.rewindStepsOf(acted))).automation
+          : preview.automation;
+      const bounds = await m.boundsRefusals({
+        orgName,
+        preview: {
+          diff: acted,
+          ...(running ? { automation: running } : {}),
+          ...(preview.emails ? { emails: preview.emails } : {}),
+          ...(preview.emailsUncounted !== undefined
+            ? { emailsUncounted: preview.emailsUncounted }
+            : {}),
+          ...(preview.deliverability ? { deliverability: preview.deliverability } : {}),
+        },
+        bounds: { maxRecords: config.maxRecords, refuseWhenActive: config.refuseWhenActive },
+        accepted: config,
+        writers: async () => m.rewindWriters(checkpoint.takenBy, await m.takeOrgOf(conn).userId()),
+        words: config.muteAutomation ? m.REWIND_MUTING_STEP_WORDS : m.REWIND_STEP_WORDS,
+        user: org.username,
+      });
+      const [refused, ...alsoRefused] = [
+        ...(preview.refusal !== undefined ? [preview.refusal] : []),
+        ...bounds.filter((bound) => bound.code !== preview.refusal?.code),
+      ];
+      if (refused !== undefined) throw this.refusalOf(refused, alsoRefused);
+      const sum = (count: (object: RewindDiff['objects'][number]) => number): number =>
+        acted.objects.reduce((total, object) => total + count(object), 0);
+      return {
+        checkpointId: checkpoint.checkpointId,
+        toDelete: sum(
+          ({ toDelete }) =>
+            toDelete.createdSince + toDelete.broughtBackSince + toDelete.comesBackWithParent,
+        ),
+        toGiveBack: sum(({ toGiveBack }) => toGiveBack.records),
+        toBringBack: sum(
+          ({ toBringBack }) =>
+            toBringBack.inBin + toBringBack.withParent + toBringBack.deletedWhileTaken,
+        ),
+        toRecreate: sum(({ toRecreate }) => toRecreate ?? 0),
         estimate: preview.estimate,
       };
     } catch (err: unknown) {

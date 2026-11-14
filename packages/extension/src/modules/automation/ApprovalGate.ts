@@ -18,14 +18,24 @@ export interface ApprovalQuestion extends ApprovalRequest {
   expiresAt: string;
 }
 
-/** What the gate needs from the window. */
+/**
+ * An answer to an Approval step's question, as the place it was put gives
+ * it: Approve or Reject pressed on the VS Code notification, or Approve or
+ * Reject with where it was given — typed at the terminal a command-line run
+ * asks in (`terminal`), or given ahead with `--approve` (`commandLine`).
+ */
+export type ApprovalAnswer =
+  'approve' | 'reject' | { decision: 'approve' | 'reject'; via: PipelineApprovalChannel };
+
+/** What the gate needs from the window, or from the command line. */
 export interface ApprovalGateDeps {
   /**
-   * Shows the question in the VS Code window, with Approve and Reject, and
-   * resolves with the button pressed — or undefined when it was closed
-   * without one. Absent where there is no window to show it in.
+   * Puts the question where someone can answer it — the VS Code window, with
+   * Approve and Reject, or the terminal of a command-line run — and resolves
+   * with the answer, or undefined when it was put away without one. Absent
+   * where there is nobody to ask.
    */
-  ask?: (question: ApprovalQuestion) => Promise<'approve' | 'reject' | undefined>;
+  ask?: (question: ApprovalQuestion) => Promise<ApprovalAnswer | undefined>;
   /** Tells the page the step waits, and until when: it offers the same choice beside the step. */
   announce?: (question: ApprovalQuestion) => void;
   /** Tells the person who pressed a button on a question that no longer waits. */
@@ -51,8 +61,9 @@ function keyOf(operationId: string, stepId: string): string {
  * Holds a pipeline's Approval steps until someone answers them.
  *
  * A step is answered once, by whichever comes first: Approve or Reject on the
- * VS Code notification or beside the step on the Automation page, the end of
- * its wait, or the cancel of its run. Whatever comes after that changes
+ * VS Code notification or beside the step on the Automation page — at the
+ * terminal, or ahead with `--approve`, on the command line —, the end of its
+ * wait, or the cancel of its run. Whatever comes after that changes
  * nothing: the run has gone on, or stopped, on the first.
  *
  * A notification cannot be taken back once shown. One answered on the page,
@@ -65,7 +76,7 @@ export class ApprovalGate {
 
   constructor(private readonly deps: ApprovalGateDeps) {}
 
-  /** Whether the question can be put to anyone: there is a VS Code window to show it in. */
+  /** Whether the question can be put to anyone: a VS Code window to show it in, or a terminal. */
   get canAsk(): boolean {
     return this.deps.ask !== undefined;
   }
@@ -109,8 +120,12 @@ export class ApprovalGate {
       void this.deps.ask?.(question).then(
         (choice) => {
           if (choice === undefined) return;
-          const decision = choice === 'approve' ? 'approved' : 'rejected';
-          if (!this.answer(request.operationId, request.stepId, decision, 'notification')) {
+          // Recorded where it was given: an answer typed at a terminal, or
+          // given ahead on the command line, was kept as the notification's.
+          const given = typeof choice === 'string' ? { decision: choice, via: undefined } : choice;
+          const decision = given.decision === 'approve' ? 'approved' : 'rejected';
+          const via = given.via ?? 'notification';
+          if (!this.answer(request.operationId, request.stepId, decision, via)) {
             this.deps.tooLate?.(question);
           }
         },

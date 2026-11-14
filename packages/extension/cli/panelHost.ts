@@ -244,6 +244,7 @@ function headlessServices(
     | 'isAIEnabled'
     | 'configStore'
     | 'showNotification'
+    | 'runsFrom'
   > = {
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),
     automationOrchestrator: (deps) => new PipelineOrchestrator(deps),
@@ -252,6 +253,8 @@ function headlessServices(
     isAIEnabled: () => false,
     configStore,
     showNotification: (message) => log(`  notification: ${message}`),
+    // No window here: a Notification step says it printed its message.
+    runsFrom: 'commandLine',
   };
   return services as Services;
 }

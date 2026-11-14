@@ -523,3 +523,75 @@ describe('the saved configurations and "Run full next time"', () => {
     expect(String(error.payload.message)).toContain('no longer saved');
   });
 });
+
+describe("a pipeline's dry run of a saved delta configuration (simulateForPipeline)", () => {
+  let deps: HandlerDeps;
+  let handler: SyncOpsHandler;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearDescribeCache();
+    deps = createDeps();
+    handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation(QUIET_TARGET);
+    new SyncConfigStore(deps.configStore).save(deltaConfig());
+  });
+
+  it('reads every record of a store that never ran the configuration, says so, and writes nothing anywhere', async () => {
+    const orgs = mockOrgs(sourceRows());
+    const store = new SyncConfigStore(deps.configStore);
+
+    const simulated = await handler.simulateForPipeline(deltaConfig());
+
+    expect(simulated.objects).toEqual([
+      expect.objectContaining({
+        read: 3,
+        insert: 3,
+        delta: expect.objectContaining({ read: 'full', reason: 'first_run' }),
+      }),
+    ]);
+    expect(orgs.upsert).not.toHaveBeenCalled();
+    expect(orgs.destroy).not.toHaveBeenCalled();
+    expect(orgs.target.size).toBe(0);
+    expect(store.loadDelta('cfg-delta')).toEqual({ kind: 'none' });
+    expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([]);
+    // No page asked: what it posts goes under a pipeline's own request id.
+    expect(posted(deps, 'sync:simulate:response')[0]?.correlationId).toMatch(/^sync:pipeline:/);
+  });
+
+  it('reads from the watermark a run of the step recorded, as the next run would', async () => {
+    const orgs = mockOrgs(sourceRows());
+    await handler.executeScheduled(deltaConfig(), 'pipeline');
+    expect(orgs.target.size).toBe(3);
+    const store = new SyncConfigStore(deps.configStore);
+    const recorded = JSON.stringify(store.loadDelta('cfg-delta'));
+    orgs.upsert.mockClear();
+
+    const simulated = await handler.simulateForPipeline(deltaConfig());
+
+    // From the watermark less its overlap: the record stamped at 09:00 alone, not the three.
+    expect(simulated.objects[0]).toMatchObject({
+      read: 1,
+      delta: { read: 'delta', since: '2026-10-13T09:00:00.000Z', changed: 1 },
+    });
+    expect(orgs.upsert).not.toHaveBeenCalled();
+    expect(JSON.stringify(store.loadDelta('cfg-delta'))).toBe(recorded);
+  });
+
+  it('is refused as its run is for a configuration that does not validate, before any org is read', async () => {
+    mockOrgs(sourceRows());
+
+    await expect(handler.simulateForPipeline(deltaConfig({ objects: [] }))).rejects.toThrow(
+      /^Pipeline sync config failed validation/,
+    );
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the error the simulation stopped on, which no page would show', async () => {
+    vi.mocked(getJsforceConnection).mockRejectedValue(new Error('Org not found: src-org'));
+
+    await expect(handler.simulateForPipeline(deltaConfig())).rejects.toThrow(
+      'Org not found: src-org',
+    );
+  });
+});

@@ -2260,6 +2260,25 @@ export const pipelineRunPayloadSchema = z.object({
     })
     .loose(),
   variables: z.record(z.string(), z.string().max(2_000)).optional(),
+  // A dry run: the steps that write say what they would do, and neither the
+  // history nor the audit trail keeps the run.
+  dryRun: z.boolean().optional(),
+});
+/**
+ * Who starts a pipeline whose schedule was handed over at an export: cron,
+ * Task Scheduler or GitHub Actions, since when, from which file — its name
+ * alone, a path would carry the account's home folder — and the digest of
+ * the file then exported.
+ */
+export const pipelineRunsOutsideSchema = z.strictObject({
+  since: z.iso.datetime({ offset: true }),
+  runner: z.enum(['cron', 'taskScheduler', 'githubActions']),
+  file: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((name) => !/[\\/]/.test(name), "The file's name, without its folder"),
+  digest: z.string().regex(/^sha256:[0-9a-f]{64}$/, 'Not a digest: sha256: and 64 hex digits'),
 });
 /**
  * A pipeline `pipeline:save` stored, read back to be started by a trigger: the
@@ -2268,7 +2287,10 @@ export const pipelineRunPayloadSchema = z.object({
  */
 export const savedPipelineSchema = pipelineRunPayloadSchema.shape.pipeline.extend({
   id: z.string().min(1).max(200),
+  runsOutside: pipelineRunsOutsideSchema.optional(),
 });
+/** `pipeline:export` — the saved pipeline to export, by the id it was saved under. */
+export const pipelineExportPayloadSchema = z.object({ pipelineId: opaqueIdSchema });
 export const pipelineSavePayloadSchema = z.object({
   // Empty id stays legal: the handler falls back to crypto.randomUUID().
   id: z.string().max(200),

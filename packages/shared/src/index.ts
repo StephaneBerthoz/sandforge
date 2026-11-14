@@ -67,6 +67,7 @@ export * from './types/checkpoint.types.js';
 export * from './types/env.types.js';
 export * from './types/scenario.types.js';
 export * from './types/pipelineFile.types.js';
+export * from './types/pipelineExport.types.js';
 
 // Barrel exports — Bridge
 // NOTE: PROTOCOL_VERSION + isVersionCompatible are re-exported as named exports

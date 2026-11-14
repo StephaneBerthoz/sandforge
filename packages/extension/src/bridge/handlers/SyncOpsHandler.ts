@@ -1545,6 +1545,8 @@ export class SyncOpsHandler implements DomainHandler {
    * @param checkpointFirst - The checkpoint a run would take first: what it
    *   would hold and cost, and the refusal a real run would meet, said and
    *   counted with the run's requests; nothing is taken.
+   * @param failed - Told the error a simulation stopped on, beside the page:
+   *   a pipeline's dry run, which no page waits on, says it.
    */
   private async simulateSync(
     msg: InboundRequest,
@@ -1552,6 +1554,7 @@ export class SyncOpsHandler implements DomainHandler {
     operationId: string,
     abortController: AbortController,
     checkpointFirst?: RunCheckpointRequest,
+    failed?: (err: unknown) => void,
   ): Promise<SyncSimulationResult | null> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     const failure: OperationFailureContext = {
@@ -1721,7 +1724,91 @@ export class SyncOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });
+      failed?.(err);
       return null;
+    }
+  }
+
+  /**
+   * What a pipeline's Sync step would do, for its dry run: the simulation the
+   * Sync page runs (`sync:simulate`) of the saved configuration the step
+   * names, read as Sync's schedule hands it to a run — validated, and given
+   * the batch size of `sandforge.sync.defaultBatchSize` — by the same
+   * engine: both orgs read and compared, the watermarks of a delta
+   * configuration read and none recorded, no guard asked, nothing written to
+   * the org, the audit trail or the history. Listed in Live Operations as
+   * the page's simulation is, and stopped by its Cancel and by `signal`.
+   *
+   * @returns The simulation, a cancelled one included (`cancelled`), and one
+   *   whose read of an object failed (`error`): a run would stop there too.
+   * @throws When the configuration does not validate or a transform rule
+   *   names no field, as its run is refused; or the error the simulation
+   *   could not start on.
+   */
+  async simulateForPipeline(
+    config: SyncConfig,
+    signal?: AbortSignal,
+  ): Promise<SyncSimulationResult> {
+    const parsed = syncExecutePayloadSchema.safeParse({ config });
+    if (!parsed.success) {
+      throw new Error(
+        `Pipeline sync config failed validation: ${parsed.error.issues
+          .map((i) => i.message)
+          .join('; ')}`,
+      );
+    }
+    const fieldless = fieldlessTransformRules(parsed.data.config.objects);
+    if (fieldless.length > 0) {
+      throw Object.assign(new Error(`${fieldlessTransformRefusal(fieldless)} ${NOTHING_READ}`), {
+        code: TRANSFORM_RULE_NO_FIELD,
+      });
+    }
+    const msg = syntheticRequest('sync:pipeline', crypto.randomUUID(), 'sync:simulate');
+    const operationId = msg.id;
+    const defaultBatchSize =
+      this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+    const filledConfig = {
+      ...parsed.data.config,
+      objects: parsed.data.config.objects.map((o) => ({
+        ...o,
+        batchSize: o.batchSize ?? defaultBatchSize,
+      })),
+    } as unknown as SyncConfig;
+    const description = `Pipeline simulation of a sync of ${filledConfig.objects.length} object(s), writing nothing`;
+    const abortController = new AbortController();
+    const onAbort = (): void => abortController.abort();
+    if (signal?.aborted) abortController.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    sendOperationStarted(this.deps, operationId, 'sync', description);
+    this.liveTracker?.register(operationId, 'sync', description);
+    let stoppedOn: unknown;
+    try {
+      const simulation = this.simulateSync(
+        msg,
+        filledConfig,
+        operationId,
+        abortController,
+        undefined,
+        (err) => {
+          stoppedOn = err;
+        },
+      );
+      this.registry?.register(
+        operationId,
+        'sync',
+        description,
+        simulation.then((result) => ({
+          status: result === null || result.error ? 'failure' : 'success',
+        })),
+        abortController,
+      );
+      const result = await simulation;
+      if (result === null) {
+        throw stoppedOn instanceof Error ? stoppedOn : new Error(extractErrorMessage(stoppedOn));
+      }
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
     }
   }
 

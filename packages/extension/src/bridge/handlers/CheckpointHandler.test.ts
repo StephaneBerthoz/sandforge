@@ -4719,3 +4719,109 @@ describe('CheckpointHandler — a checkpoint before a run', () => {
     expect(writePathOrderDefects(stopped.steps)).toEqual([]);
   });
 });
+
+describe('CheckpointHandler — the dry run of a pipeline’s Checkpoint and Rewind steps', () => {
+  const takeStep = {
+    config: pipelineCheckpointStepConfigSchema.parse({ orgId: REGISTERED, mode: 'everything' }),
+    origin: ORIGIN,
+  };
+
+  it('scopes the take as the page’s Checkpoint does, its estimate the same, reading no record and keeping nothing', async () => {
+    const h = harness();
+    const asked: string[] = [];
+    h.onQuery((soql) => asked.push(soql));
+
+    const scoped = await h.handler.estimateTakeForPipeline(takeStep);
+
+    expect(scoped).toMatchObject({ objects: 2, records: 3, leftOut: expect.any(Number) });
+    expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
+    expect(await h.store.list()).toEqual([]);
+    expect(h.trail()).toEqual([]);
+    // Its requests phase by phase — the reads of what a replay in another org
+    // keeps among them — are those the take then held itself to.
+    await taken(h);
+    const take = answerOf(h, 'wv-take-1').payload as {
+      estimate: { requestsByPhase?: Record<string, number> };
+    };
+    expect(take.estimate.requestsByPhase?.['snapshot']).toBeGreaterThan(0);
+    expect(scoped.estimate.requestsByPhase).toEqual(take.estimate.requestsByPhase);
+  });
+
+  it('is refused with the take’s refusal, its code and its words: the day’s requests, a production org', async () => {
+    const h = harness();
+    h.org.limits = { Max: 5_000_000, Remaining: 3 };
+    const dryBudget = await stepRefusal(h.handler.estimateTakeForPipeline(takeStep));
+    const runBudget = await stepRefusal(h.handler.takeForPipeline(takeStep));
+    expect(dryBudget.code).toBe('API_BUDGET');
+    expect(dryBudget.code).toBe(runBudget.code);
+    h.org.limits = { Max: 5_000_000, Remaining: 4_999_000 };
+
+    h.org.edit('Organization', ORG_ID, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+    const production = await stepRefusal(h.handler.estimateTakeForPipeline(takeStep));
+    expect(production.code).toBe('PRODUCTION');
+    expect(await h.store.list()).toEqual([]);
+  });
+
+  it('says what the step’s rewind would do from a preview of its own, and writes nothing to the org or the audit trail', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const before = writesOf(h.org);
+    const trailBefore = h.trail().length;
+
+    const previewed = await h.handler.previewRewindForPipeline(rewindStep(checkpointId));
+
+    expect(previewed).toMatchObject({
+      checkpointId,
+      toDelete: 1,
+      toGiveBack: 1,
+      toBringBack: 1,
+      toRecreate: 0,
+      estimate: { records: 3 },
+    });
+    expect(writesOf(h.org)).toEqual(before);
+    expect(h.trail()).toHaveLength(trailBefore);
+  });
+
+  it('is refused as the step’s rewind is, in the same words, past its limit, recording nothing', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const trailBefore = h.trail().length;
+
+    const dry = await stepRefusal(
+      h.handler.previewRewindForPipeline(rewindStep(checkpointId, { maxRecords: 2 })),
+    );
+    expect(h.trail()).toHaveLength(trailBefore);
+    const run = await stepRefusal(
+      h.handler.rewindForPipeline(rewindStep(checkpointId, { maxRecords: 2 })),
+    );
+
+    expect(dry.code).toBe('TOO_MANY_TO_REWIND');
+    expect({ code: dry.code, message: dry.message }).toEqual({
+      code: run.code,
+      message: run.message,
+    });
+  });
+
+  it('is refused before reading the org when the confirmation is not the one given for the step', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const step = rewindStep(checkpointId);
+    const asked: string[] = [];
+    h.onQuery((soql) => asked.push(soql));
+
+    const refused = await stepRefusal(
+      h.handler.previewRewindForPipeline({ ...step, grant: { ...step.grant, digest: 'other' } }),
+    );
+
+    expect(refused.code).toBe('NOT_CONFIRMED');
+    expect(asked).toEqual([]);
+  });
+});

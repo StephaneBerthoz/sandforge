@@ -212,6 +212,76 @@ describe('registerPipelineSteps', () => {
       );
     });
 
+    it('is refused on the command line with no terminal, and names --approve as the way on', () => {
+      const own = new StepExecutor();
+      registerPipelineSteps(own, runners({ ranFrom: 'commandLine' }));
+      const gate = step('approval', {}, { name: 'Go?' });
+
+      expect(own.check(gate, { steps: [gate], index: 0, declared: new Set() })).toBe(
+        'Approval step "Go?" cannot ask anyone: this run has no terminal to ask in. Run it in a ' +
+          'terminal, or answer it ahead with --approve "Go?".',
+      );
+      // Checked on its own, as it runs, it is not told what comes after it.
+      expect(own.check(gate)).toBe(
+        'Approval step "Go?" cannot ask anyone: this run has no terminal to ask in. Run it in a terminal.',
+      );
+    });
+
+    it('on the command line, sends to a terminal an Approval that stands before a write to a sandbox marked Staging', () => {
+      const flows = runners({
+        ranFrom: 'commandLine',
+        orgTier: (orgId) => (orgId === 'org-b' ? 'staging' : 'development'),
+        savedSeedTemplate: () => undefined,
+      });
+      const own = new StepExecutor();
+      registerPipelineSteps(own, flows);
+      const gate = step('approval', {}, { name: 'Go?' });
+      const steps = [gate, step('seed', { orgId: 'org-b', templateId: 'prebuilt-minimal-demo' })];
+
+      expect(own.check(gate, { steps, index: 0, declared: new Set() })).toBe(
+        'Approval step "Go?" cannot ask anyone: this run has no terminal to ask in. Run it in a ' +
+          'terminal: it stands before a write to dev, a sandbox marked Staging, which only a ' +
+          'person at a terminal approves, never --approve.',
+      );
+      // A second Approval stands for the writes after it: --approve answers the first.
+      const second = step('approval', {}, { id: 's-second', name: 'Again' });
+      expect(
+        own.check(gate, {
+          steps: [gate, second, ...steps.slice(1)],
+          index: 0,
+          declared: new Set(),
+        }),
+      ).toContain('or answer it ahead with --approve "Go?"');
+    });
+
+    it.each([
+      ['terminal', 'approved', 'Approved at the terminal at 2026-11-14T02:00:00.000Z.'],
+      [
+        'commandLine',
+        'approved',
+        'Approved ahead, on the command line (--approve) at 2026-11-14T02:00:00.000Z.',
+      ],
+    ] as const)('says an answer given %s where it was given', async (via, decision, said) => {
+      const own = withApproval(answered({ decision, via, at: '2026-11-14T02:00:00.000Z' }));
+
+      const result = await own.execute(step('approval', {}), context());
+
+      expect(result.summary).toBe(said);
+      expect(result.approval?.via).toBe(via);
+    });
+
+    it('says a rejection typed at the terminal where it was typed', async () => {
+      const own = withApproval(
+        answered({ decision: 'rejected', via: 'terminal', at: '2026-11-14T02:00:00.000Z' }),
+      );
+
+      const result = await own.execute(step('approval', {}), context());
+
+      expect(result.error).toBe(
+        'Approval step "Step" was rejected at the terminal at 2026-11-14T02:00:00.000Z.',
+      );
+    });
+
     it('lets go of the question when the run is cancelled while it waits', async () => {
       const gate = new ApprovalGate({ ask: () => new Promise(() => undefined) });
       const own = withApproval((ask, signal) => gate.ask({ ...ask, operationId: 'op-1' }, signal));
@@ -771,6 +841,19 @@ describe('registerPipelineSteps', () => {
       expect(flows.notify).toHaveBeenCalledWith('Nightly check: Snapshot taken.');
       expect(result.status).toBe('completed');
       expect(result.summary).toBe('Showed a notification in VS Code.');
+    });
+
+    it('says it printed its message on the command line, where there is no VS Code window', async () => {
+      const notify = vi.fn();
+      const own = new StepExecutor();
+      registerPipelineSteps(own, runners({ notify, ranFrom: 'commandLine' }));
+
+      const result = await own.execute(step('notification', { message: 'Done.' }), context());
+
+      expect(notify).toHaveBeenCalledWith('Nightly check: Done.');
+      expect(result.summary).toBe(
+        'Printed the message: a run from the command line has no VS Code window to show it in.',
+      );
     });
   });
 });

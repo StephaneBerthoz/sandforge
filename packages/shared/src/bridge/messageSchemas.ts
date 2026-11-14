@@ -385,6 +385,9 @@ const AutomationMessages = [
   msg('pipeline:rewind-grant:response'),
   msg('pipeline:rewind-revoke'),
   msg('pipeline:rewind-revoke:response'),
+  // A saved pipeline exported as a file, with the launchers that start it with VS Code closed.
+  msg('pipeline:export'),
+  msg('pipeline:export:response'),
   msg('marketplace:list'),
   msg('marketplace:list:response'),
   msg('marketplace:install'),

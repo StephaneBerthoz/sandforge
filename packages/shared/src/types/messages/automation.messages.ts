@@ -1,4 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
+import type { PipelineExportOutcome, PipelineOutsideStatus } from '../pipelineExport.types.js';
 import type {
   PipelineMaskingTemplateInfo,
   PipelineRewindStepInfo,
@@ -210,7 +211,16 @@ export interface PipelineTemplatesResponse extends BaseMessage {
  */
 export interface PipelineExecuteRequest extends BaseMessage {
   type: 'pipeline:execute';
-  payload: { pipeline: Record<string, unknown>; variables?: Record<string, string> };
+  payload: {
+    pipeline: Record<string, unknown>;
+    variables?: Record<string, string>;
+    /**
+     * A dry run: the steps that write say what they would do, the ones that
+     * read run, and neither the history nor the audit trail keeps it. The
+     * run's answer carries `dryRun: true`.
+     */
+    dryRun?: boolean;
+  };
 }
 
 /** Request to list saved pipelines from ConfigStore. */
@@ -226,7 +236,16 @@ export interface PipelineListRequest extends BaseMessage {
  */
 export interface PipelineListResponse extends BaseMessage {
   type: 'pipeline:list:response';
-  payload: { pipelines: Array<Record<string, unknown>>; triggers?: PipelineTriggerStatus[] };
+  payload: {
+    pipelines: Array<Record<string, unknown>>;
+    triggers?: PipelineTriggerStatus[];
+    /**
+     * Each pipeline whose schedule was handed over at an export
+     * (`runsOutside`), with whether the file exported then still holds what
+     * an export would write now.
+     */
+    outside?: PipelineOutsideStatus[];
+  };
 }
 
 /** Request to list pipeline execution history from ConfigStore. */
@@ -271,6 +290,23 @@ export interface PipelineDeleteRequest extends BaseMessage {
 export interface PipelineDeleteResponse extends BaseMessage {
   type: 'pipeline:delete:response';
   payload: { id: string; deleted: boolean };
+}
+
+/**
+ * Export a saved pipeline (Export… on the Automation page): its pipeline
+ * file, and the launchers that start it with VS Code closed. Read from the
+ * pipeline as saved, never from the page. Nothing is written: the page saves
+ * the file and a launcher through `file:save`.
+ */
+export interface PipelineExportRequest extends BaseMessage {
+  type: 'pipeline:export';
+  payload: { pipelineId: string };
+}
+
+/** The pipeline exported, or why it was not (see {@link PipelineExportOutcome}). */
+export interface PipelineExportResponse extends BaseMessage {
+  type: 'pipeline:export:response';
+  payload: PipelineExportOutcome;
 }
 
 /**

@@ -125,6 +125,34 @@ describe('ApprovalGate', () => {
     await expect(answer).resolves.toMatchObject({ decision: 'approved', via: 'page' });
   });
 
+  it.each(['terminal', 'commandLine'] as const)(
+    'records an answer given at the %s where it was given, not as the notification',
+    async (via) => {
+      const gate = new ApprovalGate({
+        ask: () => Promise.resolve({ decision: 'approve', via }),
+        who: () => 'sha256:0123456789ab',
+      });
+
+      await expect(gate.ask(request())).resolves.toEqual({
+        decision: 'approved',
+        via,
+        at: '2026-10-13T08:00:00.000Z',
+        by: 'sha256:0123456789ab',
+      });
+    },
+  );
+
+  it('records a rejection typed at the terminal as a rejection there', async () => {
+    const gate = new ApprovalGate({
+      ask: () => Promise.resolve({ decision: 'reject', via: 'terminal' }),
+    });
+
+    await expect(gate.ask(request())).resolves.toMatchObject({
+      decision: 'rejected',
+      via: 'terminal',
+    });
+  });
+
   it('says it can ask no one where there is no window to show the question in', () => {
     expect(new ApprovalGate({}).canAsk).toBe(false);
     expect(new ApprovalGate({ ask: notification().ask }).canAsk).toBe(true);

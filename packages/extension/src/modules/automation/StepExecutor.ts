@@ -190,7 +190,7 @@ function timeoutProblem(step: PipelineStep): string | undefined {
  * usable duration. The Step Config Panel writes `seconds`; `durationMs` is the
  * key the step library declares.
  */
-function delayMs(config: Record<string, unknown>): number | undefined {
+export function delayMs(config: Record<string, unknown>): number | undefined {
   const seconds = config['seconds'];
   const ms = seconds === undefined ? config['durationMs'] : seconds;
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined;
