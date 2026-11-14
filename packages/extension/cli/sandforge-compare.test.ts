@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { join } from 'node:path';
+import { DEPLOYABLE_COMPONENT_TYPES } from '@sandforge/shared';
 import type { CompareItem, CompareResult, DeploymentReport } from '@sandforge/shared';
 import type { PanelAnswer } from './panelHost.js';
 import {
@@ -79,6 +80,17 @@ describe('parseArgs', () => {
     expect(refuse('--source', 'S', '--target', 'T', '--type', 'CustomSetting').code).toBe(2);
   });
 
+  it('lists the categories it takes when it refuses one', () => {
+    const { message } = refuse('--source', 'S', '--target', 'T', '--type', 'CustomSetting');
+    expect(message).toContain(`One of: ${PAGE_COMPONENT_TYPES.join(', ')}.`);
+  });
+
+  it('names the Deploy tab of the Compare page when asked to deploy, which it never does', () => {
+    const { code, message } = refuse('--source', 'S', '--target', 'T', '--op', 'deploy');
+    expect(code).toBe(2);
+    expect(message).toContain('Deploy tab of the Compare page');
+  });
+
   it('refuses one org compared with itself', () => {
     expect(refuse('--source', 'S', '--target', 'S', '--op', 'drift').code).toBe(2);
   });
@@ -156,6 +168,11 @@ describe('parseArgs, validating a deployment', () => {
     ['a validation of nothing', ['--op', 'validate-deployment']],
   ])('refuses %s', (_what, extra) => {
     expect(refuse(...base, ...extra).code).toBe(2);
+  });
+
+  it('lists the types a deployment carries when it refuses one', () => {
+    const { message } = refuse(...base, '--validate', 'Profile:Admin');
+    expect(message).toContain(`One of: ${DEPLOYABLE_COMPONENT_TYPES.join(', ')}.`);
   });
 });
 
@@ -308,6 +325,91 @@ describe('describeAnswer', () => {
       `    ${'ApexClass'.padEnd(26)} source     3  target     4   +1 -0 ~1 =1 ?1`,
     );
     expect(lines).toContain('  modified ApexClass: Billing');
+  });
+});
+
+/** A validation that succeeded, as the page receives its report. */
+const VALIDATED: DeploymentReport = {
+  deployId: '0Af000000000002',
+  checkOnly: true,
+  status: 'Succeeded',
+  success: true,
+  sourceOrgId: 'src',
+  targetOrgId: 'tgt',
+  testLevel: 'NoTestRun',
+  runTests: [],
+  components: [{ componentType: 'ApexClass', fullName: 'Invoicing', outcome: 'changed' }],
+  counts: {
+    componentsTotal: 1,
+    componentsDeployed: 1,
+    componentErrors: 0,
+    testsTotal: 0,
+    testsCompleted: 0,
+    testErrors: 0,
+  },
+  testFailures: [],
+  coverageWarnings: [],
+};
+
+describe('describeAnswer, when a request does not come back as asked', () => {
+  it('says to give a longer --wait, or fewer --type, when a diff did not come back in time', () => {
+    const lines = describeAnswer('execute', {
+      outcome: 'unanswered',
+      elapsedMs: 300_000,
+      late: true,
+    });
+    expect(lines).toContain('  nothing came back in 300 s: give a longer --wait, or fewer --type');
+  });
+
+  it('says to give a longer --wait when a validation did not come back in time', () => {
+    const lines = describeAnswer('validate-deployment', {
+      outcome: 'unanswered',
+      elapsedMs: 1_260_000,
+      late: true,
+    });
+    expect(lines).toContain('  nothing came back in 1260 s: give a longer --wait');
+  });
+
+  it('names the --validate to drop for what a managed package owns, where it said to untick them', () => {
+    const lines = describeAnswer('validate-deployment', {
+      outcome: 'failed',
+      message: {
+        id: 'e',
+        type: 'compare:error',
+        timestamp: 0,
+        payload: {
+          code: 'MANAGED',
+          message:
+            'A managed package installed ApexClass pkg__Tax in the source, and it owns them.',
+          managed: [
+            { componentType: 'ApexClass', fullName: 'pkg__Tax' },
+            { componentType: 'Flow', fullName: 'pkg__Route' },
+          ],
+        },
+      },
+      elapsedMs: 4000,
+      late: false,
+    });
+    const said = lines.join('\n');
+    expect(said).toContain(
+      'drop --validate ApexClass:pkg__Tax --validate Flow:pkg__Route from the line and run it again',
+    );
+    expect(said).not.toContain('untick');
+  });
+
+  it('names the Deploy tab once a validation succeeds, since this tool never deploys', () => {
+    const lines = describeAnswer('validate-deployment', {
+      outcome: 'answered',
+      message: {
+        id: 'r',
+        type: 'compare:validate-deployment:response',
+        timestamp: 0,
+        payload: { report: { ...VALIDATED } },
+      },
+      elapsedMs: 4000,
+      late: false,
+    });
+    expect(lines.join('\n')).toContain('the Deploy tab of the Compare page deploys it');
   });
 });
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BACKUP_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import type {
   AnonymizePreviewValue,
   DataOpsAnonymizeCoverageResponse,
@@ -270,8 +271,13 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
     .filter((o) => o.truncated || (o.count !== null && o.count > o.backedUp))
     .map((o) => o.objectApiName);
   // The backup reached the cap the user sets: raising it is what brings the
-  // rest into the next backup.
-  const capped = coverage.objects.filter((o) => o.stoppedAt === 'cap').map((o) => o.objectApiName);
+  // rest into the next backup, up to what any backup holds of one object.
+  // Past that, nothing raises it, and the page said to all the same.
+  const pastMax = (o: { count: number | null }): boolean =>
+    o.count !== null && o.count > BACKUP_MAX_RECORDS_PER_OBJECT;
+  const atCap = coverage.objects.filter((o) => o.stoppedAt === 'cap');
+  const capped = atCap.filter((o) => !pastMax(o)).map((o) => o.objectApiName);
+  const beyond = atCap.filter(pastMax).map((o) => o.objectApiName);
   const date = coverage.backup
     ? (formatStoredDate(coverage.backup.timestamp, (d) => d.toLocaleString(uiLocale())) ??
       t('common.dateUnknown'))
@@ -326,9 +332,21 @@ const RestoreCoverage: React.FC<{ coverage: AnonymizeCoverage }> = ({ coverage }
           {t('dataops.coverage.shortfall', { objects: short.join(', ') })}
         </span>
       )}
-      {capped.length > 0 && (
+      {(capped.length > 0 || beyond.length > 0) && (
         <span className="text-xs text-text-secondary" data-testid="restore-coverage-cap">
-          {t('dataops.coverage.capHint', { objects: capped.join(', ') })}
+          {[
+            ...(capped.length > 0
+              ? [t('dataops.coverage.capHint', { objects: capped.join(', ') })]
+              : []),
+            ...(beyond.length > 0
+              ? [
+                  t('dataops.coverage.capBeyond', {
+                    count: beyond.length,
+                    objects: beyond.join(', '),
+                  }),
+                ]
+              : []),
+          ].join(' ')}
         </span>
       )}
     </div>

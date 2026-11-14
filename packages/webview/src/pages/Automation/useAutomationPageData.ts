@@ -42,7 +42,7 @@ import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
 import { newStepName } from './stepTypeLabel';
-import type { BlockedStep, StepPlace } from './stepRunnability';
+import type { BlockedStep, StepPlace, TemplateStepInfo } from './stepRunnability';
 import type { TriggerSandbox } from './TriggerConfigPanel';
 import type { PipelineScheduleRow } from './SchedulerCalendar';
 import { getLocalTimezone } from '../Sync/CronScheduleBuilder';
@@ -342,6 +342,12 @@ export interface MarketplaceTemplate {
    * which of them cannot run. Absent from a host that predates it.
    */
   stepTypes?: string[];
+  /**
+   * Each step of the template as a run checks it: the card is held to
+   * `templateBlockers`. Absent from a host that predates it, whose card is
+   * read for its step types.
+   */
+  steps?: TemplateStepInfo[];
 }
 
 /**

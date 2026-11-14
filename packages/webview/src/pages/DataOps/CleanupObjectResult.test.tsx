@@ -50,6 +50,27 @@ function result(over: Partial<CleanupResult> = {}, busy = false) {
 }
 
 describe('CleanupObjectResult', () => {
+  it('holds Delete back, with the reason and what is left, on an object the user may not delete', () => {
+    // Delete was offered, and refused once its review opened.
+    result({ deletable: false });
+
+    for (const button of screen.getAllByRole('button', { name: /^Delete…/ })) {
+      expect(button).toHaveProperty('disabled', true);
+    }
+    expect(screen.getByTestId('cleanup-stale-export')).toHaveProperty('disabled', false);
+    expect(screen.getByTestId('cleanup-not-deletable').textContent).toBe(
+      'The connected user may not delete Contact records: Export keeps a copy of them, and an ' +
+        'admin grants Delete on Contact in a permission set.',
+    );
+  });
+
+  it('offers Delete on an object the scan read no answer for, as before', () => {
+    result();
+
+    expect(screen.queryByTestId('cleanup-not-deletable')).toBeNull();
+    expect(screen.getByTestId('cleanup-stale-delete')).toHaveProperty('disabled', false);
+  });
+
   it('names each recommendation with its count, and the rule behind the orphans', () => {
     result();
 

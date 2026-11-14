@@ -348,6 +348,37 @@ describe('CleanupPanel', () => {
     });
   });
 
+  it('exports the next records of a recommendation past those the last export took', () => {
+    // "Run it again for the rest" exported the same first records again.
+    states['dataops:cleanup:scan'].data = scanned;
+    const next = { skip: 1000, id: '001000000000999AAA', modified: '2020-01-01T08:00:00.000+0000' };
+    const { rerender } = render(<CleanupPanel orgId="org-1" orgName="dev1" />);
+    fireEvent.click(screen.getByTestId('cleanup-stale-export'));
+    states['dataops:cleanup:export'].data = {
+      objectApiName: 'Account',
+      records: 1000,
+      truncated: true,
+      exported: 1000,
+      recommended: 2500,
+      next,
+      saved: { status: 'saved', path: '/home/me/stale.json' },
+    };
+    rerender(<CleanupPanel orgId="org-1" orgName="dev1" />);
+
+    expect(screen.getByTestId('cleanup-export-status').textContent).toBe(
+      'Saved 1,000 records to /home/me/stale.json. 1,000 of 2,500 exported so far: Export the ' +
+        'next 1,000 carries on from there.',
+    );
+    fireEvent.click(screen.getByTestId('cleanup-export-next'));
+
+    expect(states['dataops:cleanup:export'].mutate).toHaveBeenLastCalledWith({
+      orgId: 'org-1',
+      objectApiName: 'Account',
+      recommendation: { kind: 'stale', days: 365 },
+      after: next,
+    });
+  });
+
   it('exports the records of a recommendation, and says where they went', () => {
     states['dataops:cleanup:scan'].data = scanned;
     states['dataops:cleanup:export'].data = {

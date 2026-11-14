@@ -613,6 +613,36 @@ describe('AnonymizePanel', () => {
       );
     });
 
+    it('says past a million rows of an object that nothing raises a backup, and how to mask in slices', () => {
+      // It said to raise the setting, which holds 1,000,000 rows at most.
+      render(
+        <AnonymizePanel
+          orgName="dev1"
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          coverage={{
+            templateId: 'tpl-1',
+            backup: { operationId: 'bk-3', timestamp: '2026-10-01T10:00:00.000Z' },
+            objects: [
+              {
+                objectApiName: 'Contact',
+                count: 1_250_000,
+                backedUp: 1_000_000,
+                truncated: true,
+                stoppedAt: 'cap' as const,
+              },
+            ],
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-coverage-cap').textContent).toBe(
+        'No backup holds more than 1,000,000 rows of one object, and nothing raises that, for ' +
+          'Contact: mask it in slices from the command line (sandforge dataops anonymize ' +
+          '--object and --where), each run taking its own snapshot of what it masks.',
+      );
+    });
+
     it('says nothing of a cap when no object stopped at it', () => {
       render(
         <AnonymizePanel

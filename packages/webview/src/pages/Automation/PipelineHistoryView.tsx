@@ -6,6 +6,7 @@ import type {
   PipelineHistoryEntry,
   PipelineHistoryStatus,
   PipelineStepResult,
+  PipelineStepType,
 } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -13,11 +14,47 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { formatDuration } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
+import { stepTypeLabel } from './stepTypeLabel';
 
 /** PipelineHistoryView component props. */
 export interface PipelineHistoryViewProps {
   entries?: PipelineHistoryEntry[];
   onSelectRun?: (runId: string) => void;
+  /** The step types of a saved pipeline, in order: what a missed start names the command lines of. */
+  stepTypesOf?: (pipelineId: string) => readonly PipelineStepType[] | undefined;
+}
+
+/**
+ * The command line that does a step's work while VS Code is closed, by step
+ * type, as the `sandforge` package runs it. A Delay, a Condition, an Approval
+ * and a Notification have none: they wait, test or ask in the editor.
+ */
+const STEP_COMMAND: Partial<Record<PipelineStepType, string>> = {
+  sync: 'npx sandforge sync',
+  seed: 'npx sandforge seed',
+  anonymize: 'npx sandforge dataops anonymize',
+  backup: 'npx sandforge backup',
+  checkpoint: 'npx sandforge checkpoint',
+  rewind: 'npx sandforge checkpoint rewind',
+  compare: 'npx sandforge compare',
+  precheck: 'npx sandforge monitor',
+};
+
+/**
+ * What runs a pipeline's steps while VS Code is closed, for a start missed
+ * because it was: a pipeline runs in the editor alone, and the history said
+ * "not started" with nothing after it. Empty when no step has a command line.
+ */
+function cliLine(types: readonly PipelineStepType[], t: TFunction): string {
+  const commands = [...new Set(types.flatMap((type) => STEP_COMMAND[type] ?? []))];
+  if (commands.length === 0) return '';
+  const without = [
+    ...new Set(types.filter((type) => !STEP_COMMAND[type]).map((type) => stepTypeLabel(type, t))),
+  ];
+  const head = t('automation.missed.cli', { commands: commands.join(', ') });
+  return without.length > 0
+    ? `${head} ${t('automation.missed.cliNone', { steps: without.join(', ') })}`
+    : head;
 }
 
 const STATUS_VARIANT: Record<
@@ -120,6 +157,7 @@ const STEP_STATUS_VARIANT: Record<
 export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
   entries = [],
   onSelectRun,
+  stepTypesOf,
 }) => {
   const { t } = useTranslation();
 
@@ -184,6 +222,18 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                   )}
                 </p>
               )}
+              {(entry.missed?.reason === 'closed' || entry.missed?.reason === 'asleep') &&
+                (() => {
+                  const line = cliLine(stepTypesOf?.(entry.pipelineId) ?? [], t);
+                  return line ? (
+                    <p
+                      className="mt-1 text-xs text-(--sf-text-secondary)"
+                      data-testid={`history-missed-cli-${entry.runId}`}
+                    >
+                      {line}
+                    </p>
+                  ) : null;
+                })()}
               {entry.steps && entry.steps.length > 0 && (
                 <ol
                   className="mt-2 flex flex-col gap-1"

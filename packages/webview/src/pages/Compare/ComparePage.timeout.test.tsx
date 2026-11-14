@@ -102,4 +102,25 @@ describe('ComparePage — a comparison that takes its time', () => {
     expect(screen.queryByTestId('compare-error')).toBeNull();
     expect(screen.getByTestId('compare-summary').textContent).toContain('+1');
   });
+
+  it('says to tick fewer categories when no diff came back in five minutes, where it said to try again', () => {
+    // Trying again lists the same categories in the same orgs, and runs out
+    // of time the same way.
+    render(<ComparePage />);
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-src' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-tgt' } });
+    fireEvent.click(screen.getByTestId('cat-CustomField'));
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+
+    act(() => {
+      vi.advanceTimersByTime(5 * 60_000 + 1_000);
+    });
+
+    const said = screen.getByTestId('compare-error').textContent ?? '';
+    expect(said).toContain(
+      'The comparison did not come back within 5 minutes: the orgs take longer than that to ' +
+        'list these categories. Tick fewer categories, then compare again.',
+    );
+    expect(said).not.toContain('Try again');
+  });
 });

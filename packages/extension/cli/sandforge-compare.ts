@@ -82,7 +82,8 @@ Options:
 
 Nothing is written to either org. A validation deploys check-only: the
 target compiles the components and runs the tests, keeps none of them, and
-lists the validation in Setup › Deployment Status. This tool never deploys.
+lists the validation in Setup › Deployment Status. This tool never deploys:
+the Deploy tab of the Compare page does, in VS Code.
 
 Exit codes: 0 every request was answered, and every validation succeeded (a
 diff is read, whatever it found, unless --fail-on-drift); 1 it could not
@@ -207,6 +208,13 @@ export function parseArgs(argv: string[]): CliArgs {
 
   const asked = collect('--op');
   for (const op of asked) {
+    if (op === 'deploy') {
+      // The page's other deployment request: one this tool never sends.
+      refuse(
+        'This tool never deploys: once a validation succeeds (--validate), the Deploy tab of ' +
+          'the Compare page deploys it, in VS Code.',
+      );
+    }
     if (!(OPERATIONS as readonly string[]).includes(op)) {
       refuse(`Not an operation: "${op}". One of: ${OPERATIONS.join(', ')}.`);
     }
@@ -226,7 +234,9 @@ export function parseArgs(argv: string[]): CliArgs {
   const named = collect('--type');
   for (const type of named) {
     if (!(PAGE_COMPONENT_TYPES as readonly string[]).includes(type)) {
-      refuse(`Not a category the page offers: "${type}".`);
+      refuse(
+        `Not a category the page offers: "${type}". One of: ${PAGE_COMPONENT_TYPES.join(', ')}.`,
+      );
     }
   }
   const types = args.includes('--all-types')
@@ -274,7 +284,10 @@ function parseValidation(
     const fullName = spec.slice(at + 1);
     if (at < 1 || fullName === '') refuse(`--validate takes Type:Name, got "${spec}".`);
     if (!(DEPLOYABLE_COMPONENT_TYPES as readonly string[]).includes(componentType)) {
-      refuse(`Not a type a deployment carries: "${componentType}".`);
+      refuse(
+        `Not a type a deployment carries: "${componentType}". ` +
+          `One of: ${DEPLOYABLE_COMPONENT_TYPES.join(', ')}.`,
+      );
     }
     components.push({ componentType: componentType as MetadataComponentType, fullName });
   }
@@ -413,6 +426,23 @@ function describePresence(
   ];
 }
 
+/** The components a managed package owns, as a validation's refusal names them. */
+function managedOf(payload: Record<string, unknown>): DeploymentComponentRef[] {
+  if (payload.code !== 'MANAGED' || !Array.isArray(payload.managed)) return [];
+  return (payload.managed as unknown[]).filter(
+    (c): c is DeploymentComponentRef =>
+      typeof c === 'object' &&
+      c !== null &&
+      typeof (c as DeploymentComponentRef).componentType === 'string' &&
+      typeof (c as DeploymentComponentRef).fullName === 'string',
+  );
+}
+
+/** A validation that came back with success, no component error and no failed test. */
+function validationPassed(report: DeploymentReport): boolean {
+  return report.success && report.counts.componentErrors === 0 && report.counts.testErrors === 0;
+}
+
 /** Readable lines for what the page would receive. */
 export function describeAnswer(op: Operation, answer: PanelAnswer): string[] {
   const took = `${(answer.elapsedMs / 1000).toFixed(1)}s`;
@@ -420,13 +450,39 @@ export function describeAnswer(op: Operation, answer: PanelAnswer): string[] {
   const lines = [answer.late ? `${head}  — past the page's timeout: the page dropped it` : head];
   const payload = (answer.message?.payload ?? {}) as Record<string, unknown>;
   if (answer.outcome !== 'answered') {
+    const managed = managedOf(payload);
+    if (managed.length > 0) {
+      // The handler's words are the page's — "untick them" —, and the line
+      // has no box: it names the --validate to drop.
+      lines.push(
+        `  a managed package installed ${managed.map((c) => `${c.componentType} ${c.fullName}`).join(', ')} ` +
+          'in the source, and it owns them: drop ' +
+          managed.map((c) => `--validate ${c.componentType}:${c.fullName}`).join(' ') +
+          ' from the line and run it again. Nothing was sent to the target.',
+      );
+      return lines;
+    }
     if (answer.message) lines.push(`  ${String(payload.message ?? JSON.stringify(payload))}`);
+    // Nothing came back: the line exited 1 with no word of what to change.
+    if (answer.outcome === 'unanswered') {
+      lines.push(
+        `  nothing came back in ${Math.round(answer.elapsedMs / 1000)} s: give a longer --wait` +
+          (op === 'execute' ? ', or fewer --type' : ''),
+      );
+    }
     return lines;
   }
   if (op === 'execute') return [...lines, ...describeExecute(payload as unknown as CompareResult)];
   if (op === 'validate-deployment') {
     const report = payload.report as DeploymentReport | undefined;
-    return report ? [...lines, ...describeDeployment(report)] : [...lines, '  (no report)'];
+    if (!report) return [...lines, '  (no report)'];
+    return [
+      ...lines,
+      ...describeDeployment(report),
+      ...(validationPassed(report)
+        ? ['  this tool never deploys: the Deploy tab of the Compare page deploys it, in VS Code']
+        : []),
+    ];
   }
   if (op === 'permissions') {
     const permissions = (payload.permissions ?? {}) as Record<
@@ -491,12 +547,7 @@ export function compareExitCode(
   const failedValidation = results.some(({ op, answer }) => {
     if (op !== 'validate-deployment') return false;
     const report = payloadOf(answer).report as DeploymentReport | undefined;
-    return (
-      report === undefined ||
-      !report.success ||
-      report.counts.componentErrors > 0 ||
-      report.counts.testErrors > 0
-    );
+    return report === undefined || !validationPassed(report);
   });
   if (failedValidation) return PARTIAL_EXIT;
   const drifted = results.some(({ op, answer }) => {

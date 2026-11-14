@@ -96,6 +96,7 @@ export * from './constants/defaults.js';
 export * from './constants/ai-config.js';
 export * from './constants/monitor.js';
 export * from './constants/seed-templates.js';
+export * from './constants/pipeline-marketplace.js';
 export * from './constants/scenario-packs.js';
 export * from './constants/seed-locales.js';
 export * from './constants/faker-methods.js';

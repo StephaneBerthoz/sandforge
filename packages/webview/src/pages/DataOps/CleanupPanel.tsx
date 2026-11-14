@@ -61,10 +61,23 @@ interface ExportAnswer {
   objectApiName: string;
   records: number;
   truncated: boolean;
+  /** The records the exports of this recommendation took so far, this one's included. */
+  exported?: number;
+  /** The records the recommendation names, all told. */
+  recommended?: number;
+  /** Where the next export carries on, when there are more. */
+  next?: CleanupExportCursor;
   saved:
     | { status: 'saved'; path: string }
     | { status: 'cancelled' }
     | { status: 'error'; message: string };
+}
+
+/** Where an export carries on, as the last one answered: the page hands it back as it came. */
+interface CleanupExportCursor {
+  skip: number;
+  id?: string;
+  modified?: string;
 }
 
 /** What the page shows: the objects of the last answers, and what they were counted with. */
@@ -144,6 +157,11 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
   const [automationHeld, setAutomationHeld] = useState<string | undefined>(undefined);
   const [review, setReview] = useState<Review | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** The recommendation the last export took records of, which Export the next carries on. */
+  const [lastExport, setLastExport] = useState<{
+    objectApiName: string;
+    recommendation: CleanupRecommendation;
+  } | null>(null);
 
   const answer = scan.data;
   useEffect(() => {
@@ -315,10 +333,38 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
           })}
         {exportStatus?.saved.status === 'saved' &&
           exportStatus.truncated &&
-          ` ${t('dataops.cleanupScan.exportTruncated', { limit: number(CLEANUP_ACTION_LIMIT) })}`}
+          ` ${t('dataops.cleanupScan.exportTruncated', {
+            done: number(exportStatus.exported ?? exportStatus.records),
+            total: number(exportStatus.recommended ?? exportStatus.records),
+            limit: number(CLEANUP_ACTION_LIMIT),
+          })}`}
         {exportStatus?.saved.status === 'cancelled' && t('dataops.dsr.exportCancelled')}
         {exportStatus?.saved.status === 'error' && exportStatus.saved.message}
       </p>
+      {/* Past the records the last export took: run again, an export took
+          the same first records again. */}
+      {exportStatus?.saved.status === 'saved' &&
+        exportStatus.next &&
+        lastExport?.objectApiName === exportStatus.objectApiName && (
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                exportRecords.mutate({
+                  orgId,
+                  objectApiName: lastExport.objectApiName,
+                  recommendation: lastExport.recommendation,
+                  after: exportStatus.next,
+                })
+              }
+              disabled={busy}
+              data-testid="cleanup-export-next"
+            >
+              {t('dataops.cleanupScan.exportNext', { limit: number(CLEANUP_ACTION_LIMIT) })}
+            </Button>
+          </div>
+        )}
       {exportRecords.error && (
         <ErrorBanner
           message={exportRecords.error}
@@ -449,9 +495,14 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
               orphanThreshold={report.orphanThreshold}
               duplicateGroupLimit={report.duplicateGroupLimit}
               onKeyChange={(key) => changeKey(result.objectApiName, key)}
-              onExport={(recommendation) =>
-                exportRecords.mutate({ orgId, objectApiName: result.objectApiName, recommendation })
-              }
+              onExport={(recommendation) => {
+                setLastExport({ objectApiName: result.objectApiName, recommendation });
+                exportRecords.mutate({
+                  orgId,
+                  objectApiName: result.objectApiName,
+                  recommendation,
+                });
+              }}
               onReview={(recommendation) => startReview(result, recommendation)}
               busy={busy}
             />

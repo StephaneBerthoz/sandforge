@@ -226,6 +226,14 @@ export const CSV_IMPORT_MAX_COLUMNS = 500;
 export const SEED_MAX_RECORDS_PER_OBJECT = 1_000_000;
 
 /**
+ * Rows of one object a DataOps backup reads at most, and the snapshot a
+ * masking run takes first: the most `sandforge.backup.maxRecordsPerObject`
+ * and `--max-records` may be set to. Past it, nothing raises a backup, and
+ * the page and the command line say so rather than offer the setting.
+ */
+export const BACKUP_MAX_RECORDS_PER_OBJECT = 1_000_000;
+
+/**
  * Days a checkpoint a run takes before its first write (`Checkpoint first`)
  * is kept, `sandforge.checkpoint.beforeRunKeepDays`: one a run, which holds
  * the values of the target's records in clear on this machine — of a client's

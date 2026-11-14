@@ -59,6 +59,8 @@ const mockResumeRunMutate = vi.fn();
 
 /** The code of the extension's refusal of the last `forge:resume-run`, as the page sees it. */
 let resumeRunCode: string | null = null;
+/** The extension's words for that refusal, when a test gives them. */
+let resumeRunError: string | null = null;
 
 /** The extension's answer to the last `sync:pause`, as the page sees it. */
 let pauseReply: { success: boolean; operationId: string; paused: boolean; error?: string } | null =
@@ -146,7 +148,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
         mutate: mockResumeRunMutate,
         data: null,
         loading: false,
-        error: resumeRunCode ? 'refused' : null,
+        error: resumeRunCode ? (resumeRunError ?? 'refused') : null,
         errorCode: resumeRunCode,
         reset: vi.fn(),
       };
@@ -178,6 +180,7 @@ describe('MonitorPage live-operation controls', () => {
     mockPauseMutate.mockClear();
     mockResumeMutate.mockClear();
     mockResumeRunMutate.mockClear();
+    resumeRunError = null;
     resumeRunCode = null;
     abortReply = null;
     pauseReply = null;
@@ -234,6 +237,40 @@ describe('MonitorPage live-operation controls', () => {
     expect(notification?.level).toBe('warning');
     expect(notification?.title).toBe('The clone could not be taken up');
     expect(notification?.message).toMatch(/^The org this run wrote to is no longer the one it was/);
+  });
+
+  it('says a resume refused because the target could not be read, and to reconnect it', () => {
+    // Refused under this code, the page showed nothing at all.
+    const { rerender } = render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('resume-run-op-5'));
+
+    resumeRunCode = 'RESUME_TARGET_UNREAD';
+    rerender(<MonitorPage />);
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.title).toBe('The clone could not be taken up');
+    expect(notification?.message).toBe(
+      'The target could not be read for the insert calls the run had under way when it ' +
+        'stopped: taken up without them, it would write their records twice. Reconnect the org ' +
+        'on Organizations if its session expired, then resume the run again. Nothing was written.',
+    );
+  });
+
+  it('says a resume refused because its journal could not be opened, with the folder and why', () => {
+    const { rerender } = render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('resume-run-op-5'));
+
+    resumeRunCode = 'JOURNAL_UNAVAILABLE';
+    resumeRunError =
+      'The journal of the run to resume, in /home/me/.sandforge/journal, could not be opened ' +
+      '(the disk is full). Free some space on that disk, then resume it again. Nothing was written.';
+    rerender(<MonitorPage />);
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.title).toBe('The clone could not be taken up');
+    expect(notification?.message).toBe(
+      "The run's journal on this machine's disk could not be opened. " + resumeRunError,
+    );
   });
 
   it('warns when the extension refuses the pause, and reads the list again', () => {

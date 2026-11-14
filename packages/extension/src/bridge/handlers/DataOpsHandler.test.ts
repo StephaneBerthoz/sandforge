@@ -668,6 +668,56 @@ describe('DataOpsHandler', () => {
       expect(trail[0][1]).not.toHaveProperty([0, 'guard']);
     });
 
+    it('says what narrows a count the org gave up on, on the page and on a command line', async () => {
+      // A count of a large table that ran out of time ended the run on the
+      // org's words alone, and running it again timed out the same way.
+      const timedOut = () =>
+        Object.assign(new Error('QUERY_TIMEOUT: Your query request was running for too long.'), {
+          errorCode: 'QUERY_TIMEOUT',
+        });
+      const { query } = await countingOrg({});
+      query.mockRejectedValue(timedOut());
+      deps.infraServices = {
+        productionGuard: { check: vi.fn(), confirmIfNeeded: vi.fn() },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      const ask = (id: string, where?: string) =>
+        handler.handle(
+          inboundRequest({
+            id,
+            type: 'dataops:anonymize',
+            timestamp: Date.now(),
+            payload: {
+              orgId: 'org-1',
+              templateId: 'tpl-gdpr-standard',
+              objects: ['Contact'],
+              ...(where ? { where } : {}),
+            },
+          } as BaseMessage),
+        );
+
+      await ask('msg-a9');
+      const onPage = String(
+        postedMessages().filter((m) => m.type === 'dataops:error')[0]?.payload.message,
+      );
+      expect(onPage).toContain('QUERY_TIMEOUT');
+      expect(onPage).toContain(
+        'The org gave up counting the Contact records the run would mask: mask them in slices ' +
+          'from the command line, each a run of its own (sandforge dataops anonymize --object ' +
+          'Contact --where) on an indexed field, such as a range of CreatedDate. Nothing was masked.',
+      );
+
+      handler.setOnCommandLine(true);
+      await ask('msg-a10', "LastName LIKE 'S%'");
+      const onCommandLine = String(
+        postedMessages().filter((m) => m.type === 'dataops:error')[1]?.payload.message,
+      );
+      expect(onCommandLine).toContain(
+        'The org gave up counting the Contact records the run would mask: narrow --where to an ' +
+          'indexed field, such as a range of CreatedDate, and mask the rest in other runs. ' +
+          'Nothing was masked.',
+      );
+    });
+
     it('warns of a run past 50 000 rows on a sandbox, whose tier asks nothing', async () => {
       // The guard was asked with no count, which it weighs as none: the
       // warning past 50 000 rows never fired on a sandbox.
@@ -1283,6 +1333,28 @@ describe('DataOpsHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('was taken from org org-B');
       expect(errors[0].payload.message).toContain('cannot be restored into org org-A');
+    });
+
+    it('says why a backup goes back into its own org alone, and what copies its records into another', async () => {
+      // The refusal stopped there: nothing said a restore writes by Id, nor
+      // what does carry records from one org to the other.
+      await mockConnection();
+      deps.configStore = configStoreWithBackup('org-B');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+        id === 'org-B'
+          ? { alias: 'UAT', username: 'uat@example.com', orgType: 'Sandbox' }
+          : { alias: 'DEV', username: 'dev@example.com', orgType: 'Sandbox' },
+      );
+
+      await handler.handle(rollbackMsg('org-A'));
+
+      const message = String(
+        posted().find((m) => m.type === 'dataops:error')?.payload.message ?? '',
+      );
+      expect(message).toContain(
+        'A restore writes back by record Id, and an Id belongs to the org that holds it: to ' +
+          'bring these records from UAT into DEV, copy them with Forge or Sync.',
+      );
     });
 
     describe('into an org a refresh replaced since the backup', () => {

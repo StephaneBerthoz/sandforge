@@ -152,6 +152,14 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   rewind: [{ key: 'orgId', labelKey: 'automation.stepConfigOrg', type: 'org' }],
 };
 
+/**
+ * The steps that take their time and count toward the run's limit,
+ * `sandforge.pipeline.timeout`: the others that take theirs — a Delay, an
+ * Approval, a Backup, Sync, Seed, Anonymize, Checkpoint or Rewind — hold it
+ * while they run.
+ */
+const RUN_LIMIT_COUNTED: ReadonlySet<string> = new Set(['compare', 'precheck']);
+
 /** A minute, in the milliseconds a step's timeout is kept in. */
 const MINUTE_MS = 60_000;
 
@@ -1081,6 +1089,13 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
           data-testid="step-timeout-input"
         />
       </label>
+      {/* The run's own limit: a Compare or a Pre-Check counts toward it,
+          and the field above said an empty timeout meant no limit at all. */}
+      {RUN_LIMIT_COUNTED.has(step.type) && (
+        <p className="text-[10px] text-text-secondary" data-testid="step-timeout-counted">
+          {t('automation.timeoutCounted')}
+        </p>
+      )}
 
       {/* Retries */}
       <label className="flex flex-col gap-1">

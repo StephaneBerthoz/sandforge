@@ -43,7 +43,11 @@ import { confirm } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { fileConfigStore } from './fileConfigStore.js';
-import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
+import {
+  BACKUP_CAP_MAX,
+  backupCapOf,
+  DataOpsHandler,
+} from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
@@ -127,10 +131,14 @@ Options:
                          SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
-                         more writes nothing  (default: 50000; 100 to 1000000)
+                         more writes nothing, and a dry run says so (default:
+                         50000; 100 to 1000000: past that, mask in slices with
+                         --where, each run taking its own snapshot)
 ${dataOpsAutomationHelp('written over', '--dry-run')}  --yes                  do not ask before writing. Without it, a command with no
                          terminal to answer the question — a CI step — stops
-                         there, exit 2, and writes nothing
+                         there, exit 2, and writes nothing. It answers no to a
+                         restore into a sandbox refreshed since its snapshot,
+                         which only a yes typed in a terminal writes
   --json                 emit what the panel would receive, every other line on
                          stderr; a preview's original values are left out
   --help                 this text
@@ -519,6 +527,37 @@ export function runWouldBeRefused(
 }
 
 /**
+ * Why a run's snapshot could not hold every record it would mask, one line
+ * per object that holds more of them than a snapshot holds of one object
+ * (`--max-records`), or none. A run writes nothing then, since a restore
+ * could not put back the rest; past 1000000 records, nothing raises it, and
+ * the object is masked in slices, each a run with its own snapshot. The run
+ * found it out once the guard had let it go and the snapshot had read up to
+ * its cap, and named a VS Code setting. Exported so it can be tested.
+ *
+ * @param counted - Per object, the records a run would mask; `null` where
+ *   the org did not count them.
+ * @param cap - The most records of one object a snapshot holds.
+ */
+export function snapshotTooSmallLines(
+  counted: ReadonlyArray<{ objectApiName: string; count: number | null }>,
+  cap: number,
+): string[] {
+  return counted.flatMap(({ objectApiName, count }) => {
+    if (count === null || count <= cap) return [];
+    const head = `${objectApiName} holds ${count} record(s) a run would mask, more than`;
+    return [
+      count > BACKUP_CAP_MAX
+        ? `${head} a snapshot holds of one object, ${BACKUP_CAP_MAX} at most, and nothing ` +
+          `raises that: mask it in slices, each a run of its own with --object ${objectApiName} ` +
+          'and a --where that selects fewer (a range of CreatedDate, say), each taking its own snapshot'
+        : `${head} the ${cap} a snapshot holds of one object: give --max-records up to ` +
+          `${BACKUP_CAP_MAX}, or narrow the run with --object and --where`,
+    ];
+  });
+}
+
+/**
  * The lines a dry run comes to: per object, the records a run would mask
  * under its filter, each field with its method, the fields the org lacks, and
  * the first records masked as a run masks them — their new values only. An
@@ -774,6 +813,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Relayed by an environment, whose mask resources never mute, a refusal
   // names no --mute-automation.
   handler.setMuteOffered(relayTakes('--mute-automation'));
+  // Its refusals name this line's flags, not the editor's settings.
+  handler.setOnCommandLine(true);
 
   /**
    * Send a request as the panel does, and take what answers it as the
@@ -904,6 +945,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     emit('restore');
     if (failed(answer)) {
       fail(reason(answer));
+      if (args.yes && answer.payload?.code === 'ORG_REPLACED_SINCE_BACKUP') {
+        // The question --yes answers is this command's own; this one, the
+        // org's, it answers no. A CI step was told the restore "was not
+        // confirmed", with no flag left that would confirm it.
+        fail(
+          '--yes does not answer this question: it is answered yes only when typed in a ' +
+            'terminal. Run the same line without --yes in a terminal to answer it; nothing ' +
+            'answers it from a CI step.',
+        );
+      }
       return;
     }
     log(String(answer.payload?.message ?? ''));
@@ -984,6 +1035,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const counted =
     (coverage.payload?.objects as Array<{ objectApiName: string; count: number | null }>) ?? [];
   const toMask = counted.reduce((sum, o) => sum + (o.count ?? 0), 0);
+  /** Objects of more records than the snapshot a run takes first holds of one. */
+  const tooSmall = snapshotTooSmallLines(counted, backupCapOf(args.maxRecords));
   /** The records of each object a run would mask, as the read of what the org runs takes them. */
   const masked = counted.map((o) => ({ objectApiName: o.objectApiName, records: o.count ?? 0 }));
 
@@ -1004,7 +1057,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     emit('dry-run');
     if (!automation) return;
     for (const line of wouldBeRefusedLines(automation)) log(line);
+    for (const line of tooSmall) log(`  a run would be refused: ${line}`);
     if (
+      tooSmall.length > 0 ||
       automation.refusals.length > 0 ||
       runWouldBeRefused(preview.payload ?? {}, coverage.payload ?? {})
     ) {
@@ -1039,6 +1094,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         : 'Nothing to mask: no object the template masks holds a record.',
     );
     emit('run');
+    return;
+  }
+  if (args.mode === 'run' && tooSmall.length > 0) {
+    // Before the guard, the question and the snapshot's read of up to the
+    // cap, which the run would then refuse to write without.
+    emit('run');
+    for (const line of tooSmall) fail(`Nothing was masked: ${line}.`);
     return;
   }
   // What the org runs as the run updates them, said before the question, and

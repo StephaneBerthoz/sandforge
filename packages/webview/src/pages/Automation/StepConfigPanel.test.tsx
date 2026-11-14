@@ -67,7 +67,27 @@ describe('StepConfigPanel', () => {
     const input = screen.getByTestId('step-timeout-input') as HTMLInputElement;
     expect(input.value).toBe('0.005');
     expect(input.placeholder).toBe('None');
-    expect(input.closest('label')?.textContent).toContain('Timeout (minutes, empty = no limit)');
+    // "Empty = no limit" was false: the run's own limit still counted.
+    expect(input.closest('label')?.textContent).toContain(
+      'Timeout (minutes, empty = none of its own)',
+    );
+  });
+
+  it.each(['compare', 'precheck'] as const)(
+    'warns that a %s step counts toward the run’s limit, which a Delay no longer does',
+    (type) => {
+      render(<StepConfigPanel step={{ ...step, type, config: {} }} onUpdate={vi.fn()} />);
+      expect(screen.getByTestId('step-timeout-counted').textContent).toBe(
+        'This step also counts toward the run’s limit, sandforge.pipeline.timeout (5 minutes ' +
+          'unless set, an hour at most): past it, the run stops here. Delay, Approval, Backup, ' +
+          'Sync, Seed, Anonymize, Checkpoint and Rewind steps do not count toward it.',
+      );
+    },
+  );
+
+  it('says nothing of the run’s limit for a step that does not count toward it', () => {
+    render(<StepConfigPanel step={{ ...step, type: 'delay', config: { seconds: 60 } }} />);
+    expect(screen.queryByTestId('step-timeout-counted')).toBeNull();
   });
 
   it('keeps a timeout typed in minutes in milliseconds, as the extension reads it', () => {

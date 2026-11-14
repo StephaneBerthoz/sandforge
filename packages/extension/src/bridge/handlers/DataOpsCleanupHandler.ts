@@ -194,11 +194,14 @@ export class DataOpsCleanupHandler implements DomainHandler {
     if (!parsed) return;
     try {
       const session = await this.session(parsed.orgId, 'dataops:cleanup:export');
+      // Past the records the exports before took, when one did: run again,
+      // an export took the same first ones again.
       const resolved = await resolveRecommendation(
         session,
         parsed.objectApiName,
         parsed.recommendation,
         CLEANUP_ACTION_LIMIT,
+        parsed.after,
       );
       const records = await readRecordsById(
         session,
@@ -226,6 +229,10 @@ export class DataOpsCleanupHandler implements DomainHandler {
         records: records.length,
         truncated: resolved.truncated,
         saved,
+        // How far the exports have come, and where the next one carries on.
+        exported: (parsed.after?.skip ?? 0) + records.length,
+        recommended: resolved.total,
+        ...(resolved.next ? { next: resolved.next } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(
@@ -261,7 +268,12 @@ export class DataOpsCleanupHandler implements DomainHandler {
       );
       const { object, ids } = resolved;
       if (object.deletable !== true) {
-        throw new Error(`The connected user may not delete ${object.label} records.`);
+        // What is left: the copy the export keeps, and the right to ask for.
+        throw new Error(
+          `The connected user may not delete ${object.label} records: Export keeps a copy of ` +
+            `them, and an admin grants Delete on ${object.label} in a permission set. Nothing ` +
+            'was deleted.',
+        );
       }
 
       if (dryRun) {

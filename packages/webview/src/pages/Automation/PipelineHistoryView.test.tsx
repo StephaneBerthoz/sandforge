@@ -254,6 +254,41 @@ describe('PipelineHistoryView', () => {
       expect(card.textContent).not.toMatch(/\d+ Steps/);
     });
 
+    it('names the command lines that run its steps while VS Code is closed', () => {
+      // "Not started", and nothing said of what does start while the
+      // editor is closed: each step has a command line a cron job or a CI
+      // step runs.
+      render(
+        <PipelineHistoryView
+          entries={[missedEntry({ reason: 'closed', count: 1 })]}
+          stepTypesOf={(pipelineId) =>
+            pipelineId === 'pipe-1'
+              ? ['precheck', 'backup', 'approval', 'anonymize', 'backup', 'notification']
+              : undefined
+          }
+        />,
+      );
+
+      expect(screen.getByTestId('history-missed-cli-missed-1').textContent).toBe(
+        'While VS Code is closed, nothing starts a pipeline: a scheduled job (cron, CI) runs its ' +
+          'steps from the command line instead — npx sandforge monitor, npx sandforge backup, ' +
+          'npx sandforge dataops anonymize. Steps without one: Approval, Notification.',
+      );
+    });
+
+    it('names no command line for a start missed while a run was still going', () => {
+      render(
+        <PipelineHistoryView
+          entries={[
+            missedEntry({ reason: 'busy', count: 1, busySince: '2026-09-23T01:00:00.000Z' }),
+          ]}
+          stepTypesOf={() => ['backup']}
+        />,
+      );
+
+      expect(screen.queryByTestId('history-missed-cli-missed-1')).toBeNull();
+    });
+
     it('counts the starts missed during a long absence, and says when there were more', () => {
       render(
         <PipelineHistoryView

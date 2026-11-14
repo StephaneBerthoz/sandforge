@@ -94,6 +94,22 @@ describe('scanCleanup', () => {
     expect(result.orphanThreshold).toBe(ORPHAN_FILL_THRESHOLD);
   });
 
+  it('says whether the connected user may delete the records, so the page offers what it can do', async () => {
+    // Delete was offered on every object, and refused once clicked.
+    const conn = contactOrg();
+    const scan = (deletable: boolean) => {
+      conn.describe.mockResolvedValue({ ...contactDescribe, deletable });
+      return scanCleanup(conn, {
+        orgId: 'org-1',
+        objects: [{ objectApiName: 'Contact' }],
+        staleDays: 365,
+      });
+    };
+
+    expect(((await scan(true)).objects[0] as CleanupObjectScan).deletable).toBe(true);
+    expect(((await scan(false)).objects[0] as CleanupObjectScan).deletable).toBe(false);
+  });
+
   it('counts, and reads no record', async () => {
     const conn = contactOrg();
 
@@ -138,13 +154,98 @@ describe('resolveRecommendation', () => {
     );
 
     expect(query.mock.calls[1][0]).toBe(
-      'SELECT Id FROM Contact WHERE LastModifiedDate < LAST_N_DAYS:365 ORDER BY LastModifiedDate, Id LIMIT 2',
+      'SELECT Id, LastModifiedDate FROM Contact WHERE LastModifiedDate < LAST_N_DAYS:365 ' +
+        'ORDER BY LastModifiedDate, Id LIMIT 2',
     );
     expect(resolved).toMatchObject({
       total: 30,
       ids: ['003000000000001AAA', '003000000000002AAA'],
       truncated: true,
     });
+  });
+
+  it('carries an export on past the records the one before it took, stale ones oldest first, none twice and none left out', async () => {
+    // "Run it again for the rest" exported the same oldest records again.
+    const stale = [
+      { Id: '003000000000005AAA', LastModifiedDate: '2020-01-01T08:00:00.000+0000' },
+      { Id: '003000000000002AAA', LastModifiedDate: '2020-01-01T08:00:00.000+0000' },
+      { Id: '003000000000004AAA', LastModifiedDate: '2020-03-01T08:00:00.000+0000' },
+      { Id: '003000000000001AAA', LastModifiedDate: '2021-06-01T08:00:00.000+0000' },
+      { Id: '003000000000003AAA', LastModifiedDate: '2021-06-01T08:00:00.000+0000' },
+    ];
+    /** The rows a keyset WHERE keeps, as the org reads it, in its ORDER BY. */
+    const query = vi.fn(async (soql: string) => {
+      if (soql.startsWith('SELECT COUNT()')) return { totalSize: stale.length, records: [] };
+      const past = /LastModifiedDate > (\S+) OR \(LastModifiedDate = \S+ AND Id > '(\w+)'\)/.exec(
+        soql,
+      );
+      const at = (iso: string) => Date.parse(iso.replace(/\+0000$/, 'Z'));
+      const rows = stale
+        .filter(
+          (r) =>
+            !past ||
+            at(r.LastModifiedDate) > at(past[1]) ||
+            (at(r.LastModifiedDate) === at(past[1]) && r.Id > past[2]),
+        )
+        .sort(
+          (a, b) => at(a.LastModifiedDate) - at(b.LastModifiedDate) || a.Id.localeCompare(b.Id),
+        );
+      const limit = Number(/LIMIT (\d+)/.exec(soql)?.[1]);
+      return { totalSize: rows.length, records: rows.slice(0, limit) };
+    });
+    const conn = { describe: async () => contactDescribe, query };
+
+    const taken: string[] = [];
+    let after: Parameters<typeof resolveRecommendation>[4];
+    for (let page = 0; page < 3; page++) {
+      const resolved = await resolveRecommendation(
+        conn,
+        'Contact',
+        { kind: 'stale', days: 365 },
+        2,
+        after,
+      );
+      taken.push(...resolved.ids);
+      after = resolved.next;
+      if (page < 2) expect(resolved.next).toMatchObject({ skip: taken.length });
+      else {
+        expect(resolved.truncated).toBe(false);
+        expect(resolved.next).toBeUndefined();
+      }
+    }
+
+    expect(taken).toEqual([
+      '003000000000002AAA',
+      '003000000000005AAA',
+      '003000000000004AAA',
+      '003000000000001AAA',
+      '003000000000003AAA',
+    ]);
+    // A date as SOQL takes one, to the second.
+    expect(query.mock.calls.at(-1)?.[0]).toContain(
+      "(LastModifiedDate > 2021-06-01T08:00:00Z OR (LastModifiedDate = 2021-06-01T08:00:00Z AND Id > '003000000000001AAA'))",
+    );
+  });
+
+  it('carries an export of orphans on past the last Id the one before it took', async () => {
+    const query = vi.fn(async (soql: string) => {
+      if (soql === 'SELECT COUNT() FROM Contact') return { totalSize: 100, records: [] };
+      if (soql.startsWith('SELECT COUNT()')) return { totalSize: 3, records: [] };
+      return soql.includes("Id > '003000000000002AAA'")
+        ? { totalSize: 1, records: [{ Id: '003000000000009AAA' }] }
+        : { totalSize: 2, records: [{ Id: '003000000000001AAA' }, { Id: '003000000000002AAA' }] };
+    });
+    const conn = { describe: async () => contactDescribe, query };
+    const orphans = { kind: 'orphans', fieldApiName: 'ReportsToId' } as const;
+    // ReportsToId is filled by few in contactOrg; here 97 of 100 fill it.
+    const first = await resolveRecommendation(conn, 'Contact', orphans, 2);
+    const second = await resolveRecommendation(conn, 'Contact', orphans, 2, first.next);
+
+    expect(first.next).toEqual({ skip: 2, id: '003000000000002AAA' });
+    expect(query.mock.calls.at(-1)?.[0]).toBe(
+      "SELECT Id FROM Contact WHERE ReportsToId = null AND Id > '003000000000002AAA' ORDER BY Id LIMIT 2",
+    );
+    expect(second).toMatchObject({ ids: ['003000000000009AAA'], truncated: false });
   });
 
   it('checks the lookup is still one the business relies on before naming its orphans', async () => {

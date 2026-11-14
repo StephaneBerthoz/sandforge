@@ -205,12 +205,15 @@ Browse and install pre-configured pipeline templates:
 - One-click install to add a template to your workspace
 
 A template is a composition, not a capability: its steps are the same step types
-listed above. Several built-in templates hold a Restore step, or a Pre-Check
-naming a check SandForge does not have, so they cannot run as installed; each
-card names the step types that do not run in a pipeline, and the tab says so
-above the list. An installed template's Backup, Compare, Pre-Check, Seed and
-Anonymize steps ask for their orgs, and its Sync steps for a saved
-configuration, before the pipeline can run: Sandbox Refresh Post-Processing
+listed above. Every built-in template runs once installed: each card is held to
+the checks a pipeline's steps pass before a run, the orgs and a Sync step's
+saved configuration left to choose. A card whose template holds a step that
+would not run -- a Restore, a Pre-Check naming a check SandForge does not have,
+a Seed or an Anonymize naming no template, as an imported template can -- names
+each such step and why, and the tab says so above the list. An installed
+template's Backup, Checkpoint, Compare, Pre-Check, Seed and Anonymize steps ask
+for their orgs, and its Sync steps for a saved configuration, before the
+pipeline can run: Sandbox Refresh Post-Processing
 masks with GDPR Standard and seeds with the Minimal Demo template once its two
 steps name the refreshed sandbox. An installed pipeline is never confirmed: a
 Rewind step in it asks to be confirmed on this machine.

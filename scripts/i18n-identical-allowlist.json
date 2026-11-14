@@ -6,6 +6,7 @@
     "automation.errorCount_one",
     "automation.maskingWherePlaceholder",
     "automation.rewindCheckpointOption",
+    "automation.runnability.templateStepBlocked",
     "automation.timeout",
     "automationMute.kind.flow",
     "autopilot.step4.durationMinutes",

@@ -17,9 +17,21 @@ describe('PipelineMarketplace', () => {
   });
 
   describe('getTemplates', () => {
-    it('should return all 15 built-in templates', () => {
-      const templates = marketplace.getTemplates();
-      expect(templates).toHaveLength(15);
+    it('returns the nine built-in templates that run once installed, and none of the six that never did', () => {
+      // Of the fifteen it shipped, those whose steps never ran and that had
+      // no step to run in their place were removed.
+      const ids = marketplace.getTemplates().map((t) => t.id);
+      expect(ids).toHaveLength(9);
+      for (const removed of [
+        'tpl-weekly-quality',
+        'tpl-gdpr-compliance',
+        'tpl-migration-dry-run',
+        'tpl-full-org-backup',
+        'tpl-stale-data-cleanup',
+        'tpl-cross-org-sync',
+      ]) {
+        expect(ids).not.toContain(removed);
+      }
     });
 
     it('should return templates with required properties', () => {
@@ -38,7 +50,7 @@ describe('PipelineMarketplace', () => {
     it('should return templates with unique IDs', () => {
       const templates = marketplace.getTemplates();
       const ids = new Set(templates.map((t) => t.id));
-      expect(ids.size).toBe(15);
+      expect(ids.size).toBe(templates.length);
     });
   });
 
@@ -242,9 +254,9 @@ describe('PipelineMarketplace', () => {
     });
 
     it('should find templates by tag', () => {
-      const results = marketplace.search('gdpr');
+      const results = marketplace.search('anonymization');
       expect(results.length).toBeGreaterThan(0);
-      expect(results.some((t) => t.id === 'tpl-gdpr-compliance')).toBe(true);
+      expect(results.some((t) => t.id === 'tpl-mass-anonymization')).toBe(true);
     });
 
     it('should be case-insensitive', () => {

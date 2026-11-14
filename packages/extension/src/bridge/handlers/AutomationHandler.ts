@@ -30,7 +30,10 @@ import {
   sendOperationFailed,
   type OperationFailureContext,
 } from './HandlerTypes.js';
-import type { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
+import type {
+  PipelineMarketplace,
+  PipelineTemplate,
+} from '../../modules/automation/PipelineMarketplace.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { listLive } from './liveRun.js';
 import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
@@ -1009,9 +1012,17 @@ export class AutomationHandler implements DomainHandler {
     const { PipelineHistory } = await import('../../modules/automation/PipelineHistory.js');
 
     const stepExecutor = new StepExecutor();
+    const wiring: RunWiring = run ?? { operationId: '', holdBudget: () => undefined };
+    // A Delay waits as long as it is set to, up to 24 days, and does nothing
+    // else: counted against `sandforge.pipeline.timeout`, five minutes unless
+    // set and an hour at most, a Delay of ten minutes ran the run out of
+    // time. The pipeline's own cancel still stops its wait.
+    stepExecutor.wrapHandler(
+      'delay',
+      (delay) => (step, context) => this.untimed(() => delay(step, context), wiring),
+    );
     if (this.stepRunners) {
-      const wiring: RunWiring = run ?? { operationId: '', holdBudget: () => undefined };
-      const { runSync, seed, anonymize, takeCheckpoint, rewind } = this.stepRunners;
+      const { runSync, seed, anonymize, takeCheckpoint, rewind, backup } = this.stepRunners;
       const checkpoints = await this.checkpointsOf(pipeline);
       const grants = this.rewindGrants();
       registerPipelineSteps(stepExecutor, {
@@ -1028,7 +1039,10 @@ export class AutomationHandler implements DomainHandler {
           : {}),
         // Each of these has its own Stop and its own progress, as Sync's run
         // does: counted against the pipeline's budget, a seed, a masking run,
-        // a take or a rewind longer than five minutes was stopped part way.
+        // a take or a rewind longer than five minutes was stopped part way. A
+        // backup is listed in Live Operations with its own Cancel too, and a
+        // backup of a few large objects outlasts five minutes.
+        backup: (request, signal) => this.untimed(() => backup(request, signal), wiring),
         ...(seed
           ? { seed: (request, signal) => this.untimed(() => seed(request, signal), wiring) }
           : {}),
@@ -1564,26 +1578,26 @@ export class AutomationHandler implements DomainHandler {
       } else {
         templates = this.pipelineMarketplace.getTemplates();
       }
-      // The step types travel with each card so the page can say, before
-      // Install, which templates hold a step that cannot run in a pipeline yet.
+      // The steps travel with each card, as their checks read them, so the
+      // page can say before Install which of them would not run: read for
+      // its step types alone, a card whose Pre-check named a check SandForge
+      // does not have was offered as one that runs.
       const response = buildResponse(this.deps, msg, 'marketplace:list:response', {
         success: true,
-        templates: templates.map(
-          (t: {
-            id: string;
-            name: string;
-            description: string;
-            category: string;
-            steps: ReadonlyArray<{ type: string }>;
-          }) => ({
-            id: t.id,
-            name: t.name,
-            description: t.description,
-            category: t.category,
-            author: 'SandForge',
-            stepTypes: t.steps.map((step) => step.type),
-          }),
-        ),
+        templates: templates.map((t: PipelineTemplate) => ({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          category: t.category,
+          author: 'SandForge',
+          stepTypes: t.steps.map((step) => step.type),
+          steps: t.steps.map((step) => ({
+            name: step.name,
+            type: step.type,
+            config: step.config,
+            ...(step.condition ? { condition: step.condition } : {}),
+          })),
+        })),
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {

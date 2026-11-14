@@ -75,6 +75,31 @@ function fakeRunners(overrides: Partial<PipelineStepRunners> = {}): PipelineStep
 }
 
 /**
+ * A Compare step that reads until the run stops it, as one over two large
+ * orgs outlasts the run's time budget: it counts against that budget, which
+ * a Delay no longer does.
+ */
+const COMPARING = {
+  type: 'compare',
+  config: { sourceOrgId: 'org-a', targetOrgId: 'org-b', types: ['ApexClass'] },
+};
+
+/** The flows of {@link fakeRunners}, with a comparison that reads until it is stopped. */
+function comparingUntilStopped(overrides: Partial<PipelineStepRunners> = {}): PipelineStepRunners {
+  return fakeRunners({
+    compare: vi.fn(
+      (_request: unknown, signal?: AbortSignal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('Comparison stopped.')), {
+            once: true,
+          });
+        }),
+    ),
+    ...overrides,
+  });
+}
+
+/**
  * Creates minimal mock deps for AutomationHandler tests.
  */
 function createMockDeps(): HandlerDeps {
@@ -360,7 +385,13 @@ describe('AutomationHandler', () => {
     );
 
     const [response] = posted(deps, 'marketplace:list:response') as unknown as Array<{
-      payload: { templates: Array<{ id: string; stepTypes: string[] }> };
+      payload: {
+        templates: Array<{
+          id: string;
+          stepTypes: string[];
+          steps: Array<Record<string, unknown>>;
+        }>;
+      };
     }>;
     const cards = response.payload.templates;
     expect(cards).toHaveLength(marketplace.getTemplates().length);
@@ -370,7 +401,23 @@ describe('AutomationHandler', () => {
     expect(cards.find((card) => card.id === 'tpl-nightly-backup')?.stepTypes).toEqual([
       'backup',
       'backup',
-      'precheck',
+      'notification',
+    ]);
+    // Each step as its check reads it, so the card is held to what a run
+    // checks before it starts, and not to its step types alone.
+    expect(cards.find((card) => card.id === 'tpl-api-limit-monitoring')?.steps).toEqual([
+      { name: 'Check API Usage', type: 'precheck', config: { checks: ['apiLimits'] } },
+      {
+        name: 'Evaluate Thresholds',
+        type: 'condition',
+        config: {},
+        condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 },
+      },
+      {
+        name: 'Show Notification',
+        type: 'notification',
+        config: { message: 'API usage has passed 60% of the daily limit.' },
+      },
     ]);
   });
 
@@ -1167,14 +1214,12 @@ describe('AutomationHandler', () => {
     it('stops a run when the pipeline timeout is spent, answers it, and History records it failed', async () => {
       const { services, ends } = realServices(30);
       deps.services = services;
+      handler.setStepRunners(comparingUntilStopped());
 
-      await run([
-        { type: 'delay', config: { seconds: 60 } },
-        { type: 'delay', config: { seconds: 0 } },
-      ]);
+      await run([COMPARING, { type: 'delay', config: { seconds: 0 } }]);
 
-      // The run stops where it is: the Delay stops waiting out its 60 s, and
-      // the step after it never starts…
+      // The run stops where it is: the Compare stops reading, and the step
+      // after it never starts…
       expect(ends).toEqual([{ status: 'cancelled', executed: 1 }]);
 
       // …and it is answered and recorded. It used to be dropped: no
@@ -1206,6 +1251,39 @@ describe('AutomationHandler', () => {
       expect(entry['errorCount']).toBe(1);
     });
 
+    it("does not count a Delay step's wait against the pipeline timeout", async () => {
+      // A Delay may wait 24 days, and the run's budget is five minutes unless
+      // set, an hour at most: a Delay of ten minutes ran the run out of time.
+      deps.services = realServices(30).services;
+
+      await run([{ type: 'delay', config: { seconds: 0.08 } }]);
+
+      expect(runResponse(deps).status).toBe('completed');
+    });
+
+    it("does not count a Backup step's read against the pipeline timeout", async () => {
+      // A backup has its own Cancel in Live Operations, and a backup of a few
+      // large objects outlasts five minutes: the run stopped it part way.
+      deps.services = realServices(30).services;
+      const backup = vi.fn(async (request: { operationId: string }, signal?: AbortSignal) => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (signal?.aborted) throw new Error('Snapshot stopped.');
+        return {
+          operationId: request.operationId,
+          objects: [{ objectApiName: 'Account', recordCount: 4, truncated: false }],
+          totalRecords: 4,
+          partial: false,
+          timestamp: '2026-09-23T00:00:00.000Z',
+        };
+      });
+      handler.setStepRunners(fakeRunners({ backup }));
+
+      await run([{ type: 'backup', config: { orgId: 'org-a', objects: ['Account'] } }]);
+
+      expect(backup.mock.calls[0][1]?.aborted).toBe(false);
+      expect(runResponse(deps).status).toBe('completed');
+    });
+
     it('does not send a run the pipeline timeout stopped to the model: SandForge wrote the reason', async () => {
       const provider = vi.fn<AIProvider>(() =>
         Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
@@ -1217,8 +1295,9 @@ describe('AutomationHandler', () => {
         showFixSuggestion: vi.fn(),
       } as unknown as HandlerDeps['broker'];
       deps.services = realServices(30).services;
+      handler.setStepRunners(comparingUntilStopped());
 
-      await run([{ type: 'delay', config: { seconds: 60 } }]);
+      await run([COMPARING]);
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(runResponse(deps).status).toBe('failed');
@@ -1521,11 +1600,14 @@ describe('AutomationHandler', () => {
 
       it('still counts the steps after the Sync step against the pipeline timeout', async () => {
         deps.services = realServices(30).services;
-        handler.setStepRunners(syncRunners('allowed'));
+        handler.setStepRunners({
+          ...syncRunners('allowed'),
+          compare: comparingUntilStopped().compare,
+        });
 
         await run([
           { type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } },
-          { type: 'delay', config: { seconds: 60 } },
+          COMPARING,
         ]);
 
         expect(runResponse(deps).error).toBe(

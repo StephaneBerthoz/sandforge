@@ -34,6 +34,7 @@ import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { endWith, FAILED_EXIT } from './exitCodes.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { APEX_JOBS_SETUP_PATH } from '../src/modules/monitor/apexJobsSetupUrl.js';
 
 const HELP = `sandforge monitor — read an org the way the Monitor page does, without the editor.
 
@@ -146,7 +147,13 @@ export function parseArgs(argv: string[]): CliArgs {
   const asked = collect('--op');
   for (const op of asked) {
     if (op === 'open-apex-jobs') {
-      refuse('open-apex-jobs opens a browser and reads nothing: it is not run from here.');
+      // The page's button opens Setup › Apex Jobs, where a job is aborted;
+      // the sf CLI opens the same page from a terminal.
+      const alias = collect('--org')[0] ?? '<alias>';
+      refuse(
+        'open-apex-jobs opens a browser and reads nothing: it is not run from here. ' +
+          `sf org open --target-org ${alias} --path ${APEX_JOBS_SETUP_PATH} opens the same page.`,
+      );
     }
     if (!(OPERATIONS as readonly string[]).includes(op)) {
       refuse(`Not a Monitor request: "${op}". One of: ${OPERATIONS.join(', ')}.`);
@@ -367,6 +374,13 @@ export function describeAnswer(
   const payload = (answer.message?.payload ?? {}) as Record<string, unknown>;
   if (answer.outcome !== 'answered') {
     if (answer.message) lines.push(`  ${String(payload.message ?? JSON.stringify(payload))}`);
+    // Nothing came back: the line exited 1 with no word of what to change.
+    if (answer.outcome === 'unanswered') {
+      lines.push(
+        `  nothing came back in ${Math.round(answer.elapsedMs / 1000)} s: give a longer --wait, ` +
+          'or read fewer requests at once with --op',
+      );
+    }
     return lines;
   }
   return op

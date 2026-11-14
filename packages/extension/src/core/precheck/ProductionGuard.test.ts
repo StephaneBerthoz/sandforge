@@ -318,7 +318,8 @@ describe('ProductionGuard', () => {
       expect(result.allowed).toBe(false);
       expect(result.blockedReason).toBe(
         'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, ' +
-          'not to the production org org-001.',
+          'not to the production org org-001: bring the change there through your release ' +
+          'process, as a change set or a deployment from source control.',
       );
     });
 
@@ -326,7 +327,7 @@ describe('ProductionGuard', () => {
       const named = new ProductionGuard({ orgNameOf: () => 'Acme Prod' });
 
       expect(named.check(deploy({ orgTier: 'production' })).blockedReason).toContain(
-        'not to the production org "Acme Prod".',
+        'not to the production org "Acme Prod": bring the change there',
       );
     });
 

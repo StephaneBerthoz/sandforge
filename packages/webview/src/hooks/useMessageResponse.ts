@@ -58,6 +58,13 @@ export interface UseMessageResponseOptions {
  */
 export const RUN_OUTLIVED_WAIT = 'RUN_OUTLIVED_WAIT';
 
+/**
+ * The error code of a request nothing answered in its time: a page that
+ * knows why its request runs long says what makes it shorter, where the
+ * generic words said to try again, which runs out of time the same way.
+ */
+export const REQUEST_TIMED_OUT = 'REQUEST_TIMED_OUT';
+
 /** Duration in milliseconds before the `timedOut` flag is set. */
 const FEEDBACK_TIMEOUT_MS = 10_000;
 
@@ -425,7 +432,7 @@ export function useMessageResponse<T>(
           setLoading(false);
           // A run waited on that may still write is not a failed one: the page
           // keeps it in view rather than offer to start it again.
-          if (runOutlivesWait) setErrorCode(RUN_OUTLIVED_WAIT);
+          setErrorCode(runOutlivesWait ? RUN_OUTLIVED_WAIT : REQUEST_TIMED_OUT);
           setError(
             runOutlivesWait
               ? requestError('bridge.runOutlivedWait', {

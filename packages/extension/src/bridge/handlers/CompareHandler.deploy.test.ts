@@ -222,7 +222,9 @@ describe('CompareHandler deployments', () => {
         code: 'GUARD_BLOCKED',
         message:
           'Operation blocked by Production Guard: SandForge deploys metadata only to a sandbox, ' +
-          'a scratch org or a Developer Edition org, not to the production org tgt.',
+          'a scratch org or a Developer Edition org, not to the production org tgt: bring the ' +
+          'change there through your release process, as a change set or a deployment from ' +
+          'source control.',
       });
       expect(error()?.correlationId).toBe('req-validate');
     });
@@ -257,6 +259,10 @@ describe('CompareHandler deployments', () => {
       expect(target.metadata.deploy).not.toHaveBeenCalled();
       expect(error()?.payload).toMatchObject({ code: 'MANAGED' });
       expect(String(error()?.payload.message)).toContain('ApexClass Invoicing');
+      // One by one, for the command line, which has no box to untick.
+      expect(error()?.payload.managed).toEqual([
+        { componentType: 'ApexClass', fullName: 'Invoicing' },
+      ]);
     });
 
     it('reports a component the source no longer holds, and keeps no validation to deploy', async () => {

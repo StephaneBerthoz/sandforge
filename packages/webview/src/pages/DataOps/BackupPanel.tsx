@@ -1,6 +1,7 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { BACKUP_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import type { BackupObjectHeld, BackupSummary, BackupStatus } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -98,6 +99,11 @@ function shortObjectLine(o: BackupObjectHeld, t: TFunction): string {
     held: o.orgCount === undefined ? '' : formatNumber(o.orgCount),
   };
   if (o.stoppedAt === 'cap') {
+    // Past what any backup holds of one object, the setting it named raises
+    // nothing: what copies the whole object is said instead.
+    if (o.orgCount !== undefined && o.orgCount > BACKUP_MAX_RECORDS_PER_OBJECT) {
+      return t('dataops.backupStoppedPastMax', values);
+    }
     return o.orgCount === undefined
       ? t('dataops.backupStoppedAtCapUncounted', values)
       : t('dataops.backupStoppedAtCap', values);

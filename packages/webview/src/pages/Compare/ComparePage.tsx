@@ -6,6 +6,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { REQUEST_TIMED_OUT } from '../../hooks/useMessageResponse';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
@@ -122,14 +123,20 @@ export const ComparePage: React.FC = () => {
   /** Show error notifications from bridge hook. */
   useEffect(() => {
     if (compareMutation.error) {
-      setError(compareMutation.error);
+      // Run out of time, a diff runs out of time again on the same
+      // categories: the generic words said to try again.
+      const message =
+        compareMutation.errorCode === REQUEST_TIMED_OUT
+          ? t('compare.timedOut', { minutes: COMPARE_TIMEOUT_MS / 60_000 })
+          : compareMutation.error;
+      setError(message);
       addNotification({
         level: 'error',
         title: t('compare.title'),
-        message: compareMutation.error,
+        message,
       });
     }
-  }, [compareMutation.error, addNotification, t]);
+  }, [compareMutation.error, compareMutation.errorCode, addNotification, t]);
 
   /**
    * Two different orgs this machine holds: one disconnected while it was

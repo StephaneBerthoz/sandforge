@@ -124,6 +124,39 @@ describe('BackupPanel', () => {
     expect(screen.getByTestId('backup-status-op-1').textContent).toBe('Partial');
   });
 
+  it('says past a million rows of an object that nothing raises a backup, and what copies it whole', () => {
+    // It named the setting, which holds 1,000,000 rows at most.
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            status: 'failed',
+            partial: true,
+            objectResults: [
+              {
+                objectApiName: 'Task',
+                recordCount: 1_000_000,
+                orgCount: 3_400_000,
+                truncated: true,
+                stoppedAt: 'cap',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      [...screen.getByTestId('backup-partial-op-1').querySelectorAll('li')].map(
+        (li) => li.textContent,
+      ),
+    ).toEqual([
+      'Task: 1,000,000 of 3,400,000 rows read — no backup holds more than 1,000,000 rows of one ' +
+        'object, and nothing raises that. Salesforce’s Data Export (Setup) copies the whole object.',
+    ]);
+  });
+
   it('names the encrypted fields a backup did not keep, read masked, and that a restore leaves them', () => {
     render(
       <BackupPanel

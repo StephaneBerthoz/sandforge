@@ -441,6 +441,18 @@ export class StepExecutor {
     }
   }
 
+  /**
+   * Wrap the handler registered for a step type, its configuration check
+   * kept: what runs around the step's work, such as holding a run's time
+   * budget while a Delay waits. A type with no handler is left as it is.
+   * @param type - The step type whose handler to wrap
+   * @param wrap - Given the handler, the one to run in its place
+   */
+  wrapHandler(type: PipelineStepType, wrap: (handler: StepHandler) => StepHandler): void {
+    const handler = this.handlers.get(type);
+    if (handler) this.handlers.set(type, wrap(handler));
+  }
+
   private readonly refusingHandler: StepHandler = async (
     step: PipelineStep,
   ): Promise<PipelineStepResult> =>

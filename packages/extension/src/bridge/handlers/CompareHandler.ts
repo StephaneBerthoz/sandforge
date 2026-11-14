@@ -208,7 +208,17 @@ export class CompareHandler implements DomainHandler {
               retrieved.managed.map((c) => `${c.componentType} ${c.fullName}`).join(', ') +
               ' in the source, and it owns them: untick them and validate again. Nothing was sent to the target.',
           ),
-          { code: 'MANAGED' },
+          {
+            code: 'MANAGED',
+            // Named one by one for a reader with no box to untick: the
+            // command line names the --validate to drop.
+            extraPayload: {
+              managed: retrieved.managed.map((c) => ({
+                componentType: c.componentType,
+                fullName: c.fullName,
+              })),
+            },
+          },
         );
         return;
       }

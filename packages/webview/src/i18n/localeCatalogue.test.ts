@@ -856,7 +856,7 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       'Deploy {0} to {1}.',
     ];
     const REFUSALS = [
-      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.',
+      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}: bring the change there through your release process, as a change set or a deployment from source control.',
       'Deleting records is not allowed in {0}.',
       'Permanently deleting records is not allowed in {0}.',
     ];

@@ -555,3 +555,62 @@ export function blockedSteps(
       : [{ stepId: step.id, stepName: step.name, stepType: step.type, blocker }];
   });
 }
+
+/** A step of a Marketplace template, as its card carries it. */
+export interface TemplateStepInfo {
+  name: string;
+  type: string;
+  config?: Record<string, unknown>;
+  condition?: PipelineStep['condition'];
+}
+
+/** A step of a template that would not run once installed, and why. */
+export interface TemplateBlocker {
+  name: string;
+  type: string;
+  blocker: StepBlocker;
+}
+
+/** The org fields of each step type, which the person installing a template fills. */
+const ORG_FIELDS: Readonly<Partial<Record<string, readonly string[]>>> = {
+  backup: ['orgId'],
+  precheck: ['orgId'],
+  seed: ['orgId'],
+  anonymize: ['orgId'],
+  checkpoint: ['orgId'],
+  rewind: ['orgId'],
+  compare: ['sourceOrgId', 'targetOrgId'],
+};
+
+/**
+ * Every step of a Marketplace template that would not run once installed,
+ * read as a pipeline's steps are before a run (`stepBlocker`), with what the
+ * person installing it chooses taken as chosen: each org the step names, and
+ * a Sync step's saved configuration. A card was read for its step types
+ * alone, and a template whose Pre-check named a check SandForge does not
+ * have, or whose masking named no template, was offered as one that runs.
+ *
+ * @param steps - The template's steps, as its card carries them.
+ */
+export function templateBlockers(steps: readonly TemplateStepInfo[]): TemplateBlocker[] {
+  const installed: PipelineStep[] = steps.map((step, index) => {
+    const config: Record<string, unknown> = { ...(step.config ?? {}) };
+    for (const field of ORG_FIELDS[step.type] ?? []) {
+      config[field] ??= `chosen-at-install-${field}`;
+    }
+    if (step.type === 'sync') config['configId'] ??= 'chosen-at-install';
+    return {
+      id: `template-step-${index}`,
+      name: step.name,
+      type: step.type as PipelineStepType,
+      config,
+      continueOnError: false,
+      ...(step.condition ? { condition: step.condition } : {}),
+    };
+  });
+  return blockedSteps(installed).map(({ stepName, stepType, blocker }) => ({
+    name: stepName,
+    type: stepType,
+    blocker,
+  }));
+}

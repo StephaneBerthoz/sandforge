@@ -1063,8 +1063,12 @@ export const ENGLISH_QUESTION_WORDS: QuestionWords = {
         : `at most ${count.atMost} ${unit}s`,
   besides: (counted, alsoWrites) => `${counted}, plus ${alsoWrites},`,
   org: (tier, name, named) => (named ? `the ${tier} org "${name}"` : `the ${tier} org ${name}`),
+  // Where a change to production goes instead: the refusal stopped at what
+  // it refused.
   deployRefused: (org) =>
-    `SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to ${org}.`,
+    `SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to ${org}: ` +
+    'bring the change there through your release process, as a change set or a deployment from ' +
+    'source control.',
   deleteRefused: (operation, org) =>
     operation === 'hardDelete'
       ? `Permanently deleting records is not allowed in ${org}.`

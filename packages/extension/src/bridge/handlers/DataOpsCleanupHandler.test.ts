@@ -82,6 +82,12 @@ function accountOrg() {
     if (soql.startsWith('SELECT Id FROM Account')) {
       return { totalSize: 2, records: stale.map((Id) => ({ Id })) };
     }
+    if (soql.startsWith('SELECT Id, LastModifiedDate FROM Account WHERE LastModifiedDate <')) {
+      return {
+        totalSize: 2,
+        records: stale.map((Id) => ({ Id, LastModifiedDate: '2020-01-01T08:00:00.000+0000' })),
+      };
+    }
     if (soql.startsWith('SELECT Id, Name, LastModifiedDate FROM Account WHERE Id IN')) {
       return { totalSize: 2, records: stale.map((Id) => ({ Id, Name: 'Old account' })) };
     }
@@ -471,7 +477,11 @@ describe('DataOpsCleanupHandler', () => {
     expect(org.destroy).not.toHaveBeenCalled();
     expect(posted().at(-1)).toMatchObject({
       type: 'dataops:error',
-      payload: { message: 'The connected user may not delete Account records.' },
+      payload: {
+        message:
+          'The connected user may not delete Account records: Export keeps a copy of them, and ' +
+          'an admin grants Delete on Account in a permission set. Nothing was deleted.',
+      },
     });
     expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([]);
   });
@@ -493,6 +503,50 @@ describe('DataOpsCleanupHandler', () => {
       records: 2,
       truncated: false,
       saved: { status: 'saved' },
+    });
+  });
+
+  it('exports past the records the exports before took, and says how far they have come', async () => {
+    // Run again, an export took the same oldest records again.
+    await handler.handle(
+      request('dataops:cleanup:export', {
+        orgId: 'org-1',
+        objectApiName: 'Account',
+        recommendation: { kind: 'stale', days: 365 },
+        after: {
+          skip: 1000,
+          id: '001000000000000AAA',
+          modified: '2019-06-01T08:00:00.000+0000',
+        },
+      }),
+    );
+
+    expect(org.query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "(LastModifiedDate > 2019-06-01T08:00:00Z OR (LastModifiedDate = 2019-06-01T08:00:00Z AND Id > '001000000000000AAA'))",
+      ),
+    );
+    expect(answer('dataops:cleanup:export:response')).toMatchObject({
+      records: 2,
+      exported: 1002,
+      recommended: 2,
+    });
+  });
+
+  it('refuses a cursor that is not one an export answered with, before it reaches the org', async () => {
+    await handler.handle(
+      request('dataops:cleanup:export', {
+        orgId: 'org-1',
+        objectApiName: 'Account',
+        recommendation: { kind: 'stale', days: 365 },
+        after: { skip: 1000, id: "001' OR Id != '" },
+      }),
+    );
+
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+    expect(posted()[0]).toMatchObject({
+      type: 'dataops:error',
+      payload: { code: 'INVALID_PAYLOAD' },
     });
   });
 

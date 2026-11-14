@@ -534,6 +534,52 @@ describe('AutomationPage', () => {
     expect(screen.queryByTestId('marketplace-template-blocked-tpl-c')).toBeNull();
   });
 
+  it('marks a Marketplace card a step of which would not run once installed, and says why', () => {
+    // Read for its step types alone, a card whose Pre-check named a check
+    // SandForge does not have was offered as one that runs.
+    mockQueryData = {
+      'marketplace:list': {
+        success: true,
+        templates: [
+          {
+            id: 'tpl-old',
+            name: 'Nightly Data Backup',
+            description: 'Back up, then verify',
+            category: 'maintenance',
+            author: 'SandForge',
+            stepTypes: ['backup', 'precheck'],
+            steps: [
+              { name: 'Backup Accounts', type: 'backup', config: { objects: ['Account'] } },
+              { name: 'Verify Integrity', type: 'precheck', config: { checks: ['rowCount'] } },
+            ],
+          },
+          {
+            id: 'tpl-ok',
+            name: 'API Limit Monitoring',
+            description: 'Read API usage',
+            category: 'monitoring',
+            author: 'SandForge',
+            stepTypes: ['precheck'],
+            steps: [
+              { name: 'Check API Usage', type: 'precheck', config: { checks: ['apiLimits'] } },
+            ],
+          },
+        ],
+      },
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByText('Marketplace'));
+
+    expect(screen.getByTestId('marketplace-template-blocked-tpl-old').textContent).toBe(
+      'Cannot run' +
+        'Verify Integrity: Choose what this Pre-Check reads: API usage, data storage, Apex ' +
+        'error logs or failed Apex jobs.',
+    );
+    // Its org is chosen once installed: that alone does not mark a card.
+    expect(screen.queryByTestId('marketplace-template-blocked-tpl-ok')).toBeNull();
+  });
+
   it('does not describe the empty state as automating seed or sync work', () => {
     useOrgStore.setState({ orgs: [] });
     render(<AutomationPage />);

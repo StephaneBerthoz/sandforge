@@ -468,8 +468,10 @@ Each recommendation can be:
   then said. Every delete is recorded in the audit trail, one you cancelled as
   cancelled
 
-An export or a delete takes **at most 1,000 records at a time** (stale records
-the oldest first); run it again for the rest. The records are read again when
+A delete takes **at most 1,000 records at a time** (stale records the oldest
+first); run it again for the rest. An export takes 1,000 at a time too, and
+**Export the next 1,000** carries on past the records the last one took, in the
+same order: run again, it exported the same first ones. The records are read again when
 the delete runs, so a record modified since the scan is no longer stale and is
 left alone. There is no scheduled cleanup, no archive, and no delete by a query
 of your own.

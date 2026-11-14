@@ -398,7 +398,9 @@ describe('production confirmation modal (localized)', () => {
     expect(check.allowed).toBe(false);
     expect(check.blockedReason).toBe(
       'SandForge ne déploie des métadonnées que vers une sandbox, une scratch org ou une org ' +
-        "Developer Edition, pas vers l'org de production « Acme Prod ».",
+        "Developer Edition, pas vers l'org de production « Acme Prod » : faites-y passer la " +
+        'modification par votre processus de mise en production, un change set ou un ' +
+        'déploiement depuis le contrôle de version.',
     );
   });
 

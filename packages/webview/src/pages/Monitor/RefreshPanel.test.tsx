@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { RefreshPanel } from './RefreshPanel';
 
 let mockData: Record<string, unknown> | null = null;
@@ -45,6 +46,21 @@ describe('RefreshPanel', () => {
     expect(screen.getByTestId('refresh-panel-unsupported').textContent).toMatch(
       /manages sandboxes/i,
     );
+  });
+
+  it('names the org that keeps the refresh history, and opens Organizations to connect it', () => {
+    // On a sandbox, the panel said there was nothing to read, and stopped there.
+    const navigate = vi.fn();
+    useAppStore.setState({ navigate });
+    mockData = { success: true, supported: false, refreshes: [], inProgress: false };
+    render(<RefreshPanel />);
+
+    expect(screen.getByTestId('refresh-panel-unsupported').textContent).toContain(
+      'Only the production org that manages sandboxes keeps their refresh history: connect it ' +
+        'in Organizations (reading it is enough), then pick it here.',
+    );
+    fireEvent.click(screen.getByTestId('refresh-panel-open-orgs'));
+    expect(navigate).toHaveBeenCalledWith('orgs');
   });
 
   it('renders refresh rows with status badges', () => {

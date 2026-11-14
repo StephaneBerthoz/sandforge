@@ -4,6 +4,8 @@ import { RefreshCcw } from 'lucide-react';
 import { isSandboxRefreshInProgress, orgDisplayName } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -156,6 +158,7 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
  */
 export const RefreshPanel: React.FC = () => {
   const { t } = useTranslation();
+  const navigate = useAppStore((s) => s.navigate);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
 
   const { data, loading } = useBridgeQuery<SandboxRefreshData>(
@@ -193,9 +196,21 @@ export const RefreshPanel: React.FC = () => {
             {t('monitor.sandboxRefresh.title')}
           </h3>
         </div>
-        <p className="text-xs text-text-secondary text-center py-6">
+        <p className="text-xs text-text-secondary text-center pt-6 pb-2">
           {t('monitor.sandboxRefresh.unsupported')}
         </p>
+        {/* Where the org that keeps the history is connected: the panel
+            said there was nothing to read, and stopped there. */}
+        <div className="flex justify-center pb-4">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate('orgs')}
+            data-testid="refresh-panel-open-orgs"
+          >
+            {t('monitor.sandboxRefresh.openOrgs')}
+          </Button>
+        </div>
         <DetectedRefreshes refreshes={detected} />
       </div>
     );

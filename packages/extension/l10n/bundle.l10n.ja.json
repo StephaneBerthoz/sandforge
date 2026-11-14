@@ -163,7 +163,7 @@
   "the related records the run adds": "実行が追加する関連レコード",
   "the {0} org \"{1}\"": "{0}組織「{1}」",
   "the {0} org {1}": "{0}組織 {1}",
-  "SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.": "SandForge がメタデータをデプロイするのは Sandbox、スクラッチ組織、Developer Edition 組織のみで、{0}にはデプロイしません。",
+  "SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}: bring the change there through your release process, as a change set or a deployment from source control.": "SandForge がメタデータをデプロイするのは Sandbox、スクラッチ組織、Developer Edition 組織のみで、{0}にはデプロイしません。変更はリリースプロセス（変更セット、またはバージョン管理からのデプロイ）でその組織に反映してください。",
   "Deleting records is not allowed in {0}.": "{0}ではレコードの削除は許可されていません。",
   "Permanently deleting records is not allowed in {0}.": "{0}ではレコードの完全な削除は許可されていません。",
   "production": "本番",

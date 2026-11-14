@@ -64,6 +64,10 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
     );
   }
 
+  // Delete was offered on every object, and refused once its review opened:
+  // held back here, with the reason and what is left, from the scan on.
+  const deletable = result.deletable !== false;
+
   /** The two actions of a recommendation, named for what they act on. */
   const actions = (recommendation: CleanupRecommendation, what: string, testId: string) => (
     <div className="flex flex-wrap gap-2">
@@ -81,7 +85,7 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
         variant="danger"
         size="sm"
         onClick={() => onReview(recommendation)}
-        disabled={busy}
+        disabled={busy || !deletable}
         aria-label={t('dataops.cleanupScan.deleteWhat', { what })}
         data-testid={`${testId}-delete`}
       >
@@ -120,6 +124,11 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
           })}
         </span>
       </div>
+      {!deletable && (
+        <p className="text-xs text-text-secondary" data-testid="cleanup-not-deletable">
+          {t('dataops.cleanupScan.notDeletable', { object: result.label })}
+        </p>
+      )}
 
       <div className="flex flex-col gap-1" data-testid="cleanup-stale">
         <h4 className="text-xs font-semibold text-text-primary">

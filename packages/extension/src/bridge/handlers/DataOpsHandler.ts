@@ -24,6 +24,7 @@ import {
   recordWriteHeaders,
   sanitizeSoqlObjectName,
   guardTierOf,
+  BACKUP_MAX_RECORDS_PER_OBJECT,
   orgDisplayName,
 } from '@sandforge/shared';
 import type {
@@ -348,7 +349,18 @@ const BACKUP_CAP_DEFAULT = 50_000;
 const BACKUP_CAP_MIN = 100;
 
 /** The most rows of an object the setting may set a backup to read: what its manifest allows. */
-const BACKUP_CAP_MAX = 1_000_000;
+export const BACKUP_CAP_MAX = BACKUP_MAX_RECORDS_PER_OBJECT;
+
+/**
+ * The most rows of one object a backup reads, from what
+ * `sandforge.backup.maxRecordsPerObject` — or a command line's
+ * `--max-records` — asks: held within the bounds its manifest gives it, which
+ * the Settings editor enforces and a hand-edited settings file does not.
+ */
+export function backupCapOf(asked: unknown): number {
+  if (typeof asked !== 'number' || !Number.isFinite(asked)) return BACKUP_CAP_DEFAULT;
+  return Math.min(BACKUP_CAP_MAX, Math.max(BACKUP_CAP_MIN, Math.floor(asked)));
+}
 
 /** Rows a restore reads of a backup, and upserts, at a time: the most one REST collection takes. */
 const RESTORE_BATCH_SIZE = 200;
@@ -860,6 +872,13 @@ const COUNT_FAILED = 'COUNT_FAILED';
  * snapshot it asked for was not taken, or holds only part of its rows.
  */
 const SNAPSHOT_NOT_TAKEN = 'SNAPSHOT_NOT_TAKEN';
+
+/**
+ * The codes an org answers a read too heavy for it with: a count or a query
+ * that ran out of time, or one over too many rows. Running it again as it is
+ * fails again.
+ */
+const HEAVY_READ_CODES: ReadonlySet<string> = new Set(['QUERY_TIMEOUT', 'OPERATION_TOO_LARGE']);
 
 /** An API or system error code, as an org's error message starts with one. */
 const LEADING_CODE = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+):/;
@@ -1411,6 +1430,41 @@ export class DataOpsHandler implements DomainHandler {
 
   /** See {@link setMuteOffered}. */
   private muteOffered = true;
+
+  /**
+   * Whether whoever reads a masking's refusals runs a command line, which
+   * has flags where the editor has settings: told so, a refusal names
+   * `--max-records` and `--where` rather than `sandforge.backup.*`.
+   */
+  setOnCommandLine(onCommandLine: boolean): void {
+    this.onCommandLine = onCommandLine;
+  }
+
+  /** See {@link setOnCommandLine}. */
+  private onCommandLine = false;
+
+  /**
+   * A count the org gave up on, said with what narrows it: a large table
+   * counted on a field it does not index runs out of time, and runs out of
+   * time again, so the run is masked in slices on an indexed field. Any other
+   * refusal is the org's own, as it was.
+   *
+   * @param err - What the count was answered with.
+   * @param objectApiName - The object counted.
+   */
+  private countGaveUp(err: unknown, objectApiName: string): unknown {
+    if (!HEAVY_READ_CODES.has(orgReasonCode(err))) return err;
+    const way = this.onCommandLine
+      ? 'narrow --where to an indexed field, such as a range of CreatedDate, and mask the ' +
+        'rest in other runs'
+      : 'mask them in slices from the command line, each a run of its own (sandforge ' +
+        `dataops anonymize --object ${objectApiName} --where) on an indexed field, such as a ` +
+        'range of CreatedDate';
+    return new Error(
+      `${extractErrorMessage(err)} The org gave up counting the ${objectApiName} records the ` +
+        `run would mask: ${way}. Nothing was masked.`,
+    );
+  }
 
   /** How long after a masking's last write what its duplicate rules wrote is read. */
   private duplicatesSettleMs = DUPLICATES_SETTLE_MS;
@@ -2300,12 +2354,42 @@ export class DataOpsHandler implements DomainHandler {
    * enforces and a hand-edited settings file does not.
    */
   private backupCap(): number {
-    const asked: unknown = this.deps.services?.getSandforgeSetting?.(
-      'backup.maxRecordsPerObject',
-      BACKUP_CAP_DEFAULT,
+    return backupCapOf(
+      this.deps.services?.getSandforgeSetting?.('backup.maxRecordsPerObject', BACKUP_CAP_DEFAULT),
     );
-    if (typeof asked !== 'number' || !Number.isFinite(asked)) return BACKUP_CAP_DEFAULT;
-    return Math.min(BACKUP_CAP_MAX, Math.max(BACKUP_CAP_MIN, Math.floor(asked)));
+  }
+
+  /**
+   * What lifts the rows a masking's snapshot holds of one object, in the
+   * words of whoever reads the refusal: the setting in the editor,
+   * `--max-records` on a command line. Past the most a snapshot holds of one
+   * object, nothing raises it, and the refusal says so: the object is masked
+   * in slices, each a run with its own snapshot, which only the command
+   * line's `--where` draws. It named the editor's setting on a command line,
+   * and offered to raise it past what it can be raised to.
+   *
+   * @param work - The run's objects, counted.
+   */
+  private snapshotCapWay(work: readonly MaskingWork[]): string {
+    const cap = this.backupCap();
+    const beyond = work
+      .filter((w) => w.tally.total > BACKUP_CAP_MAX)
+      .map((w) => w.tally.objectApiName);
+    if (beyond.length > 0 || cap >= BACKUP_CAP_MAX) {
+      const named = beyond.length > 0 ? beyond.join(', ') : 'the object';
+      return this.onCommandLine
+        ? `No snapshot holds more than ${BACKUP_CAP_MAX} records of one object, and nothing ` +
+            `raises that: mask ${named} in slices, each a run of its own with --object and a ` +
+            '--where that selects fewer (a range of CreatedDate, say), each taking its own snapshot.'
+        : 'No snapshot holds more than 1,000,000 records of one object, and nothing raises ' +
+            `that: mask ${named} in slices from the command line, each a run of its own ` +
+            '(sandforge dataops anonymize --object and --where), each taking its own snapshot.';
+    }
+    return this.onCommandLine
+      ? `Give --max-records up to ${BACKUP_CAP_MAX} (this run held ${cap}), or narrow the run ` +
+          'with --object and --where.'
+      : `Raise sandforge.backup.maxRecordsPerObject in Settings (this run held ${cap}, ` +
+          '1,000,000 at most), then apply again.';
   }
 
   /**
@@ -3163,9 +3247,18 @@ export class DataOpsHandler implements DomainHandler {
       // A backup belongs to the org it was taken from. Without this, the
       // records of org A could be poured into org B.
       if (backupMeta.orgId !== payload.orgId) {
+        // What carries records from one org to another, named with the
+        // orgs: the refusal said only what was refused.
+        const from = orgDisplayName(
+          this.deps.orgManager.getOrg(backupMeta.orgId),
+          backupMeta.orgId,
+        );
+        const into = orgDisplayName(this.deps.orgManager.getOrg(payload.orgId), payload.orgId);
         throw new Error(
           `Backup ${payload.operationId} was taken from org ${backupMeta.orgId} and cannot be ` +
-            `restored into org ${payload.orgId}.`,
+            `restored into org ${payload.orgId}. A restore writes back by record Id, and an Id ` +
+            `belongs to the org that holds it: to bring these records from ${from} into ` +
+            `${into}, copy them with Forge or Sync.`,
         );
       }
 
@@ -3907,7 +4000,7 @@ export class DataOpsHandler implements DomainHandler {
         refused:
           `Snapshot ${snapshotId} holds only part of the records the run would mask, so nothing ` +
           `was masked: a restore could not put back the rest (${backupShortfall(outcome.objects)}). ` +
-          'Raise sandforge.backup.maxRecordsPerObject, or narrow the run.',
+          this.snapshotCapWay(work),
         retryable: false,
       };
     }
@@ -4554,7 +4647,7 @@ export class DataOpsHandler implements DomainHandler {
               code: COUNT_FAILED,
               details: { reason: orgReasonCode(err) },
             });
-            throw err;
+            throw this.countGaveUp(err, safeObj);
           }
           noteApiUsage(`dataops:anonymize count ${safeObj}`);
           if (toRead === 0) progress.done = true;

@@ -120,7 +120,11 @@ describe('prepareErasure', () => {
     const prepared = await prepareErasure(conn, new PIIDetector(), 'anonymize', targets);
     await runErasure(conn, new AnonymizationEngine(undefined, 'k'), prepared);
 
-    expect(prepared[0].plan.refused).toBe('The connected user may not edit Contact records.');
+    // What the request still has: the other way to erase, and the right to ask for.
+    expect(prepared[0].plan.refused).toBe(
+      'The connected user may not edit Contact records: erase them with Delete instead, or ' +
+        'have an admin grant Edit on Contact in a permission set.',
+    );
     expect(conn.update).not.toHaveBeenCalled();
   });
 
@@ -129,7 +133,10 @@ describe('prepareErasure', () => {
 
     const [contact] = await prepareErasure(conn, new PIIDetector(), 'delete', targets);
 
-    expect(contact.plan.refused).toBe('The connected user may not delete Contact records.');
+    expect(contact.plan.refused).toBe(
+      'The connected user may not delete Contact records: erase them with Anonymize in place ' +
+        'instead, or have an admin grant Delete on Contact in a permission set.',
+    );
   });
 });
 

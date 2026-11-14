@@ -242,4 +242,34 @@ describe('PipelineCanvas', () => {
     expect(screen.queryByTestId('canvas-blocked-sync')).toBeNull();
     expect(screen.queryByTestId('canvas-blocked-ok')).toBeNull();
   });
+
+  it('says what to choose for a Sync Production Guard refuses, approved or not', () => {
+    // It said the guard refused, and nothing of what would run.
+    const syncConfigs = [
+      {
+        id: 'cfg-del',
+        name: 'Purge',
+        valid: true,
+        sourceOrgId: 'org-a',
+        targetOrgId: 'org-b',
+        guard: 'refused' as const,
+      },
+    ];
+    const sync: PipelineStep = {
+      id: 'sync',
+      name: 'Purge',
+      type: 'sync',
+      config: { configId: 'cfg-del' },
+      continueOnError: false,
+    };
+
+    render(<PipelineCanvas steps={[sync]} syncConfigs={syncConfigs} />);
+
+    expect(screen.getByTestId('canvas-blocked-sync').getAttribute('title')).toBe(
+      'Production Guard refuses this Sync on its target org, approved or not: a Sync that ' +
+        'deletes is refused in a production org, and in an org SandForge cannot tell is not ' +
+        'one. Choose a configuration whose target is a sandbox, a scratch org or a Developer ' +
+        'Edition, or one that does not delete.',
+    );
+  });
 });

@@ -64,6 +64,13 @@ describe('parseArgs', () => {
     expect(message).toContain('browser');
   });
 
+  it('names the sf command that opens the Apex Jobs page, for the org the line names', () => {
+    const { message } = refuse('--org', 'TGT', '--op', 'open-apex-jobs');
+    expect(message).toContain(
+      'sf org open --target-org TGT --path /lightning/setup/AsyncApexJobs/home',
+    );
+  });
+
   it('refuses a request the page does not send', () => {
     expect(refuse('--org', 'T', '--op', 'deploy').code).toBe(2);
   });
@@ -230,6 +237,17 @@ describe('describeAnswer', () => {
     );
 
     expect(head).toBe('  1 of 216 object(s) holding records listed, total 133989 record(s)');
+  });
+
+  it('says what to do when nothing came back in time: a longer --wait, or fewer --op', () => {
+    const lines = describeAnswer('monitor:storage', 'storage', {
+      outcome: 'unanswered',
+      elapsedMs: 300_000,
+      late: true,
+    });
+    expect(lines).toContain(
+      '  nothing came back in 300 s: give a longer --wait, or read fewer requests at once with --op',
+    );
   });
 
   it('says an answer past the page timeout was dropped by the page', () => {

@@ -1117,15 +1117,33 @@ const cleanupRecommendationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('duplicates'), keyField: sfApiNameSchema }),
 ]);
 
-/** `dataops:cleanup:export`: the records one recommendation names. */
-export const dataOpsCleanupExportPayloadSchema = z.object({
+/** The records one cleanup recommendation names. */
+const dataOpsCleanupRequestSchema = z.object({
   orgId: orgIdSchema,
   objectApiName: sfApiNameSchema,
   recommendation: cleanupRecommendationSchema,
 });
 
+/**
+ * `dataops:cleanup:export`: the records one recommendation names, past those
+ * the exports before it took (`after`, the cursor the last one answered with).
+ */
+export const dataOpsCleanupExportPayloadSchema = dataOpsCleanupRequestSchema.extend({
+  after: z
+    .object({
+      skip: z.number().int().nonnegative().max(100_000_000),
+      id: recordIdSchema.optional(),
+      modified: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:?\d{2})$/)
+        .optional(),
+    })
+    .strict()
+    .optional(),
+});
+
 /** `dataops:cleanup:delete`: the same, and whether to delete or only say what would go. */
-export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSchema.extend({
+export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupRequestSchema.extend({
   dryRun: z.boolean(),
   ...dataOpsWriteAccordShape,
   ...dataOpsAskedFromShape,

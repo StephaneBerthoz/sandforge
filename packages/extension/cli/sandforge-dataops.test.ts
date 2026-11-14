@@ -54,6 +54,7 @@ import {
   parseArgs,
   restoreInterruptedLine,
   resultLines,
+  snapshotTooSmallLines,
 } from './sandforge-dataops';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
@@ -170,7 +171,7 @@ function orgOf(
     sobject: vi.fn(() => ({ update, upsert })),
     soap: { undelete: vi.fn(async () => []) },
   } as never);
-  return { update, upsert };
+  return { update, upsert, query };
 }
 
 /**
@@ -726,6 +727,43 @@ describe('sandforge-dataops', () => {
       expect(stdout).toContain('Rollback completed: 20 records restored');
     });
 
+    it('says that --yes answers no to a restore into a sandbox refreshed since, and to answer it in a terminal', async () => {
+      // A CI step with --yes was told the restore "was not confirmed", and
+      // the only flag it has to confirm with is the one that said no.
+      orgIs('Developer Edition');
+      const rows = contactsOf(5, 5);
+      const { update, upsert, query } = orgOf(rows);
+      await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--yes',
+      );
+      expect(update).toHaveBeenCalledTimes(1);
+      const snapshotId = /snapshot (\S+): 5 record\(s\)/.exec(stdout)?.[1];
+      expect(snapshotId).toBeDefined();
+      // Refreshed since: the alias reaches another org.
+      const read = query.getMockImplementation()!;
+      query.mockImplementation(async (soql: string) =>
+        soql === 'SELECT Id FROM Organization'
+          ? { records: [{ Id: '00D000000000002AAA' }], done: true, totalSize: 1 }
+          : read(soql),
+      );
+
+      const code = await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes');
+
+      expect(code).toBe(1);
+      expect(upsert).not.toHaveBeenCalled();
+      expect(stderr).toContain(
+        '--yes does not answer this question: it is answered yes only when typed in a terminal. ' +
+          'Run the same line without --yes in a terminal to answer it',
+      );
+    });
+
     it('takes --object in any case, as Salesforce takes an object: contact masks the contacts', async () => {
       // Taken by the line and missed by the handler, `--object contact`
       // counted nothing, said there was nothing to mask, and exited 0 on an
@@ -1085,6 +1123,69 @@ describe('sandforge-dataops', () => {
 
       expect(code).toBe(3);
       expect(stdout).toContain('A resume masks only what this run left');
+    });
+
+    it('says in a dry run that a run would be refused when an object holds more records than a snapshot holds, naming --max-records: exit 1', async () => {
+      // The refusal came after the guard and the snapshot's read, and named
+      // the editor's setting, which a command line has none of.
+      orgIs('Developer Edition');
+      const rows = contactsOf(150, 150);
+      const { update } = orgOf(rows);
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--max-records',
+        '100',
+        '--dry-run',
+      );
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(stdout).toContain(
+        '  a run would be refused: Contact holds 150 record(s) a run would mask, more than the ' +
+          '100 a snapshot holds of one object: give --max-records up to 1000000, or narrow the ' +
+          'run with --object and --where',
+      );
+      expect(stdout + stderr).not.toContain('sandforge.backup.maxRecordsPerObject');
+    });
+
+    it('refuses a run whose snapshot could not hold every record before it asks or reads it: exit 1, nothing masked', async () => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(150, 150);
+      const before = rows.map((r) => ({ ...r }));
+      const { update, query } = orgOf(rows);
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--max-records',
+        '100',
+        '--yes',
+      );
+
+      expect(code).toBe(1);
+      expect(update).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      expect(stderr).toContain(
+        'Nothing was masked: Contact holds 150 record(s) a run would mask, more than the 100 a ' +
+          'snapshot holds of one object: give --max-records up to 1000000',
+      );
+      expect(stderr).not.toContain('sandforge.backup.maxRecordsPerObject');
+      // The snapshot was never read: no page of the contacts' masked fields.
+      expect(
+        query.mock.calls.some(([soql]) => String(soql).startsWith('SELECT Id, FirstName')),
+      ).toBe(false);
     });
 
     it('stops a run asked without --yes and with no terminal to answer: exit 2, nothing masked', async () => {
@@ -1519,6 +1620,27 @@ describe('sandforge-dataops', () => {
         }),
       ).toBe(true);
       expect(runWouldBeRefused({ objects: [{ notCovered: true }], fieldsNotFound: [] })).toBe(true);
+    });
+
+    it('says past a million records that nothing raises a snapshot, and how to mask in slices', () => {
+      expect(
+        snapshotTooSmallLines(
+          [
+            { objectApiName: 'Contact', count: 1_250_000 },
+            { objectApiName: 'Lead', count: 40 },
+            { objectApiName: 'Case', count: null },
+          ],
+          1_000_000,
+        ),
+      ).toEqual([
+        'Contact holds 1250000 record(s) a run would mask, more than a snapshot holds of one ' +
+          'object, 1000000 at most, and nothing raises that: mask it in slices, each a run of ' +
+          'its own with --object Contact and a --where that selects fewer (a range of ' +
+          'CreatedDate, say), each taking its own snapshot',
+      ]);
+      expect(snapshotTooSmallLines([{ objectApiName: 'Contact', count: 50_000 }], 50_000)).toEqual(
+        [],
+      );
     });
 
     it('tells a dry run whose run is refused what the user may not edit', () => {

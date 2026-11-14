@@ -478,6 +478,12 @@ export interface CleanupObjectScan {
   duplicates: DataQualityDuplicates | null;
   keyFields: Array<{ fieldApiName: string; label: string }>;
   errors: DataQualityCheckError[];
+  /**
+   * Whether the connected user may delete its records, as the describe says:
+   * false, the page offers the export and holds Delete back, with the reason.
+   * Absent from a scan that did not say, which offers Delete as before.
+   */
+  deletable?: boolean;
 }
 
 /** One object of a cleanup scan, read or not. */

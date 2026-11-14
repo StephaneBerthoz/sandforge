@@ -70,7 +70,17 @@ const RESUME_REFUSAL_KEYS: Readonly<Record<string, string>> = {
   RESUME_UNAVAILABLE: 'errors.resumeUnavailable.explanation',
   RESUME_TARGET_CHANGED: 'errors.resumeTargetChanged.explanation',
   RESUME_CHANGED: 'errors.resumeChanged.explanation',
+  // Refused under either, a resume asked from here showed nothing at all.
+  RESUME_TARGET_UNREAD: 'monitor.liveOps.resumeTargetUnread',
+  JOURNAL_UNAVAILABLE: 'monitor.liveOps.journalUnavailable',
 };
+
+/**
+ * The refusals whose own words the notification carries after the page's:
+ * a journal that could not be opened is named with its folder and what the
+ * disk said, which lift it each their own way.
+ */
+const RESUME_REFUSALS_SAID_BY_HOST: ReadonlySet<string> = new Set(['JOURNAL_UNAVAILABLE']);
 
 /**
  * The style of an org's badge, by the type it is registered as once its
@@ -291,16 +301,21 @@ export const MonitorPage: React.FC = () => {
     timeoutMs: RESUMED_RUN_WAIT_MS,
   });
   const resumeRunCode = resumeRunMutation.errorCode;
+  const resumeRunError = resumeRunMutation.error;
   useEffect(() => {
     const key = resumeRunCode ? RESUME_REFUSAL_KEYS[resumeRunCode] : undefined;
     if (!key) return;
+    const hostSaid =
+      resumeRunCode && RESUME_REFUSALS_SAID_BY_HOST.has(resumeRunCode) && resumeRunError
+        ? ` ${resumeRunError}`
+        : '';
     addNotification({
       level: 'warning',
       category: 'monitor',
       title: t('monitor.liveOps.resumeRunRefused'),
-      message: t(key),
+      message: `${t(key)}${hostSaid}`,
     });
-  }, [resumeRunCode, addNotification, t]);
+  }, [resumeRunCode, resumeRunError, addNotification, t]);
   const resumeForgeRun = resumeRunMutation.mutate;
   const resetPause = pauseMutation.reset;
   const resetResume = resumeMutation.reset;

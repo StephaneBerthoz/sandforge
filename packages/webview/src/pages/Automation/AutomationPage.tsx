@@ -24,7 +24,7 @@ import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { PipelineHistoryView } from './PipelineHistoryView';
 import { PipelineQuestion, RewindStepConfirm, SchedulerCalendar } from './automationParts';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
-import { blockedSteps, typeBlocker } from './stepRunnability';
+import { blockedSteps, templateBlockers, typeBlocker } from './stepRunnability';
 import { stepTypeLabel } from './stepTypeLabel';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { PipelineHeader } from './PipelineHeader';
@@ -520,7 +520,16 @@ export const AutomationPage: React.FC = () => {
 
           {activeTab === 'scheduler' && <SchedulerCalendar pipelineSchedules={pipelineSchedules} />}
 
-          {activeTab === 'history' && <PipelineHistoryView entries={historyEntries} />}
+          {activeTab === 'history' && (
+            <PipelineHistoryView
+              entries={historyEntries}
+              stepTypesOf={(pipelineId) =>
+                savedPipelines
+                  .find((saved) => saved.id === pipelineId)
+                  ?.steps.map((step) => step.type)
+              }
+            />
+          )}
 
           {activeTab === 'marketplace' && (
             <div data-testid="marketplace-content" className="flex flex-col gap-(--sf-space-3)">
@@ -553,11 +562,27 @@ export const AutomationPage: React.FC = () => {
               {marketplaceTemplates.length > 0 ? (
                 <div className="grid gap-(--sf-space-2)">
                   {marketplaceTemplates.map((tpl) => {
+                    // Each step as a run checks it, once installed: read
+                    // for its step types alone, a card whose Pre-check named
+                    // a check SandForge does not have was offered as one
+                    // that runs. A host that sends the types alone is read
+                    // for them, as before.
+                    const blocked = tpl.steps
+                      ? templateBlockers(tpl.steps)
+                      : (tpl.stepTypes ?? []).flatMap((type) => {
+                          const blocker = typeBlocker(type);
+                          return blocker ? [{ name: '', type, blocker }] : [];
+                        });
                     const blockedTypes = [
                       ...new Set(
-                        (tpl.stepTypes ?? []).filter((type) => typeBlocker(type) !== undefined),
+                        blocked
+                          .filter((step) => typeBlocker(step.type) !== undefined)
+                          .map((step) => step.type),
                       ),
                     ];
+                    const stepsBlocked = blocked.filter(
+                      (step) => typeBlocker(step.type) === undefined,
+                    );
                     return (
                       <div
                         key={tpl.id}
@@ -569,19 +594,29 @@ export const AutomationPage: React.FC = () => {
                           <Badge variant="default">{tpl.category}</Badge>
                         </div>
                         <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
-                        {blockedTypes.length > 0 && (
+                        {blocked.length > 0 && (
                           <p
                             className="flex flex-wrap items-center gap-1 text-xs text-text-secondary mt-1"
                             data-testid={`marketplace-template-blocked-${tpl.id}`}
                           >
                             <Badge variant="warning">{t('automation.runnability.cannotRun')}</Badge>
-                            <span>
-                              {t('automation.runnability.templateBlocked', {
-                                types: blockedTypes
-                                  .map((type) => stepTypeLabel(type, t))
-                                  .join(', '),
-                              })}
-                            </span>
+                            {blockedTypes.length > 0 && (
+                              <span>
+                                {t('automation.runnability.templateBlocked', {
+                                  types: blockedTypes
+                                    .map((type) => stepTypeLabel(type, t))
+                                    .join(', '),
+                                })}
+                              </span>
+                            )}
+                            {stepsBlocked.map((step, index) => (
+                              <span key={`${index}:${step.name}`} className="block w-full">
+                                {t('automation.runnability.templateStepBlocked', {
+                                  step: step.name,
+                                  reason: t(`automation.runnability.${step.blocker}`),
+                                })}
+                              </span>
+                            ))}
                           </p>
                         )}
                         <div className="flex items-center justify-between mt-2">

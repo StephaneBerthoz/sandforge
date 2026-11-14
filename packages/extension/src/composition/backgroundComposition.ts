@@ -1969,7 +1969,7 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
       : vscode.l10n.t('the {0} org {1}', tierWord(tier), name),
   deployRefused: (org) =>
     vscode.l10n.t(
-      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.',
+      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}: bring the change there through your release process, as a change set or a deployment from source control.',
       org,
     ),
   deleteRefused: (operation, org) =>

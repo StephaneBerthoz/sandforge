@@ -415,6 +415,64 @@ describe('DataOpsHandler — a masking run held to a filter, with a snapshot fir
     });
   });
 
+  it('says in the editor which setting raises the snapshot, and on a command line which flag', async () => {
+    // It named the setting on a command line, which has none, and offered to
+    // narrow a run the page cannot narrow.
+    cap = 100;
+    orgOf(contactsOf(150, 150));
+    await send('dataops:anonymize', {
+      orgId: 'org-1',
+      templateId: 'tpl-gdpr-standard',
+      objects: ['Contact'],
+      snapshot: true,
+    });
+    const inEditor = String(last('dataops:error')?.payload.message);
+    expect(inEditor).toContain(
+      'Raise sandforge.backup.maxRecordsPerObject in Settings (this run held 100, 1,000,000 at most), then apply again.',
+    );
+    expect(inEditor).not.toContain('narrow the run');
+
+    handler.setOnCommandLine(true);
+    orgOf(contactsOf(150, 150));
+    await send(
+      'dataops:anonymize',
+      { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'], snapshot: true },
+      'req-cli',
+    );
+    const onCommandLine = String(last('dataops:error')?.payload.message);
+    expect(onCommandLine).toContain(
+      'Give --max-records up to 1000000 (this run held 100), or narrow the run with --object and --where.',
+    );
+    expect(onCommandLine).not.toContain('sandforge.backup');
+  });
+
+  it('says past a million records of an object that nothing raises the snapshot, and how to mask in slices', async () => {
+    cap = 100;
+    const { query } = orgOf(contactsOf(150, 150));
+    // The org counts more contacts than any snapshot holds of one object.
+    const read = query.getMockImplementation()!;
+    query.mockImplementation(async (soql: string) =>
+      soql.startsWith('SELECT COUNT() FROM Contact')
+        ? { records: [], done: true, totalSize: 1_200_000 }
+        : read(soql),
+    );
+
+    await send('dataops:anonymize', {
+      orgId: 'org-1',
+      templateId: 'tpl-gdpr-standard',
+      objects: ['Contact'],
+      snapshot: true,
+    });
+
+    const message = String(last('dataops:error')?.payload.message);
+    expect(last('dataops:error')?.payload.code).toBe('SNAPSHOT_NOT_TAKEN');
+    expect(message).toContain(
+      'No snapshot holds more than 1,000,000 records of one object, and nothing raises that: ' +
+        'mask Contact in slices from the command line',
+    );
+    expect(message).not.toContain('Raise sandforge.backup.maxRecordsPerObject');
+  });
+
   it('refuses a snapshot asked with a resume, whose run already wrote over some of its rows', async () => {
     const { statements } = orgOf(contactsOf(3, 3));
 

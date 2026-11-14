@@ -107,14 +107,26 @@ export async function prepareErasure(
     });
     if (mode === 'anonymize') {
       if (object.updateable !== true) {
-        prepared.push(refusedPlan(`The connected user may not edit ${object.label} records.`));
+        // A request to erase still has the other way, and the right to ask for.
+        prepared.push(
+          refusedPlan(
+            `The connected user may not edit ${object.label} records: erase them with Delete ` +
+              `instead, or have an admin grant Edit on ${object.label} in a permission set.`,
+          ),
+        );
         continue;
       }
       prepared.push(await prepareAnonymization(conn, detector, object, target.ids));
       continue;
     }
     if (object.deletable !== true) {
-      prepared.push(refusedPlan(`The connected user may not delete ${object.label} records.`));
+      prepared.push(
+        refusedPlan(
+          `The connected user may not delete ${object.label} records: erase them with ` +
+            'Anonymize in place instead, or have an admin grant Delete on ' +
+            `${object.label} in a permission set.`,
+        ),
+      );
       continue;
     }
     worked ??= await workedObjects(conn);

@@ -6,11 +6,13 @@ import type {
   PipelineStepType,
   PipelineSyncConfigInfo,
 } from '@sandforge/shared';
+import { BUILTIN_PIPELINE_TEMPLATES } from '@sandforge/shared';
 import {
   MAX_STEP_TIMEOUT_MS,
   blockedSteps,
   paletteBlocker,
   stepBlocker,
+  templateBlockers,
   typeBlocker,
 } from './stepRunnability';
 import type { StepPlace } from './stepRunnability';
@@ -564,5 +566,37 @@ describe('the Rewind step', () => {
 
   it('leaves the confirmation to the extension where the Rewind steps were not described', () => {
     expect(stepBlocker(rewind(), CONNECTED, placeOf(rewind()))).toBeUndefined();
+  });
+});
+
+describe('templateBlockers', () => {
+  it.each(BUILTIN_PIPELINE_TEMPLATES.map((template) => [template.name, template] as const))(
+    'runs the %s template once installed, its orgs and saved configuration chosen',
+    (_name, template) => {
+      // Most of the fifteen held a step that never ran: a Pre-check of a
+      // check SandForge does not have, a Restore, a masking with no template.
+      expect(templateBlockers(template.steps)).toEqual([]);
+    },
+  );
+
+  it('names each step of a template that would not run once installed, and why', () => {
+    expect(
+      templateBlockers([
+        { name: 'Verify Integrity', type: 'precheck', config: { checks: ['rowCount'] } },
+        { name: 'Restore Data', type: 'restore', config: { backupId: 'latest' } },
+        { name: 'Anonymize Contacts', type: 'anonymize', config: { objects: ['Contact'] } },
+        { name: 'Backup Custom Objects', type: 'backup', config: { objects: ['__custom__'] } },
+        { name: 'Seed Reference Data', type: 'seed', config: { count: 200 } },
+        { name: 'Compare Schema', type: 'compare', config: {} },
+        { name: 'Sync Records', type: 'sync', config: {} },
+      ]),
+    ).toEqual([
+      { name: 'Verify Integrity', type: 'precheck', blocker: 'precheckNeedsChecks' },
+      { name: 'Restore Data', type: 'restore', blocker: 'writesToOrg' },
+      { name: 'Anonymize Contacts', type: 'anonymize', blocker: 'anonymizeNeedsTemplate' },
+      { name: 'Backup Custom Objects', type: 'backup', blocker: 'backupNeedsObjects' },
+      { name: 'Seed Reference Data', type: 'seed', blocker: 'seedNeedsTemplate' },
+      { name: 'Compare Schema', type: 'compare', blocker: 'compareNeedsTypes' },
+    ]);
   });
 });

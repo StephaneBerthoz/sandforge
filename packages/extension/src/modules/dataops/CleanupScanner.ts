@@ -133,6 +133,8 @@ async function scanObject(
     duplicates: duplicates.duplicates,
     keyFields: keyFields.map((f) => ({ fieldApiName: f.name, label: f.label })),
     errors: [...fills.errors, ...duplicates.errors, ...stale.errors],
+    // Delete was offered on every object, and refused once its review opened.
+    deletable: described.deletable === true,
   };
 }
 
@@ -177,6 +179,19 @@ export async function scanCleanup(
   };
 }
 
+/**
+ * Where an export of a recommendation carries on: past the records the
+ * exports before it took. `skip` counts them; the stale records are taken
+ * past the last one's date of last modification and Id, the orphans past its
+ * Id, and the copies of a repeated value past the first `skip` of them.
+ */
+export interface CleanupCursor {
+  skip: number;
+  id?: string;
+  /** The last stale record's `LastModifiedDate`, as the org gave it. */
+  modified?: string;
+}
+
 /** The records a recommendation names, as far as one run acts on them. */
 export interface ResolvedRecommendation {
   object: DescribedObject;
@@ -186,6 +201,25 @@ export interface ResolvedRecommendation {
   ids: string[];
   /** More records are recommended than this run acts on. */
   truncated: boolean;
+  /** Where the next export carries on, when there are more. */
+  next?: CleanupCursor;
+}
+
+/** A date and time as SOQL compares one: to the second, in UTC. */
+function soqlDateTime(value: string): string | undefined {
+  const at = Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+  return Number.isNaN(at) ? undefined : new Date(at).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** Past the records an export before took: none past `cursor`, or more recommended than taken. */
+function nextOf(
+  cursor: CleanupCursor | undefined,
+  taken: number,
+  total: number,
+  last: Omit<CleanupCursor, 'skip'>,
+): CleanupCursor | undefined {
+  const skip = (cursor?.skip ?? 0) + taken;
+  return taken > 0 && skip < total ? { skip, ...last } : undefined;
 }
 
 /** The Ids of an answer's records, those that are Ids. */
@@ -308,6 +342,7 @@ export async function resolveRecommendation(
   objectApiName: string,
   recommendation: CleanupRecommendation,
   limit: number,
+  after?: CleanupCursor,
 ): Promise<ResolvedRecommendation> {
   const object = describedObjectSchema.parse(
     await conn.describe(assertSoqlIdentifier(objectApiName)),
@@ -327,11 +362,30 @@ export async function resolveRecommendation(
     }
     const where = `LastModifiedDate < LAST_N_DAYS:${recommendation.days}`;
     const total = (await conn.query(`SELECT COUNT() FROM ${name} WHERE ${where}`)).totalSize;
+    const at = after?.modified !== undefined ? soqlDateTime(after.modified) : undefined;
+    // Past the last record an export before took, in the same order: run
+    // again, an export took the same oldest records again.
+    const past =
+      at !== undefined && after?.id !== undefined && isRecordId(after.id)
+        ? ` AND (LastModifiedDate > ${at} OR (LastModifiedDate = ${at} AND Id > '${after.id}'))`
+        : '';
     const answer = await conn.query(
-      `SELECT Id FROM ${name} WHERE ${where} ORDER BY LastModifiedDate, Id LIMIT ${limit}`,
+      `SELECT Id, LastModifiedDate FROM ${name} WHERE ${where}${past} ` +
+        `ORDER BY LastModifiedDate, Id LIMIT ${limit}`,
     );
     const ids = idsOf(answer.records);
-    return { object, total, ids, truncated: total > ids.length };
+    const last = answer.records.at(-1) as { LastModifiedDate?: unknown } | undefined;
+    const next = nextOf(after, ids.length, total, {
+      id: ids.at(-1),
+      ...(typeof last?.LastModifiedDate === 'string' ? { modified: last.LastModifiedDate } : {}),
+    });
+    return {
+      object,
+      total,
+      ids,
+      truncated: (after?.skip ?? 0) + ids.length < total,
+      ...(next ? { next } : {}),
+    };
   }
 
   if (recommendation.kind === 'orphans') {
@@ -350,11 +404,19 @@ export async function resolveRecommendation(
           `${object.label} records: the business does not rely on it, and a record without it is no orphan.`,
       );
     }
+    const past = after?.id !== undefined && isRecordId(after.id) ? ` AND Id > '${after.id}'` : '';
     const answer = await conn.query(
-      `SELECT Id FROM ${name} WHERE ${field} = null ORDER BY Id LIMIT ${limit}`,
+      `SELECT Id FROM ${name} WHERE ${field} = null${past} ORDER BY Id LIMIT ${limit}`,
     );
     const ids = idsOf(answer.records);
-    return { object, total, ids, truncated: total > ids.length };
+    const next = nextOf(after, ids.length, total, { id: ids.at(-1) });
+    return {
+      object,
+      total,
+      ids,
+      truncated: (after?.skip ?? 0) + ids.length < total,
+      ...(next ? { next } : {}),
+    };
   }
 
   const key = fieldOf(recommendation.keyField);
@@ -363,11 +425,17 @@ export async function resolveRecommendation(
       `${recommendation.keyField} is not a field ${object.label} records can be grouped by.`,
     );
   }
-  const copies = await duplicateCopies(conn, object, key, limit);
+  // The copies come in the same order each time: past the ones an export
+  // before took, the next ones.
+  const skip = after?.skip ?? 0;
+  const copies = await duplicateCopies(conn, object, key, skip + limit);
+  const ids = copies.ids.slice(skip);
+  const next = nextOf(after, ids.length, copies.total, {});
   return {
     object,
     total: copies.total,
-    ids: copies.ids,
-    truncated: copies.total > copies.ids.length,
+    ids,
+    truncated: skip + ids.length < copies.total,
+    ...(next ? { next } : {}),
   };
 }

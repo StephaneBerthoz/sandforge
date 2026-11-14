@@ -45,7 +45,14 @@ const templates = read(extensionSrc, 'bridge', 'templates', 'pipelineTemplates.t
 const pipelineSteps = read(extensionSrc, 'bridge', 'handlers', 'pipelineSteps.ts');
 const automationHandler = read(extensionSrc, 'bridge', 'handlers', 'AutomationHandler.ts');
 const extensionHandlers = read(extensionSrc, 'bridge', 'ExtensionHandlers.ts');
-const marketplace = read(extensionSrc, 'modules', 'automation', 'PipelineMarketplace.ts');
+const marketplace = read(
+  repoRoot,
+  'packages',
+  'shared',
+  'src',
+  'constants',
+  'pipeline-marketplace.ts',
+);
 const stepExecutor = read(extensionSrc, 'modules', 'automation', 'StepExecutor.ts');
 const stepLibrary = read(extensionSrc, 'modules', 'automation', 'StepLibrary.ts');
 const automationPage = read(webviewSrc, 'pages', 'Automation', 'AutomationPage.tsx');
@@ -180,7 +187,7 @@ test('no template offers a dry run', () => {
   // predefined one names step types the executor does not implement at all.
   for (const [file, source] of [
     ['pipelineTemplates.ts', templates],
-    ['PipelineMarketplace.ts', marketplace],
+    ['pipeline-marketplace.ts', marketplace],
   ]) {
     for (const value of readableStrings(source)) {
       assert.doesNotMatch(
@@ -213,7 +220,7 @@ test('a notification step names no channel but the VS Code window it shows in', 
 
   for (const [file, source] of [
     ['pipelineTemplates.ts', templates],
-    ['PipelineMarketplace.ts', marketplace],
+    ['pipeline-marketplace.ts', marketplace],
   ]) {
     for (const step of templateSteps(source)) {
       if (!step.type.includes('notification')) continue;
@@ -254,7 +261,7 @@ test('no template card promises to tell anyone but the person running it', () =>
   // makes, and the card is read on its own, away from the banner.
   for (const [file, source] of [
     ['pipelineTemplates.ts', templates],
-    ['PipelineMarketplace.ts', marketplace],
+    ['pipeline-marketplace.ts', marketplace],
   ]) {
     const descriptions = templateDescriptions(source);
     assert.ok(descriptions.length > 0, `no template description found in ${file}`);
@@ -378,9 +385,16 @@ test('the Marketplace says which of its steps do no work', () => {
       marketplaceView,
     );
 
+  // Every built-in template runs once installed: those that held a step a
+  // pipeline refuses were rewritten or removed. The notice stays for a
+  // template imported with one.
   const refused = refusedStepTypes();
   const inert = templateSteps(marketplace).filter((step) => refused.includes(step.type));
-  assert.ok(inert.length > 0, 'no marketplace step is refused — has the executor changed?');
+  assert.deepEqual(
+    inert.map((step) => step.name),
+    [],
+    'a built-in Marketplace template holds a step a pipeline refuses again',
+  );
 
   if (notice) return;
   for (const step of inert) {

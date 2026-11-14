@@ -557,6 +557,29 @@ describe('StepExecutor', () => {
       expect(executor.check(createStep({ type: 'seed' }))).toBeUndefined();
     });
 
+    it('keeps the check of a handler it wraps, and runs the wrapper around it', async () => {
+      // Held around a Delay's wait, the run's time budget; registered in its
+      // place, the Delay lost the check that refuses one with no duration.
+      const around = vi.fn();
+      executor.wrapHandler('delay', (delay) => async (step, context) => {
+        around('before');
+        const result = await delay(step, context);
+        around('after');
+        return result;
+      });
+
+      expect(executor.check(createStep({ type: 'delay', name: 'Pause', config: {} }))).toBe(
+        'Delay step "Pause" has no duration: set how many seconds it waits.',
+      );
+      const pending = executor.getExecutor('delay')(
+        createStep({ type: 'delay', config: { seconds: 0 } }),
+        { variables: {} } as unknown as StepContext,
+      );
+      await vi.runAllTimersAsync();
+      expect((await pending).status).toBe('completed');
+      expect(around.mock.calls).toEqual([['before'], ['after']]);
+    });
+
     it('lets a handler registered in place of a built-in one read its own config', () => {
       executor.registerHandler('delay', vi.fn());
       expect(executor.check(createStep({ type: 'delay', config: {} }))).toBeUndefined();
