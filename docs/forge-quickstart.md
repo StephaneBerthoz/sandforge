@@ -133,7 +133,7 @@ You type the org's name to go on, and Production Guard refuses a production org.
 
 ## Going further
 
-- [Copy the whole org (ALL)](forge-reference.md#copy-the-whole-org-all): the fourth depth chip clones every object the target can create; what it leaves out, its prudent defaults, its dry run that stops at the gate, and its refusals
+- [Copy the whole org (ALL)](forge-reference.md#copy-the-whole-org-all): the fourth depth chip clones every object the target can create, or [a sample of it that fits the target](forge-reference.md#copy-a-sample-of-the-whole-org); what it leaves out, its prudent defaults, its dry run that stops at the gate, and its refusals
 - [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that, or on a panel narrower than 560 pixels
 - [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** row, and what Review reads of the target's metadata
 - [Emails and phone numbers](forge-reference.md#emails-and-phone-numbers), neutralized unless you keep them, and [whether the emails go out](forge-reference.md#whether-the-emails-go-out)

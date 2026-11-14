@@ -5409,3 +5409,381 @@ test('the Forge reference and the exit codes say a --sweep-list a sweep would be
     'the exit codes no longer say a refused --sweep-list exits 3',
   );
 });
+
+/*
+ * A sample of the whole org copies what fits a target too small for every
+ * record: the pages say what it keeps, how it is drawn and what it may take,
+ * and each figure they give is read here from the code that applies it, so
+ * that a figure changed in one place and not the other turns this red.
+ */
+
+const SAMPLE_SRC = [...FORGE_SRC, 'sample'];
+
+/** The section of a page that starts at `heading`, up to the next heading of the same level. */
+function sectionOf(page, file, heading) {
+  const start = page.indexOf(`\n${heading}\n`);
+  const level = heading.slice(0, heading.indexOf(' ') + 1);
+  const end = page.indexOf(`\n${level}`, start + 1);
+  assert.ok(start !== -1 && end !== -1, `${file} has no "${heading}"`);
+  return page.slice(start, end);
+}
+
+/** Every string of a catalogue, at any depth. */
+function catalogueValues(node, out = []) {
+  if (typeof node === 'string') out.push(node);
+  else if (node && typeof node === 'object') {
+    for (const value of Object.values(node)) catalogueValues(value, out);
+  }
+  return out;
+}
+
+/** The body of the exported function `name` of a source file. */
+function exportedFunction(source, file, name) {
+  const start = source.indexOf(`export function ${name}(`);
+  assert.ok(start !== -1, `${file} no longer has ${name} — re-point this gate`);
+  return source.slice(start, source.indexOf('\n}\n', start));
+}
+
+test('the Forge reference offers a sample where ALL refuses a run past the target’s data storage, as the panel does', () => {
+  const reference = read('docs', 'forge-reference.md');
+  const all = sectionOf(
+    reference,
+    'docs/forge-reference.md',
+    '## Copy the whole org (ALL)',
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    all,
+    /\*\*Records per object\*\* offers _Every record_ or _A sample that fits the target_ \(\[below\]\(#copy-a-sample-of-the-whole-org\)\)/,
+    'the ALL section no longer says Records per object offers a sample',
+  );
+  assert.doesNotMatch(
+    all,
+    /\*\*Records per object\*\* read _Every object_ and _Every record_/,
+    'the ALL section still says Records per object is greyed on Every record',
+  );
+  assert.match(
+    all,
+    /Its gate refuses it, nothing written, for its records past the data storage left — the refusal, as Review and Simulate before it, then offers a sample that fits, with \*\*Copy a sample that fits\*\*/,
+    'the ALL section no longer says its refusal for the data storage offers a sample that fits',
+  );
+  assert.match(
+    all,
+    /what every record would take of the target's data storage[^;]*against what the target has left[^;]*; past it, that the run would be refused, and what a sample that fits would take/,
+    'the ALL section no longer says Review weighs every record against the target’s storage',
+  );
+  // The panel offers it where the page says: the form, Review, Simulate and the refusal.
+  const page = ['packages', 'webview', 'src', 'pages', 'Forge'];
+  assert.match(
+    read(...page, 'ForgeInput.tsx'),
+    /<option value="sample">\{t\('forge\.recordLimitSample'\)\}<\/option>/,
+    'Records per object no longer offers a sample under ALL — re-point this gate',
+  );
+  assert.match(
+    read(...page, 'runGate.ts'),
+    /sampleOffer: stop\.code === 'STORAGE_EXCEEDED' \? run\?\.sampleOffer : undefined/,
+    'a refusal for storage no longer carries the sample offer — re-point this gate',
+  );
+  assert.match(
+    read(...page, 'ForgeRunGateNotice.tsx'),
+    /const offer = onReview && wholeOrg && !sampled && sampleOffer;/,
+    'the refusal on Review no longer offers a sample — re-point this gate',
+  );
+  assert.match(
+    read(...page, 'ForgeWholeOrgDryRun.tsx'),
+    /\{!dry\.sample && sampleOffer && \(/,
+    'Simulate no longer offers a sample — re-point this gate',
+  );
+  assert.match(
+    read(...page, 'ReviewWholeOrgSample.tsx'),
+    /check\.verdict === 'exceeds' && budget\s*\? `\$\{said\} \$\{t\('forgeRun\.review\.sample\.wholeOrg\.offer'/,
+    'Review no longer says what a sample would take past the storage — re-point this gate',
+  );
+});
+
+test('the Forge reference says what a sample keeps, how it is drawn and what it may take, with the figures the code applies', () => {
+  const sample = sectionOf(
+    read('docs', 'forge-reference.md'),
+    'docs/forge-reference.md',
+    '## Copy a sample of the whole org',
+  ).replace(/\s+/g, ' ');
+  const schema = read('packages', 'shared', 'src', 'schemas', 'forge.schema.ts');
+  const reader = read(...SAMPLE_SRC, 'sampleReader.ts');
+  const fit = read(...SAMPLE_SRC, 'sampleFit.ts');
+
+  // The children of a record: 100 per relation, those with the greatest ids.
+  assert.match(sample, /at most 100 children per record and relation/);
+  assert.match(sample, /those with the greatest ids/);
+  assert.match(
+    schema,
+    /children: 100,/,
+    'the default cap on children changed — re-point this gate',
+  );
+  assert.match(
+    reader,
+    /ORDER BY Id DESC LIMIT \$\{cap\}/,
+    'the children of a hub are no longer read by their greatest ids — re-point this gate',
+  );
+  assert.match(sample, /A master record always comes with every detail/);
+
+  // What goes whole, and what is set aside, weighed against the target's room.
+  assert.match(sample, /the price catalog, when it fits a quarter of the room the target has/);
+  assert.match(
+    read(...SAMPLE_SRC, 'sampleLinks.ts'),
+    /export const WHOLE_SHARE = 0\.25;/,
+    'the share of the room objects copied whole may take changed — re-point this gate',
+  );
+  assert.match(sample, /more than a tenth of the room the target has is set aside/);
+  assert.match(fit, /export const HEAVY_ROOT_SHARE = 0\.1;/);
+  assert.match(
+    fit,
+    /HEAVY_ROOT_SHARE \* Math\.max\(0, input\.roomBytes\)/,
+    'a heavy root is no longer weighed against the target’s room — re-point this gate',
+  );
+
+  // What it may take.
+  assert.match(
+    sample,
+    /80 % of the data storage the target says it has left, once half a MB is off/,
+  );
+  assert.match(read(...FORGE_SRC, 'ForgeRunGate.ts'), /export const STORAGE_NEAR_SHARE = 0\.8;/);
+  assert.match(
+    read(...FORGE_SRC, 'fitBudget.ts'),
+    /export const STORAGE_ROUNDING_MARGIN_MB = 0\.5;/,
+  );
+  assert.match(read(...SAMPLE_SRC, 'sampleBudget.ts'), /share: STORAGE_NEAR_SHARE,/);
+
+  // The draw: a seeded hash spread over the org, or the newest by creation date.
+  assert.match(
+    sample,
+    /_Spread over the org_, the default: each root is ranked by a SHA-256 hash of its id and a seed/,
+  );
+  assert.match(schema, /draw: 'uniform',/, 'the default draw changed — re-point this gate');
+  assert.match(
+    read(...SAMPLE_SRC, 'sampleRank.ts'),
+    /createHash\('sha256'\)\s*\.update\(`\$\{seed\}:\$\{idKey\(id\)\}`\)/,
+  );
+  assert.match(sample, /_The newest first_: the roots made last, by their creation date/);
+  assert.match(
+    reader,
+    /const newest = `\$\{CREATED\} DESC, Id DESC`;/,
+    'the newest roots are no longer read by their creation date — re-point this gate',
+  );
+  assert.match(
+    sample,
+    /An object whose creation date the org does not sort by is read by its ids[^.]*, and the simulation names it/,
+  );
+  assert.match(
+    read('packages', 'shared', 'src', 'types', 'forge.types.ts'),
+    /newestByIds\?: string\[\];/,
+  );
+
+  // The same seed draws the same records, and a smaller sample is part of a larger one.
+  const property = read(...SAMPLE_SRC, 'sampleFit.property.test.ts');
+  assert.match(sample, /The same seed and the same setup draw the same records/);
+  assert.match(
+    property,
+    /it\('draws the same plan from the same seed, whatever order the source answers in'/,
+  );
+  assert.match(
+    sample,
+    /a sample asked to take fewer MB of the same target, with the same seed, keeps a part of what a larger one keeps/,
+  );
+  assert.match(
+    property,
+    /it\('keeps of a smaller budget a part of what a larger one keeps, the room the same'/,
+  );
+
+  // What drawing may read of the source, and the plan's day.
+  assert.match(
+    sample,
+    /Past a tenth of what the source has left today, the draw is refused before an id is read \(`API_BUDGET_EXCEEDED`\)/,
+  );
+  assert.match(read(...SAMPLE_SRC, 'sampleDrawing.ts'), /more than a tenth ` \+/);
+  assert.match(sample, /in a private folder, for a day/);
+  assert.match(
+    read(...SAMPLE_SRC, 'samplePlanStore.ts'),
+    /export const SAMPLE_PLAN_MAX_AGE_MS = 24 \* 60 \* 60_000;/,
+    'a dry run’s plan is no longer kept a day — re-point this gate',
+  );
+  // Why a run draws its own, as the handler tells it.
+  assert.match(
+    sample,
+    /the plan was a day old, the simulation was set up otherwise, or its plan was gone/,
+  );
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
+  assert.match(handler, /drawnAgain = 'tooOld';/);
+  assert.match(handler, /drawnAgain = simulated === fingerprint \? 'planGone' : 'setUpOtherwise';/);
+
+  // No file with a sample.
+  assert.match(sample, /A sample copies no file[^.]*the extension refuses a sample with files/);
+  assert.match(schema, /'A sample of the whole org copies no files yet: /);
+  assert.match(
+    read('packages', 'webview', 'src', 'pages', 'Forge', 'ReviewFilesOption.tsx'),
+    /disabled=\{sampled\}/,
+  );
+
+  // Every refusal of a sample is named, and no other.
+  const named = new Set(sample.match(/`SAMPLE_[A-Z_]+`/g)?.map((code) => code.slice(1, -1)));
+  const gate = read('packages', 'shared', 'src', 'utils', 'forge-run-gate.ts');
+  const codes = new Set(
+    gate
+      .slice(gate.indexOf('FORGE_RUN_GATE_CODES'))
+      .match(/'SAMPLE_[A-Z_]+'/g)
+      ?.map((code) => code.slice(1, -1)),
+  );
+  assert.ok(
+    codes.size >= 5,
+    'the gate no longer lists the refusals of a sample — re-point this gate',
+  );
+  assert.deepEqual(
+    [...named].sort(),
+    [...codes].sort(),
+    'the refusals of a sample the page names are not the gate’s',
+  );
+  assert.match(sample, /more than a million records \(`SAMPLE_TOO_LARGE`\)/);
+  assert.match(
+    read(...SAMPLE_SRC, 'sampleClosure.ts'),
+    /export const SAMPLE_MAX_ROWS = 1_000_000;/,
+  );
+
+  // Every control and button the section names is one the interface shows.
+  const shown = [
+    ...catalogueValues(
+      JSON.parse(read('packages', 'webview', 'src', 'i18n', 'locales', 'en.json')),
+    ),
+    ...Object.values(JSON.parse(read(...EXT, 'l10n', 'bundle.l10n.json'))),
+  ];
+  const labels = new Set(
+    [...sample.matchAll(/\*\*([^*]+?)\*\*|(?<![\w`])_([^_]+?)_(?![\w`])/g)]
+      .map((match) => match[1] ?? match[2])
+      .filter((label) => !label.endsWith('.')),
+  );
+  assert.ok(labels.size >= 15, 'the section no longer names the controls it describes');
+  const unknown = [...labels].filter(
+    (label) => !shown.some((value) => value === label || value.startsWith(`${label}:`)),
+  );
+  assert.deepEqual(
+    unknown,
+    [],
+    'the section names a control or a button the interface does not show',
+  );
+});
+
+test('the Forge reference and the exit codes say every --fit flag, the JSON and the exit codes of a sample, as the clone reads and gives them', () => {
+  const line = read('docs', 'forge-reference.md')
+    .split('\n')
+    .find((paragraph) => paragraph.startsWith('`--depth all --fit share` copies a sample'));
+  assert.ok(line, 'docs/forge-reference.md has no paragraph on --depth all --fit share');
+  const cliFile = 'packages/extension/cli/sandforge-clone.ts';
+  const clone = read(...EXT, 'cli', 'sandforge-clone.ts');
+
+  // Every flag the clone reads, and no other.
+  const from = clone.indexOf('const SAMPLE_FLAGS = [');
+  assert.ok(from !== -1, 'the clone no longer lists SAMPLE_FLAGS — re-point this gate');
+  const taken = new Set(
+    clone
+      .slice(from, clone.indexOf('] as const;', from))
+      .match(/'--fit-[a-z]+'/g)
+      ?.map((flag) => flag.slice(1, -1)),
+  );
+  assert.ok(taken.size >= 8, 'the clone’s sample flags are no longer listed in SAMPLE_FLAGS');
+  const said = new Set(line.match(/--fit-[a-z]+/g));
+  assert.deepEqual(
+    [...said].sort(),
+    [...taken].sort(),
+    'the --fit flags the page names are not those the clone reads',
+  );
+
+  // The defaults it gives.
+  assert.match(line, /`--fit-seed <n>` the seed \(1 unless given\)/);
+  assert.match(
+    line,
+    /`--fit-children <n>\|all` the children a record brings through each relation \(100 unless given\)/,
+  );
+  assert.match(
+    line,
+    /`--fit-floor <n>` the roots kept of each object whatever the share \(1 unless given\)/,
+  );
+  assert.match(
+    read('packages', 'shared', 'src', 'schemas', 'forge.schema.ts'),
+    /seed: 1,[\s\S]*children: 100,\s*floor: 1,/,
+  );
+  assert.match(line, /`--max-total`, 10,000 records unless given, bounds the sample too/);
+  assert.match(read(...FORGE_SRC, 'ForgeRunGate.ts'), /export const DEFAULT_MAX_TOTAL = 10_000;/);
+  assert.match(clone, /const maxTotal = sample\.options\.maxTotal \?\? DEFAULT_MAX_TOTAL;/);
+  assert.match(
+    line,
+    /A dry run keeps its plan in `forge-samples\/` under the journal directory for a day/,
+  );
+  assert.match(read(...SAMPLE_SRC, 'samplePlanStore.ts'), /const SAMPLES_DIR = 'forge-samples';/);
+
+  // The keys of the JSON, each one the clone writes.
+  const dryKeys = line.slice(
+    line.indexOf('under `wholeOrg.sample`:'),
+    line.indexOf('A run gives it under `sample`'),
+  );
+  const keys = [...dryKeys.matchAll(/`([a-zA-Z]+)`/g)].map((match) => match[1]);
+  assert.ok(keys.length >= 25, 'the paragraph no longer lists the keys of wholeOrg.sample');
+  const sampleJson = exportedFunction(clone, cliFile, 'sampleJson');
+  assert.deepEqual(
+    keys.filter((key) => !new RegExp(`\\b${key}\\b`).test(sampleJson)),
+    [],
+    'the page names keys of wholeOrg.sample the clone does not write',
+  );
+  assert.match(clone, /\.\.\.\(dry\.sample \? \{ sample: sampleJson\(dry\.sample\) \} : \{\}\),/);
+  const resultJson = exportedFunction(clone, cliFile, 'sampleResultJson');
+  for (const key of ['written', 'goneSinceTheSample', 'changedSinceTheSample', 'leftEmpty']) {
+    assert.match(line, new RegExp(`\`${key}\``));
+    assert.match(resultJson, new RegExp(`\\b${key}\\b`), `result.sample no longer holds ${key}`);
+  }
+  assert.match(
+    clone,
+    /\.\.\.\(summary\.sample \? \{ sample: sampleResultJson\(summary\.sample\) \} : \{\}\),/,
+  );
+
+  // Its exit codes: 2 for a plan the line names that is gone or not the run's, 1 for the rest.
+  assert.match(
+    line,
+    /exits `2` when the plan is gone \(`SAMPLE_PLAN_GONE`\)[^.]*\(`SAMPLE_PLAN_MISMATCH`\)/,
+  );
+  assert.match(line, /`--fit-plan` is refused, exit `2`, nothing written/);
+  assert.match(
+    line,
+    /The clone exits `1`, nothing written, when[^.]*\(`SAMPLE_STORAGE_UNREAD`\)[^.]*\(`SAMPLE_CANNOT_FIT`\)[^.]*\(`SAMPLE_TOO_LARGE`\)[^.]*\(`API_BUDGET_EXCEEDED`\)[^.]*\(`STORAGE_EXCEEDED`\)/,
+  );
+  assert.match(
+    exportedFunction(clone, cliFile, 'sampleRefusalExit'),
+    /return code === SAMPLE_PLAN_GONE \|\| code === SAMPLE_PLAN_MISMATCH \? 2 : 1;/,
+    'the exit codes of a sample’s refusals changed — re-point this gate',
+  );
+
+  // The table of exit codes every script shares says them too.
+  const rows = read('ci-examples', 'README.md').split('\n');
+  const one = rows.find((row) => row.startsWith('| `1`'));
+  const two = rows.find((row) => row.startsWith('| `2`'));
+  for (const code of ['SAMPLE_STORAGE_UNREAD', 'SAMPLE_CANNOT_FIT', 'SAMPLE_TOO_LARGE']) {
+    assert.ok(one?.includes(`\`${code}\``), `the row of exit 1 no longer names ${code}`);
+  }
+  for (const code of ['SAMPLE_PLAN_GONE', 'SAMPLE_PLAN_MISMATCH']) {
+    assert.ok(two?.includes(`\`${code}\``), `the row of exit 2 no longer names ${code}`);
+  }
+});
+
+test('the FAQ sends a target too small for the whole org to a sample that fits', () => {
+  const faq = sectionOf(
+    read('docs', 'faq.md'),
+    'docs/faq.md',
+    '### Can Forge copy a whole org?',
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    faq,
+    /its gate refuses the run, nothing written, and a sample fits instead: pick _A sample that fits the target_ under \*\*Records per object\*\*, or add `--fit share`/,
+  );
+  assert.match(
+    faq,
+    /\[Copy a sample of the whole org\]\(forge-reference\.md#copy-a-sample-of-the-whole-org\)/,
+  );
+  const en = JSON.parse(read('packages', 'webview', 'src', 'i18n', 'locales', 'en.json'));
+  assert.equal(en.forge.recordLimitSample, 'A sample that fits the target');
+  assert.equal(en.forge.recordLimit, 'Records per object');
+});
