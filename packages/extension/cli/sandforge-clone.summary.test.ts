@@ -31,11 +31,14 @@ import {
   resumedJournalPath,
   runSummaryOfFile,
   uncertainRefusal,
+  uncertainRetryAt,
   withTheJournal,
 } from './sandforge-clone';
 import { ForgeRunStore, memoryRunFile } from '../src/modules/forge/ForgeRunStore.js';
 import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
+import { bulkJobSeconds } from '../src/core/engine/bulkJobCost.js';
+import type { InFlightJobUnderway } from '../src/modules/forge/ForgeInFlight.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -1092,6 +1095,146 @@ describe('sandforge-clone --summary', () => {
           'Run the same --resume again once job 750000000000001AAA has ended: it reads what the ' +
             'job wrote, row by row.',
         );
+      });
+
+      it('says when the same resume may go: the end of an open job’s hour, the time a running job’s rows left take', () => {
+        const NOW = Date.parse('2026-11-13T15:03:00.000Z');
+        const open = {
+          objectApiName: 'Case',
+          jobId: '750000000000001AAA',
+          rows: 2522,
+          state: 'Open',
+          processed: 0,
+          openUntil: '2026-11-13T15:49:00.000Z',
+          graceLeftMs: 46 * 60_000,
+        };
+        const running = {
+          objectApiName: 'Task',
+          jobId: '750000000000002AAA',
+          rows: 3000,
+          state: 'InProgress',
+          processed: 600,
+        };
+        const of = (underway: InFlightJobUnderway[]) => ({
+          calls: underway.length,
+          found: [],
+          notFound: [],
+          uncertain: underway.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+          unread: [],
+          underway,
+        });
+
+        // An open job: from the end of its hour, when a resume aborts it.
+        expect(uncertainRetryAt(of([open]), NOW)).toBe('2026-11-13T15:49:00.000Z');
+        // A job the org writes: once its 2400 rows left have had their time,
+        // as a job that saves records is priced, its wait in the org first.
+        const later = uncertainRetryAt(of([running]), NOW);
+        expect(Date.parse(String(later)) - NOW).toBe(
+          Math.ceil(bulkJobSeconds(2400, 'save') * 1000),
+        );
+        expect(Date.parse(String(later))).toBeGreaterThan(NOW + 40_000);
+        // Both: the later of the two.
+        expect(uncertainRetryAt(of([open, running]), NOW)).toBe('2026-11-13T15:49:00.000Z');
+        // An open job whose end the org's date does not say: by its hour left, else none.
+        const unsaid = { ...open, openUntil: undefined };
+        expect(uncertainRetryAt(of([unsaid]), NOW)).toBe('2026-11-13T15:49:00.000Z');
+        expect(uncertainRetryAt(of([{ ...unsaid, graceLeftMs: undefined }]), NOW)).toBeUndefined();
+      });
+
+      it('says no time to resume when waiting is not all it takes, or no job is under way', () => {
+        const NOW = Date.parse('2026-11-13T15:03:00.000Z');
+        const job = {
+          objectApiName: 'Case',
+          jobId: '750000000000001AAA',
+          rows: 10,
+          state: 'Open',
+          openUntil: '2026-11-13T15:49:00.000Z',
+        };
+        // A row the target may hold that no job under way sent: looked at, or
+        // written with --write-uncertain, whenever the resume goes.
+        expect(
+          uncertainRetryAt(
+            {
+              calls: 2,
+              found: [],
+              notFound: [],
+              uncertain: [
+                { objectApiName: 'Case', rows: 10 },
+                { objectApiName: 'Contact', rows: 1 },
+              ],
+              unread: [],
+              underway: [job],
+            },
+            NOW,
+          ),
+        ).toBeUndefined();
+        expect(
+          uncertainRetryAt(
+            {
+              calls: 1,
+              found: [],
+              notFound: [],
+              uncertain: [{ objectApiName: 'Contact', rows: 1 }],
+              unread: [],
+            },
+            NOW,
+          ),
+        ).toBeUndefined();
+      });
+
+      it('gives with --json when the same resume may go, the job the run left under way still running', async () => {
+        // An agent relaying the refusal read the time to try again out of a
+        // sentence, or not at all.
+        const JOB = '750000000000001AAA';
+        withOrgs(
+          fakeOrg(
+            [],
+            () => {},
+            TARGET_ORG,
+            () => {},
+            brokenAfterTheContact,
+          ),
+        );
+        const first = join(dir, 'first.json');
+        await run(argv('--summary', first));
+        const journal = killedDuringTheCall(first);
+        // The contact's call went as a Bulk API job, which the org still writes.
+        const lines = readFileSync(journal, 'utf8').split('\n');
+        const sent = lines.findIndex(
+          (line) => line.startsWith('["x",') && line.includes('"Contact"'),
+        );
+        const callId = (JSON.parse(lines[sent]) as string[])[1];
+        lines.splice(sent + 1, 0, JSON.stringify(['j', callId, JOB]));
+        writeFileSync(journal, lines.join('\n'));
+        const check = vi.fn(async () => ({
+          id: JOB,
+          state: 'InProgress',
+          numberRecordsProcessed: 0,
+        }));
+        Object.assign(orgs.TGT.conn, { bulk2: { job: () => ({ check, abort: vi.fn() }) } });
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-13T15:03:00.000Z'));
+        try {
+          stdout = '';
+          expect(await run(argv('--resume', journal, '--json'))).toBe(1);
+        } finally {
+          vi.useRealTimers();
+        }
+
+        const refused = (
+          JSON.parse(stdout) as { refused: { code: string; message: string; retryAt?: string } }
+        ).refused;
+        expect(refused.code).toBe('RESUME_UNCERTAIN');
+        expect(refused.message).toContain(
+          `Bulk API job ${JOB} (Contact), which TGT holds InProgress`,
+        );
+        expect(refused.retryAt).toBe(
+          new Date(
+            Date.parse('2026-11-13T15:03:00.000Z') + Math.ceil(bulkJobSeconds(1, 'save') * 1000),
+          ).toISOString(),
+        );
+        expect(check).toHaveBeenCalled();
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
       });
 
       it('says rows the journal cannot tell apart apart from rows the target may hold, and the ways on for those', () => {

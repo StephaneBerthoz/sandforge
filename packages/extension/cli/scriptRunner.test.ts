@@ -99,6 +99,53 @@ describe('a script in a process of its own', () => {
   );
 });
 
+describe('what one run is told beside its line', () => {
+  it(
+    'tells the script the command that relays this run in place of the runner’s own, and the runner’s own otherwise',
+    async () => {
+      const run = spawnRunner({
+        platform: process.platform,
+        scriptPath: () => PROBE,
+        relayedBy: 'sandforge mcp',
+      });
+      const signal = new AbortController().signal;
+
+      const told = await run('sandforge-clone', ['exit'], signal, {
+        relayedBy: 'sandforge mcp clone_org',
+      });
+      const own = await run('sandforge-clone', ['exit'], signal);
+
+      expect(JSON.parse(told.stdout)).toMatchObject({ relayedBy: 'sandforge mcp clone_org' });
+      expect(JSON.parse(own.stdout)).toMatchObject({ relayedBy: 'sandforge mcp' });
+    },
+    STARTS_WITHIN,
+  );
+
+  it(
+    'hands what the script says on stderr to the run as it says it, and keeps it for the answer all the same',
+    async () => {
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const call = new AbortController();
+      const heard: string[] = [];
+      const run = spawnRunner({ platform: process.platform, scriptPath: () => PROBE });
+
+      const ran = await run('sandforge-seed', ['wait'], call.signal, {
+        onStderr: (text) => {
+          heard.push(text);
+          // Stopped once it says it waits: heard while it runs, not after.
+          if (heard.join('').includes('waiting')) call.abort();
+        },
+      });
+
+      expect(heard.join('')).toBe(ran.stderr);
+      expect(ran.stderr).toContain('waiting');
+      expect(ran.stderr).toContain('stopped by SIGINT');
+      expect(ran.code).toBe(130);
+    },
+    STARTS_WITHIN,
+  );
+});
+
 describe('the scripts a runner starts', () => {
   /** Every script the runner may be asked for: the type refuses a name missing here. */
   const RUNNABLE: Record<RunnableScript, true> = {

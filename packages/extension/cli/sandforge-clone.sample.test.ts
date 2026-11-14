@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
@@ -43,6 +51,16 @@ import { SampleSourceOrg } from '../src/test/sampleSourceOrg.js';
 import { SamplePlan } from '../src/modules/forge/sample/samplePlanStore.js';
 import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import { fileConfigStore } from './fileConfigStore.js';
+import {
+  addClonePlanRun,
+  clonePlanRunLine,
+  dryRunPlanOf,
+  endClonePlanRun,
+  keepClonePlan,
+  openClonePlan,
+  type ClonePlanReceipt,
+} from './mcpClonePlans.js';
+import { runsDirOf, stampedId, summaryPathOf } from './mcpRuns.js';
 
 /*
  * A sample of the whole org from the command line (`--depth all --fit share`):
@@ -1934,5 +1952,119 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(answer.refused.message).toContain('Simulate again');
     expect(orgs.target.creates).toEqual([]);
     expect(existsSync(dry.plan.path)).toBe(true);
+  });
+});
+
+describe('the plan the MCP server keeps of a dry run, run by the command whole', () => {
+  /** The line of the dry run the server runs, and its answer: the plan it keeps. */
+  async function kept() {
+    withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+    const dryRun = argv('--fit', 'share', '--max-total', '60', '--dry-run', '--json').slice(2);
+    expect(await run(['node', 'sandforge-clone.ts', ...dryRun])).toBeUndefined();
+    const answer = JSON.parse(stdout.join('')) as DryRunJson;
+    const planned = dryRunPlanOf(answer);
+    if (!planned) throw new Error('the dry run planned nothing to keep');
+    const receipt = await keepClonePlan(journalDir, {
+      source: 'SRC',
+      target: 'TGT',
+      dryRunArgs: dryRun,
+      planned,
+      accepted: [],
+    });
+    stdout = [];
+    stderr = [];
+    mkdirSync(runsDirOf(journalDir), { recursive: true });
+    return { answer, receipt };
+  }
+
+  /** A run of the plan: the line its receipt makes, its summary under the server's runs. */
+  async function runOf(receipt: ClonePlanReceipt, resume?: string) {
+    const handle = stampedId('mr');
+    const summary = summaryPathOf(runsDirOf(journalDir), handle);
+    await addClonePlanRun(journalDir, receipt.id, {
+      run: handle,
+      startedAt: new Date().toISOString(),
+      summary,
+      resume: resume !== undefined,
+    });
+    const line = clonePlanRunLine(receipt, { summary, ...(resume ? { resume } : {}) });
+    const code = await run(['node', 'sandforge-clone.ts', ...line]);
+    const answer = JSON.parse(stdout.join('')) as RunJson & {
+      refused?: { code: string };
+      interrupted?: boolean;
+    };
+    await endClonePlanRun(journalDir, receipt.id, handle, {
+      code: typeof code === 'number' ? code : 0,
+      ...(answer.journal ? { journal: answer.journal } : {}),
+    });
+    stdout = [];
+    return { code, answer };
+  }
+
+  it('writes from its copy the plan its dry run drew, every record once, and nothing on a second run of it', async () => {
+    const { answer, receipt } = await kept();
+    const planned = await namesOfThePlan(String(receipt.sample?.dir));
+    // The dry run's own folder, drawn again or swept since: the copy is what is written.
+    rmSync(answer.wholeOrg.sample.plan.path, { recursive: true });
+
+    const orgs = withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+    const first = await runOf(receipt);
+
+    expect(first.code).toBeUndefined();
+    expect(first.answer.result.status).toBe('success');
+    expect(first.answer.sample.plan.sha256).toBe(receipt.sample?.sha256);
+    expect(sorted(sentIds(orgs.target.creates))).toEqual(sorted(planned));
+    expect(stderr.join('')).toContain('--yes: written without the question: a sample of SRC:');
+    // Taken beside its journal by the run: the receipt is written.
+    expect(existsSync(String(receipt.sample?.dir))).toBe(false);
+    expect(await openClonePlan(journalDir, receipt.id)).toMatchObject({
+      state: 'written',
+      journal: first.answer.journal,
+    });
+
+    // Run again all the same, the command refuses it: its copy is the run's now.
+    const again = withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+    const second = await runOf(receipt);
+    expect(second.code).toBe(2);
+    expect(second.answer.refused?.code).toBe('SAMPLE_PLAN_GONE');
+    expect(again.target.creates).toEqual([]);
+  });
+
+  it('is refused SAMPLE_PLAN_MISMATCH, nothing written, when its copy is not as it was kept', async () => {
+    const { receipt } = await kept();
+    const dir = String(receipt.sample?.dir);
+    const file = readdirSync(dir).find((name) => name.endsWith('.ids'));
+    const ids = join(dir, String(file));
+    const first = readFileSync(ids, 'utf8').split('\n')[0];
+    writeFileSync(ids, readFileSync(ids, 'utf8').replace(first, `${first.slice(0, -4)}9AAA`));
+
+    const orgs = withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+    const ran = await runOf(receipt);
+
+    expect(ran.code).toBe(2);
+    expect(ran.answer.refused?.code).toBe('SAMPLE_PLAN_MISMATCH');
+    expect(orgs.target.creates).toEqual([]);
+    expect(await openClonePlan(journalDir, receipt.id)).toMatchObject({ state: 'ready' });
+  });
+
+  it('takes a run of it stopped part way up by the line of its resume, each record of the plan written once', async () => {
+    const { receipt } = await kept();
+    const planned = await namesOfThePlan(String(receipt.sample?.dir));
+
+    const stopping = withFakeOrgs({
+      target: { limits: DEVELOPER_EDITION, interruptOn: 'Contact' },
+    });
+    const stopped = await runOf(receipt);
+    expect(stopped.code).toBe(130);
+    const opened = await openClonePlan(journalDir, receipt.id);
+    expect(opened).toMatchObject({ state: 'written', journal: stopped.answer.journal });
+
+    const taking = withFakeOrgs({ target: { limits: DEVELOPER_EDITION, firstId: 500 } });
+    const taken = await runOf(receipt, stopped.answer.journal);
+
+    expect(taken.code).toBeUndefined();
+    expect(taken.answer.result.status).toBe('success');
+    const written = [...stopping.target.creates, ...taking.target.creates];
+    expect(sorted(sentIds(written))).toEqual(sorted(planned));
   });
 });

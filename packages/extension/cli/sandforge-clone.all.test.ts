@@ -58,6 +58,9 @@ import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { removalOrg, type RemovalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { forgeDryRunCount, readForgeDryRun } from './env/kinds/forge.js';
+import { CLONE_ORG_RELAY } from './relayWords.js';
+import { clonePlanRunLine, dryRunPlanOf, keepClonePlan } from './mcpClonePlans.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -738,6 +741,37 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
       expect(second.wholeOrg).toEqual(first.wholeOrg);
     });
 
+    it('gives the question its run asks on a terminal before it writes, word for word, and none when a real run would be refused', async () => {
+      // Agreed to without a terminal, as the MCP server's clone_org is, a run
+      // given --yes asks nothing: the dry run is where its question is read.
+      withFakeOrgs();
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+      const question = (JSON.parse(stdout.join('')) as { wholeOrg: { question?: string } }).wholeOrg
+        .question;
+      expect(question).toMatch(/^Write 11 record\(s\) of 4 object\(s\) of SRC into TGT, /);
+      expect(question).toContain('1 object(s) of managed packages');
+      expect(question).toContain('3 personal field(s) of 2 object(s) copied as they are?');
+
+      const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      try {
+        stdout = [];
+        const declined = withFakeOrgs();
+        vi.mocked(confirm).mockResolvedValueOnce(false);
+        expect(await run(argv('--json'))).toBe(1);
+        expect(vi.mocked(confirm).mock.calls[0]?.[0]).toBe(question);
+        expect(declined.TGT.creates).toEqual([]);
+      } finally {
+        if (tty) Object.defineProperty(process.stdin, 'isTTY', tty);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      }
+
+      stdout = [];
+      withFakeOrgs();
+      expect(await run(argv('--dry-run', '--json', '--max-total', '5'))).toBe(1);
+      expect(JSON.parse(stdout.join('')).wholeOrg).not.toHaveProperty('question');
+    });
+
     it('exits 1, nothing written, when a real run would be refused, naming each refusal under its code', async () => {
       const orgs = withFakeOrgs({
         target: {
@@ -1169,6 +1203,68 @@ describe('sandforge-clone --depth all, a clone of the whole org', () => {
       expect(refused.alsoRefused?.map((also) => also.code)).toEqual(['STORAGE_EXCEEDED']);
       expect(stderr.join('')).not.toContain('--yes: written without the question');
       expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('writes the plan of every record the MCP server keeps of its dry run, held to the count of that plan', async () => {
+      withFakeOrgs();
+      const dryRun = argv('--dry-run', '--json').slice(2);
+      expect(await run(['node', 'sandforge-clone.ts', ...dryRun])).toBeUndefined();
+      const planned = dryRunPlanOf(JSON.parse(stdout.join('')));
+      expect(planned).toMatchObject({ mode: 'whole', totalRows: 11 });
+      const journals = String(process.env['SANDFORGE_JOURNAL_DIR']);
+      const receipt = await keepClonePlan(journals, {
+        source: 'SRC',
+        target: 'TGT',
+        dryRunArgs: dryRun,
+        planned: planned!,
+        accepted: [],
+      });
+      stdout = [];
+      stderr = [];
+      const summary = join(journals, `${receipt.id}-run.json`);
+
+      const orgs = withFakeOrgs();
+      const line = clonePlanRunLine(receipt, { summary });
+      expect(line.slice(line.indexOf('--max-total'), line.indexOf('--max-total') + 2)).toEqual([
+        '--max-total',
+        '11',
+      ]);
+      expect(await run(['node', 'sandforge-clone.ts', ...line])).toBeUndefined();
+
+      const document = JSON.parse(stdout.join('')) as {
+        journal: string;
+        result: { status: string };
+      };
+      expect(document.result.status).toBe('success');
+      expect(orgs.TGT.creates.reduce((sum, { rows }) => sum + rows.length, 0)).toBe(11);
+      expect(stderr.join('')).toContain('--yes: written without the question: 11 record(s)');
+      expect(JSON.parse(readFileSync(summary, 'utf8'))).toMatchObject({
+        journal: document.journal,
+      });
+    });
+
+    it('says to the reader of clone_org that the source grew past the count of its plan, nothing written', async () => {
+      // clone_org writes a plan held to the count its dry run gave: past it,
+      // the source holds more than was shown, and only a new plan says it.
+      vi.stubEnv(RELAYED_BY_VARIABLE, CLONE_ORG_RELAY);
+      try {
+        const orgs = withFakeOrgs();
+
+        expect(await run(argv('--json', '--yes', '--max-total', '5'))).toBe(1);
+
+        const refused = (JSON.parse(stdout.join('')) as { refused: Record<string, unknown> })
+          .refused;
+        expect(refused).toEqual({
+          code: 'MAX_TOTAL_EXCEEDED',
+          message:
+            'The clone of the whole org would write 11 records, more than the 5 its plan ' +
+            'counted: the source holds more records than when it was planned. Plan again. ' +
+            'Nothing was written.',
+        });
+        expect(orgs.TGT.creates).toEqual([]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
     it('says the gate’s refusals in the command line’s words, its flags for the page and its setting', () => {

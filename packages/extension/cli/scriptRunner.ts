@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { FAILED_EXIT } from './exitCodes.js';
 import { STOP_CHANNEL_VARIABLE, STOP_MESSAGE, STOP_SIGNALS, stopExitCode } from './stopSignals.js';
 
@@ -36,6 +37,25 @@ export interface CommandRun {
 }
 
 /**
+ * What one run of a script is told beside its line, each optional: a runner
+ * that is not told keeps its own way.
+ */
+export interface RunOptions {
+  /**
+   * The command that relays this run's lines ({@link RELAYED_BY_VARIABLE}),
+   * in place of the runner's own: the MCP server's `clone_org_plan` and
+   * `clone_org` each tell the clone what its reader can give it, which the
+   * server's other tools do not.
+   */
+  relayedBy?: string;
+  /**
+   * Hears what the script says on stderr as it says it, a piece at a time:
+   * a run that goes on past its call follows its lines by it.
+   */
+  onStderr?: (text: string) => void;
+}
+
+/**
  * Runs a script of this folder with the arguments after its name, and settles
  * once it has ended. The signal stops it as Ctrl-C stops it on a terminal.
  *
@@ -46,6 +66,7 @@ export type CommandRunner<S extends RunnableScript = RunnableScript> = (
   script: S,
   args: readonly string[],
   signal: AbortSignal,
+  options?: RunOptions,
 ) => Promise<CommandRun>;
 
 /** The runtime flags a script inherits: tsx's loader, never a debugger's port. */
@@ -94,12 +115,13 @@ export interface SpawnOptions {
 export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
   const windows = (options.platform ?? process.platform) === 'win32';
   const scriptPath = options.scriptPath ?? scriptFile;
-  return (script, args, signal) =>
+  return (script, args, signal, run = {}) =>
     new Promise((resolve, reject) => {
       // Read as each script starts: what this process sets meanwhile reaches it.
+      const relayedBy = run.relayedBy ?? options.relayedBy;
       const env: NodeJS.ProcessEnv = {
         ...process.env,
-        ...(options.relayedBy !== undefined ? { [RELAYED_BY_VARIABLE]: options.relayedBy } : {}),
+        ...(relayedBy !== undefined ? { [RELAYED_BY_VARIABLE]: relayedBy } : {}),
         ...(windows ? { [STOP_CHANNEL_VARIABLE]: 'ipc' } : {}),
       };
       const child = spawn(
@@ -114,10 +136,14 @@ export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
       );
       const out: Buffer[] = [];
       const err: Buffer[] = [];
+      // Whole characters only: a chunk may end inside one.
+      const said = run.onStderr !== undefined ? new StringDecoder('utf8') : undefined;
       child.stdout?.on('data', (chunk: Buffer) => out.push(chunk));
       child.stderr?.on('data', (chunk: Buffer) => {
         err.push(chunk);
         process.stderr.write(chunk);
+        const text = said?.write(chunk);
+        if (text) run.onStderr?.(text);
       });
       const stop = (): void => {
         if (!windows || !child.connected) {
@@ -136,6 +162,8 @@ export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
       });
       child.on('close', (code, ended) => {
         signal.removeEventListener('abort', stop);
+        const rest = said?.end();
+        if (rest) run.onStderr?.(rest);
         const bySignal = STOP_SIGNALS.find((each) => each === ended);
         resolve({
           code: code ?? (bySignal !== undefined ? stopExitCode(bySignal) : FAILED_EXIT),

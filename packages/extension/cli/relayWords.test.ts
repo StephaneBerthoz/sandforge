@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  CLONE_ORG_PLAN_RELAY,
+  CLONE_ORG_RELAY,
   envWords,
   ownOptionWords,
+  relayHoldsToItsPlan,
   relayTakes,
   relayedBy,
   relayedByAnEnvironment,
@@ -91,6 +94,61 @@ describe('relayWords', () => {
       expect(envWords('--keep-contact-points', 'keepContactPoints'), relay).toBe(
         '--keep-contact-points',
       );
+    }
+  });
+
+  it('takes what narrows, fits and accepts a clone of the whole org for the plan of clone_org_plan, and nothing for the run of clone_org', () => {
+    vi.stubEnv(RELAYED_BY_VARIABLE, CLONE_ORG_PLAN_RELAY);
+    for (const option of [
+      '--max-total',
+      '--exclude-object',
+      '--exclude',
+      '--filter',
+      '--fit',
+      '--fit-within',
+      '--fit-seed',
+      '--fit-draw',
+      '--fit-parents',
+      '--fit-children',
+      '--fit-whole',
+      '--fit-floor',
+      '--anonymize',
+      '--accept-automation',
+      '--accept-emails',
+      '--mute-automation',
+      '--checkpoint-first',
+    ]) {
+      expect(relayTakes(option), option).toBe(true);
+    }
+    // What the terminal keeps: neither tool copies real data as it is, nor
+    // files, nor lists objects, nor takes a run back.
+    for (const option of ['--no-anonymize', '--files', '--list-objects', '--include-changed']) {
+      expect(relayTakes(option), option).toBe(false);
+    }
+
+    vi.stubEnv(RELAYED_BY_VARIABLE, CLONE_ORG_RELAY);
+    for (const option of ['--max-total', '--filter', '--fit-within', '--mute-automation']) {
+      expect(relayTakes(option), option).toBe(false);
+    }
+    expect(ownOptionWords('--max-total')).toBe("this script's own --max-total");
+  });
+
+  it('holds a run to its plan’s count when an environment or clone_org relays it, never when a plan is drawn or nothing relays it', () => {
+    for (const relay of [
+      'sandforge env',
+      'sandforge env plan',
+      'sandforge env apply',
+      'sandforge env apply, relayed by sandforge mcp',
+      CLONE_ORG_RELAY,
+    ]) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayHoldsToItsPlan(), relay).toBe(true);
+    }
+    // clone_org_plan starts as clone_org's name does: read whole, it is the
+    // dry run whose maxTotal its reader gives, not a run held to a plan.
+    for (const relay of ['', 'sandforge mcp', CLONE_ORG_PLAN_RELAY, `${CLONE_ORG_RELAY}s`]) {
+      vi.stubEnv(RELAYED_BY_VARIABLE, relay);
+      expect(relayHoldsToItsPlan(), relay).toBe(false);
     }
   });
 });

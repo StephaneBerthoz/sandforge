@@ -52,15 +52,16 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join as joinPath, resolve as resolvePath, sep } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import { journalDirOf } from './journalDir.js';
 import { SfSessionError } from './sfFailure.js';
 import {
   envWords,
   ownOptionWords,
+  relayHoldsToItsPlan,
   relayTakes,
   relayedBy,
   relayedByAnEnvironment,
@@ -183,6 +184,7 @@ import type {
 import { BulkJobLostError, forgeBulkWrite } from '../src/modules/forge/forgeBulkWrite.js';
 import { LostBulkJobs, type LostBulkJob } from '../src/modules/forge/lostBulkJobs.js';
 import { jsforceBulk } from '../src/core/engine/jsforceBulk.js';
+import { bulkJobSeconds } from '../src/core/engine/bulkJobCost.js';
 import { objectsUnderDuplicateRules } from '../src/modules/seed/seedDuplicateRules.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import { ownerMapRefusalOf } from '../src/modules/forge/ownerMapRefusal.js';
@@ -2815,6 +2817,46 @@ export function uncertainRefusal(reconciled: InFlightReconciliation, target: str
 }
 
 /**
+ * When the same resume may go, refused for the rows of calls under way
+ * ({@link uncertainRefusal}), as an ISO date a program reads beside its
+ * words: once the hour of grace of each job still open has ended — from
+ * when a resume aborts it — and each job the org is still writing has had
+ * the time its rows left take (`bulkJobSeconds`), counted from when the
+ * refusal was read. Nothing when waiting is not all it takes — rows the
+ * journal cannot tell apart, records the resume cannot tell from the rows —
+ * nor when a job still open says no end. Told it in words alone, an agent
+ * relaying the refusal had to read a date out of a sentence. Exported so it
+ * can be tested.
+ *
+ * @param now - This machine's clock, in epoch milliseconds, when the jobs were read.
+ */
+export function uncertainRetryAt(
+  reconciled: InFlightReconciliation,
+  now: number = Date.now(),
+): string | undefined {
+  const underway = reconciled.underway ?? [];
+  if (underway.length === 0) return undefined;
+  const sum = (list: ReadonlyArray<{ rows: number }> | undefined): number =>
+    (list ?? []).reduce((total, entry) => total + entry.rows, 0);
+  if (uncertainRows(reconciled) > sum(underway)) return undefined;
+  let latest = now;
+  for (const job of underway) {
+    let at: number;
+    if (job.state === 'Open') {
+      const until = job.openUntil !== undefined ? Date.parse(job.openUntil) : Number.NaN;
+      if (Number.isFinite(until)) at = until;
+      else if (job.graceLeftMs !== undefined) at = now + job.graceLeftMs;
+      else return undefined;
+    } else {
+      const left = Math.max(0, job.rows - (job.processed ?? 0));
+      at = now + Math.ceil(bulkJobSeconds(left, 'save') * 1000);
+    }
+    latest = Math.max(latest, at);
+  }
+  return new Date(latest).toISOString();
+}
+
+/**
  * What `--resume` names, read and checked; exits 2 on a flag given nothing,
  * and with a flag of a run that writes nothing to take up.
  */
@@ -2838,17 +2880,9 @@ function resumeArg(args: readonly string[]): string | undefined {
   return value;
 }
 
-/**
- * Where the command keeps the journals of the runs that write:
- * `SANDFORGE_JOURNAL_DIR`, or `.sandforge` in the home directory. Exported so
- * it can be tested.
- */
-export function journalDirOf(env: NodeJS.ProcessEnv = process.env): string {
-  const dir = env['SANDFORGE_JOURNAL_DIR'];
-  return dir !== undefined && dir.trim() !== ''
-    ? resolvePath(dir)
-    : joinPath(homedir(), '.sandforge');
-}
+// Where the command keeps the journals of the runs that write, given on to
+// the scripts that import it from here.
+export { journalDirOf };
 
 /**
  * The journal file `--resume` names: the file it gives, or the journal of the
@@ -4792,6 +4826,16 @@ export function cloneApiRequestsJson(
 }
 
 /**
+ * The question a terminal asks before a clone of the whole org writes, of
+ * what it is about to do ({@link wholeOrgQuestionWords}): the one its dry run
+ * gives as `wholeOrg.question` too, for whoever agrees to the run without a
+ * terminal to read it on. Exported so it can be tested.
+ */
+export function wholeOrgQuestion(what: string): string {
+  return `Write ${what}?`;
+}
+
+/**
  * What a clone of the whole org is about to do, in the words of its question
  * and of its refusal when no one is there to answer it: its records and
  * objects, its jobs, the requests of both orgs, the objects of managed
@@ -4879,7 +4923,19 @@ export function wholeOrgRefusalWords(message: string, sampled = false): string {
  * own words, which name no `--max`, a cap no whole org takes. Exported so it
  * can be tested.
  */
-export function wholeOrgMaxTotalRefusal(rows: number, max: number, sampled = false): string {
+export function wholeOrgMaxTotalRefusal(
+  rows: number,
+  max: number,
+  sampled = false,
+  dryRun = false,
+): string {
+  // Relayed by a command that holds the run to its plan's count — an
+  // environment, the MCP server's clone_org —, said as that command holds
+  // it, as for any clone: told "give --max-total the count its dry run
+  // says", the reader of a plan had no --max-total to give.
+  if (!relayTakes('--max-total') && relayHoldsToItsPlan()) {
+    return maxTotalRefusal(rows, max, dryRun).replace(/^The run /, 'The clone of the whole org ');
+  }
   // Any production org passes the default of 10 000: the sample that fits
   // the target and --max-total is the way most runs take, and was not named.
   return (
@@ -6751,12 +6807,12 @@ const OBJECTS_NAMED = 10;
  * this script's line. Relayed by a command that takes none of them — the MCP
  * server's `clone_record`, an environment's apply, which gives each clone its
  * dry run's count — they are this script's own: told "raise --max-total", an
- * agent had no parameter to raise it with. Relayed by an environment, which
- * sets the ceiling itself, it is said as the environment holds it: the
- * resource's `maxTotal` for a dry run, the count its plan gave for a run,
- * past which a source that grew since is refused. Told "raise its
- * --max-total", the reader of an apply had nothing to raise. Exported so it
- * can be tested.
+ * agent had no parameter to raise it with. Relayed by a command that holds
+ * the run to the count of its plan (`relayHoldsToItsPlan`), which sets the
+ * ceiling itself, it is said as that command holds it: an environment's dry
+ * run by the resource's `maxTotal`, a run by the count its plan gave, past
+ * which a source that grew since is refused. Told "raise its --max-total",
+ * the reader of an apply had nothing to raise. Exported so it can be tested.
  *
  * @param dryRun - Whether the run is a dry run, which an environment holds to its file's ceiling.
  */
@@ -6767,8 +6823,8 @@ export function maxTotalRefusal(rows: number, max: number, dryRun = false): stri
       '(--max, --exclude-object, --filter), or raise --max-total.'
     );
   }
-  if (relayedBy()?.startsWith('sandforge env') === true) {
-    return dryRun
+  if (relayHoldsToItsPlan()) {
+    return dryRun && relayedByAnEnvironment()
       ? `The run would write ${rows} records, more than the ${max} the resource's maxTotal ` +
           'holds it to: narrow the resource in the file, or raise its maxTotal.'
       : `The run would write ${rows} records, more than the ${max} its plan counted: the ` +
@@ -11195,10 +11251,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     );
     for (const line of inFlightLines(reconciled, args.target)) say(line);
     if (uncertainRows(reconciled) > 0 && !args.writeUncertain) {
-      refuseBeforeRead({
+      // With --json, `refused.retryAt` says when the same resume may go, when
+      // waiting for the jobs under way is all it takes.
+      const retryAt = uncertainRetryAt(reconciled);
+      const refused: RunRefusal & { retryAt?: string } = {
         code: 'RESUME_UNCERTAIN',
         message: uncertainRefusal(reconciled, args.target),
-      });
+        ...(retryAt !== undefined ? { retryAt } : {}),
+      };
+      refuseBeforeRead(refused);
     }
   }
 
@@ -12161,6 +12222,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
                 plan.totalRows,
                 args.maxTotal,
                 sampled !== undefined,
+                args.dryRun,
               ),
             },
           ]
@@ -12238,7 +12300,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           'answer: give --yes to write it. Nothing was written.',
       );
     }
-    const yes = await confirm(`Write ${what}?`, undefined, runController.signal);
+    const yes = await confirm(wholeOrgQuestion(what), undefined, runController.signal);
     // A Ctrl-C while the question waits stops the run there, as one that came
     // before the executor had it: no answer, nothing written.
     if (runController.signal.aborted) {
@@ -12580,6 +12642,17 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           ? { contactPointsBlanked: question.contactPointsBlanked }
           : {}),
         ...(question?.carried ? { carried: question.carried } : {}),
+        // The question the run asks on a terminal before it writes, in its
+        // own words: what someone shown this dry run agrees to when nobody is
+        // at a terminal to be asked, and a run given --yes asks nothing.
+        // None when a real run would be refused, which asks none.
+        ...(question && dryRunWritePlan && dryRunRefusals.length === 0
+          ? {
+              question: wholeOrgQuestion(
+                wholeOrgQuestionWords(question, dryRunWritePlan, args.target, sampleSaid),
+              ),
+            }
+          : {}),
       },
       ...checkpointDocument(),
       // Its API requests: what the gate priced, and what each org was sent.

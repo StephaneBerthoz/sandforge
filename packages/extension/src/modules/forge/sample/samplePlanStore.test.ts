@@ -18,6 +18,7 @@ import {
   SamplePlanError,
   adoptSamplePlan,
   copySamplePlan,
+  copySamplePlanTo,
   dryRunPlanDirOf,
   giveBackSamplePlan,
   keepSamplePlan,
@@ -399,6 +400,56 @@ describe('the plan a run takes up', () => {
       expect((await stat(copy.dir)).mode & 0o777).toBe(0o700);
       expect((await stat(join(copy.dir, 'sample.json'))).mode & 0o777).toBe(0o600);
     }
+  });
+
+  it('copies the plan a dry run drew to a folder of its own, held to the SHA-256 it was shown with, its owner’s alone', async () => {
+    const drawn = await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf());
+    const dest = join(storage, 'mcp-plans', 'co-1', 'sample');
+
+    const copy = await copySamplePlanTo(drawn.dir, dest, drawn.sha256);
+
+    expect(copy.dir).toBe(dest);
+    expect(copy.sha256).toBe(drawn.sha256);
+    expect(copy.manifest).toEqual(drawn.manifest);
+    expect(await idsOf(copy, 'Contact')).toEqual(await idsOf(drawn, 'Contact'));
+    // The dry run's own stays where the run after it may take it up.
+    expect((await SamplePlan.open(drawn.dir)).sha256).toBe(drawn.sha256);
+    // The next dry run of the same setup replaces that one; the copy stays the one shown.
+    await keepSamplePlan(
+      drawn.dir,
+      planOf({ ids: [{ objectApiName: 'Account', ids: [fakeId('001', 8)] }] }),
+    );
+    expect((await SamplePlan.open(dest, { sha256: drawn.sha256 })).count).toBe(5);
+    if (process.platform !== 'win32') {
+      expect((await stat(dest)).mode & 0o777).toBe(0o700);
+      for (const name of await readdir(dest)) {
+        expect((await stat(join(dest, name))).mode & 0o777, name).toBe(0o600);
+      }
+    }
+  });
+
+  it('copies nothing of a plan that is no longer the one of the SHA-256 given, changed or gone', async () => {
+    const drawn = await keepSamplePlan(dryRunPlanDirOf(storage, FINGERPRINT), planOf());
+    const dest = join(storage, 'mcp-plans', 'co-2', 'sample');
+    const refusal = async (dir: string, sha256: string): Promise<string | undefined> => {
+      try {
+        await copySamplePlanTo(dir, dest, sha256);
+        return undefined;
+      } catch (error) {
+        if (error instanceof SamplePlanError) return error.refusal;
+        throw error;
+      }
+    };
+
+    // Drawn again since the plan was shown: another plan in the same folder.
+    expect(await refusal(drawn.dir, '0'.repeat(64))).toBe('otherSha');
+    const contacts = join(drawn.dir, 'Contact.ids');
+    const written = await readFile(contacts, 'utf8');
+    await writeFile(contacts, written.replace(fakeId('003', 5), fakeId('003', 6)));
+    expect(await refusal(drawn.dir, drawn.sha256)).toBe('changed');
+    await rm(drawn.dir, { recursive: true });
+    expect(await refusal(drawn.dir, drawn.sha256)).toBe('gone');
+    expect(await stat(dest).catch(() => undefined)).toBeUndefined();
   });
 
   it('sweeps the dry runs’ plans a day old and the folders a keep left half written, and keeps the others', async () => {

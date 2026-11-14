@@ -614,20 +614,57 @@ export async function copySamplePlan(
   journalId: string,
 ): Promise<SamplePlan> {
   const dir = runPlanDirOf(storagePath, journalId);
-  const temp = `${dir}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  await copyPlanFolder(plan.dir, dir);
+  return SamplePlan.open(dir, { sha256: plan.sha256 });
+}
+
+/**
+ * Copy the plan in `dir` into `dest`, held to `sha256`: the plan its reader
+ * was shown, kept apart from where it was drawn. The next dry run of the
+ * same setup puts its own plan in the place of the one in `dir`
+ * (`SamplePlan.keep`), and a run given that folder then wrote a plan nobody
+ * was shown; given the copy, it writes the one shown or is refused.
+ *
+ * @throws {SamplePlanError} `gone`, `changed` or `otherSha` when `dir` does
+ *   not hold the plan of `sha256`, or no longer did as it was copied:
+ *   nothing is left in `dest` then.
+ * @returns The copy, read back from `dest`, held to `sha256`.
+ */
+export async function copySamplePlanTo(
+  dir: string,
+  dest: string,
+  sha256: string,
+): Promise<SamplePlan> {
+  const plan = await SamplePlan.open(dir, { sha256 });
+  await copyPlanFolder(plan.dir, dest);
+  try {
+    return await SamplePlan.open(dest, { sha256 });
+  } catch (error: unknown) {
+    // Put in its place by another dry run as it was copied: not the one shown.
+    await rm(dest, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * Copy the files of the plan folder `from` into `to`, in place of what it
+ * held: into a folder of its own beside it first, its owner's alone, then
+ * put in its place whole.
+ */
+async function copyPlanFolder(from: string, to: string): Promise<void> {
+  const temp = `${to}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
   try {
     await makePrivateDir(temp);
-    for (const name of await readdir(plan.dir)) {
-      await copyFile(join(plan.dir, name), join(temp, name));
+    for (const name of await readdir(from)) {
+      await copyFile(join(from, name), join(temp, name));
       await chmod(join(temp, name), CHECKPOINT_FILE_MODE);
     }
-    await rm(dir, { recursive: true, force: true });
-    await rename(temp, dir);
+    await rm(to, { recursive: true, force: true });
+    await rename(temp, to);
   } catch (error: unknown) {
     await rm(temp, { recursive: true, force: true });
     throw error;
   }
-  return SamplePlan.open(dir, { sha256: plan.sha256 });
 }
 
 /** Whether `path` is there. */

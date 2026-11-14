@@ -16,6 +16,7 @@ import {
   graphLine,
   jsonResult,
   journalGoneWords,
+  maxTotalRefusal,
   missingFlagsWords,
   neverClonedTableRefusal,
   notCountedObjectsOf,
@@ -33,6 +34,8 @@ import {
   cliRunSetup,
 } from './sandforge-clone';
 import { SfSessionError } from './sfFailure.js';
+import { CLONE_ORG_PLAN_RELAY, CLONE_ORG_RELAY } from './relayWords.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ExecutionSummary } from '../src/modules/forge/ForgeExecutor.js';
 
@@ -379,6 +382,54 @@ describe('sandforge-clone, its refusals and what they name', () => {
           'leave objects out (--exclude-object) or narrow them (--filter).',
       );
       expect(wholeOrgMaxTotalRefusal(240_000, 10_000, true)).not.toContain('--fit share');
+    });
+
+    describe('relayed', () => {
+      afterEach(() => {
+        vi.unstubAllEnvs();
+      });
+
+      it('says to the reader of clone_org that the source grew past its plan, which only a new plan says', () => {
+        // The run of a plan takes no --max-total of its reader: told "give
+        // --max-total the count its dry run says", an agent had no parameter
+        // to give it with, and the count it would give was the plan's.
+        vi.stubEnv(RELAYED_BY_VARIABLE, CLONE_ORG_RELAY);
+
+        expect(wholeOrgMaxTotalRefusal(240_000, 10_000)).toBe(
+          'The clone of the whole org would write 240000 records, more than the 10000 its plan ' +
+            'counted: the source holds more records than when it was planned. Plan again.',
+        );
+        expect(wholeOrgMaxTotalRefusal(240_000, 10_000, true)).toBe(
+          wholeOrgMaxTotalRefusal(240_000, 10_000),
+        );
+        expect(maxTotalRefusal(240_000, 10_000)).toBe(
+          'The run would write 240000 records, more than the 10000 its plan counted: the source ' +
+            'holds more records than when it was planned. Plan again.',
+        );
+      });
+
+      it('names the flags to the reader of clone_org_plan, whose parameters take them', () => {
+        vi.stubEnv(RELAYED_BY_VARIABLE, CLONE_ORG_PLAN_RELAY);
+
+        expect(wholeOrgMaxTotalRefusal(240_000, 10_000, false, true)).toContain(
+          'give --max-total the count its dry run says, copy a sample of the org that fits the ' +
+            'target and --max-total (--fit share, its dry run first)',
+        );
+      });
+
+      it('says to the reader of an environment what its file and its plan hold the clone of the whole org to', () => {
+        vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env plan');
+        expect(wholeOrgMaxTotalRefusal(240_000, 10_000, false, true)).toBe(
+          'The clone of the whole org would write 240000 records, more than the 10000 the ' +
+            "resource's maxTotal holds it to: narrow the resource in the file, or raise its " +
+            'maxTotal.',
+        );
+
+        vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env apply');
+        expect(wholeOrgMaxTotalRefusal(240_000, 10_000)).toContain(
+          'more than the 10000 its plan counted',
+        );
+      });
     });
 
     it('names the sample, the objects left out and the filters past the requests or batches it has', () => {
