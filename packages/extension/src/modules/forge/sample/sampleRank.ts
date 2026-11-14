@@ -18,13 +18,19 @@
  *   creation within one load, and not from one load to the next, where
  *   records made hours apart pass each other.
  *
+ * - Drawn by strata (`--fit-strata`), the rank is the root's place in its
+ *   stratum, in the order of the draw, over the roots the stratum holds
+ *   (`sampleStrata.ts`).
+ *
  * The draw keeps the roots of the smallest ranks across every object: no more
  * than the budget could hold, each root being a record of at least the
  * smallest documented size. A root past that could never enter the sample, as
  * those of smaller rank fill the budget before it. Besides, the roots of the
  * smallest rank of each object (its floor, one by default, as Autopilot keeps
  * one) take the rank 0: an object that holds roots has one in the sample,
- * whatever the share.
+ * whatever the share. Of an object drawn by strata, the floor is each
+ * stratum's: a record type of thirty accounts among two million has its
+ * account, which a floor of the object would leave to the largest type.
  *
  * Nothing here reads an org: the reader of the source hands each root id in.
  */
@@ -123,7 +129,7 @@ export function compareRoots(a: DrawnRoot, b: DrawnRoot): number {
 }
 
 /** A heap of roots whose top is the root that comes last ({@link compareRoots}). */
-class LastFirstHeap {
+export class LastFirstHeap {
   private readonly items: DrawnRoot[] = [];
 
   get size(): number {
@@ -178,13 +184,20 @@ function keyOf(root: DrawnRoot): string {
   return `${root.objectApiName}\n${idKey(root.id)}`;
 }
 
+/** What a floor is kept by: the object, or, drawn by strata, the object and the stratum. */
+function floorKeyOf(objectApiName: string, stratum: string | undefined): string {
+  return stratum === undefined ? objectApiName : `${objectApiName}\n${stratum}`;
+}
+
 /**
  * The roots a draw keeps, offered one at a time as the source is read: the
  * `most` of smallest rank across every object, and of each object its `floor`
- * of smallest rank, which take the rank 0.
+ * of smallest rank, which take the rank 0 — of each stratum of an object
+ * drawn by strata, its own.
  */
 export class RootDraw {
   private readonly kept = new LastFirstHeap();
+  /** The floors, by object, or by object and stratum ({@link floorKeyOf}). */
   private readonly floors = new Map<string, LastFirstHeap>();
   /** The roots in `kept`, and those in a floor, by object and id key. */
   private readonly inKept = new Set<string>();
@@ -201,15 +214,19 @@ export class RootDraw {
     private readonly floor: number,
   ) {}
 
-  /** Offer a root of `objectApiName`, ranked `rank`. */
-  offer(objectApiName: string, id: string, rank: number): void {
+  /**
+   * Offer a root of `objectApiName`, ranked `rank`; of an object drawn by
+   * strata, with the key of its stratum, whose floor it counts in.
+   */
+  offer(objectApiName: string, id: string, rank: number, stratum?: string): void {
     const root: DrawnRoot = { objectApiName, id, rank };
     const out: DrawnRoot[] = [];
     if (this.floor > 0) {
-      let floor = this.floors.get(objectApiName);
+      const at = floorKeyOf(objectApiName, stratum);
+      let floor = this.floors.get(at);
       if (!floor) {
         floor = new LastFirstHeap();
-        this.floors.set(objectApiName, floor);
+        this.floors.set(at, floor);
       }
       floor.push(root);
       this.inFloor.add(keyOf(root));
@@ -247,26 +264,40 @@ export class RootDraw {
    * Whether a root of `objectApiName` ranked `rank` would still be kept: a
    * draw by recency reads an object's roots the most recent first, and stops
    * once its next could not be — its floor filled, and the roots kept all of
-   * smaller rank.
+   * smaller rank. Of an object drawn by strata, the floor of `stratum`.
    */
-  keeps(objectApiName: string, rank: number): boolean {
-    if (this.floor > 0 && (this.floors.get(objectApiName)?.size ?? 0) < this.floor) return true;
+  keeps(objectApiName: string, rank: number, stratum?: string): boolean {
+    const floor = this.floors.get(floorKeyOf(objectApiName, stratum));
+    if (this.floor > 0 && (floor?.size ?? 0) < this.floor) return true;
     if (this.kept.size < this.most) return true;
     const last = this.kept.peek();
     return last !== undefined && rank < last.rank;
   }
 
   /**
-   * The smallest rank a root was let go at for want of room; Infinity when
-   * none was. A share at or past it would hold roots the draw does not.
+   * Say that the roots of an object ranked `rank` and past were never read:
+   * a draw by date reads no more of an object than it can keep, a stratum
+   * no more than its take. Unsaid, a draw that kept every root it read let
+   * none go, and its sample said every root was in — "the whole org fits"
+   * of ten accounts read among 150.
+   */
+  leftUnread(rank: number): void {
+    this.letGo = Math.min(this.letGo, rank);
+  }
+
+  /**
+   * The smallest rank a root was let go at for want of room, or left unread
+   * ({@link leftUnread}); Infinity when none was. A share at or past it
+   * would hold roots the draw does not.
    */
   get beyond(): number {
     return this.letGo;
   }
 
   /**
-   * The roots kept, each once: those of each object's floor at rank 0, then
-   * every one in the order {@link compareRoots} gives.
+   * The roots kept, each once: those of each object's floor, or each
+   * stratum's, at rank 0, then every one in the order {@link compareRoots}
+   * gives.
    */
   drawn(): DrawnRoot[] {
     const byKey = new Map<string, DrawnRoot>();

@@ -18,8 +18,10 @@
  * sample that depended on the order the org answers in would show it.
  *
  * Besides, what a test asks of a sample once drawn: the roots a draw reads
- * ({@link drawRootsOf}), and the lookups of the plan that name a record the
- * plan does not hold ({@link orphansOf}).
+ * ({@link drawRootsOf}) — spread over the org, the newest or the oldest
+ * first, held to a window of dates, a filter on the roots of an object, and
+ * strata, as a reader of the org reads them —, and the lookups of the plan
+ * that name a record the plan does not hold ({@link orphansOf}).
  *
  * Lives under `src/test/` with no `.test.ts` suffix: a helper, not a suite.
  */
@@ -58,6 +60,7 @@ import {
   recentRankOf,
   rootsTheBudgetHolds,
 } from '../modules/forge/sample/sampleRank';
+import { StratifiedRoots, strataTakesOf, stratumKeyOf } from '../modules/forge/sample/sampleStrata';
 
 /** A record of the fake source. */
 export interface FakeRecord {
@@ -72,6 +75,10 @@ export interface FakeRecord {
   bytes?: number;
   /** When it was created, in any unit: the order a draw by recency reads roots in, the latest first. */
   createdAt?: number;
+  /** When it was last modified, in the unit of `createdAt`: what a window on `LastModifiedDate` reads. */
+  modifiedAt?: number;
+  /** Its values of the fields its roots may be stratified by, or a filter on them may read, by field. */
+  values?: Record<string, string | boolean | null>;
 }
 
 /** An object of the fake source. */
@@ -288,6 +295,16 @@ export class FakeSampleSource implements SampleReader {
   }
 }
 
+/**
+ * The dates a test draws roots in, in the unit of `createdAt` and
+ * `modifiedAt`: from `from`, included, to before `to`.
+ */
+export interface FakeWindow {
+  field: 'CreatedDate' | 'LastModifiedDate';
+  from?: number;
+  to?: number;
+}
+
 /** How a test draws the roots. */
 export interface FakeDrawOptions {
   seed?: number;
@@ -296,13 +313,65 @@ export interface FakeDrawOptions {
   /** The bytes the roots kept are counted against ({@link rootsTheBudgetHolds}). */
   bytes: number;
   maxTotal?: number;
+  /** The dates the roots are drawn in: a record without the date is not. */
+  window?: FakeWindow;
+  /** Per object, the roots drawn among, as its filter on its roots would choose them. */
+  rootWhere?: Readonly<Record<string, (record: FakeRecord) => boolean>>;
+  /** Per object, the field of `FakeRecord.values` its roots are stratified by. */
+  strata?: Readonly<Record<string, string>>;
+  /** Every root of each stratum read, whatever the draw could keep: what the reads are held against. */
+  readEveryRoot?: boolean;
+  /** The order a scan spread over the org meets the roots in, drawn from it. */
+  order?: number;
+}
+
+/**
+ * Whether a root of `objectApiName` is in the draw: in the window, and
+ * chosen by its object's filter on its roots.
+ */
+export function inTheDraw(
+  objectApiName: string,
+  record: FakeRecord,
+  options: Pick<FakeDrawOptions, 'window' | 'rootWhere'>,
+): boolean {
+  const { window } = options;
+  if (window) {
+    const at = window.field === 'CreatedDate' ? record.createdAt : record.modifiedAt;
+    if (at === undefined) return false;
+    if (window.from !== undefined && at < window.from) return false;
+    if (window.to !== undefined && at >= window.to) return false;
+  }
+  const where = options.rootWhere?.[objectApiName];
+  return where === undefined || where(record);
+}
+
+/**
+ * The order of a draw by date: the latest created first (`recent`), ties by
+ * the greatest id, as `ORDER BY CreatedDate DESC, Id DESC` reads them; or the
+ * first (`oldest`), `ORDER BY CreatedDate ASC, Id ASC`.
+ */
+export function byDateOf(draw: 'recent' | 'oldest'): (a: FakeRecord, b: FakeRecord) => number {
+  return draw === 'recent'
+    ? (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || compareIds(b.id, a.id)
+    : (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || compareIds(a.id, b.id);
+}
+
+/** A record's value of `field`, none when it has none. */
+function valueOf(record: FakeRecord, field: string): string | boolean | null {
+  return record.values?.[field] ?? null;
 }
 
 /**
  * The roots a draw keeps, read as a sample's reader reads them: every root of
- * each object drawn from its roots, under its filter, ranked by the seed —
- * or by recency, the latest created first, then the greatest id, as long as
- * the draw keeps them.
+ * each object drawn from its roots, under its filter, in the window and
+ * chosen by the filter on its roots, ranked by the seed — or by date, the
+ * latest or the first created first, then the id, as long as the draw keeps
+ * them. An object stratified is counted by value, then each stratum read as
+ * far as it can enter — every root scanned and its smallest kept, or the
+ * first by date of each value — and ranked in its stratum (`sampleStrata`).
+ *
+ * Besides the draw, the ids of the roots each object read (`read`), and its
+ * strata.
  */
 export function drawRootsOf(
   source: FakeSampleSource,
@@ -310,24 +379,89 @@ export function drawRootsOf(
   options: FakeDrawOptions,
 ) {
   const most = rootsTheBudgetHolds(options.bytes, options.maxTotal);
-  const draw = new RootDraw(most, options.floor ?? 1);
+  const floor = options.floor ?? 1;
+  const seed = options.seed ?? 1;
+  const by = options.draw ?? 'uniform';
+  const draw = new RootDraw(most, floor);
+  const shuffle = seeded((options.order ?? 1) * 7919 + 13);
+  const mixed = <T>(rows: readonly T[]): T[] => {
+    const out = [...rows];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(shuffle() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const read = new Map<string, Set<string>>();
+  const strata = new Map<string, StratifiedRoots>();
   for (const [objectApiName, kind] of [...links.classes].sort(([a], [b]) => (a < b ? -1 : 1))) {
     if (kind.kind !== 'drawn' || !kind.rooted) continue;
     const roots = source
       .recordsOf(objectApiName)
-      .filter((record) => isRootRow(links, objectApiName, record.refs ?? {}));
-    if (options.draw === 'recent') {
-      const latest = [...roots].sort(
-        (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || compareIds(b.id, a.id),
-      );
-      for (let position = 0; position < latest.length; position++) {
-        const rank = recentRankOf(position, latest.length);
-        if (!draw.keeps(objectApiName, rank)) break;
-        draw.offer(objectApiName, latest[position].id, rank);
+      .filter((record) => isRootRow(links, objectApiName, record.refs ?? {}))
+      .filter((record) => inTheDraw(objectApiName, record, options));
+    const readOf = new Set<string>();
+    read.set(objectApiName, readOf);
+    const field = options.strata?.[objectApiName];
+    if (field !== undefined) {
+      // Counted as the org groups them, then read as far as each can enter.
+      const groups = new Map<string, { value: string | boolean | null; roots: number }>();
+      for (const record of roots) {
+        const key = stratumKeyOf(valueOf(record, field));
+        const group = groups.get(key) ?? { value: valueOf(record, field), roots: 0 };
+        group.roots++;
+        groups.set(key, group);
+      }
+      const counts = [...groups.values()];
+      const takes = options.readEveryRoot
+        ? counts.map((count) => count.roots)
+        : strataTakesOf(
+            counts.map((count) => count.roots),
+            most,
+            floor,
+          );
+      const stratified = new StratifiedRoots({
+        objectApiName,
+        field,
+        strata: counts.map((count, index) => ({ ...count, take: takes[index] })),
+        draw: by,
+        seed,
+        floor,
+      });
+      if (by === 'uniform') {
+        for (const record of mixed(roots)) stratified.scanned(record.id, valueOf(record, field));
+      } else {
+        for (const { value, key, take } of stratified.reads()) {
+          const ids = roots
+            .filter((record) => stratumKeyOf(valueOf(record, field)) === key)
+            .sort(byDateOf(by))
+            .slice(0, take)
+            .map((record) => record.id);
+          stratified.read(value, ids);
+        }
+      }
+      for (const root of stratified.ranked()) {
+        draw.offer(objectApiName, root.id, root.rank, root.stratum);
+        readOf.add(idKey(root.id));
+      }
+      draw.leftUnread(stratified.firstUnread);
+      strata.set(objectApiName, stratified);
+    } else if (by !== 'uniform') {
+      const ordered = [...roots].sort(byDateOf(by));
+      for (let position = 0; position < ordered.length; position++) {
+        const rank = recentRankOf(position, ordered.length);
+        if (!draw.keeps(objectApiName, rank)) {
+          draw.leftUnread(rank);
+          break;
+        }
+        draw.offer(objectApiName, ordered[position].id, rank);
+        readOf.add(idKey(ordered[position].id));
       }
     } else {
-      for (const record of roots)
-        draw.offer(objectApiName, record.id, rankOf(options.seed ?? 1, record.id));
+      for (const record of mixed(roots)) {
+        draw.offer(objectApiName, record.id, rankOf(seed, record.id));
+        readOf.add(idKey(record.id));
+      }
     }
   }
   const byBytes = Math.floor(options.bytes / 1024);
@@ -338,7 +472,9 @@ export function drawRootsOf(
       options.maxTotal !== undefined && options.maxTotal < byBytes
         ? ('maxTotal' as const)
         : ('storage' as const),
-    floor: options.floor ?? 1,
+    floor,
+    read,
+    strata,
   };
 }
 
@@ -461,8 +597,13 @@ export interface FakeSampleOptions {
   /** What the target's automation creates under each record of an object the run inserts; nothing by default. */
   automationBytes?: (objectApiName: string) => number;
   seed?: number;
-  draw?: 'uniform' | 'recent';
+  draw?: ForgeSampleDraw;
   floor?: number;
+  /** See {@link FakeDrawOptions}. */
+  window?: FakeWindow;
+  rootWhere?: FakeDrawOptions['rootWhere'];
+  strata?: FakeDrawOptions['strata'];
+  readEveryRoot?: boolean;
   whole?: string[];
   referenceData?: string[];
   order?: number;
@@ -488,6 +629,11 @@ export async function drawFakeSample(objects: FakeObject[], options: FakeSampleO
     seed: options.seed ?? 1,
     draw: options.draw ?? 'uniform',
     floor: options.floor ?? 1,
+    order: options.order ?? 1,
+    ...(options.window ? { window: options.window } : {}),
+    ...(options.rootWhere ? { rootWhere: options.rootWhere } : {}),
+    ...(options.strata ? { strata: options.strata } : {}),
+    ...(options.readEveryRoot ? { readEveryRoot: true } : {}),
   });
   const cut = await drawTheSample({
     links,

@@ -10,6 +10,7 @@ import {
   orphansOf,
   required,
   seeded,
+  type FakeDrawOptions,
   type FakeObject,
 } from './sampleSource';
 
@@ -101,6 +102,84 @@ describe('drawRootsOf', () => {
     });
     const draw = drawRootsOf(source, links, { bytes: 1024, floor: 0, draw: 'recent' });
     expect(draw.roots).toEqual([{ objectApiName: 'Account', id: A(2), rank: 0 }]);
+  });
+
+  it('reads a draw of the oldest the first created first, and holds the share below the next it left unread', () => {
+    const source = new FakeSampleSource(objects);
+    const links = sampleLinksOf({
+      objects: source.inputs(),
+      roomBytes: 0,
+      wholeBytes: (name, rows) => countedStorageBytes(name, { rows }),
+    });
+    const draw = drawRootsOf(source, links, { bytes: 1024, floor: 0, draw: 'oldest' });
+    expect(draw.roots).toEqual([{ objectApiName: 'Account', id: A(1), rank: 0 }]);
+    expect(draw.read.get('Account')).toEqual(new Set([A(1).slice(0, 15)]));
+    expect(draw.beyond).toBe(0.5);
+  });
+
+  it('draws only among the roots in the window and chosen by the filter on the roots', () => {
+    const accounts: FakeObject = {
+      name: 'Account',
+      keyPrefix: '001',
+      fields: [],
+      records: [1, 2, 3, 4, 5].map((n) => ({
+        id: A(n),
+        createdAt: n * 10,
+        modifiedAt: 100 - n,
+        values: { Country: n % 2 === 0 ? 'France' : 'Spain' },
+      })),
+    };
+    const source = new FakeSampleSource([accounts]);
+    const links = sampleLinksOf({
+      objects: source.inputs(),
+      roomBytes: 0,
+      wholeBytes: (name, rows) => countedStorageBytes(name, { rows }),
+    });
+    const ids = (options: Partial<FakeDrawOptions>) =>
+      drawRootsOf(source, links, { bytes: 100 * 1024, floor: 0, ...options })
+        .roots.map((root) => root.id)
+        .sort();
+    expect(ids({ window: { field: 'CreatedDate', from: 20, to: 40 } })).toEqual([A(2), A(3)]);
+    expect(ids({ window: { field: 'LastModifiedDate', from: 97 } })).toEqual([A(1), A(2), A(3)]);
+    expect(ids({ rootWhere: { Account: (r) => r.values?.Country === 'France' } })).toEqual([
+      A(2),
+      A(4),
+    ]);
+    expect(
+      ids({
+        window: { field: 'CreatedDate', to: 30 },
+        rootWhere: { Account: (r) => r.values?.Country === 'France' },
+      }),
+    ).toEqual([A(2)]);
+  });
+
+  it('draws a stratified object by stratum, the floor of each value kept at rank 0', () => {
+    const accounts: FakeObject = {
+      name: 'Account',
+      keyPrefix: '001',
+      fields: [],
+      records: Array.from({ length: 20 }, (_, n) => ({
+        id: A(n + 1),
+        createdAt: n,
+        values: { Kind: n < 2 ? 'Rare' : 'Common' },
+      })),
+    };
+    const source = new FakeSampleSource([accounts]);
+    const links = sampleLinksOf({
+      objects: source.inputs(),
+      roomBytes: 0,
+      wholeBytes: (name, rows) => countedStorageBytes(name, { rows }),
+    });
+    const draw = drawRootsOf(source, links, {
+      bytes: 3 * 1024,
+      floor: 1,
+      draw: 'recent',
+      strata: { Account: 'Kind' },
+    });
+    const atZero = draw.roots.filter((root) => root.rank === 0).map((root) => root.id);
+    // The newest of each value: the second rare one, the last common one.
+    expect(atZero.sort()).toEqual([A(2), A(20)]);
+    expect(draw.strata.get('Account')?.field).toBe('Kind');
   });
 });
 

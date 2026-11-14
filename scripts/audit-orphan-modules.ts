@@ -194,6 +194,17 @@ const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
     path: 'packages/extension/src/modules/checkpoint/replay/replayStore.ts',
     reason: 'imported by the replay load and command line (wave 58, J3 and J4)',
   },
+  // The core of the sample's new draws — strata, and the window, filter and
+  // strata resolved against the run — lands before the drawing of a sample
+  // imports it (wave 58, E4), which removes these two entries.
+  {
+    path: 'packages/extension/src/modules/forge/sample/sampleDrawOptions.ts',
+    reason: 'imported by the drawing of a sample (wave 58, E4)',
+  },
+  {
+    path: 'packages/extension/src/modules/forge/sample/sampleStrata.ts',
+    reason: 'imported by the drawing of a sample (wave 58, E4)',
+  },
 ];
 
 /** True for a spec/test/story file — never part of the production graph. */

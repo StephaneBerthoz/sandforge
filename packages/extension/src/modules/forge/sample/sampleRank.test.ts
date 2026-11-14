@@ -182,6 +182,46 @@ describe('RootDraw', () => {
     draw.offer('Account', ACCOUNT_B, 0.1);
     expect(draw.beyond).toBe(0.2);
   });
+
+  it('keeps the floor of each stratum of an object drawn by strata, not one of the object', () => {
+    const draw = new RootDraw(0, 1);
+    draw.offer('Account', ACCOUNT_A, 0.1, '=Business');
+    draw.offer('Account', ACCOUNT_B, 0.3, '=Business');
+    draw.offer('Account', '001000000000003', 0.5, '=Person');
+    draw.offer('Account', '001000000000004', 0.7, 'none');
+    expect(draw.drawn()).toEqual([
+      { objectApiName: 'Account', id: ACCOUNT_A, rank: 0 },
+      { objectApiName: 'Account', id: '001000000000003', rank: 0 },
+      { objectApiName: 'Account', id: '001000000000004', rank: 0 },
+    ]);
+    expect(draw.beyond).toBe(0.3);
+  });
+
+  it('keeps apart the floor of an object drawn by strata and that of an object drawn without', () => {
+    const draw = new RootDraw(0, 1);
+    draw.offer('Account', ACCOUNT_A, 0.4, '=Business');
+    draw.offer('Lead', '00Q000000000001', 0.2);
+    draw.offer('Lead', '00Q000000000002', 0.1);
+    expect(draw.drawn().map((r) => r.id)).toEqual([ACCOUNT_A, '00Q000000000002']);
+  });
+
+  it('holds the share below the first root a read left unread, though every root read was kept', () => {
+    const draw = new RootDraw(2, 0);
+    draw.offer('Lead', '00Q000000000001', 0);
+    draw.offer('Lead', '00Q000000000002', 0.01);
+    expect(draw.beyond).toBe(Infinity);
+    draw.leftUnread(0.02);
+    draw.leftUnread(0.5);
+    expect(draw.beyond).toBe(0.02);
+    expect(draw.drawn()).toHaveLength(2);
+  });
+
+  it('tells a draw by date to read on a stratum while its own floor is not filled', () => {
+    const draw = new RootDraw(1, 1);
+    draw.offer('Account', ACCOUNT_A, 0.1, '=Business');
+    expect(draw.keeps('Account', 0.9, '=Business')).toBe(false);
+    expect(draw.keeps('Account', 0.9, '=Person')).toBe(true);
+  });
 });
 
 describe('compareRoots', () => {
