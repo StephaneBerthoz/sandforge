@@ -257,8 +257,19 @@ export class RootDraw {
   }
 
   /**
-   * The smallest rank a root was let go at for want of room; Infinity when
-   * none was. A share at or past it would hold roots the draw does not.
+   * Say that the roots of an object ranked `rank` and past were never read:
+   * a draw by date reads no more of an object than it can keep. Unsaid, a
+   * draw that kept every root it read let none go, and its sample said every
+   * root was in — "the whole org fits" of ten accounts read among 150.
+   */
+  leftUnread(rank: number): void {
+    this.letGo = Math.min(this.letGo, rank);
+  }
+
+  /**
+   * The smallest rank a root was let go at for want of room, or left unread
+   * ({@link leftUnread}); Infinity when none was. A share at or past it
+   * would hold roots the draw does not.
    */
   get beyond(): number {
     return this.letGo;

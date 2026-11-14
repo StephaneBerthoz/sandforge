@@ -294,6 +294,36 @@ describe('drawing a sample of the whole org', () => {
     expect(org.sent.some(({ soql }) => / ORDER BY Id DESC LIMIT \d+$/.test(soql))).toBe(true);
   });
 
+  it('never says the whole org fits of a draw by recency that read no more roots than it could keep', async () => {
+    const org = new SampleSourceOrg();
+    org.columns.set('Account', DESCRIBED.Account);
+    for (let n = 1; n <= 150; n++) {
+      org.add('Account', {
+        Id: fakeId('001', n),
+        Name: `A${n}`,
+        ParentId: null,
+        RecordTypeId: null,
+        CreatedDate: new Date(Date.UTC(2026, 10, 13, 9, 0, n)).toISOString(),
+        IsDeleted: false,
+      });
+    }
+
+    const drawing = await drawSampleOfTheOrg(
+      inputOf(org, {
+        objects: [OBJECTS(150, 0)[0]],
+        order: ['Account'],
+        budget: budgetOf(1_000, 10),
+        options: { seed: 1, draw: 'recent', parents: 'all', children: 100, floor: 1 },
+      }),
+    );
+
+    if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+    // Ten accounts of 150 read and kept: the 140 others were never read.
+    expect(drawing.cut.ids.get('Account')).toHaveLength(10);
+    expect(drawing.cut.limitedBy).toBe('maxTotal');
+    expect(drawing.cut.share).toBeLessThan(1);
+  });
+
   it('keeps under the cap the children made last, not the greatest ids, and names an object whose children it kept by their ids', async () => {
     /** A moment `seconds` after the first, as the org writes a record's dates. */
     const madeAt = (seconds: number): string =>

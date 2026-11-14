@@ -590,6 +590,14 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       },
     );
     rootsByIds = drawn.filter((read) => read.by === 'id').map((read) => read.objectApiName);
+    // An object read up to its take, short of the roots counted, has roots
+    // never read past it: the share stays below them.
+    counts.forEach((count, index) => {
+      const take = takes[index];
+      if (take < count.rows && (positions.get(count.objectApiName) ?? 0) >= take) {
+        draw.leftUnread(recentRankOf(take, count.rows));
+      }
+    });
   }
   const { maxTotal } = budget.budget;
   const heldBy =
