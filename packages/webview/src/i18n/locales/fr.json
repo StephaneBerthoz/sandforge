@@ -2669,14 +2669,13 @@
       "closedMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que VS Code était fermé : aucun n'a été rattrapé.",
       "asleep": "Prévu le {{time}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : pas rattrapé.",
       "asleepMany": "{{n}} démarrages prévus du {{first}} au {{last}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : aucun n'a été rattrapé.",
-      "cli": "Quand VS Code est fermé, rien ne lance un pipeline : une tâche planifiée (cron, CI) exécute plutôt ses étapes en ligne de commande — {{commands}}.",
-      "cliNone": "Étapes qui n'en ont pas : {{steps}}.",
       "busy": "Prévu le {{time}}, pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "busyMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que l'exécution démarrée le {{since}} était encore en cours : aucun n'a eu lieu. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "busyRefresh": "Le rafraîchissement remarqué le {{time}} est arrivé pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "cannotRun": "Le rafraîchissement remarqué le {{time}} n'a rien lancé : une étape de ce pipeline ne peut pas s'exécuter.",
       "cannotRunSchedule": "Prévu le {{time}} : pas démarré, car une étape de ce pipeline ne peut pas s'exécuter.",
-      "cannotRunScheduleMany": "{{n}} démarrages prévus du {{first}} au {{last}} : aucun n'a eu lieu, car une étape de ce pipeline ne peut pas s'exécuter."
+      "cannotRunScheduleMany": "{{n}} démarrages prévus du {{first}} au {{last}} : aucun n'a eu lieu, car une étape de ce pipeline ne peut pas s'exécuter.",
+      "export": "VS Code fermé, rien ici ne le lance : exportez-le avec Exporter…, à côté d'Exécuter le pipeline, et son lanceur (cron, Planificateur de tâches ou GitHub Actions) exécute tout le pipeline avec npx sandforge."
     },
     "pipelineSchedules": {
       "title": "Planifications des pipelines",
@@ -2891,7 +2890,11 @@
         "rejectedOnPage": "Rejeté sur la page Automatisation, {{time}}",
         "rejectedOnNotification": "Rejeté dans la notification VS Code, {{time}}",
         "timedOut": "Pas approuvé à temps : personne n'a répondu avant {{time}}",
-        "cancelled": "Arrêté avant que quiconque réponde, {{time}}"
+        "cancelled": "Arrêté avant que quiconque réponde, {{time}}",
+        "approvedAtTerminal": "Approuvé dans le terminal de l'exécution, {{time}}",
+        "rejectedAtTerminal": "Rejeté dans le terminal de l'exécution, {{time}}",
+        "approvedAhead": "Approuvé d'avance, sur la ligne de commande (--approve), {{time}}",
+        "rejectedOnCommandLine": "Rejeté sur la ligne de commande, {{time}}"
       }
     },
     "hardDelete": "Suppression définitive",
@@ -2988,6 +2991,155 @@
       "discardDescription": "Elles ne sont pas enregistrées, et rien ne les ramène.",
       "discard": "Abandonner les modifications",
       "keepEditing": "Continuer la modification"
+    },
+    "ranFromCommandLine": "Ligne de commande",
+    "runRunning": "« {{name}} » s'exécute déjà sur cette machine, depuis une autre fenêtre ou en ligne de commande : relancez-le une fois cette exécution terminée.",
+    "dryRun": {
+      "button": "Essai à blanc",
+      "running": "Essai à blanc…",
+      "badge": "Essai à blanc",
+      "note": "Un essai à blanc : chaque étape qui écrit dit ce qu'elle ferait, et rien n'est écrit dans aucune org. Comparaison et Vérification préalable lisent les orgs, aucun Délai n'attend, aucune Approbation n'est demandée, et l'historique ne garde rien.",
+      "ended": "L'essai à blanc de « {{name}} » est terminé : rien n'a été écrit.",
+      "stopped": "L'essai à blanc de « {{name}} » s'arrête là où son exécution s'arrêterait, sans rien écrire : {{reason}}",
+      "unavailable": "Un essai à blanc n'est pas encore disponible, et rien n'a été lancé : réessayez une fois SandForge entièrement démarré.",
+      "stepCompleted": "S'exécuterait",
+      "stepFailed": "S'arrêterait ici",
+      "stepSkipped": "Serait sautée",
+      "runCompleted": "S'achèverait",
+      "runCompletedWithWarnings": "S'achèverait avec des avertissements",
+      "runFailed": "S'arrêterait"
+    },
+    "export": {
+      "button": "Exporter…",
+      "saveFirst": "Enregistrez d'abord : l'export prend le pipeline enregistré.",
+      "title": "Exporter « {{name}} »",
+      "description": "Un fichier du pipeline tel qu'enregistré, et un lanceur qui l'exécute avec npx sandforge pendant que VS Code est fermé. Rien n'est écrit avant que vous choisissiez où l'enregistrer.",
+      "reading": "Lecture du pipeline enregistré…",
+      "failed": "Le pipeline n'a pas été exporté, et rien n'a été enregistré : {{reason}}",
+      "refused": {
+        "NOT_SAVED": "Aucun pipeline n'est plus enregistré sous ce nom : enregistrez-le, puis exportez-le.",
+        "ORG_UNKNOWN": "Une étape, ou sa configuration Sync, nomme une org qui n'est plus enregistrée dans SandForge : choisissez une org, enregistrez, puis exportez à nouveau.",
+        "SYNC_CONFIG_UNKNOWN": "Une étape Sync exécute une configuration qui n'est plus enregistrée : choisissez-en une, enregistrez, puis exportez à nouveau.",
+        "SCHEDULES_MANY": "Plus d'une planification lance ce pipeline, et un fichier n'en porte qu'une : gardez-en une, enregistrez, puis exportez à nouveau.",
+        "FILE_INVALID": "Le fichier ne se lirait pas : corrigez chaque point ci-dessous là où le pipeline, ses orgs ou les réglages le portent, puis exportez à nouveau.",
+        "VERSION_UNKNOWN": "Ce SandForge ne dit pas quelle version il est, que le fichier et ses lanceurs nomment : rien n'a été exporté."
+      },
+      "problems": "Une exécution de ce fichier refuse le pipeline avant sa première étape, comme VS Code le fait maintenant :",
+      "steps": {
+        "heading": "Étapes, VS Code fermé",
+        "runs": "S'exécute comme ici",
+        "asks": "Demande quelque chose",
+        "refused": "Refusée",
+        "refusedWhy": "L'exécution la refuse avant sa première étape :"
+      },
+      "note": {
+        "approval": "Demande à une personne dans le terminal de l'exécution. Sans personne au terminal, répondez d'avance : --approve \"{{step}}\".",
+        "staging": "Précède une écriture dans une sandbox marquée Staging : seule une personne au terminal y répond, jamais --approve.",
+        "rewindConfirm": "S'exécute une fois {{alias}} confirmée sur la machine de l'exécution : sandforge pipeline confirm dans un terminal, ou --confirm-rewind {{alias}}.",
+        "rewindCheckpoint": "Son point de contrôle est gardé sur cette machine : sur une autre, importez-le d'abord ({{command}}).",
+        "notification": "Imprime son message dans la sortie de l'exécution : il n'y a pas de fenêtre VS Code où l'afficher."
+      },
+      "orgs": {
+        "heading": "Orgs",
+        "kind": {
+          "sandbox": "Sandbox",
+          "scratch": "Scratch org",
+          "developer": "Developer Edition",
+          "production": "Production"
+        },
+        "staging": "Staging",
+        "writtenBy": "Écrite par {{steps}}",
+        "readBy": "Lue par {{steps}}",
+        "noAlias": "Pas d'alias propre : donnez-lui-en un avec la Salesforce CLI, puis nommez-le au lancement de l'exécution :",
+        "held": "Connectée à la Salesforce CLI de cette machine.",
+        "notHeld": "Connectée par nom d'utilisateur et mot de passe : la Salesforce CLI de cette machine ne la détient pas. Connectez-vous-y sur la machine de l'exécution :"
+      },
+      "variables": {
+        "heading": "Variables",
+        "secret": "Un secret : sa valeur reste hors du fichier. Donnez-la au lancement de l'exécution :",
+        "fromEnv": "Requise, et sans valeur dans le fichier : donnez-la au lancement de l'exécution :",
+        "valued": "Sa valeur est dans le fichier.",
+        "noValue": "Aucune valeur dans le fichier, et aucune n'est requise."
+      },
+      "launcher": {
+        "heading": "Lanceur",
+        "none": "Aucun : le fichier de pipeline seul",
+        "cron": "bash, lancé par cron",
+        "taskScheduler": "PowerShell, lancé par le Planificateur de tâches",
+        "githubActions": "Workflow GitHub Actions",
+        "beside": "Enregistré ensuite, sous {{launcher}}, dans le dossier de {{file}}, dont le nom est gardé : il exécute le fichier depuis son propre dossier.",
+        "github": "Enregistré ensuite, sous {{launcher}} : commitez-le sous .github/workflows d'un dépôt privé, avec {{file}} à la racine du dépôt. Ses premières lignes nomment le secret par lequel chaque org se connecte.",
+        "noSchedule": "Le pipeline n'a pas de planification : le lanceur l'exécute quand on le lance, à la main ou depuis un planificateur que vous réglez.",
+        "line": {
+          "cron": "Ajoutez cette ligne à la crontab de cette machine (crontab -e), lue en {{timezone}}, avec le dossier où vous enregistrez le lanceur :",
+          "taskScheduler": "Inscrivez sa tâche une fois, depuis PowerShell, dans le dossier du lanceur ; le Planificateur de tâches la lit en {{timezone}} :",
+          "githubActions": "Le workflow démarre sur cette ligne, lue en {{timezone}} :"
+        },
+        "moved": "La planification du pipeline, décalée de {{minutes}} minutes vers le fuseau de l'horloge de cette machine.",
+        "drift": {
+          "later": "À partir du {{time}}, elle s'exécute {{minutes}} minutes plus tard que ne le dit la planification du pipeline.",
+          "earlier": "À partir du {{time}}, elle s'exécute {{minutes}} minutes plus tôt que ne le dit la planification du pipeline.",
+          "back": "À partir du {{time}}, elle s'exécute de nouveau aux heures du pipeline."
+        },
+        "manual": "Sa tâche se crée à la main dans le Planificateur de tâches :",
+        "refused": "Aucune ligne de ce planificateur ne lance le pipeline aux heures que dit sa planification : ce lanceur ne le lance donc sur aucune planification :"
+      },
+      "handOver": {
+        "label": "Laisser ce lanceur démarrer le pipeline : couper sa planification ici",
+        "help": "Une fois le lanceur enregistré à côté du fichier, le pipeline est enregistré avec sa planification coupée dans VS Code, et la page dit ce qui le lance. Reprenez la planification dans l'onglet Déclencheurs."
+      },
+      "locks": {
+        "heading": "Ce qui sépare deux exécutions, et ce qui ne les sépare pas",
+        "same": "Un pipeline s'exécute une fois à la fois sur cette machine : une exécution depuis VS Code et une depuis ce lanceur prennent le même verrou, et la seconde est refusée.",
+        "writes": "Ce verrou tient le pipeline, pas ses orgs : un autre pipeline, ou Sync, Seed ou une sauvegarde depuis VS Code ou la ligne de commande, peut écrire la même org en même temps.",
+        "masking": "Un masquage ne tient son verrou de sauvegarde que dans sa propre fenêtre : une restauration en ligne de commande ou depuis une autre fenêtre n'est pas retenue pendant ce temps.",
+        "elsewhere": "Une exécution sur une autre machine — un runner de CI — n'est retenue par rien ici : ne laissez qu'un seul d'entre eux lancer le pipeline."
+      },
+      "saveFile": "Enregistrer le fichier…",
+      "saveFileAndLauncher": "Enregistrer le fichier et le lanceur…",
+      "saving": {
+        "file": "Enregistrement du fichier de pipeline : choisissez l'emplacement dans la fenêtre d'enregistrement.",
+        "launcher": "Enregistrement du lanceur : choisissez le dossier du fichier de pipeline.",
+        "handOver": "Coupure de la planification dans VS Code…"
+      },
+      "saved": {
+        "file": "Fichier de pipeline enregistré : {{path}}",
+        "launcher": "Lanceur enregistré : {{path}}",
+        "handedOver": "Sa planification est coupée dans VS Code : {{runner}} le lance désormais, une fois sa ligne, sa tâche ou son workflow en place.",
+        "withheld": {
+          "renamed": "La planification reste active dans VS Code : le fichier a été enregistré sous {{name}}, et le lanceur exécute {{file}}. Enregistrez de nouveau le fichier sous ce nom, puis exportez à nouveau pour confier la planification.",
+          "apart": "La planification reste active dans VS Code : le lanceur a été enregistré dans un autre dossier que le fichier, et exécute le fichier depuis le sien. Enregistrez-les côte à côte, puis exportez à nouveau pour confier la planification."
+        }
+      },
+      "stopped": {
+        "cancelledFile": "Rien n'a été enregistré : la fenêtre d'enregistrement a été fermée.",
+        "cancelledLauncher": "Le lanceur n'a pas été enregistré : la fenêtre d'enregistrement a été fermée. La planification reste active dans VS Code.",
+        "errorFile": "Le fichier de pipeline n'a pas été enregistré, ni rien après lui :",
+        "errorLauncher": "Le lanceur n'a pas été enregistré, et la planification reste active dans VS Code :",
+        "errorHandOver": "Les fichiers ont été enregistrés, mais le pipeline n'a pas été enregistré avec sa planification coupée : VS Code le lance toujours."
+      }
+    },
+    "outside": {
+      "runner": {
+        "cron": "cron (lanceur bash)",
+        "taskScheduler": "le Planificateur de tâches (lanceur PowerShell)",
+        "githubActions": "GitHub Actions"
+      },
+      "badge": {
+        "cron": "cron",
+        "taskScheduler": "Planificateur de tâches",
+        "githubActions": "GitHub Actions"
+      },
+      "since": "Lancé par {{runner}} depuis le {{time}} (fichier {{file}}) : sa planification est coupée dans VS Code.",
+      "resume": "Reprendre la planification ici",
+      "resumed": {
+        "cron": "Une fois enregistré, VS Code le lance de nouveau sur sa planification. Retirez sa ligne de la crontab, sinon les deux le lancent : le verrou d'exécution n'en laisse passer qu'une à la fois sur cette machine, et l'autre démarrage est refusé.",
+        "taskScheduler": "Une fois enregistré, VS Code le lance de nouveau sur sa planification. Supprimez sa tâche dans le Planificateur de tâches, sinon les deux le lancent : le verrou d'exécution n'en laisse passer qu'une à la fois sur cette machine, et l'autre démarrage est refusé.",
+        "githubActions": "Une fois enregistré, VS Code le lance de nouveau sur sa planification. Supprimez ou désactivez son workflow sur GitHub : rien ne sépare une exécution là-bas d'une exécution dans VS Code."
+      },
+      "stale": "Le fichier {{file}}, exporté le {{time}}, ne contient pas les changements enregistrés depuis : son lanceur exécute le pipeline tel qu'il était. Exportez-le à nouveau.",
+      "historyHere": "{{name}} : lancé par {{runner}} depuis le {{time}}. Ses exécutions sur cette machine s'affichent ici, marquées Ligne de commande.",
+      "historyElsewhere": "{{name}} : lancé par {{runner}} depuis le {{time}}. Ses exécutions là-bas ne s'affichent pas ici : voyez les exécutions du workflow sur GitHub."
     }
   },
   "ai": {

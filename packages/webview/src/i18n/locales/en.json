@@ -2669,14 +2669,13 @@
       "closedMany": "{{n}} starts due from {{first}} to {{last}}, while VS Code was closed: none was made late.",
       "asleep": "Due at {{time}}, when SandForge could not look at the schedule, as when the computer sleeps: not made late.",
       "asleepMany": "{{n}} starts due from {{first}} to {{last}}, when SandForge could not look at the schedule, as when the computer sleeps: none was made late.",
-      "cli": "While VS Code is closed, nothing starts a pipeline: a scheduled job (cron, CI) runs its steps from the command line instead — {{commands}}.",
-      "cliNone": "Steps without one: {{steps}}.",
       "busy": "Due at {{time}}, while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
       "busyMany": "{{n}} starts due from {{first}} to {{last}}, while the run started at {{since}} was still going: none was made. A pipeline never runs twice at once.",
       "busyRefresh": "The refresh noticed at {{time}} came while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
       "cannotRun": "The refresh noticed at {{time}} started nothing: a step of this pipeline cannot run.",
       "cannotRunSchedule": "Due at {{time}}: not started, because a step of this pipeline cannot run.",
-      "cannotRunScheduleMany": "{{n}} starts due from {{first}} to {{last}}: none was started, because a step of this pipeline cannot run."
+      "cannotRunScheduleMany": "{{n}} starts due from {{first}} to {{last}}: none was started, because a step of this pipeline cannot run.",
+      "export": "With VS Code closed, nothing here starts it: export it with Export…, beside Run Pipeline, and its launcher (cron, Task Scheduler or GitHub Actions) runs the whole pipeline with npx sandforge."
     },
     "pipelineSchedules": {
       "title": "Pipeline schedules",
@@ -2891,7 +2890,11 @@
         "rejectedOnPage": "Rejected on the Automation page, {{time}}",
         "rejectedOnNotification": "Rejected in the VS Code notification, {{time}}",
         "timedOut": "Not approved in time: nobody answered by {{time}}",
-        "cancelled": "Stopped before anyone answered, {{time}}"
+        "cancelled": "Stopped before anyone answered, {{time}}",
+        "approvedAtTerminal": "Approved at the terminal of the run, {{time}}",
+        "rejectedAtTerminal": "Rejected at the terminal of the run, {{time}}",
+        "approvedAhead": "Approved ahead, on the command line (--approve), {{time}}",
+        "rejectedOnCommandLine": "Rejected on the command line, {{time}}"
       }
     },
     "hardDelete": "Hard Delete",
@@ -2988,6 +2991,155 @@
       "discardDescription": "They are not saved, and nothing brings them back.",
       "discard": "Discard changes",
       "keepEditing": "Keep editing"
+    },
+    "ranFromCommandLine": "Command line",
+    "runRunning": "“{{name}}” is already running on this machine, from another window or from the command line: run it again once that run has ended.",
+    "dryRun": {
+      "button": "Dry run",
+      "running": "Dry run…",
+      "badge": "Dry run",
+      "note": "A dry run: each step that writes says what it would do, and nothing is written to any org. Compare and Pre-check read the orgs, no Delay waits, no Approval is asked, and the history keeps nothing.",
+      "ended": "The dry run of “{{name}}” ended: nothing was written.",
+      "stopped": "The dry run of “{{name}}” stops where its run would stop, and wrote nothing: {{reason}}",
+      "unavailable": "A dry run is not available yet, and nothing ran: try again once SandForge has finished starting.",
+      "stepCompleted": "Would run",
+      "stepFailed": "Would stop here",
+      "stepSkipped": "Would be skipped",
+      "runCompleted": "Would complete",
+      "runCompletedWithWarnings": "Would complete with warnings",
+      "runFailed": "Would stop"
+    },
+    "export": {
+      "button": "Export…",
+      "saveFirst": "Save first: the export takes the saved pipeline.",
+      "title": "Export “{{name}}”",
+      "description": "A file of the pipeline as saved, and a launcher that runs it with npx sandforge while VS Code is closed. Nothing is written until you choose where to save it.",
+      "reading": "Reading the saved pipeline…",
+      "failed": "The pipeline was not exported, and nothing was saved: {{reason}}",
+      "refused": {
+        "NOT_SAVED": "No pipeline is saved under this name any more: save it, then export it.",
+        "ORG_UNKNOWN": "A step, or its Sync configuration, names an org no longer registered in SandForge: pick an org, save, and export again.",
+        "SYNC_CONFIG_UNKNOWN": "A Sync step runs a configuration no longer saved: pick one, save, and export again.",
+        "SCHEDULES_MANY": "More than one schedule starts this pipeline, and a file carries one: keep one, save, and export again.",
+        "FILE_INVALID": "The file would not read: fix each point below where the pipeline, its orgs or the settings hold it, then export again.",
+        "VERSION_UNKNOWN": "This SandForge does not say which release it is, which the file and its launchers name: nothing was exported."
+      },
+      "problems": "A run of this file refuses the pipeline before its first step, as VS Code does now:",
+      "steps": {
+        "heading": "Steps, with VS Code closed",
+        "runs": "Runs as here",
+        "asks": "Asks something",
+        "refused": "Refused",
+        "refusedWhy": "The run refuses it before its first step:"
+      },
+      "note": {
+        "approval": "Asks a person at the terminal of the run. With no one at a terminal, answer it ahead: --approve \"{{step}}\".",
+        "staging": "Stands before a write to a sandbox marked Staging: only a person at a terminal answers it, never --approve.",
+        "rewindConfirm": "Runs once {{alias}} is confirmed on the machine of the run: sandforge pipeline confirm at a terminal, or --confirm-rewind {{alias}}.",
+        "rewindCheckpoint": "Its checkpoint is kept on this machine: on another, import it first ({{command}}).",
+        "notification": "Prints its message in the run's output: there is no VS Code window to show it in."
+      },
+      "orgs": {
+        "heading": "Orgs",
+        "kind": {
+          "sandbox": "Sandbox",
+          "scratch": "Scratch org",
+          "developer": "Developer Edition",
+          "production": "Production"
+        },
+        "staging": "Staging",
+        "writtenBy": "Written by {{steps}}",
+        "readBy": "Read by {{steps}}",
+        "noAlias": "No alias of its own: give it one with the Salesforce CLI, then name it as the run starts:",
+        "held": "Signed in to the Salesforce CLI of this machine.",
+        "notHeld": "Connected with a username and password: the Salesforce CLI of this machine does not hold it. Sign in to it on the machine of the run:"
+      },
+      "variables": {
+        "heading": "Variables",
+        "secret": "A secret: its value stays out of the file. Give it as the run starts:",
+        "fromEnv": "Required, and no value in the file: give it as the run starts:",
+        "valued": "Its value is in the file.",
+        "noValue": "No value in the file, and none is required."
+      },
+      "launcher": {
+        "heading": "Launcher",
+        "none": "None: the pipeline file alone",
+        "cron": "bash, started by cron",
+        "taskScheduler": "PowerShell, started by Task Scheduler",
+        "githubActions": "GitHub Actions workflow",
+        "beside": "Saved second, as {{launcher}}, in the folder of {{file}} and with that name kept: it runs the file from its own folder.",
+        "github": "Saved second, as {{launcher}}: commit it under .github/workflows of a private repository, with {{file}} at the repository's root. Its first lines name the secret each org signs in from.",
+        "noSchedule": "The pipeline has no schedule: the launcher runs it when it is started, by hand or from a scheduler you set.",
+        "line": {
+          "cron": "Add this line to the crontab of this machine (crontab -e), read in {{timezone}}, with the folder you save the launcher in:",
+          "taskScheduler": "Register its task once, from PowerShell, in the folder of the launcher; Task Scheduler reads it in {{timezone}}:",
+          "githubActions": "The workflow starts on this line, read in {{timezone}}:"
+        },
+        "moved": "The pipeline's schedule, moved by {{minutes}} minutes to the zone of this machine's clock.",
+        "drift": {
+          "later": "From {{time}}, it runs {{minutes}} minutes later than the pipeline's schedule says.",
+          "earlier": "From {{time}}, it runs {{minutes}} minutes earlier than the pipeline's schedule says.",
+          "back": "From {{time}}, it runs at the pipeline's times again."
+        },
+        "manual": "Its task is created by hand in Task Scheduler:",
+        "refused": "No line of this scheduler starts the pipeline at the times its schedule says, so this launcher starts it on no schedule:"
+      },
+      "handOver": {
+        "label": "Let this launcher start the pipeline: turn its schedule off here",
+        "help": "Once the launcher is saved beside the file, the pipeline is saved with its schedule off in VS Code, and the page says what starts it. Resume the schedule on the Triggers tab."
+      },
+      "locks": {
+        "heading": "What keeps two runs apart, and what does not",
+        "same": "A pipeline runs once at a time on this machine: a run from VS Code and one from this launcher take the same lock, and the second is refused.",
+        "writes": "That lock holds the pipeline, not its orgs: another pipeline, or Sync, Seed or Backup from VS Code or the command line, can write the same org at the same time.",
+        "masking": "A masking holds its backup lock in its own window alone: a restore from the command line or another window is not held off meanwhile.",
+        "elsewhere": "A run on another machine — a CI runner — is held off by nothing here: let only one of them start the pipeline."
+      },
+      "saveFile": "Save the file…",
+      "saveFileAndLauncher": "Save the file and the launcher…",
+      "saving": {
+        "file": "Saving the pipeline file: choose where in the Save dialog.",
+        "launcher": "Saving the launcher: choose the folder of the pipeline file.",
+        "handOver": "Turning the schedule off in VS Code…"
+      },
+      "saved": {
+        "file": "Pipeline file saved: {{path}}",
+        "launcher": "Launcher saved: {{path}}",
+        "handedOver": "Its schedule is off in VS Code: {{runner}} starts it from now on, once its line, its task or its workflow is in place.",
+        "withheld": {
+          "renamed": "The schedule stays on in VS Code: the file was saved as {{name}}, and the launcher runs {{file}}. Save the file again under that name, then export again to hand the schedule over.",
+          "apart": "The schedule stays on in VS Code: the launcher was saved in another folder than the file, and runs the file from its own. Save them side by side, then export again to hand the schedule over."
+        }
+      },
+      "stopped": {
+        "cancelledFile": "Nothing was saved: the Save dialog was closed.",
+        "cancelledLauncher": "The launcher was not saved: the Save dialog was closed. The schedule stays on in VS Code.",
+        "errorFile": "The pipeline file was not saved, nor anything after it:",
+        "errorLauncher": "The launcher was not saved, and the schedule stays on in VS Code:",
+        "errorHandOver": "The files were saved, but the pipeline was not saved with its schedule off: VS Code still starts it."
+      }
+    },
+    "outside": {
+      "runner": {
+        "cron": "cron (bash launcher)",
+        "taskScheduler": "Task Scheduler (PowerShell launcher)",
+        "githubActions": "GitHub Actions"
+      },
+      "badge": {
+        "cron": "cron",
+        "taskScheduler": "Task Scheduler",
+        "githubActions": "GitHub Actions"
+      },
+      "since": "Started by {{runner}} since {{time}} (file {{file}}): its schedule is off in VS Code.",
+      "resume": "Resume the schedule here",
+      "resumed": {
+        "cron": "Once saved, VS Code starts it on its schedule again. Remove its line from the crontab, or both start it: the run lock lets one run at a time on this machine, and the other start is refused.",
+        "taskScheduler": "Once saved, VS Code starts it on its schedule again. Delete its task in Task Scheduler, or both start it: the run lock lets one run at a time on this machine, and the other start is refused.",
+        "githubActions": "Once saved, VS Code starts it on its schedule again. Delete or disable its workflow on GitHub: a run there and one in VS Code are held apart by nothing."
+      },
+      "stale": "The file {{file}}, exported on {{time}}, does not hold the changes saved since: its launcher runs the pipeline as it was. Export it again.",
+      "historyHere": "{{name}}: started by {{runner}} since {{time}}. Its runs on this machine show here, marked Command line.",
+      "historyElsewhere": "{{name}}: started by {{runner}} since {{time}}. Its runs there do not show here: see the workflow's runs on GitHub."
     }
   },
   "ai": {

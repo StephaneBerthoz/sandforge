@@ -22,12 +22,18 @@ import { StepConfigPanel } from './StepConfigPanel';
 import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { PipelineHistoryView } from './PipelineHistoryView';
-import { PipelineQuestion, RewindStepConfirm, SchedulerCalendar } from './automationParts';
+import {
+  ExportPipelineDialog,
+  PipelineQuestion,
+  RewindStepConfirm,
+  SchedulerCalendar,
+} from './automationParts';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, templateBlockers, typeBlocker } from './stepRunnability';
 import { stepTypeLabel } from './stepTypeLabel';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { PipelineHeader } from './PipelineHeader';
+import { formatTriggerTime } from './TriggerConfigPanel';
 
 /** Main Automation page — wired to extension via bridge hooks. */
 export const AutomationPage: React.FC = () => {
@@ -50,6 +56,8 @@ export const AutomationPage: React.FC = () => {
     stepId: string;
     checkpoint: OrgCheckpoint;
   } | null>(null);
+  /** The saved pipeline Export… is open for. */
+  const [exporting, setExporting] = useState<PipelineDefinition | null>(null);
 
   const AUTOMATION_TABS: PageTab[] = [
     { id: 'canvas', label: t('automation.canvas'), icon: 'project' },
@@ -83,6 +91,17 @@ export const AutomationPage: React.FC = () => {
     pipelineSchedules,
     historyEntries,
     executionData,
+    dryRunning,
+    dryRunResult,
+    dismissDryRun,
+    handleDryRunPipeline,
+    exportable,
+    savedPipeline,
+    outsideStale,
+    historyOutside,
+    handleHandedOver,
+    handleResumeSchedule,
+    resumedFrom,
     savingPipeline,
     marketplaceLoading,
     marketplaceError,
@@ -221,6 +240,8 @@ export const AutomationPage: React.FC = () => {
         unsaved={unsavedChanges}
         saving={savingPipeline}
         running={isRunning}
+        dryRunning={dryRunning}
+        exportable={exportable}
         runBlocked={runBlockers.length > 0}
         blockedNoticeId={blockedNoticeId}
         listOpen={listOpen}
@@ -231,8 +252,25 @@ export const AutomationPage: React.FC = () => {
         onRename={handleRenamePipeline}
         onSave={handleSavePipeline}
         onRun={handleRunPipeline}
+        onDryRun={handleDryRunPipeline}
+        onExport={() => setExporting(savedPipeline ?? null)}
       />
       <ModuleHowTo module="automation" />
+
+      {/* Said from every tab: the file a launcher runs no longer holds what
+          was saved since, and runs the pipeline as it was. */}
+      {outsideStale && savedPipeline?.runsOutside && (
+        <p
+          role="note"
+          className="rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2 text-xs text-text-primary"
+          data-testid="pipeline-outside-stale"
+        >
+          {t('automation.outside.stale', {
+            time: formatTriggerTime(savedPipeline.runsOutside.since) ?? t('common.dateUnknown'),
+            file: savedPipeline.runsOutside.file,
+          })}
+        </p>
+      )}
 
       {error && (
         <ErrorBanner
@@ -479,19 +517,29 @@ export const AutomationPage: React.FC = () => {
                       onAnswerApproval={handleAnswerApproval}
                     />
                   ) : (
-                    <PipelineCanvas
-                      steps={pipeline?.steps}
-                      hasPipeline={pipeline !== undefined}
-                      orgIds={orgIds}
-                      declared={declaredVariables}
-                      syncConfigs={syncConfigs}
-                      around={stepAround}
-                      selectedStepId={selectedStepId}
-                      onSelectStep={(id) => {
-                        setSelectedStepId(id);
-                      }}
-                      onRemoveStep={handleRemoveStep}
-                    />
+                    <>
+                      {/* What the last dry run would do, above the pipeline
+                          it ran: History keeps none, and the view of the run
+                          closed as it ended. */}
+                      {dryRunResult && (
+                        <div className="mb-(--sf-space-4)" data-testid="dry-run-result">
+                          <PipelineExecutionView execution={dryRunResult} onClose={dismissDryRun} />
+                        </div>
+                      )}
+                      <PipelineCanvas
+                        steps={pipeline?.steps}
+                        hasPipeline={pipeline !== undefined}
+                        orgIds={orgIds}
+                        declared={declaredVariables}
+                        syncConfigs={syncConfigs}
+                        around={stepAround}
+                        selectedStepId={selectedStepId}
+                        onSelectStep={(id) => {
+                          setSelectedStepId(id);
+                        }}
+                        onRemoveStep={handleRemoveStep}
+                      />
+                    </>
                   )}
                 </div>
                 {/* 288 pixels, where 192 wrapped every label of a step's
@@ -511,6 +559,9 @@ export const AutomationPage: React.FC = () => {
               savedTriggers={savedTriggers}
               sandboxes={sandboxes}
               pipelineBlocked={runBlockers.length > 0}
+              {...(pipeline?.runsOutside ? { runsOutside: pipeline.runsOutside } : {})}
+              onResumeSchedule={handleResumeSchedule}
+              {...(resumedFrom ? { resumedFrom } : {})}
               onAddTrigger={handleAddTrigger}
               onRemoveTrigger={handleRemoveTrigger}
               onToggleTrigger={handleToggleTrigger}
@@ -521,14 +572,7 @@ export const AutomationPage: React.FC = () => {
           {activeTab === 'scheduler' && <SchedulerCalendar pipelineSchedules={pipelineSchedules} />}
 
           {activeTab === 'history' && (
-            <PipelineHistoryView
-              entries={historyEntries}
-              stepTypesOf={(pipelineId) =>
-                savedPipelines
-                  .find((saved) => saved.id === pipelineId)
-                  ?.steps.map((step) => step.type)
-              }
-            />
+            <PipelineHistoryView entries={historyEntries} outside={historyOutside} />
           )}
 
           {activeTab === 'marketplace' && (
@@ -649,6 +693,14 @@ export const AutomationPage: React.FC = () => {
           )}
         </div>
       </BentoTile>
+
+      {exporting && (
+        <ExportPipelineDialog
+          pipeline={exporting}
+          onClose={() => setExporting(null)}
+          onHandedOver={handleHandedOver}
+        />
+      )}
 
       {showGenPrompt && (
         <GeneratePipelineDialog

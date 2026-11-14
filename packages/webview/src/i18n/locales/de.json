@@ -2669,14 +2669,13 @@
       "closedMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während VS Code geschlossen war: keiner wurde nachgeholt.",
       "asleep": "Fällig am {{time}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: nicht nachgeholt.",
       "asleepMany": "{{n}} Starts fällig von {{first}} bis {{last}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: keiner wurde nachgeholt.",
-      "cli": "Solange VS Code geschlossen ist, startet nichts eine Pipeline: Ein geplanter Job (cron, CI) führt ihre Schritte stattdessen über die Befehlszeile aus — {{commands}}.",
-      "cliNone": "Schritte ohne eine: {{steps}}.",
       "busy": "Fällig am {{time}}, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "busyMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während der am {{since}} gestartete Lauf noch andauerte: keiner fand statt. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "busyRefresh": "Die am {{time}} bemerkte Aktualisierung kam, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "cannotRun": "Die am {{time}} bemerkte Aktualisierung hat nichts gestartet: Ein Schritt dieser Pipeline kann nicht laufen.",
       "cannotRunSchedule": "Fällig am {{time}}: nicht gestartet, weil ein Schritt dieser Pipeline nicht laufen kann.",
-      "cannotRunScheduleMany": "{{n}} Starts fällig von {{first}} bis {{last}}: keiner fand statt, weil ein Schritt dieser Pipeline nicht laufen kann."
+      "cannotRunScheduleMany": "{{n}} Starts fällig von {{first}} bis {{last}}: keiner fand statt, weil ein Schritt dieser Pipeline nicht laufen kann.",
+      "export": "Bei geschlossenem VS Code startet ihn hier nichts: Exportieren Sie ihn mit Exportieren… neben Pipeline ausführen, und sein Starter (cron, Aufgabenplanung oder GitHub Actions) führt die ganze Pipeline mit npx sandforge aus."
     },
     "pipelineSchedules": {
       "title": "Pipeline-Zeitpläne",
@@ -2891,7 +2890,11 @@
         "rejectedOnPage": "Auf der Seite Automatisierung abgelehnt, {{time}}",
         "rejectedOnNotification": "In der VS Code-Benachrichtigung abgelehnt, {{time}}",
         "timedOut": "Nicht rechtzeitig genehmigt: Bis {{time}} hat niemand geantwortet",
-        "cancelled": "Angehalten, bevor jemand geantwortet hat, {{time}}"
+        "cancelled": "Angehalten, bevor jemand geantwortet hat, {{time}}",
+        "approvedAtTerminal": "Im Terminal des Laufs genehmigt, {{time}}",
+        "rejectedAtTerminal": "Im Terminal des Laufs abgelehnt, {{time}}",
+        "approvedAhead": "Vorab in der Befehlszeile genehmigt (--approve), {{time}}",
+        "rejectedOnCommandLine": "In der Befehlszeile abgelehnt, {{time}}"
       }
     },
     "hardDelete": "Endgültige Löschung",
@@ -2988,6 +2991,155 @@
       "discardDescription": "Sie sind nicht gespeichert, und nichts holt sie zurück.",
       "discard": "Änderungen verwerfen",
       "keepEditing": "Weiter bearbeiten"
+    },
+    "ranFromCommandLine": "Befehlszeile",
+    "runRunning": "„{{name}}“ läuft auf diesem Rechner bereits, aus einem anderen Fenster oder über die Befehlszeile: Führen Sie sie erneut aus, sobald dieser Lauf beendet ist.",
+    "dryRun": {
+      "button": "Probelauf",
+      "running": "Probelauf…",
+      "badge": "Probelauf",
+      "note": "Ein Probelauf: Jeder schreibende Schritt sagt, was er tun würde, und in keine Org wird etwas geschrieben. Vergleich und Vorabprüfung lesen die Orgs, keine Verzögerung wartet, keine Genehmigung wird erfragt, und der Verlauf behält nichts.",
+      "ended": "Der Probelauf von „{{name}}“ ist beendet: Es wurde nichts geschrieben.",
+      "stopped": "Der Probelauf von „{{name}}“ endet dort, wo sein Lauf enden würde, und hat nichts geschrieben: {{reason}}",
+      "unavailable": "Ein Probelauf ist noch nicht verfügbar, und nichts wurde ausgeführt: Versuchen Sie es erneut, sobald SandForge vollständig gestartet ist.",
+      "stepCompleted": "Würde laufen",
+      "stepFailed": "Würde hier anhalten",
+      "stepSkipped": "Würde übersprungen",
+      "runCompleted": "Würde abgeschlossen",
+      "runCompletedWithWarnings": "Würde mit Warnungen abgeschlossen",
+      "runFailed": "Würde anhalten"
+    },
+    "export": {
+      "button": "Exportieren…",
+      "saveFirst": "Zuerst speichern: Der Export nimmt die gespeicherte Pipeline.",
+      "title": "„{{name}}“ exportieren",
+      "description": "Eine Datei der Pipeline, wie sie gespeichert ist, und ein Starter, der sie bei geschlossenem VS Code mit npx sandforge ausführt. Nichts wird geschrieben, bevor Sie wählen, wo es gespeichert wird.",
+      "reading": "Gespeicherte Pipeline wird gelesen…",
+      "failed": "Die Pipeline wurde nicht exportiert, und nichts wurde gespeichert: {{reason}}",
+      "refused": {
+        "NOT_SAVED": "Unter diesem Namen ist keine Pipeline mehr gespeichert: Speichern Sie sie, dann exportieren Sie sie.",
+        "ORG_UNKNOWN": "Ein Schritt oder seine Sync-Konfiguration nennt eine Org, die in SandForge nicht mehr registriert ist: Wählen Sie eine Org, speichern Sie und exportieren Sie erneut.",
+        "SYNC_CONFIG_UNKNOWN": "Ein Sync-Schritt führt eine Konfiguration aus, die nicht mehr gespeichert ist: Wählen Sie eine, speichern Sie und exportieren Sie erneut.",
+        "SCHEDULES_MANY": "Mehr als ein Zeitplan startet diese Pipeline, und eine Datei enthält nur einen: Behalten Sie einen, speichern Sie und exportieren Sie erneut.",
+        "FILE_INVALID": "Die Datei wäre nicht lesbar: Beheben Sie jeden Punkt unten dort, wo die Pipeline, ihre Orgs oder die Einstellungen ihn enthalten, und exportieren Sie erneut.",
+        "VERSION_UNKNOWN": "Dieses SandForge nennt seine Version nicht, die die Datei und ihre Starter angeben: Es wurde nichts exportiert."
+      },
+      "problems": "Ein Lauf dieser Datei lehnt die Pipeline vor ihrem ersten Schritt ab, wie VS Code es jetzt tut:",
+      "steps": {
+        "heading": "Schritte bei geschlossenem VS Code",
+        "runs": "Läuft wie hier",
+        "asks": "Fragt etwas",
+        "refused": "Abgelehnt",
+        "refusedWhy": "Der Lauf lehnt ihn vor seinem ersten Schritt ab:"
+      },
+      "note": {
+        "approval": "Fragt eine Person im Terminal des Laufs. Ist niemand am Terminal, beantworten Sie es vorab: --approve \"{{step}}\".",
+        "staging": "Steht vor einem Schreibvorgang in eine als Staging markierte Sandbox: Nur eine Person am Terminal beantwortet ihn, nie --approve.",
+        "rewindConfirm": "Läuft, sobald {{alias}} auf dem Rechner des Laufs bestätigt ist: sandforge pipeline confirm in einem Terminal oder --confirm-rewind {{alias}}.",
+        "rewindCheckpoint": "Sein Prüfpunkt liegt auf diesem Rechner: Importieren Sie ihn auf einem anderen zuerst ({{command}}).",
+        "notification": "Gibt seine Nachricht in der Ausgabe des Laufs aus: Es gibt kein VS Code-Fenster, um sie anzuzeigen."
+      },
+      "orgs": {
+        "heading": "Orgs",
+        "kind": {
+          "sandbox": "Sandbox",
+          "scratch": "Scratch-Org",
+          "developer": "Developer Edition",
+          "production": "Produktion"
+        },
+        "staging": "Staging",
+        "writtenBy": "Geschrieben von {{steps}}",
+        "readBy": "Gelesen von {{steps}}",
+        "noAlias": "Kein eigener Alias: Geben Sie ihr mit der Salesforce CLI einen und nennen Sie ihn beim Start des Laufs:",
+        "held": "Bei der Salesforce CLI dieses Rechners angemeldet.",
+        "notHeld": "Mit Benutzername und Passwort verbunden: Die Salesforce CLI dieses Rechners kennt sie nicht. Melden Sie sich auf dem Rechner des Laufs an:"
+      },
+      "variables": {
+        "heading": "Variablen",
+        "secret": "Ein Geheimnis: Sein Wert bleibt außerhalb der Datei. Geben Sie ihn beim Start des Laufs an:",
+        "fromEnv": "Erforderlich und ohne Wert in der Datei: Geben Sie ihn beim Start des Laufs an:",
+        "valued": "Ihr Wert steht in der Datei.",
+        "noValue": "Kein Wert in der Datei, und keiner ist erforderlich."
+      },
+      "launcher": {
+        "heading": "Starter",
+        "none": "Keiner: nur die Pipeline-Datei",
+        "cron": "bash, gestartet von cron",
+        "taskScheduler": "PowerShell, gestartet von der Aufgabenplanung",
+        "githubActions": "GitHub Actions-Workflow",
+        "beside": "Als Zweites gespeichert, als {{launcher}}, im Ordner von {{file}}, dessen Name bleibt: Er führt die Datei aus seinem eigenen Ordner aus.",
+        "github": "Als Zweites gespeichert, als {{launcher}}: Committen Sie ihn unter .github/workflows eines privaten Repositorys, mit {{file}} im Stammverzeichnis des Repositorys. Seine ersten Zeilen nennen das Secret, mit dem sich jede Org anmeldet.",
+        "noSchedule": "Die Pipeline hat keinen Zeitplan: Der Starter führt sie aus, wenn er gestartet wird, von Hand oder von einem Planer, den Sie einrichten.",
+        "line": {
+          "cron": "Fügen Sie diese Zeile der crontab dieses Rechners hinzu (crontab -e), gelesen in {{timezone}}, mit dem Ordner, in dem Sie den Starter speichern:",
+          "taskScheduler": "Registrieren Sie die Aufgabe einmal in PowerShell, im Ordner des Starters; die Aufgabenplanung liest sie in {{timezone}}:",
+          "githubActions": "Der Workflow startet nach dieser Zeile, gelesen in {{timezone}}:"
+        },
+        "moved": "Der Zeitplan der Pipeline, um {{minutes}} Minuten in die Zeitzone der Uhr dieses Rechners verschoben.",
+        "drift": {
+          "later": "Ab {{time}} läuft sie {{minutes}} Minuten später, als der Zeitplan der Pipeline sagt.",
+          "earlier": "Ab {{time}} läuft sie {{minutes}} Minuten früher, als der Zeitplan der Pipeline sagt.",
+          "back": "Ab {{time}} läuft sie wieder zu den Zeiten der Pipeline."
+        },
+        "manual": "Seine Aufgabe wird in der Aufgabenplanung von Hand erstellt:",
+        "refused": "Keine Zeile dieses Planers startet die Pipeline zu den Zeiten ihres Zeitplans, daher startet dieser Starter sie nach keinem Zeitplan:"
+      },
+      "handOver": {
+        "label": "Diesen Starter die Pipeline starten lassen: ihren Zeitplan hier ausschalten",
+        "help": "Sobald der Starter neben der Datei gespeichert ist, wird die Pipeline mit ausgeschaltetem Zeitplan in VS Code gespeichert, und die Seite sagt, was sie startet. Holen Sie den Zeitplan auf dem Tab Auslöser zurück."
+      },
+      "locks": {
+        "heading": "Was zwei Läufe trennt und was nicht",
+        "same": "Eine Pipeline läuft auf diesem Rechner nur einmal gleichzeitig: Ein Lauf aus VS Code und einer aus diesem Starter nehmen dieselbe Sperre, und der zweite wird abgelehnt.",
+        "writes": "Diese Sperre hält die Pipeline, nicht ihre Orgs: Eine andere Pipeline oder Sync, Seed oder eine Sicherung aus VS Code oder der Befehlszeile kann gleichzeitig in dieselbe Org schreiben.",
+        "masking": "Eine Maskierung hält ihre Sicherungssperre nur in ihrem eigenen Fenster: Eine Wiederherstellung über die Befehlszeile oder aus einem anderen Fenster wird währenddessen nicht aufgehalten.",
+        "elsewhere": "Ein Lauf auf einem anderen Rechner – einem CI-Runner – wird hier durch nichts aufgehalten: Lassen Sie nur einen von beiden die Pipeline starten."
+      },
+      "saveFile": "Datei speichern…",
+      "saveFileAndLauncher": "Datei und Starter speichern…",
+      "saving": {
+        "file": "Pipeline-Datei wird gespeichert: Wählen Sie den Ort im Speichern-Dialog.",
+        "launcher": "Starter wird gespeichert: Wählen Sie den Ordner der Pipeline-Datei.",
+        "handOver": "Zeitplan in VS Code wird ausgeschaltet…"
+      },
+      "saved": {
+        "file": "Pipeline-Datei gespeichert: {{path}}",
+        "launcher": "Starter gespeichert: {{path}}",
+        "handedOver": "Sein Zeitplan ist in VS Code ausgeschaltet. Ab jetzt startet ihn {{runner}}, sobald seine Zeile, seine Aufgabe oder sein Workflow eingerichtet ist.",
+        "withheld": {
+          "renamed": "Der Zeitplan bleibt in VS Code eingeschaltet: Die Datei wurde als {{name}} gespeichert, und der Starter führt {{file}} aus. Speichern Sie die Datei erneut unter diesem Namen und exportieren Sie dann erneut, um den Zeitplan zu übergeben.",
+          "apart": "Der Zeitplan bleibt in VS Code eingeschaltet: Der Starter wurde in einem anderen Ordner als die Datei gespeichert und führt die Datei aus seinem eigenen aus. Speichern Sie beide nebeneinander und exportieren Sie dann erneut, um den Zeitplan zu übergeben."
+        }
+      },
+      "stopped": {
+        "cancelledFile": "Nichts wurde gespeichert: Der Speichern-Dialog wurde geschlossen.",
+        "cancelledLauncher": "Der Starter wurde nicht gespeichert: Der Speichern-Dialog wurde geschlossen. Der Zeitplan bleibt in VS Code eingeschaltet.",
+        "errorFile": "Die Pipeline-Datei wurde nicht gespeichert, und nichts danach:",
+        "errorLauncher": "Der Starter wurde nicht gespeichert, und der Zeitplan bleibt in VS Code eingeschaltet:",
+        "errorHandOver": "Die Dateien wurden gespeichert, aber die Pipeline wurde nicht mit ausgeschaltetem Zeitplan gespeichert: VS Code startet sie weiterhin."
+      }
+    },
+    "outside": {
+      "runner": {
+        "cron": "cron (bash-Starter)",
+        "taskScheduler": "die Aufgabenplanung (PowerShell-Starter)",
+        "githubActions": "GitHub Actions"
+      },
+      "badge": {
+        "cron": "cron",
+        "taskScheduler": "Aufgabenplanung",
+        "githubActions": "GitHub Actions"
+      },
+      "since": "Gestartet über {{runner}} seit {{time}} (Datei {{file}}): Sein Zeitplan ist in VS Code ausgeschaltet.",
+      "resume": "Zeitplan hier wieder aufnehmen",
+      "resumed": {
+        "cron": "Nach dem Speichern startet VS Code ihn wieder nach seinem Zeitplan. Entfernen Sie seine Zeile aus der crontab, sonst starten ihn beide: Die Laufsperre lässt auf diesem Rechner nur einen Lauf gleichzeitig zu, und der andere Start wird abgelehnt.",
+        "taskScheduler": "Nach dem Speichern startet VS Code ihn wieder nach seinem Zeitplan. Löschen Sie seine Aufgabe in der Aufgabenplanung, sonst starten ihn beide: Die Laufsperre lässt auf diesem Rechner nur einen Lauf gleichzeitig zu, und der andere Start wird abgelehnt.",
+        "githubActions": "Nach dem Speichern startet VS Code ihn wieder nach seinem Zeitplan. Löschen oder deaktivieren Sie seinen Workflow auf GitHub: Nichts trennt einen Lauf dort von einem in VS Code."
+      },
+      "stale": "Die Datei {{file}}, exportiert am {{time}}, enthält die seither gespeicherten Änderungen nicht: Ihr Starter führt die Pipeline so aus, wie sie war. Exportieren Sie sie erneut.",
+      "historyHere": "{{name}}: gestartet über {{runner}} seit {{time}}. Seine Läufe auf diesem Rechner erscheinen hier, markiert mit Befehlszeile.",
+      "historyElsewhere": "{{name}}: gestartet über {{runner}} seit {{time}}. Seine Läufe dort erscheinen hier nicht: Sehen Sie die Läufe des Workflows auf GitHub."
     }
   },
   "ai": {

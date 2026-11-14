@@ -423,4 +423,60 @@ describe('TriggerConfigPanel', () => {
     fireEvent.click(screen.getByTestId('toggle-trigger-t1'));
     expect(onToggle).toHaveBeenCalledWith('t1', false);
   });
+
+  describe('a schedule handed over to a launcher at an export', () => {
+    const handedOver: PipelineTrigger = { ...nightly, enabled: false };
+    const outside = {
+      since: '2026-11-20T08:00:00.000Z',
+      runner: 'cron' as const,
+      file: 'nightly.sandforge-pipeline.json',
+      digest: `sha256:${'a'.repeat(64)}`,
+    };
+
+    it('says who starts it, since when and from which file, and gives it back only by Resume', () => {
+      const onResume = vi.fn();
+      const onToggle = vi.fn();
+      render(
+        <TriggerConfigPanel
+          triggers={[handedOver, onRefresh]}
+          savedTriggers={[handedOver, onRefresh]}
+          statuses={[scheduleStatus({ armed: false, idle: 'disabled' })]}
+          sandboxes={SANDBOXES}
+          runsOutside={outside}
+          onResumeSchedule={onResume}
+          onToggleTrigger={onToggle}
+        />,
+      );
+
+      expect(screen.getByTestId('trigger-outside').textContent).toMatch(
+        /^Started by cron \(bash launcher\) since .+ \(file nightly\.sandforge-pipeline\.json\): its schedule is off in VS Code\./,
+      );
+      // No switch of its own, and no "switched off" either: a launcher starts it.
+      expect(screen.queryByTestId('toggle-trigger-t1')).toBeNull();
+      expect(screen.getByTestId('trigger-badge-t1').textContent).toBe('cron');
+      expect(screen.queryByTestId('trigger-idle-t1')).toBeNull();
+      // A sandbox refresh is no part of the hand-over: it keeps its switch.
+      expect(screen.getByTestId('toggle-trigger-t3')).toBeDefined();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Resume the schedule here' }));
+      expect(onResume).toHaveBeenCalledTimes(1);
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it('says, once given back, what to remove or both start the pipeline', () => {
+      render(
+        <TriggerConfigPanel
+          triggers={[nightly]}
+          savedTriggers={[handedOver]}
+          resumedFrom="githubActions"
+        />,
+      );
+      expect(screen.queryByTestId('trigger-outside')).toBeNull();
+      expect(screen.getByTestId('trigger-resumed').textContent).toContain(
+        'Delete or disable its workflow on GitHub',
+      );
+      // The schedule is on again once saved: until then the card says so.
+      expect(screen.getByTestId('trigger-unsaved-t1')).toBeDefined();
+    });
+  });
 });

@@ -2,6 +2,7 @@ import { lazy, Suspense, useState, type FC } from 'react';
 import { withEnglish } from '../../i18n/englishNamespaces';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import type { DangerConfirmProps } from '../../components/ui/DangerConfirm';
+import type { ExportPipelineDialogProps } from './ExportPipelineDialog';
 import type { RewindStepConfirmProps } from './RewindStepConfirm';
 import type { SchedulerCalendarProps } from './SchedulerCalendar';
 
@@ -17,7 +18,9 @@ import type { SchedulerCalendarProps } from './SchedulerCalendar';
  * room it took went to the canvas's empty states, the Rewind step's riskier
  * boxes and the steps' names. The questions a pipeline's Delete and the loss
  * of its unsaved changes ask come with the first of them: the dialog and what
- * it is built on are 15 kB no first paint draws.
+ * it is built on are 15 kB no first paint draws. The export dialog comes once
+ * Export… is pressed: what it says of each step, org, variable and launcher
+ * is read by nobody who does not export.
  */
 
 const LoadedRewindStepConfirm = lazy(() =>
@@ -49,6 +52,21 @@ export const SchedulerCalendar: FC<SchedulerCalendarProps> = (props) => (
   <PartBoundary>
     <Suspense fallback={null}>
       <LoadedSchedulerCalendar {...props} />
+    </Suspense>
+  </PartBoundary>
+);
+
+const LoadedExportPipelineDialog = lazy(() =>
+  withEnglish(() => import('./ExportPipelineDialog'), [])().then((module) => ({
+    default: module.ExportPipelineDialog,
+  })),
+);
+
+/** Export… on the Automation page: the saved pipeline as a file, and its launcher. */
+export const ExportPipelineDialog: FC<ExportPipelineDialogProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedExportPipelineDialog {...props} />
     </Suspense>
   </PartBoundary>
 );

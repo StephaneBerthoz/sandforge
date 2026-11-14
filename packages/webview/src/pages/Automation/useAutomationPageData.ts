@@ -10,6 +10,9 @@ import type {
   PipelineDeleteResponse,
   PipelineDraftSuggestion,
   PipelineMaskingTemplateInfo,
+  PipelineOutsideRunner,
+  PipelineOutsideStatus,
+  PipelineRunStatus,
   PipelineRewindGrantResponse,
   PipelineRewindStepInfo,
   PipelineSeedTemplateInfo,
@@ -39,7 +42,9 @@ import { buildMessage } from '../../bridge/messageHelpers';
 import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
-import type { PipelineExecutionData } from './PipelineExecutionView';
+import type { PipelineExecutionData, PipelineExecutionStep } from './PipelineExecutionView';
+import type { HistoryOutsidePipeline } from './PipelineHistoryView';
+import { resumedPipeline } from './pipelineOutside';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
 import { newStepName } from './stepTypeLabel';
 import type { BlockedStep, StepPlace, TemplateStepInfo } from './stepRunnability';
@@ -399,6 +404,83 @@ function runStoppedMessage(t: TFunction, run: Record<string, unknown>): string {
     : t('automation.runStopped');
 }
 
+/** The statuses a run ends with, as data: an answer of another shape reads as failed. */
+const RUN_STATUSES: readonly PipelineRunStatus[] = [
+  'idle',
+  'queued',
+  'running',
+  'completed',
+  'completed_with_warnings',
+  'failed',
+  'cancelled',
+];
+
+/** The statuses a step ends with, as data. */
+const STEP_STATUSES: ReadonlyArray<PipelineExecutionStep['status']> = [
+  'pending',
+  'running',
+  'completed',
+  'failed',
+  'skipped',
+  'stopped',
+];
+
+/**
+ * A dry run as it ended, for the view of the run to keep showing: its steps
+ * and what each would do, in the host's words. History keeps no dry run, so
+ * the view of the run was the only place it was read, and it closed as the
+ * answer came.
+ */
+export function dryRunExecution(
+  run: Record<string, unknown>,
+  pipelineName: string,
+  runId: string,
+): PipelineExecutionData {
+  const steps: PipelineExecutionStep[] = (Array.isArray(run.stepResults) ? run.stepResults : [])
+    .map(asRecord)
+    .map((result, index) => {
+      const status = STEP_STATUSES.find((known) => known === result.status) ?? 'failed';
+      return {
+        stepId: typeof result.stepId === 'string' ? result.stepId : `step-${index}`,
+        stepName: typeof result.stepName === 'string' ? result.stepName : '',
+        stepType: (typeof result.stepType === 'string'
+          ? result.stepType
+          : 'delay') as PipelineStepType,
+        status,
+        ...(typeof result.duration === 'number' ? { duration: result.duration } : {}),
+        ...(typeof result.summary === 'string' ? { summary: result.summary } : {}),
+        ...(typeof result.error === 'string' ? { error: result.error } : {}),
+      };
+    });
+  return {
+    runId,
+    pipelineName: typeof run.pipelineName === 'string' ? run.pipelineName : pipelineName,
+    status: RUN_STATUSES.find((known) => known === run.status) ?? 'failed',
+    steps,
+    startTime: typeof run.startTime === 'string' ? run.startTime : new Date().toISOString(),
+    elapsed: typeof run.duration === 'number' ? Math.round(run.duration / 1000) : 0,
+    progress: 100,
+    dryRun: true,
+  };
+}
+
+/**
+ * The sentence a dry run is reported with as it ends: nothing written, and,
+ * when it stopped, at what it stopped — where the run would stop.
+ */
+function dryRunEndMessage(t: TFunction, run: Record<string, unknown>, name: string): string {
+  if (run.status !== 'failed') return t('automation.dryRun.ended', { name });
+  const steps = Array.isArray(run.stepResults) ? run.stepResults.map(asRecord) : [];
+  const failed = steps.find((result) => result.status === 'failed');
+  const reason =
+    typeof failed?.error === 'string'
+      ? failed.error
+      : typeof run.error === 'string'
+        ? run.error
+        : '';
+  return t('automation.dryRun.stopped', { name, reason });
+}
+
 /** Return type for the useAutomationPageData hook. */
 export interface AutomationPageData {
   /** Currently active pipeline definition. */
@@ -467,6 +549,41 @@ export interface AutomationPageData {
   historyEntries: PipelineHistoryEntry[];
   /** Execution data for the running pipeline view. */
   executionData: PipelineExecutionData | undefined;
+  /** Whether the run going is a dry run. */
+  dryRunning: boolean;
+  /**
+   * The last dry run of the pipeline on the canvas, as it ended, until it is
+   * put away or another pipeline takes the canvas: History keeps none.
+   */
+  dryRunResult: PipelineExecutionData | undefined;
+  /** Put the last dry run away. */
+  dismissDryRun: () => void;
+  /** Dry run the current pipeline: its own route and checks, nothing written. */
+  handleDryRunPipeline: () => void;
+  /**
+   * Whether the pipeline on the canvas is saved as it stands: Export… reads
+   * the pipeline as saved, and waits for a save until then.
+   */
+  exportable: boolean;
+  /** The pipeline on the canvas as last saved; undefined for one never saved. */
+  savedPipeline: PipelineDefinition | undefined;
+  /**
+   * Whether the file exported at the hand-over of the pipeline on the canvas
+   * lacks what was saved since: true only for a pipeline a launcher starts.
+   */
+  outsideStale: boolean;
+  /** The saved pipelines a launcher starts since an export, for History to say whose runs it lists. */
+  historyOutside: HistoryOutsidePipeline[];
+  /**
+   * The pipeline was saved with its schedule handed over to a launcher, by the
+   * export dialog: the saved list is read again, and the canvas takes it when
+   * it holds that pipeline.
+   */
+  handleHandedOver: (saved: PipelineDefinition) => void;
+  /** Give the schedule of the pipeline on the canvas back to VS Code: its schedule triggers on, once saved. */
+  handleResumeSchedule: () => void;
+  /** What started the pipeline on the canvas before Resume gave its schedule back: what to remove. */
+  resumedFrom: PipelineOutsideRunner | undefined;
   /** Whether the save mutation is in progress. */
   savingPipeline: boolean;
   /** Marketplace template list query loading state. */
@@ -649,6 +766,7 @@ export function useAutomationPageData(): AutomationPageData {
   const pipelinesQuery = useBridgeQuery<{
     pipelines: PipelineDefinition[];
     triggers?: PipelineTriggerStatus[];
+    outside?: PipelineOutsideStatus[];
   }>('pipeline:list');
 
   // Bridge mutation: execute a pipeline.
@@ -710,6 +828,22 @@ export function useAutomationPageData(): AutomationPageData {
 
   // Derive running state from bridge mutation
   const isRunning = executeMutation.loading;
+  /**
+   * The run this page started last: of which pipeline, under which name, and
+   * whether it is a dry run. A refusal and the end of the run are said with
+   * them, after the canvas may have moved on.
+   */
+  const [lastRun, setLastRun] = useState<{
+    pipelineId: string;
+    name: string;
+    dryRun: boolean;
+  } | null>(null);
+  const dryRunning = isRunning && lastRun?.dryRun === true;
+  /** The last dry run as it ended, kept for the pipeline it was of. */
+  const [dryRunEnded, setDryRunEnded] = useState<{
+    pipelineId: string;
+    execution: PipelineExecutionData;
+  } | null>(null);
 
   /**
    * What the host has said of each step of the run in progress, by step id.
@@ -923,8 +1057,9 @@ export function useAutomationPageData(): AutomationPageData {
       startTime: new Date(runStartedAt || Date.now()).toISOString(),
       elapsed: runStartedAt > 0 ? Math.round((lastHeard - runStartedAt) / 1000) : 0,
       progress: steps.length > 0 ? Math.round((ended / steps.length) * 100) : 0,
+      ...(dryRunning ? { dryRun: true } : {}),
     };
-  }, [isRunning, pipeline, stepUpdates, runStartedAt, runOperationId]);
+  }, [isRunning, pipeline, stepUpdates, runStartedAt, runOperationId, dryRunning]);
 
   // A delete refused for a run that holds the pipeline is said in the
   // reader's language, naming it; any other refusal as the extension wrote it.
@@ -935,11 +1070,23 @@ export function useAutomationPageData(): AutomationPageData {
         ? t('automation.lifecycle.deleteRunning', { name: deleting?.name ?? '' })
         : deleteMutation.error;
 
+  // A run refused before it started is said in the reader's language: a dry
+  // run this host cannot make yet, or a pipeline a run already holds — from
+  // another window, or from the command line on this machine.
+  const executeError =
+    executeMutation.error === null
+      ? null
+      : executeMutation.errorCode === 'DRY_RUN_UNAVAILABLE'
+        ? t('automation.dryRun.unavailable')
+        : executeMutation.errorCode === 'PIPELINE_RUNNING'
+          ? t('automation.runRunning', { name: lastRun?.name ?? '' })
+          : executeMutation.error;
+
   // Show error notifications from bridge hooks
   useEffect(() => {
     const bridgeError =
       pipelinesQuery.error ??
-      executeMutation.error ??
+      executeError ??
       saveMutation.error ??
       deleteError ??
       templatesQuery.error ??
@@ -957,7 +1104,7 @@ export function useAutomationPageData(): AutomationPageData {
     }
   }, [
     pipelinesQuery.error,
-    executeMutation.error,
+    executeError,
     saveMutation.error,
     deleteError,
     templatesQuery.error,
@@ -1028,6 +1175,25 @@ export function useAutomationPageData(): AutomationPageData {
   // stopped one, as news and not as an error: the view of the run closed with
   // nothing said, and only the History tab knew how far it got.
   const settleRun = useLatestRef((run: Record<string, unknown>) => {
+    // A dry run is kept by nothing but the page: its result stays on the
+    // canvas, and its end is said as news, a step it would stop at too —
+    // finding one is what a dry run is for, no failure of the page's.
+    if (run.dryRun === true) {
+      const name = lastRun?.name ?? (typeof run.pipelineName === 'string' ? run.pipelineName : '');
+      const pipelineId =
+        lastRun?.pipelineId ?? (typeof run.pipelineId === 'string' ? run.pipelineId : '');
+      setDryRunEnded({
+        pipelineId,
+        execution: dryRunExecution(run, name, runOperationId ?? pipelineId),
+      });
+      addNotification({
+        level: run.status === 'failed' ? 'warning' : 'info',
+        title: t('automation.title'),
+        message:
+          run.status === 'cancelled' ? runStoppedMessage(t, run) : dryRunEndMessage(t, run, name),
+      });
+      return;
+    }
     historyQuery.refetch();
     if (run.status === 'cancelled') {
       addNotification({
@@ -1204,17 +1370,45 @@ export function useAutomationPageData(): AutomationPageData {
     deleteMutation.mutate({ id: target.id });
   };
 
-  const handleRunPipeline = () => {
+  /** Start a run of the pipeline on the canvas, or its dry run. */
+  const startRun = (dryRun: boolean) => {
     // The Run button is disabled on the same condition; this keeps any other
     // caller from sending a pipeline the extension would refuse.
     if (!pipeline || runBlockers.length > 0) return;
     setError(null);
     setStepUpdates({});
     setRunStartedAt(Date.now());
+    setLastRun({ pipelineId: pipeline.id, name: pipeline.name, dryRun });
+    setDryRunEnded(null);
     executeMutation.mutate({
       pipeline: pipeline as unknown as Record<string, unknown>,
       variables: {},
+      ...(dryRun ? { dryRun: true } : {}),
     });
+  };
+
+  const handleRunPipeline = () => startRun(false);
+
+  const handleDryRunPipeline = () => startRun(true);
+
+  // The hand-over is saved by the export dialog. The canvas held that
+  // pipeline as saved — Export… waits for a save — and takes it as saved
+  // now: a Save of the copy from before would turn its schedule back on.
+  const handleHandedOver = (saved: PipelineDefinition) => {
+    refetchPipelines();
+    if (pipeline?.id === saved.id) setPipeline(saved);
+  };
+
+  /** What started the pipeline on the canvas before its schedule was given back, by its id. */
+  const [resumed, setResumed] = useState<{
+    pipelineId: string;
+    runner: PipelineOutsideRunner;
+  } | null>(null);
+
+  const handleResumeSchedule = () => {
+    if (!pipeline?.runsOutside) return;
+    setResumed({ pipelineId: pipeline.id, runner: pipeline.runsOutside.runner });
+    setPipeline(resumedPipeline(pipeline));
   };
 
   const handleSavePipeline = () => {
@@ -1373,6 +1567,24 @@ export function useAutomationPageData(): AutomationPageData {
     ).length ?? 0;
   const historyCount = historyEntries.length;
 
+  const savedPipeline = pipeline
+    ? savedPipelines.find((saved) => saved.id === pipeline.id)
+    : undefined;
+  const outsideStale =
+    savedPipeline?.runsOutside !== undefined &&
+    (pipelinesQuery.data?.outside ?? []).some(
+      (status) => status.pipelineId === savedPipeline.id && !status.matches,
+    );
+  const historyOutside = useMemo<HistoryOutsidePipeline[]>(
+    () =>
+      savedPipelines.flatMap((saved) =>
+        saved.runsOutside
+          ? [{ pipelineId: saved.id, name: saved.name, runsOutside: saved.runsOutside }]
+          : [],
+      ),
+    [savedPipelines],
+  );
+
   return {
     pipeline,
     error,
@@ -1397,6 +1609,20 @@ export function useAutomationPageData(): AutomationPageData {
     pipelineSchedules,
     historyEntries,
     executionData,
+    dryRunning,
+    dryRunResult:
+      !isRunning && dryRunEnded && dryRunEnded.pipelineId === pipeline?.id
+        ? dryRunEnded.execution
+        : undefined,
+    dismissDryRun: () => setDryRunEnded(null),
+    handleDryRunPipeline,
+    exportable: savedPipeline !== undefined && !unsavedChanges,
+    savedPipeline,
+    outsideStale,
+    historyOutside,
+    handleHandedOver,
+    handleResumeSchedule,
+    resumedFrom: resumed && resumed.pipelineId === pipeline?.id ? resumed.runner : undefined,
     savingPipeline: saveMutation.loading,
     marketplaceLoading: marketplaceList.loading,
     marketplaceError: marketplaceList.error,

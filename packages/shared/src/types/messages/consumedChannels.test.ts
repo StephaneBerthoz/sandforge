@@ -97,11 +97,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'Nothing deletes a saved sync configuration yet.',
   },
   {
-    channel: 'pipeline:export',
-    reason:
-      'Export… on the Automation page sends it; the page, its dialog and the file:save of the file and its launcher come with the page of the release.',
-  },
-  {
     channel: 'frozen:remove:preview',
     reason:
       'sandforge frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',

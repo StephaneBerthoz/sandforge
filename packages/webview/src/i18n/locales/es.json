@@ -2669,14 +2669,13 @@
       "closedMany": "{{n}} inicios previstos del {{first}} al {{last}}, mientras VS Code estaba cerrado: ninguno se recuperó con retraso.",
       "asleep": "Previsto el {{time}}, cuando SandForge no podía revisar la programación, como cuando el equipo está en suspensión: no se recuperó con retraso.",
       "asleepMany": "{{n}} inicios previstos del {{first}} al {{last}}, cuando SandForge no podía revisar la programación, como cuando el equipo está en suspensión: ninguno se recuperó con retraso.",
-      "cli": "Mientras VS Code está cerrado, nada inicia un pipeline: una tarea programada (cron, CI) ejecuta sus pasos desde la línea de comandos — {{commands}}.",
-      "cliNone": "Pasos que no tienen ninguna: {{steps}}.",
       "busy": "Previsto el {{time}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
       "busyMany": "{{n}} inicios previstos del {{first}} al {{last}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició ninguno. Un pipeline nunca se ejecuta dos veces a la vez.",
       "busyRefresh": "La actualización detectada el {{time}} llegó mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
       "cannotRun": "La actualización detectada el {{time}} no inició nada: un paso de este pipeline no puede ejecutarse.",
       "cannotRunSchedule": "Previsto el {{time}}: no se inició, porque un paso de este pipeline no puede ejecutarse.",
-      "cannotRunScheduleMany": "{{n}} inicios previstos del {{first}} al {{last}}: no se inició ninguno, porque un paso de este pipeline no puede ejecutarse."
+      "cannotRunScheduleMany": "{{n}} inicios previstos del {{first}} al {{last}}: no se inició ninguno, porque un paso de este pipeline no puede ejecutarse.",
+      "export": "Con VS Code cerrado, nada aquí lo inicia: expórtelo con Exportar…, junto a Ejecutar pipeline, y su lanzador (cron, Programador de tareas o GitHub Actions) ejecuta todo el pipeline con npx sandforge."
     },
     "pipelineSchedules": {
       "title": "Programaciones de pipelines",
@@ -2891,7 +2890,11 @@
         "rejectedOnPage": "Rechazado en la página Automatización, {{time}}",
         "rejectedOnNotification": "Rechazado en la notificación de VS Code, {{time}}",
         "timedOut": "No se aprobó a tiempo: nadie respondió antes de {{time}}",
-        "cancelled": "Detenido antes de que nadie respondiera, {{time}}"
+        "cancelled": "Detenido antes de que nadie respondiera, {{time}}",
+        "approvedAtTerminal": "Aprobado en la terminal de la ejecución, {{time}}",
+        "rejectedAtTerminal": "Rechazado en la terminal de la ejecución, {{time}}",
+        "approvedAhead": "Aprobado de antemano, en la línea de comandos (--approve), {{time}}",
+        "rejectedOnCommandLine": "Rechazado en la línea de comandos, {{time}}"
       }
     },
     "hardDelete": "Eliminación definitiva",
@@ -2988,6 +2991,155 @@
       "discardDescription": "No están guardados, y nada los recupera.",
       "discard": "Descartar cambios",
       "keepEditing": "Seguir editando"
+    },
+    "ranFromCommandLine": "Línea de comandos",
+    "runRunning": "«{{name}}» ya se está ejecutando en esta máquina, desde otra ventana o desde la línea de comandos: vuelva a ejecutarlo cuando termine esa ejecución.",
+    "dryRun": {
+      "button": "Ensayo",
+      "running": "Ensayo…",
+      "badge": "Ensayo",
+      "note": "Un ensayo: cada paso que escribe dice lo que haría, y no se escribe nada en ninguna org. Comparación y Pre-verificación leen las orgs, ningún Retraso espera, no se pide ninguna Aprobación y el historial no guarda nada.",
+      "ended": "El ensayo de «{{name}}» terminó: no se escribió nada.",
+      "stopped": "El ensayo de «{{name}}» se detiene donde se detendría su ejecución, sin escribir nada: {{reason}}",
+      "unavailable": "Un ensayo aún no está disponible y no se ejecutó nada: vuelva a intentarlo cuando SandForge termine de iniciarse.",
+      "stepCompleted": "Se ejecutaría",
+      "stepFailed": "Se detendría aquí",
+      "stepSkipped": "Se omitiría",
+      "runCompleted": "Se completaría",
+      "runCompletedWithWarnings": "Se completaría con advertencias",
+      "runFailed": "Se detendría"
+    },
+    "export": {
+      "button": "Exportar…",
+      "saveFirst": "Guarde primero: la exportación toma el pipeline guardado.",
+      "title": "Exportar «{{name}}»",
+      "description": "Un archivo del pipeline tal como está guardado, y un lanzador que lo ejecuta con npx sandforge mientras VS Code está cerrado. No se escribe nada hasta que elija dónde guardarlo.",
+      "reading": "Leyendo el pipeline guardado…",
+      "failed": "El pipeline no se exportó y no se guardó nada: {{reason}}",
+      "refused": {
+        "NOT_SAVED": "Ya no hay ningún pipeline guardado con este nombre: guárdelo y luego expórtelo.",
+        "ORG_UNKNOWN": "Un paso, o su configuración de Sync, nombra una org que ya no está registrada en SandForge: elija una org, guarde y vuelva a exportar.",
+        "SYNC_CONFIG_UNKNOWN": "Un paso de Sync ejecuta una configuración que ya no está guardada: elija una, guarde y vuelva a exportar.",
+        "SCHEDULES_MANY": "Más de una programación inicia este pipeline, y un archivo lleva solo una: conserve una, guarde y vuelva a exportar.",
+        "FILE_INVALID": "El archivo no se podría leer: corrija cada punto de abajo donde lo contienen el pipeline, sus orgs o los ajustes, y vuelva a exportar.",
+        "VERSION_UNKNOWN": "Este SandForge no dice qué versión es, que el archivo y sus lanzadores nombran: no se exportó nada."
+      },
+      "problems": "Una ejecución de este archivo rechaza el pipeline antes de su primer paso, como lo hace ahora VS Code:",
+      "steps": {
+        "heading": "Pasos, con VS Code cerrado",
+        "runs": "Se ejecuta como aquí",
+        "asks": "Pide algo",
+        "refused": "Rechazado",
+        "refusedWhy": "La ejecución lo rechaza antes de su primer paso:"
+      },
+      "note": {
+        "approval": "Pregunta a una persona en la terminal de la ejecución. Si no hay nadie en una terminal, respóndala de antemano: --approve \"{{step}}\".",
+        "staging": "Precede una escritura en un sandbox marcado como Staging: solo una persona en una terminal la responde, nunca --approve.",
+        "rewindConfirm": "Se ejecuta una vez confirmada {{alias}} en la máquina de la ejecución: sandforge pipeline confirm en una terminal, o --confirm-rewind {{alias}}.",
+        "rewindCheckpoint": "Su punto de control se guarda en esta máquina: en otra, impórtelo primero ({{command}}).",
+        "notification": "Imprime su mensaje en la salida de la ejecución: no hay ninguna ventana de VS Code donde mostrarlo."
+      },
+      "orgs": {
+        "heading": "Orgs",
+        "kind": {
+          "sandbox": "Sandbox",
+          "scratch": "Scratch org",
+          "developer": "Developer Edition",
+          "production": "Producción"
+        },
+        "staging": "Staging",
+        "writtenBy": "Escrita por {{steps}}",
+        "readBy": "Leída por {{steps}}",
+        "noAlias": "Sin alias propio: asígnele uno con la Salesforce CLI y nómbrelo al iniciar la ejecución:",
+        "held": "Con sesión iniciada en la Salesforce CLI de esta máquina.",
+        "notHeld": "Conectada con usuario y contraseña: la Salesforce CLI de esta máquina no la tiene. Inicie sesión en ella en la máquina de la ejecución:"
+      },
+      "variables": {
+        "heading": "Variables",
+        "secret": "Un secreto: su valor queda fuera del archivo. Indíquelo al iniciar la ejecución:",
+        "fromEnv": "Obligatoria y sin valor en el archivo: indíquela al iniciar la ejecución:",
+        "valued": "Su valor está en el archivo.",
+        "noValue": "Sin valor en el archivo, y no se requiere ninguno."
+      },
+      "launcher": {
+        "heading": "Lanzador",
+        "none": "Ninguno: solo el archivo del pipeline",
+        "cron": "bash, iniciado por cron",
+        "taskScheduler": "PowerShell, iniciado por el Programador de tareas",
+        "githubActions": "Flujo de trabajo de GitHub Actions",
+        "beside": "Se guarda después, como {{launcher}}, en la carpeta de {{file}} y con ese nombre: ejecuta el archivo desde su propia carpeta.",
+        "github": "Se guarda después, como {{launcher}}: haga commit de él en .github/workflows de un repositorio privado, con {{file}} en la raíz del repositorio. Sus primeras líneas nombran el secreto con el que inicia sesión cada org.",
+        "noSchedule": "El pipeline no tiene programación: el lanzador lo ejecuta cuando se inicia, a mano o desde un programador que usted configure.",
+        "line": {
+          "cron": "Añada esta línea al crontab de esta máquina (crontab -e), leída en {{timezone}}, con la carpeta donde guarde el lanzador:",
+          "taskScheduler": "Registre su tarea una vez, desde PowerShell, en la carpeta del lanzador; el Programador de tareas la lee en {{timezone}}:",
+          "githubActions": "El flujo de trabajo se inicia con esta línea, leída en {{timezone}}:"
+        },
+        "moved": "La programación del pipeline, desplazada {{minutes}} minutos a la zona del reloj de esta máquina.",
+        "drift": {
+          "later": "A partir del {{time}}, se ejecuta {{minutes}} minutos más tarde de lo que dice la programación del pipeline.",
+          "earlier": "A partir del {{time}}, se ejecuta {{minutes}} minutos antes de lo que dice la programación del pipeline.",
+          "back": "A partir del {{time}}, vuelve a ejecutarse a las horas del pipeline."
+        },
+        "manual": "Su tarea se crea a mano en el Programador de tareas:",
+        "refused": "Ninguna línea de este programador inicia el pipeline a las horas que dice su programación, así que este lanzador no lo inicia según ninguna programación:"
+      },
+      "handOver": {
+        "label": "Dejar que este lanzador inicie el pipeline: desactivar aquí su programación",
+        "help": "Una vez guardado el lanzador junto al archivo, el pipeline se guarda con su programación desactivada en VS Code, y la página dice qué lo inicia. Reanude la programación en la pestaña Disparadores."
+      },
+      "locks": {
+        "heading": "Lo que separa dos ejecuciones, y lo que no",
+        "same": "Un pipeline se ejecuta una sola vez a la vez en esta máquina: una ejecución desde VS Code y otra desde este lanzador toman el mismo bloqueo, y la segunda se rechaza.",
+        "writes": "Ese bloqueo retiene el pipeline, no sus orgs: otro pipeline, o Sync, Seed o un respaldo desde VS Code o la línea de comandos, puede escribir en la misma org al mismo tiempo.",
+        "masking": "Un enmascaramiento mantiene su bloqueo de respaldo solo en su propia ventana: una restauración desde la línea de comandos o desde otra ventana no se detiene mientras tanto.",
+        "elsewhere": "Una ejecución en otra máquina —un runner de CI— no se detiene con nada de aquí: deje que solo uno de ellos inicie el pipeline."
+      },
+      "saveFile": "Guardar el archivo…",
+      "saveFileAndLauncher": "Guardar el archivo y el lanzador…",
+      "saving": {
+        "file": "Guardando el archivo del pipeline: elija dónde en el cuadro Guardar.",
+        "launcher": "Guardando el lanzador: elija la carpeta del archivo del pipeline.",
+        "handOver": "Desactivando la programación en VS Code…"
+      },
+      "saved": {
+        "file": "Archivo del pipeline guardado: {{path}}",
+        "launcher": "Lanzador guardado: {{path}}",
+        "handedOver": "Su programación está desactivada en VS Code: {{runner}} lo inicia a partir de ahora, una vez que su línea, su tarea o su flujo de trabajo esté en su sitio.",
+        "withheld": {
+          "renamed": "La programación sigue activa en VS Code: el archivo se guardó como {{name}} y el lanzador ejecuta {{file}}. Vuelva a guardar el archivo con ese nombre y luego exporte de nuevo para traspasar la programación.",
+          "apart": "La programación sigue activa en VS Code: el lanzador se guardó en otra carpeta que el archivo y ejecuta el archivo desde la suya. Guárdelos juntos y luego exporte de nuevo para traspasar la programación."
+        }
+      },
+      "stopped": {
+        "cancelledFile": "No se guardó nada: se cerró el cuadro Guardar.",
+        "cancelledLauncher": "El lanzador no se guardó: se cerró el cuadro Guardar. La programación sigue activa en VS Code.",
+        "errorFile": "El archivo del pipeline no se guardó, ni nada después:",
+        "errorLauncher": "El lanzador no se guardó, y la programación sigue activa en VS Code:",
+        "errorHandOver": "Los archivos se guardaron, pero el pipeline no se guardó con su programación desactivada: VS Code lo sigue iniciando."
+      }
+    },
+    "outside": {
+      "runner": {
+        "cron": "cron (lanzador bash)",
+        "taskScheduler": "el Programador de tareas (lanzador PowerShell)",
+        "githubActions": "GitHub Actions"
+      },
+      "badge": {
+        "cron": "cron",
+        "taskScheduler": "Programador de tareas",
+        "githubActions": "GitHub Actions"
+      },
+      "since": "Iniciado por {{runner}} desde el {{time}} (archivo {{file}}): su programación está desactivada en VS Code.",
+      "resume": "Reanudar aquí la programación",
+      "resumed": {
+        "cron": "Una vez guardado, VS Code vuelve a iniciarlo según su programación. Quite su línea del crontab, o ambos lo iniciarán: el bloqueo de ejecución deja pasar una sola ejecución a la vez en esta máquina, y el otro inicio se rechaza.",
+        "taskScheduler": "Una vez guardado, VS Code vuelve a iniciarlo según su programación. Elimine su tarea en el Programador de tareas, o ambos lo iniciarán: el bloqueo de ejecución deja pasar una sola ejecución a la vez en esta máquina, y el otro inicio se rechaza.",
+        "githubActions": "Una vez guardado, VS Code vuelve a iniciarlo según su programación. Elimine o desactive su flujo de trabajo en GitHub: nada separa una ejecución allí de una en VS Code."
+      },
+      "stale": "El archivo {{file}}, exportado el {{time}}, no contiene los cambios guardados desde entonces: su lanzador ejecuta el pipeline tal como era. Vuelva a exportarlo.",
+      "historyHere": "{{name}}: iniciado por {{runner}} desde el {{time}}. Sus ejecuciones en esta máquina aparecen aquí, marcadas como Línea de comandos.",
+      "historyElsewhere": "{{name}}: iniciado por {{runner}} desde el {{time}}. Sus ejecuciones allí no aparecen aquí: consulte las ejecuciones del flujo de trabajo en GitHub."
     }
   },
   "ai": {

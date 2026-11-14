@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { PipelineStepResult, PipelineRunStatus } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -27,6 +28,11 @@ export interface PipelineExecutionData {
   startTime: string;
   elapsed: number;
   progress: number;
+  /**
+   * A dry run: each step that writes says what it would do, and nothing is
+   * written. The view says so, and names each step's end as what it would be.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -42,7 +48,44 @@ export interface PipelineExecutionViewProps {
    * notification's, whichever comes first.
    */
   onAnswerApproval?: (stepId: string, decision: 'approved' | 'rejected') => void;
+  /**
+   * Put away a run that has ended: a dry run's, whose result History does
+   * not keep, stays on the canvas until it is closed.
+   */
+  onClose?: () => void;
   className?: string;
+}
+
+/**
+ * What a step of a dry run is named by its end: a step the dry run went
+ * through would run, one it failed would stop the run there. A step still
+ * pending, running or stopped reads as in a run.
+ */
+function dryStepWords(status: PipelineStepResult['status'], t: TFunction): string | undefined {
+  switch (status) {
+    case 'completed':
+      return t('automation.dryRun.stepCompleted');
+    case 'failed':
+      return t('automation.dryRun.stepFailed');
+    case 'skipped':
+      return t('automation.dryRun.stepSkipped');
+    default:
+      return undefined;
+  }
+}
+
+/** What a dry run is named by its end, as the run would end. */
+function dryRunWords(status: PipelineRunStatus, t: TFunction): string | undefined {
+  switch (status) {
+    case 'completed':
+      return t('automation.dryRun.runCompleted');
+    case 'completed_with_warnings':
+      return t('automation.dryRun.runCompletedWithWarnings');
+    case 'failed':
+      return t('automation.dryRun.runFailed');
+    default:
+      return undefined;
+  }
 }
 
 /** Badge variant for step status. */
@@ -89,6 +132,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
   execution,
   onCancel,
   onAnswerApproval,
+  onClose,
   className,
 }) => {
   const { t } = useTranslation();
@@ -116,13 +160,24 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
           <span className="text-xs font-semibold text-(--sf-text-primary,#d4d4d4)">
             {execution.pipelineName}
           </span>
+          {execution.dryRun && (
+            <Badge variant="info" data-testid="execution-dry-run">
+              {t('automation.dryRun.badge')}
+            </Badge>
+          )}
           <span data-testid="execution-status">
             <Badge variant={runStatusBadge(execution.status)}>
-              {t(`automation.runStatuses.${execution.status}`)}
+              {(execution.dryRun ? dryRunWords(execution.status, t) : undefined) ??
+                t(`automation.runStatuses.${execution.status}`)}
             </Badge>
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {!isActive && onClose && (
+            <Button variant="ghost" size="sm" onClick={onClose} data-testid="execution-close">
+              {t('common.close')}
+            </Button>
+          )}
           {isActive && onCancel && (
             <button
               type="button"
@@ -135,6 +190,14 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* A dry run's steps say what they would do: the reader is told
+          before the first of them that none of it was done. */}
+      {execution.dryRun && (
+        <p className="text-xs text-text-secondary" data-testid="execution-dry-run-note">
+          {t('automation.dryRun.note')}
+        </p>
+      )}
 
       {/* Progress bar */}
       <div data-testid="execution-progress">
@@ -195,7 +258,8 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
               )}
               <span data-testid={`exec-step-status-${step.stepId}`}>
                 <Badge variant={stepStatusBadge(step.status)}>
-                  {t(`automation.runStatuses.${step.status}`)}
+                  {(execution.dryRun ? dryStepWords(step.status, t) : undefined) ??
+                    t(`automation.runStatuses.${step.status}`)}
                 </Badge>
               </span>
             </div>

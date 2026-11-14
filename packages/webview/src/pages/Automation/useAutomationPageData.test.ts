@@ -1501,3 +1501,264 @@ describe('useAutomationPageData — renaming, opening, starting and deleting a p
     }
   });
 });
+
+describe('useAutomationPageData — a dry run', () => {
+  beforeEach(() => {
+    queryData.set('pipeline:list', { pipelines: [listed('pipe-1', 'Nightly')] });
+  });
+
+  /** The pipeline `pipe-1` on the canvas, its dry run asked for and going. */
+  function startDryRun() {
+    const hook = renderHook(() => useAutomationPageData());
+    act(() => hook.result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    act(() => hook.result.current.handleDryRunPipeline());
+    Object.assign(mutationFor('pipeline:execute'), { loading: true, requestId: 'wv-dry-1' });
+    hook.rerender();
+    return hook;
+  }
+
+  it('asks the run’s own route with dryRun, and says the run going is a dry run', () => {
+    const { result } = startDryRun();
+
+    expect(mutationFor('pipeline:execute').mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true, variables: {} }),
+    );
+    expect(result.current.dryRunning).toBe(true);
+    expect(result.current.executionData?.dryRun).toBe(true);
+  });
+
+  it('sends a run with no dryRun, and draws it as a run', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    act(() => result.current.handleRunPipeline());
+    mutationFor('pipeline:execute').loading = true;
+    rerender();
+
+    expect(mutationFor('pipeline:execute').mutate.mock.calls[0][0]).not.toHaveProperty('dryRun');
+    expect(result.current.dryRunning).toBe(false);
+    expect(result.current.executionData?.dryRun).toBeUndefined();
+  });
+
+  it('keeps what the dry run would do once it ends, asks no history, and says nothing was written', () => {
+    const { result, rerender } = startDryRun();
+    refetchFor('pipeline:history').mockClear();
+
+    Object.assign(mutationFor('pipeline:execute'), {
+      loading: false,
+      data: {
+        pipelineId: 'pipe-1',
+        pipelineName: 'Nightly',
+        status: 'completed',
+        dryRun: true,
+        duration: 2_000,
+        startTime: '2026-11-20T02:00:00.000Z',
+        stepResults: [
+          {
+            stepId: 'pipe-1-step',
+            stepName: 'Wait',
+            stepType: 'delay',
+            status: 'completed',
+            summary: 'Would wait 5 seconds: a dry run does not wait.',
+            output: { dryRun: true },
+          },
+        ],
+      },
+    });
+    rerender();
+
+    const kept = result.current.dryRunResult;
+    expect(kept?.dryRun).toBe(true);
+    expect(kept?.status).toBe('completed');
+    expect(kept?.steps[0].summary).toBe('Would wait 5 seconds: a dry run does not wait.');
+    expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
+    expect(messages('The dry run of “Nightly” ended: nothing was written.')).toHaveLength(1);
+    expect(result.current.error).toBeNull();
+
+    act(() => result.current.dismissDryRun());
+    expect(result.current.dryRunResult).toBeUndefined();
+  });
+
+  it('says where a dry run would stop, as news, not as a failure of the page', () => {
+    const { result, rerender } = startDryRun();
+    Object.assign(mutationFor('pipeline:execute'), {
+      loading: false,
+      data: {
+        pipelineId: 'pipe-1',
+        status: 'failed',
+        dryRun: true,
+        stepResults: [
+          {
+            stepId: 'pipe-1-step',
+            stepName: 'Seed',
+            stepType: 'seed',
+            status: 'failed',
+            error: 'Seed "Seed" would be refused: the org has 2 MB left.',
+          },
+        ],
+      },
+    });
+    rerender();
+
+    const [said] = notifications.filter((n) => n.message.startsWith('The dry run of “Nightly”'));
+    expect(said.level).toBe('warning');
+    expect(said.message).toBe(
+      'The dry run of “Nightly” stops where its run would stop, and wrote nothing: Seed "Seed" would be refused: the org has 2 MB left.',
+    );
+    expect(result.current.error).toBeNull();
+    expect(result.current.dryRunResult?.steps[0].status).toBe('failed');
+  });
+
+  it('keeps a dry run’s result for its own pipeline, not for the next one on the canvas', () => {
+    queryData.set('pipeline:list', {
+      pipelines: [listed('pipe-1', 'Nightly'), listed('pipe-2', 'Weekly')],
+    });
+    const { result, rerender } = startDryRun();
+    Object.assign(mutationFor('pipeline:execute'), {
+      loading: false,
+      data: { pipelineId: 'pipe-1', status: 'completed', dryRun: true, stepResults: [] },
+    });
+    rerender();
+    expect(result.current.dryRunResult).toBeDefined();
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    expect(result.current.dryRunResult).toBeUndefined();
+  });
+
+  it('says in the reader’s words that a dry run is not available yet', () => {
+    const { result, rerender } = startDryRun();
+    Object.assign(mutationFor('pipeline:execute'), {
+      loading: false,
+      error: 'A dry run of a pipeline is not available here: nothing ran.',
+      errorCode: 'DRY_RUN_UNAVAILABLE',
+    });
+    rerender();
+
+    expect(result.current.error).toBe(
+      'A dry run is not available yet, and nothing ran: try again once SandForge has finished starting.',
+    );
+  });
+
+  it('says in the reader’s words, naming it, that a run on this machine already holds the pipeline', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    act(() => result.current.handleRunPipeline());
+    Object.assign(mutationFor('pipeline:execute'), {
+      error:
+        'Pipeline "Nightly" is already running on this machine: a run of the command line started at …',
+      errorCode: 'PIPELINE_RUNNING',
+    });
+    rerender();
+
+    expect(result.current.error).toBe(
+      '“Nightly” is already running on this machine, from another window or from the command line: run it again once that run has ended.',
+    );
+  });
+});
+
+describe('useAutomationPageData — a schedule handed over to a launcher', () => {
+  const OUTSIDE = {
+    since: '2026-11-20T08:00:00.000Z',
+    runner: 'cron' as const,
+    file: 'nightly.sandforge-pipeline.json',
+    digest: `sha256:${'a'.repeat(64)}`,
+  };
+  const schedule = {
+    id: 'tr-1',
+    type: 'schedule' as const,
+    enabled: true,
+    config: { cron: '0 2 * * *', timezone: 'UTC' },
+  };
+
+  it('exports only a pipeline saved as the canvas holds it', () => {
+    queryData.set('pipeline:list', { pipelines: [listed('pipe-1', 'Nightly')] });
+    const { result } = renderHook(() => useAutomationPageData());
+
+    act(() => result.current.handleCreatePipeline());
+    expect(result.current.exportable).toBe(false);
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-1', 'Nightly')));
+    expect(result.current.exportable).toBe(true);
+    expect(result.current.savedPipeline?.id).toBe('pipe-1');
+
+    act(() => result.current.handleRenamePipeline('Nightly refresh'));
+    expect(result.current.exportable).toBe(false);
+  });
+
+  it('takes the pipeline as handed over onto the canvas, so a later Save keeps its schedule off', () => {
+    queryData.set('pipeline:list', {
+      pipelines: [listed('pipe-1', 'Nightly', { triggers: [schedule] })],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() =>
+      result.current.handleLoadPipeline(listed('pipe-1', 'Nightly', { triggers: [schedule] })),
+    );
+    refetchFor('pipeline:list').mockClear();
+
+    const handedOver = listed('pipe-1', 'Nightly', {
+      triggers: [{ ...schedule, enabled: false }],
+      runsOutside: OUTSIDE,
+    });
+    act(() => result.current.handleHandedOver(handedOver));
+
+    expect(refetchFor('pipeline:list')).toHaveBeenCalled();
+    expect(result.current.pipeline?.runsOutside).toEqual(OUTSIDE);
+    act(() => result.current.handleSavePipeline());
+    const [{ config }] = mutationFor('pipeline:save').mutate.mock.calls[0] as [
+      { config: PipelineDefinition },
+    ];
+    expect(config.triggers[0].enabled).toBe(false);
+    expect(config.runsOutside).toEqual(OUTSIDE);
+  });
+
+  it('gives the schedule back on the canvas, and says what started it until the pipeline changes', () => {
+    const handedOver = listed('pipe-1', 'Nightly', {
+      triggers: [{ ...schedule, enabled: false }],
+      runsOutside: OUTSIDE,
+    });
+    queryData.set('pipeline:list', { pipelines: [handedOver, listed('pipe-2', 'Weekly')] });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(handedOver));
+
+    act(() => result.current.handleResumeSchedule());
+
+    expect(result.current.pipeline?.runsOutside).toBeUndefined();
+    expect(result.current.pipeline?.triggers[0].enabled).toBe(true);
+    expect(result.current.resumedFrom).toBe('cron');
+    // Given back once saved: until then the canvas holds unsaved changes.
+    expect(result.current.unsavedChanges).toBe(true);
+
+    act(() => result.current.handleConfirmDiscard());
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    act(() => result.current.handleConfirmDiscard());
+    expect(result.current.resumedFrom).toBeUndefined();
+  });
+
+  it('says the exported file lacks what was saved since, for the pipeline on the canvas alone', () => {
+    const handedOver = listed('pipe-1', 'Nightly', { runsOutside: OUTSIDE });
+    queryData.set('pipeline:list', {
+      pipelines: [handedOver, listed('pipe-2', 'Weekly')],
+      outside: [{ pipelineId: 'pipe-1', matches: false }],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+
+    act(() => result.current.handleLoadPipeline(handedOver));
+    expect(result.current.outsideStale).toBe(true);
+    expect(result.current.historyOutside).toEqual([
+      { pipelineId: 'pipe-1', name: 'Nightly', runsOutside: OUTSIDE },
+    ]);
+
+    act(() => result.current.handleLoadPipeline(listed('pipe-2', 'Weekly')));
+    expect(result.current.outsideStale).toBe(false);
+  });
+
+  it('finds the exported file up to date when the extension says it matches', () => {
+    const handedOver = listed('pipe-1', 'Nightly', { runsOutside: OUTSIDE });
+    queryData.set('pipeline:list', {
+      pipelines: [handedOver],
+      outside: [{ pipelineId: 'pipe-1', matches: true, digest: OUTSIDE.digest }],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(handedOver));
+    expect(result.current.outsideStale).toBe(false);
+  });
+});

@@ -140,6 +140,55 @@ describe('PipelineHeader', () => {
     expect(open.getAttribute('aria-controls')).toBe('saved-list');
   });
 
+  it('exports the pipeline as saved: Export… is on once what the canvas holds is saved', () => {
+    const onExport = vi.fn();
+    renderHeader({ exportable: true, onExport });
+
+    const exportButton = screen.getByRole('button', { name: 'Export…' }) as HTMLButtonElement;
+    expect(exportButton.disabled).toBe(false);
+    expect(exportButton.hasAttribute('aria-describedby')).toBe(false);
+    expect(screen.queryByTestId('export-save-first')).toBeNull();
+    fireEvent.click(exportButton);
+    expect(onExport).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Export… off until the pipeline is saved, and says so beside it', () => {
+    renderHeader({ exportable: false, onExport: vi.fn() });
+
+    const exportButton = screen.getByTestId('export-pipeline-btn') as HTMLButtonElement;
+    const hint = screen.getByTestId('export-save-first');
+    expect(exportButton.disabled).toBe(true);
+    expect(hint.textContent).toBe('Save first: the export takes the saved pipeline.');
+    expect(exportButton.getAttribute('aria-describedby')).toBe(hint.id);
+  });
+
+  it('dry runs the pipeline beside Run, held by what holds Run', () => {
+    const onDryRun = vi.fn();
+    renderHeader({ onDryRun });
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+    expect(onDryRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Dry run off for a step that cannot run, saying which, and for a blank name', () => {
+    renderHeader({ onDryRun: vi.fn(), runBlocked: true });
+    const dry = screen.getByTestId('dry-run-pipeline-btn') as HTMLButtonElement;
+    expect(dry.disabled).toBe(true);
+    expect(dry.getAttribute('aria-describedby')).toBe('blocked-note');
+  });
+
+  it('says a dry run is going on its own button, and keeps Run off meanwhile', () => {
+    renderHeader({ onDryRun: vi.fn(), running: true, dryRunning: true });
+    expect(screen.getByTestId('dry-run-pipeline-btn').textContent).toContain('Dry run…');
+    const run = screen.getByTestId('run-pipeline-btn') as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    expect(run.textContent).toContain('Run Pipeline');
+  });
+
+  it('keeps Dry run off while a run goes', () => {
+    renderHeader({ onDryRun: vi.fn(), running: true });
+    expect((screen.getByTestId('dry-run-pipeline-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('keeps New and Open… off while a run draws its progress on the pipeline', () => {
     renderHeader({ running: true });
 

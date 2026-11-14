@@ -216,6 +216,140 @@ describe('PipelineHistoryView', () => {
     );
   });
 
+  it('says an Approval of a command-line run was answered at its terminal, or ahead with --approve', () => {
+    // Every channel but the notification read "on the Automation page": a run
+    // of `sandforge pipeline run`, answered in a terminal or by --approve,
+    // named a page nobody had open.
+    render(
+      <PipelineHistoryView
+        entries={[
+          {
+            ...entries[1],
+            ranFrom: 'commandLine',
+            steps: [
+              {
+                stepName: 'Go?',
+                stepType: 'approval',
+                status: 'completed',
+                approval: { decision: 'approved', via: 'terminal', at: '2026-11-20T02:00:20.000Z' },
+              },
+              {
+                stepName: 'Go again?',
+                stepType: 'approval',
+                status: 'completed',
+                approval: {
+                  decision: 'approved',
+                  via: 'commandLine',
+                  at: '2026-11-20T02:01:00.000Z',
+                },
+              },
+              {
+                stepName: 'Stop?',
+                stepType: 'approval',
+                status: 'failed',
+                approval: { decision: 'rejected', via: 'terminal', at: '2026-11-20T02:02:00.000Z' },
+              },
+              {
+                stepName: 'Stop again?',
+                stepType: 'approval',
+                status: 'failed',
+                approval: {
+                  decision: 'rejected',
+                  via: 'commandLine',
+                  at: '2026-11-20T02:03:00.000Z',
+                },
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const lines = [0, 1, 2, 3].map(
+      (index) => screen.getByTestId(`history-approval-run-2-${index}`).textContent ?? '',
+    );
+    expect(lines[0]).toMatch(/^Approved at the terminal of the run, .+/);
+    expect(lines[1]).toMatch(/^Approved ahead, on the command line \(--approve\), .+/);
+    expect(lines[2]).toMatch(/^Rejected at the terminal of the run, .+/);
+    expect(lines[3]).toMatch(/^Rejected on the command line, .+/);
+    for (const line of lines) expect(line).not.toContain('Automation page');
+  });
+
+  it('marks a run the command line made on this machine, and only those', () => {
+    render(
+      <PipelineHistoryView
+        entries={[
+          { ...entries[0], ranFrom: 'commandLine' },
+          { ...entries[1], ranFrom: 'editor' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('history-command-line-run-1').textContent).toBe('Command line');
+    expect(screen.queryByTestId('history-command-line-run-2')).toBeNull();
+  });
+
+  it('says whose runs it lists of each pipeline a launcher starts: this machine’s, never a CI’s', () => {
+    render(
+      <PipelineHistoryView
+        entries={entries}
+        outside={[
+          {
+            pipelineId: 'pipe-1',
+            name: 'Daily Backup',
+            runsOutside: {
+              since: '2026-11-20T08:00:00.000Z',
+              runner: 'cron',
+              file: 'daily-backup.sandforge-pipeline.json',
+              digest: `sha256:${'a'.repeat(64)}`,
+            },
+          },
+          {
+            pipelineId: 'pipe-2',
+            name: 'Weekly Sync',
+            runsOutside: {
+              since: '2026-11-20T08:00:00.000Z',
+              runner: 'githubActions',
+              file: 'weekly-sync.sandforge-pipeline.json',
+              digest: `sha256:${'b'.repeat(64)}`,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('history-outside-pipe-1').textContent).toMatch(
+      /^Daily Backup: started by cron \(bash launcher\) since .+\. Its runs on this machine show here, marked Command line\.$/,
+    );
+    expect(screen.getByTestId('history-outside-pipe-2').textContent).toMatch(
+      /^Weekly Sync: started by GitHub Actions since .+\. Its runs there do not show here: see the workflow's runs on GitHub\.$/,
+    );
+  });
+
+  it('says it with no run listed yet too', () => {
+    render(
+      <PipelineHistoryView
+        outside={[
+          {
+            pipelineId: 'pipe-1',
+            name: 'Daily Backup',
+            runsOutside: {
+              since: '2026-11-20T08:00:00.000Z',
+              runner: 'taskScheduler',
+              file: 'daily-backup.sandforge-pipeline.json',
+              digest: `sha256:${'a'.repeat(64)}`,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('history-outside-pipe-1').textContent).toContain(
+      'started by Task Scheduler (PowerShell launcher)',
+    );
+    expect(screen.getByTestId('pipeline-history').textContent).toContain('No run yet');
+  });
+
   it('lists no steps for a run written before steps were kept', () => {
     render(<PipelineHistoryView entries={entries} />);
     expect(screen.queryByTestId('history-steps-run-1')).toBeNull();
@@ -254,39 +388,41 @@ describe('PipelineHistoryView', () => {
       expect(card.textContent).not.toMatch(/\d+ Steps/);
     });
 
-    it('names the command lines that run its steps while VS Code is closed', () => {
-      // "Not started", and nothing said of what does start while the
-      // editor is closed: each step has a command line a cron job or a CI
-      // step runs.
+    it('sends a start missed while VS Code was closed to Export…, whose launcher runs the whole pipeline', () => {
+      // It listed one command per step type — `npx sandforge monitor` for a
+      // Pre-check, which has neither its threshold nor its exit code —, and
+      // none for a Condition, an Approval or the values a step hands on: a
+      // cron job of those lines ran no pipeline.
       render(
         <PipelineHistoryView
-          entries={[missedEntry({ reason: 'closed', count: 1 })]}
-          stepTypesOf={(pipelineId) =>
-            pipelineId === 'pipe-1'
-              ? ['precheck', 'backup', 'approval', 'anonymize', 'backup', 'notification']
-              : undefined
-          }
+          entries={[
+            missedEntry({ reason: 'closed', count: 1 }),
+            { ...missedEntry({ reason: 'asleep', count: 1 }), runId: 'missed-2' },
+          ]}
         />,
       );
 
-      expect(screen.getByTestId('history-missed-cli-missed-1').textContent).toBe(
-        'While VS Code is closed, nothing starts a pipeline: a scheduled job (cron, CI) runs its ' +
-          'steps from the command line instead — npx sandforge monitor, npx sandforge backup, ' +
-          'npx sandforge dataops anonymize. Steps without one: Approval, Notification.',
-      );
+      for (const runId of ['missed-1', 'missed-2']) {
+        const line = screen.getByTestId(`history-missed-export-${runId}`).textContent ?? '';
+        expect(line).toBe(
+          'With VS Code closed, nothing here starts it: export it with Export…, beside Run ' +
+            'Pipeline, and its launcher (cron, Task Scheduler or GitHub Actions) runs the whole ' +
+            'pipeline with npx sandforge.',
+        );
+        expect(line).not.toContain('npx sandforge monitor');
+      }
     });
 
-    it('names no command line for a start missed while a run was still going', () => {
+    it('sends nowhere a start missed while a run was still going: VS Code was open', () => {
       render(
         <PipelineHistoryView
           entries={[
             missedEntry({ reason: 'busy', count: 1, busySince: '2026-09-23T01:00:00.000Z' }),
           ]}
-          stepTypesOf={() => ['backup']}
         />,
       );
 
-      expect(screen.queryByTestId('history-missed-cli-missed-1')).toBeNull();
+      expect(screen.queryByTestId('history-missed-export-missed-1')).toBeNull();
     });
 
     it('counts the starts missed during a long absence, and says when there were more', () => {

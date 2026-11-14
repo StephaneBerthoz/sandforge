@@ -2669,14 +2669,13 @@
       "closedMany": "{{n}} inícios previstos de {{first}} a {{last}}, enquanto o VS Code estava fechado: nenhum foi feito com atraso.",
       "asleep": "Previsto para {{time}}, quando o SandForge não podia verificar o agendamento, como quando o computador está em suspensão: não foi feito com atraso.",
       "asleepMany": "{{n}} inícios previstos de {{first}} a {{last}}, quando o SandForge não podia verificar o agendamento, como quando o computador está em suspensão: nenhum foi feito com atraso.",
-      "cli": "Enquanto o VS Code está fechado, nada inicia um pipeline: uma tarefa agendada (cron, CI) executa as etapas dele pela linha de comando — {{commands}}.",
-      "cliNone": "Etapas sem nenhuma: {{steps}}.",
       "busy": "Previsto para {{time}}, enquanto a execução iniciada em {{since}} ainda estava em andamento: não foi iniciado. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
       "busyMany": "{{n}} inícios previstos de {{first}} a {{last}}, enquanto a execução iniciada em {{since}} ainda estava em andamento: nenhum foi feito. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
       "busyRefresh": "A atualização detectada em {{time}} chegou enquanto a execução iniciada em {{since}} ainda estava em andamento: nada foi iniciado. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
       "cannotRun": "A atualização detectada em {{time}} não iniciou nada: uma etapa deste pipeline não pode ser executada.",
       "cannotRunSchedule": "Previsto para {{time}}: não foi iniciado, porque uma etapa deste pipeline não pode ser executada.",
-      "cannotRunScheduleMany": "{{n}} inícios previstos de {{first}} a {{last}}: nenhum foi feito, porque uma etapa deste pipeline não pode ser executada."
+      "cannotRunScheduleMany": "{{n}} inícios previstos de {{first}} a {{last}}: nenhum foi feito, porque uma etapa deste pipeline não pode ser executada.",
+      "export": "Com o VS Code fechado, nada aqui o inicia: exporte-o com Exportar…, ao lado de Executar pipeline, e o iniciador dele (cron, Agendador de Tarefas ou GitHub Actions) executa o pipeline inteiro com npx sandforge."
     },
     "pipelineSchedules": {
       "title": "Agendamentos de pipelines",
@@ -2891,7 +2890,11 @@
         "rejectedOnPage": "Rejeitado na página Automação, {{time}}",
         "rejectedOnNotification": "Rejeitado na notificação do VS Code, {{time}}",
         "timedOut": "Não aprovado a tempo: ninguém respondeu até {{time}}",
-        "cancelled": "Interrompido antes que alguém respondesse, {{time}}"
+        "cancelled": "Interrompido antes que alguém respondesse, {{time}}",
+        "approvedAtTerminal": "Aprovado no terminal da execução, {{time}}",
+        "rejectedAtTerminal": "Rejeitado no terminal da execução, {{time}}",
+        "approvedAhead": "Aprovado de antemão, na linha de comando (--approve), {{time}}",
+        "rejectedOnCommandLine": "Rejeitado na linha de comando, {{time}}"
       }
     },
     "hardDelete": "Exclusão permanente",
@@ -2988,6 +2991,155 @@
       "discardDescription": "Elas não estão salvas, e nada as traz de volta.",
       "discard": "Descartar alterações",
       "keepEditing": "Continuar editando"
+    },
+    "ranFromCommandLine": "Linha de comando",
+    "runRunning": "“{{name}}” já está em execução nesta máquina, em outra janela ou pela linha de comando: execute-o de novo quando essa execução terminar.",
+    "dryRun": {
+      "button": "Simulação",
+      "running": "Simulação…",
+      "badge": "Simulação",
+      "note": "Uma simulação: cada etapa que grava diz o que faria, e nada é gravado em nenhuma org. Comparação e Pré-verificação leem as orgs, nenhum Atraso espera, nenhuma Aprovação é pedida e o histórico não guarda nada.",
+      "ended": "A simulação de “{{name}}” terminou: nada foi gravado.",
+      "stopped": "A simulação de “{{name}}” para onde a execução pararia, sem gravar nada: {{reason}}",
+      "unavailable": "Uma simulação ainda não está disponível, e nada foi executado: tente de novo quando o SandForge terminar de iniciar.",
+      "stepCompleted": "Seria executada",
+      "stepFailed": "Pararia aqui",
+      "stepSkipped": "Seria ignorada",
+      "runCompleted": "Seria concluída",
+      "runCompletedWithWarnings": "Seria concluída com avisos",
+      "runFailed": "Pararia"
+    },
+    "export": {
+      "button": "Exportar…",
+      "saveFirst": "Salve primeiro: a exportação usa o pipeline salvo.",
+      "title": "Exportar “{{name}}”",
+      "description": "Um arquivo do pipeline como está salvo, e um iniciador que o executa com npx sandforge enquanto o VS Code está fechado. Nada é gravado até você escolher onde salvar.",
+      "reading": "Lendo o pipeline salvo…",
+      "failed": "O pipeline não foi exportado, e nada foi salvo: {{reason}}",
+      "refused": {
+        "NOT_SAVED": "Nenhum pipeline está mais salvo com este nome: salve-o e depois exporte-o.",
+        "ORG_UNKNOWN": "Uma etapa, ou sua configuração de Sync, cita uma org que não está mais registrada no SandForge: escolha uma org, salve e exporte de novo.",
+        "SYNC_CONFIG_UNKNOWN": "Uma etapa de Sync executa uma configuração que não está mais salva: escolha uma, salve e exporte de novo.",
+        "SCHEDULES_MANY": "Mais de um agendamento inicia este pipeline, e um arquivo leva só um: mantenha um, salve e exporte de novo.",
+        "FILE_INVALID": "O arquivo não seria lido: corrija cada ponto abaixo onde o pipeline, as orgs dele ou as configurações o contêm, e exporte de novo.",
+        "VERSION_UNKNOWN": "Este SandForge não informa qual versão é, que o arquivo e seus iniciadores citam: nada foi exportado."
+      },
+      "problems": "Uma execução deste arquivo recusa o pipeline antes da primeira etapa, como o VS Code faz agora:",
+      "steps": {
+        "heading": "Etapas, com o VS Code fechado",
+        "runs": "Executa como aqui",
+        "asks": "Pede algo",
+        "refused": "Recusada",
+        "refusedWhy": "A execução a recusa antes da primeira etapa:"
+      },
+      "note": {
+        "approval": "Pergunta a uma pessoa no terminal da execução. Sem ninguém em um terminal, responda de antemão: --approve \"{{step}}\".",
+        "staging": "Vem antes de uma gravação em uma sandbox marcada como Staging: só uma pessoa em um terminal a responde, nunca --approve.",
+        "rewindConfirm": "Executa depois que {{alias}} for confirmada na máquina da execução: sandforge pipeline confirm em um terminal, ou --confirm-rewind {{alias}}.",
+        "rewindCheckpoint": "O ponto de verificação dela fica nesta máquina: em outra, importe-o primeiro ({{command}}).",
+        "notification": "Imprime a mensagem na saída da execução: não há janela do VS Code para mostrá-la."
+      },
+      "orgs": {
+        "heading": "Orgs",
+        "kind": {
+          "sandbox": "Sandbox",
+          "scratch": "Scratch org",
+          "developer": "Developer Edition",
+          "production": "Produção"
+        },
+        "staging": "Staging",
+        "writtenBy": "Gravada por {{steps}}",
+        "readBy": "Lida por {{steps}}",
+        "noAlias": "Sem alias próprio: dê um a ela com a Salesforce CLI e cite-o ao iniciar a execução:",
+        "held": "Conectada à Salesforce CLI desta máquina.",
+        "notHeld": "Conectada com usuário e senha: a Salesforce CLI desta máquina não a tem. Entre nela na máquina da execução:"
+      },
+      "variables": {
+        "heading": "Variáveis",
+        "secret": "Um segredo: o valor fica fora do arquivo. Informe-o ao iniciar a execução:",
+        "fromEnv": "Obrigatória e sem valor no arquivo: informe-a ao iniciar a execução:",
+        "valued": "O valor dela está no arquivo.",
+        "noValue": "Sem valor no arquivo, e nenhum é obrigatório."
+      },
+      "launcher": {
+        "heading": "Iniciador",
+        "none": "Nenhum: só o arquivo do pipeline",
+        "cron": "bash, iniciado pelo cron",
+        "taskScheduler": "PowerShell, iniciado pelo Agendador de Tarefas",
+        "githubActions": "Fluxo de trabalho do GitHub Actions",
+        "beside": "Salvo em seguida, como {{launcher}}, na pasta de {{file}} e com esse nome mantido: ele executa o arquivo a partir da própria pasta.",
+        "github": "Salvo em seguida, como {{launcher}}: faça commit dele em .github/workflows de um repositório privado, com {{file}} na raiz do repositório. As primeiras linhas dele citam o segredo com que cada org entra.",
+        "noSchedule": "O pipeline não tem agendamento: o iniciador o executa quando é iniciado, à mão ou por um agendador que você configurar.",
+        "line": {
+          "cron": "Adicione esta linha ao crontab desta máquina (crontab -e), lida em {{timezone}}, com a pasta onde você salvar o iniciador:",
+          "taskScheduler": "Registre a tarefa uma vez, pelo PowerShell, na pasta do iniciador; o Agendador de Tarefas a lê em {{timezone}}:",
+          "githubActions": "O fluxo de trabalho inicia por esta linha, lida em {{timezone}}:"
+        },
+        "moved": "O agendamento do pipeline, deslocado {{minutes}} minutos para o fuso do relógio desta máquina.",
+        "drift": {
+          "later": "A partir de {{time}}, ela executa {{minutes}} minutos mais tarde do que diz o agendamento do pipeline.",
+          "earlier": "A partir de {{time}}, ela executa {{minutes}} minutos mais cedo do que diz o agendamento do pipeline.",
+          "back": "A partir de {{time}}, ela volta a executar nos horários do pipeline."
+        },
+        "manual": "A tarefa dele é criada à mão no Agendador de Tarefas:",
+        "refused": "Nenhuma linha deste agendador inicia o pipeline nos horários do agendamento dele, então este iniciador não o inicia por nenhum agendamento:"
+      },
+      "handOver": {
+        "label": "Deixar este iniciador iniciar o pipeline: desligar o agendamento aqui",
+        "help": "Depois que o iniciador for salvo ao lado do arquivo, o pipeline é salvo com o agendamento desligado no VS Code, e a página diz o que o inicia. Retome o agendamento na aba Gatilhos."
+      },
+      "locks": {
+        "heading": "O que separa duas execuções, e o que não separa",
+        "same": "Um pipeline executa uma vez por vez nesta máquina: uma execução pelo VS Code e uma por este iniciador pegam o mesmo bloqueio, e a segunda é recusada.",
+        "writes": "Esse bloqueio segura o pipeline, não as orgs dele: outro pipeline, ou Sync, Seed ou um backup pelo VS Code ou pela linha de comando, pode gravar na mesma org ao mesmo tempo.",
+        "masking": "Um mascaramento mantém o bloqueio de backup só na própria janela: uma restauração pela linha de comando ou por outra janela não é impedida enquanto isso.",
+        "elsewhere": "Uma execução em outra máquina — um runner de CI — não é impedida por nada daqui: deixe só um deles iniciar o pipeline."
+      },
+      "saveFile": "Salvar o arquivo…",
+      "saveFileAndLauncher": "Salvar o arquivo e o iniciador…",
+      "saving": {
+        "file": "Salvando o arquivo do pipeline: escolha onde na janela Salvar.",
+        "launcher": "Salvando o iniciador: escolha a pasta do arquivo do pipeline.",
+        "handOver": "Desligando o agendamento no VS Code…"
+      },
+      "saved": {
+        "file": "Arquivo do pipeline salvo: {{path}}",
+        "launcher": "Iniciador salvo: {{path}}",
+        "handedOver": "O agendamento dele está desligado no VS Code: de agora em diante, ele é iniciado pelo {{runner}}, depois que a linha, a tarefa ou o fluxo de trabalho estiver no lugar.",
+        "withheld": {
+          "renamed": "O agendamento continua ligado no VS Code: o arquivo foi salvo como {{name}}, e o iniciador executa {{file}}. Salve o arquivo de novo com esse nome e exporte de novo para passar o agendamento.",
+          "apart": "O agendamento continua ligado no VS Code: o iniciador foi salvo em outra pasta que não a do arquivo, e executa o arquivo a partir da própria. Salve os dois lado a lado e exporte de novo para passar o agendamento."
+        }
+      },
+      "stopped": {
+        "cancelledFile": "Nada foi salvo: a janela Salvar foi fechada.",
+        "cancelledLauncher": "O iniciador não foi salvo: a janela Salvar foi fechada. O agendamento continua ligado no VS Code.",
+        "errorFile": "O arquivo do pipeline não foi salvo, nem nada depois dele:",
+        "errorLauncher": "O iniciador não foi salvo, e o agendamento continua ligado no VS Code:",
+        "errorHandOver": "Os arquivos foram salvos, mas o pipeline não foi salvo com o agendamento desligado: o VS Code ainda o inicia."
+      }
+    },
+    "outside": {
+      "runner": {
+        "cron": "cron (iniciador bash)",
+        "taskScheduler": "Agendador de Tarefas (iniciador PowerShell)",
+        "githubActions": "GitHub Actions"
+      },
+      "badge": {
+        "cron": "cron",
+        "taskScheduler": "Agendador de Tarefas",
+        "githubActions": "GitHub Actions"
+      },
+      "since": "Iniciado pelo {{runner}} desde {{time}} (arquivo {{file}}): o agendamento dele está desligado no VS Code.",
+      "resume": "Retomar o agendamento aqui",
+      "resumed": {
+        "cron": "Depois de salvo, o VS Code volta a iniciá-lo pelo agendamento. Remova a linha dele do crontab, ou os dois o iniciam: o bloqueio de execução deixa passar uma execução por vez nesta máquina, e o outro início é recusado.",
+        "taskScheduler": "Depois de salvo, o VS Code volta a iniciá-lo pelo agendamento. Exclua a tarefa dele no Agendador de Tarefas, ou os dois o iniciam: o bloqueio de execução deixa passar uma execução por vez nesta máquina, e o outro início é recusado.",
+        "githubActions": "Depois de salvo, o VS Code volta a iniciá-lo pelo agendamento. Exclua ou desative o fluxo de trabalho dele no GitHub: nada separa uma execução lá de uma no VS Code."
+      },
+      "stale": "O arquivo {{file}}, exportado em {{time}}, não contém as alterações salvas desde então: o iniciador dele executa o pipeline como era. Exporte-o de novo.",
+      "historyHere": "{{name}}: iniciado pelo {{runner}} desde {{time}}. As execuções dele nesta máquina aparecem aqui, marcadas como Linha de comando.",
+      "historyElsewhere": "{{name}}: iniciado pelo {{runner}} desde {{time}}. As execuções dele lá não aparecem aqui: veja as execuções do fluxo de trabalho no GitHub."
     }
   },
   "ai": {

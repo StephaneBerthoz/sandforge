@@ -19,8 +19,15 @@ export interface PipelineHeaderProps {
   unsaved: boolean;
   /** Whether its save is on its way to the extension. */
   saving: boolean;
-  /** Whether a run this page started is going. */
+  /** Whether a run this page started is going, a dry run or not. */
   running: boolean;
+  /** Whether the run going is a dry run. */
+  dryRunning?: boolean;
+  /**
+   * Whether the pipeline is saved as it stands: the export takes the saved
+   * pipeline, and Export… waits for a save until then.
+   */
+  exportable?: boolean;
   /** Whether a step of it keeps it from running. */
   runBlocked: boolean;
   /** Id of the note that names those steps, beside the Run button. */
@@ -38,6 +45,10 @@ export interface PipelineHeaderProps {
   onRename: (name: string) => void;
   onSave: () => void;
   onRun: () => void;
+  /** Dry run: the run's own route, each step that writes saying what it would do. */
+  onDryRun?: () => void;
+  /** Export…: the saved pipeline as a file, and a launcher that runs it with VS Code closed. */
+  onExport?: () => void;
 }
 
 /**
@@ -57,6 +68,8 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
   unsaved,
   saving,
   running,
+  dryRunning = false,
+  exportable = false,
   runBlocked,
   blockedNoticeId,
   listOpen,
@@ -67,9 +80,12 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
   onRename,
   onSave,
   onRun,
+  onDryRun,
+  onExport,
 }) => {
   const { t } = useTranslation();
   const nameId = useId();
+  const saveFirstId = `${nameId}-save-first`;
   // A blank name is saved, and then never runs: the extension reads a
   // pipeline without one as no pipeline, and its schedules start nothing.
   const named = pipeline !== undefined && pipeline.name.trim() !== '';
@@ -133,16 +149,47 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
                 >
                   {saving ? t('automation.saving') : t('automation.savePipeline')}
                 </Button>
+                {/* Read from the pipeline as saved, never as the canvas holds
+                    it: off until what is on the canvas is saved. */}
+                {onExport && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={onExport}
+                    disabled={!exportable}
+                    aria-describedby={exportable ? undefined : saveFirstId}
+                    data-testid="export-pipeline-btn"
+                  >
+                    {t('automation.export.button')}
+                  </Button>
+                )}
+                {/* The run's own route and checks, nothing written: what
+                    Run would do, before it does it. */}
+                {onDryRun && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={onDryRun}
+                    loading={running && dryRunning}
+                    disabled={runBlocked || !named || running}
+                    aria-describedby={runDescribedBy}
+                    data-testid="dry-run-pipeline-btn"
+                  >
+                    {running && dryRunning
+                      ? t('automation.dryRun.running')
+                      : t('automation.dryRun.button')}
+                  </Button>
+                )}
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={onRun}
-                  loading={running}
-                  disabled={runBlocked || !named}
+                  loading={running && !dryRunning}
+                  disabled={runBlocked || !named || (running && dryRunning)}
                   aria-describedby={runDescribedBy}
                   data-testid="run-pipeline-btn"
                 >
-                  {running ? t('automation.running') : t('automation.run')}
+                  {running && !dryRunning ? t('automation.running') : t('automation.run')}
                 </Button>
               </>
             )}
@@ -175,6 +222,17 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
               <Badge variant="warning" data-testid="pipeline-unsaved">
                 {t('automation.lifecycle.unsaved')}
               </Badge>
+            )}
+            {/* Why Export… is off, where it is seen: a disabled button
+                shows no tooltip to the mouse, nor to the keyboard. */}
+            {onExport && !exportable && (
+              <span
+                id={saveFirstId}
+                className="text-xs text-text-secondary"
+                data-testid="export-save-first"
+              >
+                {t('automation.export.saveFirst')}
+              </span>
             )}
           </div>
         </div>

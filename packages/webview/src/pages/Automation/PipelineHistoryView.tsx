@@ -5,8 +5,8 @@ import type {
   PipelineApprovalRecord,
   PipelineHistoryEntry,
   PipelineHistoryStatus,
+  PipelineRunsOutside,
   PipelineStepResult,
-  PipelineStepType,
 } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -14,47 +14,24 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { formatDuration } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
-import { stepTypeLabel } from './stepTypeLabel';
+import { historyOutsideLine } from './pipelineOutside';
+
+/** A saved pipeline a launcher starts since an export, as History names it. */
+export interface HistoryOutsidePipeline {
+  pipelineId: string;
+  name: string;
+  runsOutside: PipelineRunsOutside;
+}
 
 /** PipelineHistoryView component props. */
 export interface PipelineHistoryViewProps {
   entries?: PipelineHistoryEntry[];
   onSelectRun?: (runId: string) => void;
-  /** The step types of a saved pipeline, in order: what a missed start names the command lines of. */
-  stepTypesOf?: (pipelineId: string) => readonly PipelineStepType[] | undefined;
-}
-
-/**
- * The command line that does a step's work while VS Code is closed, by step
- * type, as the `sandforge` package runs it. A Delay, a Condition, an Approval
- * and a Notification have none: they wait, test or ask in the editor.
- */
-const STEP_COMMAND: Partial<Record<PipelineStepType, string>> = {
-  sync: 'npx sandforge sync',
-  seed: 'npx sandforge seed',
-  anonymize: 'npx sandforge dataops anonymize',
-  backup: 'npx sandforge backup',
-  checkpoint: 'npx sandforge checkpoint',
-  rewind: 'npx sandforge checkpoint rewind',
-  compare: 'npx sandforge compare',
-  precheck: 'npx sandforge monitor',
-};
-
-/**
- * What runs a pipeline's steps while VS Code is closed, for a start missed
- * because it was: a pipeline runs in the editor alone, and the history said
- * "not started" with nothing after it. Empty when no step has a command line.
- */
-function cliLine(types: readonly PipelineStepType[], t: TFunction): string {
-  const commands = [...new Set(types.flatMap((type) => STEP_COMMAND[type] ?? []))];
-  if (commands.length === 0) return '';
-  const without = [
-    ...new Set(types.filter((type) => !STEP_COMMAND[type]).map((type) => stepTypeLabel(type, t))),
-  ];
-  const head = t('automation.missed.cli', { commands: commands.join(', ') });
-  return without.length > 0
-    ? `${head} ${t('automation.missed.cliNone', { steps: without.join(', ') })}`
-    : head;
+  /**
+   * The saved pipelines a launcher starts since an export: History says whose
+   * runs it lists of each, the ones on this machine, and not a CI's.
+   */
+  outside?: readonly HistoryOutsidePipeline[];
 }
 
 const STATUS_VARIANT: Record<
@@ -119,16 +96,31 @@ function missedLine(entry: PipelineHistoryEntry, t: TFunction): string {
  */
 export function approvalLine(record: PipelineApprovalRecord, t: TFunction): string {
   const time = formatTriggerTime(record.at) ?? t('common.dateUnknown');
-  const inVsCode = record.via === 'notification';
+  // A run of the command line was answered at its terminal, or ahead by
+  // `--approve`: said as one of the page, it named a page nobody had open.
   switch (record.decision) {
     case 'approved':
-      return inVsCode
-        ? t('automation.approval.record.approvedOnNotification', { time })
-        : t('automation.approval.record.approvedOnPage', { time });
+      switch (record.via) {
+        case 'notification':
+          return t('automation.approval.record.approvedOnNotification', { time });
+        case 'terminal':
+          return t('automation.approval.record.approvedAtTerminal', { time });
+        case 'commandLine':
+          return t('automation.approval.record.approvedAhead', { time });
+        default:
+          return t('automation.approval.record.approvedOnPage', { time });
+      }
     case 'rejected':
-      return inVsCode
-        ? t('automation.approval.record.rejectedOnNotification', { time })
-        : t('automation.approval.record.rejectedOnPage', { time });
+      switch (record.via) {
+        case 'notification':
+          return t('automation.approval.record.rejectedOnNotification', { time });
+        case 'terminal':
+          return t('automation.approval.record.rejectedAtTerminal', { time });
+        case 'commandLine':
+          return t('automation.approval.record.rejectedOnCommandLine', { time });
+        default:
+          return t('automation.approval.record.rejectedOnPage', { time });
+      }
     case 'timedOut':
       return t('automation.approval.record.timedOut', { time });
     case 'cancelled':
@@ -157,13 +149,36 @@ const STEP_STATUS_VARIANT: Record<
 export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
   entries = [],
   onSelectRun,
-  stepTypesOf,
+  outside = [],
 }) => {
   const { t } = useTranslation();
 
+  // Whose runs History lists, for each pipeline a launcher starts: a cron or
+  // a scheduled task of this machine keeps them where History reads them, a
+  // CI does not.
+  // A list inside the note: a note role on the list itself takes its list
+  // semantics away, and its items are then items of nothing.
+  const outsideNote =
+    outside.length > 0 ? (
+      <div
+        role="note"
+        className="rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2 text-xs text-(--sf-text-secondary)"
+        data-testid="history-outside"
+      >
+        <ul className="flex flex-col gap-0.5">
+          {outside.map((pipeline) => (
+            <li key={pipeline.pipelineId} data-testid={`history-outside-${pipeline.pipelineId}`}>
+              {historyOutsideLine(pipeline.name, pipeline.runsOutside, t)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
   if (entries.length === 0) {
     return (
-      <div data-testid="pipeline-history">
+      <div className="flex flex-col gap-2" data-testid="pipeline-history">
+        {outsideNote}
         <EmptyState
           icon={<Icon name="history" />}
           title={t('automation.noHistory')}
@@ -176,6 +191,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
   return (
     <div className="flex flex-col gap-2" data-testid="pipeline-history">
       <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.history')}</h3>
+      {outsideNote}
       {entries.map((entry) => (
         <div key={entry.runId} data-testid={`history-${entry.runId}`}>
           <Card hoverable onClick={() => onSelectRun?.(entry.runId)}>
@@ -186,9 +202,18 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
               title={entry.pipelineName}
               subtitle={formatTriggerTime(entry.startTime) ?? t('common.dateUnknown')}
               action={
-                <Badge variant={STATUS_VARIANT[entry.status]}>
-                  {t(`automation.runStatuses.${entry.status}`)}
-                </Badge>
+                <span className="flex items-center gap-1.5">
+                  {/* A run `sandforge pipeline run` made on this machine:
+                      the editor did not run it, nor keep it. */}
+                  {entry.ranFrom === 'commandLine' && (
+                    <Badge variant="info" data-testid={`history-command-line-${entry.runId}`}>
+                      {t('automation.ranFromCommandLine')}
+                    </Badge>
+                  )}
+                  <Badge variant={STATUS_VARIANT[entry.status]}>
+                    {t(`automation.runStatuses.${entry.status}`)}
+                  </Badge>
+                </span>
               }
             />
             <CardBody>
@@ -222,18 +247,18 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                   )}
                 </p>
               )}
-              {(entry.missed?.reason === 'closed' || entry.missed?.reason === 'asleep') &&
-                (() => {
-                  const line = cliLine(stepTypesOf?.(entry.pipelineId) ?? [], t);
-                  return line ? (
-                    <p
-                      className="mt-1 text-xs text-(--sf-text-secondary)"
-                      data-testid={`history-missed-cli-${entry.runId}`}
-                    >
-                      {line}
-                    </p>
-                  ) : null;
-                })()}
+              {/* What runs it with VS Code closed: the export, whose
+                  launcher runs the whole pipeline. A list of one command per
+                  step left out its Conditions, Approvals and the values its
+                  steps hand on, and ran no pipeline. */}
+              {(entry.missed?.reason === 'closed' || entry.missed?.reason === 'asleep') && (
+                <p
+                  className="mt-1 text-xs text-(--sf-text-secondary)"
+                  data-testid={`history-missed-export-${entry.runId}`}
+                >
+                  {t('automation.missed.export')}
+                </p>
+              )}
               {entry.steps && entry.steps.length > 0 && (
                 <ol
                   className="mt-2 flex flex-col gap-1"

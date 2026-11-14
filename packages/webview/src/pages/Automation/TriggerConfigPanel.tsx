@@ -1,11 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  PipelineOutsideRunner,
+  PipelineRunsOutside,
   PipelineTrigger,
   PipelineTriggerStatus,
   TriggerConfig,
   TriggerType,
 } from '@sandforge/shared';
+import { outsideSinceLine, resumedLine, runnerBadgeWords } from './pipelineOutside';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -39,6 +42,18 @@ export interface TriggerConfigPanelProps {
   sandboxes?: TriggerSandbox[];
   /** Whether a step of the pipeline cannot run: no trigger starts it then. */
   pipelineBlocked?: boolean;
+  /**
+   * Who starts the pipeline since its schedule was handed over at an export:
+   * its schedule triggers are off here, and only Resume turns them back on.
+   */
+  runsOutside?: PipelineRunsOutside;
+  /** Give the schedule back to VS Code: its schedule triggers on, the hand-over gone, once saved. */
+  onResumeSchedule?: () => void;
+  /**
+   * What started the pipeline before its schedule was given back, until the
+   * pipeline leaves the canvas: what to remove, or both start it.
+   */
+  resumedFrom?: PipelineOutsideRunner;
   onAddTrigger?: (type: TriggerType) => void;
   onRemoveTrigger?: (triggerId: string) => void;
   onToggleTrigger?: (triggerId: string, enabled: boolean) => void;
@@ -191,6 +206,9 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   savedTriggers,
   sandboxes = [],
   pipelineBlocked = false,
+  runsOutside,
+  onResumeSchedule,
+  resumedFrom,
   onAddTrigger,
   onRemoveTrigger,
   onToggleTrigger,
@@ -256,6 +274,36 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         {t('automation.triggerNote')}
       </p>
 
+      {/* A launcher starts it since an export: VS Code does not, and only
+          this button gives the schedule back, so the two never both start
+          it unknowingly. */}
+      {runsOutside && (
+        <div
+          role="note"
+          className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2"
+          data-testid="trigger-outside"
+        >
+          <p className="text-xs text-(--sf-text-primary)">{outsideSinceLine(runsOutside, t)}</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onResumeSchedule?.()}
+            data-testid="trigger-outside-resume"
+          >
+            {t('automation.outside.resume')}
+          </Button>
+        </div>
+      )}
+      {!runsOutside && resumedFrom && (
+        <p
+          role="note"
+          className="rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2 text-xs text-(--sf-text-primary)"
+          data-testid="trigger-resumed"
+        >
+          {resumedLine(resumedFrom, t)}
+        </p>
+      )}
+
       {/* It read "Triggers" over "Add Trigger": the tab's name and a
           button's, saying neither what is missing nor that Run Pipeline
           works without one. */}
@@ -276,6 +324,9 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         // A card that starts nothing said Active right above "Starts nothing":
         // switched on or off, it starts nothing, so it says that instead.
         const idle = startsNothing(trigger.type);
+        // A schedule a launcher took over says who starts it, and has no
+        // switch of its own: Resume above gives it back.
+        const handedOver = runsOutside !== undefined && trigger.type === 'schedule';
         return (
           <div key={trigger.id} data-testid={`trigger-${trigger.id}`}>
             <Card>
@@ -286,6 +337,10 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                     {idle ? (
                       <Badge variant="default" data-testid={`trigger-badge-${trigger.id}`}>
                         {t('automation.triggerStartsNothing')}
+                      </Badge>
+                    ) : handedOver ? (
+                      <Badge variant="default" data-testid={`trigger-badge-${trigger.id}`}>
+                        {runnerBadgeWords(runsOutside.runner, t)}
                       </Badge>
                     ) : (
                       <>
@@ -358,13 +413,17 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                         data-testid={`timezone-select-${trigger.id}`}
                       />
                     </div>
-                    <TriggerState
-                      trigger={trigger}
-                      status={status}
-                      unsaved={unsaved}
-                      pipelineBlocked={pipelineBlocked}
-                      sandboxName={undefined}
-                    />
+                    {/* Switched off here because a launcher starts it: the
+                        note above says so, where "switched off" would not. */}
+                    {!handedOver && (
+                      <TriggerState
+                        trigger={trigger}
+                        status={status}
+                        unsaved={unsaved}
+                        pipelineBlocked={pipelineBlocked}
+                        sandboxName={undefined}
+                      />
+                    )}
                   </div>
                 </CardBody>
               )}

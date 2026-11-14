@@ -203,4 +203,86 @@ describe('PipelineExecutionView', () => {
     render(<PipelineExecutionView execution={ended} onAnswerApproval={vi.fn()} />);
     expect(screen.queryByTestId('exec-approval-ok')).toBeNull();
   });
+
+  describe('a dry run', () => {
+    /** A dry run as it ended: what each step would do, in the host's words. */
+    const dry: PipelineExecutionData = {
+      runId: 'dry-1',
+      pipelineName: 'Nightly reset',
+      status: 'failed',
+      progress: 100,
+      startTime: '2026-11-20T02:00:00.000Z',
+      elapsed: 4,
+      dryRun: true,
+      steps: [
+        {
+          stepId: 'sync',
+          stepName: 'Accounts',
+          stepType: 'sync',
+          status: 'completed',
+          summary: 'Would sync "Accounts" into UAT: 120 to create. Nothing was written.',
+        },
+        {
+          stepId: 'gate',
+          stepName: 'Go?',
+          stepType: 'approval',
+          status: 'completed',
+          summary: 'Not asked in a dry run: the route goes on as if it were approved.',
+        },
+        {
+          stepId: 'seed',
+          stepName: 'Demo',
+          stepType: 'seed',
+          status: 'failed',
+          error: 'Seed "Demo" would be refused: the org has 2 MB left.',
+        },
+        { stepId: 'mask', stepName: 'Mask', stepType: 'anonymize', status: 'skipped' },
+      ],
+    };
+
+    it('says it is a dry run, that nothing was written, and names each step’s end as what it would be', () => {
+      render(<PipelineExecutionView execution={dry} />);
+
+      expect(screen.getByTestId('execution-dry-run').textContent).toBe('Dry run');
+      expect(screen.getByTestId('execution-dry-run-note').textContent).toContain(
+        'nothing is written to any org',
+      );
+      expect(screen.getByTestId('execution-status').textContent).toBe('Would stop');
+      expect(screen.getByTestId('exec-step-status-sync').textContent).toBe('Would run');
+      expect(screen.getByTestId('exec-step-status-seed').textContent).toBe('Would stop here');
+      expect(screen.getByTestId('exec-step-status-mask').textContent).toBe('Would be skipped');
+      expect(screen.getByTestId('exec-step-summary-sync').textContent).toBe(
+        'Would sync "Accounts" into UAT: 120 to create. Nothing was written.',
+      );
+      expect(screen.getByTestId('exec-error-seed').textContent).toContain('would be refused');
+    });
+
+    it('names a run’s steps as a run’s, never as what they would do', () => {
+      render(<PipelineExecutionView execution={{ ...dry, dryRun: false }} />);
+      expect(screen.queryByTestId('execution-dry-run')).toBeNull();
+      expect(screen.queryByTestId('execution-dry-run-note')).toBeNull();
+      expect(screen.getByTestId('execution-status').textContent).toBe('Failed');
+      expect(screen.getByTestId('exec-step-status-sync').textContent).toBe('Completed');
+    });
+
+    it('is put away by Close once it has ended, and offers no Cancel', () => {
+      const onClose = vi.fn();
+      render(<PipelineExecutionView execution={dry} onClose={onClose} onCancel={vi.fn()} />);
+      expect(screen.queryByTestId('execution-cancel')).toBeNull();
+      fireEvent.click(screen.getByTestId('execution-close'));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no Close while it goes', () => {
+      render(
+        <PipelineExecutionView
+          execution={{ ...dry, status: 'running' }}
+          onClose={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('execution-close')).toBeNull();
+      expect(screen.getByTestId('execution-cancel')).toBeDefined();
+    });
+  });
 });

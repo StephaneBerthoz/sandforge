@@ -840,5 +840,87 @@ describe('AutomationPage', () => {
 
       expect(mockDeleteMutate).not.toHaveBeenCalled();
     });
+
+    it('opens the export of the pipeline as saved from Export…, off until a save', async () => {
+      // jsdom has no modal dialog: open it as the browser would, without the top layer.
+      HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+        this.setAttribute('open', '');
+      };
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Export…' }));
+      expect(await screen.findByRole('dialog', { name: 'Export “Nightly”' })).toBeDefined();
+      fireEvent.click(screen.getByTestId('export-close'));
+      await waitFor(() => expect(screen.queryByTestId('export-dialog')).toBeNull());
+
+      fireEvent.change(nameField(), { target: { value: 'Nightly refresh' } });
+      expect((screen.getByTestId('export-pipeline-btn') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('export-save-first')).toBeDefined();
+    });
+
+    it('dry runs the pipeline on the canvas, and keeps what it would do above it once it ends', () => {
+      const { rerender } = render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+      expect(mockExecuteMutate).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
+
+      mockExecuteMutationState = {
+        ...mockExecuteMutationState,
+        data: {
+          pipelineId: 'p-1',
+          status: 'completed',
+          dryRun: true,
+          stepResults: [
+            {
+              stepId: 'p-1-s',
+              stepName: 'Wait',
+              stepType: 'delay',
+              status: 'completed',
+              summary: 'Would wait 5 seconds: a dry run does not wait.',
+            },
+          ],
+        },
+      };
+      rerender(<AutomationPage />);
+
+      const result = screen.getByTestId('dry-run-result');
+      expect(result.textContent).toContain('Dry run');
+      expect(result.textContent).toContain('Would wait 5 seconds: a dry run does not wait.');
+      // The pipeline stays on the canvas below it.
+      expect(screen.getByTestId('pipeline-canvas')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('execution-close'));
+      expect(screen.queryByTestId('dry-run-result')).toBeNull();
+    });
+
+    it('says, from every tab, that the file a launcher runs lacks what was saved since', () => {
+      mockQueryData = {
+        'pipeline:list': {
+          pipelines: [
+            {
+              ...saved('p-1', 'Nightly'),
+              runsOutside: {
+                since: '2026-11-20T08:00:00.000Z',
+                runner: 'cron',
+                file: 'nightly.sandforge-pipeline.json',
+                digest: `sha256:${'a'.repeat(64)}`,
+              },
+            },
+          ],
+          outside: [{ pipelineId: 'p-1', matches: false }],
+        },
+      };
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      expect(screen.getByTestId('pipeline-outside-stale').textContent).toMatch(
+        /^The file nightly\.sandforge-pipeline\.json, exported on .+, does not hold the changes saved since/,
+      );
+      fireEvent.click(screen.getByRole('tab', { name: /Triggers/ }));
+      expect(screen.getByTestId('pipeline-outside-stale')).toBeDefined();
+      expect(screen.getByTestId('trigger-outside')).toBeDefined();
+    });
   });
 });
