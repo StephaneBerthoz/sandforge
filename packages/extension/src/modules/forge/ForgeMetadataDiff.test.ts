@@ -54,14 +54,15 @@ describe('ForgeMetadataDiff', () => {
           issue: 'object_missing',
           severity: 'error',
           details:
-            'Invoice__c does not exist in the target org, or the running user cannot see it: its records cannot be written there',
+            'Invoice__c does not exist in the target org, or the running user cannot see it: its records cannot be written there, and Execute skips it. Deploy it to the target, give that user access to it, or leave it out of the clone',
         },
         {
           objectApiName: 'Account',
           fieldApiName: 'Name',
           issue: 'missing',
           severity: 'error',
-          details: 'Field Name exists in source but not in target',
+          details:
+            'Field Name exists in source but not in target: Execute writes the rows without it. Deploy the field to the target, map it to a field the target has, or leave it out',
         },
       ]);
     });
@@ -87,8 +88,12 @@ describe('ForgeMetadataDiff', () => {
         fieldApiName: '',
         issue: 'unreadable',
         severity: 'warning',
+        // Which org, and its own words, apart: the page says them in its language.
+        unreadIn: 'source',
+        orgError: 'INVALID_SESSION_ID: Session expired or invalid',
       });
       expect(result[0].details).toContain('the source org did not describe it');
+      expect(result[0].details).toContain('Run discovery again once it answers');
     });
 
     it('should detect missing fields as error severity', async () => {
@@ -112,7 +117,8 @@ describe('ForgeMetadataDiff', () => {
         fieldApiName: 'Custom__c',
         issue: 'missing',
         severity: 'error',
-        details: 'Field Custom__c exists in source but not in target',
+        details:
+          'Field Custom__c exists in source but not in target: Execute writes the rows without it. Deploy the field to the target, map it to a field the target has, or leave it out',
       });
     });
 
@@ -133,6 +139,9 @@ describe('ForgeMetadataDiff', () => {
       expect(result[0].severity).toBe('warning');
       expect(result[0].details).toContain('source=currency');
       expect(result[0].details).toContain('target=number');
+      // Both types apart, for the page to say them in its language.
+      expect(result[0]).toMatchObject({ sourceType: 'currency', targetType: 'number' });
+      expect(result[0].details).toContain('map the field to one of the same type, or leave it out');
     });
 
     it('names once an object the target user may not create, in place of a warning per field', async () => {
@@ -274,6 +283,10 @@ describe('ForgeMetadataDiff', () => {
       expect(result[0].issue).toBe('permission_denied');
       expect(result[0].severity).toBe('warning');
       expect(result[0].details).toContain('createable in source but not in target');
+      // What Execute does with it, and what lifts it: said nothing, the value
+      // was left out of every row without a word.
+      expect(result[0].details).toContain('Execute writes the rows without it');
+      expect(result[0].details).toContain('Edit access to it in the target');
     });
 
     it('should not flag permission when source is not createable', async () => {

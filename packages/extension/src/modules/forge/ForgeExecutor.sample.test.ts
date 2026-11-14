@@ -23,6 +23,7 @@ import { cursorPages } from './queryAllPages.js';
 import { forgeBulkWrite } from './forgeBulkWrite.js';
 import { SamplePlan, removeSamplePlan } from './sample/samplePlanStore.js';
 import { SampleRefusedError, type SampleBudgetTerms } from './sample/sampleDrawing.js';
+import { sampleGateErrorOf } from './ForgeRunGate.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -596,6 +597,63 @@ describe('a clone of the whole org that copies a sample of it', () => {
         expect(message).toMatch(/--fit-floor 0/);
       }
     }
+  }, 60_000);
+
+  it('says what held a sample that cannot fit, and offers to take more only of a bound that can give it', async () => {
+    // Held by the data storage the target has left, the refusal proposed to
+    // take more of the target (--fit-within), which no setting gives.
+    const refusalOf = async (budget: SampleBudgetTerms) => {
+      const { executor } = orgs(sourceOf(150));
+      return executor
+        .execute(
+          graphOf(150, 150),
+          'src',
+          'tgt',
+          () => {},
+          sampleRun(join(plansDir(), 'held'), budget),
+        )
+        .then(
+          () => undefined,
+          (error: unknown) => error as SampleRefusedError & { sample?: Record<string, unknown> },
+        );
+    };
+
+    const byStorage = await refusalOf(budgetOf(0));
+    expect(byStorage?.code).toBe('SAMPLE_CANNOT_FIT');
+    expect(byStorage?.message).toContain('past the data storage the target has left');
+    expect(byStorage?.message).toContain('free data storage in the target');
+    expect(byStorage?.message).not.toContain('--fit-within');
+    expect(byStorage?.sample).toMatchObject({ limitedBy: 'storage', budgetMB: 0 });
+    expect(byStorage?.sample?.['needMB']).toBeGreaterThan(0);
+    expect(byStorage?.sample?.['heaviest']).toEqual(expect.arrayContaining(['Account']));
+    // Kept past the gate, which the page reads the way out from.
+    expect(sampleGateErrorOf(byStorage, 'draw')?.stop?.sample).toMatchObject({
+      limitedBy: 'storage',
+      budgetMB: 0,
+    });
+
+    const byWithin = await refusalOf({
+      budget: { bytes: 0, withinMB: 0, limitedBy: 'within' },
+      bytesLimit: 'within',
+      roomBytes: 1024 * 1024 * 1024,
+    });
+    expect(byWithin?.message).toContain('past the MB it may take (--fit-within)');
+    expect(byWithin?.message).toContain('or let it take more (--fit-within)');
+    expect(byWithin?.sample).toMatchObject({ limitedBy: 'within' });
+
+    const byRecords = await refusalOf({
+      budget: { bytes: 1024 * 1024 * 1024, maxTotal: 1, limitedBy: 'maxTotal' },
+      bytesLimit: 'storage',
+      roomBytes: 1024 * 1024 * 1024,
+    });
+    expect(byRecords?.message).toContain('past the records it may write (--max-total)');
+    expect(byRecords?.message).toContain('or raise --max-total');
+    expect(byRecords?.message).not.toContain('--fit-within');
+    // Sized in MB only where MB held it: a count of records past its bound is no size past one.
+    expect(byRecords?.sample).toEqual({
+      limitedBy: 'maxTotal',
+      heaviest: expect.arrayContaining(['Account']),
+    });
   }, 60_000);
 
   it('refuses to resume a run whose plan is gone, writing nothing', async () => {

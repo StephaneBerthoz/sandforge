@@ -602,3 +602,89 @@ describe('ForgeExecutor, a person account a record cannot be written without, no
     );
   });
 });
+
+describe('ForgeExecutor, a parent whose delete cascades to a child that may leave it empty', () => {
+  /*
+   * An account's list of its children says its delete takes its contacts, and
+   * discovery's walk from a root typed the pair master-detail on that word
+   * alone, where a contact may be written without an account. Graphs built so
+   * are kept by templates and the history. When every account failed, the
+   * contacts were skipped as rows that cannot be written without one.
+   */
+  const ACCOUNT_ID = '001000000000101AAA';
+  const cascadeFields: Record<string, FieldInfo[]> = {
+    Account: [idField, text('Name')],
+    Contact: [idField, text('Name'), lookup('AccountId', 'Account')],
+  };
+  const cascadeRows = (): Record<string, FakeRow[]> => ({
+    Account: [{ Id: ACCOUNT_ID, Name: 'Refused' }],
+    Contact: [
+      { Id: '003000000000101AAA', Name: 'First', AccountId: ACCOUNT_ID },
+      { Id: '003000000000102AAA', Name: 'Second', AccountId: ACCOUNT_ID },
+    ],
+  });
+  const cascadeGraph = (): ForgeGraph =>
+    graphOf(
+      [node('Account', 0), node('Contact', 1)],
+      [{ ...edge('Account', 'Contact'), type: 'master-detail' }],
+    );
+  /** The orgs of {@link orgs}, with a target that refuses every account. */
+  const refusingAccounts = (fields: Record<string, FieldInfo[]>) => {
+    const { deps, inserted } = orgs(cascadeRows(), fields);
+    const insert = deps.insertRecords;
+    return {
+      inserted,
+      deps: {
+        ...deps,
+        insertRecords: vi.fn(
+          async (org: string, object: string, rows: Record<string, unknown>[]) =>
+            object === 'Account'
+              ? rows.map((): InsertResult => ({
+                  id: '',
+                  success: false,
+                  errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused by a rule'],
+                }))
+              : insert(org, object, rows),
+        ),
+      } satisfies ForgeExecutorDeps,
+    };
+  };
+  const messagesOf = (summary: { errors: Array<{ samples: Array<{ messages: string[] }> }> }) =>
+    summary.errors.flatMap((e) => e.samples.flatMap((s) => s.messages));
+
+  it('writes the contacts without their account when the target refused it', async () => {
+    const { deps, inserted } = refusingAccounts(cascadeFields);
+
+    const summary = await new ForgeExecutor(deps).execute(
+      cascadeGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { rootRecordId: ACCOUNT_ID, rootObjectApiName: 'Account' },
+    );
+
+    expect(inserted['Contact']?.map((row) => row['Name'])).toEqual(['First', 'Second']);
+    expect(inserted['Contact']?.every((row) => row['AccountId'] == null)).toBe(true);
+    expect(messagesOf(summary).filter((m) => m.includes('cannot be written without'))).toEqual([]);
+  });
+
+  it('still skips the details of a master that failed when their field may not be left empty', async () => {
+    const { deps, inserted } = refusingAccounts({
+      ...cascadeFields,
+      Contact: [idField, text('Name'), lookup('AccountId', 'Account', { required: true })],
+    });
+
+    const summary = await new ForgeExecutor(deps).execute(
+      cascadeGraph(),
+      'src',
+      'tgt',
+      () => undefined,
+      { rootRecordId: ACCOUNT_ID, rootObjectApiName: 'Account' },
+    );
+
+    expect(inserted['Contact']).toBeUndefined();
+    expect(messagesOf(summary)).toContain(
+      'Not written: its records cannot be written without Account, which failed in this run.',
+    );
+  });
+});

@@ -1991,6 +1991,77 @@ export interface ForgeFieldsLeftOut {
 }
 
 /**
+ * A field the user left out (`ForgeConfig.fieldExclusions`) that names
+ * nothing in the source: no object of that name (`missing: 'object'`), or no
+ * field of that name on it (`'field'`). A name that differs from the source's
+ * in case alone is no such field: it is matched, and left out. Typed
+ * `Contact.Emial`, the run wrote every contact's email address, the field the
+ * user believed left out.
+ */
+export interface ForgeFieldExclusionUnmatched {
+  /** The object, as the source names it when it has it, as given otherwise. */
+  objectApiName: string;
+  /** The field, as given. */
+  field: string;
+  missing: 'object' | 'field';
+  /** Of a field missing, the field of the object whose name is nearest the one given. */
+  nearest?: string;
+}
+
+/**
+ * One difference between the source's and the target's schema that Review's
+ * Metadata tab names (`forge:metadata-diff:response`), each said by its code
+ * and what it needs to be said in the page's language and acted on: the
+ * object, the field, and per issue the types of both orgs, or the org that
+ * would not describe the object with its own words. `details` says it all in
+ * English, with what Execute does about it and what lifts it.
+ */
+export interface ForgeMetadataDiffEntry {
+  objectApiName: string;
+  /** Empty for an entry about the object as a whole. */
+  fieldApiName: string;
+  /**
+   * `missing`: the target has no such field. `type_mismatch`: its type there
+   * differs. `permission_denied`: the user the clone writes as may not set it
+   * there. `object_missing`: the target has no such object, or the user cannot
+   * see it. `unreadable`: an org could not describe it. `object_not_createable`:
+   * the target has it, and the user may not create its records there.
+   */
+  issue:
+    | 'missing'
+    | 'type_mismatch'
+    | 'permission_denied'
+    | 'object_missing'
+    | 'unreadable'
+    | 'object_not_createable';
+  severity: 'info' | 'warning' | 'error';
+  /** The difference in English, with what Execute does and what lifts it. */
+  details: string;
+  /** Of `object_not_createable`, who may create its records, as the target said. */
+  notCreatableBy?: 'platform' | 'setup' | 'feature' | 'parent' | 'user';
+  /** Of `type_mismatch`, the field's type in the source and in the target. */
+  sourceType?: string;
+  targetType?: string;
+  /** Of `unreadable`, the org that would not describe the object, and its own words. */
+  unreadIn?: 'source' | 'target';
+  orgError?: string;
+}
+
+/**
+ * The parents a run would have copied from outside it for its rows
+ * (`expandOrphanParents`) and did not, the most it copies reached
+ * (`maxOrphanParentExpansions`).
+ */
+export interface ForgeOrphanParentsCapped {
+  /** The most parents the run copies from outside it. */
+  cap: number;
+  /** The parents past it, none copied. */
+  notCopied: number;
+  /** Their objects, in the order first met. */
+  objects: string[];
+}
+
+/**
  * What refused a field rows went in without: a validation rule of the target
  * (`FIELD_CUSTOM_VALIDATION_EXCEPTION`), a restricted picklist of the target
  * that refused its value (`INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`), or the
@@ -2606,6 +2677,20 @@ export interface ForgeExecutionResult {
    * before it was kept.
    */
   cappedObjects?: { perObject: number; objects: string[] };
+  /**
+   * The fields the user left out (`fieldExclusions`) that name no field of
+   * the source: those fields are not left out of anything. Absent when every
+   * exclusion names a field, and from runs recorded before it was kept.
+   */
+  fieldExclusionsUnmatched?: ForgeFieldExclusionUnmatched[];
+  /**
+   * The parents of rows outside the run that the run would have copied for
+   * them (`expandOrphanParents`) and did not, past the most it copies
+   * (`maxOrphanParentExpansions`, `cap`): how many, of which objects. The rows
+   * that cannot be written without them are refused. Absent when the run
+   * stopped short of the cap, and from runs recorded before it was kept.
+   */
+  orphanParentsCapped?: ForgeOrphanParentsCapped;
   /**
    * What the run did with the files of the records it cloned. Absent from a
    * run that was not asked to copy them. The files it created are counted

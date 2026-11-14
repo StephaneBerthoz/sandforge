@@ -8,7 +8,12 @@
  * downstream waves can follow FK values back to the root.
  */
 
-import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
+import type {
+  ForgeFieldExclusionUnmatched,
+  ForgeGraph,
+  ForgeGraphEdge,
+  ForgeGraphNode,
+} from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
@@ -555,6 +560,92 @@ export function fieldsToSelect(
     .map((field) => field.name);
 }
 
+/** What {@link matchFieldExclusions} makes of the fields the user left out. */
+export interface FieldExclusionsMatched {
+  /** The exclusions under the names the source gives its objects and fields. */
+  exclusions: Record<string, string[]>;
+  /** Those that name no object or no field of the source, in the order given. */
+  unmatched: ForgeFieldExclusionUnmatched[];
+}
+
+/** The most edits between a name given and a field's for the field to be said its likely meaning. */
+const NEAREST_EDITS = 2;
+
+/** The edits that turn `a` into `b`, a letter added, removed or changed each (Levenshtein). */
+function editsBetween(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/** The field of `fields` nearest `given`, at most {@link NEAREST_EDITS} edits away, the case aside. */
+function nearestField(given: string, fields: readonly string[]): string | undefined {
+  const lower = given.toLowerCase();
+  let best: { name: string; edits: number } | undefined;
+  for (const name of fields) {
+    const edits = editsBetween(lower, name.toLowerCase());
+    if (edits <= NEAREST_EDITS && edits < lower.length && (!best || edits < best.edits)) {
+      best = { name, edits };
+    }
+  }
+  return best?.name;
+}
+
+/**
+ * The fields the user left out (`fieldExclusions`), matched to the source's
+ * objects and fields whatever their case, and those that name nothing there.
+ *
+ * Every reader of the exclusions compares a field's name at its exact case:
+ * typed `contact.email`, an exclusion left nothing out, and every contact went
+ * to the target with the email address the user believed kept back. A name
+ * that is no field at all was said nowhere. Matched here once, every reader
+ * meets the source's names; one that names nothing is kept as given, which
+ * leaves nothing out, and said.
+ *
+ * @param objects - The objects of the source the caller knows, by the names the source gives them.
+ * @param fieldsOf - The fields of an object, by the names the source gives
+ *   them; `undefined` when the source has no such object, `null` when it
+ *   could not be read, an exclusion of it then kept as given and not said.
+ */
+export function matchFieldExclusions(
+  exclusions: Readonly<Record<string, readonly string[]>>,
+  objects: readonly string[],
+  fieldsOf: (objectApiName: string) => readonly string[] | null | undefined,
+): FieldExclusionsMatched {
+  const matched: Record<string, string[]> = {};
+  const unmatched: ForgeFieldExclusionUnmatched[] = [];
+  for (const [given, fields] of Object.entries(exclusions)) {
+    const object = objects.find((name) => name.toLowerCase() === given.toLowerCase()) ?? given;
+    const known = fieldsOf(object);
+    const kept = (matched[object] ??= []);
+    for (const field of fields) {
+      const named = known?.find((name) => name.toLowerCase() === field.toLowerCase());
+      if (named === undefined && known !== null) {
+        const nearest = known === undefined ? undefined : nearestField(field, known);
+        unmatched.push({
+          objectApiName: object,
+          field,
+          missing: known === undefined ? 'object' : 'field',
+          ...(nearest !== undefined ? { nearest } : {}),
+        });
+      }
+      const name = named ?? field;
+      if (!kept.includes(name)) kept.push(name);
+    }
+  }
+  return { exclusions: matched, unmatched };
+}
+
 /** Inputs for {@link buildNodeQuery}. */
 export interface NodeQueryInput {
   /** The graph node about to be queried. */
@@ -949,12 +1040,16 @@ export function seedScopeCache(
  * or drop scoped mode.
  *
  * `included === false` carries two unrelated facts. Discovery
- * clears it for a node the user (or `skipEmpty`) deliberately left out, and
- * also for one it could not measure at all — a describe or a `SELECT COUNT()`
- * that failed, which discovery marks with `status: 'error'` and the reason in
- * `errors`. "Re-include the root" is useless advice when the org never
- * answered for that object, and an unmeasured object is not an empty one, so
- * the two cases get two distinct messages.
+ * clears it for a node the user deliberately left out, and also for one the
+ * org would not let it measure — a describe or a `SELECT COUNT()` refused,
+ * which discovery marks with `status: 'error'` and the reason in `errors`.
+ * Discovery counts the root by its id and keeps a node whose count got no
+ * answer in time, so what is left of the second case is an org that would not
+ * describe or count the record's object, and would not read it either: the
+ * two cases get two distinct messages, each with what can work. The first
+ * advised discovery again "instead of re-including the node", when the count
+ * of the root's whole table ran past the panel's wait every time; the second
+ * named a "non-scoped mode" no clone has.
  */
 function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): ForgeGraphNode[] {
   const rootIndex = nodes.findIndex((n) => n.objectApiName === rootObjectApiName);
@@ -969,15 +1064,16 @@ function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): F
     if (rootNode.status === 'error') {
       throw new Error(
         `Cannot run scoped clone: root "${rootObjectApiName}" could not be measured during ` +
-          `discovery (${rootNode.errors[0] ?? 'unknown discovery error'}). ` +
-          `Its record count is unknown, not zero — re-run discovery once the org answers for ` +
-          `this object instead of re-including the node.`,
+          `discovery (${rootNode.errors[0] ?? 'unknown discovery error'}), and nothing was ` +
+          `read or written. Run discovery again once the org answers for it; if it refuses ` +
+          `again, the user the clone reads as may not read ${rootObjectApiName}: start from a ` +
+          `record the user can read.`,
       );
     }
     throw new Error(
-      `Cannot run scoped clone with root "${rootObjectApiName}" excluded. ` +
-        `Children referencing the root would orphan-nullify their FK silently. ` +
-        `Either include the root node or switch to non-scoped mode.`,
+      `Cannot run scoped clone with root "${rootObjectApiName}" excluded: the clone starts ` +
+        `from its record, and the records that point at it would be written without it. ` +
+        `Include it again, or clone from a query instead of a record.`,
     );
   }
   if (rootIndex === 0) return nodes;

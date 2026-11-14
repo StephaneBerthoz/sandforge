@@ -3,6 +3,7 @@
  * Identifies missing fields, type mismatches, and permission issues before execution.
  */
 
+import type { ForgeMetadataDiffEntry } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { noUserCreates, type NotCreatableBy } from './targetCreators.js';
 
@@ -39,35 +40,14 @@ export interface MetadataDiffDeps {
   ) => Promise<ReadonlyMap<string, NotCreatableBy>>;
 }
 
-/** A single metadata diff entry. */
-export interface MetadataDiffEntry {
-  /** Object API name. */
-  objectApiName: string;
-  /** Field API name; empty for an entry about the object as a whole. */
-  fieldApiName: string;
-  /**
-   * Type of issue. `object_missing`: the target has no such object, or the
-   * running user cannot see it. `unreadable`: an org could not describe it.
-   * `object_not_createable`: the target has it, and the running user may not
-   * create its records there.
-   */
-  issue:
-    | 'missing'
-    | 'type_mismatch'
-    | 'permission_denied'
-    | 'object_missing'
-    | 'unreadable'
-    | 'object_not_createable';
-  /** Severity level. */
-  severity: 'info' | 'warning' | 'error';
-  /** Human-readable description. */
-  details: string;
-  /**
-   * Of `object_not_createable`, who may create its records, as the target
-   * said: what the tab asks of the target's admin, or that no one can.
-   */
-  notCreatableBy?: NotCreatableBy;
-}
+/**
+ * A single metadata diff entry, as the page receives it: see
+ * `ForgeMetadataDiffEntry` in shared. Its codes and their parts — the types of
+ * both orgs, the org that would not describe an object and its words — let
+ * the page say each in its language and offer what lifts it, where the tab
+ * showed `details`, English, with nothing to act on.
+ */
+export type MetadataDiffEntry = ForgeMetadataDiffEntry;
 
 /** What an object the user may not create is said to be, by who may create it. */
 const NOT_CREATABLE_DETAILS: Readonly<Record<NotCreatableBy, (object: string) => string>> = {
@@ -125,7 +105,10 @@ export class ForgeMetadataDiff {
           fieldApiName: '',
           issue: 'object_missing',
           severity: 'error',
-          details: `${objectApiName} does not exist in the target org, or the running user cannot see it: its records cannot be written there`,
+          details:
+            `${objectApiName} does not exist in the target org, or the running user cannot see ` +
+            'it: its records cannot be written there, and Execute skips it. Deploy it to the ' +
+            'target, give that user access to it, or leave it out of the clone',
         });
         continue;
       }
@@ -136,12 +119,18 @@ export class ForgeMetadataDiff {
             ? { org: 'target', reason: target.reason as unknown }
             : undefined;
       if (failed || source.status === 'rejected' || target.status === 'rejected') {
+        const org = failed?.org === 'source' ? 'source' : 'target';
+        const orgError = extractErrorMessage(failed?.reason);
         diffs.push({
           objectApiName,
           fieldApiName: '',
           issue: 'unreadable',
           severity: 'warning',
-          details: `${objectApiName} could not be compared: the ${failed?.org ?? 'target'} org did not describe it (${extractErrorMessage(failed?.reason)})`,
+          details:
+            `${objectApiName} could not be compared: the ${org} org did not describe it ` +
+            `(${orgError}). Run discovery again once it answers`,
+          unreadIn: org,
+          orgError,
         });
         continue;
       }
@@ -173,7 +162,12 @@ export class ForgeMetadataDiff {
             fieldApiName: sourceField.name,
             issue: 'missing',
             severity: 'error',
-            details: `Field ${sourceField.name} exists in source but not in target`,
+            // What Execute does with it, and what lifts it: the rows went in
+            // without the field, and nothing said its values stayed behind.
+            details:
+              `Field ${sourceField.name} exists in source but not in target: Execute writes ` +
+              'the rows without it. Deploy the field to the target, map it to a field the ' +
+              'target has, or leave it out',
           });
           continue;
         }
@@ -184,7 +178,12 @@ export class ForgeMetadataDiff {
             fieldApiName: sourceField.name,
             issue: 'type_mismatch',
             severity: 'warning',
-            details: `Field ${sourceField.name} type differs: source=${sourceField.type}, target=${targetField.type}`,
+            details:
+              `Field ${sourceField.name} type differs: source=${sourceField.type}, ` +
+              `target=${targetField.type}: a value the target's type refuses fails its row. ` +
+              'Change one of the two types, map the field to one of the same type, or leave it out',
+            sourceType: sourceField.type,
+            targetType: targetField.type,
           });
         }
 
@@ -194,7 +193,10 @@ export class ForgeMetadataDiff {
             fieldApiName: sourceField.name,
             issue: 'permission_denied',
             severity: 'warning',
-            details: `Field ${sourceField.name} is createable in source but not in target`,
+            details:
+              `Field ${sourceField.name} is createable in source but not in target: Execute ` +
+              'writes the rows without it. Give the user the clone writes as Edit access to ' +
+              'it in the target, unless the target calculates it, or leave it out',
           });
         }
       }

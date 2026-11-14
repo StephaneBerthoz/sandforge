@@ -35,7 +35,7 @@ import type {
   ForgeExecutorDeps,
   InsertResult,
 } from '../ForgeExecutor.js';
-import type { ForgeGraphNode } from '@sandforge/shared';
+import type { ForgeGraphNode, ForgeOrphanParentsCapped } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
@@ -291,6 +291,15 @@ export class OrphanExpander {
    */
   private readonly failedOrphans = new Set<string>();
   private readonly expansionErrors: ExecutionErrorSample[] = [];
+  /**
+   * The parents met once the cap was spent, by (object, sourceId), with their
+   * object: not copied, and said (`capReport`). Copied twenty, the run left
+   * the rest unsaid, and the rows that needed them were refused with nothing
+   * naming the cap.
+   */
+  private readonly pastTheCap = new Map<string, string>();
+  /** The cap the last expansion was given. */
+  private cap = 0;
 
   constructor(
     private readonly deps: Pick<
@@ -308,7 +317,8 @@ export class OrphanExpander {
    * failing with REQUIRED_FIELD_MISSING.
    */
   async expandForNode(input: OrphanExpansionInput): Promise<void> {
-    if (!input.enabled || this.expansionsUsed >= input.maxExpansions) return;
+    if (!input.enabled) return;
+    this.cap = input.maxExpansions;
     const { fieldInfos, records, remapper, scopeCache } = input;
 
     const requiredOrphans = new Map<string, { object: string; sourceId: string }>();
@@ -336,10 +346,13 @@ export class OrphanExpander {
     const ORPHAN_CONCURRENCY = 4;
     const eligible: Array<{ object: string; sourceId: string; cacheKey: string }> = [];
     for (const [, entry] of requiredOrphans) {
-      if (this.expansionsUsed + eligible.length >= input.maxExpansions) break;
       const cacheKey = `${entry.object}::${entry.sourceId}`;
       if (this.failedOrphans.has(cacheKey)) continue;
       if (remapper.get(entry.sourceId)) continue;
+      if (this.expansionsUsed + eligible.length >= input.maxExpansions) {
+        this.pastTheCap.set(cacheKey, entry.object);
+        continue;
+      }
       eligible.push({ ...entry, cacheKey });
     }
     // The contacts after the rest: the contact of a person account copied in
@@ -374,6 +387,8 @@ export class OrphanExpander {
                 // so a string of misses doesn't silently exhaust the budget
                 // before the eligible list has had a chance to succeed.
                 this.expansionsUsed++;
+                // Met past the cap at another node's turn, copied at this one's.
+                this.pastTheCap.delete(entry.cacheKey);
                 if (parent.existing) {
                   remapper.addExisting(entry.sourceId, parent.id, entry.object);
                 } else {
@@ -459,6 +474,20 @@ export class OrphanExpander {
     if (named.length === 1) object = copied[0];
     else if (copied.length > 0) object = await input.objectOf?.(id, copied);
     return object === input.node.objectApiName ? undefined : object;
+  }
+
+  /**
+   * The parents the expansion met once its cap was spent and did not copy,
+   * with the cap and their objects in the order first met; `null` when it
+   * copied every parent it met, or failed them.
+   */
+  capReport(): ForgeOrphanParentsCapped | null {
+    if (this.pastTheCap.size === 0) return null;
+    return {
+      cap: this.cap,
+      notCopied: this.pastTheCap.size,
+      objects: [...new Set(this.pastTheCap.values())],
+    };
   }
 
   /**

@@ -630,7 +630,26 @@ describe('discoverWholeOrg', () => {
     await expect(discoverWholeOrg(deps, CONFIG)).rejects.toThrow(
       `holds records in ${WHOLE_ORG_MAX_NODES + 1} objects`,
     );
+    // What gets it through, now that what is left out goes before the bound.
+    await expect(discoverWholeOrg(deps, CONFIG)).rejects.toThrow('Leave 1 of them out or more');
     expect(described).toEqual([]);
+  });
+
+  it('leaves the objects the user left out by name out before it counts, past neither a count nor what one run writes', async () => {
+    // Left out after discovery, an excluded object was counted and described
+    // all the same, and took its place under the bound: an org one object
+    // past it was refused whatever --exclude-object said.
+    const objects: Record<string, CountAnswer> = {};
+    for (let i = 0; i <= WHOLE_ORG_MAX_NODES; i++) objects[`Obj${i}__c`] = 1;
+    const { deps, counted, described } = fakeDeps({ objects });
+
+    const graph = await discoverWholeOrg(deps, { ...CONFIG, excludedObjects: ['obj0__c'] });
+
+    expect(graph.nodes).toHaveLength(WHOLE_ORG_MAX_NODES);
+    expect(graph.nodes.some((n) => n.objectApiName === 'Obj0__c')).toBe(false);
+    expect(graph.leftOut).toEqual([{ objectApiName: 'Obj0__c', reason: 'excludedByUser' }]);
+    expect(counted.some((c) => c.soql.endsWith(' Obj0__c'))).toBe(false);
+    expect(described).not.toContain('Obj0__c');
   });
 
   it('refuses an org whose objects relate more pairs than one run writes', async () => {

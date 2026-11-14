@@ -444,6 +444,40 @@ describe('OrphanExpander', () => {
     expect(deps.insertRecords).toHaveBeenCalledTimes(2);
   });
 
+  it('says the parents past the cap, which it did not copy, of each node met after it too', async () => {
+    // Twenty parents copied, the rest went unsaid: the rows that needed them
+    // were refused, and nothing named the cap that left them without.
+    const deps = makeDeps();
+    const expander = new OrphanExpander(deps);
+    const { input } = makeInput(deps, {
+      records: [
+        { Id: '02iA', AccountId: '001AP00ORPHAN12' },
+        { Id: '02iB', AccountId: '001AP00ORPHAN34' },
+        { Id: '02iC', AccountId: '001AP00ORPHAN56' },
+      ],
+      maxExpansions: 2,
+    });
+    await expander.expandForNode(input);
+    // A node met once the cap is spent copies nothing, and its parents count.
+    await expander.expandForNode({
+      ...input,
+      records: [{ Id: '02iD', AccountId: '001AP00ORPHAN78' }],
+    });
+
+    expect(deps.insertRecords).toHaveBeenCalledTimes(2);
+    expect(expander.capReport()).toEqual({ cap: 2, notCopied: 2, objects: ['Account'] });
+  });
+
+  it('says no cap reached when every parent was copied', async () => {
+    const deps = makeDeps();
+    const expander = new OrphanExpander(deps);
+    const { input } = makeInput(deps);
+
+    await expander.expandForNode(input);
+
+    expect(expander.capReport()).toBeNull();
+  });
+
   it('skips nillable (non-required) references', async () => {
     const deps = makeDeps();
     const fields = ASSET_FIELDS.map((f) => ({ ...f, nillable: true }));

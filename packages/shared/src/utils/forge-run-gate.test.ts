@@ -40,6 +40,23 @@ describe('forge run gate stops', () => {
       });
     });
 
+    it('reads what held a sample that cannot fit, which the page says the way out by', () => {
+      // "Let the sample take more" was said whatever held it: past the data
+      // storage the target has left, no setting takes more.
+      expect(
+        forgeRunGateStopOf({
+          code: 'SAMPLE_CANNOT_FIT',
+          sample: { needMB: 7.5, budgetMB: 3.6, limitedBy: 'storage' },
+        }),
+      ).toEqual({
+        code: 'SAMPLE_CANNOT_FIT',
+        sample: { needMB: 7.5, budgetMB: 3.6, limitedBy: 'storage' },
+      });
+      expect(
+        forgeRunGateStopOf({ code: 'SAMPLE_CANNOT_FIT', sample: { limitedBy: 'room' } }),
+      ).toBeNull();
+    });
+
     it('reads a sample too large to hold: the records read and the most held at once', () => {
       expect(
         forgeRunGateStopOf({

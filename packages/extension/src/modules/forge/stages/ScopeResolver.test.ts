@@ -7,6 +7,7 @@ import {
   catalogWriteEdges,
   fieldsToSelect,
   followsToItsParent,
+  matchFieldExclusions,
   objectsOfId,
   queryNodeRecords,
   readsFromAbove,
@@ -125,8 +126,13 @@ describe('sortNodesForExecution', () => {
     const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
     expect(message).toContain('could not be measured');
     expect(message).toContain('Record count unavailable: QUERY_TIMEOUT');
-    expect(message).toContain('unknown, not zero');
-    expect(message).not.toContain('Either include the root node');
+    expect(message).not.toContain('Include it again');
+    // Discovery counts the root by its id, and keeps one whose count got no
+    // answer: what is left is an org that would not read it, and the gesture
+    // said is one that can work, never the one it advised against.
+    expect(message).toContain('Run discovery again once the org answers for it');
+    expect(message).toContain('start from a record the user can read');
+    expect(message).not.toContain('instead of re-including the node');
   });
 
   it('reports a describe-failed root as unmeasured', () => {
@@ -155,8 +161,11 @@ describe('sortNodesForExecution', () => {
     const graph = makeGraph([makeNode('Account', { included: false, recordCount: 0 })]);
 
     const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
-    expect(message).toContain('Either include the root node');
+    expect(message).toContain('Include it again');
     expect(message).not.toContain('could not be measured');
+    // No clone has a mode by that name: a query is what clones without a root.
+    expect(message).not.toContain('non-scoped mode');
+    expect(message).toContain('clone from a query instead of a record');
   });
 });
 
@@ -471,6 +480,66 @@ describe('buildNodeQuery', () => {
           "WHERE (AccountId IN ('001000000000001AAA')) AND (AccountId IN ('001000000000001AAA'))",
       ],
     });
+  });
+});
+
+describe('matchFieldExclusions', () => {
+  const FIELDS: Record<string, readonly string[]> = {
+    Contact: ['Id', 'LastName', 'Email', 'Description'],
+    Account: ['Id', 'Name', 'Description'],
+  };
+  const fieldsOf = (object: string): readonly string[] | undefined => FIELDS[object];
+
+  it('matches an object and a field whatever their case, under the names the source gives them', () => {
+    // Typed `contact.email`, the exclusion named no field the run compared
+    // against, and every contact went in with its email address.
+    const matched = matchFieldExclusions(
+      { contact: ['email'], Account: ['DESCRIPTION'] },
+      ['Account', 'Contact'],
+      fieldsOf,
+    );
+
+    expect(matched.exclusions).toEqual({ Contact: ['Email'], Account: ['Description'] });
+    expect(matched.unmatched).toEqual([]);
+  });
+
+  it('names a field the object does not have, with the nearest it does', () => {
+    const matched = matchFieldExclusions(
+      { Account: ['Descripton', 'Zzzzzz'] },
+      ['Account'],
+      fieldsOf,
+    );
+
+    expect(matched.unmatched).toEqual([
+      { objectApiName: 'Account', field: 'Descripton', missing: 'field', nearest: 'Description' },
+      { objectApiName: 'Account', field: 'Zzzzzz', missing: 'field' },
+    ]);
+    // Kept as given: leaving out a name nothing holds changes nothing.
+    expect(matched.exclusions).toEqual({ Account: ['Descripton', 'Zzzzzz'] });
+  });
+
+  it('names an object the source does not have', () => {
+    const matched = matchFieldExclusions({ Acount: ['Description'] }, ['Account'], fieldsOf);
+
+    expect(matched.unmatched).toEqual([
+      { objectApiName: 'Acount', field: 'Description', missing: 'object' },
+    ]);
+  });
+
+  it('merges two spellings of one object, each field once', () => {
+    const matched = matchFieldExclusions(
+      { Contact: ['Email'], contact: ['email', 'Description'] },
+      ['Contact'],
+      fieldsOf,
+    );
+
+    expect(matched.exclusions).toEqual({ Contact: ['Email', 'Description'] });
+  });
+
+  it('keeps as given what it cannot check, and says nothing of it', () => {
+    const matched = matchFieldExclusions({ Case: ['Subject'] }, [], () => null);
+
+    expect(matched).toEqual({ exclusions: { Case: ['Subject'] }, unmatched: [] });
   });
 });
 

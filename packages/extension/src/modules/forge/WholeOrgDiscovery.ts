@@ -125,9 +125,9 @@ const NO_ANSWER_CODES: ReadonlySet<string> = new Set([
  * without a filter, one the user may not query after all — rather than gave
  * no answer: a timeout, a dropped connection, a server error or a query too
  * long for it. Only a refusal carries a code of the org's that is none of
- * those.
+ * those. A walk from a root tells a count apart the same way.
  */
-function refusedByTheOrg(error: unknown): boolean {
+export function refusedByTheOrg(error: unknown): boolean {
   if (error instanceof TimeoutError || isNetworkError(error)) return false;
   const code = extractErrorCode(extractErrorMessage(error));
   if (code === undefined) return false;
@@ -421,12 +421,14 @@ async function wholeOrgGraph(
       : Promise.resolve(undefined),
   ]);
   const approximate = recordCountsOf(recordCountAnswer);
-  const { candidates, leftOut } = wholeOrgCandidates(
-    sourceGlobal,
-    targetGlobal,
-    targetTooling,
-    facts ? { createFacts: facts } : {},
-  );
+  // What the user left out by name goes before a count: left out after
+  // discovery, it was counted and described all the same, and took its place
+  // under the bound of one run.
+  const excluded = config.excludedObjects ?? [];
+  const { candidates, leftOut } = wholeOrgCandidates(sourceGlobal, targetGlobal, targetTooling, {
+    ...(facts ? { createFacts: facts } : {}),
+    ...(excluded.length > 0 ? { excluded } : {}),
+  });
   const out: ForgeLeftOutObject[] = [...leftOut];
   // Counting and describing only add to the list: said now, before minutes of counts.
   assertLeftOutFits(out.length);
@@ -488,7 +490,8 @@ async function wholeOrgGraph(
     throw new Error(
       `The source org holds records in ${holding.length} objects a clone of the whole org ` +
         `would take, more than the ${WHOLE_ORG_MAX_NODES} one run writes. Nothing was written. ` +
-        'Clone the org in parts instead: a run from a record or from a query for each part.',
+        `Leave ${holding.length - WHOLE_ORG_MAX_NODES} of them out or more, or clone the org ` +
+        'in parts instead: a run from a record or from a query for each part.',
     );
   }
 

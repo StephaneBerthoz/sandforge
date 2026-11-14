@@ -1,5 +1,5 @@
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
-import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isExcludedFromCopy } from './excludedObjects.js';
@@ -7,7 +7,8 @@ import { isInsertOnlyField, isRequiredLookup, isSettableField } from '@sandforge
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 import type { GlobalObject } from '../checkpoint/checkpointScope.js';
 import type { CreateFacts } from './targetCreators.js';
-import { discoverWholeOrg } from './WholeOrgDiscovery.js';
+import { discoverWholeOrg, refusedByTheOrg } from './WholeOrgDiscovery.js';
+import { isMasterDetailLookup } from './masterDetail.js';
 
 /** Describe result for an object returned by the org connection. */
 export interface ObjectDescribe {
@@ -213,13 +214,49 @@ const EXAMINED_CEILING_FACTOR = 4;
 
 /**
  * Whether a node takes a place under the node cap: the root, an object
- * holding records, or one whose describe or count failed, whose size is not
- * known. An empty table does not, and discovery does not walk on from it.
+ * holding records, or one whose describe or count failed, or whose count got
+ * no answer, whose size is not known. An empty table does not, and discovery
+ * does not walk on from it.
  */
 export function holdsAPlace(
-  node: Pick<ForgeGraphNode, 'level' | 'recordCount' | 'status'>,
+  node: Pick<ForgeGraphNode, 'level' | 'recordCount' | 'status' | 'recordCountUnknown'>,
 ): boolean {
-  return node.level === 0 || node.recordCount > 0 || node.status === 'error';
+  return (
+    node.level === 0 ||
+    node.recordCount > 0 ||
+    node.status === 'error' ||
+    node.recordCountUnknown === true
+  );
+}
+
+/** Whether a walk counts its root by the id of the record it starts from: a clone from a record. */
+function isCountedById(config: ForgeConfig): boolean {
+  return (
+    config.inputMode === 'record' && typeof config.recordId === 'string' && config.recordId !== ''
+  );
+}
+
+/**
+ * The count of an object's rows a walk asks the source: of the record a clone
+ * starts from, by its id; of an object with a filter, the rows it matches —
+ * an object is cloned through its filter, in SOQL mode the object after FROM;
+ * of any other, its whole table.
+ *
+ * A clone from a record reads the root by its id alone, and counting its
+ * whole table measured nothing the run reads: on a large org, the count of
+ * every account ran past the panel's wait each time, and the run then refused
+ * the record for a root discovery could not measure.
+ */
+function countStatementOf(config: ForgeConfig, objectName: string, depth: number): string {
+  const conditions: string[] = [];
+  if (depth === 0 && isCountedById(config)) {
+    conditions.push(`Id = '${sanitizeSoqlValue(config.recordId ?? '')}'`);
+  }
+  const filter = config.objectSoqlFilters?.[objectName];
+  if (filter) conditions.push(`(${filter})`);
+  return `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}${
+    conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''
+  }`;
 }
 
 /**
@@ -279,6 +316,35 @@ export function untilCancelled<T>(
  */
 export function knowsItsFields(node: ForgeGraphNode): boolean {
   return node.fieldCount > 0 || node.piiFields.length > 0;
+}
+
+/**
+ * The edge typed as `isMasterDetailLookup` reads a pair, from the child's own
+ * lookups and the parent's list of its children: master-detail only when a
+ * lookup of the child names the parent alone, may not be left empty, and the
+ * parent's delete cascades to it.
+ *
+ * The walk took either side's word for it, and the parent's list says the
+ * cascade alone: an account's list says its delete takes its contacts, a
+ * contact may be left without an account, and the pair read master-detail.
+ * A run that then lost its accounts skipped every contact as rows that cannot
+ * be written without one (`requiredParentsOf` in the executor). A child the
+ * walk never described keeps no master-detail on the parent's word alone.
+ *
+ * @param described - Every describe the walk read, by object.
+ */
+export function masterDetailAsTheFieldsSay(
+  edge: ForgeGraphEdge,
+  described: ReadonlyMap<string, ObjectDescribe>,
+): ForgeGraphEdge {
+  if (edge.type !== 'master-detail') return edge;
+  const naming = (described.get(edge.targetObject)?.fields ?? []).filter((field) =>
+    field.referenceTo.includes(edge.sourceObject),
+  );
+  const relations = described.get(edge.sourceObject)?.childRelationships;
+  return naming.some((field) => isMasterDetailLookup(edge.targetObject, field, relations))
+    ? edge
+    : { ...edge, type: 'lookup' };
 }
 
 /** The graph a discovery cancelled before its root was resolved hands back. */
@@ -376,6 +442,8 @@ export class GraphDiscoveryService {
     const visitedObjects = new Set<string>();
     const nodes: ForgeGraphNode[] = [];
     const edgeMap = new Map<string, ForgeGraphEdge>();
+    /** Every describe read, walked or not: what types a pair master-detail once both sides are known. */
+    const described = new Map<string, ObjectDescribe>();
     /**
      * Whether one more object may be queued: every queued object may hold
      * records, so each counts as placed until its count says otherwise.
@@ -492,6 +560,8 @@ export class GraphDiscoveryService {
         describe: ObjectDescribe | null;
         recordCount: number;
         countError?: string;
+        /** The org refused the count, rather than gave no answer in time (`refusedByTheOrg`). */
+        countRefused?: boolean;
         describeError?: string;
         cancelled?: true;
       };
@@ -503,12 +573,8 @@ export class GraphDiscoveryService {
       const waveResults: WaveResult[] = await Promise.all(
         wave.map(async ([objectName, depth]): Promise<WaveResult> => {
           let countError: string | undefined = undefined;
-          // An object with a filter is cloned through it (in SOQL mode, the
-          // object after FROM), so its count is the rows the filter matches.
-          const filter = config.objectSoqlFilters?.[objectName];
-          const countSoql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}${
-            filter ? ` WHERE (${filter})` : ''
-          }`;
+          let countRefused = false;
+          const countSoql = countStatementOf(config, objectName, depth);
           try {
             const [describe, recordCount] = await Promise.all([
               untilCancelled(
@@ -521,10 +587,11 @@ export class GraphDiscoveryService {
               ).catch((e: unknown) => {
                 if (e instanceof DiscoveryCancelled) throw e;
                 countError = extractErrorMessage(e);
+                countRefused = refusedByTheOrg(e);
                 return -1;
               }),
             ]);
-            return { objectName, depth, describe, recordCount, countError };
+            return { objectName, depth, describe, recordCount, countError, countRefused };
           } catch (e) {
             if (e instanceof DiscoveryCancelled || signal?.aborted) {
               return { objectName, depth, describe: null, recordCount: -1, cancelled: true };
@@ -552,7 +619,15 @@ export class GraphDiscoveryService {
       for (const r of waveResults) {
         unread--;
         if (r.cancelled) continue;
-        const { objectName, depth, describe, recordCount, countError, describeError } = r;
+        const {
+          objectName,
+          depth,
+          describe,
+          recordCount,
+          countError,
+          countRefused,
+          describeError,
+        } = r;
 
         if (!describe) {
           nodes.push({
@@ -583,27 +658,41 @@ export class GraphDiscoveryService {
           continue;
         }
 
-        // The count query failed while the describe succeeded: keep the
-        // object visible with its real shape, but excluded — cloning an
-        // unknown number of records is not something the user can size.
+        described.set(objectName, describe);
+        // The org refused the count while the describe succeeded: keep the
+        // object visible with its real shape, but excluded, in the org's
+        // words — what it would not count, the run could not read either.
+        // A count that got no answer in time leaves the object in, its count
+        // unknown, as a clone of the whole org keeps one: the run reads what
+        // its scope reaches, whatever a count said. Left out, a table of a
+        // large org past the panel's wait took every row under the record
+        // with it, and discovery again met the same wait.
         const countFailed = recordCount < 0;
+        const notCounted = countFailed && countRefused !== true;
+        const refused = countFailed && !notCounted;
         const effectiveCount = countFailed ? 0 : recordCount;
+        // The record a clone starts from stays in the run whatever its count
+        // by id said: what the run reads of it says whether there is one.
+        const theRecord = depth === 0 && isCountedById(config);
         const piiFields = this.deps.detectPII(describe.fields);
         const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
         const node: ForgeGraphNode = {
           objectApiName: objectName,
           ...(describe.label ? { label: describe.label } : {}),
           recordCount: effectiveCount,
+          ...(notCounted ? { recordCountUnknown: true } : {}),
           fieldCount: describe.fields.length,
-          status: countFailed ? 'error' : 'idle',
+          status: refused ? 'error' : 'idle',
           progress: 0,
-          included: countFailed ? false : !config.skipEmpty || effectiveCount > 0,
+          included: refused
+            ? false
+            : notCounted || theRecord || !config.skipEmpty || effectiveCount > 0,
           piiFields,
           anonymizeFields: config.anonymizePII ? piiFields : [],
           level: depth,
           successCount: 0,
           failureCount: 0,
-          errors: countFailed ? [`Record count unavailable: ${countError ?? 'unknown error'}`] : [],
+          errors: refused ? [`Record count unavailable: ${countError ?? 'unknown error'}`] : [],
           createableFieldCount,
           estimatedSizeMB: effectiveCount * MB_PER_RECORD,
           estimatedApiCalls: Math.ceil(effectiveCount / 200),
@@ -731,7 +820,7 @@ export class GraphDiscoveryService {
     // insert does.
     const edges = [...edgeMap].map(([key, edge]): ForgeGraphEdge => {
       const sightings = [...(fieldsOfPair.get(key)?.values() ?? [])];
-      let marked = edge;
+      let marked = masterDetailAsTheFieldsSay(edge, described);
       if (sightings.length > 0 && sightings.every((s) => s.settable === false)) {
         marked = { ...marked, settable: false };
       }

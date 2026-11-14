@@ -5,6 +5,7 @@ import type {
   ForgeExecutionResult,
   ForgeFileCopyOption,
   ForgeGraph,
+  ForgeMetadataDiffEntry,
   ForgePlan,
   ForgeRehearsal,
   ForgeRehearsalProgress,
@@ -700,11 +701,11 @@ export interface ForgeComplianceErrorMessage extends BaseMessage {
 
 /**
  * `forge:metadata-diff:response`. Extension -> WebView. Per-object metadata
- * diff entries (extension-side MetadataDiffEntry — no shared TS mirror yet).
+ * diff entries, each by its code and what the page says it with.
  */
 export interface ForgeMetadataDiffResponse extends BaseMessage {
   type: 'forge:metadata-diff:response';
-  payload: { diffs: Array<Record<string, unknown>> };
+  payload: { diffs: ForgeMetadataDiffEntry[] };
 }
 
 /** `forge:metadata-diff:error`. Extension -> WebView (emitted via sendHandlerError). */

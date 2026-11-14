@@ -3,6 +3,7 @@ import { GraphDiscoveryService } from './GraphDiscoveryService.js';
 import type { GraphDiscoveryDeps, ObjectDescribe } from './GraphDiscoveryService.js';
 import type { ForgeConfig } from '@sandforge/shared';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
+import { TimeoutError } from '../../core/engine/TimeoutManager.js';
 
 function createMockDeps(): GraphDiscoveryDeps {
   return {
@@ -160,7 +161,7 @@ describe('GraphDiscoveryService', () => {
       expect(graph.nodes[0].recordCount).toBe(42);
       expect(deps.queryCount).toHaveBeenCalledWith(
         'src-org',
-        'SELECT COUNT() FROM Contact',
+        "SELECT COUNT() FROM Contact WHERE Id = '003XXXXXXXXXX'",
         undefined,
       );
     });
@@ -600,7 +601,11 @@ describe('GraphDiscoveryService', () => {
       expect(childEdge?.type).toBe('lookup');
     });
 
-    it('should mark master-detail edges from child relationships', async () => {
+    it('types a lookup the parent’s delete cascades to as a lookup when the child may leave it empty', async () => {
+      // As a Developer Edition org describes them: the account's list of its
+      // children says its delete takes its contacts, and a contact's
+      // AccountId may be left empty. Typed master-detail on the cascade alone,
+      // a run that lost its accounts skipped every contact.
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
           return makeAccountDescribe([
@@ -612,19 +617,51 @@ describe('GraphDiscoveryService', () => {
             },
           ]);
         }
-        return makeContactDescribe();
+        const contact = makeContactDescribe();
+        return {
+          ...contact,
+          fields: contact.fields.map((f) =>
+            f.name === 'AccountId' ? { ...f, nillable: true } : f,
+          ),
+        };
       });
 
-      const config = createConfig({ depth: 'direct' });
-      const graph = await service.discover(config);
+      const graph = await service.discover(createConfig({ depth: 'full' }));
 
-      const mdEdge = graph.edges.find(
-        (e) =>
-          e.sourceObject === 'Account' &&
-          e.targetObject === 'Contact' &&
-          e.relationshipName === 'Contacts',
+      const edge = graph.edges.find(
+        (e) => e.sourceObject === 'Account' && e.targetObject === 'Contact',
       );
-      expect(mdEdge?.type).toBe('master-detail');
+      expect(edge?.type).toBe('lookup');
+    });
+
+    it('types it master-detail when the child’s field names one object and may not be left empty', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: true,
+            },
+          ]);
+        }
+        const contact = makeContactDescribe();
+        return {
+          ...contact,
+          fields: contact.fields.map((f) =>
+            f.name === 'AccountId' ? { ...f, nillable: false } : f,
+          ),
+        };
+      });
+
+      // At the edge of the walk too: the child is described, its lookups not walked.
+      const graph = await service.discover(createConfig({ depth: 'direct' }));
+
+      const edge = graph.edges.find(
+        (e) => e.sourceObject === 'Account' && e.targetObject === 'Contact',
+      );
+      expect(edge?.type).toBe('master-detail');
     });
 
     it('keeps the required flag of the child’s own field when the parent’s list of its children came first', async () => {
@@ -1011,7 +1048,13 @@ describe('GraphDiscoveryService', () => {
     it('should mark nodes with zero records as excluded when skipEmpty is true', async () => {
       vi.mocked(deps.queryCount).mockResolvedValue(0);
 
-      const config = createConfig({ skipEmpty: true });
+      // From a query: the record a clone from a record starts from stays in it.
+      const config = createConfig({
+        skipEmpty: true,
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+      });
       const graph = await service.discover(config);
 
       expect(graph.nodes[0].included).toBe(false);
@@ -1083,9 +1126,14 @@ describe('GraphDiscoveryService', () => {
       expect(byName.get('Opportunity')?.status).toBe('idle');
     });
 
-    it('should report the node in error when the record count query rejects', async () => {
+    it('should report the node in error when the org refuses the record count', async () => {
       vi.mocked(deps.describeObject).mockResolvedValue(makeAccountDescribe());
-      vi.mocked(deps.queryCount).mockRejectedValue(new Error('non-queryable entity'));
+      vi.mocked(deps.queryCount).mockRejectedValue(
+        Object.assign(new Error('non-queryable entity'), {
+          errorCode: 'INVALID_TYPE_FOR_OPERATION',
+          name: 'INVALID_TYPE_FOR_OPERATION',
+        }),
+      );
 
       const config = createConfig();
       const graph = await service.discover(config);
@@ -1095,7 +1143,9 @@ describe('GraphDiscoveryService', () => {
       expect(node.included).toBe(false);
       expect(node.recordCount).toBe(0);
       expect(node.fieldCount).toBe(2);
-      expect(node.errors).toEqual(['Record count unavailable: non-queryable entity']);
+      expect(node.errors).toEqual([
+        'Record count unavailable: INVALID_TYPE_FOR_OPERATION: non-queryable entity',
+      ]);
       expect(graph.totalRecords).toBe(0);
       expect(graph.estimatedSizeMB).toBe(0);
     });
@@ -1124,10 +1174,10 @@ describe('GraphDiscoveryService', () => {
     });
 
     // ScopeResolver (and every other consumer that has to explain
-    // a missing object) reads `status`/`errors` to tell an object that is
-    // genuinely empty from one whose size could not be established. Both end
-    // up with `included === false` and `recordCount === 0`, so the boolean
-    // alone cannot carry the difference — this locks the pair that can.
+    // a missing object) reads the node to tell an object that is genuinely
+    // empty from one whose size could not be established. Both carry
+    // `recordCount === 0`, so the count alone cannot carry the difference —
+    // this locks what can: the unmeasured one stays in, its count unknown.
     it('should keep an unmeasurable object distinguishable from a genuinely empty one', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
@@ -1149,7 +1199,13 @@ describe('GraphDiscoveryService', () => {
         return 0;
       });
 
-      const config = createConfig({ depth: 'direct', skipEmpty: true });
+      const config = createConfig({
+        depth: 'direct',
+        skipEmpty: true,
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+      });
       const graph = await service.discover(config);
 
       const byName = new Map(graph.nodes.map((n) => [n.objectApiName, n]));
@@ -1157,14 +1213,153 @@ describe('GraphDiscoveryService', () => {
       const unmeasured = byName.get('Contact');
 
       expect(empty?.included).toBe(false);
-      expect(unmeasured?.included).toBe(false);
+      expect(unmeasured?.included).toBe(true);
       expect(empty?.recordCount).toBe(0);
       expect(unmeasured?.recordCount).toBe(0);
 
-      expect(empty?.status).toBe('idle');
+      expect(empty?.recordCountUnknown).toBeUndefined();
+      expect(unmeasured?.recordCountUnknown).toBe(true);
       expect(empty?.errors).toEqual([]);
-      expect(unmeasured?.status).toBe('error');
-      expect(unmeasured?.errors[0]).toContain('QUERY_TIMEOUT');
+      expect(unmeasured?.errors).toEqual([]);
+    });
+
+    describe('a count the org did not answer, or refused', () => {
+      /** Account lists its contacts, a contact its cases: what a walk goes on to from the contacts. */
+      const describeChain = async (_orgId: string, objectName: string): Promise<ObjectDescribe> => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
+        }
+        if (objectName === 'Contact') {
+          return {
+            ...makeContactDescribe(),
+            childRelationships: [
+              {
+                childSObject: 'Case',
+                field: 'ContactId',
+                relationshipName: 'Cases',
+                isCascadeDelete: false,
+              },
+            ],
+          };
+        }
+        return { name: objectName, fields: [], childRelationships: [] };
+      };
+
+      it('keeps in the run a table whose count got no answer in time, its count unknown, and walks on from it', async () => {
+        // The panel gives a count 15 s. A table of a large org past it was left
+        // out of a record's clone, every row under the record with it, and
+        // discovery again met the same wait.
+        vi.mocked(deps.describeObject).mockImplementation(describeChain);
+        vi.mocked(deps.queryCount).mockImplementation(async (_orgId, soql) => {
+          if (soql.includes('FROM Contact')) throw new TimeoutError('queryCount', 15_000);
+          return 3;
+        });
+
+        const graph = await service.discover(createConfig({ depth: 'full', skipEmpty: true }));
+
+        const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
+        expect(contact).toMatchObject({
+          included: true,
+          status: 'idle',
+          recordCount: 0,
+          recordCountUnknown: true,
+          errors: [],
+        });
+        expect(graph.nodes.map((n) => n.objectApiName)).toContain('Case');
+      });
+
+      it('keeps one the org answered with no answer of its own, a query timeout', async () => {
+        vi.mocked(deps.describeObject).mockImplementation(describeChain);
+        vi.mocked(deps.queryCount).mockImplementation(async (_orgId, soql) => {
+          if (soql.includes('FROM Contact')) {
+            throw Object.assign(new Error('Your query request was running for too long.'), {
+              errorCode: 'QUERY_TIMEOUT',
+              name: 'QUERY_TIMEOUT',
+            });
+          }
+          return 3;
+        });
+
+        const graph = await service.discover(createConfig({ depth: 'direct' }));
+
+        expect(graph.nodes.find((n) => n.objectApiName === 'Contact')).toMatchObject({
+          included: true,
+          recordCountUnknown: true,
+        });
+      });
+
+      it('leaves out a table whose count the org refused, in its own words', async () => {
+        vi.mocked(deps.describeObject).mockImplementation(describeChain);
+        vi.mocked(deps.queryCount).mockImplementation(async (_orgId, soql) => {
+          if (soql.includes('FROM Contact')) {
+            throw Object.assign(new Error('entity type Contact does not support query'), {
+              errorCode: 'INVALID_TYPE_FOR_OPERATION',
+              name: 'INVALID_TYPE_FOR_OPERATION',
+            });
+          }
+          return 3;
+        });
+
+        const graph = await service.discover(createConfig({ depth: 'direct' }));
+
+        const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
+        expect(contact).toMatchObject({ included: false, status: 'error' });
+        expect(contact?.recordCountUnknown).toBeUndefined();
+        expect(contact?.errors).toEqual([
+          'Record count unavailable: INVALID_TYPE_FOR_OPERATION: entity type Contact does not support query',
+        ]);
+      });
+    });
+
+    describe('the root of a clone from a record', () => {
+      it('is counted by its id, never as its whole table', async () => {
+        // A count of every account of a large org ran past the panel's wait
+        // each time, and the run then refused the record for a root it could
+        // not measure, asking for discovery again.
+        const graph = await service.discover(
+          createConfig({ recordId: '001000000000001AAA', depth: 'direct' }),
+        );
+
+        expect(deps.queryCount).toHaveBeenCalledWith(
+          'src-org',
+          "SELECT COUNT() FROM Account WHERE Id = '001000000000001AAA'",
+          undefined,
+        );
+        expect(deps.queryCount).not.toHaveBeenCalledWith(
+          'src-org',
+          'SELECT COUNT() FROM Account',
+          undefined,
+        );
+        expect(graph.nodes[0]).toMatchObject({ objectApiName: 'Account', included: true });
+      });
+
+      it('is counted under its filter too, and stays in the run when it is the only row', async () => {
+        vi.mocked(deps.queryCount).mockResolvedValue(0);
+
+        const graph = await service.discover(
+          createConfig({
+            recordId: '001000000000001AAA',
+            skipEmpty: true,
+            objectSoqlFilters: { Account: "Industry = 'X'" },
+          }),
+        );
+
+        expect(deps.queryCount).toHaveBeenCalledWith(
+          'src-org',
+          "SELECT COUNT() FROM Account WHERE Id = '001000000000001AAA' AND (Industry = 'X')",
+          undefined,
+        );
+        // A root left out is a run refused: what it reads of the record says
+        // whether there is one, as it did when the whole table was counted.
+        expect(graph.nodes[0]).toMatchObject({ objectApiName: 'Account', included: true });
+      });
     });
 
     it('should emit progress for nodes that failed to describe', async () => {
@@ -1840,7 +2035,7 @@ describe('GraphDiscoveryService', () => {
       expect(deps.describeObject).toHaveBeenCalledWith('src-org', 'Account', controller.signal);
       expect(deps.queryCount).toHaveBeenCalledWith(
         'src-org',
-        'SELECT COUNT() FROM Account',
+        "SELECT COUNT() FROM Account WHERE Id = '001XXXXXXXXXXXX'",
         controller.signal,
       );
     });

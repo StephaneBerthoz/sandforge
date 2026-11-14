@@ -5,6 +5,7 @@ import type {
   ForgeDecisionApplied,
   ForgeGap,
   ForgeRecordTypeMapping,
+  ForgeFieldExclusionUnmatched,
   ForgeFieldsLeftOut,
   ForgeFileObject,
   ForgeFileObjectReport,
@@ -14,6 +15,7 @@ import type {
   ForgeGraphNode,
   ForgeLookupsLeftEmpty,
   ForgeNodeStatus,
+  ForgeOrphanParentsCapped,
   ForgePicklistValuesChanged,
   ForgeReadRecords,
   ForgeRemapObjectCounts,
@@ -23,6 +25,7 @@ import type {
   RecordTypeGivenBasis,
   RecordTypeNamed,
   WholeOrgSample,
+  WholeOrgSampleLimit,
   WholeOrgSampleResult,
   WithoutRecordTypeWhy,
   ForgeSampleOptions,
@@ -94,6 +97,7 @@ import {
   catalogWriteEdges,
   fieldsToSelect,
   followsToItsParent,
+  matchFieldExclusions,
   ordersTheWrite,
   PRODUCT_OBJECT,
   queryNodeRecords,
@@ -649,7 +653,9 @@ export interface ExecuteOptions {
    * (org-specific calc).
    *
    * Lookup is keyed by SObject API name; the inner array is a list of
-   * field API names. Case-sensitive (matches Salesforce API name casing).
+   * field API names, matched to the source's whatever their case before
+   * anything is read (`matchFieldExclusions`); one that names no field is
+   * said in the summary (`fieldExclusionsUnmatched`).
    */
   fieldExclusions?: Record<string, string[]>;
   /**
@@ -1541,6 +1547,18 @@ export interface ExecutionSummary {
    */
   cappedObjects?: { perObject: number; objects: string[] };
   /**
+   * The fields the user left out that name no object or no field of the
+   * source (`matchFieldExclusions`): those fields are not left out of
+   * anything. Absent when every exclusion names a field.
+   */
+  fieldExclusionsUnmatched?: ForgeFieldExclusionUnmatched[];
+  /**
+   * The parents from outside the run it did not copy for its rows, the most
+   * it copies reached (`maxOrphanParentExpansions`). Absent when it stopped
+   * short of it.
+   */
+  orphanParentsCapped?: ForgeOrphanParentsCapped;
+  /**
    * Full source→target ID mapping table produced during execution. Lets
    * the caller audit which source-org record became which target-org
    * record (BA need: post-clone reconciliation, CSV export, or a "where
@@ -2262,6 +2280,8 @@ interface ExecutionState {
   readonly truncatedObjects: Set<string>;
   /** Objects whose read stopped at the cap on each object with rows left, in the order they were read. */
   readonly cappedObjects: Set<string>;
+  /** The fields the user left out that name nothing in the source: see `matchFieldExclusions`. */
+  readonly fieldExclusionsUnmatched: readonly ForgeFieldExclusionUnmatched[];
   /** Nullified cycle FKs queued for the pass-2 UPDATE. */
   readonly pendingFkUpdates: PendingFkUpdate[];
   /**
@@ -2984,6 +3004,127 @@ function capOnEachObject(
   return cap !== undefined && cap > 0 && Math.floor(cap) > 0 ? Math.floor(cap) : undefined;
 }
 
+/**
+ * What held a sample that cannot fit, as its refusal says it: what the
+ * objects copied whole and the roots kept are past, and the way out the bound
+ * itself gives, if any. Past the data storage the target has left, no setting
+ * lets the sample take more: the refusal proposed to take more of the target
+ * (--fit-within) whatever held it, and named the bound by its code.
+ */
+const SAMPLE_HELD_BY: Readonly<Record<WholeOrgSampleLimit, { past: string; more: string }>> = {
+  storage: {
+    past: 'past the data storage the target has left',
+    more: ', or free data storage in the target',
+  },
+  within: {
+    past: 'past the MB it may take (--fit-within)',
+    more: ', or let it take more (--fit-within)',
+  },
+  maxTotal: {
+    past: 'past the records it may write (--max-total)',
+    more: ', or raise --max-total',
+  },
+  targetRequests: {
+    past: 'past the API requests the target has left today',
+    more: ', or run it once the target has more to spare',
+  },
+  bulkBatches: {
+    past: 'past the Bulk API batches the target has left today',
+    more: ', or run it once the target has more to spare',
+  },
+  sourceRequests: {
+    past: 'past the API requests the source has left today',
+    more: ', or run it once the source has more to spare',
+  },
+  // Neither holds a sample that cannot fit: said all the same, with nothing more.
+  heavyRoots: { past: 'past what the sample may take', more: '' },
+  whole: { past: 'past what the sample may take', more: '' },
+};
+
+/**
+ * Bytes as MB to a hundredth, up or down: what a sample needs is said up and
+ * what it may take down, so a size past a bound never reads as within it, and
+ * the few KB a Developer Edition's sample takes never as 0.
+ */
+function roundedMB(bytes: number, way: 'up' | 'down'): number {
+  const hundredths = (bytes / BYTES_PER_MB) * 100;
+  return (way === 'up' ? Math.ceil(hundredths) : Math.floor(hundredths)) / 100;
+}
+
+/**
+ * A sample that cannot fit, refused with what the gate's stop says of it
+ * (`ForgeRunGateStop.sample`): what held it, and in MB what it needs and may
+ * take when MB held it. Read by name by the gate (`sampleGateErrorOf`), as
+ * any refusal of a sample is.
+ */
+class SampleCannotFitError extends SampleRefusedError {
+  constructor(
+    message: string,
+    heaviest: ConstructorParameters<typeof SampleRefusedError>[2],
+    readonly sample: {
+      limitedBy: WholeOrgSampleLimit;
+      needMB?: number;
+      budgetMB?: number;
+      heaviest: string[];
+    },
+  ) {
+    super('SAMPLE_CANNOT_FIT', message, heaviest);
+  }
+}
+
+/** The rows of reference data its report details one by one; the others are named in one more line. */
+const REFERENCE_DATA_DETAILED = 3;
+
+/**
+ * What the report of reference data the target holds no match for says of
+ * each row: the name it was looked for by, that the records pointing at it
+ * are not linked to one, and what links them — a record of that name made
+ * in the target's Setup, where business hours and operating hours are set
+ * up, or one of the target's renamed to it. Past the rows it details, the
+ * other names in one line.
+ *
+ * Each said "Reference-data row not found on target org" alone, three at
+ * most: neither the name the target lacked nor what to make there.
+ */
+function referenceDataUnmatchedSamples(
+  objectApiName: string,
+  unmatched: ReadonlyArray<{ sourceId: string; matchValue: string | null }>,
+): ExecutionErrorSample[] {
+  const samples = unmatched
+    .slice(0, REFERENCE_DATA_DETAILED)
+    .map(({ sourceId, matchValue }): ExecutionErrorSample => ({
+      recordSummary: `Id=${sourceId} matchValue=${matchValue ?? 'null'}`,
+      messages: [
+        matchValue === null
+          ? `This ${objectApiName} has no name to find it by in the target org: the records ` +
+            'that point at it are not linked to one.'
+          : `No ${objectApiName} of the target org is named "${matchValue}": the records that ` +
+            `point at it are not linked to one. Create a ${objectApiName} of that name in the ` +
+            'target’s Setup, or rename one of the target’s to it, then run again.',
+      ],
+    }));
+  const rest = unmatched.slice(REFERENCE_DATA_DETAILED);
+  if (rest.length === 0) return samples;
+  const names = rest.map(({ matchValue }) => (matchValue === null ? 'no name' : `"${matchValue}"`));
+  const listed =
+    names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+  return [
+    ...samples,
+    {
+      recordSummary: `${rest.length} more`,
+      messages: [`No ${objectApiName} of the target org is named ${listed} either.`],
+    },
+  ];
+}
+
+/** The summary's `orphanParentsCapped`: the parents from outside the run past the most it copies. */
+function orphanParentsCappedOf(
+  state: Pick<ExecutionState, 'orphanExpander'>,
+): Pick<ExecutionSummary, 'orphanParentsCapped'> {
+  const capped = state.orphanExpander.capReport();
+  return capped ? { orphanParentsCapped: capped } : {};
+}
+
 /** The summary's `cappedObjects`: the cap, and the objects a read stopped at it with rows left. */
 function cappedObjectsOf(
   state: Pick<ExecutionState, 'config' | 'cappedObjects'>,
@@ -3034,16 +3175,26 @@ function requiredParentsOf(
   fieldInfos: readonly FieldInfo[],
 ): string[] {
   const lookups = fieldInfos.filter((f) => f.isReference);
+  const naming = (parent: string): FieldInfo[] =>
+    lookups.filter((f) => (f.referenceTo ?? []).includes(parent));
   const onlyAmongOthers = (parent: string): boolean => {
-    const naming = lookups.filter((f) => (f.referenceTo ?? []).includes(parent));
-    return naming.length > 0 && naming.every((f) => (f.referenceTo ?? []).length > 1);
+    const fields = naming(parent);
+    return fields.length > 0 && fields.every((f) => (f.referenceTo ?? []).length > 1);
+  };
+  // A master-detail edge the fields contradict: every lookup of the child at
+  // the parent may be left empty. The walk from a root typed a pair by the
+  // parent's cascade alone, and graphs kept since carry it: an account's
+  // contacts were skipped when the accounts failed.
+  const emptiable = (parent: string): boolean => {
+    const fields = naming(parent);
+    return fields.length > 0 && fields.every((f) => f.nillable === true);
   };
   const parents = new Set(
     withWhatTheFieldsSayOfEdges(graph, new Map([[objectApiName, fieldInfos]]))
       .edges.filter(
         (e) =>
           e.targetObject === objectApiName &&
-          (e.required === true || e.type === 'master-detail') &&
+          (e.required === true || (e.type === 'master-detail' && !emptiable(e.sourceObject))) &&
           ordersTheWrite(e) &&
           !onlyAmongOthers(e.sourceObject),
       )
@@ -5103,6 +5254,41 @@ export class ForgeExecutor {
     return named;
   }
 
+  /**
+   * The fields the user left out, under the names the source gives them, and
+   * those that name nothing there (`matchFieldExclusions`): the object of each
+   * exclusion found among the graph's whatever its case, and its fields read
+   * from its describe — an object the source does not have answers
+   * `NOT_FOUND`; one whose describe fails otherwise is kept as given, unsaid.
+   * Nothing is asked when nothing is left out.
+   */
+  private async fieldExclusionsOfTheSource(
+    exclusions: Readonly<Record<string, readonly string[]>>,
+    graph: ForgeGraph,
+    sourceOrgId: string,
+  ): Promise<{ exclusions: Record<string, string[]>; unmatched: ForgeFieldExclusionUnmatched[] }> {
+    const named = Object.keys(exclusions);
+    if (named.length === 0) return { exclusions: {}, unmatched: [] };
+    const objects = graph.nodes.map((node) => node.objectApiName);
+    const fields = new Map<string, readonly string[] | null | undefined>();
+    for (const given of named) {
+      const object = objects.find((name) => name.toLowerCase() === given.toLowerCase()) ?? given;
+      if (fields.has(object)) continue;
+      try {
+        const described = await this.deps.describeFields(sourceOrgId, object);
+        fields.set(
+          object,
+          described.map((field) => field.name),
+        );
+      } catch (err) {
+        fields.set(object, isNotFound(err) ? undefined : null);
+      }
+    }
+    return matchFieldExclusions(exclusions, objects, (object) =>
+      fields.has(object) ? fields.get(object) : null,
+    );
+  }
+
   /** Why this executor cannot copy files, or null when it can. */
   private fileCopyUnwired(): string | null {
     const { readFileBody, insertFile, remainingFileStorageMB } = this.deps;
@@ -5193,14 +5379,23 @@ export class ForgeExecutor {
       targetOrgId,
       recordTypeRows,
     );
-    const config: ForgeStageConfig =
-      decided.bySource.size === 0
-        ? resolved
+    // The fields left out, under the source's names whatever case they were
+    // given in, before a row is read: every reader compares them exactly.
+    const leftOutFields = await this.fieldExclusionsOfTheSource(
+      resolved.fieldExclusions,
+      graph,
+      sourceOrgId,
+    );
+    const config: ForgeStageConfig = {
+      ...resolved,
+      fieldExclusions: leftOutFields.exclusions,
+      ...(decided.bySource.size === 0
+        ? {}
         : {
-            ...resolved,
             recordTypeMappings: withRecordTypeDecisions(resolved.recordTypeMappings, decided),
             recordTypeDecisions: decided.bySource,
-          };
+          }),
+    };
     const simulated = config.dryRun ? new SimulatedIds() : null;
     // What the user excluded by name stays out, whether discovery reached it
     // or the run would add it: see `ExecuteOptions.excludedObjects`.
@@ -5271,6 +5466,7 @@ export class ForgeExecutor {
       errors: [],
       truncatedObjects: new Set<string>(),
       cappedObjects: new Set<string>(),
+      fieldExclusionsUnmatched: leftOutFields.unmatched,
       pendingFkUpdates: [],
       owedToRowsWrittenBefore: [],
       deferredNodes: [],
@@ -6981,13 +7177,23 @@ export class ForgeExecutor {
       const ways = cut.noRoot
         ? 'Leave objects out (--exclude-object)'
         : 'Keep no root of each object (--fit-floor 0), leave objects out (--exclude-object)';
-      throw new SampleRefusedError(
-        'SAMPLE_CANNOT_FIT',
+      const held = SAMPLE_HELD_BY[cut.limitedBy];
+      const sizedInMB = cut.limitedBy === 'storage' || cut.limitedBy === 'within';
+      throw new SampleCannotFitError(
         `No sample of the whole org fits: ${taken} take ${cut.rows} records, ` +
-          `${(cut.storageBytes / BYTES_PER_MB).toFixed(1)} MB, past what the sample may take ` +
-          `(${cut.limitedBy}); the heaviest are ${heaviest}. ${NOTHING_WRITTEN} ${ways}, or take ` +
-          'more of the target (--fit-within).',
+          `${(cut.storageBytes / BYTES_PER_MB).toFixed(1)} MB, ${held.past}; the heaviest are ` +
+          `${heaviest}. ${NOTHING_WRITTEN} ${ways}${held.more}.`,
         cut.heaviest,
+        {
+          limitedBy: cut.limitedBy,
+          ...(sizedInMB
+            ? {
+                needMB: roundedMB(cut.storageBytes, 'up'),
+                budgetMB: roundedMB(terms.budget.bytes, 'down'),
+              }
+            : {}),
+          heaviest: cut.heaviest.map((o) => o.objectApiName),
+        },
       );
     }
     const report = sampleReportOf({ ...drawing, cut }, options, terms.budget);
@@ -10882,6 +11088,10 @@ export class ForgeExecutor {
       ],
       truncatedObjects: [...state.truncatedObjects],
       ...cappedObjectsOf(state),
+      ...(state.fieldExclusionsUnmatched.length > 0
+        ? { fieldExclusionsUnmatched: [...state.fieldExclusionsUnmatched] }
+        : {}),
+      ...orphanParentsCappedOf(state),
       // BA reconciliation: dump the full source→target ID map so callers
       // can audit, export to CSV, or persist as part of a checkpoint.
       // toJSON returns a plain object (Record) so it serializes cleanly
@@ -12511,10 +12721,7 @@ export class ForgeExecutor {
             // failed, where the rows the run holds back, said at this stage
             // too, are failures: the audit trail tells the two apart by it.
             referenceData: true,
-            samples: refResolve.unmatched.slice(0, 3).map((u) => ({
-              recordSummary: `Id=${u.sourceId} matchValue=${u.matchValue ?? 'null'}`,
-              messages: [`Reference-data row not found on target org`],
-            })),
+            samples: referenceDataUnmatchedSamples(node.objectApiName, refResolve.unmatched),
           });
         }
         // Still seed the scope cache so FK propagation works.

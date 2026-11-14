@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import type { WholeOrgSampleLimit } from '../types/forge.types.js';
 
 /**
  * Why a Forge run stopped at its gate — the checks between Execute and the
@@ -149,7 +150,9 @@ export interface ForgeRunGateStop {
    * the stop:
    * - of one that cannot fit (`SAMPLE_CANNOT_FIT`), what the objects copied
    *   whole and the roots kept of each object take, the most the sample may
-   *   take, in MB, and the heaviest objects by name;
+   *   take, in MB, and the heaviest objects by name; and what held it
+   *   (`limitedBy`), which the way out depends on: past the data storage the
+   *   target has left, no setting lets the sample take more;
    * - of one too large to hold (`SAMPLE_TOO_LARGE`), the records it read and
    *   the most it holds at once;
    * - of a plan refused (`SAMPLE_PLAN_GONE`, `SAMPLE_PLAN_MISMATCH`), what is
@@ -163,6 +166,7 @@ export interface ForgeRunGateStop {
     needMB?: number;
     budgetMB?: number;
     heaviest?: string[];
+    limitedBy?: WholeOrgSampleLimit;
     rows?: number;
     most?: number;
     plan?: SampleGatePlanRefusal;
@@ -234,6 +238,18 @@ const stopSchema = z.object({
       needMB: z.number().nonnegative().optional(),
       budgetMB: z.number().nonnegative().optional(),
       heaviest: z.array(z.string().min(1).max(255)).max(SAMPLE_HEAVIEST_NAMED).optional(),
+      limitedBy: z
+        .enum([
+          'storage',
+          'within',
+          'maxTotal',
+          'targetRequests',
+          'bulkBatches',
+          'sourceRequests',
+          'heavyRoots',
+          'whole',
+        ] as const satisfies readonly WholeOrgSampleLimit[])
+        .optional(),
       rows: z.number().int().nonnegative().optional(),
       most: z.number().int().nonnegative().optional(),
       plan: z.enum(['gone', 'changed', 'otherOrg', 'otherSetup', 'otherSha']).optional(),

@@ -12780,7 +12780,7 @@ describe('ForgeExecutor', () => {
 
       // A run of whole tables: a record-scoped run reads such parents by id
       // itself, before its writes, and the expansion finds them written.
-      await executor.execute(graph, 'src', 'tgt', onProgress, {
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
         expandOrphanParents: true,
         maxOrphanParentExpansions: 2, // only 2 of the 3 orphans get expanded
       });
@@ -12789,6 +12789,8 @@ describe('ForgeExecutor', () => {
         .mocked(deps.insertRecords)
         .mock.calls.filter((c) => c[1] === 'Account');
       expect(accountInserts).toHaveLength(2);
+      // The third goes said, with the cap that left it: the run's result names it.
+      expect(summary.orphanParentsCapped).toEqual({ cap: 2, notCopied: 1, objects: ['Account'] });
     });
 
     it('does nothing when expandOrphanParents is false (back-compat)', async () => {
@@ -13358,12 +13360,58 @@ describe('ForgeExecutor', () => {
           samples: [
             {
               recordSummary: 'Id=01m000000000002SRC matchValue=Weekend',
-              messages: ['Reference-data row not found on target org'],
+              // Named, with what links the records that point at it.
+              messages: [
+                'No BusinessHours of the target org is named "Weekend": the records that point at it are not linked to one. Create a BusinessHours of that name in the target’s Setup, or rename one of the target’s to it, then run again.',
+              ],
             },
           ],
         },
       ]);
       expect(summary.failedCount).toBe(0);
+    });
+
+    it('names every row of reference data the target holds no match for, past the three it details', async () => {
+      const names = ['Weekend', 'Night', 'Holiday', 'Support', 'Field'];
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt' ? [] : names.map((Name, i) => ({ Id: `01m00000000000${i}SRC`, Name })),
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('OperatingHours', { recordCount: 5 })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      const samples = summary.errors.find((e) => e.objectApiName === 'OperatingHours')?.samples;
+      expect(samples).toHaveLength(4);
+      expect(samples?.[3]).toEqual({
+        recordSummary: '2 more',
+        messages: ['No OperatingHours of the target org is named "Support" or "Field" either.'],
+      });
+    });
+
+    it('says a row of reference data with no name to find it by as such', async () => {
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt' ? [] : [{ Id: '01m000000000009SRC', Name: null }],
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('BusinessHours', { recordCount: 1 })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary.errors[0].samples).toEqual([
+        {
+          recordSummary: 'Id=01m000000000009SRC matchValue=null',
+          messages: [
+            'This BusinessHours has no name to find it by in the target org: the records that point at it are not linked to one.',
+          ],
+        },
+      ]);
     });
 
     it('names the standard price book among the records the target already held', async () => {

@@ -130,6 +130,14 @@ export function forgeRunResult(
     // So is a read stopped at the cap on each object: the rows past it are
     // in the source, and none of them in the clone.
     ...(summary.cappedObjects ? { cappedObjects: summary.cappedObjects } : {}),
+    // A field left out that names nothing in the source leaves nothing out:
+    // said, never taken for a field kept back.
+    ...(summary.fieldExclusionsUnmatched
+      ? { fieldExclusionsUnmatched: summary.fieldExclusionsUnmatched }
+      : {}),
+    // Parents of rows outside the run past the most it copies: the rows that
+    // needed them were refused, and only this says why.
+    ...(summary.orphanParentsCapped ? { orphanParentsCapped: summary.orphanParentsCapped } : {}),
     // Only a run asked to copy files says what became of them.
     ...(summary.files ? { files: summary.files } : {}),
     ...(summary.fileContentFieldsLeftOut
