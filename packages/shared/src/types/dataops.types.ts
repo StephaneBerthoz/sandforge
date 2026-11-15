@@ -529,9 +529,12 @@ export interface StorageRecommendation {
  * Where a set of slices stands: `open` while slices are left to take or to
  * mask, a run stopped part way included; `done` once every row it was for is
  * in a slice, masked or backed up; `abandoned` when the person gave it up,
- * its slices kept until they expire.
+ * its slices kept until they expire. `partial` is how a listing gives a
+ * backup in slices that is not done: no run takes a backup up, so one
+ * stopped part way is never open to resume — its slices restore as they are,
+ * and a new backup takes every record again.
  */
-export type SliceSetState = 'open' | 'done' | 'abandoned';
+export type SliceSetState = 'open' | 'done' | 'abandoned' | 'partial';
 
 /**
  * Where one slice stands: `pending` before its snapshot, `masking` once its

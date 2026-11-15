@@ -1969,6 +1969,49 @@ describe('ForgeResults', () => {
       ]);
     });
 
+    it('saves the roots of a clone from records with their copies, and offers none of a simulation', () => {
+      mappedRun();
+      const roots = {
+        objectApiName: 'Account',
+        from: 'query' as const,
+        cap: 200,
+        asked: 2,
+        read: 2,
+        gone: [],
+        written: 1,
+        linked: 1,
+        failed: [],
+        sha256: 'a'.repeat(64),
+        readAt: '2026-11-14T14:02:00.000Z',
+        ids: [
+          { source: '001000000000001SRC', target: '001000000000001AAA' },
+          { source: '001000000000002SRC', target: '001000000000002AAA' },
+        ],
+      };
+      mockResult = Object.assign(mockResult ?? makeMockResult(), { roots });
+      const { unmount } = render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-roots-result-export'));
+
+      const file = saved();
+      expect(file.suggestedName).toMatch(/^sandforge-forge-roots-\d{4}-\d{2}-\d{2}\.csv$/);
+      expect(file.extensions).toEqual(['csv']);
+      expect(file.content.split('\n')).toEqual([
+        '"Object","Source Id","Target Id","Outcome","Reason"',
+        '"Account","001000000000001SRC","001000000000001AAA","written",""',
+        '"Account","001000000000002SRC","001000000000002AAA","linked to existing",""',
+      ]);
+      unmount();
+
+      mockResult = Object.assign(makeMockResult(), {
+        roots: { ...roots, ids: roots.ids.map(({ source }) => ({ source })) },
+        dryRun: true,
+      });
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-roots-result')).toBeDefined();
+      expect(screen.queryByTestId('forge-roots-result-export')).toBeNull();
+    });
+
     it('saves the per-object results as a CSV file, the rows of the table', () => {
       mappedRun();
       render(<ForgeResults />);

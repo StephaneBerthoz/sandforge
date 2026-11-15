@@ -1340,49 +1340,98 @@ function wholeOrgLines(question: WriteConfirmation, wholeOrg: WholeOrgConfirmati
   return lines;
 }
 
+/**
+ * When the roots of a clone were read, as its question says it: the time of
+ * day, the date before it when that was not today. As kept when it reads as
+ * no date.
+ */
+function readAtWords(readAt: string, now: Date): string {
+  const at = new Date(readAt);
+  if (Number.isNaN(at.getTime())) return readAt;
+  return at.toDateString() === now.toDateString()
+    ? at.toLocaleTimeString(vscode.env.language, { hour: '2-digit', minute: '2-digit' })
+    : at.toLocaleString(vscode.env.language, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * The line a clone from records opens its question on: its roots and what
+ * they reach, from where to where, and where the roots came from — "Clone 37
+ * Account records and what they reach, from SRC to TGT: 412 records of 9
+ * objects (roots of the simulation of 14:02)".
+ */
+function rootsLead(
+  question: WriteConfirmation,
+  roots: NonNullable<WriteConfirmation['roots']>,
+  now: Date,
+): string {
+  const at = readAtWords(roots.readAt, now);
+  const came =
+    roots.from === 'simulation'
+      ? vscode.l10n.t('roots of the simulation of {0}', at)
+      : roots.from === 'resumed'
+        ? vscode.l10n.t('roots read at {0}, as the journal of the run resumed names them', at)
+        : roots.from === 'retried'
+          ? vscode.l10n.t('roots of the run retried, read at {0}', at)
+          : roots.from === 'records'
+            ? vscode.l10n.t('records named one by one')
+            : vscode.l10n.t('roots the query chose at {0}', at);
+  return vscode.l10n.t(
+    'Clone {0} {1} records and what they reach, from {2} to {3}: {4} records of {5} objects ({6}).',
+    roots.count,
+    roots.objectApiName,
+    roots.source,
+    question.org,
+    question.total,
+    question.objects.length,
+    came,
+  );
+}
+
 /** What a run's question says of the rows it is about to write, and their storage. */
-function writeQuestion(question: WriteConfirmation): string[] {
-  const { wholeOrg } = question;
+function writeQuestion(question: WriteConfirmation, now = new Date()): string[] {
+  const { wholeOrg, roots } = question;
   const lines = [
-    wholeOrg?.sample
-      ? vscode.l10n.t(
-          'This clone copies a sample of {0} into {1}: {2} objects, {3} records.',
-          wholeOrg.source,
-          question.org,
-          question.objects.length,
-          question.total,
-        )
-      : wholeOrg
+    roots && !wholeOrg
+      ? rootsLead(question, roots, now)
+      : wholeOrg?.sample
         ? vscode.l10n.t(
-            'This clone copies all the data of {0} into {1}: {2} objects, {3} records.',
+            'This clone copies a sample of {0} into {1}: {2} objects, {3} records.',
             wholeOrg.source,
             question.org,
             question.objects.length,
             question.total,
           )
-        : question.module === 'autopilot'
+        : wholeOrg
           ? vscode.l10n.t(
-              'This Autopilot run is about to write {0} records to {1}:',
-              question.total,
+              'This clone copies all the data of {0} into {1}: {2} objects, {3} records.',
+              wholeOrg.source,
               question.org,
+              question.objects.length,
+              question.total,
             )
-          : question.module === 'seed'
+          : question.module === 'autopilot'
             ? vscode.l10n.t(
-                'This seed is about to write {0} records to {1}:',
+                'This Autopilot run is about to write {0} records to {1}:',
                 question.total,
                 question.org,
               )
-            : question.module === 'sync'
+            : question.module === 'seed'
               ? vscode.l10n.t(
-                  'This sync is about to write {0} records to {1}:',
+                  'This seed is about to write {0} records to {1}:',
                   question.total,
                   question.org,
                 )
-              : vscode.l10n.t(
-                  'This clone is about to write {0} records to {1}:',
-                  question.total,
-                  question.org,
-                ),
+              : question.module === 'sync'
+                ? vscode.l10n.t(
+                    'This sync is about to write {0} records to {1}:',
+                    question.total,
+                    question.org,
+                  )
+                : vscode.l10n.t(
+                    'This clone is about to write {0} records to {1}:',
+                    question.total,
+                    question.org,
+                  ),
   ];
   // Names and counts alone: nothing in them to translate — save, once the
   // case was simulated, what the simulation counted of each object.

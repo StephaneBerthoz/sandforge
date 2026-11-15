@@ -1,8 +1,9 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { ListChecks } from 'lucide-react';
+import { FileDown, ListChecks } from 'lucide-react';
 import type { ForgeReadRecords, ForgeRunRoots } from '@sandforge/shared';
+import { Button } from '../../components/ui/Button';
 import { uiLocale } from '../../utils/formatters';
 
 /** A count in the panel's language. */
@@ -16,7 +17,7 @@ function dateWords(at: string): string {
     : date.toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-/** Where the roots came from: the query, its simulation, or ids named one by one. */
+/** Where the roots came from: the query, its simulation, the run retried, or ids named one by one. */
 function chosenWords(t: TFunction, roots: ForgeRunRoots): string {
   const values = {
     count: roots.asked,
@@ -29,7 +30,12 @@ function chosenWords(t: TFunction, roots: ForgeRunRoots): string {
     case 'query':
       return t('forgeRun.rootsResult.fromQuery', values);
     case 'plan':
-      return t('forgeRun.rootsResult.fromPlan', values);
+      return t(
+        roots.ofTheRunRetried
+          ? 'forgeRun.rootsResult.fromRetried'
+          : 'forgeRun.rootsResult.fromPlan',
+        values,
+      );
     case 'records':
       return t('forgeRun.rootsResult.fromRecords', values);
   }
@@ -67,6 +73,11 @@ export interface ForgeRootsResultProps {
   simulated: boolean;
   /** The source org, as the user knows it. */
   source: string;
+  /**
+   * Save the roots with their copies in the target as a CSV file
+   * (`rootsCsv`): offered when given, of a run that names its roots.
+   */
+  onExport?: () => void;
 }
 
 /**
@@ -77,7 +88,8 @@ export interface ForgeRootsResultProps {
  * holds, which are no failure; then what reading what they reach sent the
  * source, and per object how its records came in: as roots, under a record
  * of the clone, or named by one — a parent read by id brings its other
- * children, which "read under" says.
+ * children, which "read under" says. Given `onExport`, it offers the roots
+ * with their copies in the target as a CSV file.
  */
 export const ForgeRootsResult: React.FC<ForgeRootsResultProps> = ({
   roots,
@@ -85,6 +97,7 @@ export const ForgeRootsResult: React.FC<ForgeRootsResultProps> = ({
   readByObject,
   simulated,
   source,
+  onExport,
 }) => {
   const { t } = useTranslation();
   const titleId = useId();
@@ -177,6 +190,19 @@ export const ForgeRootsResult: React.FC<ForgeRootsResultProps> = ({
             <li key={object.objectApiName}>{words}</li>
           ))}
         </ul>
+      )}
+      {onExport && (
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<FileDown size={14} />}
+            onClick={onExport}
+            data-testid="forge-roots-result-export"
+          >
+            {t('forgeRun.rootsResult.export')}
+          </Button>
+        </div>
       )}
     </section>
   );

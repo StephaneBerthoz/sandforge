@@ -325,7 +325,9 @@ import {
   rootsCapOf,
   rootsQueryOf,
   rootsQueryRefusedStop,
+  rootsSha256,
   rootsStatement,
+  sortedRootIds,
 } from '../../modules/forge/stages/QueryRoots.js';
 import {
   RootPlanError,
@@ -349,7 +351,7 @@ import {
   type ForgeRunResumeHead,
   type JournalDatesTarget,
 } from '../../modules/forge/ForgeRunJournal.js';
-import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
+import type { ForgeRunStore, StoredRoots } from '../../modules/forge/ForgeRunStore.js';
 import {
   inFlightLines,
   inFlightTargetOf,
@@ -876,6 +878,16 @@ function drawRefusalForThePage(refusal: ForgeRunGateError): ForgeRunGateError {
 }
 
 /**
+ * Why a retry of a clone from the records a query chose is refused: the
+ * roots the run it retries wrote under are kept nowhere any more, and a
+ * retry writes no other records than those.
+ */
+const ROOTS_OF_THE_RUN_RETRIED_GONE =
+  'The run to retry cloned the records its query chose, and neither its journal nor its entry ' +
+  'in the history keeps them any more: retried, it would write the records its query chooses ' +
+  'now, which may be others. Run the clone again from Review.';
+
+/**
  * Why a sample of the whole org was refused before anything was read: its
  * plan is kept on disk, in the extension's storage, and this window has none.
  */
@@ -1022,7 +1034,7 @@ export interface ForgeJournalLocks {
    */
   take(
     path: string,
-    run: { journalId: string; target?: string; resumes?: boolean },
+    run: { journalId: string; target?: string; resumes?: boolean; removes?: boolean },
   ): { release(): void } | { busy: ForgeRunLockHolder };
 }
 
@@ -2817,6 +2829,8 @@ export class ForgeHandler implements DomainHandler {
     let writtenBefore: Record<string, string> | undefined;
     /** Of a retry, the journal of the run it retries, which keeps the plan of its sample. */
     let retriedJournal: { journalId?: string } | undefined;
+    /** Of a retry of a clone from records, the roots the run it retries wrote under. */
+    let retriedRoots: StoredRoots | undefined;
     // What a resumed part goes on from is in the journal it goes on in.
     if (retryOf !== undefined && !resume) {
       const base = await this.runToRetry(retryOf, config.targetOrgId);
@@ -2842,6 +2856,7 @@ export class ForgeHandler implements DomainHandler {
       }
       writtenBefore = base.written;
       retriedJournal = base.journalId !== undefined ? { journalId: base.journalId } : {};
+      retriedRoots = base.roots;
     }
 
     // Production guard check on the target org — same policy as sync/seed
@@ -3650,6 +3665,7 @@ export class ForgeHandler implements DomainHandler {
         readCeiling,
         dryRun,
         resumes: resume !== undefined,
+        ...(retriedRoots ? { retried: retriedRoots } : {}),
         lookup,
       });
       // A Cancel taken while the journal was opened reaches an executor that
@@ -3671,6 +3687,7 @@ export class ForgeHandler implements DomainHandler {
         guard,
         targetOrgId: config.targetOrgId,
         org: targetName,
+        source: orgDisplayName(this.deps.orgManager.getOrg(config.sourceOrgId), config.sourceOrgId),
         orgTier,
         lookup,
         emailsPerInsert,
@@ -4436,11 +4453,19 @@ export class ForgeHandler implements DomainHandler {
    * earlier retry, left nothing to link to: a retry of it would write the
    * rows it failed against records that are gone. A run of another target, or
    * one recorded before runs kept their ids, says nothing of this target.
+   *
+   * Of a clone from the records a query chose, the roots it wrote under too
+   * (`rootsOfTheRunRetried`): the retry writes those, not what its query or
+   * a simulation since chooses. A run whose roots are kept nowhere any more
+   * is refused rather than retried with others.
    */
   private async runToRetry(
     forgeId: string,
     targetOrgId: string,
-  ): Promise<{ written: Record<string, string>; journalId?: string } | { refused: string }> {
+  ): Promise<
+    | { written: Record<string, string>; journalId?: string; roots?: StoredRoots }
+    | { refused: string }
+  > {
     const history = this.loadHistory();
     const entry = history.find((e) => e.forgeId === forgeId);
     if (!entry) {
@@ -4475,10 +4500,56 @@ export class ForgeHandler implements DomainHandler {
     // A run past the bound wrote what its journal says, every part of it.
     const read = await this.withIdsOf(entry);
     if ('gone' in read) return { refused: read.gone };
+    const roots = entry.roots ? await this.rootsOfTheRunRetried(entry) : undefined;
+    if (entry.roots && !roots) return { refused: ROOTS_OF_THE_RUN_RETRIED_GONE };
     // Its journal, beside which the plan of its sample is kept while it is.
     return {
       written: read.entry.idRemapTable ?? {},
       ...(entry.journalId !== undefined ? { journalId: entry.journalId } : {}),
+      ...(roots ? { roots } : {}),
+    };
+  }
+
+  /**
+   * The roots the clone from records `entry` wrote under, for a retry of it
+   * to write again: as its journal names them while it is kept
+   * (`ForgeRunJournalRead.roots`) — a run stopped part way, or past the
+   * bound —, else as its entry in the history names them one by one
+   * (`ForgeRunRoots.ids`), the journal of a run that ended having gone with
+   * it. Each held to the SHA-256 the run took of its ids. Undefined when
+   * neither holds them whole.
+   */
+  private async rootsOfTheRunRetried(
+    entry: ForgeExecutionResult,
+  ): Promise<StoredRoots | undefined> {
+    const ran = entry.roots;
+    if (!ran) return undefined;
+    const journal = this.runJournal;
+    if (entry.journalId !== undefined && journal) {
+      const kept = await journal.read(entry.journalId).catch((err: unknown) => {
+        logger.warn(
+          `Forge retry: the journal of the run retried could not be read (${extractErrorMessage(err)})`,
+        );
+        return undefined;
+      });
+      const named = kept?.roots;
+      if (
+        named &&
+        named.objectApiName.toLowerCase() === ran.objectApiName.toLowerCase() &&
+        rootsSha256(named.ids) === named.sha256
+      ) {
+        return named;
+      }
+    }
+    if (!ran.ids || ran.idsLeftOut !== undefined || ran.ids.length !== ran.asked) return undefined;
+    const ids = sortedRootIds(ran.ids.map((root) => root.source));
+    if (rootsSha256(ids) !== ran.sha256) return undefined;
+    return {
+      objectApiName: ran.objectApiName,
+      ids,
+      sha256: ran.sha256,
+      readAt: ran.readAt,
+      ...(ran.query ? { query: { ...ran.query } } : {}),
     };
   }
 
@@ -5280,6 +5351,8 @@ export class ForgeHandler implements DomainHandler {
     guard: ProductionGuard;
     targetOrgId: string;
     org: string;
+    /** The source, as the user knows it: named by the question of a clone from records. */
+    source: string;
     orgTier: SafetyTier;
     lookup: { requests: number };
     /** The emails the target's flows send per record inserted, from the automation read before the run. */
@@ -5697,6 +5770,9 @@ export class ForgeHandler implements DomainHandler {
       }
       const answer = await run.guard.confirmRun({
         stage: 'write',
+        // A clone from records opens its question on its roots, and where
+        // they came from: the simulation's, read at 14:02.
+        ...(boundary.roots ? { roots: { ...boundary.roots, source: run.source } } : {}),
         org: run.org,
         orgTier: run.orgTier,
         objects: plan.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
@@ -5974,6 +6050,25 @@ export class ForgeHandler implements DomainHandler {
    * the run unless `includeChanged`.
    */
   private async handleUndo(msg: InboundRequest): Promise<void> {
+    const held: { lock?: { release(): void } } = {};
+    try {
+      await this.undoUnderItsLock(msg, held);
+    } finally {
+      held.lock?.release();
+    }
+  }
+
+  /**
+   * {@link handleUndo}, the lock of the run's journal kept in `held` once
+   * taken, as a removal's: a run of this window, another or the command line
+   * that would take the journal up while the removal deletes what it wrote
+   * is refused, the removal named. It read the lock and took none: a resume
+   * started meanwhile went on writing under it.
+   */
+  private async undoUnderItsLock(
+    msg: InboundRequest,
+    held: { lock?: { release(): void } },
+  ): Promise<void> {
     const parsed = parsePayload(undoPayloadSchema, msg, 'forge:undo:error', this.deps);
     if (!parsed) return;
     const { forgeId } = parsed;
@@ -6010,6 +6105,19 @@ export class ForgeHandler implements DomainHandler {
         refuse(busy, RUN_WRITING);
         return;
       }
+      if (this.removing.has(forgeId)) {
+        refuse(
+          'The records of this run are being removed already: its result shows under the run once it ends.',
+          REMOVAL_RUNNING,
+        );
+        return;
+      }
+      const taken = this.lockToRemove(journalId, target);
+      if (taken && 'busy' in taken) {
+        refuse(taken.busy, RUN_WRITING);
+        return;
+      }
+      if (taken) held.lock = taken;
     }
     if (target && journalId && (!entry || entry.idRemapCreated)) {
       if (this.removing.has(forgeId)) {
@@ -8363,6 +8471,44 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
+   * Take the lock of the journal `journalId` for a removal of its run, held
+   * until the removal ends: a run that would take the journal up meanwhile
+   * is refused, the removal named. A run that took it since `journalBusy`
+   * read it refuses the removal, in the same words. A lock that cannot be
+   * written costs the removal its lock, as it costs a run, and is said in
+   * the log. Nothing when the window keeps no journals.
+   */
+  private lockToRemove(
+    journalId: string,
+    targetOrgId: string | undefined,
+  ): { release(): void } | { busy: string } | undefined {
+    const journal = this.runJournal;
+    if (!journal) return undefined;
+    let taken: { release(): void } | { busy: ForgeRunLockHolder };
+    try {
+      taken = this.journalLocks.take(journal.pathOf(journalId), {
+        journalId,
+        ...(targetOrgId !== undefined
+          ? { target: orgDisplayName(this.deps.orgManager.getOrg(targetOrgId), targetOrgId) }
+          : {}),
+        removes: true,
+      });
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge removal: the lock of the run's journal could not be taken (${extractErrorMessage(err)})`,
+      );
+      return undefined;
+    }
+    if (!('busy' in taken)) return taken;
+    return {
+      busy:
+        `${capitalized(forgeRunWritingWords(taken.busy))}. Removing its records now would ` +
+        'delete under it what it goes on writing; remove them once it has ended. ' +
+        `${capitalized(forgeRunStopWords(taken.busy))}. Nothing was read or written.`,
+    };
+  }
+
+  /**
    * Read what a sweep asked with a past run's removal would take, for the
    * removal's confirmation to list before the user types the org's name: per
    * object, what the run's user created during the run that its id map does
@@ -9407,7 +9553,10 @@ export class ForgeHandler implements DomainHandler {
    *   one deleted is said gone. One more than a day old is handed all the
    *   same: the run reads its query again and says it (`readAgain`);
    * - a run that resumes another reads its roots from its journal, and is
-   *   handed no plan.
+   *   handed no plan;
+   * - a retry writes the roots of the run it retries (`runToRetry`), whatever
+   *   their age, rather than its simulation's or its query's: that run wrote
+   *   under them, and the records its query chooses now may be others.
    *
    * Every run is handed what the source has left of its daily requests,
    * read once (one request, counted with the run's): its read of what the
@@ -9425,6 +9574,8 @@ export class ForgeHandler implements DomainHandler {
     readCeiling: number;
     dryRun: boolean;
     resumes: boolean;
+    /** Of a retry, the roots the run it retries wrote under. */
+    retried?: StoredRoots;
     lookup: { requests: number };
   }): Promise<ForgeRunOptions['roots']> {
     const { config } = run;
@@ -9433,6 +9584,24 @@ export class ForgeHandler implements DomainHandler {
     const sourceRequestsLeft = 'unread' in source ? undefined : source.remaining;
     const handed: NonNullable<ForgeRunOptions['roots']> =
       sourceRequestsLeft !== undefined ? { sourceRequestsLeft } : {};
+    if (run.retried && !run.resumes) {
+      const { objectApiName, ids, sha256, readAt, query } = run.retried;
+      return {
+        ...handed,
+        plan: {
+          version: 1,
+          sourceOrgId: config.sourceOrgId,
+          fingerprint: '',
+          objectApiName,
+          ...(query ? { query } : {}),
+          from: 'query',
+          readAt,
+          ids,
+          sha256,
+        },
+        planOfTheRunRetried: true,
+      };
+    }
     const storagePath = this.runJournal?.storagePath;
     if (storagePath === undefined || run.resumes) return handed;
     const now = new Date();

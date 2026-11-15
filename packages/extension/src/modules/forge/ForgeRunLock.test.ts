@@ -166,4 +166,40 @@ describe('the lock a Forge run holds on its journal', () => {
       'taking up an earlier part',
     );
   });
+
+  it('is taken by a removal, which a run taking the journal up then meets, the removal named', () => {
+    const journal = journalPath();
+    const removal = lockForgeRun(
+      journal,
+      { journalId: 'run-a', ranFrom: 'commandLine', target: 'TGT', removes: true },
+      { self: CLONE, checks: checks(true) },
+    );
+    if (!('lock' in removal)) throw new Error('the lock was not taken');
+
+    const resume = lockForgeRun(
+      journal,
+      { journalId: 'run-a', ranFrom: 'editor', resumes: true },
+      { self: WINDOW, checks: checks(true) },
+    );
+    if (!('busy' in resume)) throw new Error('a resume took the lock of a removal under way');
+    expect(resume.busy).toMatchObject({ journalId: 'run-a', removes: true, pid: CLONE.pid });
+    expect(forgeRunWritingWords(resume.busy)).toBe(
+      `a removal of the run run-a deletes what it wrote from TGT: started from the command line ` +
+        `at ${resume.busy.acquiredAt} (process ${CLONE.pid} on ${CLONE.host})`,
+    );
+    expect(forgeRunStopWords(resume.busy)).toMatch(/Ctrl-C in the terminal it runs in/);
+    expect(forgeRunStopWords({ ...resume.busy, ranFrom: 'editor' })).toBe(
+      'let it end on the Forge page that removes it',
+    );
+
+    removal.lock.release();
+    expect(
+      'lock' in
+        lockForgeRun(
+          journal,
+          { journalId: 'run-a', ranFrom: 'editor' },
+          { self: WINDOW, checks: checks(true) },
+        ),
+    ).toBe(true);
+  });
 });

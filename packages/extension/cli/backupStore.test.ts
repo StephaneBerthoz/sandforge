@@ -192,6 +192,13 @@ describe('what a restore and a listing read of a set of slices, from the store a
     expect(setLine(set, 0)).toMatch(/kept \(--max-age-days 0\)$/);
   });
 
+  it('lists a backup in slices that is not done as partial, a masking set left open as open', () => {
+    const set = setIn(scratch());
+
+    expect(setLine({ ...set, kind: 'backup', state: 'open' }, 30)).toContain('  backup, partial  ');
+    expect(setLine({ ...set, state: 'open' }, 30)).toContain('  masking, open  ');
+  });
+
   it('says each slice a restore reached, and one it put back before', () => {
     expect(
       restoredSliceLines({

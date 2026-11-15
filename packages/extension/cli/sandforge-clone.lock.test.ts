@@ -216,6 +216,112 @@ describe('a removal of a run that still writes its journal', () => {
   });
 });
 
+describe('a removal, which holds the lock of the run’s journal while it deletes', () => {
+  /** The journal of a run that created one account, its part not ended. */
+  async function aJournalThatCreated(): Promise<string> {
+    const journal = await aJournal();
+    const store = nodeRunJournal(journalDir).openAt(journal);
+    store.beginPart(new Date('2026-11-20T01:30:00.000Z'));
+    store.setMapping('created', ROWS.energyOne, '001T00000000001AAA', 'Account');
+    store.flush();
+    store.close();
+    return journal;
+  }
+
+  it('takes it before it reaches the org, as a removal, and lets it go once it ends', async () => {
+    const journal = await aJournalThatCreated();
+    const whileReaching: Array<ForgeRunLockHolder | undefined> = [];
+    vi.mocked(loadOrg).mockImplementation(async () => {
+      whileReaching.push(forgeRunWriting(journal));
+      throw new Error('an org was reached');
+    });
+
+    await run(['--remove', journal, '--target', 'TGT']);
+
+    expect(whileReaching).not.toEqual([]);
+    for (const holder of whileReaching) {
+      expect(holder).toMatchObject({
+        journalId: JOURNAL_ID,
+        ranFrom: 'commandLine',
+        target: 'TGT',
+        removes: true,
+        pid: process.pid,
+      });
+    }
+    expect(forgeRunWriting(journal)).toBeUndefined();
+    expect(existsSync(forgeRunLockFileOf(journal))).toBe(false);
+  });
+
+  it('refuses a --resume given while it deletes, naming the removal, and nothing is written', async () => {
+    const target = withOrgsOf();
+    const journal = await aJournal();
+    const before = readFileSync(journal, 'utf8');
+    const removal = lockForgeRun(
+      journal,
+      { journalId: JOURNAL_ID, ranFrom: 'commandLine', target: 'TGT', removes: true },
+      { self: ANOTHER_RUN },
+    );
+    if (!('lock' in removal)) throw new Error('the lock was not taken');
+    held.push(removal.lock);
+
+    expect(
+      await run([
+        '--record',
+        ROWS.energyOne,
+        '--source',
+        'SRC',
+        '--target',
+        'TGT',
+        '--skip-preflight',
+        '--resume',
+        journal,
+      ]),
+    ).toBe(1);
+
+    const said = stderr.join('');
+    expect(said).toContain(
+      `refused (RUN_WRITING): --resume ${journal}: a removal of the run ${JOURNAL_ID} deletes ` +
+        'what it wrote from TGT: started from the command line',
+    );
+    expect(said).toContain(`process ${ANOTHER_RUN.pid} on ${ANOTHER_RUN.host}`);
+    expect(readFileSync(journal, 'utf8')).toBe(before);
+    expect(target.creates).toEqual([]);
+  });
+
+  it('is refused while another removal deletes the same run’s records', async () => {
+    const journal = await aJournalThatCreated();
+    const removal = lockForgeRun(
+      journal,
+      { journalId: JOURNAL_ID, ranFrom: 'editor', removes: true },
+      { self: ANOTHER_RUN },
+    );
+    if (!('lock' in removal)) throw new Error('the lock was not taken');
+    held.push(removal.lock);
+
+    expect(await run(['--remove', journal, '--target', 'TGT'])).toBe(1);
+
+    const said = stderr.join('');
+    expect(said).toContain('refused (RUN_WRITING)');
+    expect(said).toContain(`a removal of the run ${JOURNAL_ID} deletes what it wrote`);
+    expect(said).toContain('let it end on the Forge page that removes it');
+    expect(loadOrg).not.toHaveBeenCalled();
+  });
+});
+
+/** Both orgs answering for SRC and TGT, as a clone that writes reaches them. */
+function withOrgsOf(): ReturnType<typeof targetConn> {
+  const target = targetConn();
+  const conns = { SRC: sourceConn(rootsSource()), TGT: target.conn };
+  vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+    alias,
+    username: '',
+    instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+    accessToken: 'token',
+  }));
+  vi.mocked(makeConn).mockImplementation((org) => conns[org.alias as keyof typeof conns]);
+  return target;
+}
+
 describe('a clone that writes', () => {
   /** Both orgs answering for SRC and TGT; `onCreate` hears each call to the target. */
   function withOrgs(onCreate?: (call: TargetCreate) => void) {

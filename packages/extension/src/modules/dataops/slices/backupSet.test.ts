@@ -129,6 +129,15 @@ describe('backupSet', () => {
     ).toThrow();
   });
 
+  it('lists a backup in slices that is not done as partial: no run takes a backup up', () => {
+    const set = setOf();
+
+    expect(backupSetSummaryOf({ ...set, kind: 'backup' }).state).toBe('partial');
+    expect(backupSetSummaryOf({ ...set, kind: 'backup', state: 'done' }).state).toBe('done');
+    expect(backupSetSummaryOf(set).state).toBe('open');
+    expect(backupSetSummaryOf({ ...set, state: 'abandoned' }).state).toBe('abandoned');
+  });
+
   it('says the rows created late that no slice holds: past the last slice, and in a range masked', () => {
     const set = setOf();
     set.objects[0].tailLeft = 2;

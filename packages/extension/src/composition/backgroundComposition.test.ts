@@ -668,6 +668,61 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('opens the question of a clone from records on its roots, the source, and where the roots came from', () => {
+    // Read today at 14:02: the question gives the time of day alone.
+    const readAt = new Date();
+    readAt.setHours(14, 2, 0, 0);
+    const at = readAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const roots = {
+      objectApiName: 'Account',
+      count: 37,
+      from: 'simulation' as const,
+      readAt: readAt.toISOString(),
+      source: 'SRC',
+    };
+    expect(
+      runQuestionDetail({ ...write, roots })
+        .split('\n')
+        .slice(0, 3),
+    ).toEqual([
+      `Clone 37 Account records and what they reach, from SRC to DEV: 2401 records of 2 objects (roots of the simulation of ${at}).`,
+      '• Contact: 2400',
+      '• Account: 1',
+    ]);
+    expect(runQuestionDetail({ ...write, roots: { ...roots, from: 'retried' } })).toContain(
+      `(roots of the run retried, read at ${at}).`,
+    );
+    expect(runQuestionDetail({ ...write, roots: { ...roots, from: 'query' } })).toContain(
+      `(roots the query chose at ${at}).`,
+    );
+    // Read another day, the date is said too.
+    const yesterday = new Date(readAt.getTime() - 24 * 60 * 60_000);
+    expect(
+      runQuestionDetail({ ...write, roots: { ...roots, readAt: yesterday.toISOString() } }),
+    ).toContain(
+      `(roots of the simulation of ${yesterday.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}).`,
+    );
+  });
+
+  it('says the roots in the language of the question, from the shipped bundle', () => {
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    const lines = runQuestionDetail({
+      ...write,
+      roots: {
+        objectApiName: 'Account',
+        count: 37,
+        from: 'records',
+        readAt: new Date().toISOString(),
+        source: 'SRC',
+      },
+    }).split('\n');
+    expect(lines[0]).toBe(
+      'Cloner 37 enregistrements Account et ce qu’ils atteignent, de SRC vers DEV : 2401 enregistrements de 2 objets (enregistrements nommés un à un).',
+    );
+  });
+
   it("asks an Autopilot run's question as its own, of records counted and not yet read", async () => {
     const autopilot: WriteConfirmation = { ...write, module: 'autopilot', counted: true };
     expect(runQuestionDetail(autopilot).split('\n')).toEqual([

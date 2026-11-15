@@ -16,6 +16,7 @@ import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrato
 import { ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
 import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import { openRootPlan, rootsDirOf } from '../../modules/forge/roots/rootPlanStore.js';
+import { rootsSha256 } from '../../modules/forge/stages/QueryRoots.js';
 import {
   forgeRunWriting,
   forgeRunWritingWords,
@@ -23,7 +24,7 @@ import {
   type ForgeRunLockHolder,
 } from '../../modules/forge/ForgeRunLock.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
-import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ProductionGuard, type RunConfirmation } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -397,6 +398,142 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
     });
   });
 
+  describe('the question its run is asked', () => {
+    /** The questions the guard put, in order. */
+    function questionsAsked(): RunConfirmation[] {
+      const asked: RunConfirmation[] = [];
+      deps.infraServices = {
+        productionGuard: new ProductionGuard({
+          requestRunConfirmation: async (question) => {
+            asked.push(question);
+            return true;
+          },
+        }),
+      } as unknown as HandlerDeps['infraServices'];
+      return asked;
+    }
+
+    it('names the roots, the source, and that they are the simulation’s, read when it ran', async () => {
+      settings['safety.confirmAboveRecords'] = 1;
+      await simulate();
+      const asked = questionsAsked();
+      const kept = await openRootPlan(path.join(rootsDirOf(storage), keptPlans()[0] ?? ''));
+
+      await execute(recordsConfig());
+
+      const write = asked.find((question) => question.stage === 'write');
+      expect(write).toMatchObject({
+        roots: {
+          objectApiName: 'Account',
+          count: 2,
+          from: 'simulation',
+          readAt: kept.readAt,
+          source: 'SRC',
+        },
+        org: 'TGT',
+      });
+    });
+
+    it('says the roots were read by the query when no simulation kept them', async () => {
+      settings['safety.confirmAboveRecords'] = 1;
+      const asked = questionsAsked();
+
+      await execute(recordsConfig());
+
+      const write = asked.find((question) => question.stage === 'write');
+      expect(write).toMatchObject({ roots: { count: 2, from: 'query', source: 'SRC' } });
+    });
+  });
+
+  describe('a Retry of a clone from records, which writes the roots of the run it retries', () => {
+    const retry = (forgeId: string) =>
+      send(
+        'forge:execute',
+        { graph: graph(), config: recordsConfig(), retryOf: forgeId },
+        'wv-retry',
+      );
+
+    /** The history entry of `forgeId`, changed by `change`. */
+    function changeEntry(
+      forgeId: string,
+      change: (entry: ForgeExecutionResult) => ForgeExecutionResult,
+    ): void {
+      const history = store.get<ForgeExecutionResult[]>('forge:history') ?? [];
+      store.set(
+        'forge:history',
+        history.map((e) => (e.forgeId === forgeId ? change(e) : e)),
+        'forge',
+      );
+    }
+
+    it('writes the roots its run wrote under, as its history entry names them, not a record its query chooses since', async () => {
+      await execute(recordsConfig());
+      const first = lastResult();
+      expect(first.roots?.ids?.map((root) => root.source)).toEqual([account(1), account(2)]);
+      // An account of Energy made since, and a simulation that read it.
+      org.add('Account', { Id: account(9), Name: 'A9', Industry: 'Energy', ParentId: null });
+      await simulate();
+      expect(lastResult().roots).toMatchObject({ read: 3 });
+
+      await retry(first.forgeId);
+
+      const retried = lastResult();
+      expect(retried.retryOf).toBe(first.forgeId);
+      expect(retried.roots).toMatchObject({ from: 'plan', asked: 2, ofTheRunRetried: true });
+      expect(sentToTarget('Account')).not.toContain('A9');
+    });
+
+    it('takes the roots from the journal of the run it retries while that journal is kept', async () => {
+      await execute(recordsConfig());
+      const first = lastResult();
+      await journal.begin('forge-run-kept', 'tgt', new Date(), {
+        sourceOrgId: 'src',
+        fingerprint: 'f'.repeat(64),
+        startedWith: { graph: graph(), config: recordsConfig() },
+      });
+      const kept = journal.open('forge-run-kept');
+      kept.nameRoots({
+        objectApiName: 'Account',
+        ids: [account(2)],
+        sha256: rootsSha256([account(2)]),
+        readAt: '2026-11-14T14:02:00.000Z',
+        query: { where: "Industry = 'Energy'" },
+      });
+      kept.close();
+      changeEntry(first.forgeId, (e) => ({ ...e, journalId: 'forge-run-kept' }));
+
+      await retry(first.forgeId);
+
+      expect(lastResult().roots).toMatchObject({
+        asked: 1,
+        readAt: '2026-11-14T14:02:00.000Z',
+        ofTheRunRetried: true,
+      });
+    });
+
+    it('is refused, nothing read or written, when neither the journal nor the history keeps the roots', async () => {
+      await execute(recordsConfig());
+      const first = lastResult();
+      // A history entry of a run that named no root one by one.
+      changeEntry(first.forgeId, (e) => ({
+        ...e,
+        ...(e.roots ? { roots: { ...e.roots, ids: undefined } } : {}),
+      }));
+      const sentBefore = org.inserted.get('Account')?.length ?? 0;
+      const statementsBefore = org.statements.length;
+
+      await retry(first.forgeId);
+
+      const refusal = lastError();
+      expect(refusal['code']).toBe('RETRY_UNAVAILABLE');
+      expect(String(refusal['message'])).toContain(
+        'neither its journal nor its entry in the history keeps them any more',
+      );
+      expect(org.inserted.get('Account')?.length ?? 0).toBe(sentBefore);
+      expect(org.statements.length).toBe(statementsBefore);
+    });
+  });
+
   describe('the lock of a run’s journal, which a run of another process holds while it writes it', () => {
     /** A run of the command line holding a journal's lock. */
     const CLI_RUN: ForgeRunLockHolder = {
@@ -527,6 +664,38 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
       expect(posted('forge:undo:error').map((e) => e.payload['code'])).not.toContain('RUN_WRITING');
     });
 
+    it('is taken by the removal of a run, as a removal, and let go once the removal has ended', async () => {
+      const forgeId = await ranOnce();
+      const locks = freeLocks();
+      handler.setJournalLocks(locks);
+
+      await send('forge:undo', { forgeId });
+
+      expect(locks.taken).toHaveLength(1);
+      expect(locks.taken[0]).toContain('forge-run-kept');
+      expect(vi.mocked(locks.take).mock.calls[0]?.[1]).toMatchObject({
+        journalId: 'forge-run-kept',
+        target: 'TGT',
+        removes: true,
+      });
+      expect(locks.released).toEqual(locks.taken);
+    });
+
+    it('refuses the removal when a run took the lock after it was read, nothing read', async () => {
+      const forgeId = await ranOnce();
+      handler.setJournalLocks({ holder: () => undefined, take: () => ({ busy: CLI_RUN }) });
+      const statementsBefore = org.statements.length;
+
+      await send('forge:undo', { forgeId });
+
+      const refusal = lastError('forge:undo:error');
+      expect(refusal['code']).toBe('RUN_WRITING');
+      expect(String(refusal['message'])).toContain(
+        'The run forge-run-kept still writes this journal: started from the command line to TGT',
+      );
+      expect(org.statements.length).toBe(statementsBefore);
+    });
+
     it('refuses a resume of a run whose journal another process writes', async () => {
       const forgeId = await ranOnce();
       handler.setJournalLocks({
@@ -620,6 +789,28 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
         'Stop it with Ctrl-C in the terminal it runs in',
       );
       lock.release();
+    });
+
+    it('refuses a resume while a removal of the command line deletes what the run wrote, the removal named', async () => {
+      await leftWithoutItsEnd('forge-run-cli');
+      const [entry] = await listed();
+      const taken = lockForgeRun(
+        journal.pathOf('forge-run-cli'),
+        { journalId: 'forge-run-cli', ranFrom: 'commandLine', target: 'TGT', removes: true },
+        { self: { host: 'another-machine', pid: 4242, startedAt: new Date().toISOString() } },
+      );
+      if (!('lock' in taken)) throw new Error('The lock was held already.');
+
+      await send('forge:resume-run', { forgeId: entry?.forgeId });
+
+      const refusal = lastError();
+      expect(refusal['code']).toBe('RESUME_UNAVAILABLE');
+      expect(String(refusal['message'])).toContain(
+        'A removal of the run forge-run-cli deletes what it wrote from TGT: started from the ' +
+          'command line',
+      );
+      expect(org.inserted.size).toBe(0);
+      taken.lock.release();
     });
 
     it('refuses the previews of that removal — its sweep and what the target’s automation does — while the run writes its journal', async () => {

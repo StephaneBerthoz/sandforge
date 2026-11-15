@@ -11,11 +11,15 @@
  * would take back. Only the MCP server held its own runs apart.
  *
  * A run takes the lock as it begins its journal, or takes up an earlier part
- * of it (`--resume`), and lets it go once its part has ended. A removal reads
- * it before it reaches any org, and is refused while a run holds it, naming
- * that run; so is a second run that would take up the same journal. The
- * command line and the editor read the same file: the panel's run and its
- * removal take and read it as the command line's do.
+ * of it (`--resume`), and lets it go once its part has ended. A removal takes
+ * it too before it reaches any org, and holds it until it ends (`removes`):
+ * it is refused while a run holds it, naming that run, and a run that would
+ * take the journal up while the removal deletes what it wrote is refused,
+ * naming the removal; so is a second run that would take up the same
+ * journal. A removal read the lock and took none: a `--resume` given while
+ * it deleted went on writing under it. The command line and the editor read
+ * the same file: the panel's run and its removal take and read it as the
+ * command line's do.
  *
  * Made on the checkpoint store's link-file mechanism (`linkedLock.ts`): the
  * file names the process that holds it, and a lock whose process is gone —
@@ -45,6 +49,8 @@ const runLockFileSchema = z.object({
   target: z.string().min(1).max(255).optional(),
   /** Whether the run takes up an earlier part of the journal. */
   resumes: z.boolean().optional(),
+  /** Whether the lock is a removal's, taking back what the run wrote, rather than a run's. */
+  removes: z.boolean().optional(),
 });
 
 type RunLockFile = z.infer<typeof runLockFileSchema>;
@@ -58,6 +64,8 @@ export interface ForgeRunLockRequest {
   ranFrom: ForgeRunPlace;
   target?: string;
   resumes?: boolean;
+  /** Taken by a removal of what the run wrote, for as long as it deletes: see {@link ForgeRunLockHolder}. */
+  removes?: boolean;
 }
 
 const RUN_LOCKS = linkedLockKind((content) => {
@@ -97,6 +105,7 @@ export function lockForgeRun(
         ? { target: request.target.slice(0, 255) }
         : {}),
       ...(request.resumes ? { resumes: true } : {}),
+      ...(request.removes ? { removes: true } : {}),
     }),
     options,
   );
@@ -117,10 +126,18 @@ export function forgeRunWriting(
 
 /**
  * Which run still writes a journal, as a refusal says it: the run, where it
- * was started and since when, by which process, to which org.
+ * was started and since when, by which process, to which org — or the
+ * removal that takes back what it wrote, from which org.
  */
 export function forgeRunWritingWords(holder: ForgeRunLockHolder): string {
   const where = holder.ranFrom === 'commandLine' ? 'from the command line' : 'in VS Code';
+  if (holder.removes) {
+    const from = holder.target !== undefined ? ` from ${holder.target}` : '';
+    return (
+      `a removal of the run ${holder.journalId} deletes what it wrote${from}: started ${where} ` +
+      `at ${holder.acquiredAt} (process ${holder.pid} on ${holder.host})`
+    );
+  }
   const to = holder.target !== undefined ? ` to ${holder.target}` : '';
   const resumes = holder.resumes ? ', taking up an earlier part of it' : '';
   return (
@@ -131,6 +148,9 @@ export function forgeRunWritingWords(holder: ForgeRunLockHolder): string {
 
 /** How the run that holds a journal is stopped, where it runs: what comes before its removal. */
 export function forgeRunStopWords(holder: ForgeRunLockHolder): string {
+  if (holder.removes && holder.ranFrom === 'editor') {
+    return 'let it end on the Forge page that removes it';
+  }
   return holder.ranFrom === 'commandLine'
     ? 'stop it with Ctrl-C in the terminal it runs in, or let it end'
     : 'stop it on the Forge page that runs it, or let it end';

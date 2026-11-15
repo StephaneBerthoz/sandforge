@@ -84,6 +84,7 @@ import {
   parentsNotCopiedOf,
   reportCell,
   rootCopyOf,
+  rootsCsv,
   runErrorsReportLines,
   runFailureCell,
   runFailuresOf,
@@ -846,6 +847,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     save(`sandforge-forge-id-map-${exportDate()}.csv`, idMapCsv(idMap), ['csv']);
   }, [idMap, save]);
 
+  /** The roots of a clone from records with their copies, as a CSV file; none of a run that names none. */
+  const rootsFile = useMemo(
+    () => (result && !simulated ? rootsCsv(result) : undefined),
+    [result, simulated],
+  );
+  const handleSaveRootsCsv = useCallback(() => {
+    if (rootsFile !== undefined) {
+      save(`sandforge-forge-roots-${exportDate()}.csv`, rootsFile, ['csv']);
+    }
+  }, [rootsFile, save]);
+
   /** The per-object results as a CSV file, the rows of the table. */
   const handleSaveResultsCsv = useCallback(() => {
     save(`sandforge-forge-results-${exportDate()}.csv`, objectResultsCsv(rows, result), ['csv']);
@@ -1067,6 +1079,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {...(result.readByObject ? { readByObject: result.readByObject } : {})}
           simulated={simulated}
           source={sourceOrgName ?? sourceOrgId ?? ''}
+          {...(rootsFile !== undefined ? { onExport: handleSaveRootsCsv } : {})}
         />
       )}
       {/* What the run muted of the target's automation, when Review's box

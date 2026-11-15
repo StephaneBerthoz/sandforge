@@ -7,6 +7,7 @@ import {
   objectResultsCsv,
   reportCell,
   rootCopyOf,
+  rootsCsv,
   runErrorsReportLines,
   runFailureCell,
   runFailuresOf,
@@ -650,5 +651,49 @@ describe("the copied report's Run Notes section", () => {
       '| BusinessHours | Id=01m000000000001AAA matchValue=Office hours — Reference-data row not found on target org |',
       '| Lead | - |',
     ]);
+  });
+});
+
+describe('the roots of a clone from records with their copies, as a CSV file', () => {
+  const roots: NonNullable<ForgeExecutionResult['roots']> = {
+    objectApiName: 'Account',
+    from: 'plan',
+    cap: 200,
+    asked: 4,
+    read: 3,
+    gone: ['001000000000004AAA'],
+    written: 1,
+    linked: 1,
+    failed: [
+      { id: '001000000000003AAA', reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION, no "rule" here' },
+    ],
+    sha256: 'a'.repeat(64),
+    readAt: '2026-11-14T14:02:00.000Z',
+    ids: [
+      { source: '001000000000001AAA', target: '001000000000101AAA' },
+      { source: '001000000000002AAA', target: '001000000000102AAA' },
+      { source: '001000000000003AAA' },
+      { source: '001000000000004AAA' },
+    ],
+  };
+
+  it('gives each root its copy in the target and what became of it, quoting what needs it', () => {
+    expect(rootsCsv({ roots, idRemapExisting: ['001000000000002AAA'] })?.split('\n')).toEqual([
+      '"Object","Source Id","Target Id","Outcome","Reason"',
+      '"Account","001000000000001AAA","001000000000101AAA","written",""',
+      '"Account","001000000000002AAA","001000000000102AAA","linked to existing",""',
+      '"Account","001000000000003AAA","","refused","FIELD_CUSTOM_VALIDATION_EXCEPTION, no ""rule"" here"',
+      '"Account","001000000000004AAA","","gone from the source",""',
+    ]);
+  });
+
+  it('says how many roots the result leaves out, and gives no file of a result that names none', () => {
+    expect(
+      rootsCsv({ roots: { ...roots, idsLeftOut: 12 } })
+        ?.split('\n')
+        .at(-1),
+    ).toBe('"Account","","","12 more not named",""');
+    expect(rootsCsv({ roots: { ...roots, ids: undefined } })).toBeUndefined();
+    expect(rootsCsv({})).toBeUndefined();
   });
 });

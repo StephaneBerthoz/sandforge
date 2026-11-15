@@ -20,6 +20,8 @@ const SET_STATE = {
   open: { key: 'dataops.slices.set.state.open', variant: 'warning' },
   done: { key: 'dataops.slices.set.state.done', variant: 'success' },
   abandoned: { key: 'dataops.slices.set.state.abandoned', variant: 'default' },
+  // A backup in slices that is not done: no run takes it up.
+  partial: { key: 'dataops.slices.set.state.partial', variant: 'warning' },
 } as const;
 
 /** A moment the extension stored, as the page writes dates. */
@@ -213,6 +215,11 @@ export const SliceSetRow: React.FC<SliceSetRowProps> = ({
       {openRun && onRestore && (
         <p id={heldId} className="text-xs text-text-primary" data-testid={`${testId}-held`}>
           {t('dataops.slices.set.openHeld')}
+        </p>
+      )}
+      {set.state === 'partial' && (
+        <p className="text-xs text-text-secondary" data-testid={`${testId}-partial`}>
+          {t('dataops.slices.set.partialNote')}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">

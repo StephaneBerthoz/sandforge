@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ForgeReadRecords, ForgeRunRoots } from '@sandforge/shared';
 import i18n from '../../i18n';
 import { ForgeRootsResult } from './ForgeRootsResult';
@@ -133,6 +133,40 @@ describe('ForgeRootsResult', () => {
         read: '39',
         at: 'then',
       }),
+    );
+  });
+
+  it('says the roots are those the run retried wrote under, when a retry took them up', () => {
+    render(
+      <ForgeRootsResult
+        roots={{ ...ROOTS, from: 'plan', ofTheRunRetried: true }}
+        simulated={false}
+        source="SRC"
+      />,
+    );
+
+    expect(screen.getByTestId('forge-roots-result-chosen').textContent).toBe(
+      i18n.t('forgeRun.rootsResult.fromRetried', {
+        count: 37,
+        formatted: '37',
+        object: 'Account',
+        cap: '200',
+        at: 'not a date',
+      }),
+    );
+  });
+
+  it('offers the roots with their copies as a file only when it is handed the export', () => {
+    const { rerender } = render(<ForgeRootsResult roots={ROOTS} simulated={false} source="SRC" />);
+    expect(screen.queryByTestId('forge-roots-result-export')).toBeNull();
+
+    const onExport = vi.fn();
+    rerender(<ForgeRootsResult roots={ROOTS} simulated={false} source="SRC" onExport={onExport} />);
+    fireEvent.click(screen.getByTestId('forge-roots-result-export'));
+
+    expect(onExport).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('forge-roots-result-export').textContent).toBe(
+      i18n.t('forgeRun.rootsResult.export'),
     );
   });
 });

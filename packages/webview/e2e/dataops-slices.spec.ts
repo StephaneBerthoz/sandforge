@@ -359,6 +359,27 @@ for (const theme of THEMES) {
       expect(restore.payload).toMatchObject({ operationId: 'set-1', slices: [2], fromPage: true });
     });
 
+    test('Restore badges a backup in slices that stopped part way as partial, says it, and passes axe', async ({
+      page,
+    }) => {
+      const stopped = {
+        ...SET,
+        setId: 'set-2',
+        kind: 'backup',
+        state: 'partial',
+        totalRecords: 2_000,
+        slices: [slice(1, 'snapshotted', { masked: 0 }), slice(2, 'snapshotted', { masked: 0 })],
+      };
+      await openDataOps(page, theme, { backups: [], sets: [stopped] });
+      await page.getByTestId('page-tab-restore').click();
+      await expect(page.getByTestId('restore-set-set-2-state')).toHaveText('Partial');
+      await expect(page.getByTestId('restore-set-set-2-partial')).toHaveText(
+        'Stopped before every record was backed up: no run takes it up. Its slices restore as they are; a new backup in slices takes every record again.',
+      );
+      await expect(page.getByTestId('restore-set-set-2-all')).toBeEnabled();
+      await passesAxe(page);
+    });
+
     test('Backup offers slices for an object the last backup stopped at the cap for, and passes axe', async ({
       page,
     }) => {

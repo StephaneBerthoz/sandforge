@@ -317,6 +317,29 @@ describe('sandforge-backup in slices and filtered', () => {
       expect(listed.sets[0]?.expiresOn).toBeDefined();
     });
 
+    it('lists a backup in slices that stopped part way as partial, as its help says, and never open', async () => {
+      // The org stops answering past the first slice: the backup stops there.
+      const org = new SlicedOrg(contactsOf(250), {
+        beforeQuery: (soql) => {
+          if (soql.includes(`'${idOf(100)}'`))
+            throw new Error('UNABLE_TO_LOCK_ROW: the org is busy');
+        },
+      });
+      await run(org, '--org', 'ORG', '--object', 'Contact', '--max-records', '100', '--slices');
+      const [set] = sets();
+      expect(set?.objects[0]?.slices).toHaveLength(1);
+
+      await run(undefined, '--list', '--org', 'ORG');
+
+      expect(stdout).toContain('  1 slice(s) of up to 100  100 record(s)  backup, partial  ');
+      expect(stdout).not.toContain('backup, open');
+
+      await run(undefined, '--list', '--json');
+
+      const listed = JSON.parse(stdout) as { sets: Array<{ state: string }> };
+      expect(listed.sets.map((listedSet) => listedSet.state)).toEqual(['partial']);
+    });
+
     it('puts back one slice of a set with --slice, then the others, each slice said', async () => {
       const rows = contactsOf(250);
       const org = new SlicedOrg(rows);

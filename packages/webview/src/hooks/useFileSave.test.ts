@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 
 import '../i18n';
 import { useNotificationStore } from '../stores/useNotificationStore';
-import { useFileSave } from './useFileSave';
+import { SAVE_DIALOG_WAIT_MS, useFileSave } from './useFileSave';
 
 const mockPostMessage = vi.fn();
 const api = {
@@ -93,5 +93,28 @@ describe('useFileSave', () => {
 
     expect(useNotificationStore.getState().notifications).toHaveLength(0);
     expect(result.current.saving).toBe(true);
+  });
+
+  it('waits on the Save dialog as long as a person takes in it, past the bridge’s 30 seconds', () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useFileSave());
+      const id = saveAndGetRequestId(result);
+
+      // Two minutes picking a folder: no failure said meanwhile.
+      act(() => {
+        vi.advanceTimersByTime(2 * 60_000);
+      });
+      expect(useNotificationStore.getState().notifications).toEqual([]);
+      expect(result.current.saving).toBe(true);
+
+      answer(id, { status: 'saved', path: '/home/user/limits.csv' });
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({ level: 'success' }),
+      ]);
+      expect(SAVE_DIALOG_WAIT_MS).toBe(15 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

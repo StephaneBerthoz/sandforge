@@ -2588,6 +2588,24 @@ export interface ForgeRunRoots {
    * never sent on its own. Absent when there were none.
    */
   withTheirAccount?: number;
+  /**
+   * The roots one by one, in the order their SHA-256 was taken of them: each
+   * source id with the id of its copy in the target — the record written, or
+   * the one the target held that it was linked to —, none for a root gone,
+   * refused or not written, and none on a dry run. What the results export
+   * as the roots' copies, and what a retry writes again when the journal of
+   * the run it retries is gone. At most `FORGE_ROOTS_MAX`, the most roots a
+   * run takes; absent from a result kept before runs named them.
+   */
+  ids?: Array<{ source: string; target?: string }>;
+  /** The roots `ids` leaves out past `FORGE_ROOTS_MAX`; absent when it names them all. */
+  idsLeftOut?: number;
+  /**
+   * Of a retry, set when it wrote the roots of the run it retried, as that
+   * run's journal, or its entry in the history, kept them — whatever their
+   * age —, rather than read its query again. Absent from any other run.
+   */
+  ofTheRunRetried?: true;
 }
 
 /**

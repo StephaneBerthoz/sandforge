@@ -365,7 +365,13 @@ export type ForgeRunOptions = Pick<
    */
   roots?: Pick<
     ForgeRootsOptions,
-    'ids' | 'plan' | 'keepAt' | 'fingerprint' | 'sourceRequestsLeft' | 'readTotal'
+    | 'ids'
+    | 'plan'
+    | 'planOfTheRunRetried'
+    | 'keepAt'
+    | 'fingerprint'
+    | 'sourceRequestsLeft'
+    | 'readTotal'
   >;
   anonymizationRules?: ForgeAnonymizationMethods;
   files?: ForgeFileCopyOption;
@@ -593,6 +599,7 @@ function rootsOf(
   const rootNode = graph.nodes.find((node) => node.level === 0) ?? graph.nodes[0];
   const handed = {
     ...(given?.plan ? { plan: given.plan } : {}),
+    ...(given?.plan && given.planOfTheRunRetried ? { planOfTheRunRetried: true as const } : {}),
     ...(given?.keepAt !== undefined ? { keepAt: given.keepAt } : {}),
     ...(given?.fingerprint !== undefined ? { fingerprint: given.fingerprint } : {}),
     ...(given?.sourceRequestsLeft !== undefined

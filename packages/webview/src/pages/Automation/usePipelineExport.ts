@@ -7,6 +7,7 @@ import type {
   PipelineRunsOutside,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { SAVE_DIALOG_WAIT_MS } from '../../hooks/useFileSave';
 import { useLatestRef } from '../../hooks/useLatestRef';
 
 /** What the host answers to `file:save`. */
@@ -15,12 +16,8 @@ export type FileSaveOutcome =
   | { status: 'cancelled' }
   | { status: 'error'; message: string };
 
-/**
- * How long the page waits on a Save dialog: a person picks a folder, names
- * the file and may look around first. On the bridge's 30 seconds a slow
- * choice was reported as a failed save while the dialog was still open.
- */
-export const SAVE_DIALOG_WAIT_MS = 15 * 60_000;
+/** How long the page waits on a Save dialog, as every export does: see `useFileSave`. */
+export { SAVE_DIALOG_WAIT_MS };
 
 /** The launcher a person picks in the export dialog, or none: the pipeline file alone. */
 export type ExportLauncherChoice = PipelineOutsideRunner | 'none';

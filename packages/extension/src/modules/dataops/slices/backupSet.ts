@@ -21,6 +21,7 @@ import type {
   BackupSetSummary,
   SliceSetOpen,
   SliceSetResult,
+  SliceSetState,
   SliceSummary,
 } from '@sandforge/shared';
 
@@ -223,6 +224,18 @@ export function sliceSetResultOf(
   };
 }
 
+/**
+ * Where a set stands as a listing gives it: a backup in slices that is not
+ * done is `partial` — no run takes a backup up, so it is never open to
+ * resume, whether it stopped, was cancelled, or its window closed under it.
+ * Listed `open`, a backup stopped part way read as one a run would finish,
+ * against what the help and the backup's own notice said of it. A masking
+ * set as it is kept: an open one is resumed.
+ */
+export function listedSetStateOf(set: Pick<BackupSet, 'kind' | 'state'>): SliceSetState {
+  return set.kind === 'backup' && set.state === 'open' ? 'partial' : set.state;
+}
+
 /** A set as the backup listing gives it. */
 export function backupSetSummaryOf(set: BackupSet): BackupSetSummary {
   const wheres = Object.fromEntries(
@@ -232,7 +245,7 @@ export function backupSetSummaryOf(set: BackupSet): BackupSetSummary {
     setId: set.setId,
     orgId: set.orgId,
     kind: set.kind,
-    state: set.state,
+    state: listedSetStateOf(set),
     startedAt: set.startedAt,
     lastActivityAt: set.lastActivityAt,
     size: set.size,

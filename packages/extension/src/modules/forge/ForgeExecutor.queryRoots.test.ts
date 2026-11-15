@@ -480,6 +480,72 @@ describe('a clone from the records a query chooses', () => {
     });
   });
 
+  it('names each root with its copy in the target, and none on a dry run', async () => {
+    const org = energyOrg();
+    const graph = queryRootsGraph(org, 'Account', ['Account', 'Contact']);
+    const query = "SELECT Id FROM Account WHERE Industry = 'Energy'";
+    const dry = await run(org, graph, recordsConfig(query, { dryRun: true }));
+    expect(dry.error).toBeUndefined();
+    expect(dry.summary?.roots?.ids).toEqual([{ source: account(1) }, { source: account(2) }]);
+    const real = await run(org, graph, recordsConfig(query));
+    expect(real.error).toBeUndefined();
+    const ids = real.summary?.roots?.ids ?? [];
+    expect(ids.map((root) => root.source)).toEqual([account(1), account(2)]);
+    // Each copy is the record the target gave the root, as the run's map has it.
+    for (const root of ids) {
+      expect(root.target).toBe(real.summary?.remapTable[root.source]);
+      expect(root.target).toMatch(/^001T/);
+    }
+    expect(real.summary?.roots?.idsLeftOut).toBeUndefined();
+  });
+
+  it('tells its gate which roots it writes, how many, and where they came from', async () => {
+    const org = energyOrg();
+    const graph = queryRootsGraph(org, 'Account', ['Account', 'Contact']);
+    const keepAt = join(scratch(), 'roots.json');
+    const query = "SELECT Id FROM Account WHERE Industry = 'Energy'";
+    const dry = await run(org, graph, recordsConfig(query, { dryRun: true }), {
+      runOptions: { roots: { keepAt, fingerprint: 'f'.repeat(64) } },
+    });
+    expect(dry.gate[0]?.roots).toMatchObject({ objectApiName: 'Account', count: 2, from: 'query' });
+    const plan = await openRootPlan(keepAt);
+    const real = await run(org, graph, recordsConfig(query), { runOptions: { roots: { plan } } });
+    expect(real.gate[0]?.roots).toEqual({
+      objectApiName: 'Account',
+      count: 2,
+      from: 'simulation',
+      readAt: plan.readAt,
+    });
+  });
+
+  it('writes again the roots of the run it retries, whatever their age, and says so', async () => {
+    const org = energyOrg();
+    const graph = queryRootsGraph(org, 'Account', ['Account']);
+    // The run retried chose the first account two days ago; the query now
+    // chooses the second as well.
+    const plan = await keepRootPlan(join(scratch(), 'retried.json'), {
+      sourceOrgId: 'src',
+      fingerprint: '',
+      objectApiName: 'Account',
+      query: { where: "Industry = 'Energy'" },
+      from: 'query',
+      readAt: new Date(Date.now() - 48 * 60 * 60_000).toISOString(),
+      ids: [account(1)],
+    });
+    const { summary, error, gate } = await run(
+      org,
+      graph,
+      recordsConfig("SELECT Id FROM Account WHERE Industry = 'Energy'"),
+      { runOptions: { roots: { plan, planOfTheRunRetried: true } } },
+    );
+    expect(error).toBeUndefined();
+    expect(org.statements.some((soql) => soql.includes('LIMIT 201'))).toBe(false);
+    expect(org.inserted.get('Account')?.map((row) => row['Name'])).toEqual(['A1']);
+    expect(summary?.roots).toMatchObject({ from: 'plan', asked: 1, ofTheRunRetried: true });
+    expect(summary?.roots?.readAgain).toBeUndefined();
+    expect(gate[0]?.roots).toMatchObject({ from: 'retried', count: 1 });
+  });
+
   it('refuses the roots a dry run read of another org, or by another query', async () => {
     const org = energyOrg();
     const graph = queryRootsGraph(org, 'Account', ['Account']);

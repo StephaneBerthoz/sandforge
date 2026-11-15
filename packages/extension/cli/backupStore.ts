@@ -17,6 +17,7 @@ import type { BackupExpired } from '../src/bridge/handlers/DataOpsHandler.js';
 import type { ConfigStore } from '../src/core/storage/ConfigStore.js';
 import {
   BackupSetStore,
+  listedSetStateOf,
   slicesOf,
   type BackupSet,
 } from '../src/modules/dataops/slices/backupSet.js';
@@ -318,7 +319,7 @@ export function setLine(set: BackupSet, days: number): string {
   const expires = setExpiresAt(set, days);
   return (
     `${set.setId}  ${set.startedAt}  ${set.orgId}  ${objects}  ${slices.length} slice(s) of up ` +
-    `to ${set.size}  ${records} record(s)  ${set.kind}, ${set.state}  ` +
+    `to ${set.size}  ${records} record(s)  ${set.kind}, ${listedSetStateOf(set)}  ` +
     (expires !== undefined ? `expires ${expires}` : 'kept (--max-age-days 0)')
   );
 }

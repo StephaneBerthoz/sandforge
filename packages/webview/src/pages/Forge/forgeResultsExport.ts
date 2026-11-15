@@ -60,6 +60,53 @@ export function rootCopyOf(
   return label ? { targetId, objectApiName, label } : { targetId, objectApiName };
 }
 
+/**
+ * The roots of a clone from records with their copies, as a CSV file: one
+ * line per root, its object, its id in the source, the id of its copy in the
+ * target and what became of it — written, linked to a record the target
+ * held (`linked to existing`, as the Id map says it), refused with the
+ * target's reason, or gone from the source since it was chosen. A result that names fewer roots than it chose says how many it
+ * leaves out on a last line. Undefined for a run that names none: one from
+ * before runs named them, a dry run's, or any other clone.
+ */
+export function rootsCsv(
+  result: Pick<ForgeExecutionResult, 'roots' | 'idRemapExisting'>,
+): string | undefined {
+  const roots = result.roots;
+  if (!roots?.ids || roots.ids.length === 0) return undefined;
+  const linked = new Set(result.idRemapExisting ?? []);
+  const gone = new Set(roots.gone);
+  const refused = new Map(roots.failed.map(({ id, reason }) => [id, reason]));
+  const rows: Array<Array<string | number | undefined>> = roots.ids.map(({ source, target }) => {
+    const reason = refused.get(source);
+    const outcome = gone.has(source)
+      ? 'gone from the source'
+      : reason !== undefined
+        ? 'refused'
+        : target === undefined
+          ? 'not written'
+          : linked.has(source)
+            ? 'linked to existing'
+            : 'written';
+    return [roots.objectApiName, source, target, outcome, reason];
+  });
+  return csv([
+    ['Object', 'Source Id', 'Target Id', 'Outcome', 'Reason'],
+    ...rows,
+    ...(roots.idsLeftOut !== undefined && roots.idsLeftOut > 0
+      ? [
+          [
+            roots.objectApiName,
+            undefined,
+            undefined,
+            `${String(roots.idsLeftOut)} more not named`,
+            undefined,
+          ],
+        ]
+      : []),
+  ]);
+}
+
 /** One object of the results table, as the file takes it. */
 export interface ObjectResultRow {
   objectApiName: string;

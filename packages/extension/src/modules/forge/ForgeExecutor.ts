@@ -36,6 +36,7 @@ import type {
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  FORGE_ROOTS_MAX,
   FORGE_SAMPLE_DEFAULTS,
   fileCopyRefusal,
   isFileContentField,
@@ -1027,8 +1028,41 @@ export interface ForgeWriteBoundary {
    * {@link WholeOrgBoundary}. Absent for any other run.
    */
   wholeOrg?: WholeOrgBoundary;
+  /**
+   * Of a clone from records, its roots as the run chose them, for its
+   * question to name: see {@link ForgeBoundaryRoots}. Absent from any other run.
+   */
+  roots?: ForgeBoundaryRoots;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
+}
+
+/**
+ * The roots of a clone from records as its gate is told them: their object,
+ * how many, where they came from — its query read now (`query`), ids named
+ * one by one (`records`), a dry run's plan taken up (`simulation`), the
+ * journal of the run it resumes (`resumed`), or the run it retries
+ * (`retried`) — and when they were read. Its question says them: "37
+ * Account records and what they reach … (roots of the simulation of 14:02)".
+ */
+export interface ForgeBoundaryRoots {
+  objectApiName: string;
+  count: number;
+  from: 'query' | 'records' | 'simulation' | 'resumed' | 'retried';
+  readAt: string;
+}
+
+/** The roots of a run as its gate is told them: see {@link ForgeBoundaryRoots}. */
+function boundaryRootsOf(roots: ChosenRoots): ForgeBoundaryRoots {
+  const from: ForgeBoundaryRoots['from'] =
+    roots.from !== 'plan'
+      ? roots.from
+      : roots.fromTheJournal
+        ? 'resumed'
+        : roots.ofTheRunRetried
+          ? 'retried'
+          : 'simulation';
+  return { objectApiName: roots.objectApiName, count: roots.ids.size, from, readAt: roots.readAt };
 }
 
 /**
@@ -2271,6 +2305,8 @@ interface ChosenRoots {
   readonly readAt: string;
   /** Taken from the journal of the run this one resumes, which names them already. */
   readonly fromTheJournal: boolean;
+  /** Of a retry, the roots of the run it retries, as that run kept them: see `ForgeRunRoots.ofTheRunRetried`. */
+  readonly ofTheRunRetried?: true;
   /** A dry run's plan too old to take up, its query read again in its place: what it held. */
   readonly readAgain?: { roots: number; readAt: string };
   /** The most records the run reads in all. */
@@ -6494,6 +6530,7 @@ export class ForgeExecutor {
         objects,
         ...(capped ? { capped } : {}),
         ...(readBack > 0 ? { readBack } : {}),
+        ...(state.roots ? { roots: boundaryRootsOf(state.roots) } : {}),
         dryRun: config.dryRun,
       });
       await this.afterTheGate(state, answer, objects);
@@ -7126,8 +7163,15 @@ export class ForgeExecutor {
       });
       if (refusal) throw ForgeRunGateError.of(rootsPlanMismatchStop(objectApiName, refusal));
       // Past a day, the records its query chose may be others: read again,
-      // and said. Ids named one by one are the same ids whenever.
-      if (rootPlanAgeMs(plan, new Date()) < ROOT_PLAN_MAX_AGE_MS || asked.query === undefined) {
+      // and said. Ids named one by one are the same ids whenever, and so are
+      // those of the run a retry retries, which wrote under them: read
+      // again, a retry wrote records its run never chose.
+      const ofTheRunRetried = asked.planOfTheRunRetried === true;
+      if (
+        rootPlanAgeMs(plan, new Date()) < ROOT_PLAN_MAX_AGE_MS ||
+        asked.query === undefined ||
+        ofTheRunRetried
+      ) {
         return {
           objectApiName,
           from: 'plan',
@@ -7136,6 +7180,7 @@ export class ForgeExecutor {
           sha256: plan.sha256,
           readAt: plan.readAt,
           fromTheJournal: false,
+          ...(ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
           ...bounds,
         };
       }
@@ -11615,21 +11660,34 @@ export class ForgeExecutor {
       );
     };
     let withTheirAccount = 0;
+    // Each root with its copy in the target, as the results export them and
+    // a retry takes them up; a dry run's copies are none.
+    const ids: NonNullable<ForgeRunRoots['ids']> = [];
+    const named = (id: string, copied: boolean): void => {
+      if (ids.length >= FORGE_ROOTS_MAX) return;
+      const target = copied && state.simulated === null ? state.remapper.get(id) : undefined;
+      ids.push(target !== undefined ? { source: id, target } : { source: id });
+    };
     for (const id of roots.ids) {
       if (!state.idsRead.has(id)) {
         gone.push(id);
+        named(id, false);
         continue;
       }
       read++;
       if (state.remapper.wasCreated(id) || updated.has(id)) {
         written++;
+        named(id, true);
       } else if (withTheirRecord.has(id) || withTheirAccountOnADryRun(id)) {
         written++;
         withTheirAccount++;
+        named(id, true);
       } else if (state.remapper.isExisting(id)) {
         linked++;
+        named(id, true);
       } else {
         failed.push({ id, reason });
+        named(id, false);
       }
     }
     return {
@@ -11647,6 +11705,9 @@ export class ForgeExecutor {
       readAt: roots.readAt,
       ...(roots.readAgain ? { readAgain: { ...roots.readAgain } } : {}),
       ...(withTheirAccount > 0 ? { withTheirAccount } : {}),
+      ids,
+      ...(roots.ids.size > ids.length ? { idsLeftOut: roots.ids.size - ids.length } : {}),
+      ...(roots.ofTheRunRetried ? { ofTheRunRetried: true as const } : {}),
     };
   }
 

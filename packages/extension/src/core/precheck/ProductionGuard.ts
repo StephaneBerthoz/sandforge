@@ -229,6 +229,22 @@ export interface WriteConfirmation {
    */
   module?: 'autopilot' | 'sync' | 'seed';
   /**
+   * Of a clone from the records a query chose, or from records named, its
+   * roots, which the question opens on — "Clone 37 Account records and what
+   * they reach, from SRC to TGT: 412 records of 9 objects (roots of the
+   * simulation of 14:02)": their object, how many, the source as the user
+   * knows it, where they came from — the query read now, records named one
+   * by one, a simulation's taken up, the journal of the run resumed, or the
+   * run retried — and when they were read. Absent from any other run.
+   */
+  roots?: {
+    objectApiName: string;
+    count: number;
+    from: 'query' | 'records' | 'simulation' | 'resumed' | 'retried';
+    readAt: string;
+    source: string;
+  };
+  /**
    * Of a Sync run of a saved configuration: the records an earlier run of it
    * copied, which this one leaves as they are and does not count. Absent when none.
    */

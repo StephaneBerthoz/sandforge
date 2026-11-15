@@ -4,6 +4,14 @@ import { useBridgeMutation } from './useBridgeMutation';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useTranslation } from 'react-i18next';
 
+/**
+ * How long a save waits on the host's Save dialog: a person picks a folder,
+ * names the file and may look around first. On the bridge's 30 seconds a
+ * slow choice was reported as a failed export while the dialog was still
+ * open, and the file then saved all the same, its toast never shown.
+ */
+export const SAVE_DIALOG_WAIT_MS = 15 * 60_000;
+
 /** What the host answers to `file:save`. */
 type SaveOutcome =
   | { status: 'saved'; path: string }
@@ -35,6 +43,7 @@ export function useFileSave(): {
   const addNotification = useNotificationStore((s) => s.addNotification);
   const mutation = useBridgeMutation<SaveOutcome>('file:save', {
     responseType: 'file:save:response',
+    timeoutMs: SAVE_DIALOG_WAIT_MS,
   });
 
   // The outcome is announced once per answer, never per click.

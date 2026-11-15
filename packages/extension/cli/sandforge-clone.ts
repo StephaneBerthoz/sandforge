@@ -454,6 +454,7 @@ import {
   forgeRunWriting,
   forgeRunWritingWords,
   lockForgeRun,
+  type ForgeRunLockHolder,
 } from '../src/modules/forge/ForgeRunLock.js';
 import type { LinkedLock } from '../src/modules/checkpoint/linkedLock.js';
 import type { ForgeRootsOptions } from '../src/modules/forge/stages/QueryRoots.js';
@@ -1303,6 +1304,8 @@ Remove what a run created:
                          that still writes its journal, from a terminal or
                          from VS Code, and the preview of its removal
                          (RUN_WRITING), the run named: stop it, or let it end.
+                         The removal holds the journal while it deletes: a
+                         --resume of it meanwhile is refused (RUN_WRITING).
                          What a removal wrote to the records it left is kept
                          beside the summary, clone-summary.removals.json for
                          clone-summary.json, and the next --remove of that
@@ -1494,7 +1497,8 @@ Exit codes:
      a query that chooses no record (NO_ROOTS) or more than --max-roots
      (ROOTS_EXCEEDED), records that reach more than --max-read-total
      (READ_BOUND_EXCEEDED); a removal of a run that still
-     writes its journal, or its preview, and a --resume of it (RUN_WRITING)
+     writes its journal, or its preview, and a --resume of it, or of a run
+     whose removal is under way (RUN_WRITING)
   2  a bad command line, an --exclude that names no field of the source
      (FIELD_EXCLUSION_UNMATCHED), an --object no clone writes
      (TABLE_NEVER_CLONED), or a summary --remove cannot take a run back from, or
@@ -9455,8 +9459,25 @@ export function writeWhole(path: string, value: unknown): string | undefined {
  * {@link RECORDS_LEFT_EXIT} when some stayed, 2 on a bad command line or a
  * summary or removals file that cannot be read, 1 when the removal could not
  * run.
+ *
+ * The lock of the run's journal is held while the removal deletes, and let
+ * go once it ends, however it ends: a run that would take the journal up
+ * meanwhile is refused, the removal named.
  */
 export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const held: { lock?: { release(): void } } = {};
+  try {
+    await removeUnderItsLock(argv, held);
+  } finally {
+    held.lock?.release();
+  }
+}
+
+/** {@link removeMain}, the lock of the run's journal kept in `held` once taken. */
+async function removeUnderItsLock(
+  argv: string[],
+  held: { lock?: { release(): void } },
+): Promise<void> {
   const t0 = Date.now();
   const args = parseRemoveArgs(argv);
   // In --json mode stdout carries the outcome alone, for a parser to read.
@@ -9479,18 +9500,31 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // A run still writing its journal is no run to take back: its records would
   // be deleted under it as it goes on, and what it writes after never offered
   // for removal. Refused before any org is reached, its preview too, the run
-  // named as the lock it holds on its journal names it.
-  const writing =
-    read.summary.journal !== undefined ? forgeRunWriting(read.summary.journal) : undefined;
-  if (writing) {
-    refuseBeforeAnyRead({
-      code: RUN_WRITING,
-      message:
-        `${forgeRunWritingWords(writing)}. A removal now would delete under it what it goes on ` +
-        `writing: ${forgeRunStopWords(writing)}, then remove it. Nothing was read or deleted.`,
-    });
+  // named as the lock it holds on its journal names it. The removal itself
+  // takes that lock for as long as it deletes: a --resume given meanwhile,
+  // from this terminal, another or VS Code, went on writing under it.
+  const writingRefusal = (writing: ForgeRunLockHolder): RunRefusal => ({
+    code: RUN_WRITING,
+    message:
+      `${forgeRunWritingWords(writing)}. A removal now would delete under it what it goes on ` +
+      `writing: ${forgeRunStopWords(writing)}, then remove it. Nothing was read or deleted.`,
+  });
+  const journalToHold = read.summary.journal;
+  if (args.preview) {
+    const writing = journalToHold !== undefined ? forgeRunWriting(journalToHold) : undefined;
+    if (writing) refuseBeforeAnyRead(writingRefusal(writing));
+    return previewRemoval(args, read.summary, say, t0);
   }
-  if (args.preview) return previewRemoval(args, read.summary, say, t0);
+  if (journalToHold !== undefined) {
+    const taken = lockForgeRun(journalToHold, {
+      journalId: basename(journalToHold).replace(/\.ndjson$/, ''),
+      ranFrom: 'commandLine',
+      target: args.target,
+      removes: true,
+    });
+    if ('busy' in taken) refuseBeforeAnyRead(writingRefusal(taken.busy));
+    held.lock = taken.lock;
+  }
   /** The org, reached once: before the plan when the run's journal has calls to look for. */
   let reached: { session: SfOrg; conn: Connection; org: TypedOrg } | undefined;
   const reach = async (): Promise<{ session: SfOrg; conn: Connection; org: TypedOrg }> => {

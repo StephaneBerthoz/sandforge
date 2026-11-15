@@ -65,6 +65,13 @@ export interface ForgeRootsOptions {
    * and the result says so (`ForgeRunRoots.readAgain`).
    */
   plan?: RootPlan;
+  /**
+   * Set when `plan` holds the roots of the run this one retries, as that
+   * run's journal or its entry in the history kept them: written whatever
+   * their age — the run retried wrote under them, and its query read again
+   * may choose other records — and said so (`ForgeRunRoots.ofTheRunRetried`).
+   */
+  planOfTheRunRetried?: true;
   /** The most roots the run takes (`maxRoots`), 1 to `FORGE_ROOTS_MAX`. */
   cap: number;
   /** The most records the run reads in all: `FORGE_ROOTS_READ_TOTAL` when absent. */

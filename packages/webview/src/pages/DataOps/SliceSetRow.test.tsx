@@ -145,4 +145,27 @@ describe('SliceSetRow', () => {
       "Held to: Contact: LastName LIKE 'A%'",
     );
   });
+
+  it('badges a backup in slices that stopped part way as partial, says no run takes it up, and restores it', () => {
+    const onRestore = vi.fn();
+    render(
+      <SliceSetRow
+        set={{
+          ...set,
+          kind: 'backup',
+          state: 'partial',
+          slices: [slice(1, { state: 'snapshotted', masked: 0 })],
+        }}
+        onRestore={onRestore}
+      />,
+    );
+
+    expect(screen.getByTestId('restore-set-set-1-state').textContent).toBe('Partial');
+    expect(screen.getByTestId('restore-set-set-1-partial').textContent).toBe(
+      'Stopped before every record was backed up: no run takes it up. Its slices restore as they are; a new backup in slices takes every record again.',
+    );
+    expect(screen.queryByTestId('restore-set-set-1-held')).toBeNull();
+    fireEvent.click(screen.getByTestId('restore-set-set-1-all'));
+    expect(onRestore).toHaveBeenCalledTimes(1);
+  });
 });
