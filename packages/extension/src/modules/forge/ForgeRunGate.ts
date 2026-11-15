@@ -4338,7 +4338,7 @@ export function removalStepsAutomationLines(
     if (lines.length === 1 && unread.length === 0) {
       const objects = new Set(Object.values(written).flat()).size;
       // A sweep only deletes: said to write, its line read as the purge's.
-      const writes = writer === 'reloadSweep' ? 'deletes' : 'writes';
+      const writes = SWEEPS.has(writer) ? 'deletes' : 'writes';
       lines.push(`  nothing fires on the ${objects} object(s) it ${writes} records of`);
     }
     return lines;
@@ -4347,7 +4347,7 @@ export function removalStepsAutomationLines(
     ...linesOf(steps, subject),
     // What a reload's sweep deletes, said apart from its purge: a task the
     // sweep took was said to be one the purge deleted.
-    ...(sweep ? linesOf(sweep, 'reloadSweep') : []),
+    ...(sweep ? linesOf(sweep, sweepOf(subject)) : []),
     ...unread.map(({ part, reason }) => `  ${UNREAD_WORDS[part]} could not be read: ${reason}`),
   ];
 }
@@ -4360,6 +4360,11 @@ const REMOVAL_STEPS_HEADINGS: Readonly<Record<RemovalStepsSubject, (target: stri
   reloadSweep: (target) =>
     `reload automation: what ${target} runs as the reload's sweep deletes what the target's ` +
     'automation made for the loads it replaces',
+  replayAgain: (target) =>
+    `replay automation: what ${target} runs as the replay purges what earlier replays created`,
+  replayAgainSweep: (target) =>
+    `replay automation: what ${target} runs as the replay's sweep deletes what the target's ` +
+    'automation made for the replays it replaces',
 };
 
 /**
@@ -4430,7 +4435,7 @@ export function removalStepsAutomationRefusal(
       (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
     );
     parts.push(
-      `${target} runs automation on the records ${REMOVAL_STEPS_SUBJECT_WORDS.reloadSweep.this} ` +
+      `${target} runs automation on the records ${REMOVAL_STEPS_SUBJECT_WORDS[sweepOf(options.subject ?? 'removal')].this} ` +
         `deletes: ${named.join('; ')}.`,
     );
   }
@@ -4452,12 +4457,25 @@ export function removalStepsAutomationRefusal(
 /**
  * What writes the steps a refusal names: a removal that takes a run back,
  * the purge a reload runs before it loads, which deletes as a removal does,
- * or the sweep asked with that reload. Said in a removal's words, the refusal
- * of a reload told a pipeline to "remove all the same" a load it had asked to
- * replace; said in the purge's, the sweep's refusal named the tasks it took as
- * the purge's deletes.
+ * or the sweep asked with that reload; and the same two of a checkpoint's
+ * replay run again over the replays before it (`--again`), a Frozen reload
+ * said as a replay. Said in a removal's words, the refusal of a reload told a
+ * pipeline to "remove all the same" a load it had asked to replace; said in
+ * the purge's, the sweep's refusal named the tasks it took as the purge's
+ * deletes; said in a reload's, a replay named "earlier loads" nobody made.
  */
-export type RemovalStepsSubject = 'removal' | 'reload' | 'reloadSweep';
+export type RemovalStepsSubject =
+  'removal' | 'reload' | 'reloadSweep' | 'replayAgain' | 'replayAgainSweep';
+
+/** The subjects that only delete: the sweep asked with a reload, or a replay run again. */
+const SWEEPS: ReadonlySet<RemovalStepsSubject> = new Set(['reloadSweep', 'replayAgainSweep']);
+
+/** The sweep asked with what `subject` runs: a replay's, or a reload's. */
+function sweepOf(subject: RemovalStepsSubject): RemovalStepsSubject {
+  return subject === 'replayAgain' || subject === 'replayAgainSweep'
+    ? 'replayAgainSweep'
+    : 'reloadSweep';
+}
 
 /** The words of each {@link RemovalStepsSubject}: what writes, as whom, and what to add. */
 const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
@@ -4483,5 +4501,19 @@ const REMOVAL_STEPS_SUBJECT_WORDS: Readonly<
     who: 'the reload',
     run: 'reload',
     verb: 'reload',
+  },
+  replayAgain: {
+    this: "this replay's purge",
+    the: "the replay's purge",
+    who: 'the replay',
+    run: 'replay',
+    verb: 'replay again',
+  },
+  replayAgainSweep: {
+    this: "this replay's sweep",
+    the: "the replay's sweep",
+    who: 'the replay',
+    run: 'replay',
+    verb: 'replay again',
   },
 };

@@ -1,6 +1,8 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import type * as z from 'zod';
 
+import type { AuditBeforeRun } from './reporting.types.js';
+
 import type {
   CheckpointArchiveHeader,
   CheckpointBeforeRun,
@@ -99,6 +101,8 @@ describe('the checkpoint file and its schema', () => {
     expectTypeOf<z.infer<typeof checkpointBeforeRunSchema>>().toEqualTypeOf<CheckpointBeforeRun>();
     expectTypeOf<OrgCheckpoint['beforeRun']>().toEqualTypeOf<CheckpointBeforeRun | undefined>();
     expectTypeOf<CheckpointBeforeRun['module']>().toEqualTypeOf<CheckpointBeforeRunModule>();
+    // The take's entry in the audit trail names the run by the same module.
+    expectTypeOf<AuditBeforeRun['module']>().toEqualTypeOf<CheckpointBeforeRunModule>();
     expect(checkpointBeforeRunSchema.shape.module.options).toEqual([
       'forge',
       'sync',
@@ -106,6 +110,7 @@ describe('the checkpoint file and its schema', () => {
       'autopilot',
       'frozen',
       'empty',
+      'replay',
     ]);
   });
 });

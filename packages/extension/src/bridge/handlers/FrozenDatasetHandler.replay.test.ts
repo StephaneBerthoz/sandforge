@@ -36,6 +36,10 @@ import {
   idOf,
   type ReplayTargetOptions,
 } from '../../test/replayOrgs.js';
+import type {
+  BeforeRunAsk,
+  BeforeRunCheckpoints,
+} from '../../modules/checkpoint/beforeRunCheckpoint.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 
@@ -530,6 +534,31 @@ describe('frozen:load of a checkpoint replayed', () => {
     expect(answers('frozen:load:error')[0].payload.code).toBe('MAX_RECORDS');
     expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
     expect(trail(world)).toMatchObject([{ outcome: 'stopped', module: 'checkpoint' }]);
+  });
+
+  it('asks the checkpoint it takes first as a replay’s, in its preview and before its first write, never as a Frozen load’s', async () => {
+    const world = await worldOf();
+    const asked: string[] = [];
+    world.handler.setBeforeRunCheckpoints({
+      scope: vi.fn(async (ask: BeforeRunAsk) => {
+        asked.push(ask.module);
+        throw new Error('The take is not set up in this test');
+      }),
+      take: vi.fn(),
+      settle: vi.fn(),
+    } as unknown as BeforeRunCheckpoints);
+
+    await send(world, 'frozen:load:preview', { replay: replayOf(), checkpointFirst: {} });
+    const answers = await send(world, 'frozen:load', {
+      replay: replayOf(),
+      maxRecords: 6,
+      checkpointFirst: {},
+    });
+
+    // Its name and its chip in the list say what wrote: "Before checkpoint replay".
+    expect(asked).toEqual(['replay', 'replay']);
+    expect(answers('frozen:load:error')).toHaveLength(1);
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
   });
 
   it('refuses the checkpoint’s own org, writes nothing, and records the replay stopped under its code', async () => {

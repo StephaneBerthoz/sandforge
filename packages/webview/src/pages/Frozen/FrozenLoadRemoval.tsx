@@ -940,7 +940,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             <ForgeRunRemovalResult
               result={removal.data.result}
               org={org ?? records.orgId}
-              subject="load"
+              subject={replay ? 'replay' : 'load'}
               {...(removable && !removal.loading && !busy ? { onTakeBackMade: askSweep } : {})}
             />
           )}

@@ -1,5 +1,6 @@
 import type { AuditMutedAutomation } from '../utils/automation-mute.js';
 import type { UUID, ISODateString } from './common.types.js';
+import type { CheckpointBeforeRunModule } from './checkpoint.types.js';
 import type {
   ForgeGapDecisionKind,
   ForgeSampleDraw,
@@ -276,9 +277,13 @@ export interface AuditLogEntry {
   ipAddress?: string;
 }
 
-/** The run a checkpoint was taken before, as the take's entry names it. */
+/**
+ * The run a checkpoint was taken before, as the take's entry names it: by
+ * the module the checkpoint names it by, so that a module a checkpoint can be
+ * taken before is one its entry names.
+ */
 export interface AuditBeforeRun {
-  module: 'forge' | 'sync' | 'seed' | 'autopilot' | 'frozen' | 'empty';
+  module: CheckpointBeforeRunModule;
   operationId: string;
 }
 

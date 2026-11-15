@@ -837,6 +837,13 @@ export interface FrozenWords {
   /** The word an error's line opens with in place of the request's `frozen`. */
   module: string;
   /**
+   * A run made again over the runs before, which purges what they created, as
+   * a dry run's line names its mode: `reload`, `again`.
+   */
+  again: string;
+  /** What is said of what the target runs as that purge, and its sweep, delete. */
+  againSubject: { purge: RemovalStepsSubject; sweep: RemovalStepsSubject };
+  /**
    * Why a field the target encrypts is left out, or would be: the values
    * read may be the masks a user without View Encrypted Data reads.
    */
@@ -851,6 +858,8 @@ export const DATASET_WORDS: FrozenWords = {
   recordedIn: 'in this sas',
   remove: '`remove`',
   module: 'frozen',
+  again: 'reload',
+  againSubject: { purge: 'reload', sweep: 'reloadSweep' },
   maybeMasks:
     "the dataset's manifest does not say its extraction left out what it read masked, so they " +
     'may hold masks such as ****1234; --write-encrypted writes them as the dataset holds them',
@@ -951,6 +960,21 @@ interface RemovalAutomationAsk {
 }
 
 /**
+ * What the line and the refusal of what the target runs, read in vain, call
+ * each writer: a removal, a reload's purge or its sweep, and the same two of
+ * a checkpoint's replay run again, which a reload's words named "reload".
+ */
+const UNREAD_SUBJECT_WORDS: Readonly<
+  Record<RemovalStepsSubject, { heading: string; writer: string; verb: string }>
+> = {
+  removal: { heading: 'removal', writer: 'this removal', verb: 'remove' },
+  reload: { heading: 'reload', writer: "this reload's purge", verb: 'reload' },
+  reloadSweep: { heading: 'reload', writer: "this reload's sweep", verb: 'reload' },
+  replayAgain: { heading: 'replay', writer: "this replay's purge", verb: 'replay again' },
+  replayAgainSweep: { heading: 'replay', writer: "this replay's sweep", verb: 'replay again' },
+};
+
+/**
  * What the command says of what the target runs as a removal goes, before its
  * first delete, as Forge's, Sync's and Seed's removals say it: what fires, step
  * by step, what a mute keeps quiet and what it leaves, and why a removal will
@@ -980,22 +1004,18 @@ export function removalAutomation(
   const muted = mute ? muteLines(mute.muted, target).map((line) => `  ${line}`) : [];
   // Read whole or not at all: what could not be read of it is said below.
   if (!('objects' in read)) {
-    const reload = subject !== 'removal';
-    const writer =
-      subject === 'reloadSweep'
-        ? "this reload's sweep"
-        : reload
-          ? `this reload's purge${sweep ? ' and its sweep' : ''}`
-          : 'this removal';
+    const words = UNREAD_SUBJECT_WORDS[subject];
+    const purges = subject === 'reload' || subject === 'replayAgain';
+    const writer = `${words.writer}${purges && sweep ? ' and its sweep' : ''}`;
     return {
       lines: [
-        `${reload ? 'reload' : 'removal'} automation: what ${target} runs could not be read: ${read.unread}`,
+        `${words.heading} automation: what ${target} runs could not be read: ${read.unread}`,
         ...muted,
       ],
       refusal:
         `What ${target} runs as ${writer} writes could ` +
         `not be read (${read.unread}), so what fires as the records go is not known. Nothing was ` +
-        `written or deleted. Add --accept-automation to ${reload ? 'reload' : 'remove'} all the ` +
+        `written or deleted. Add --accept-automation to ${words.verb} all the ` +
         `same, or turn that automation off in ${target} first.`,
     };
   }
@@ -1800,7 +1820,7 @@ export function messageLines(
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
         plan.perObject.reduce((total, o) => total + pick(o), 0);
       const lines = [
-        `dry run${plan.mode.pilot ? ' (pilot)' : ''}${plan.mode.reload ? ' (reload)' : ''}: ` +
+        `dry run${plan.mode.pilot ? ' (pilot)' : ''}${plan.mode.reload ? ` (${words.again})` : ''}: ` +
           `${sum((o) => o.toInsert)} record(s) to insert, ` +
           `${sum((o) => o.reusedByKeys + o.reusedFromCatalog + (o.writtenByThePlatform ?? 0))} to link, ` +
           `${sum((o) => o.notSent)} not sent` +
@@ -1940,7 +1960,10 @@ export function messageLines(
       };
       return [
         `verification: ${v.status.toUpperCase()}`,
-        ...v.checks.map((c) => `  ${c.passed ? 'ok  ' : 'FAIL'} ${c.name}: ${c.detail}`),
+        ...v.checks.map((c) => {
+          const said = checkInWords(c, words);
+          return `  ${c.passed ? 'ok  ' : 'FAIL'} ${said.name}: ${said.detail}`;
+        }),
       ];
     }
     case 'frozen:remove:response': {
@@ -2420,6 +2443,26 @@ export interface FrozenReplayRun {
   ): Record<string, unknown>;
 }
 
+/**
+ * A check of the verification in the words of what ran: the verifier names
+ * what a load wrote, and a replay, which goes through the load, is none.
+ * Exported so it can be tested.
+ */
+export function checkInWords(
+  check: { name: string; detail: string },
+  words: FrozenWords,
+): { name: string; detail: string } {
+  if (words === DATASET_WORDS) return check;
+  return {
+    name: check.name === 'load' ? words.run : check.name,
+    detail: check.detail
+      .replace(/\bThe load\b/g, `The ${words.run}`)
+      .replace(/\bthe load\b/g, `the ${words.run}`)
+      .replace(/\bnot loaded\b/g, `not ${words.done}`)
+      .replace(/\bnot loadable\b/g, `not ${words.run}able`),
+  };
+}
+
 /** Run one step; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   await runFrozen(parseArgs(argv));
@@ -2516,12 +2559,12 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
   // this command, once the load may write and before the handler takes the
   // mute's lease, kept or deleted by what the load reports. A dry run says
   // what it would hold and cost. It reads the target through a connection of
-  // its own.
+  // its own. A replay's is named as a replay's.
   const target = targetOrgId ? sessions.get(targetOrgId) : undefined;
   const checkpoints: CommandCheckpoints | undefined =
     args.checkpointFirst && target
       ? commandCheckpoints({
-          module: 'frozen',
+          module: replay ? 'replay' : 'frozen',
           operationId: `sandforge-frozen-load-${t0}`,
           request: args.checkpointFirst,
           session: target.session,
@@ -2753,7 +2796,7 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
         ...(planned ? { mute: { automation: planned.automation, muted: planned.planned } } : {}),
       },
       args.target ?? '',
-      asked.reload === true ? 'reload' : 'removal',
+      asked.reload === true ? words.againSubject.purge : 'removal',
       own ? { delete: swept } : undefined,
     );
     for (const line of lines) log(line);
@@ -3079,8 +3122,9 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
         // unaccepted, as a removal's sweep is. A stop while it read asks nothing.
         if (args.sweep) {
           log(
-            "around the purge, a sweep deletes what the target's automation made for each load " +
-              "it replaces, as the load's user, tied to its records — run with --dry-run to see what",
+            "around the purge, a sweep deletes what the target's automation made for each " +
+              `${words.run} it replaces, as the ${words.run}'s user, tied to its records — run with ` +
+              '--dry-run to see what',
           );
           handler.setRemovalAsker(async (question) => {
             // Asked of what the sweeps delete alone: the purge's own deletes
@@ -3088,7 +3132,7 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
             const { lines, refusal } = removalAutomation(
               question,
               args.target ?? '',
-              'reloadSweep',
+              words.againSubject.sweep,
             );
             for (const line of lines) log(line);
             if (refusal === undefined || args.acceptAutomation) return undefined;
@@ -3320,7 +3364,7 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
         if (args.sweep) {
           log(
             `${recordsToTake(records) > 0 ? 'before them, a sweep deletes' : 'a sweep alone deletes'} ` +
-              "what the target's automation made for the load, as the load's user, tied to its " +
+              `what the target's automation made for the ${words.run}, as the ${words.run}'s user, tied to its ` +
               `records — run ${sweepOptionWords('--sweep-list')} to see what`,
           );
         }

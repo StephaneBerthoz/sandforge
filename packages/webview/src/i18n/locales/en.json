@@ -3997,8 +3997,8 @@
       "step1": "Pick a sandbox, scratch org or Developer Edition in the org list at the top.",
       "step2": "Click Take a checkpoint, read Before it runs, click Take the checkpoint, then Done.",
       "step3": "To return the org to it, click Rewind… on the checkpoint's row: the preview writes nothing.",
-      "step4": "Tick any box the preview asks for, then click the Rewind button that names the org.",
-      "step5": "Type the name the dialog shows, then click Confirm.",
+      "step4": "Tick any box the preview asks for, click the Rewind button naming the org, type its name, Confirm.",
+      "step5": "Org refreshed or expired? Replay in another org… on its row: Simulate, then Replay.",
       "tip": "Rewind undoes everyone's changes since the checkpoint, not only yours. Undo this rewind takes it back for up to 15 days."
     },
     "sync": {
@@ -4048,11 +4048,11 @@
       "tip": "Trends stays empty until SandForge has kept two snapshots of the limits; it keeps at most one per 15 minutes, for 7 days."
     },
     "automation": {
-      "step1": "Click Create Pipeline at the top of the page.",
-      "step2": "Under Steps, click a step such as Pre-Check to add it to the Pipeline Canvas.",
-      "step3": "Click the step on the canvas, then fill its fields under Step Configuration.",
-      "step4": "Click Save Pipeline, then Run Pipeline once no step is marked Cannot run.",
-      "step5": "Open the History tab to read what each step of the run did.",
+      "step1": "Click Create Pipeline, then under Steps click a step such as Pre-Check to add it to the canvas.",
+      "step2": "Click the step on the canvas, then fill its fields under Step Configuration.",
+      "step3": "Click Save Pipeline, then Run Pipeline once no step is marked Cannot run.",
+      "step4": "Open the History tab to read what each step of the run did.",
+      "step5": "To run it with VS Code closed, click Export… and save the file and its launcher.",
       "tip": "Sync, Seed, Anonymize and Rewind steps write to an org. Seed and Anonymize never write to a production org; a Rewind runs once confirmed."
     },
     "migration": {
@@ -7016,7 +7016,29 @@
     "heldSweepLeft": "The sweep left them: its list says why, and what came late can be asked for.",
     "takeBackMade": "Take back what the target's automation made for this run, then remove again",
     "takeBackMadeNote": "It takes what is tied to this run's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back.",
-    "wholeOrgNotSwept": "This run cloned the whole org, and its removal ran without Sweep first: what the target’s flows and triggers created during the run’s hours is not among its records, was not looked for, and stays in {{org}}."
+    "wholeOrgNotSwept": "This run cloned the whole org, and its removal ran without Sweep first: what the target’s flows and triggers created during the run’s hours is not among its records, was not looked for, and stays in {{org}}.",
+    "replay": {
+      "resultSuccess": "No record this replay created is left in {{org}}.",
+      "resultPartial": "Records this replay created were removed from {{org}}; the others stay, as listed.",
+      "resultFailure": "No record this replay created was removed from {{org}}.",
+      "resultSweepLeft": "No record this replay created is left in {{org}}, but the sweep did not take all it was asked to, as listed below.",
+      "resultChanged_one": "{{formatted}} kept, changed since the replay",
+      "resultChanged_other": "{{formatted}} kept, changed since the replay",
+      "resultTookAlong_one": "Also took along {{formatted}} record that was not the replay's, added or changed since it: {{objects}}",
+      "resultTookAlong_other": "Also took along {{formatted}} records that were not the replay's, added or changed since it: {{objects}}",
+      "resultCameAlong_one": "Also took along {{formatted}} record the replay did not write that came with its records, made as it wrote: {{objects}}",
+      "resultCameAlong_other": "Also took along {{formatted}} records the replay did not write that came with its records, made as it wrote: {{objects}}",
+      "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the replay did not create it: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the replay did not create them: {{names}}",
+      "heldByAutomation_one": "{{formatted}} record of this replay was kept for records created under it during the replay, as its user, likely by the target's automation: {{objects}}.",
+      "heldByAutomation_other": "{{formatted}} records of this replay were kept for records created under them during the replay, as its user, likely by the target's automation: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} record of this replay was kept for records created under it as its user after the replay's last write, within a minute of it, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} records of this replay were kept for records created under them as its user after the replay's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} record of this replay was kept for records created under it as its user, during the replay or after its last write within a minute of it, by the target's automation or by hand: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} records of this replay were kept for records created under them as its user during the replay or, under {{after}} of them, after the replay's last write, within a minute of them, by the target's automation or by hand: {{objects}}.",
+      "takeBackMade": "Take back what the target's automation made for this replay, then remove again",
+      "takeBackMadeNote": "It takes what is tied to this replay's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back."
+    }
   },
   "orgAutomation": {
     "assistant": {
@@ -8017,7 +8039,8 @@
         "seed": "Before Seed run",
         "autopilot": "Before Autopilot run",
         "frozen": "Before Frozen Dataset load",
-        "empty": "Before emptying objects"
+        "empty": "Before emptying objects",
+        "replay": "Before checkpoint replay"
       }
     },
     "rename": {

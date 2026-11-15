@@ -927,6 +927,132 @@ describe('ForgeRunRemovalResult of a Frozen load', () => {
   });
 });
 
+describe('ForgeRunRemovalResult of a checkpoint replay', () => {
+  // A replay goes through the Frozen load, and its removal through a load's:
+  // its result said "this load" of records nobody had loaded.
+  it('says what the replay created was removed, or what stays of it, in a replay’s words', () => {
+    const { rerender } = render(
+      <ForgeRunRemovalResult org="DEV-SANDBOX" subject="replay" result={result({})} />,
+    );
+    expect(screen.getByRole('heading').textContent).toBe(
+      'No record this replay created is left in DEV-SANDBOX.',
+    );
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="replay"
+        result={result({ status: 'failure' })}
+      />,
+    );
+    expect(screen.getByRole('heading').textContent).toBe(
+      'No record this replay created was removed from DEV-SANDBOX.',
+    );
+
+    rerender(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="replay"
+        result={result({
+          status: 'partial',
+          objects: [
+            outcome({
+              objectApiName: 'Account',
+              deleted: 2,
+              keptChanged: 1,
+              tookAlong: { count: 1, objects: ['CampaignMember'] },
+              cameAlong: { count: 2, objects: ['Contact'] },
+              filesLeft: { count: 1, names: ['Contract.pdf'] },
+            }),
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByRole('heading').textContent).toBe(
+      'Records this replay created were removed from DEV-SANDBOX; the others stay, as listed.',
+    );
+    expect(screen.getByTestId('forge-removal-result-Account').textContent).toContain(
+      'Account: 2 deleted · 1 kept, changed since the replay',
+    );
+    expect(screen.getByTestId('forge-removal-took-along-Account').textContent).toBe(
+      "Also took along 1 record that was not the replay's, added or changed since it: CampaignMember",
+    );
+    expect(screen.getByTestId('forge-removal-came-along-Account').textContent).toBe(
+      'Also took along 2 records the replay did not write that came with its records, made as it wrote: Contact',
+    );
+    expect(screen.getByTestId('forge-removal-files-Account').textContent).toBe(
+      '1 file attached to them stays in DEV-SANDBOX, as the replay did not create it: Contract.pdf',
+    );
+  });
+
+  it('says a removal its sweep alone left partial in a replay’s words', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="replay"
+        result={result({
+          status: 'partial',
+          objects: [outcome({ objectApiName: 'Account', deleted: 2 })],
+          sweep: {
+            status: 'partial',
+            objects: [],
+            unread: [{ objectApiName: 'Task', reason: 'refused' }],
+            handWork: [],
+          },
+        })}
+      />,
+    );
+    expect(screen.getAllByRole('heading')[0].textContent).toBe(
+      'No record this replay created is left in DEV-SANDBOX, but the sweep did not take all it was asked to, as listed below.',
+    );
+  });
+
+  it('names what the other org’s automation held of it, and offers its sweep, as a replay’s', () => {
+    const held = (after: number) =>
+      result({
+        status: 'partial',
+        objects: [
+          outcome({
+            objectApiName: 'Contact',
+            keptDependents: 2,
+            heldBy: ['Task'],
+            heldByAutomation: 2,
+            heldByAutomationAfterRun: after,
+            automationHolders: ['Task'],
+          }),
+        ],
+      });
+    const { rerender } = render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        subject="replay"
+        result={held(0)}
+        onTakeBackMade={vi.fn()}
+      />,
+    );
+    const said = screen.getByTestId('forge-removal-held-by-automation').textContent;
+    expect(said).toContain(
+      "2 records of this replay were kept for records created under them during the replay, as its user, likely by the target's automation: Task.",
+    );
+    expect(said).toContain(
+      "It takes what is tied to this replay's records. What the automation changed on records that were there before stays: only a rewind to a checkpoint takes that back.",
+    );
+    expect(screen.getByTestId('forge-removal-take-back-made').textContent).toBe(
+      "Take back what the target's automation made for this replay, then remove again",
+    );
+
+    rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" subject="replay" result={held(2)} />);
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "2 records of this replay were kept for records created under them as its user after the replay's last write, within a minute of them, by the target's automation or by hand: Task.",
+    );
+
+    rerender(<ForgeRunRemovalResult org="DEV-SANDBOX" subject="replay" result={held(1)} />);
+    expect(screen.getByTestId('forge-removal-held-by-automation').textContent).toBe(
+      "2 records of this replay were kept for records created under them as its user during the replay or, under 1 of them, after the replay's last write, within a minute of them, by the target's automation or by hand: Task.",
+    );
+  });
+});
+
 describe('ForgeRunRemovalResult of the files a run did not create', () => {
   it('names one file, and says more are left than it names', () => {
     const { rerender } = render(

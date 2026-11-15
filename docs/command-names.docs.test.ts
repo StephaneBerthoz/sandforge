@@ -58,13 +58,16 @@ const PAGES = [
  * Why the hyphenated name may stand where it does, or nothing when a reader
  * would read it as a command to type: the whitelist of `cli/invocation.test.ts`,
  * read on a page's text rather than on a string of the source. A file is named
- * by its file; an identifier — a run summary's `tool`, a state's `script` — is
- * the name alone between quotes; the start of an id or of a folder's name — a
- * cache key, a run id — is the name and the dash the rest of it follows.
+ * by its file, and so is a pipeline file, `nightly.sandforge-pipeline.json`, the
+ * Automation page's export, its name before a dot and `.json` after; an
+ * identifier — a run summary's `tool`, a state's `script` — is the name alone
+ * between quotes; the start of an id or of a folder's name — a cache key, a run
+ * id — is the name and the dash the rest of it follows.
  */
 function allowedBecause(text: string, at: number, name: string): string | undefined {
   const after = text.slice(at + name.length);
   if (/^\.(?:ts|js|mjs)\b/.test(after)) return 'a file';
+  if (text.charAt(at - 1) === '.' && /^\.json\b/.test(after)) return 'a pipeline file';
   const quote = text.charAt(at - 1);
   if ((quote === '"' || quote === "'") && after.startsWith(quote)) return 'an identifier';
   if (/^-[\w$<{]/.test(after) || /^-(?:$|[\s'"`])/.test(after)) {
@@ -121,12 +124,16 @@ describe('the name a page gives a command line', () => {
       '{ "tool": "sandforge-sync", "status": "success" }',
       'sandforge-backup-<operation id>.json',
       'the `sandforge seed` command, `npx sandforge checkpoint rewind`',
+      'Export… writes `nightly.sandforge-pipeline.json`, or <name>.sandforge-pipeline.json',
+      'a pipeline sandforge-pipeline.json without its name, and sandforge-pipeline run',
     ].join('\n');
     expect(bareNames('probe', probe).map((line) => line.split(': …')[0])).toEqual([
       'probe:1',
       'probe:2',
       'probe:3',
       'probe:4',
+      'probe:12',
+      'probe:12',
     ]);
   });
 });

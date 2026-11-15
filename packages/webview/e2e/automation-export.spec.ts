@@ -239,6 +239,67 @@ test.describe('Export… on the Automation page', () => {
       },
     });
   });
+
+  test('saves the file alone with no launcher, and leaves the schedule to VS Code', async ({
+    page,
+  }) => {
+    await openSaved(page, SAVED);
+    await exportWith(page, EXPORTED);
+
+    // No launcher is chosen until one is: nothing then starts the file, and
+    // the schedule is not offered to hand over.
+    await expect(page.getByRole('radio', { name: 'None: the pipeline file alone' })).toBeChecked();
+    await expect(page.getByTestId('export-hand-over')).toHaveCount(0);
+    await page.getByTestId('export-save').click();
+    expect(await sentPayloads(page, 'file:save')).toMatchObject([
+      { suggestedName: 'nightly-reset.sandforge-pipeline.json' },
+    ]);
+    await answerOnceAsked(page, 'file:save', 'file:save:response', {
+      status: 'saved',
+      path: '/home/me/pipelines/nightly-reset.sandforge-pipeline.json',
+    });
+
+    await expect(page.getByTestId('export-saved-file')).toBeVisible();
+    expect(await requestIds(page, 'file:save')).toHaveLength(1);
+    expect(await requestIds(page, 'pipeline:save')).toEqual([]);
+  });
+
+  test('gives a launcher’s schedule back to VS Code once saved, and names the launcher no more', async ({
+    page,
+  }) => {
+    const handedOver = {
+      ...SAVED,
+      triggers: [{ ...SAVED.triggers[0], enabled: false }],
+      runsOutside: OUTSIDE,
+    };
+    await openSaved(page, handedOver, { outside: [{ pipelineId: 'pipe-1', matches: true }] });
+    await page.getByRole('tab', { name: 'Triggers' }).click();
+    await page.getByTestId('trigger-outside-resume').click();
+    // Given back on the canvas alone until it is saved.
+    expect(await requestIds(page, 'pipeline:save')).toEqual([]);
+    await expect(page.getByTestId('trigger-resumed')).toContainText(
+      'Remove its line from the crontab',
+    );
+
+    await page.getByRole('button', { name: 'Save Pipeline' }).click();
+    await expect.poll(async () => (await requestIds(page, 'pipeline:save')).length).toBe(1);
+    const [saved] = await sentPayloads(page, 'pipeline:save');
+    expect(saved).toMatchObject({
+      id: 'pipe-1',
+      config: { triggers: [{ id: 'tr-s', enabled: true }] },
+    });
+    expect((saved.config as Record<string, unknown>).runsOutside).toBeUndefined();
+  });
+
+  test('runs a dry run of the pipeline on the canvas, asked as a dry run', async ({ page }) => {
+    await openSaved(page, SAVED);
+
+    await page.getByRole('button', { name: 'Dry run' }).click();
+
+    await expect.poll(async () => (await requestIds(page, 'pipeline:execute')).length).toBe(1);
+    const [asked] = await sentPayloads(page, 'pipeline:execute');
+    expect(asked).toMatchObject({ pipeline: { id: 'pipe-1' }, dryRun: true });
+  });
 });
 
 for (const theme of SCANNED_THEMES) {

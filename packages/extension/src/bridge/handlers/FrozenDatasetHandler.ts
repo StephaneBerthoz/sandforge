@@ -3981,6 +3981,7 @@ export class FrozenDatasetHandler implements DomainHandler {
               read,
               mute,
               request: parsed.checkpointFirst,
+              replay: replay !== undefined,
             })
           : undefined;
       // The API requests of the load against what the target has left today,
@@ -4369,7 +4370,8 @@ export class FrozenDatasetHandler implements DomainHandler {
    * dataset, which it inserts and a reload purges, and the objects what still
    * runs creates as it writes them once the mute's plan holds
    * (`stillRunningOf`). What could not be read creates nothing the scope can
-   * name: the checkpoint then holds the dataset's objects.
+   * name: the checkpoint then holds the dataset's objects. A replay's is
+   * asked as a replay's, which names it and its chip in the list.
    */
   private loadCheckpointAsk(input: {
     orgId: string;
@@ -4378,10 +4380,11 @@ export class FrozenDatasetHandler implements DomainHandler {
     read: ForgeTargetAutomation | { unread: string };
     mute?: Pick<RunMute, 'plan'>;
     request: RunCheckpointRequest;
+    replay?: boolean;
   }): BeforeRunAsk {
     const { read } = input;
     return {
-      module: 'frozen',
+      module: input.replay === true ? 'replay' : 'frozen',
       orgId: input.orgId,
       operationId: input.operationId,
       written: [...input.written],
@@ -4405,6 +4408,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     request: RunCheckpointRequest;
     muteAutomation: boolean;
     conn: Parameters<typeof muteOrgOf>[0];
+    replay?: boolean;
   }): Promise<RunCheckpointEstimate | undefined> {
     const checkpoints = this.beforeRunCheckpoints;
     if (!checkpoints) return undefined;
@@ -4450,6 +4454,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     read: ForgeTargetAutomation | { unread: string };
     mute?: Pick<RunMute, 'plan'>;
     request: RunCheckpointRequest;
+    replay?: boolean;
   }): Promise<ScopedLoadCheckpoint> {
     const checkpoints = this.beforeRunCheckpoints;
     if (!checkpoints) {
@@ -4742,6 +4747,7 @@ export class FrozenDatasetHandler implements DomainHandler {
               request: parsed.checkpointFirst,
               muteAutomation: parsed.muteAutomation === true,
               conn,
+              replay: replay !== undefined,
             })
           : undefined;
       // What the load's question would make of what the target runs as it

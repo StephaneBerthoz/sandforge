@@ -1676,6 +1676,25 @@ describe('FrozenLoadRemoval of a replay of a checkpoint', () => {
     });
   });
 
+  it('says what the removal took back as a replay’s, never as a load’s', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} replay={REPLAY} />);
+    confirmRemoval();
+    answerRemoval('frozen:remove:response', {
+      result: {
+        ...PARTIAL,
+        objects: [{ ...PARTIAL.objects[1]!, heldByAutomation: 1, automationHolders: ['Task'] }],
+      },
+      operationId: 'req',
+    });
+
+    expect(screen.getByRole('heading', { name: /were removed from/ }).textContent).toBe(
+      'Records this replay created were removed from DEV-SANDBOX; the others stay, as listed.',
+    );
+    const said = screen.getByTestId('frozen-removal').textContent ?? '';
+    expect(said).toContain('1 record of this replay was kept');
+    expect(said).not.toMatch(/\bload\b|dataset/i);
+  });
+
   it('words a refusal of the replay’s removal as a replay’s', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} replay={REPLAY} />);
     confirmRemoval();

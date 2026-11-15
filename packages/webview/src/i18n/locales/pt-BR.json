@@ -3997,8 +3997,8 @@
       "step1": "Escolha uma sandbox, uma scratch org ou uma org Developer Edition na lista de orgs no topo.",
       "step2": "Clique em Criar um ponto de verificação, leia Antes de começar, clique em Criar o ponto de verificação e depois em Concluído.",
       "step3": "Para levar a org de volta a esse ponto, clique em Retroceder… na linha do ponto de verificação: a prévia não grava nada.",
-      "step4": "Marque as caixas que a prévia pedir e clique no botão Retroceder com o nome da org.",
-      "step5": "Digite o nome que a caixa de diálogo mostra e clique em Confirmar.",
+      "step4": "Marque as caixas que a prévia pedir, clique em Retroceder com o nome da org, digite-o e clique em Confirmar.",
+      "step5": "Org atualizada ou expirada? Reproduzir em outra org… na linha dela: Simular e depois Reproduzir.",
       "tip": "Retroceder desfaz as mudanças de todos desde o ponto de verificação, não só as suas. Desfazer este retrocesso fica disponível por até 15 dias."
     },
     "sync": {
@@ -4048,11 +4048,11 @@
       "tip": "Tendências fica vazia até o SandForge guardar dois snapshots dos limites; ele guarda no máximo um a cada 15 minutos, por 7 dias."
     },
     "automation": {
-      "step1": "Clique em Criar pipeline, no alto da página.",
-      "step2": "Em Etapas, clique em uma etapa como Pré-verificação para adicioná-la ao Canvas do pipeline.",
-      "step3": "Clique na etapa no canvas e preencha os campos dela em Configuração da etapa.",
-      "step4": "Clique em Salvar pipeline e depois em Executar pipeline quando nenhuma etapa estiver marcada Não executável.",
-      "step5": "Abra a aba Histórico para ver o que cada etapa da execução fez.",
+      "step1": "Clique em Criar pipeline e depois, em Etapas, em uma etapa como Pré-verificação.",
+      "step2": "Clique na etapa no canvas e preencha os campos dela em Configuração da etapa.",
+      "step3": "Clique em Salvar pipeline e depois em Executar pipeline quando nenhuma etapa estiver marcada Não executável.",
+      "step4": "Abra a aba Histórico para ver o que cada etapa da execução fez.",
+      "step5": "Para executá-lo com o VS Code fechado, clique em Exportar… e salve o arquivo e o iniciador.",
       "tip": "As etapas Sync, Seed, Anonimização e Retrocesso gravam em uma org. Seed e Anonimização nunca em produção; um Retrocesso é executado depois de confirmado."
     },
     "migration": {
@@ -7016,7 +7016,29 @@
     "heldSweepLeft": "A varredura os deixou: a lista dela diz por quê, e o que chegou tarde pode ser pedido.",
     "takeBackMade": "Recuperar o que a automação do destino fez para esta execução e remover novamente",
     "takeBackMadeNote": "Isso pega o que está vinculado aos registros desta execução. O que a automação alterou em registros que já estavam lá fica: só um retrocesso a um ponto de verificação recupera isso.",
-    "wholeOrgNotSwept": "Esta execução clonou a org inteira, e sua remoção foi feita sem Varrer primeiro: o que os Flows e gatilhos do destino criaram durante as horas da execução não está entre seus registros, não foi procurado e fica em {{org}}."
+    "wholeOrgNotSwept": "Esta execução clonou a org inteira, e sua remoção foi feita sem Varrer primeiro: o que os Flows e gatilhos do destino criaram durante as horas da execução não está entre seus registros, não foi procurado e fica em {{org}}.",
+    "replay": {
+      "resultSuccess": "Nenhum registro criado por esta reprodução ficou em {{org}}.",
+      "resultPartial": "Registros criados por esta reprodução foram removidos de {{org}}; os demais ficam, como listado.",
+      "resultFailure": "Nenhum registro criado por esta reprodução foi removido de {{org}}.",
+      "resultSweepLeft": "Nenhum registro criado por esta reprodução ficou em {{org}}, mas a varredura não recuperou tudo o que foi pedido, como listado abaixo.",
+      "resultChanged_one": "{{formatted}} mantido, alterado desde a reprodução",
+      "resultChanged_other": "{{formatted}} mantidos, alterados desde a reprodução",
+      "resultTookAlong_one": "Também levou {{formatted}} registro que não era da reprodução, adicionado ou alterado desde então: {{objects}}",
+      "resultTookAlong_other": "Também levou {{formatted}} registros que não eram da reprodução, adicionados ou alterados desde então: {{objects}}",
+      "resultCameAlong_one": "Também levou {{formatted}} registro que a reprodução não gravou, criado com seus registros enquanto ela gravava: {{objects}}",
+      "resultCameAlong_other": "Também levou {{formatted}} registros que a reprodução não gravou, criados com seus registros enquanto ela gravava: {{objects}}",
+      "resultFilesLeft_one": "{{formatted}} arquivo anexado a eles fica em {{org}}, pois a reprodução não o criou: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois a reprodução não os criou: {{names}}",
+      "heldByAutomation_one": "{{formatted}} registro desta reprodução foi mantido por registros criados sob ele durante a reprodução, como o usuário dela, provavelmente pela automação do destino: {{objects}}.",
+      "heldByAutomation_other": "{{formatted}} registros desta reprodução foram mantidos por registros criados sob eles durante a reprodução, como o usuário dela, provavelmente pela automação do destino: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} registro desta reprodução foi mantido por registros criados sob ele como o usuário dela depois da última gravação da reprodução, menos de um minuto depois dele, pela automação do destino ou à mão: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} registros desta reprodução foram mantidos por registros criados sob eles como o usuário dela depois da última gravação da reprodução, menos de um minuto depois deles, pela automação do destino ou à mão: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} registro desta reprodução foi mantido por registros criados sob ele como o usuário dela, durante a reprodução ou depois da última gravação dela menos de um minuto depois do registro, pela automação do destino ou à mão: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} registros desta reprodução foram mantidos por registros criados sob eles como o usuário dela durante a reprodução ou, sob {{after}} deles, depois da última gravação da reprodução, menos de um minuto depois deles, pela automação do destino ou à mão: {{objects}}.",
+      "takeBackMade": "Recuperar o que a automação do destino fez para esta reprodução e remover novamente",
+      "takeBackMadeNote": "Isso pega o que está vinculado aos registros desta reprodução. O que a automação alterou em registros que já estavam lá fica: só um retrocesso a um ponto de verificação recupera isso."
+    }
   },
   "orgAutomation": {
     "assistant": {
@@ -8017,7 +8039,8 @@
         "seed": "Antes da execução do Seed",
         "autopilot": "Antes da execução do Autopilot",
         "frozen": "Antes da carga do Dataset congelado",
-        "empty": "Antes de esvaziar objetos"
+        "empty": "Antes de esvaziar objetos",
+        "replay": "Antes da reprodução de um ponto de verificação"
       }
     },
     "rename": {

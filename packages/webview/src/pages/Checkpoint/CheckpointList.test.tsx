@@ -469,12 +469,13 @@ describe('CheckpointList', () => {
     );
   });
 
-  it('names Forge, Sync, Seed and Autopilot runs alike, and nothing on a checkpoint no run took', () => {
+  it('names Forge, Sync, Seed and Autopilot runs and checkpoint replays alike, and nothing on a checkpoint no run took', () => {
     for (const [module, words] of [
       ['forge', 'Before Forge run'],
       ['sync', 'Before Sync run'],
       ['seed', 'Before Seed run'],
       ['autopilot', 'Before Autopilot run'],
+      ['replay', 'Before checkpoint replay'],
     ] as const) {
       const { unmount } = render(
         <CheckpointList

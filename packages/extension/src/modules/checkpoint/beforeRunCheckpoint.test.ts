@@ -693,6 +693,8 @@ describe('what a take before a run is asked', () => {
     });
     expect(beforeRunNameOf('forge')).toBe('Before Forge run {date}');
     expect(beforeRunNameOf('autopilot')).toBe('Before Autopilot run {date}');
+    // A replay is a Frozen load of a checkpoint, and is named as what it is.
+    expect(beforeRunNameOf('replay')).toBe('Before checkpoint replay {date}');
   });
 
   it('keeps it the days asked, else the setting’s, else seven; a setting outside its bounds is not set, a request outside them refused', () => {

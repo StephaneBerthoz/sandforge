@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordTypeGiven } from '@sandforge/shared';
 import {
+  DATASET_WORDS,
   discoveryLine,
   frozenInterruptedLine,
   frozenRecordTypeLines,
@@ -653,6 +654,51 @@ describe('messageLines — a selection as it runs', () => {
       '  never probed: origin=Phone, origin=Web',
       "volumetry 12 / 400 record(s) — each kept root's own records added up: they were not measured together",
       '  Case: 1',
+    ]);
+  });
+});
+
+describe('messageLines — a verification in the words of what ran', () => {
+  const verdict = {
+    type: 'frozen:verify:result',
+    payload: {
+      verdict: {
+        status: 'failed',
+        checks: [
+          {
+            name: 'load',
+            passed: false,
+            detail:
+              '2 record(s) not loaded: 2 refused by the target org. Objects the load wrote none ' +
+              'of — Contact (2 not loaded); 1 record(s) not loadable, as the preview said — ' +
+              'Asset (1)',
+          },
+          { name: 'counts', passed: true, detail: 'All object counts match the counting contract' },
+        ],
+      },
+    },
+  };
+
+  it('says a load’s check as the verifier words it', () => {
+    expect(messageLines(verdict)).toEqual([
+      'verification: FAILED',
+      '  FAIL load: 2 record(s) not loaded: 2 refused by the target org. Objects the load wrote ' +
+        'none of — Contact (2 not loaded); 1 record(s) not loadable, as the preview said — Asset (1)',
+      '  ok   counts: All object counts match the counting contract',
+    ]);
+  });
+
+  it('says a replay’s check as a replay’s: a replay is no load', () => {
+    // `sandforge checkpoint replay` printed "ok   load: Every record the load
+    // had to write went in" under every replay it verified.
+    const replay = { ...DATASET_WORDS, run: 'replay', done: 'replayed', module: 'replay' };
+
+    expect(messageLines(verdict, {}, replay)).toEqual([
+      'verification: FAILED',
+      '  FAIL replay: 2 record(s) not replayed: 2 refused by the target org. Objects the replay ' +
+        'wrote none of — Contact (2 not replayed); 1 record(s) not replayable, as the preview ' +
+        'said — Asset (1)',
+      '  ok   counts: All object counts match the counting contract',
     ]);
   });
 });

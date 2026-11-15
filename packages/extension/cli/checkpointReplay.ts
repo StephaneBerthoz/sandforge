@@ -540,6 +540,8 @@ function replayWordsOf(name: string): FrozenWords {
     recordedIn: 'for this checkpoint on this machine',
     remove: '--remove',
     module: 'replay',
+    again: 'again',
+    againSubject: { purge: 'replayAgain', sweep: 'replayAgainSweep' },
     maybeMasks:
       'the checkpoint does not say whether its take read them unmasked, so they may hold the ' +
       'masks a user without View Encrypted Data reads, such as ****1234',

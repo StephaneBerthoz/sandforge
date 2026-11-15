@@ -1426,6 +1426,56 @@ describe('the words of what a removal runs into', () => {
     expect(`${fires.refusal ?? ''}${unread.refusal ?? ''}`).not.toContain('removal');
   });
 
+  it('says a replay run again over the replays before in a replay’s words, its purge and its sweep', () => {
+    // `sandforge checkpoint replay --again` said "reload automation: … what
+    // earlier loads created" of the records its earlier replays created.
+    const fires = removalAutomation(
+      { read: automationOn(['Asset'], false), steps: { setToDraft: [], delete: ['Asset'] } },
+      'TGT',
+      'replayAgain',
+      { delete: ['Case'] },
+    );
+    const unread = removalAutomation(
+      { read: { unread: 'timed out' }, steps: { delete: ['Asset'] } },
+      'TGT',
+      'replayAgain',
+    );
+    const sweepAlone = removalAutomation(
+      { read: automationOn(['Task'], false), steps: { setToDraft: [], delete: ['Task'] } },
+      'TGT',
+      'replayAgainSweep',
+    );
+
+    expect(fires.lines).toEqual([
+      'replay automation: what TGT runs as the replay purges what earlier replays created',
+      '  Asset: before delete: flow "Asset guard"',
+      "replay automation: what TGT runs as the replay's sweep deletes what the target's automation made for the replays it replaces",
+      '  nothing fires on the 1 object(s) it deletes records of',
+    ]);
+    expect(fires.refusal).toBe(
+      `TGT runs automation on the records this replay's purge deletes: Asset: flow "Asset guard" (before delete). ` +
+        'With --mute-automation, the replay assigns Data_Load to the user it writes as for the ' +
+        'replay alone, under a lease, and what it keeps quiet does not fire. Nothing was written ' +
+        'or deleted. Add --accept-automation to replay again all the same, or turn that ' +
+        'automation off in TGT first.',
+    );
+    expect(unread.lines).toEqual(['replay automation: what TGT runs could not be read: timed out']);
+    expect(unread.refusal).toBe(
+      "What TGT runs as this replay's purge writes could not be read (timed out), so what fires " +
+        'as the records go is not known. Nothing was written or deleted. Add --accept-automation ' +
+        'to replay again all the same, or turn that automation off in TGT first.',
+    );
+    expect(sweepAlone.lines).toEqual([
+      "replay automation: what TGT runs as the replay's sweep deletes what the target's automation made for the replays it replaces",
+      '  nothing fires on the 1 object(s) it deletes records of',
+    ]);
+    const said = [fires, unread, sweepAlone].flatMap(({ lines, refusal }) => [
+      ...lines,
+      refusal ?? '',
+    ]);
+    expect(said.join('\n')).not.toMatch(/\breload|\bloads?\b|removal/);
+  });
+
   it('names what fires on what a reload’s sweep deletes as the sweep’s, apart from its purge’s', () => {
     // Run for real on the trap org, the sweep's question said "this
     // reload's purge deletes: Task", tasks the sweep took and the purge

@@ -35,6 +35,19 @@ vi.mock('../src/modules/frozendataset/index.js', async (importOriginal) => {
   };
 });
 
+/** The module each checkpoint a command takes first is asked for: what names it in the list. */
+const checkpointsFor = vi.hoisted(() => [] as string[]);
+vi.mock('./beforeRunCheckpoint.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./beforeRunCheckpoint.js')>();
+  return {
+    ...actual,
+    commandCheckpoints: (input: Parameters<typeof actual.commandCheckpoints>[0]) => {
+      checkpointsFor.push(input.module);
+      return actual.commandCheckpoints(input);
+    },
+  };
+});
+
 import { loadOrg, makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
@@ -599,6 +612,17 @@ describe('sandforge checkpoint replay', () => {
     expect(stdout).toContain('removal: SUCCESS');
   });
 
+  it('asks the checkpoint it takes first in the other org as a replay’s, never as a Frozen load’s', async () => {
+    const world = await made();
+    checkpointsFor.splice(0);
+
+    await run(world, ...of(world, '--dry-run', '--checkpoint-first'));
+
+    // Named "Before checkpoint replay …" in the list of the other org's checkpoints.
+    expect(checkpointsFor).toEqual(['replay']);
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+  });
+
   it('replays again over what it created alone, its counts the same', async () => {
     const world = await made();
     expect(await run(world, ...of(world, '--yes'))).toBe(0);
@@ -606,6 +630,19 @@ describe('sandforge checkpoint replay', () => {
     expect(await run(world, ...of(world, '--again', '--yes'))).toBe(0);
 
     expect(held(world)).toEqual({ accounts: 3, contacts: 6 });
+  });
+
+  it('says a replay again in a replay’s words, never as a reload of earlier loads', async () => {
+    const world = await made();
+    expect(await run(world, ...of(world, '--yes'))).toBe(0);
+    let said = '';
+    for (const line of [of(world, '--again', '--dry-run'), of(world, '--again', '--yes')]) {
+      await run(world, ...line);
+      said += stdout + stderr;
+    }
+
+    expect(said).toContain('replay: completed');
+    expect(said).not.toMatch(/\bloads?\b|\breload|\bloaded\b|dataset/i);
   });
 
   it('keeps the replays of a store --store names in that store, and names it in the command that takes them back', async () => {

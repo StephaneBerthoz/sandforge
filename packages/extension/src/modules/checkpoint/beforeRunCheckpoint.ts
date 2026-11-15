@@ -549,6 +549,8 @@ const RUN_WORDS: Readonly<Record<CheckpointBeforeRunModule, string>> = {
   autopilot: 'Autopilot run',
   frozen: 'Frozen Dataset load',
   empty: 'emptying',
+  // A replay goes through the Frozen load, and is no load of a dataset.
+  replay: 'checkpoint replay',
 };
 
 /**

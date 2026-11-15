@@ -30,12 +30,13 @@ import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
 import { ForgeRemovalSweep, ForgeRunSweepResult, type SweepTicks } from './ForgeRemovalSweep';
 
 /**
- * What a removal takes back — a Forge run, a Frozen load, what was added to
- * an org since a checkpoint its rewind deletes, or what a rewind brought back
- * that its undo sends back to the recycle bin — which is all its result's
- * words change with: the removal is the same.
+ * What a removal takes back — a Forge run, a Frozen load, a checkpoint's
+ * replay into another org (a Frozen load of the checkpoint, never said as a
+ * load), what was added to an org since a checkpoint its rewind deletes, or
+ * what a rewind brought back that its undo sends back to the recycle bin —
+ * which is all its result's words change with: the removal is the same.
  */
-export type RemovalSubject = 'run' | 'load' | 'rewind' | 'rewindUndo';
+export type RemovalSubject = 'run' | 'load' | 'replay' | 'rewind' | 'rewindUndo';
 
 /** What a removal's result says first, by what it took back and how it ended. */
 const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>> = {
@@ -50,6 +51,12 @@ const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>>
     partial: 'runRemoval.load.resultPartial',
     failure: 'runRemoval.load.resultFailure',
     // Says nothing of what was taken back.
+    cancelled: 'runRemoval.resultCancelled',
+  },
+  replay: {
+    success: 'runRemoval.replay.resultSuccess',
+    partial: 'runRemoval.replay.resultPartial',
+    failure: 'runRemoval.replay.resultFailure',
     cancelled: 'runRemoval.resultCancelled',
   },
   rewind: {
@@ -74,6 +81,7 @@ const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>>
 const SWEEP_LEFT_KEYS: Partial<Record<RemovalSubject, string>> = {
   run: 'runRemoval.resultSweepLeft',
   load: 'runRemoval.load.resultSweepLeft',
+  replay: 'runRemoval.replay.resultSweepLeft',
 };
 
 /** Whether a removal's own records all went: partial then, its sweep made it so. */
@@ -88,6 +96,7 @@ function tookAllItsRecords(objects: readonly ForgeUndoObjectResult[]): boolean {
 const CHANGED_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultChanged',
   load: 'runRemoval.load.resultChanged',
+  replay: 'runRemoval.replay.resultChanged',
   rewind: 'runRemoval.rewind.resultChanged',
   rewindUndo: 'runRemoval.rewindUndo.resultChanged',
 };
@@ -99,6 +108,7 @@ const CHANGED_KEYS: Record<RemovalSubject, string> = {
 const TOOK_ALONG_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultTookAlong',
   load: 'runRemoval.load.resultTookAlong',
+  replay: 'runRemoval.replay.resultTookAlong',
   rewind: 'runRemoval.rewind.resultTookAlong',
   rewindUndo: 'runRemoval.rewindUndo.resultTookAlong',
 };
@@ -110,6 +120,7 @@ const TOOK_ALONG_KEYS: Record<RemovalSubject, string> = {
 const CAME_ALONG_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultCameAlong',
   load: 'runRemoval.load.resultCameAlong',
+  replay: 'runRemoval.replay.resultCameAlong',
   rewind: 'runRemoval.rewind.resultCameAlong',
   rewindUndo: 'runRemoval.rewindUndo.resultCameAlong',
 };
@@ -118,6 +129,7 @@ const CAME_ALONG_KEYS: Record<RemovalSubject, string> = {
 const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultFilesLeft',
   load: 'runRemoval.load.resultFilesLeft',
+  replay: 'runRemoval.replay.resultFilesLeft',
   rewind: 'runRemoval.rewind.resultFilesLeft',
   rewindUndo: 'runRemoval.rewindUndo.resultFilesLeft',
 };
@@ -165,6 +177,13 @@ const AUTOMATION_HELD_KEYS: Partial<
     heldPartlyAfter: 'runRemoval.load.heldByAutomationPartlyAfter',
     takeBack: 'runRemoval.load.takeBackMade',
     note: 'runRemoval.load.takeBackMadeNote',
+  },
+  replay: {
+    held: 'runRemoval.replay.heldByAutomation',
+    heldAfter: 'runRemoval.replay.heldByAutomationAfter',
+    heldPartlyAfter: 'runRemoval.replay.heldByAutomationPartlyAfter',
+    takeBack: 'runRemoval.replay.takeBackMade',
+    note: 'runRemoval.replay.takeBackMadeNote',
   },
 };
 

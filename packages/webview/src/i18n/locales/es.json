@@ -3997,8 +3997,8 @@
       "step1": "Elija un sandbox, una scratch org o una org Developer Edition en la lista de orgs de arriba.",
       "step2": "Haga clic en Crear un punto de control, lea Antes de empezar, haga clic en Crear el punto de control y luego en Hecho.",
       "step3": "Para devolver la org a ese punto, haga clic en Retroceder… en la fila del punto de control: la vista previa no escribe nada.",
-      "step4": "Marque las casillas que pida la vista previa y haga clic en el botón Retroceder con el nombre de la org.",
-      "step5": "Escriba el nombre que muestra el cuadro de diálogo y haga clic en Confirmar.",
+      "step4": "Marque las casillas que pida la vista previa, haga clic en Retroceder con el nombre de la org, escríbalo y haga clic en Confirmar.",
+      "step5": "¿Org actualizada o caducada? Reproducir en otra org… en su fila: Simular y luego Reproducir.",
       "tip": "Retroceder deshace los cambios de todos desde el punto de control, no solo los suyos. Deshacer este retroceso sigue disponible durante 15 días como máximo."
     },
     "sync": {
@@ -4048,11 +4048,11 @@
       "tip": "Tendencias sigue vacía hasta que SandForge haya guardado dos instantáneas de los límites; guarda como máximo una cada 15 minutos, durante 7 días."
     },
     "automation": {
-      "step1": "Haga clic en Crear pipeline, arriba en la página.",
-      "step2": "En Pasos, haga clic en un paso como Pre-verificación para agregarlo al Canvas del pipeline.",
-      "step3": "Haga clic en el paso en el canvas y complete sus campos en Configuración del paso.",
-      "step4": "Haga clic en Guardar pipeline y luego en Ejecutar pipeline cuando ningún paso esté marcado No ejecutable.",
-      "step5": "Abra la pestaña Historial para leer lo que hizo cada paso de la ejecución.",
+      "step1": "Haga clic en Crear pipeline y luego, en Pasos, en un paso como Pre-verificación.",
+      "step2": "Haga clic en el paso en el canvas y complete sus campos en Configuración del paso.",
+      "step3": "Haga clic en Guardar pipeline y luego en Ejecutar pipeline cuando ningún paso esté marcado No ejecutable.",
+      "step4": "Abra la pestaña Historial para leer lo que hizo cada paso de la ejecución.",
+      "step5": "Para ejecutarlo con VS Code cerrado, haga clic en Exportar… y guarde el archivo y su lanzador.",
       "tip": "Los pasos Sync, Seed, Anonimización y Retroceso escriben en una org. Seed y Anonimización nunca en producción; un Retroceso se ejecuta una vez confirmado."
     },
     "migration": {
@@ -7016,7 +7016,29 @@
     "heldSweepLeft": "El barrido los dejó: su lista dice por qué, y lo que llegó tarde se puede pedir.",
     "takeBackMade": "Recuperar lo que la automatización del destino hizo para esta ejecución y eliminar de nuevo",
     "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta ejecución. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera.",
-    "wholeOrgNotSwept": "Esta ejecución clonó toda la org, y su retirada se hizo sin Barrer primero: lo que los Flows y desencadenadores del destino crearon durante las horas de la ejecución no está entre sus registros, no se buscó y se queda en {{org}}."
+    "wholeOrgNotSwept": "Esta ejecución clonó toda la org, y su retirada se hizo sin Barrer primero: lo que los Flows y desencadenadores del destino crearon durante las horas de la ejecución no está entre sus registros, no se buscó y se queda en {{org}}.",
+    "replay": {
+      "resultSuccess": "No queda en {{org}} ningún registro creado por esta reproducción.",
+      "resultPartial": "Se eliminaron de {{org}} registros creados por esta reproducción; los demás se quedan, como se indica.",
+      "resultFailure": "No se eliminó de {{org}} ningún registro creado por esta reproducción.",
+      "resultSweepLeft": "No queda en {{org}} ningún registro creado por esta reproducción, pero el barrido no recuperó todo lo que se le pidió, como se indica abajo.",
+      "resultChanged_one": "{{formatted}} conservado, modificado desde la reproducción",
+      "resultChanged_other": "{{formatted}} conservados, modificados desde la reproducción",
+      "resultTookAlong_one": "También se llevó {{formatted}} registro que no era de la reproducción, añadido o modificado desde entonces: {{objects}}",
+      "resultTookAlong_other": "También se llevó {{formatted}} registros que no eran de la reproducción, añadidos o modificados desde entonces: {{objects}}",
+      "resultCameAlong_one": "También se llevó {{formatted}} registro que la reproducción no escribió, creado con sus registros mientras escribía: {{objects}}",
+      "resultCameAlong_other": "También se llevó {{formatted}} registros que la reproducción no escribió, creados con sus registros mientras escribía: {{objects}}",
+      "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que la reproducción no lo creó: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la reproducción no los creó: {{names}}",
+      "heldByAutomation_one": "{{formatted}} registro de esta reproducción se conservó por registros creados bajo él durante la reproducción, como su usuario, probablemente por la automatización del destino: {{objects}}.",
+      "heldByAutomation_other": "{{formatted}} registros de esta reproducción se conservaron por registros creados bajo ellos durante la reproducción, como su usuario, probablemente por la automatización del destino: {{objects}}.",
+      "heldByAutomationAfter_one": "{{formatted}} registro de esta reproducción se conservó por registros creados bajo él como su usuario después de la última escritura de la reproducción, menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationAfter_other": "{{formatted}} registros de esta reproducción se conservaron por registros creados bajo ellos como su usuario después de la última escritura de la reproducción, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationPartlyAfter_one": "{{formatted}} registro de esta reproducción se conservó por registros creados bajo él como su usuario, durante la reproducción o después de su última escritura menos de un minuto después de él, por la automatización del destino o a mano: {{objects}}.",
+      "heldByAutomationPartlyAfter_other": "{{formatted}} registros de esta reproducción se conservaron por registros creados bajo ellos como su usuario durante la reproducción o, bajo {{after}} de ellos, después de la última escritura de la reproducción, menos de un minuto después de ellos, por la automatización del destino o a mano: {{objects}}.",
+      "takeBackMade": "Recuperar lo que la automatización del destino hizo para esta reproducción y eliminar de nuevo",
+      "takeBackMadeNote": "Esto toma lo vinculado a los registros de esta reproducción. Lo que la automatización modificó en registros que ya estaban se queda: solo un retroceso a un punto de control lo recupera."
+    }
   },
   "orgAutomation": {
     "assistant": {
@@ -8017,7 +8039,8 @@
         "seed": "Antes de la ejecución de Seed",
         "autopilot": "Antes de la ejecución de Autopilot",
         "frozen": "Antes de la carga de Dataset congelado",
-        "empty": "Antes de vaciar objetos"
+        "empty": "Antes de vaciar objetos",
+        "replay": "Antes de reproducir un punto de control"
       }
     },
     "rename": {

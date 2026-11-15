@@ -79,7 +79,12 @@ export type CheckpointBeforeRunModule =
   | 'autopilot'
   | 'frozen'
   /** An emptying of objects, or of the whole org, of DataOps Cleanup. */
-  | 'empty';
+  | 'empty'
+  /**
+   * A checkpoint's records set up again in another org: a Frozen load of
+   * the checkpoint, said as its replay, never as a load of a dataset.
+   */
+  | 'replay';
 
 /**
  * Where a checkpoint taken before a run comes from (`Checkpoint first`): the

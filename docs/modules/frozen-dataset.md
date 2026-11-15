@@ -100,6 +100,17 @@ pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove --config frozen.
 pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load --config frozen.json --target MY-DEV --reload --dry-run
 ```
 
+### A checkpoint replayed through the load
+
+A checkpoint replayed into another org -- **Replay in another org…** on the Checkpoints page, or `sandforge checkpoint replay` ([Replay in another org](checkpoint.md#replay-in-another-org)) -- is a load of this module's engine, the checkpoint converted in memory in the place of a dataset and never written to disk. The entry guards (a sandbox, a scratch org or a Developer Edition org; a production org and a sandbox marked Staging refused), the schema alignment, the person accounts, the standard catalog, the statuses, the two passes of the insert, the gates on what the target runs, the emails it delivers, its data storage and its API requests, the mute, **Checkpoint first** -- named **Before checkpoint replay** --, the verification against a counting contract, and the removal with its sweep are the load's. What changes for Frozen:
+
+- **No dataset**: a replay reads no manifest, no rules file and no salt, and pseudonymizes nothing. Its records are the checkpoint's, their emails and phone numbers made unreachable unless kept, masked by Forge's detector of personal data when asked, and always for a checkpoint that may hold real data.
+- **Not the project's**: a replay never reads nor writes the project's configuration, nor the **Load** tab's **Last load**. Its mapping and its counting contract, one per target org, are kept in the folder of the checkpoint's replays -- `replays/<Organization Id of the checkpoint's org>/<checkpoint id>/` in `~/.sandforge`, or in the folder `SANDFORGE_JOURNAL_DIR` names -- never in the sas, and outlive the checkpoint. The Checkpoints page lists its replays; the Load tab does not.
+- **Its own entry**: the audit trail records it as a Checkpoint replay, never as a Frozen load, with what the checkpoint's org was and whether the replay masked.
+- **Its configuration, when given**: `--replay-config <file.json>` hands a replay the load's part of a project's configuration -- `requiredFieldDefaults`, `requiredLookupPlaceholders`, `picklistRules`, `defaultPicklistRule`, `identityKeys`, `undeletableObjects`, `duplicateErrorPatterns`, `mockDetection` and `protectedOrgIds` -- for that replay alone; without it, none of them. The panel's replay takes none.
+- **Its own words and command**: `sandforge frozen` takes no checkpoint. `sandforge checkpoint replay` runs the load, and says a replay, a checkpoint and earlier replays where a load says a load, a dataset and earlier loads; `--again` is its reload.
+- **Its bound**: 100,000 records in one replay, every object together, where a dataset's volume budget starts at 2,500.
+
 ### Configuration
 
 Per-project configuration persisted by the extension (main keys):
