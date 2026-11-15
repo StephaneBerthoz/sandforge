@@ -36,8 +36,13 @@ import { KPICard } from '../../components/ui/KPICard';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { BackupPanel } from './BackupPanel';
 import { RestorePanel, type RestoreCounts } from './RestorePanel';
-import { AnonymizePanel } from './AnonymizePanel';
-import { CleanupPanel, CompliancePanel, EmptyPanel, QualityPanel } from './dataOpsParts';
+import {
+  AnonymizePanel,
+  CleanupPanel,
+  CompliancePanel,
+  EmptyPanel,
+  QualityPanel,
+} from './dataOpsParts';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import {
   accordPayloadOf,

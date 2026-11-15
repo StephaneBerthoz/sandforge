@@ -35,6 +35,7 @@ import {
   routeFirstPaint,
   shellEnglishOutsideBase,
   staticBundleFiles,
+  zodGaps,
   zodJitlessVerdict,
 } from './check-webview-assets.mjs';
 
@@ -355,15 +356,59 @@ test('it finds a namespace every panel starts with in a chunk outside the base, 
   );
 });
 
-test('a page may parse no more than 1 MB before it paints, and only four pages may parse zod', () => {
+test('a page may parse no more than 1 MB before it paints, and only three pages may parse zod', () => {
   assert.equal(PAGE_FIRST_PAINT_BUDGET, 1_000_000);
-  assert.deepEqual([...PAGES_THAT_VALIDATE.keys()].sort(), [
-    'automation',
-    'dataops',
-    'forge',
-    'migration',
-  ]);
+  assert.deepEqual([...PAGES_THAT_VALIDATE.keys()].sort(), ['automation', 'forge', 'migration']);
   assert.ok(!PAGES_THAT_VALIDATE.has('home'), 'Home reads a record id, and validates nothing');
+  assert.ok(
+    !PAGES_THAT_VALIDATE.has('dataops'),
+    'DataOps opens on Backup, and loads its Anonymize tab, beside whose constants the template schema is built, once opened',
+  );
+});
+
+/*
+ * DataOps was on the list from its first day (1.64.0), and parsed zod's 97 kB
+ * before it painted though nothing it ran there checked a value against a
+ * schema: a list held to nothing in the build let it through.
+ */
+test('it lets a page parse zod only where it is listed and checks a value against a schema before it paints', () => {
+  const built = new Map([
+    // zod's own chunk defines the checks, and calls them inside itself.
+    ['assets/chunks/zod.js', 'var t=e(`$ZodType`,()=>{});o.safeParse=(n)=>i.safeParse(o,n);'],
+    ['assets/chunks/Form.js', 'import"./zod.js";const r=s.safeParse(v);'],
+    ['assets/chunks/Plain.js', 'const r=JSON.parse(v);'],
+  ]);
+  const read = (path) => built.get(path);
+  const validating = new Map([
+    ['forge', 'a filter typed in'],
+    ['dataops', 'a masking template'],
+    ['migration', 'the configuration edited'],
+    ['ghost', 'nothing'],
+  ]);
+  const gaps = zodGaps(
+    [
+      { route: 'forge', files: ['assets/chunks/zod.js', 'assets/chunks/Form.js'] },
+      { route: 'home', files: ['assets/chunks/zod.js', 'assets/chunks/Plain.js'] },
+      { route: 'dataops', files: ['assets/chunks/zod.js', 'assets/chunks/Plain.js'] },
+      { route: 'migration', files: ['assets/chunks/Plain.js'] },
+      { route: 'help', files: ['assets/chunks/Plain.js'] },
+    ],
+    read,
+    validating,
+  );
+  assert.equal(gaps.length, 4, gaps.join('\n'));
+  assert.match(gaps[0], /^the "home" page parses zod \(assets\/chunks\/zod\.js\) before it paints/);
+  // Listed, zod parsed, and only zod's own chunk and a JSON.parse call a check.
+  assert.match(
+    gaps[1],
+    /PAGES_THAT_VALIDATE lets the "dataops" page parse zod for a masking template, and nothing it parses before it paints checks a value against a schema/,
+  );
+  // Listed, and neither zod nor a check is left: the entry is stale.
+  assert.match(
+    gaps[2],
+    /lets the "migration" page parse zod for the configuration edited, and nothing/,
+  );
+  assert.match(gaps[3], /PAGES_THAT_VALIDATE names "ghost", which is no route of the panel/);
 });
 
 test('the English catalogue gives most of its namespaces a sentence to be found by', () => {

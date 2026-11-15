@@ -267,6 +267,16 @@ vi.mock('../../stores/useAppStore', () => ({
     }),
 }));
 
+/**
+ * Open the Anonymize tab, and wait for its panel: a chunk of its own, fetched
+ * the first time the tab is opened (dataOpsParts.tsx), so it is drawn a moment
+ * after the click rather than with it.
+ */
+async function openAnonymizeTab(): Promise<void> {
+  fireEvent.click(screen.getByText('Anonymize'));
+  await screen.findByTestId('anonymize-panel');
+}
+
 describe('DataOpsPage', () => {
   it('waits as long as an anonymize run takes to mask every row, not two minutes', () => {
     render(<DataOpsPage />);
@@ -536,7 +546,7 @@ describe('DataOpsPage', () => {
       });
     });
 
-    it('backs up the objects of the template picked on the Anonymize tab', () => {
+    it('backs up the objects of the template picked on the Anonymize tab', async () => {
       mockTemplatesQueryState = {
         data: {
           templates: [
@@ -564,7 +574,7 @@ describe('DataOpsPage', () => {
       };
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
       fireEvent.click(screen.getByText('Backup'));
 
@@ -576,7 +586,7 @@ describe('DataOpsPage', () => {
       expect(mockBackupMutate).toHaveBeenCalledWith({ orgId: 'org-1', objects: ['Lead'] });
     });
 
-    it('backs up the objects the host plans for the masking, Account with a template masking contacts in an org with person accounts', () => {
+    it('backs up the objects the host plans for the masking, Account with a template masking contacts in an org with person accounts', async () => {
       mockTemplatesQueryState = {
         data: {
           templates: [
@@ -611,7 +621,7 @@ describe('DataOpsPage', () => {
         objects: ['Contact', 'Lead', 'Account'],
       });
 
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), {
         target: { value: 'tpl-ccpa' },
       });
@@ -664,10 +674,10 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('restore-panel')).toBeDefined();
   });
 
-  it('should switch to anonymize tab', () => {
+  it('should switch to anonymize tab', async () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Anonymize'));
+    await openAnonymizeTab();
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
   });
 
@@ -1054,7 +1064,7 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('backup-op-1')).toBeDefined();
     });
 
-    it('should keep the anonymize templates visible while the backups query is still in flight', () => {
+    it('should keep the anonymize templates visible while the backups query is still in flight', async () => {
       mockBackupsQueryState = loading();
       mockTemplatesQueryState = {
         data: { templates: [] },
@@ -1063,7 +1073,7 @@ describe('DataOpsPage', () => {
         refetch: vi.fn(),
       };
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(screen.getByTestId('anonymize-panel')).toBeDefined();
@@ -1099,7 +1109,7 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('dataops-content').hasAttribute('aria-busy')).toBe(false);
     });
 
-    it('keeps the Anonymize panel drawn while its templates are read again after a save', () => {
+    it('keeps the Anonymize panel drawn while its templates are read again after a save', async () => {
       mockTemplatesQueryState = {
         data: { templates: [] },
         loading: false,
@@ -1107,7 +1117,7 @@ describe('DataOpsPage', () => {
         refetch: vi.fn(),
       };
       const { rerender } = render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       const panel = screen.getByTestId('anonymize-panel');
 
       mockTemplatesQueryState = { ...mockTemplatesQueryState, loading: true };
@@ -1184,7 +1194,7 @@ describe('DataOpsPage', () => {
     };
 
     /** Open the anonymize tab with one template picked. */
-    const openTemplate = () => {
+    const openTemplate = async () => {
       mockTemplatesQueryState = {
         data: templateList,
         loading: false,
@@ -1193,12 +1203,12 @@ describe('DataOpsPage', () => {
       };
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
     };
 
-    it('previews through a request of its own, which masks nothing, for the org and template on screen', () => {
-      openTemplate();
+    it('previews through a request of its own, which masks nothing, for the org and template on screen', async () => {
+      await openTemplate();
 
       // onPreview and onApply were the same handler, so the button labelled
       // "Preview" masked the org's records irreversibly.
@@ -1208,7 +1218,7 @@ describe('DataOpsPage', () => {
       expect(mockAnonymizeMutate).not.toHaveBeenCalled();
     });
 
-    it('shows what the preview answered, original beside masked', () => {
+    it('shows what the preview answered, original beside masked', async () => {
       mockPreviewMutationState = {
         ...mockPreviewMutationState,
         data: {
@@ -1229,14 +1239,14 @@ describe('DataOpsPage', () => {
           fieldsNotFound: [],
         },
       };
-      openTemplate();
+      await openTemplate();
 
       expect(screen.getByTestId('preview-object-Contact').textContent).toContain('ada@example.org');
       expect(screen.getByTestId('preview-object-Contact').textContent).toContain('***@*******.***');
     });
 
-    it('lets go of a preview when the org changes, and when a run masks what it showed', () => {
-      openTemplate();
+    it('lets go of a preview when the org changes, and when a run masks what it showed', async () => {
+      await openTemplate();
       mockPreviewReset.mockClear();
 
       act(() => {
@@ -1253,8 +1263,8 @@ describe('DataOpsPage', () => {
       expect(mockPreviewReset).toHaveBeenCalledTimes(2);
     });
 
-    it('should require a typed confirmation before sending dataops:anonymize', () => {
-      openTemplate();
+    it('should require a typed confirmation before sending dataops:anonymize', async () => {
+      await openTemplate();
 
       fireEvent.click(screen.getByTestId('apply-btn'));
       expect(mockAnonymizeMutate).not.toHaveBeenCalled();
@@ -1274,14 +1284,14 @@ describe('DataOpsPage', () => {
       });
     });
 
-    it('stops a masking run by the id of its request', () => {
+    it('stops a masking run by the id of its request', async () => {
       mockAbortMutate.mockClear();
       mockAnonymizeMutationState = {
         ...mockAnonymizeMutationState,
         loading: true,
         requestId: 'req-mask-1',
       } as typeof mockAnonymizeMutationState;
-      openTemplate();
+      await openTemplate();
 
       fireEvent.click(screen.getByTestId('anonymize-stop'));
 
@@ -1289,7 +1299,7 @@ describe('DataOpsPage', () => {
       expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-mask-1' });
     });
 
-    it('opens Restore on the snapshot a masking run took, listed with the backups', () => {
+    it('opens Restore on the snapshot a masking run took, listed with the backups', async () => {
       mockAnonymizeMutationState = {
         ...mockAnonymizeMutationState,
         data: {
@@ -1298,7 +1308,7 @@ describe('DataOpsPage', () => {
           snapshot: { operationId: 'req-mask-1-snapshot', totalRecords: 3 },
         },
       };
-      openTemplate();
+      await openTemplate();
       // The snapshot is a backup of the org: the list is read again to hold it.
       expect(mockBackupsQueryState.refetch).toHaveBeenCalled();
 
@@ -1307,24 +1317,24 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('restore-panel')).toBeDefined();
     });
 
-    it('says a run refused for its snapshot masked nothing, and how to mask without one', () => {
+    it('says a run refused for its snapshot masked nothing, and how to mask without one', async () => {
       mockAnonymizeMutationState = {
         ...mockAnonymizeMutationState,
         error: 'No snapshot was taken, so nothing was masked: INVALID_TYPE',
         errorCode: 'SNAPSHOT_NOT_TAKEN',
       } as typeof mockAnonymizeMutationState;
-      openTemplate();
+      await openTemplate();
 
       expect(screen.getByTestId('anonymize-snapshot-refused')).toBeDefined();
     });
 
-    it('asks, for the template picked, what a restore of the org’s latest backup brings back, and says it before Apply', () => {
+    it('asks, for the template picked, what a restore of the org’s latest backup brings back, and says it before Apply', async () => {
       mockCoverageData = {
         templateId: 'tpl-1',
         backup: { operationId: 'bk-1', timestamp: '2026-10-01T10:00:00.000Z' },
         objects: [{ objectApiName: 'Contact', count: 30000, backedUp: 2000, truncated: true }],
       };
-      openTemplate();
+      await openTemplate();
 
       expect(coverageAsked).toEqual({
         payload: { orgId: 'org-1', templateId: 'tpl-1' },
@@ -1334,13 +1344,13 @@ describe('DataOpsPage', () => {
       mockCoverageData = null;
     });
 
-    it('resumes the run that stopped short from where it stopped, naming it', () => {
+    it('resumes the run that stopped short from where it stopped, naming it', async () => {
       mockCoverageData = {
         templateId: 'tpl-1',
         objects: [{ objectApiName: 'Contact', count: 2500, backedUp: 2500, truncated: false }],
         checkpoint: { id: 'run-1', savedAt: '2026-10-09T10:00:00.000Z' },
       };
-      openTemplate();
+      await openTemplate();
 
       fireEvent.click(screen.getByTestId('resume-btn'));
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
@@ -1399,7 +1409,7 @@ describe('DataOpsPage', () => {
       saved: true,
     };
 
-    const openAnonymize = (templates: unknown[] = [shipped]) => {
+    const openAnonymize = async (templates: unknown[] = [shipped]) => {
       mockTemplatesQueryState = {
         data: { templates },
         loading: false,
@@ -1408,12 +1418,12 @@ describe('DataOpsPage', () => {
       };
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       const view = render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       return view;
     };
 
-    it('sends the rules on screen, under the name given, to be saved', () => {
-      openAnonymize();
+    it('sends the rules on screen, under the name given, to be saved', async () => {
+      await openAnonymize();
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
       fireEvent.click(screen.getByTestId('create-template-btn'));
       fireEvent.change(screen.getByTestId('template-name-input'), {
@@ -1430,8 +1440,8 @@ describe('DataOpsPage', () => {
       });
     });
 
-    it('lists the saved template again from the host, picks it, and says it is saved', () => {
-      const view = openAnonymize();
+    it('lists the saved template again from the host, picks it, and says it is saved', async () => {
+      const view = await openAnonymize();
       mockSaveTemplateMutationState = {
         ...mockSaveTemplateMutationState,
         data: { template: saved },
@@ -1449,18 +1459,18 @@ describe('DataOpsPage', () => {
       );
     });
 
-    it('shows why the host refused a save', () => {
+    it('shows why the host refused a save', async () => {
       mockSaveTemplateMutationState = {
         ...mockSaveTemplateMutationState,
         error: 'A template named "GDPR Template" already exists. Pick another name.',
       };
-      openAnonymize();
+      await openAnonymize();
 
       expect(screen.getByTestId('dataops-error').textContent).toContain('already exists');
     });
 
-    it('deletes a saved template, lists the templates again, and lets go of it', () => {
-      const view = openAnonymize([shipped, saved]);
+    it('deletes a saved template, lists the templates again, and lets go of it', async () => {
+      const view = await openAnonymize([shipped, saved]);
       fireEvent.change(screen.getByTestId('template-select'), {
         target: { value: 'tpl-saved-1' },
       });
@@ -1757,16 +1767,16 @@ describe('DataOpsPage', () => {
     });
 
     /** Open the Anonymize tab on the template, the coverage answering `coverage`. */
-    const openTemplate = (coverage: Record<string, unknown>) => {
+    const openTemplate = async (coverage: Record<string, unknown>) => {
       mockCoverageData = coverage;
       const view = render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
+      await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
       return view;
     };
 
-    it('masks in slices, each a snapshot, once the confirmation’s box asks for them', () => {
-      openTemplate(past);
+    it('masks in slices, each a snapshot, once the confirmation’s box asks for them', async () => {
+      await openTemplate(past);
       fireEvent.click(screen.getByTestId('apply-btn'));
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'dev1' } });
       fireEvent.click(screen.getByTestId('confirm-slices-toggle'));
@@ -1783,8 +1793,8 @@ describe('DataOpsPage', () => {
       mockCoverageData = null;
     });
 
-    it('resumes an open set in slices, and gives one up with a request that masks nothing', () => {
-      openTemplate({
+    it('resumes an open set in slices, and gives one up with a request that masks nothing', async () => {
+      await openTemplate({
         ...past,
         checkpoint: { id: 'ck-1', savedAt: '2026-11-14T10:00:00.000Z' },
         sliceSet: {
@@ -1820,8 +1830,8 @@ describe('DataOpsPage', () => {
       mockCoverageData = null;
     });
 
-    it('asks the coverage and the list again once a set is given up', () => {
-      const { rerender } = openTemplate(past);
+    it('asks the coverage and the list again once a set is given up', async () => {
+      const { rerender } = await openTemplate(past);
       mockCoverageRefetch.mockClear();
       const listAgain = mockBackupsQueryState.refetch;
 

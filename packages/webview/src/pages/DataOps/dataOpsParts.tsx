@@ -4,14 +4,18 @@ import { PartBoundary } from '../../components/ui/PartBoundary';
 import type { CompliancePanelProps } from './CompliancePanel';
 import type { CleanupPanelProps } from './CleanupPanel';
 import type { QualityPanelProps } from './QualityPanel';
+import type { AnonymizePanelProps } from './AnonymizePanel';
 import type { EmptyPanelProps } from './empty/EmptyPanel';
 
 /*
  * The tabs of the DataOps page its first paint does not draw, each a chunk of
  * its own fetched the first time it is opened: the page opens on Backup, and
- * GDPR, Cleanup and Quality come once their tab is chosen. Their words are the
- * page's own namespace, loaded with the page. The page parsed 900 kB before
- * it painted while it held them, its budget to the byte.
+ * Anonymize, GDPR, Cleanup and Quality come once their tab is chosen. Their
+ * words are the page's own namespace, loaded with the page. The page parsed
+ * 900 kB before it painted while it held the last three, its budget to the
+ * byte; and 1,009 kB while it held Anonymize, past its budget of 1 MB once the
+ * masking in slices came: the tab's 160 kB, zod's 97 of them, for the
+ * template schema built beside the constants its editor reads.
  */
 
 const LoadedCompliancePanel = lazy(() =>
@@ -40,6 +44,21 @@ const LoadedQualityPanel = lazy(() =>
   withEnglish(() => import('./QualityPanel'), [])().then((module) => ({
     default: module.QualityPanel,
   })),
+);
+
+const LoadedAnonymizePanel = lazy(() =>
+  withEnglish(() => import('./AnonymizePanel'), [])().then((module) => ({
+    default: module.AnonymizePanel,
+  })),
+);
+
+/** The Anonymize tab: templates, their preview, and a masking run, whole or in slices. */
+export const AnonymizePanel: FC<AnonymizePanelProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedAnonymizePanel {...props} />
+    </Suspense>
+  </PartBoundary>
 );
 
 /** The GDPR tab: subject requests and what the org holds of a person. */

@@ -45,8 +45,10 @@
  *  - what each page parses before it paints — that base, the page's chunk
  *    and what it imports up front, the English its route names — stays within
  *    PAGE_FIRST_PAINT_BUDGET, and holds zod only on a page that checks
- *    something against a schema before it paints (PAGES_THAT_VALIDATE). Forge
- *    parsed 1.4 MB before its first step, Home zod for a record id;
+ *    something against a schema before it paints (PAGES_THAT_VALIDATE), which
+ *    a page listed proves by calling a schema's check there. Forge parsed
+ *    1.4 MB before its first step, Home zod for a record id, DataOps zod for a
+ *    tab it does not open on;
  *  - the list of what each page needs before it paints, which the build
  *    writes (`assets/preload.json`) and the panel's shell links for the
  *    webview to fetch at once, names for each route exactly the files this
@@ -266,17 +268,78 @@ export const PAGE_FIRST_PAINT_BUDGET = 1_000_000;
 /**
  * The pages that check something against a schema before they paint, and
  * may parse zod with it, each with what it checks. Any other page parses no
- * zod before it paints: Home parsed it, 94 kB, to read a record id.
+ * zod before it paints: Home parsed it, 94 kB, to read a record id, and
+ * DataOps for the template schema built beside the constants its Anonymize
+ * tab reads, a tab it does not open on and loads once it is opened.
  */
 export const PAGES_THAT_VALIDATE = new Map([
   ['forge', 'a SOQL filter typed in, against the rule the extension holds every filter to'],
-  ['dataops', 'a masking template the user saves or imports, against the template schema'],
   ['migration', 'the configuration the user edits, against the Sync configuration schema'],
   [
     'automation',
     "a Checkpoint or Rewind step's configuration, against the schema the extension runs it by",
   ],
 ]);
+
+/** The name zod gives its base schema class, a string any minifier keeps. */
+const ZOD_MARK = /["'`]\$ZodType["'`]/;
+
+/**
+ * A value checked against a schema, as a minifier leaves the call: zod's
+ * `safeParse`, a method name it never renames, and one no other library the
+ * webview bundles defines. Every page that validates calls it; `parse` is left
+ * out, since `JSON.parse` reads the same.
+ */
+const SCHEMA_CHECK = /\.safeParse(?:Async)?\(/;
+
+/**
+ * Where the zod each page parses before it paints and PAGES_THAT_VALIDATE
+ * disagree: a page that parses zod and is not listed; a page listed none of
+ * whose code before it paints, zod's own aside, checks a value against a
+ * schema, which the list lets parse zod for nothing; and a name listed that
+ * is no route.
+ *
+ * DataOps was listed, for a masking template it checks, and parsed zod's
+ * 97 kB before it painted for a schema built where its Anonymize tab reads the
+ * template constants: the tab is not its first screen, and nothing the page
+ * ran before it painted called a check. The list said why, and nothing held
+ * the reason to the build.
+ *
+ * @param paints - Each route with the files it parses before it paints.
+ * @param read - Reads a path relative to `webview-dist`.
+ * @param validating - The pages that may parse zod, as PAGES_THAT_VALIDATE.
+ * @returns One sentence per gap.
+ */
+export function zodGaps(paints, read, validating) {
+  const gaps = [];
+  for (const { route, files } of paints) {
+    const zodFile = files.find((path) => ZOD_MARK.test(read(path) ?? ''));
+    if (zodFile && !validating.has(route)) {
+      gaps.push(
+        `the "${route}" page parses zod (${zodFile}) before it paints, and checks ` +
+          'nothing against a schema there (PAGES_THAT_VALIDATE)',
+      );
+    }
+    const checks = files.some((path) => {
+      const source = read(path) ?? '';
+      return !ZOD_MARK.test(source) && SCHEMA_CHECK.test(source);
+    });
+    if (validating.has(route) && !checks) {
+      gaps.push(
+        `PAGES_THAT_VALIDATE lets the "${route}" page parse zod for ${validating.get(route)}, ` +
+          'and nothing it parses before it paints checks a value against a schema: the ' +
+          'entry lets zod in for nothing, unseen — load the check with the part that runs it, ' +
+          'or take the page off the list',
+      );
+    }
+  }
+  for (const route of validating.keys()) {
+    if (!paints.some((paint) => paint.route === route)) {
+      gaps.push(`PAGES_THAT_VALIDATE names "${route}", which is no route of the panel`);
+    }
+  }
+  return gaps;
+}
 
 /**
  * The routes of the panel, read from the panel bundle: each `page()` call of
@@ -615,8 +678,10 @@ function main() {
           `${declared}: the weight of a page this does not read is checked by nothing`,
       );
     }
+    const paints = [];
     for (const route of routes) {
       const paint = routeFirstPaint(panelBundle, route, loaders, readBuilt);
+      paints.push({ route: route.route, files: paint.files });
       for (const namespace of paint.unloaded) {
         note(
           `the "${route.route}" page names the English of "${namespace}", which no loader holds`,
@@ -634,22 +699,11 @@ function main() {
             `${kiloBytes(PAGE_FIRST_PAINT_BUDGET)} a page may; heaviest past the base: ${heaviest}`,
         );
       }
-      const zodFile = paint.files.find((path) => /["'`]\$ZodType["'`]/.test(readBuilt(path) ?? ''));
-      if (zodFile && !PAGES_THAT_VALIDATE.has(route.route)) {
-        note(
-          `the "${route.route}" page parses zod (${zodFile}) before it paints, and checks ` +
-            'nothing against a schema there (PAGES_THAT_VALIDATE)',
-        );
-      }
       if (!heaviestPage || paint.bytes > heaviestPage.bytes) {
         heaviestPage = { route: route.route, bytes: paint.bytes };
       }
     }
-    for (const route of PAGES_THAT_VALIDATE.keys()) {
-      if (!routes.some((candidate) => candidate.route === route)) {
-        note(`PAGES_THAT_VALIDATE names "${route}", which is no route of the panel`);
-      }
-    }
+    for (const gap of zodGaps(paints, readBuilt, PAGES_THAT_VALIDATE)) note(gap);
 
     // 6. The build's list of what each page needs before it paints, which the
     // shell links, is what this reading finds.
