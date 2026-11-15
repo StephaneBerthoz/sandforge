@@ -4,6 +4,10 @@ import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { isAuthError } from '../../core/common/isAuthError.js';
+import { networkFailureOf } from '../../core/common/isNetworkError.js';
+import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
 import { TrendStorage } from './TrendStorage.js';
 import { AlertEngine } from './AlertEngine.js';
 import { AlertStateStore } from './AlertStateStore.js';
@@ -68,6 +72,33 @@ function configSeenStore(configStore: ConfigStore): SeenRefreshStore {
 /** The health signals the Monitor reads, by the name each one reports. */
 export type HealthSignalName = 'apiLimits' | 'storage' | 'recentErrors' | 'activeJobs';
 
+/**
+ * Whether a read that failed with `err` may go through on a connection asked
+ * anew: the org refused the session (`INVALID_SESSION_ID`, HTTP 401), the
+ * session could not be renewed when the connection was asked for — the CLI
+ * may have renewed it since —, or the org was not reached at all (a dropped
+ * socket, a name that did not resolve). Not a refusal of the org's own, nor a
+ * scratch org gone, nor an org a run of failures holds back.
+ */
+export function readAgainAfter(err: unknown): boolean {
+  if (err instanceof OrgConnectionError) return err.code === 'ORG_AUTH_EXPIRED';
+  return isAuthError(err) || networkFailureOf(err) !== undefined;
+}
+
+/**
+ * Why a signal could not be read, as its message says it: the org's error,
+ * or the connection's — the session that expired and could not be renewed,
+ * with what renews it. A network failure is named by its word: its message
+ * names the org's host, twice.
+ */
+export function unreadWhy(err: unknown): string {
+  const network = networkFailureOf(err);
+  if (network !== undefined && !(err instanceof OrgConnectionError)) {
+    return `the org could not be reached (${network})`;
+  }
+  return extractErrorMessage(err);
+}
+
 /** Dependencies required by {@link createMonitorOps}. */
 export interface MonitorOpsFactoryDeps {
   /** Persistence facade for trend snapshots and alert state. */
@@ -76,8 +107,13 @@ export interface MonitorOpsFactoryDeps {
   log: (message: string) => void;
   /** User-facing notification sink for triggered alerts. */
   notify: (level: 'error' | 'warning', message: string) => void;
-  /** Resolve an authenticated jsforce connection for an org. */
-  getConnection: (orgId: string) => Promise<Connection>;
+  /**
+   * Resolve an authenticated jsforce connection for an org. `again` asks once
+   * more after a read met an expired session or a dropped connection: the
+   * connection is checked anew, its session renewed through the CLI when the
+   * org refuses it, and never handed back from what was held.
+   */
+  getConnection: (orgId: string, options?: { again?: boolean }) => Promise<Connection>;
   /**
    * Receives each sandbox refresh a production org's history shows completing
    * while SandForge watches it; the history already there is not reported.
@@ -133,6 +169,43 @@ export interface MonitorOpsServices {
  */
 export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsServices {
   const trendStorage = new TrendStorage(deps.configStore);
+
+  /**
+   * What `read` reads of an org through its connection, read once more on a
+   * connection asked anew when the first try meets an expired session or a
+   * dropped connection ({@link readAgainAfter}). A pipeline's Pre-check past
+   * a Delay of 2 h 05 on an org whose sessions last 2 h lost its first
+   * reading, the API usage, as "Unable to fetch limits", while the second,
+   * the storage, went through on the session the CLI had renewed meanwhile:
+   * the step failed, and the run with it, for the `/limits` the storage read
+   * a moment later.
+   *
+   * @param signal - The signal the read is for, as the log line names it.
+   */
+  const readTwice = async <T>(
+    orgId: string,
+    signal: HealthSignalName,
+    read: (conn: Connection) => Promise<T>,
+  ): Promise<T> => {
+    try {
+      return await read(await deps.getConnection(orgId));
+    } catch (first: unknown) {
+      if (!readAgainAfter(first)) throw first;
+      deps.log(
+        `[WARN] monitor:${signal} ${orgId}: ${unreadWhy(first)}; read again on a new connection`,
+      );
+      try {
+        return await read(await deps.getConnection(orgId, { again: true }));
+      } catch (second: unknown) {
+        // The org held back after failures in a row, these tries among them,
+        // says nothing of why they failed: the first try's cause does.
+        if (second instanceof OrgConnectionError && second.code === 'ORG_TEMPORARILY_UNREACHABLE') {
+          throw first;
+        }
+        throw second;
+      }
+    }
+  };
 
   // Alert subsystem: state store, engine, and definition seeding
   const alertStateStore = new AlertStateStore(deps.configStore);
@@ -191,8 +264,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
   // The health check counts the error logs of its window with COUNT(). It
   // used to count the rows of the panel's read, whose LIMIT that count could
   // never pass: past fifty failures a day, the panel said fifty.
-  const countErrorLogs = async (orgId: string, since: string): Promise<number> => {
-    const conn = await deps.getConnection(orgId);
+  const countErrorLogs = async (conn: Connection, since: string): Promise<number> => {
     const result = await conn.query(
       `SELECT COUNT() FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since}`,
     );
@@ -332,10 +404,14 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     return data;
   };
 
+  // A signal that cannot be read says why: the Pre-check that lost its API
+  // usage to an expired session failed on "Unable to fetch limits" alone, and
+  // nothing told the session from the org.
   const apiLimitsProvider: HealthSignalProvider = async (orgId: string) => {
     try {
-      const conn = await deps.getConnection(orgId);
-      const limitsRaw = await getOrFetchLimits(orgId, conn);
+      const limitsRaw = await readTwice(orgId, 'apiLimits', (conn) =>
+        getOrFetchLimits(orgId, conn),
+      );
       const apiEntry = limitsRaw['DailyApiRequests'] as
         { Max: number; Remaining: number } | undefined;
       // A limit the org did not report is not a limit at 0%.
@@ -352,20 +428,19 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         message: `API usage at ${pct}%`,
         percent: pct,
       };
-    } catch {
+    } catch (err: unknown) {
       return {
         name: 'apiLimits',
         status: 'unknown' as const,
         score: 0,
-        message: 'Unable to fetch limits',
+        message: `Unable to fetch limits: ${unreadWhy(err)}`,
       };
     }
   };
 
   const storageProvider: HealthSignalProvider = async (orgId: string) => {
     try {
-      const conn = await deps.getConnection(orgId);
-      const limitsRaw = await getOrFetchLimits(orgId, conn);
+      const limitsRaw = await readTwice(orgId, 'storage', (conn) => getOrFetchLimits(orgId, conn));
       const storageEntry = limitsRaw['DataStorageMB'] as
         { Max: number; Remaining: number } | undefined;
       if (!storageEntry || !storageEntry.Max) {
@@ -388,12 +463,12 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         message: `Storage usage at ${pct}%`,
         percent: pct,
       };
-    } catch {
+    } catch (err: unknown) {
       return {
         name: 'storage',
         status: 'unknown' as const,
         score: 0,
-        message: 'Unable to fetch storage',
+        message: `Unable to fetch storage: ${unreadWhy(err)}`,
       };
     }
   };
@@ -406,13 +481,13 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     let errorCount: number;
     try {
       const since = new Date(Date.now() - ERROR_LOG_HEALTH_WINDOW_MS).toISOString();
-      errorCount = await countErrorLogs(orgId, since);
-    } catch {
+      errorCount = await readTwice(orgId, 'recentErrors', (conn) => countErrorLogs(conn, since));
+    } catch (err: unknown) {
       return {
         name: 'recentErrors',
         status: 'unknown' as const,
         score: 0,
-        message: 'Unable to fetch error logs',
+        message: `Unable to fetch error logs: ${unreadWhy(err)}`,
       };
     }
     const score = Math.max(0, 100 - errorCount * 5);
@@ -434,8 +509,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
   // Jobs health from real AsyncApexJob data: each failed job in the recent
   // window costs 10 points; more than 5 failed jobs is critical, any failed
   // job is a warning. A fetch that fails is `unknown`, left out of the score.
-  const jobMonitor = new JobMonitor(async (orgId: string): Promise<JobInfo[]> => {
-    const conn = await deps.getConnection(orgId);
+  const recentJobsOf = async (conn: Connection): Promise<JobInfo[]> => {
     const records = await queryAll<{
       Id: string;
       JobType: string;
@@ -456,7 +530,10 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       createdDate: r.CreatedDate,
       failedRecords: r.NumberOfErrors,
     }));
-  });
+  };
+  const jobMonitor = new JobMonitor((orgId: string): Promise<JobInfo[]> =>
+    readTwice(orgId, 'activeJobs', recentJobsOf),
+  );
 
   const jobsProvider: HealthSignalProvider = async (orgId: string) => {
     try {
@@ -479,12 +556,12 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         outOf: stats.total,
         message: `${stats.active} active, ${stats.failed} failed of ${stats.total} recent jobs`,
       };
-    } catch {
+    } catch (err: unknown) {
       return {
         name: 'activeJobs',
         status: 'unknown' as const,
         score: 0,
-        message: 'Unable to fetch jobs',
+        message: `Unable to fetch jobs: ${unreadWhy(err)}`,
       };
     }
   };

@@ -198,6 +198,34 @@ export function delayMs(config: Record<string, unknown>): number | undefined {
   return total <= MAX_DELAY_MS ? total : undefined;
 }
 
+/** Seconds as a step says them: whole, or to a tenth. */
+function secondsWords(ms: number): string {
+  return String(Math.round(ms / 100) / 10);
+}
+
+/**
+ * What a Delay says of its wait: how long it really held, measured on the
+ * wall clock, and past a margin of 5 s or a hundredth of the wait, how much
+ * longer than asked, and why it may be. A timer counts the time the machine
+ * is awake, and a machine that sleeps during the wait — a laptop closed, a
+ * virtual machine paused — holds it longer: a Delay of 7 500 s held 7 830.8 s
+ * and said "Waited 7500 s.".
+ *
+ * @param askedMs - The wait the step asked for.
+ * @param heldMs - What the wall clock measured from its start to its end.
+ */
+export function waitedWords(askedMs: number, heldMs: number): string {
+  // A clock set back during the wait measures less than the timer held.
+  const held = Math.max(askedMs, heldMs);
+  const over = held - askedMs;
+  if (over <= Math.max(5_000, askedMs / 100)) return `Waited ${secondsWords(held)} s.`;
+  return (
+    `Waited ${secondsWords(held)} s, ${secondsWords(over)} s more than the ` +
+    `${secondsWords(askedMs)} s asked: the machine may have slept meanwhile, and a wait ` +
+    'counts only the time it is awake.'
+  );
+}
+
 /**
  * A Delay step with no duration used to wait 0 ms and report the wait done:
  * the panel writes `seconds` and the handler only read `durationMs`, so every
@@ -481,6 +509,7 @@ export class StepExecutor {
         return createFailureResult(step, checkDelay(step) ?? 'No usable duration', startTime);
       }
 
+      const began = Date.now();
       const waited = await wait(durationMs, context.signal);
       if (!waited) {
         return createFailureResult(
@@ -490,11 +519,12 @@ export class StepExecutor {
         );
       }
 
+      const heldMs = Math.max(durationMs, Date.now() - began);
       return createSuccessResult(
         step,
-        { delayed: durationMs },
+        { delayed: durationMs, heldMs },
         startTime,
-        `Waited ${durationMs / 1000} s.`,
+        waitedWords(durationMs, heldMs),
       );
     };
   }

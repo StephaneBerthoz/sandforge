@@ -69,6 +69,7 @@ import {
   pipelineSeedRefusal,
   pipelineSeedTierRefusal,
   type PipelineSeedOutcome,
+  type PipelineSeedPreview,
   type PipelineSeedRequest,
   type SeedAsked,
 } from './seedPipeline.js';
@@ -423,6 +424,20 @@ interface SeedCleared {
   checkpoint?: SeedCheckpointPlanned;
 }
 
+/**
+ * What a seed's gates read before Production Guard is asked, for a dry run:
+ * what the run would meet, and the question it would put, unasked.
+ */
+interface SeedGatesRead {
+  preview: PipelineSeedPreview;
+  /** The storage gate's reading, for the question's words. */
+  storage: Awaited<ReturnType<typeof seedStorageGate>>;
+  /** Whether the run would put its question before its first write, and about its emails. */
+  asks: boolean;
+  emailsAsked: boolean;
+  emails: RunEmails;
+}
+
 /** Why a seed's emails were not accepted, nobody being there to answer: said on the page's channels or as the step's failure. */
 function emailsUnanswered(
   emails: RunEmails,
@@ -500,6 +515,17 @@ function unansweredWhy(storage: Awaited<ReturnType<typeof seedStorageGate>>, org
     );
   }
   return why.join(', and ');
+}
+
+/** Why a pipeline's seed is refused when its question had no Approval to answer it, its run's and its dry run's alike. */
+function unansweredWords(
+  storage: Awaited<ReturnType<typeof seedStorageGate>>,
+  org: string,
+): string {
+  return (
+    `The seed needed an answer before it wrote — ${unansweredWhy(storage, org)} — and no ` +
+    'Approval step before it approved the run: put one before it. Nothing was written.'
+  );
 }
 
 /**
@@ -1636,18 +1662,42 @@ export class SeedOpsHandler implements DomainHandler {
    * counts that fit (`fit`), room kept for what still runs of the org's
    * automation, computed from what was read for the refusal.
    *
+   * A dry run (`dryRun`) is held to the same gates, reads what they read and
+   * meets their refusals, and stops before Production Guard is asked: it
+   * records nothing in the audit trail, and answers what the gates read.
+   *
    * @param asked - The seed as it was asked for.
    * @param failure - The run's failure context, given the objects it writes.
    * @param questions - Who answers the question before the first write.
    * @param publishes - Whether the run publishes its articles once written (a scenario's).
    */
+  private clearSeed(
+    asked: SeedAskedOfThePage,
+    operationId: string,
+    failure: OperationFailureContext,
+    questions: SeedQuestions,
+    publishes?: boolean,
+  ): Promise<SeedCleared | { refusal: SeedRefusal }>;
+  private clearSeed(
+    asked: SeedAskedOfThePage,
+    operationId: string,
+    failure: OperationFailureContext,
+    questions: SeedQuestions,
+    publishes: boolean,
+    dryRun: true,
+  ): Promise<SeedGatesRead | { refusal: SeedRefusal }>;
   private async clearSeed(
     asked: SeedAskedOfThePage,
     operationId: string,
     failure: OperationFailureContext,
     questions: SeedQuestions,
     publishes = false,
-  ): Promise<SeedCleared | { refusal: SeedRefusal }> {
+    dryRun = false,
+  ): Promise<SeedCleared | SeedGatesRead | { refusal: SeedRefusal }> {
+    // A dry run's stops are not runs stopped: nothing of them goes to the audit trail.
+    const recordStop = (entry: Parameters<typeof recordWriteRun>[1]): void => {
+      if (!dryRun) recordWriteRun(this.deps, entry);
+    };
     // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
     // setting when the webview omitted them.
     const defaultBatchSize =
@@ -1731,7 +1781,7 @@ export class SeedOpsHandler implements DomainHandler {
         });
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
-        recordWriteRun(this.deps, {
+        recordStop({
           action: 'seed_execute',
           module: 'seed',
           operationId,
@@ -1799,7 +1849,7 @@ export class SeedOpsHandler implements DomainHandler {
         checkpoint = await scopeSeedCheckpoint(this.beforeRunCheckpoints, ask);
       } catch (err: unknown) {
         if (!(err instanceof SeedCheckpointStopped)) throw err;
-        recordWriteRun(this.deps, {
+        recordStop({
           action: 'seed_execute',
           module: 'seed',
           operationId,
@@ -1887,7 +1937,7 @@ export class SeedOpsHandler implements DomainHandler {
           ? API_BUDGET_EXCEEDED
           : SEED_STORAGE_EXCEEDED;
       const takeRefusal = checkpointRefused ? storage.checkpointRefusal?.code : undefined;
-      recordWriteRun(this.deps, {
+      recordStop({
         action: 'seed_execute',
         module: 'seed',
         operationId,
@@ -1948,7 +1998,7 @@ export class SeedOpsHandler implements DomainHandler {
     const emails = seedEmailGate(automation, written, orgName);
     for (const line of emails.unknown ?? []) warn(line);
     if (emails.refusal) {
-      recordWriteRun(this.deps, {
+      recordStop({
         action: 'seed_execute',
         module: 'seed',
         operationId,
@@ -1968,6 +2018,29 @@ export class SeedOpsHandler implements DomainHandler {
           },
           failed: { authored: true },
         },
+      };
+    }
+
+    // A dry run ends here, every gate met, the guard not asked: what the run
+    // would meet, and whether it would put its question first.
+    if (dryRun) {
+      return {
+        preview: {
+          records: taken.objects.reduce((total, o) => total + o.recordCount, 0),
+          objects: taken.objects.length,
+          storage: storage.check,
+          apiRequests: storage.api,
+          automation: seedAutomationLines(automation, orgName),
+          warnings,
+        },
+        storage,
+        asks:
+          storage.check.verdict === 'unread' ||
+          storage.api.verdict === 'near' ||
+          checkpoint !== undefined ||
+          emailsAsked,
+        emailsAsked,
+        emails: emailsOfRun,
       };
     }
 
@@ -2124,10 +2197,7 @@ export class SeedOpsHandler implements DomainHandler {
         return {
           refusal: {
             code: PIPELINE_SEED_REFUSAL.unanswered,
-            message:
-              `The seed needed an answer before it wrote — ${unansweredWhy(storage, orgName)} — ` +
-              'and no Approval step before it approved the run: put one before it. Nothing was ' +
-              'written.',
+            message: unansweredWords(storage, orgName),
             failed: { authored: true },
           },
         };
@@ -2195,6 +2265,88 @@ export class SeedOpsHandler implements DomainHandler {
   }
 
   /**
+   * The seed a pipeline's Seed step asks for, or its refusal before anything
+   * is read of the org: an org SandForge does not know; a production org,
+   * whatever the answer; a sandbox marked Staging with no approval; a
+   * template no longer saved, one that no longer reads, or one with an AI rule.
+   *
+   * @throws With a code (`PIPELINE_SEED_REFUSAL`) when it is refused.
+   */
+  private pipelineSeedOf(request: PipelineSeedRequest): SeedAsked {
+    const org = this.deps.orgManager.getOrg(request.orgId);
+    if (!org) {
+      throw pipelineSeedRefusal(
+        PIPELINE_SEED_REFUSAL.orgUnknown,
+        `The org the seed writes to is not connected to SandForge (${request.orgId}): connect ` +
+          'it, or choose another. Nothing was written.',
+      );
+    }
+    const tierRefusal = pipelineSeedTierRefusal(
+      guardTierOf(org),
+      request.answer,
+      orgDisplayName(org, request.orgId),
+    );
+    if (tierRefusal) throw tierRefusal;
+    const chosen = pipelineSeedAsked(request.orgId, request.templateId, (id) =>
+      this.seedTemplateStore.load(id),
+    );
+    if ('refusal' in chosen) throw chosen.refusal;
+    return chosen.asked;
+  }
+
+  /**
+   * What a pipeline's Seed step would meet before its first write, read as
+   * its run reads it (`clearSeed`): the refusals before the org is read, then
+   * the record types, the data storage and the daily API requests the org has
+   * left, the emails its records make it send, and the question the run would
+   * put first, answered by the Approval before the step or refused without
+   * one. Production Guard is not asked, nothing is written, and nothing goes
+   * to the audit trail: what a pipeline's dry run says of its Seed step.
+   *
+   * A dry run said "Seed has no dry run of its own" and read nothing, and a
+   * seed of 5.86 MB into an org with 5 MB left passed it, to be refused by
+   * its run.
+   *
+   * @param request - The org, the template, the pipeline and the Approval's answer.
+   * @param signal - The step's: aborted, the dry run of the step is stopped.
+   * @throws With a code (`PIPELINE_SEED_REFUSAL`, or the page's) when the run
+   *   would be refused before it writes; a {@link StepCancelledError} when stopped.
+   */
+  async previewForPipeline(
+    request: PipelineSeedRequest,
+    signal?: AbortSignal,
+  ): Promise<PipelineSeedPreview> {
+    const asked = this.pipelineSeedOf(request);
+    const failure: OperationFailureContext = { module: 'seed', operation: 'seed:pipeline' };
+    const questions: SeedQuestions = {
+      ask: () => Promise.resolve(request.answer.approved ? 'confirmed' : 'unavailable'),
+      unanswered: 'refuse',
+    };
+    const read = await this.clearSeed(asked, crypto.randomUUID(), failure, questions, false, true);
+    if ('refusal' in read) throw pipelineSeedRefusal(read.refusal.code, read.refusal.message);
+    if (signal?.aborted) {
+      throw new StepCancelledError(
+        'The dry run of the seed was stopped before it said what the seed would meet. Nothing ' +
+          'was written.',
+      );
+    }
+    // The question its run would put first, which the Approval before the
+    // step answers: without one, the run is refused, in the run's words.
+    if (read.asks && !request.answer.approved) {
+      const orgName = orgDisplayName(this.deps.orgManager.getOrg(request.orgId), request.orgId);
+      if (read.emailsAsked) {
+        const refused = emailsUnanswered(read.emails, orgName, questions.unanswered);
+        throw pipelineSeedRefusal(refused.code, refused.message);
+      }
+      throw pipelineSeedRefusal(
+        PIPELINE_SEED_REFUSAL.unanswered,
+        unansweredWords(read.storage, orgName),
+      );
+    }
+    return read.preview;
+  }
+
+  /**
    * Seed an org for a pipeline's Seed step as a seed of the Seed page runs,
    * with nobody to watch it: held to the same gates (`clearSeed`), kept in the
    * same run file — which names the pipeline — and so listed in Seed's Recent
@@ -2222,24 +2374,7 @@ export class SeedOpsHandler implements DomainHandler {
     request: PipelineSeedRequest,
     signal?: AbortSignal,
   ): Promise<PipelineSeedOutcome> {
-    const org = this.deps.orgManager.getOrg(request.orgId);
-    if (!org) {
-      throw pipelineSeedRefusal(
-        PIPELINE_SEED_REFUSAL.orgUnknown,
-        `The org the seed writes to is not connected to SandForge (${request.orgId}): connect ` +
-          'it, or choose another. Nothing was written.',
-      );
-    }
-    const tierRefusal = pipelineSeedTierRefusal(
-      guardTierOf(org),
-      request.answer,
-      orgDisplayName(org, request.orgId),
-    );
-    if (tierRefusal) throw tierRefusal;
-    const chosen = pipelineSeedAsked(request.orgId, request.templateId, (id) =>
-      this.seedTemplateStore.load(id),
-    );
-    if ('refusal' in chosen) throw chosen.refusal;
+    const asked = this.pipelineSeedOf(request);
 
     // No page waits on a pipeline's run: its origin is a listed synthetic
     // request, whose id doubles as the operation id, as a pipeline's Sync.
@@ -2251,7 +2386,7 @@ export class SeedOpsHandler implements DomainHandler {
       unanswered: 'refuse',
     };
     return withGivenAnswer(request.answer, async () => {
-      const cleared = await this.clearSeed(chosen.asked, operationId, failure, questions);
+      const cleared = await this.clearSeed(asked, operationId, failure, questions);
       if ('refusal' in cleared) {
         throw pipelineSeedRefusal(cleared.refusal.code, cleared.refusal.message);
       }
@@ -2275,7 +2410,7 @@ export class SeedOpsHandler implements DomainHandler {
       for (const line of automation) this.deps.log(`[INFO] seed:execute ${operationId}: ${line}`);
 
       let ended: SeedRunEnd | undefined;
-      const description = `Pipeline seed of ${chosen.asked.template.name}`;
+      const description = `Pipeline seed of ${asked.template.name}`;
       const { abortController, execution } = this.beginSeed(
         msg,
         cleared,

@@ -139,6 +139,16 @@ const ESTIMATE: CheckpointEstimate = {
   bytes: 2 * 1024 * 1024,
 };
 
+/** What Seed's gates read of the org a template would seed: 2 MB of its 5 MB left. */
+const SEED_PREVIEW = {
+  records: 1000,
+  objects: 2,
+  storage: { verdict: 'fits' as const, estimateMB: 2, maxMB: 5, remainingMB: 5 },
+  apiRequests: { verdict: 'fits' as const, estimate: 12, max: 15_000, remaining: 14_000 },
+  automation: [],
+  warnings: [],
+};
+
 /** The flows of the steps, each that writes, waits, asks or tells a spy that must stay silent. */
 function runners(overrides: Partial<PipelineStepRunners> = {}): PipelineStepRunners {
   return {
@@ -191,6 +201,7 @@ function runners(overrides: Partial<PipelineStepRunners> = {}): PipelineStepRunn
     }),
     rewind: vi.fn(),
     simulateSync: vi.fn(async () => simulation()),
+    previewSeed: vi.fn(async () => SEED_PREVIEW),
     previewMasking: vi.fn(async () => ({
       objects: [{ objectApiName: 'Contact', records: 6, fields: ['Email'] }],
       records: 6,
@@ -325,10 +336,10 @@ describe('applyDryRun', () => {
         'watermark yet, every record is read; Account read only up to 1000 records ' +
         '(sync.maxRecordsPerObject): the run copies part of each. Nothing was written.',
     );
-    expect(steps['Seed'].text).toMatch(
-      new RegExp(
-        `^Would seed "${PREBUILT_SEED_TEMPLATES[0].name}" into dev: at most \\d+ records? of \\d+ objects?, as its template asks\\. Seed has no dry run of its own`,
-      ),
+    expect(steps['Seed'].text).toBe(
+      `Would seed "${PREBUILT_SEED_TEMPLATES[0].name}" into dev: 1000 records of 2 objects, as ` +
+        'its template asks; data storage: about 2 MB to write, dev has 5 MB left of 5 MB; about ' +
+        '12 API requests of the 14000 dev has left today. Nothing was written.',
     );
     expect(steps['Mask'].text).toBe(
       'Would mask 6 records in dev: 6 of Contact (Email), after a snapshot of them. Nothing was written.',
@@ -478,6 +489,70 @@ describe('applyDryRun', () => {
     expect(said(run)['Copy'].text).toBe(
       'Would sync "Accounts to dev" into dev: 0 to create, 0 to update, 0 to delete, 0 skipped ' +
         "and 0 refused of 0 read; Account read from the last run's watermark. Nothing was written.",
+    );
+  });
+
+  it("fails a Seed step whose records do not fit the org's data storage, in its run's words, and the run with it", async () => {
+    // A seed of 3 000 accounts into a Developer Edition with 5 MB left, which
+    // its run alone refused.
+    const words =
+      'The records to write take about 5.86 MB of data storage, and dev has 5 MB left of 5 MB: ' +
+      'leave objects out, lower the records per object, or free data storage in dev. Nothing ' +
+      'was written.';
+    const flows = runners({
+      previewSeed: vi.fn(async () =>
+        Promise.reject(Object.assign(new Error(words), { code: 'SEED_STORAGE_EXCEEDED' })),
+      ),
+    });
+
+    const run = await orchestratorOf(flows, true).execute(nightly(), {}, 'manual');
+
+    expect(run.status).toBe('failed');
+    expect(run.stepResults.find((r) => r.stepName === 'Seed')).toMatchObject({
+      status: 'failed',
+      error: `Seed step "Seed" would be refused: ${words}`,
+      output: { code: 'SEED_STORAGE_EXCEEDED', dryRun: true },
+    });
+    // The route stops where the run would.
+    expect(said(run)['Mask']).toBeUndefined();
+    for (const spy of writes(flows)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("asks Seed's gates as the run would, approved by the Approval before the step, and by none without one", async () => {
+    const flows = runners();
+    await orchestratorOf(flows, true).execute(nightly(), {}, 'manual');
+    const alone = runners();
+    const pipeline = nightly();
+    pipeline.steps = pipeline.steps.filter((each) => each.type === 'seed');
+    await orchestratorOf(alone, true).execute(pipeline, {}, 'manual');
+
+    expect(flows.previewSeed).toHaveBeenCalledWith(
+      {
+        orgId: 'org-dev',
+        templateId: PREBUILT_SEED_TEMPLATES[0].id,
+        pipeline: { name: 'Nightly reset' },
+        answer: { approved: true },
+      },
+      expect.any(AbortSignal),
+    );
+    expect(alone.previewSeed).toHaveBeenCalledWith(
+      expect.objectContaining({ answer: { approved: false } }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("says when what a Seed's org has left could not be read", async () => {
+    const flows = runners({
+      previewSeed: vi.fn(async () => ({
+        ...SEED_PREVIEW,
+        storage: { verdict: 'unread' as const, estimateMB: 2, unread: 'INSUFFICIENT_ACCESS' },
+      })),
+    });
+
+    const run = await orchestratorOf(flows, true).execute(nightly(), {}, 'manual');
+
+    expect(said(run)['Seed'].text).toContain(
+      'data storage: about 2 MB to write; what dev has left could not be read (INSUFFICIENT_ACCESS)',
     );
   });
 

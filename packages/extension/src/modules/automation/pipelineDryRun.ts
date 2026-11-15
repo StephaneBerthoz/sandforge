@@ -18,7 +18,10 @@ import {
   type PipelineStepRunners,
 } from '../../bridge/handlers/pipelineSteps.js';
 import { pipelineSeedAsked } from '../../bridge/handlers/seedPipeline.js';
+import type { PipelineSeedPreview } from '../../bridge/handlers/seedPipeline.js';
 import { dataOpsBackupPayloadSchema } from '../../bridge/validatePayload.js';
+import { formatMB } from '../forge/ForgeRunGate.js';
+import type { ApiBudgetCheck, StorageCheck } from '../forge/ForgeRunGate.js';
 import { grantRefusalWords } from './RewindGrants.js';
 import {
   StepCancelledError,
@@ -41,8 +44,9 @@ import {
  *   counted, the fields masked, and every refusal on the way;
  * - Checkpoint, the scope of its take and its estimate, no record read;
  * - Rewind, its own preview held to its bounds, its confirmation checked;
- * - Seed, which has no dry run of its own, what its template would create:
- *   nothing of the org is read;
+ * - Seed, what its run meets before it writes: the data storage and the
+ *   daily API requests the org has left, the emails its records make it
+ *   send, and every refusal on the way, the guard not asked;
  * - Backup, the objects it would take a snapshot of.
  *
  * Compare and Pre-check only read: they run, so a Condition after them tests
@@ -316,8 +320,38 @@ function drySync(runners: PipelineStepRunners) {
   };
 }
 
+/**
+ * The answer the Approval before a step gives in a dry run: the route a dry
+ * run follows is the approved one, so an Approval step before it approves;
+ * with none before it, nobody does, as in the run.
+ */
+function dryAnswer(context: StepContext): { approved: boolean } {
+  const approvals = context.previousResults.filter((result) => result.stepType === 'approval');
+  return { approved: approvals[approvals.length - 1]?.status === 'completed' };
+}
+
+/** The data storage a seed takes against what its org has left, as `sandforge seed` says it. */
+function storageWords(check: StorageCheck, org: string): string {
+  const taken = `data storage: about ${formatMB(check.estimateMB)} MB to write`;
+  if (check.verdict === 'unread') {
+    return `${taken}; what ${org} has left could not be read (${check.unread})`;
+  }
+  return (
+    `${taken}, ${org} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    (check.verdict === 'near' ? ': close to what it has left' : '')
+  );
+}
+
+/** The daily API requests a seed makes against what its org has left. */
+function requestsWords(check: ApiBudgetCheck, org: string): string {
+  const sent = `about ${counted(check.estimate, 'API request')}`;
+  return check.verdict === 'unread'
+    ? `${sent}; what ${org} has left today could not be read (${check.unread})`
+    : `${sent} of the ${check.remaining} ${org} has left today`;
+}
+
 function drySeed(runners: PipelineStepRunners) {
-  return (step: PipelineStep): Promise<PipelineStepResult> => {
+  return async (step: PipelineStep, context: StepContext): Promise<PipelineStepResult> => {
     const startTime = new Date().toISOString();
     const who = `Seed step "${step.name}"`;
     const { orgId, templateId } = pipelineSeedStepConfigSchema.parse({
@@ -327,26 +361,55 @@ function drySeed(runners: PipelineStepRunners) {
     const org = runners.orgName(orgId) ?? orgId;
     const chosen = pipelineSeedAsked(orgId, templateId, (id) => runners.savedSeedTemplate?.(id));
     if ('refusal' in chosen) {
-      return Promise.resolve(
-        wouldFail(
-          step,
-          startTime,
-          { orgId, templateId, code: chosen.refusal.code },
-          `${who} would be refused: ${chosen.refusal.message}`,
-        ),
-      );
-    }
-    const { template } = chosen.asked;
-    const records = template.objects.reduce((total, object) => total + object.recordCount, 0);
-    return Promise.resolve(
-      wouldDo(
+      return wouldFail(
         step,
         startTime,
-        { orgId, templateId, records, objects: template.objects.length },
-        `Would seed "${template.name}" into ${org}: at most ${counted(records, 'record')} of ` +
-          `${counted(template.objects.length, 'object')}, as its template asks. Seed has no dry ` +
-          'run of its own: nothing of the org was read, and nothing was written.',
-      ),
+        { orgId, templateId, code: chosen.refusal.code },
+        `${who} would be refused: ${chosen.refusal.message}`,
+      );
+    }
+    if (!runners.previewSeed) throw cannotPreview(who);
+    const { template } = chosen.asked;
+    // What its run meets before it writes, read as its run reads it: the
+    // storage of a seed of 5.86 MB into an org with 5 MB left was seen by its
+    // run alone, the dry run having read nothing.
+    let preview: PipelineSeedPreview;
+    try {
+      preview = await runners.previewSeed(
+        {
+          orgId,
+          templateId,
+          pipeline: { name: pipelineNameOf(context) },
+          answer: dryAnswer(context),
+        },
+        context.signal,
+      );
+    } catch (err: unknown) {
+      const code = refusalCode(err);
+      if (code === undefined) throw err;
+      return wouldFail(
+        step,
+        startTime,
+        { orgId, templateId, code },
+        `${who} would be refused: ${(err as Error).message}`,
+      );
+    }
+    return wouldDo(
+      step,
+      startTime,
+      {
+        orgId,
+        templateId,
+        records: preview.records,
+        objects: preview.objects,
+        storage: preview.storage,
+        apiRequests: preview.apiRequests,
+        ...(preview.automation.length > 0 ? { automation: preview.automation } : {}),
+      },
+      `Would seed "${template.name}" into ${org}: ${counted(preview.records, 'record')} of ` +
+        `${counted(preview.objects, 'object')}, as its template asks; ` +
+        `${storageWords(preview.storage, org)}; ${requestsWords(preview.apiRequests, org)}. ` +
+        'Nothing was written.',
     );
   };
 }

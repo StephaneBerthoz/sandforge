@@ -437,6 +437,7 @@ export class ExtensionHandlers {
       // A dry run's steps that write read the org through the same handlers,
       // each as its own preview reads it, and write nothing.
       simulateSync: (config, signal) => this.syncHandler.simulateForPipeline(config, signal),
+      previewSeed: (request, signal) => this.seedHandler.previewForPipeline(request, signal),
       previewMasking: (request, signal) =>
         this.dataOpsHandler.previewMaskingForPipeline(request, signal),
       estimateTake: (request, signal) =>

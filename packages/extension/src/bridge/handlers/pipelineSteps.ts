@@ -67,7 +67,11 @@ import {
 } from './CheckpointHandler.js';
 import type { BackupTaken } from './DataOpsHandler.js';
 import { aiRuleFields, pipelineSeedAsked } from './seedPipeline.js';
-import type { PipelineSeedOutcome, PipelineSeedRequest } from './seedPipeline.js';
+import type {
+  PipelineSeedOutcome,
+  PipelineSeedPreview,
+  PipelineSeedRequest,
+} from './seedPipeline.js';
 import {
   compareExecutePayloadSchema,
   dataOpsBackupPayloadSchema,
@@ -322,6 +326,17 @@ export interface PipelineStepRunners {
    * them, no guard asked. Rejects as the run would be refused before it reads.
    */
   simulateSync?: (config: SyncConfig, signal?: AbortSignal) => Promise<SyncSimulationResult>;
+  /**
+   * What a pipeline's seed would meet before its first write — the data
+   * storage and the daily API requests the org has left, the emails its
+   * records make it send, every refusal on the way — and nothing written, no
+   * guard asked (`SeedOpsHandler.previewForPipeline`). Rejects with a `code`
+   * as the run would be refused.
+   */
+  previewSeed?: (
+    request: PipelineSeedRequest,
+    signal?: AbortSignal,
+  ) => Promise<PipelineSeedPreview>;
   /**
    * What a masking for a pipeline would mask, and the refusal it would meet
    * before Production Guard is asked (`DataOpsHandler.previewMaskingForPipeline`).

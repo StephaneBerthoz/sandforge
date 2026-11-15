@@ -113,23 +113,62 @@ describe('sandforge pipeline plan', () => {
         code: 'ORG_MOVED',
         org: 'reg-uat',
         message: expect.stringContaining('a sandbox refreshed since is another org'),
-        wayOut: expect.stringContaining(`--accept-org reg-uat=${WORLD_TARGET_ID}`),
+        wayOut: expect.stringContaining(`--accept-org UAT=${WORLD_TARGET_ID}`),
       }),
     ]);
     expect(moved.stderr).toContain('Refused before the first step, nothing run (exit 2)');
     expect(world.env.records('Account')).toHaveLength(0);
 
-    const accepted = await world.run([
-      'plan',
-      '--file',
-      file,
-      '--accept-org',
-      `reg-uat=${WORLD_TARGET_ID}`,
-      '--json',
+    // The way out as it is printed, and the org's key in the file alike.
+    for (const name of ['UAT', 'reg-uat']) {
+      const accepted = await world.run([
+        'plan',
+        '--file',
+        file,
+        '--accept-org',
+        `${name}=${WORLD_TARGET_ID}`,
+        '--json',
+      ]);
+      expect(accepted.code).toBe(0);
+      expect(refusalsOf(accepted.stdout)).toEqual([]);
+      expect(accepted.stderr).toContain(`taken, as --accept-org ${name}=${WORLD_TARGET_ID} says.`);
+    }
+  });
+
+  it('says the kind changed when a file that names a sandbox reaches a Developer Edition org', async () => {
+    // The file's org edited to a sandbox of another Id, its alias a
+    // Developer Edition org; the key, as the editor exports it, its Org Id.
+    const world = new PipelineWorld(dir, [
+      { alias: 'DEVED', organizationId: WORLD_TARGET_ID, sandbox: false },
     ]);
-    expect(accepted.code).toBe(0);
-    expect(refusalsOf(accepted.stdout)).toEqual([]);
-    expect(accepted.stderr).toContain('taken, as --accept-org reg-uat=');
+    const file = world.file({
+      orgs: {
+        '00D000000000001AAA': {
+          alias: 'DEVED',
+          organizationId: '00D000000000001AAA',
+          kind: 'sandbox',
+          staging: false,
+        },
+      },
+      steps: [{ ...SEED, config: { ...SEED.config, orgId: '00D000000000001AAA' } }],
+      seedTemplates: TEMPLATES,
+    });
+
+    const moved = await world.run(['plan', '--file', file, '--json']);
+
+    expect(moved.code).toBe(2);
+    expect(refusalsOf(moved.stdout)).toEqual([
+      expect.objectContaining({
+        code: 'ORG_MOVED',
+        message:
+          `DEVED answers as org ${WORLD_TARGET_ID}, and the file names 00D000000000001AAA: ` +
+          'another org, of another kind: a Developer Edition org here, a sandbox in the file. ' +
+          'Nothing was run.',
+        wayOut:
+          `check that DEVED is the org the pipeline is for, then run again with --accept-org ` +
+          `DEVED=${WORLD_TARGET_ID}; or export the pipeline again from the Automation page.`,
+      }),
+    ]);
   });
 
   it('does not pin a scratch org made again under its alias to its Id, and says so', async () => {

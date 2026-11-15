@@ -6,6 +6,7 @@ import type {
   ApiUsageCategory,
   OrgHealthStatus,
   MonitorOpenApexJobsResponse,
+  UUID,
 } from '@sandforge/shared';
 import {
   MONITOR_KEY_LIMITS,
@@ -23,7 +24,7 @@ import {
 } from '../validatePayload.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 import { apexJobsSetupUrl } from '../../modules/monitor/apexJobsSetupUrl.js';
-import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { getConnectionPool, getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
 import type { TrendStorage } from '../../modules/monitor/TrendStorage.js';
@@ -501,11 +502,16 @@ export class MonitorOpsHandler implements DomainHandler {
       configStore: deps.configStore,
       log: (message) => deps.log(message),
       notify: (level, message) => sendNotification(deps, level, 'Alert', message),
-      getConnection: async (orgId) =>
-        this.withSharedJobQuery(
+      getConnection: async (orgId, options) => {
+        // Asked again after a read met an expired session or a dropped
+        // connection: what the pool holds is let go, so the connection is
+        // checked anew, and renewed through the CLI when the org refuses it.
+        if (options?.again === true) getConnectionPool().remove(orgId as UUID);
+        return this.withSharedJobQuery(
           orgId,
           await getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager),
-        ),
+        );
+      },
       // A refresh a production org's history shows completing is recorded on
       // the registered sandbox it names, which is then told like any other.
       onSandboxRefreshCompleted: (event) => {

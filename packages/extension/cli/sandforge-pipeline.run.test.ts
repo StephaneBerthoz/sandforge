@@ -32,6 +32,7 @@ import {
 } from './testing/pipelineWorld.js';
 import { CompareHandler } from '../src/bridge/handlers/CompareHandler.js';
 import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
+import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 
 /*
  * A pipeline file run whole: the Automation page's handler in the command
@@ -162,5 +163,104 @@ describe('sandforge pipeline run', () => {
     expect(answer.status).toBe('cancelled');
     expect(answer.steps[0]).toMatchObject({ name: 'An hour', status: 'stopped' });
     expect(world.env.records('Account')).toHaveLength(0);
+  });
+});
+
+describe("sandforge pipeline run, a Pre-check past the end of the org's session", () => {
+  /**
+   * The memory org's connection, its `/limits` refused `refusals` times with
+   * the error the org answers a session it no longer takes: what a Pre-check
+   * past a Delay longer than the org's sessions meets first.
+   */
+  async function sessionEnds(refusals: number): Promise<{ limitsAsked: () => number }> {
+    const conn = (await vi.mocked(getJsforceConnection)(
+      '',
+      {} as never,
+      {} as never,
+    )) as unknown as { request: (request: unknown) => Promise<unknown> };
+    const answer = conn.request.bind(conn);
+    let asked = 0;
+    let left = refusals;
+    conn.request = async (request: unknown) => {
+      const url =
+        typeof request === 'string' ? request : String((request as { url?: unknown }).url);
+      if (url.endsWith('/limits')) {
+        asked += 1;
+        if (left > 0) {
+          left -= 1;
+          throw Object.assign(new Error('Session expired or invalid'), {
+            errorCode: 'INVALID_SESSION_ID',
+          });
+        }
+      }
+      return answer(request);
+    };
+    return { limitsAsked: () => asked };
+  }
+
+  /** A Delay, then a Pre-check of the API usage and the storage of UAT. */
+  function pastTheSession(world: PipelineWorld): string {
+    return world.file({
+      orgs: ORGS,
+      steps: [
+        step('s1', 'Past the session', 'delay', { seconds: 0 }),
+        step('s2', 'Pre-check UAT', 'precheck', {
+          orgId: 'reg-uat',
+          checks: ['apiLimits', 'storage'],
+        }),
+      ],
+    });
+  }
+
+  it('reads both checks when the first read meets the expired session, and the step completes', async () => {
+    const world = new PipelineWorld(dir, [UAT, SOURCE]);
+    const session = await sessionEnds(1);
+    const file = pastTheSession(world);
+
+    const run = await world.run(['run', '--file', file, '--json']);
+
+    expect(run.code).toBe(0);
+    const answer = JSON.parse(run.stdout) as {
+      status: string;
+      steps: Array<{ name: string; status: string; summary?: string; output?: unknown }>;
+    };
+    expect(answer.status).toBe('completed');
+    expect(answer.steps[1]).toMatchObject({
+      name: 'Pre-check UAT',
+      status: 'completed',
+      summary: '2 checks passed on UAT: API usage at 7%; Storage usage at 0%.',
+      output: {
+        checks: [
+          { check: 'apiLimits', status: 'ok', message: 'API usage at 7%' },
+          { check: 'storage', status: 'ok', message: 'Storage usage at 0%' },
+        ],
+      },
+    });
+    // Asked again, once, and said.
+    expect(session.limitsAsked()).toBe(2);
+    expect(run.stderr).toContain(
+      `[WARN] monitor:apiLimits ${WORLD_TARGET_ID}: INVALID_SESSION_ID: Session expired or ` +
+        'invalid; read again on a new connection',
+    );
+  });
+
+  it('fails the step with the cause of each reading it could not take', async () => {
+    const world = new PipelineWorld(dir, [UAT, SOURCE]);
+    await sessionEnds(Number.POSITIVE_INFINITY);
+    const file = pastTheSession(world);
+
+    const run = await world.run(['run', '--file', file, '--json']);
+
+    expect(run.code).toBe(1);
+    const answer = JSON.parse(run.stdout) as {
+      steps: Array<{ name: string; status: string; error?: string }>;
+    };
+    expect(answer.steps[1]).toMatchObject({
+      status: 'failed',
+      error:
+        'Pre-check "Pre-check UAT" failed on UAT: Unable to fetch limits: INVALID_SESSION_ID: ' +
+        'Session expired or invalid (could not be read); Unable to fetch storage: ' +
+        'INVALID_SESSION_ID: Session expired or invalid (could not be read).',
+    });
   });
 });

@@ -67,16 +67,21 @@ describe('matchOrg', () => {
     ).toEqual({ ok: true });
   });
 
-  it('refuses a sandbox that answers as another org, and names --accept-org with its Id', () => {
+  it('refuses a sandbox that answers as another org, and names --accept-org with its alias and the Id it answers with', () => {
     const moved = matchOrg('reg-uat', 'UAT', SANDBOX, {
       organizationId: '00D000000000007AAA',
       kind: 'sandbox',
     });
 
-    expect(moved).toMatchObject({
+    expect(moved).toEqual({
       ok: false,
       code: 'ORG_MOVED',
-      wayOut: expect.stringContaining('--accept-org reg-uat=00D000000000007AAA'),
+      message:
+        'UAT answers as org 00D000000000007AAA, and the file names 00D000000000009AAA: a ' +
+        'sandbox refreshed since is another org, holding production’s data again. Nothing was run.',
+      wayOut:
+        'check that UAT is the org the pipeline is for, then run again with --accept-org ' +
+        'UAT=00D000000000007AAA; or export the pipeline again from the Automation page.',
     });
     expect(
       matchOrg(
@@ -87,6 +92,39 @@ describe('matchOrg', () => {
         '00D000000000007AAA',
       ),
     ).toMatchObject({ ok: true, note: expect.stringContaining('as --accept-org reg-uat=') });
+    expect(
+      matchOrg(
+        'reg-uat',
+        'UAT',
+        SANDBOX,
+        { organizationId: '00D000000000007AAA', kind: 'sandbox' },
+        '00D000000000007AAA',
+        'UAT',
+      ),
+    ).toMatchObject({
+      ok: true,
+      note: expect.stringContaining('taken, as --accept-org UAT=00D000000000007AAA says.'),
+    });
+  });
+
+  it('says the kind changed too when the file names a sandbox and the alias reaches a Developer Edition org, and names the org once in its way out', () => {
+    // The key the editor registers an org under is its Organization Id: the
+    // way out read "--accept-org <Id>=<Id>".
+    const moved = matchOrg('00D000000000009AAA', 'DEVED', SANDBOX, {
+      organizationId: '00D000000000007AAA',
+      kind: 'developer',
+    });
+
+    expect(moved).toMatchObject({
+      ok: false,
+      code: 'ORG_MOVED',
+      message:
+        'DEVED answers as org 00D000000000007AAA, and the file names 00D000000000009AAA: another ' +
+        'org, of another kind: a Developer Edition org here, a sandbox in the file. Nothing was run.',
+    });
+    expect(moved.ok === false && moved.message).not.toContain('refreshed');
+    expect(moved.ok === false && moved.wayOut).toContain('--accept-org DEVED=00D000000000007AAA;');
+    expect(moved.ok === false && moved.wayOut).not.toContain('00D000000000009AAA');
   });
 
   it('does not pin a scratch org or a Developer Edition org, unless the alias now reaches another kind', () => {

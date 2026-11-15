@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createMonitorOps } from './MonitorOpsFactory.js';
+import { createMonitorOps, readAgainAfter } from './MonitorOpsFactory.js';
 import type { MonitorOpsFactoryDeps } from './MonitorOpsFactory.js';
 import type { Connection } from 'jsforce';
+import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 
@@ -452,6 +453,177 @@ describe('createMonitorOps', () => {
       await ops.getOrFetchLimits('org-other', conn);
 
       expect(request).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('a reading that meets an expired session or a dropped connection', () => {
+    /** What the org answers a token it no longer takes, as jsforce throws it. */
+    const sessionExpired = (): Error =>
+      Object.assign(new Error('Session expired or invalid'), { errorCode: 'INVALID_SESSION_ID' });
+
+    /** What the connection layer throws when the CLI could not renew the session as it was asked. */
+    const notRenewed = (): OrgConnectionError =>
+      new OrgConnectionError(
+        'ORG_AUTH_EXPIRED',
+        'org-1',
+        'The session with "uat" has expired and could not be renewed. Sign in to it again with ' +
+          '"sf org login web --alias uat", then run the command again. (cause: sf CLI token ' +
+          'store is stale too (same expired token) — re-authenticate the org)',
+      );
+
+    /** A connection whose `/limits` answer as an org with room on both. */
+    const live = (): Connection =>
+      ({
+        request: vi.fn().mockResolvedValue({
+          DailyApiRequests: { Max: 15_000, Remaining: 10_800 },
+          DataStorageMB: { Max: 5, Remaining: 5 },
+        }),
+        query: vi.fn().mockResolvedValue({ done: true, totalSize: 0, records: [] }),
+        limitInfo: undefined,
+      }) as unknown as Connection;
+
+    it('reads the API usage and the storage when the first connection is refused and the next one renewed', async () => {
+      // The Pre-check past a Delay longer than the org's sessions: the first
+      // connection asked could not be renewed then, the one asked after was.
+      const getConnection = vi
+        .fn()
+        .mockRejectedValueOnce(notRenewed())
+        .mockImplementation(async () => live());
+      const ops = createMonitorOps(createDeps({ getConnection }));
+
+      const apiLimits = await ops.healthSignals.apiLimits('org-1');
+      const storage = await ops.healthSignals.storage('org-1');
+
+      expect(apiLimits).toMatchObject({ status: 'ok', message: 'API usage at 28%', percent: 28 });
+      expect(storage).toMatchObject({ status: 'ok', message: 'Storage usage at 0%', percent: 0 });
+      // Asked once more, as anew, and the storage from the reading it got.
+      expect(getConnection).toHaveBeenNthCalledWith(2, 'org-1', { again: true });
+    });
+
+    it('reads again on a connection asked anew when the org refuses the session of the first', async () => {
+      const expired = {
+        request: vi.fn().mockRejectedValue(sessionExpired()),
+        limitInfo: undefined,
+      } as unknown as Connection;
+      const getConnection = vi
+        .fn()
+        .mockResolvedValueOnce(expired)
+        .mockImplementation(async () => live());
+      const log = vi.fn();
+      const ops = createMonitorOps(createDeps({ getConnection, log }));
+
+      const signal = await ops.healthSignals.apiLimits('org-1');
+
+      expect(signal.status).toBe('ok');
+      expect(getConnection).toHaveBeenLastCalledWith('org-1', { again: true });
+      expect(log).toHaveBeenCalledWith(
+        '[WARN] monitor:apiLimits org-1: INVALID_SESSION_ID: Session expired or invalid; read ' +
+          'again on a new connection',
+      );
+    });
+
+    it('reads again when the org was not reached at all, and names the network word, not the host', async () => {
+      // What the connection layer throws when the identity check never
+      // reached the org: the first request of a host just woken.
+      const unreached = new Error(
+        'Connection failed for "uat": request to https://acme.my.salesforce.com/services/data/v62.0 ' +
+          'failed, reason: getaddrinfo EAI_AGAIN acme.my.salesforce.com',
+      );
+      const getConnection = vi
+        .fn()
+        .mockRejectedValueOnce(unreached)
+        .mockImplementation(async () => live());
+      const log = vi.fn();
+      const ops = createMonitorOps(createDeps({ getConnection, log }));
+
+      const signal = await ops.healthSignals.storage('org-1');
+
+      expect(signal.status).toBe('ok');
+      expect(log).toHaveBeenCalledWith(
+        '[WARN] monitor:storage org-1: the org could not be reached (EAI_AGAIN); read again on ' +
+          'a new connection',
+      );
+    });
+
+    it('says why each signal could not be read when the second connection fails too', async () => {
+      mockQueryAll.mockResolvedValue([]);
+      const getConnection = vi.fn().mockRejectedValue(notRenewed());
+      const ops = createMonitorOps(createDeps({ getConnection }));
+
+      const read = await Promise.all([
+        ops.healthSignals.apiLimits('org-1'),
+        ops.healthSignals.storage('org-1'),
+        ops.healthSignals.recentErrors('org-1'),
+        ops.healthSignals.activeJobs('org-1'),
+      ]);
+
+      const cause = notRenewed().message;
+      expect(read.map((signal) => [signal.status, signal.message])).toEqual([
+        ['unknown', `Unable to fetch limits: ${cause}`],
+        ['unknown', `Unable to fetch storage: ${cause}`],
+        ['unknown', `Unable to fetch error logs: ${cause}`],
+        ['unknown', `Unable to fetch jobs: ${cause}`],
+      ]);
+      expect(cause).toContain('has expired and could not be renewed');
+      // Twice each: once, then once more on a connection asked anew.
+      expect(getConnection).toHaveBeenCalledTimes(8);
+    });
+
+    it('keeps the first cause when the second try is held back by the failures in a row', async () => {
+      const getConnection = vi
+        .fn()
+        .mockRejectedValueOnce(notRenewed())
+        .mockRejectedValueOnce(
+          new OrgConnectionError(
+            'ORG_TEMPORARILY_UNREACHABLE',
+            'org-1',
+            '"uat" failed several times in a row, so SandForge waits a moment before calling it ' +
+              'again. Try again in a minute.',
+          ),
+        );
+      const ops = createMonitorOps(createDeps({ getConnection }));
+
+      const signal = await ops.healthSignals.storage('org-1');
+
+      expect(signal.message).toBe(`Unable to fetch storage: ${notRenewed().message}`);
+    });
+
+    it("asks no second time for a refusal of the org's own, and says it", async () => {
+      const getConnection = vi.fn().mockResolvedValue({
+        request: vi.fn().mockRejectedValue(
+          Object.assign(new Error('TotalRequests Limit exceeded.'), {
+            errorCode: 'REQUEST_LIMIT_EXCEEDED',
+          }),
+        ),
+        limitInfo: undefined,
+      } as unknown as Connection);
+      const ops = createMonitorOps(createDeps({ getConnection }));
+
+      const signal = await ops.healthSignals.apiLimits('org-1');
+
+      expect(signal).toMatchObject({
+        status: 'unknown',
+        message: 'Unable to fetch limits: REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+      });
+      expect(getConnection).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('readAgainAfter', () => {
+    it('reads again after a refused session, one not renewed, or an org not reached, and after nothing else', () => {
+      expect(readAgainAfter(new Error('INVALID_SESSION_ID: Session expired or invalid'))).toBe(
+        true,
+      );
+      expect(readAgainAfter(new OrgConnectionError('ORG_AUTH_EXPIRED', 'o', 'x'))).toBe(true);
+      expect(
+        readAgainAfter(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })),
+      ).toBe(true);
+      expect(readAgainAfter(new Error('socket hang up'))).toBe(true);
+      expect(readAgainAfter(new OrgConnectionError('ORG_TEMPORARILY_UNREACHABLE', 'o', 'x'))).toBe(
+        false,
+      );
+      expect(readAgainAfter(new OrgConnectionError('SCRATCH_ORG_EXPIRED', 'o', 'x'))).toBe(false);
+      expect(readAgainAfter(new Error('INSUFFICIENT_ACCESS: no'))).toBe(false);
     });
   });
 

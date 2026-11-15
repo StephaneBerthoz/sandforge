@@ -195,6 +195,28 @@ export function sameOrganization(a: string, b: string): boolean {
 /** The kinds of org that are made again often, under the same alias: never pinned to their Id. */
 const UNPINNED: ReadonlySet<PipelineFileOrgKind> = new Set(['scratch', 'developer']);
 
+/** A kind of org, as the refusal of one that changed names it. */
+const KIND_WORDS: Readonly<Record<PipelineFileOrgKind, string>> = {
+  sandbox: 'a sandbox',
+  scratch: 'a scratch org',
+  developer: 'a Developer Edition org',
+  production: 'a production org',
+};
+
+/**
+ * What changed of an org since the export, in a clause: its Id alone, or its
+ * kind too. A file that said sandbox, its alias now reaching a Developer
+ * Edition org, was refused for "a sandbox refreshed since", which it was not.
+ */
+function changedWords(fileKind: PipelineFileOrgKind, liveKind: PipelineFileOrgKind): string {
+  if (fileKind !== liveKind) {
+    return `another org, of another kind: ${KIND_WORDS[liveKind]} here, ${KIND_WORDS[fileKind]} in the file`;
+  }
+  return fileKind === 'sandbox'
+    ? 'a sandbox refreshed since is another org, holding production’s data again'
+    : 'another org than the one the pipeline was exported for';
+}
+
 /** An org of the file as it answered here, against what the file says of it. */
 export type OrgMatch =
   /** The org the file names, or one of a kind not pinned to its Id. */
@@ -210,7 +232,12 @@ export type OrgMatch =
  * they stay of such a kind: the file's says which, the live type says the
  * other.
  *
- * @param accepted - The Organization Id `--accept-org <key>=<id>` gives for it.
+ * The way out names the org by the alias it is reached by: its key in the
+ * file is the Organization Id the editor registered it under, and
+ * `--accept-org <key>=<id>` read as one Id given for another.
+ *
+ * @param accepted - The Organization Id `--accept-org` gives for it.
+ * @param acceptedAs - What that `--accept-org` named the org by: its alias, or its key.
  */
 export function matchOrg(
   key: string,
@@ -218,6 +245,7 @@ export function matchOrg(
   fileOrg: PipelineFileOrg,
   live: { organizationId: string; kind: PipelineFileOrgKind },
   accepted?: string,
+  acceptedAs: string = key,
 ): OrgMatch {
   if (sameOrganization(fileOrg.organizationId, live.organizationId)) return { ok: true };
   if (accepted !== undefined && sameOrganization(accepted, live.organizationId)) {
@@ -225,7 +253,7 @@ export function matchOrg(
       ok: true,
       note:
         `${alias} answers as org ${live.organizationId}, not the ${fileOrg.organizationId} the file ` +
-        `names: taken, as --accept-org ${key}=${accepted} says.`,
+        `names: taken, as --accept-org ${acceptedAs}=${accepted} says.`,
     };
   }
   if (UNPINNED.has(fileOrg.kind) && UNPINNED.has(live.kind)) {
@@ -241,12 +269,11 @@ export function matchOrg(
     ok: false,
     code: 'ORG_MOVED',
     message:
-      `${alias} answers as org ${live.organizationId}, and the file names ${fileOrg.organizationId}` +
-      `${fileOrg.kind === 'sandbox' ? ': a sandbox refreshed since is another org, holding production’s data again' : ''}. ` +
-      'Nothing was run.',
+      `${alias} answers as org ${live.organizationId}, and the file names ` +
+      `${fileOrg.organizationId}: ${changedWords(fileOrg.kind, live.kind)}. Nothing was run.`,
     wayOut:
       `check that ${alias} is the org the pipeline is for, then run again with --accept-org ` +
-      `${key}=${live.organizationId}; or export the pipeline again from the Automation page.`,
+      `${alias}=${live.organizationId}; or export the pipeline again from the Automation page.`,
   };
 }
 

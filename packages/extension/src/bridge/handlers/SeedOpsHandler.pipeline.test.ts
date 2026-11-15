@@ -642,4 +642,97 @@ describe('SeedOpsHandler.seedForPipeline', () => {
       ]);
     });
   });
+
+  describe('its dry run (previewForPipeline)', () => {
+    const preview = (request: Partial<PipelineSeedRequest> = {}) =>
+      handler.previewForPipeline({
+        orgId: 'org-dev',
+        templateId: CRM_STARTER.id,
+        pipeline: { name: 'Nightly refresh' },
+        answer: { approved: false },
+        ...request,
+      });
+
+    /** How a promise is refused: its code and its words, or that it was not. */
+    const refusalOf = (promise: Promise<unknown>) =>
+      promise.then(
+        () => 'not refused',
+        (err: Error & { code?: string }) => ({ code: err.code, message: err.message }),
+      );
+
+    it('says what the run would write and what the org has left, writes nothing, asks no one, and keeps nothing', async () => {
+      const gates = await preview();
+
+      expect(gates).toMatchObject({
+        records: CRM_STARTER.objects.reduce((total, o) => total + o.recordCount, 0),
+        objects: CRM_STARTER.objects.length,
+        storage: { verdict: 'fits', maxMB: 5, remainingMB: 5 },
+        apiRequests: { verdict: 'fits', remaining: 15_000 },
+      });
+      expect(rowsWritten()).toBe(0);
+      expect(executed).toEqual([]);
+      expect(requestConfirmation).not.toHaveBeenCalled();
+      expect(requestRunConfirmation).not.toHaveBeenCalled();
+      expect(trail()).toEqual([]);
+      expect(tracker.getAll()).toEqual([]);
+    });
+
+    it.each([
+      [
+        'past the storage the org has left',
+        (): void => undefined,
+        { templateId: SALES_CLOUD_STARTER.id, answer: { approved: true } },
+      ],
+      [
+        'past the API requests the org has left today',
+        (): void => {
+          limits = { ...limits, DailyApiRequests: { Max: 15_000, Remaining: 2 } };
+        },
+        { answer: { approved: true } },
+      ],
+      [
+        'whose org will not say its storage, with no Approval before it',
+        (): void => {
+          limits = { DailyApiRequests: { Max: 15_000, Remaining: 15_000 } };
+        },
+        {},
+      ],
+      [
+        'past the emails the org has left today',
+        (): void => {
+          read.mockImplementation(async (_orgId, objects) => automationOf(objects, true));
+        },
+        { answer: { approved: true } },
+      ],
+      [
+        'into a production org',
+        (): void => undefined,
+        { orgId: 'org-prod', answer: { approved: true } },
+      ],
+    ] as const)(
+      'refuses a seed %s as its run refuses it, in the same words, keeping nothing in the audit trail',
+      async (_case, arrange, request) => {
+        arrange();
+
+        const dry = await refusalOf(preview(request));
+        expect(trail()).toEqual([]);
+        const run = await refusalOf(seed(request));
+
+        expect(dry).not.toBe('not refused');
+        expect(dry).toEqual(run);
+        expect(rowsWritten()).toBe(0);
+      },
+    );
+
+    it('passes a seed whose org will not say its storage once an Approval before it approved', async () => {
+      limits = { DailyApiRequests: { Max: 15_000, Remaining: 15_000 } };
+
+      const gates = await preview({ answer: { approved: true } });
+
+      expect(gates.storage.verdict).toBe('unread');
+      expect(gates.warnings).toContainEqual(
+        expect.stringMatching(/^the data storage the org has left could not be read/),
+      );
+    });
+  });
 });

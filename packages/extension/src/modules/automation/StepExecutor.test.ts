@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StepCancelledError, StepExecutor } from './StepExecutor';
+import { StepCancelledError, StepExecutor, waitedWords } from './StepExecutor';
 import type { StepContext } from './StepExecutor';
 import type { PipelineStep, PipelineStepType } from '@sandforge/shared';
 
@@ -109,7 +109,7 @@ describe('StepExecutor', () => {
       const result = await promise;
 
       expect(result.status).toBe('completed');
-      expect(result.output).toEqual({ delayed: 500 });
+      expect(result.output).toEqual({ delayed: 500, heldMs: 500 });
     });
 
     it('waits the seconds the Step Config Panel writes, not 0 ms', async () => {
@@ -129,7 +129,7 @@ describe('StepExecutor', () => {
       await vi.advanceTimersByTimeAsync(1);
       const result = await promise;
       expect(result.status).toBe('completed');
-      expect(result.output).toEqual({ delayed: 2_000 });
+      expect(result.output).toEqual({ delayed: 2_000, heldMs: 2_000 });
     });
 
     it('waits 0 seconds when that is what the step asks for', async () => {
@@ -139,7 +139,7 @@ describe('StepExecutor', () => {
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      expect((await promise).output).toEqual({ delayed: 0 });
+      expect((await promise).output).toEqual({ delayed: 0, heldMs: 0 });
     });
 
     it('refuses a Delay step with no duration instead of calling a 0 ms wait done', async () => {
@@ -645,6 +645,7 @@ describe('StepExecutor', () => {
       );
       await vi.advanceTimersByTimeAsync(2000);
       expect((await waiting).summary).toBe('Waited 2 s.');
+      expect((await waiting).output).toEqual({ delayed: 2000, heldMs: 2000 });
 
       const held = await executor.execute(
         createStep({
@@ -654,6 +655,45 @@ describe('StepExecutor', () => {
         createContext({ variables: { env: 'uat' } }),
       );
       expect(held.summary).toBe('The condition held.');
+    });
+  });
+
+  describe('a Delay held past its time', () => {
+    /** A Delay of `seconds`, the machine asleep `sleptMs` of its wait: the wall clock moves, the timer does not. */
+    async function delayWhileAsleep(seconds: number, sleptMs: number) {
+      const waiting = executor.execute(
+        createStep({ type: 'delay', config: { seconds } }),
+        createContext(),
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      vi.setSystemTime(Date.now() + sleptMs);
+      await vi.advanceTimersByTimeAsync(seconds * 1000 - 1000);
+      return waiting;
+    }
+
+    it('says how long it really waited, and that the machine may have slept, past the margin', async () => {
+      // The Delay of 7 500 s that held 7 830.8 s on a host that slept.
+      const result = await delayWhileAsleep(7500, 330_800);
+
+      expect(result.status).toBe('completed');
+      expect(result.summary).toBe(
+        'Waited 7830.8 s, 330.8 s more than the 7500 s asked: the machine may have slept ' +
+          'meanwhile, and a wait counts only the time it is awake.',
+      );
+      expect(result.output).toEqual({ delayed: 7_500_000, heldMs: 7_830_800 });
+    });
+
+    it('says the time it held within the margin, and nothing of a sleep', async () => {
+      const result = await delayWhileAsleep(7500, 60_000);
+
+      expect(result.summary).toBe('Waited 7560 s.');
+    });
+
+    it('keeps a margin of 5 s on a short wait', async () => {
+      expect(waitedWords(2000, 6900)).toBe('Waited 6.9 s.');
+      expect(waitedWords(2000, 7100)).toMatch(/^Waited 7\.1 s, 5\.1 s more than the 2 s asked:/);
+      // A clock set back during the wait: the timer held what it was asked.
+      expect(waitedWords(2000, 1500)).toBe('Waited 2 s.');
     });
   });
 

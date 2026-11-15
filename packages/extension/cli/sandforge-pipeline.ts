@@ -106,9 +106,10 @@ Options (plan, run):
   --file <file>             the pipeline file
   --org <key>=<alias>       the sf alias an org of the file is reached by here, by its key in
                             the file's "orgs"; repeat for more (default: the alias the file names)
-  --accept-org <key>=<id>   take the org an alias reaches for the file's though its Organization
+  --accept-org <alias>=<id> take the org an alias reaches for the file's though its Organization
                             Id differs — a sandbox refreshed since — once you checked it is the
-                            one; repeat for more
+                            one: the org by its alias, or by its key in the file's "orgs", and
+                            the Id it answers with; repeat for more
   --var <name>=<value>      a variable of the pipeline; repeat for more
   --var-env <name>=<VAR>    a variable read from an environment variable: a secret, which the
                             file never holds; repeat for more
@@ -128,9 +129,10 @@ Options (plan, run):
 Options (run):
   --dry-run                 the steps that write say what they would do: a Sync simulates, an
                             Anonymize previews, a Rewind previews, a Checkpoint estimates, a
-                            Seed says what it would seed; Compare and Pre-check run, and the
-                            Conditions read what they found; no Delay waits, no Approval is
-                            asked; nothing is kept in the history nor the audit
+                            Seed meets its gates — the data storage and the API requests its
+                            org has left — and says what it would seed; Compare and Pre-check
+                            run, and the Conditions read what they found; no Delay waits, no
+                            Approval is asked; nothing is kept in the history nor the audit
   --timeout <ms>            the run's time budget, sandforge.pipeline.timeout, from 30000 to
                             3600000 (default: the file's, or 300000); an Approval's wait, a
                             Delay and the steps that write have their own
@@ -217,7 +219,7 @@ export interface PipelineArgs {
   file: string;
   /** `--org`: the alias of each org key. */
   orgs: Map<string, string>;
-  /** `--accept-org`: the Organization Id taken for each org key. */
+  /** `--accept-org`: the Organization Id taken for each org, by its alias or its key in the file. */
   accepted: Map<string, string>;
   /** `--var`, and `--var-env` read: each variable's value, and where it came from. */
   vars: Map<string, { value?: string; env?: string }>;
@@ -881,12 +883,16 @@ async function planIn(
       continue;
     }
     const kind = liveKindOf(org);
+    // Taken by the alias the org is reached by, as the refusal's way out
+    // names it, or by its key in the file.
+    const acceptedAs = [each.key, each.alias].find((name) => args.accepted.has(name));
     const matched = matchOrg(
       each.key,
       each.alias,
       each.file,
       { organizationId: org.orgId ?? org.id, kind },
-      args.accepted.get(each.key),
+      acceptedAs !== undefined ? args.accepted.get(acceptedAs) : undefined,
+      acceptedAs,
     );
     if (!matched.ok) {
       refusals.push({

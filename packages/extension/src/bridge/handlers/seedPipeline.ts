@@ -9,6 +9,7 @@ import type {
 import { PREBUILT_SEED_TEMPLATES, pipelineWriteVerdict } from '@sandforge/shared';
 
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
+import type { ApiBudgetCheck, StorageCheck } from '../../modules/forge/ForgeRunGate.js';
 import { seedTemplatePayloadSchema } from '../validatePayload.js';
 
 /**
@@ -69,6 +70,24 @@ export interface PipelineSeedOutcome {
    */
   automation: string[];
   /** What could not be read or counted, the seed going on: said in the log, as the page's are. */
+  warnings: string[];
+}
+
+/**
+ * What a pipeline's Seed step would meet before its first write, read as its
+ * run reads it: what a dry run of the pipeline says of the step.
+ */
+export interface PipelineSeedPreview {
+  /** The records the run would create, of the objects the org takes. */
+  records: number;
+  objects: number;
+  /** The data storage those records take, against what the org has left. */
+  storage: StorageCheck;
+  /** The daily API requests the run makes, against what the org has left. */
+  apiRequests: ApiBudgetCheck;
+  /** What the org runs as the records are created, in the command line's words. */
+  automation: string[];
+  /** What could not be read or counted, the run going on. */
   warnings: string[];
 }
 
