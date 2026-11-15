@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { buildSyntheticForgeGraph } from '@sandforge/shared';
 import type { ForgeGraph, ForgeGraphNode, ForgePlan } from '@sandforge/shared';
 import '../../i18n';
-import { ReviewPlanLine } from './ReviewPlanLine';
+import { ReviewPlanLine, ReviewSourceTablesNote } from './ReviewPlanLine';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -215,11 +215,23 @@ describe('ReviewPlanLine', () => {
     expect(tile('forge-preview-clone')).toBe(
       `Will clone 2 objects · ${(1_200_000).toLocaleString('en')} records in the source tables Case, CaseComment`,
     );
+    // Why they are the source tables' is said in the row once it is open: on
+    // the folded line, it pushed Automation under the fold of an 800 pixel panel.
+    expect(screen.queryByTestId('forge-preview-source-tables')).toBeNull();
+    expect(screen.queryByText(/estimated API calls/)).toBeNull();
+    expect(screen.queryByText(/~2400s/)).toBeNull();
+  });
+
+  it('says, once the row is open, why the counts are the source tables’, of one record or of the records a query chooses', () => {
+    const { unmount } = render(<ReviewSourceTablesNote fromQuery={false} />);
     expect(screen.getByTestId('forge-preview-source-tables').textContent).toBe(
       'The clone reads only what its record reaches: these counts are of the source tables, not of what it will write.',
     );
-    expect(screen.queryByText(/estimated API calls/)).toBeNull();
-    expect(screen.queryByText(/~2400s/)).toBeNull();
+    unmount();
+    render(<ReviewSourceTablesNote fromQuery />);
+    expect(screen.getByTestId('forge-preview-source-tables').textContent).toBe(
+      'The clone reads only what the records its query chooses reach: these counts are of the source tables, not of what it will write.',
+    );
   });
 
   it('still counts an object left in with no record as empty, and the reference data as mapped', () => {

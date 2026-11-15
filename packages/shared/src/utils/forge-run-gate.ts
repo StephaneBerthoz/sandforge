@@ -237,12 +237,20 @@ export interface ForgeRunGateStop {
    * (`maxRoots`), the records the query chooses when they were counted, and
    * what is wrong with the plan. What the query was refused for is said in
    * the error's message.
+   *
+   * For one refused for the data storage its records take
+   * (`STORAGE_EXCEEDED`): the object, how many of its records the run took,
+   * and how many of them fit (`fits`), at what each takes on average with
+   * what its clone copies — what a LIMIT in its query takes, where fewer
+   * records per object kept every root and some of its records. Absent when
+   * one of them alone takes more.
    */
   roots?: {
     objectApiName: string;
     cap?: number;
     total?: number;
     plan?: RootsGatePlanRefusal;
+    fits?: number;
   };
   /**
    * For a sample of the whole org stopped at its gate, what the page names of
@@ -374,6 +382,7 @@ const stopSchema = z.object({
       objectApiName: z.string().regex(OBJECT_NAME),
       cap: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
       total: z.number().int().nonnegative().optional(),
+      fits: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
       plan: z
         .enum([
           'gone',
@@ -444,6 +453,6 @@ export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
     ...(api && code === 'API_BUDGET_EXCEEDED' ? { api } : {}),
     ...(readBound && code === 'READ_BOUND_EXCEEDED' ? { readBound } : {}),
     ...(sample && SAMPLE_STOP_CODES.has(code) ? { sample } : {}),
-    ...(roots && ROOTS_STOP_CODES.has(code) ? { roots } : {}),
+    ...(roots && (ROOTS_STOP_CODES.has(code) || code === 'STORAGE_EXCEEDED') ? { roots } : {}),
   };
 }

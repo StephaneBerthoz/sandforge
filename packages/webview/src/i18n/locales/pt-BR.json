@@ -4297,6 +4297,7 @@
     "hintAiUnchecked": "Redija uma consulta e deixe-a passar pela verificação na org de origem para descobrir o grafo",
     "hintSameOrg": "Origem e destino devem ser diferentes",
     "hintRecordNotInSource": "A org de origem escolhida não contém este registro: escolha a org de onde ele vem, ou outro registro",
+    "hintRootsPastTheRun": "Pegue menos dos registros que a consulta escolhe para descobrir o grafo: uma execução seria recusada por eles",
     "hintSoqlFilterRefused": "Encurte ou reescreva a cláusula WHERE para descobrir o grafo",
     "hintSoqlAliasRefused": "Corrija o alias após FROM para descobrir o grafo",
     "depthDirectTooltip": "Somente objetos filhos diretamente relacionados (1 nível)",
@@ -4703,6 +4704,8 @@
       "readDeclined": "Você cancelou a execução na confirmação das tabelas que ela lê sem limite por objeto, cada uma com mais de {{ceiling}} registros. Nada foi lido nem gravado. Ajuste Registros por objeto para ler menos.",
       "writeDeclined": "Você cancelou a execução antes que ela gravasse qualquer coisa. Os registros de origem foram lidos; nada foi gravado na org de destino. Para gravar menos, exclua objetos ou reduza Registros por objeto na revisão; Simular diz o que uma execução grava sem gravá-lo.",
       "storageExceeded": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Exclua objetos, reduza os registros por objeto ou libere armazenamento de dados na org de destino.",
+      "storageExceededRoots": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres. Cabem cerca de {{fits}} dos registros {{object}} que sua consulta escolhe, cada um com o que seu clone copia: dê à consulta LIMIT {{fits}}, depois de ORDER BY CreatedDate DESC, Id DESC para os mais recentes, ou restrinja o WHERE dela; senão, exclua objetos ou libere armazenamento de dados na org de destino.",
+      "storageExceededRootsOne": "A execução foi recusada antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e a org de destino tem {{remaining}} MB livres, menos do que ocupa em média um dos registros {{object}} que sua consulta escolhe, com o que seu clone copia. Exclua objetos na revisão, clone com menos profundidade ou libere armazenamento de dados na org de destino.",
       "confirmationUnavailable": "A execução foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e nenhuma pôde ser pedida.",
       "checkpointRefused": "A execução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia criar primeiro dos objetos que grava foi recusado, ou não pôde ser criado. Nada foi gravado. Execute-a sem ponto de verificação prévio, ou corrija o que o recusa.",
       "apiBudgetExceeded": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, e teria parado no meio do caminho. Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas — ou grave menos registros: exclua objetos ou reduza Registros por objeto na revisão.",
@@ -4731,7 +4734,7 @@
       "sampleDrawEmpty": "A execução foi recusada antes de gravar qualquer coisa: nenhum objeto tem raiz na janela, nos filtros das raízes e nos estratos pedidos. Amplie a janela, mude os filtros ou sorteie sem eles, em Quais raízes, na revisão.",
       "rootsQueryRefused": "A execução não começou: sua consulta não consegue escolher os registros a clonar — uma cláusula que muda as linhas que ela retorna (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE ou um COUNT()), um alias que não leva de volta ao seu objeto, ou um WHERE, ORDER BY ou LIMIT fora das regras. Nada foi lido nem gravado. Corrija a consulta, escolhendo seus registros por WHERE, ORDER BY e LIMIT.",
       "noRoots": "A execução foi recusada antes de gravar qualquer coisa: sua consulta não escolhe nenhum registro {{object}} da org de origem. Verifique o WHERE dela na org de origem.",
-      "rootsExceeded": "A execução foi recusada antes de ler qualquer outra coisa: sua consulta escolhe mais registros {{object}} do que os {{cap}} que ela clona, e nada foi gravado. Adicione ORDER BY CreatedDate DESC LIMIT {{limit}} à consulta para clonar os mais recentes, ou restrinja o WHERE dela.",
+      "rootsExceeded": "A execução foi recusada antes de ler qualquer outra coisa: sua consulta escolhe mais registros {{object}} do que os {{cap}} que ela clona, e nada foi gravado. Adicione ORDER BY CreatedDate DESC, Id DESC LIMIT {{limit}} à consulta para clonar os mais recentes, ou restrinja o WHERE dela.",
       "rootsPlanMismatch": "A execução foi recusada antes de gravar qualquer coisa: os registros escolhidos pela sua simulação foram lidos de outra org ou por outra consulta, ou mudaram desde então. Simule de novo para escolhê-los novamente.",
       "rootsPlanGone": "A execução foi recusada antes de gravar qualquer coisa: os registros que ela clonava não estão no seu diário, e ler a consulta de novo poderia escolher outros. Execute de novo a partir da revisão, ou remova o que ela gravou em Resultados.",
       "sampleTargetMoved": "A execução foi recusada antes de gravar qualquer coisa: a amostra foi ajustada a {{fitted}} MB do armazenamento de dados da org de destino, e o que lhe resta agora comporta {{holds}} MB de uma amostra. Simule de novo para sortear uma amostra que caiba.",
@@ -5091,8 +5094,8 @@
         "wholeOrg_other": "Copiar a org {{source}} inteira para {{target}}: {{formatted}} registros contados em {{objects}} objetos.",
         "sample_one": "Copiar uma amostra de {{source}} que caiba em {{target}}, sorteada de {{formatted}} registro contado em {{objects}} objetos.",
         "sample_other": "Copiar uma amostra de {{source}} que caiba em {{target}}, sorteada de {{formatted}} registros contados em {{objects}} objetos.",
-        "queryRecords_one": "Copiar os registros {{object}} que a consulta escolhe, no máximo {{cap}}, e o que eles alcançam em {{count}} objeto, de {{source}} para {{target}}.",
-        "queryRecords_other": "Copiar os registros {{object}} que a consulta escolhe, no máximo {{cap}}, e o que eles alcançam em {{count}} objetos, de {{source}} para {{target}}."
+        "queryRecords_one": "Copiar até {{cap}} registro {{object}} e o que ele alcança, de {{source}} para {{target}}.",
+        "queryRecords_other": "Copiar até {{cap}} registros {{object}} e o que eles alcançam, de {{source}} para {{target}}."
       },
       "left": {
         "none": "Não resta nada a decidir.",

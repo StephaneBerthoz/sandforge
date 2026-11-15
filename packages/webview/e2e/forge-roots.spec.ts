@@ -21,7 +21,7 @@ const THEMES = ['Light 2026', 'Dark 2026', 'Light Modern', 'Dark Modern'] as con
 type Theme = (typeof THEMES)[number];
 
 const ENERGY = "SELECT Id FROM Account WHERE Industry = 'Energy'";
-const NEWEST = `${ENERGY} ORDER BY CreatedDate DESC LIMIT 200`;
+const NEWEST = `${ENERGY} ORDER BY CreatedDate DESC, Id DESC LIMIT 200`;
 
 /** Paint the host theme before first paint, and prepend VS Code's default webview stylesheet. */
 async function paintHostTheme(page: Page, theme: Theme): Promise<void> {
@@ -213,6 +213,12 @@ test.describe('a clone from the records a query chooses', () => {
     await expect(page.getByTestId('forge-roots-said')).toHaveText(
       'The query chooses more than the 200 Account records a run clones, and no LIMIT holds it to that: the run would be refused before it read anything else. Take the newest, narrow its WHERE, or raise the setting.',
     );
+    // Discover waits: the run would be refused for them once discovery, the
+    // target's automation and its gaps had been read.
+    await expect(page.getByTestId('forge-discover-btn')).toBeDisabled();
+    await expect(page.getByTestId('forge-discover-hint')).toHaveText(
+      'Take fewer of the records the query chooses to discover the graph: a run would be refused for them',
+    );
 
     await page.getByTestId('forge-roots-setting').click();
     const opened = await bridge.waitForMessage('workbench:open-setting', { timeout: 10_000 });
@@ -282,7 +288,7 @@ for (const theme of THEMES) {
       await page.getByTestId('forge-execute-btn').click();
       await page.waitForSelector('[data-testid="forge-review"]', { timeout: 10_000 });
       await expect(page.getByTestId('forge-review')).toContainText(
-        'Copy the Account records the query chooses, 200 at most, and what they reach in 2 objects, from',
+        'Copy up to 200 Account records and what they reach, from',
       );
       const review = await checkAccessibility(page);
       expect(review.violations.length, formatViolations(review.violations)).toBe(0);

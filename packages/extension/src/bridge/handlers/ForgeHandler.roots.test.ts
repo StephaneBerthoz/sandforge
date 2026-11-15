@@ -354,6 +354,87 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
     });
   });
 
+  // Run for real on a trap org, the gate of a clone from records counted
+  // its records alone, 2.58 MB of the 5 MB left, while a flow no mute
+  // reaches opens a task under each of the 1 200 contacts: about 2.3 MB
+  // more, which the gate of a clone of the whole org counts.
+  describe('its records weighed at the gate with what the target creates under them', () => {
+    /** 300 contacts more under the first account of Energy: the records take 0.6 MB of the 1 MB left. */
+    const withManyContacts = (): void => {
+      for (let n = 1; n <= 300; n++) {
+        org.add('Contact', {
+          Id: fakeId('Contact', 'S', 100 + n),
+          LastName: `C${n}`,
+          Department: 'Sales',
+          AccountId: account(1),
+          ReportsToId: null,
+        });
+      }
+      limits['tgt'] = {
+        ...(limits['tgt'] as object),
+        DataStorageMB: { Max: 5, Remaining: 1 },
+      };
+    };
+    /** The target runs a flow that opens a task under each contact it is sent. */
+    const withATaskFlow = (): void => {
+      handler.setForgeOrchestrator(orchestratorOver(org), {
+        targetAutomation: {
+          readForGraph: vi.fn(async (): Promise<ForgeTargetAutomation> => ({
+            ...QUIET,
+            objects: [
+              {
+                objectApiName: 'Contact',
+                flows: [
+                  {
+                    apiName: 'Contact_Follow_Up_Task',
+                    label: 'Contact follow-up task',
+                    timing: 'afterSave',
+                    startsOn: 'create',
+                    condition: 'read',
+                    permissions: [],
+                    creates: ['Task'],
+                  },
+                ],
+                triggers: [],
+              },
+            ],
+          })),
+        } as unknown as TargetAutomationReader,
+        runJournal: journal,
+      });
+    };
+
+    it('is refused the storage the tasks take with its records, with how many of its roots fit, nothing written', async () => {
+      withManyContacts();
+      withATaskFlow();
+
+      await execute(recordsConfig());
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'STORAGE_EXCEEDED',
+        gate: { code: 'STORAGE_EXCEEDED', roots: { objectApiName: 'Account', fits: 1 } },
+      });
+      expect(String(error['message'])).toContain(
+        "of it for what the target's automation creates under them, and TGT has 1 MB left " +
+          'of 5 MB: about 1 of the 2 Account records the query chooses fit, each with what its ' +
+          'clone copies: a LIMIT of 1 in the query clones that many — after ORDER BY ' +
+          'CreatedDate DESC, Id DESC, the newest',
+      );
+      expect(String(error['message'])).not.toContain('records per object');
+      expect(org.inserted.size).toBe(0);
+    });
+
+    it('lets the same records through when nothing the target runs creates a record under them', async () => {
+      withManyContacts();
+
+      await execute(recordsConfig());
+
+      expect(lastResult().roots).toMatchObject({ from: 'query', written: 2 });
+      expect(sentToTarget('Contact').length).toBeGreaterThan(300);
+    });
+  });
+
   describe('the roots its simulation read, and its run', () => {
     it('keeps the roots the Simulate read, and the run of the same setup writes those, not a record the query chooses since', async () => {
       await simulate();

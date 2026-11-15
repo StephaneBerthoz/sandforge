@@ -13,9 +13,11 @@ import { newestQueryOf } from './forgeUtils';
  * (`@sandforge/shared`, `utils/soqlRoot.test.ts`).
  */
 describe('newestQueryOf', () => {
-  it('orders a query with no order of its own by the date its records were made, newest first, and holds it to the most', () => {
+  it('orders a query with no order of its own by the date its records were made, newest first, then by their ids, and holds it to the most', () => {
+    // By the date alone, records made in the same second came back in an
+    // order that changed with the WHERE, and the LIMIT kept others.
     expect(newestQueryOf("SELECT Id FROM Account WHERE Industry = 'Energy'", 200)).toBe(
-      "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY CreatedDate DESC LIMIT 200",
+      "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY CreatedDate DESC, Id DESC LIMIT 200",
     );
   });
 

@@ -2308,7 +2308,8 @@ export const TOOLS: readonly ServedTool[] = [
           .optional()
           .describe(
             'With object: the order the records are chosen in, without ORDER BY (default Id): ' +
-              'CreatedDate DESC takes the newest.',
+              'CreatedDate DESC, Id DESC takes the newest, the ids ordering those made in the ' +
+              'same second.',
           ),
         limit: z
           .number()

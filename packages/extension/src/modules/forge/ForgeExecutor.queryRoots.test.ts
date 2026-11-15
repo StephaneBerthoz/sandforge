@@ -64,10 +64,12 @@ async function run(
   options: {
     runOptions?: ForgeRunOptions;
     deps?: (executor: () => ForgeExecutor) => Partial<ForgeExecutorDeps>;
+    /** The ids its caller read by the roots' statement, as the command line hands them. */
+    chosen?: { ids: string[]; readAt: string };
   } = {},
 ): Promise<Run> {
   const gate: ForgeWriteBoundary[] = [];
-  const executeOptions = forgeExecuteOptions(
+  const handed = forgeExecuteOptions(
     graph,
     config,
     {
@@ -78,6 +80,10 @@ async function run(
     },
     () => [],
   );
+  const executeOptions: ExecuteOptions | undefined =
+    options.chosen && handed?.roots
+      ? { ...handed, roots: { ...handed.roots, chosen: options.chosen } }
+      : handed;
   const holder: { executor?: ForgeExecutor } = {};
   const executor = new ForgeExecutor({
     ...org.deps(),
@@ -292,8 +298,45 @@ describe('a clone from the records a query chooses', () => {
       code: 'ROOTS_EXCEEDED',
       roots: { objectApiName: 'Account', cap: 200 },
     });
-    expect((error as Error).message).toContain('ORDER BY CreatedDate DESC LIMIT 200');
+    expect((error as Error).message).toContain('ORDER BY CreatedDate DESC, Id DESC LIMIT 200');
     expect(org.requests).toBe(1);
+    expect(org.inserted.size).toBe(0);
+  });
+
+  it('takes as its roots the ids its caller read by the same statement, and sends that statement no more', async () => {
+    const org = energyOrg();
+    const graph = queryRootsGraph(org, 'Account', ['Account', 'Contact']);
+    const readAt = '2026-11-15T00:00:00.000Z';
+    const { summary, error, gate } = await run(
+      org,
+      graph,
+      recordsConfig("SELECT Id FROM Account WHERE Industry = 'Energy'", { dryRun: true }),
+      { chosen: { ids: [account(1)], readAt } },
+    );
+    expect(error).toBeUndefined();
+    expect(org.statementsOf('Account').some((soql) => soql.startsWith('SELECT Id FROM'))).toBe(
+      false,
+    );
+    expect(summary?.roots).toMatchObject({ from: 'query', asked: 1, read: 1, readAt });
+    expect(idsAtTheGate(gate, 'Account')).toEqual([account(1)]);
+  });
+
+  it('refuses ids its caller read past the most the run takes, as it refuses the query that chose them', async () => {
+    const org = new QueryRootsOrg();
+    org.add('Account', { Id: account(1), Name: 'A1', Industry: 'Energy', ParentId: null });
+    const graph = queryRootsGraph(org, 'Account', ['Account']);
+    const ids = Array.from({ length: 201 }, (_, n) => account(n + 1));
+    const { error } = await run(
+      org,
+      graph,
+      recordsConfig("SELECT Id FROM Account WHERE Industry = 'Energy'"),
+      { chosen: { ids, readAt: '2026-11-15T00:00:00.000Z' } },
+    );
+    expect(stopOf(error)).toEqual({
+      code: 'ROOTS_EXCEEDED',
+      roots: { objectApiName: 'Account', cap: 200 },
+    });
+    expect(org.requests).toBe(0);
     expect(org.inserted.size).toBe(0);
   });
 

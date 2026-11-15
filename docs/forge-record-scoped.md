@@ -390,7 +390,15 @@ object they reach is read from its whole table, nor held to 200 rows.
   past the most refuses the run (`ROOTS_EXCEEDED`) rather than cut it at an
   order nobody chose, and no row refuses it too (`NO_ROOTS`); without an
   ORDER BY the roots are read by `Id`, as a LIMIT with no order would choose
-  others each time. The query is read by `soqlRootQuery` of the shared
+  others each time. The command line sends that statement before discovery
+  and hands the executor the ids it read (`ForgeRootsOptions.chosen`), which
+  sends it no more: a query past the most, or choosing none, is refused on
+  that one request of the source, nothing of the target read. The panel
+  reads them before Discover (`forge:previewRoots`), and holds Discover while
+  they are more than a run takes. The way through names the newest by
+  `ORDER BY CreatedDate DESC, Id DESC`: by the date alone, records made in
+  the same second come back in an order that changes with the WHERE. The
+  query is read by `soqlRootQuery` of the shared
   package, the one parser the panel, the extension and the command line
   use: a GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE or
   aggregate, an alias that does not lead back to the object, or a WHERE,

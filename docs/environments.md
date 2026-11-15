@@ -114,7 +114,11 @@ resources:
   energy:
     kind: forge
     source: uat
-    records: { object: Account, where: "Industry = 'Energy'", orderBy: CreatedDate DESC, limit: 50 }
+    records:
+      object: Account
+      where: "Industry = 'Energy'"
+      orderBy: CreatedDate DESC, Id DESC # the newest, the ids ordering those made in the same second
+      limit: 50
     maxTotal: 5000 # each account with what it reaches, read at each plan
   sample:
     kind: forge

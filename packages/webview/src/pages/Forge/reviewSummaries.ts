@@ -157,10 +157,13 @@ export function runSentence(
       ? soqlRootFilter(config.soqlQuery)?.objectApiName
       : undefined;
   if (oneRecord && queryObject !== undefined) {
+    // Said in one line where it fits, as the sentence of one record is: the
+    // objects it reaches are the Plan row's, below. Naming them too, it took
+    // three lines of a 1280 by 800 panel and pushed Automation under the fold.
     const cap = config?.maxRoots ?? FORGE_ROOTS_DEFAULT;
     return t('forgeRun.review.sentence.queryRecords', {
       ...orgs,
-      count: objects,
+      count: cap,
       object: queryObject,
       cap: cap.toLocaleString(uiLocale()),
     });

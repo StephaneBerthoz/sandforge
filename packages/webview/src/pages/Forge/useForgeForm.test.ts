@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type {
   BaseMessage,
@@ -38,6 +38,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 import { depthKeyOf, useForgeForm, recordLimitOptionFor } from './useForgeForm';
+import { ROOTS_PREVIEW_DELAY_MS } from './useRootsPreview';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 
@@ -623,6 +624,67 @@ describe('useForgeForm WHERE clause the extension refuses', () => {
     });
 
     expect(result.current.rootQueryIssue).toBeUndefined();
+    expect(result.current.canDiscover).toBe(true);
+  });
+});
+
+// Run for real, a query of every account past --max-roots was refused once
+// discovery, the target's automation, its gaps and the preflight had been
+// read: 403 requests to the source and 74 to the target, for a refusal the
+// read before Discover had already seen coming.
+describe('useForgeForm holding Discover for a query that chooses more than a run takes', () => {
+  const energy = "SELECT Id FROM Account WHERE Industry = 'Energy'";
+  const newest = `${energy} ORDER BY CreatedDate DESC, Id DESC LIMIT 200`;
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    vi.useFakeTimers();
+    useForgeStore.setState({ config: null, history: [] });
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** What the query chooses, as the extension says it once it has read it. */
+  const answerRoots = (soqlQuery: string, chosen: number, more: boolean): void => {
+    act(() => {
+      vi.advanceTimersByTime(ROOTS_PREVIEW_DELAY_MS);
+    });
+    act(() =>
+      replyTo('forge:previewRoots', 'forge:previewRoots:response', {
+        sourceOrgId: 'org-src',
+        soqlQuery,
+        objectApiName: 'Account',
+        cap: 200,
+        chosen,
+        more,
+        requests: 1,
+      }),
+    );
+  };
+
+  it('holds Discover while the query chooses more than a run takes, and lets it go once it takes the newest', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('soql');
+      result.current.setSoqlQuery(energy);
+    });
+    answerRoots(energy, 200, true);
+
+    expect(result.current.rootsPastTheRun).toBe(true);
+    expect(result.current.canDiscover).toBe(false);
+    act(() => result.current.handleDiscover());
+    expect(sentTypes()).not.toContain('forge:discover');
+
+    act(() => result.current.takeNewest?.(200));
+    expect(result.current.soqlQuery).toBe(newest);
+    answerRoots(newest, 37, false);
+
+    expect(result.current.rootsPastTheRun).toBe(false);
     expect(result.current.canDiscover).toBe(true);
   });
 });

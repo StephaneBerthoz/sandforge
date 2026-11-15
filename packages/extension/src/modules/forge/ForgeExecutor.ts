@@ -7188,6 +7188,7 @@ export class ForgeExecutor {
     }
     let ids: string[];
     let from: ForgeRootsFrom;
+    let readBefore: string | undefined;
     if (asked.ids !== undefined) {
       const notIds = asked.ids.filter((id) => !isRootId(id));
       if (notIds.length > 0) {
@@ -7205,14 +7206,25 @@ export class ForgeExecutor {
     } else if (asked.query !== undefined) {
       const issue = rootsQueryIssue(asked.query);
       if (issue) throw ForgeRunGateError.of(rootsQueryRefusedStop(issue, objectApiName));
-      const rows = await this.deps.queryRecords(
-        sourceOrgId,
-        rootsStatement(objectApiName, asked.query, config.objectSoqlFilters?.[objectApiName], cap),
-      );
+      // Read by the caller before anything else, by the same statement: not
+      // sent again.
+      const chosen = asked.chosen;
+      const rows = chosen
+        ? chosen.ids.map((id) => ({ Id: id }))
+        : await this.deps.queryRecords(
+            sourceOrgId,
+            rootsStatement(
+              objectApiName,
+              asked.query,
+              config.objectSoqlFilters?.[objectApiName],
+              cap,
+            ),
+          );
       ids = sortedRootIds(
         rows.flatMap((row) => (typeof row['Id'] === 'string' ? [row['Id']] : [])),
       );
       from = 'query';
+      readBefore = chosen?.readAt;
       if (ids.length > cap) throw ForgeRunGateError.of(rootsExceededStop(objectApiName, cap, from));
     } else {
       throw new Error(
@@ -7222,7 +7234,7 @@ export class ForgeExecutor {
     if (ids.length === 0) {
       throw ForgeRunGateError.of(noRootsStop(objectApiName, asked.query, cap));
     }
-    const readAt = new Date().toISOString();
+    const readAt = readBefore ?? new Date().toISOString();
     if (asked.keepAt !== undefined) {
       await keepRootPlan(asked.keepAt, {
         sourceOrgId,

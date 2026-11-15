@@ -366,6 +366,15 @@ export const soqlWhereFragmentSchema = z
 /** The most characters of an ORDER BY a clone from a query takes. */
 export const SOQL_ROOT_ORDER_BY_MAX = 200;
 
+/**
+ * The order the product proposes to take the newest of the records a query
+ * chooses: by their creation date, then by their id. A date alone is no order
+ * of its own: records loaded in the same second — the forty accounts of a
+ * seeded org — came back in an order that changed with the WHERE, and the
+ * records a LIMIT kept with it.
+ */
+export const SOQL_NEWEST_FIRST = 'CreatedDate DESC, Id DESC';
+
 /** One ordering of an ORDER BY: a field path, ASC or DESC, NULLS FIRST or LAST. */
 const ORDERING =
   /^[A-Za-z][A-Za-z0-9_]{0,79}(?:\.[A-Za-z][A-Za-z0-9_]{0,79}){0,4}(?:\s+(?:ASC|DESC))?(?:\s+NULLS\s+(?:FIRST|LAST))?$/i;

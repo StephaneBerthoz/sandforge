@@ -4297,6 +4297,7 @@
     "hintAiUnchecked": "Redacte una consulta y deje que pase la comprobación contra la org de origen para descubrir el grafo",
     "hintSameOrg": "Origen y destino deben ser diferentes",
     "hintRecordNotInSource": "La org de origen elegida no contiene este registro: elija la org de la que viene, u otro registro",
+    "hintRootsPastTheRun": "Tome menos de los registros que elige la consulta para descubrir el grafo: una ejecución se rechazaría por ellos",
     "hintSoqlFilterRefused": "Acorte o reescriba la cláusula WHERE para descubrir el grafo",
     "hintSoqlAliasRefused": "Corrija el alias después de FROM para descubrir el grafo",
     "depthDirectTooltip": "Solo objetos hijos directamente relacionados (1 nivel)",
@@ -4703,6 +4704,8 @@
       "readDeclined": "Canceló la ejecución en la confirmación de las tablas que lee sin límite por objeto, cada una con más de {{ceiling}} registros. No se leyó ni escribió nada. Ajuste Registros por objeto para leer menos.",
       "writeDeclined": "Canceló la ejecución antes de que escribiera nada. Se leyeron los registros de origen; no se escribió nada en la org de destino. Para escribir menos, excluya objetos o baje Registros por objeto en la revisión; Simular dice lo que escribe una ejecución sin escribirlo.",
       "storageExceeded": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Excluya objetos, reduzca los registros por objeto o libere almacenamiento de datos en la org de destino.",
+      "storageExceededRoots": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB. Caben unos {{fits}} de los registros {{object}} que elige su consulta, cada uno con lo que copia su clon: dé a la consulta LIMIT {{fits}}, tras ORDER BY CreatedDate DESC, Id DESC para los más recientes, o acote su WHERE; si no, excluya objetos o libere almacenamiento de datos en la org de destino.",
+      "storageExceededRootsOne": "La ejecución se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a la org de destino le quedan {{remaining}} MB, menos de lo que ocupa de media uno de los registros {{object}} que elige su consulta, con lo que copia su clon. Excluya objetos en la revisión, clone con menos profundidad o libere almacenamiento de datos en la org de destino.",
       "confirmationUnavailable": "La ejecución se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "checkpointRefused": "La ejecución se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar. No se escribió nada. Láncela sin punto de control previo, o corrija lo que lo rechaza.",
       "apiBudgetExceeded": "La ejecución se rechazó antes de escribir nada: usa más solicitudes de API de las que le quedan hoy a la org de destino, y se habría detenido a medio camino. Láncela cuando la org tenga solicitudes de sobra —el límite diario se cuenta sobre las últimas 24 horas— o escriba menos registros: excluya objetos o baje Registros por objeto en la revisión.",
@@ -4731,7 +4734,7 @@
       "sampleDrawEmpty": "La ejecución se rechazó antes de escribir nada: ningún objeto tiene una raíz en la ventana, los filtros de las raíces y los estratos pedidos. Amplíe la ventana, cambie los filtros o extraiga sin ellos, en Qué raíces, en la revisión.",
       "rootsQueryRefused": "La ejecución no empezó: su consulta no puede elegir los registros que clonar — una cláusula que cambia las filas que devuelve (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE o un COUNT()), un alias que no lleva de vuelta a su objeto, o un WHERE, ORDER BY o LIMIT fuera de las reglas. No se leyó ni escribió nada. Corrija la consulta eligiendo sus registros con WHERE, ORDER BY y LIMIT.",
       "noRoots": "La ejecución se rechazó antes de escribir nada: su consulta no elige ningún registro {{object}} de la org de origen. Compruebe su WHERE en la org de origen.",
-      "rootsExceeded": "La ejecución se rechazó antes de leer nada más: su consulta elige más registros {{object}} que los {{cap}} que clona, y no se escribió nada. Añada ORDER BY CreatedDate DESC LIMIT {{limit}} a la consulta para clonar los más recientes, o acote su WHERE.",
+      "rootsExceeded": "La ejecución se rechazó antes de leer nada más: su consulta elige más registros {{object}} que los {{cap}} que clona, y no se escribió nada. Añada ORDER BY CreatedDate DESC, Id DESC LIMIT {{limit}} a la consulta para clonar los más recientes, o acote su WHERE.",
       "rootsPlanMismatch": "La ejecución se rechazó antes de escribir nada: los registros que eligió su simulación se leyeron de otra org o con otra consulta, o han cambiado desde entonces. Simule de nuevo para elegirlos otra vez.",
       "rootsPlanGone": "La ejecución se rechazó antes de escribir nada: los registros que clonaba no están en su diario, y volver a leer su consulta podría elegir otros. Vuelva a ejecutarla desde la revisión, o quite lo que escribió desde Resultados.",
       "sampleTargetMoved": "La ejecución se rechazó antes de escribir nada: la muestra se ajustó a {{fitted}} MB del almacenamiento de datos de la org de destino, y lo que le queda ahora admite {{holds}} MB de una muestra. Simule de nuevo para extraer una muestra que quepa.",
@@ -5091,8 +5094,8 @@
         "wholeOrg_other": "Copiar toda la org {{source}} en {{target}}: {{formatted}} registros contados en {{objects}} objetos.",
         "sample_one": "Copiar una muestra de {{source}} que quepa en {{target}}, extraída de {{formatted}} registro contado en {{objects}} objetos.",
         "sample_other": "Copiar una muestra de {{source}} que quepa en {{target}}, extraída de {{formatted}} registros contados en {{objects}} objetos.",
-        "queryRecords_one": "Copiar los registros {{object}} que elige la consulta, {{cap}} como máximo, y lo que alcanzan en {{count}} objeto, de {{source}} a {{target}}.",
-        "queryRecords_other": "Copiar los registros {{object}} que elige la consulta, {{cap}} como máximo, y lo que alcanzan en {{count}} objetos, de {{source}} a {{target}}."
+        "queryRecords_one": "Copiar hasta {{cap}} registro {{object}} y lo que alcanza, de {{source}} a {{target}}.",
+        "queryRecords_other": "Copiar hasta {{cap}} registros {{object}} y lo que alcanzan, de {{source}} a {{target}}."
       },
       "left": {
         "none": "No queda nada por decidir.",

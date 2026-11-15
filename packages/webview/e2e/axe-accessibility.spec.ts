@@ -3168,7 +3168,12 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      // The Plan line says its counts are the source tables'; the row, open,
+      // says why.
+      await expect(page.getByTestId('forge-preview-clone')).toContainText('in the source tables');
+      await page.getByTestId('tab-plan').click();
       await expect(page.getByTestId('forge-preview-source-tables')).toBeVisible();
+      await page.getByTestId('tab-plan').click();
       await answerGapsRead(bridge, page, [FORGE_GAPS[1]]);
       await expect(page.getByTestId('forge-gaps-undecided')).toContainText(
         '1 gap will refuse rows',
@@ -4734,13 +4739,20 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(kept);
 
       // What the controls set is the run's: Execute sends it with its config.
+      // The query goes as the records it chooses: its WHERE chooses them, and
+      // filters no other read of Account — a parent account one of them names
+      // is read as a parent —, so the filters of each object are the ones the
+      // controls set, and no more.
       await page.getByTestId('execute-button').click();
       const run = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
-      expect((run.payload as { config: Record<string, unknown> }).config).toMatchObject({
+      const config = (run.payload as { config: Record<string, unknown> }).config;
+      expect(config).toMatchObject({
+        soqlQuery: FORGE_AI_DRAFT,
+        queryScope: 'records',
         fieldExclusions: { Contact: ['Fax'] },
-        objectSoqlFilters: { Account: "Industry = 'Energy'", Contact: 'Email != null' },
         ownerMappings: { '005000000000001AAA': '005000000000101AAA' },
       });
+      expect(config['objectSoqlFilters']).toEqual({ Contact: 'Email != null' });
     });
 
     test('Forge Review of a starter template, saying its record counts come with discovery', async ({

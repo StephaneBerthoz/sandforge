@@ -702,9 +702,11 @@ export const ForgeInput: React.FC = () => {
                       ? t('forge.hintRecordNotInSource')
                       : form.rootQueryIssue
                         ? t(issueHint)
-                        : form.inputMode === 'ai'
-                          ? t('forge.hintAiUnchecked')
-                          : t('forge.hintNoInput')}
+                        : form.rootsPastTheRun
+                          ? t('forge.hintRootsPastTheRun')
+                          : form.inputMode === 'ai'
+                            ? t('forge.hintAiUnchecked')
+                            : t('forge.hintNoInput')}
             </p>
           )}
 

@@ -457,7 +457,14 @@ import {
   type ForgeRunLockHolder,
 } from '../src/modules/forge/ForgeRunLock.js';
 import type { LinkedLock } from '../src/modules/checkpoint/linkedLock.js';
-import type { ForgeRootsOptions } from '../src/modules/forge/stages/QueryRoots.js';
+import {
+  noRootsStop,
+  rootsExceededStop,
+  rootsQueryWithLimit,
+  rootsStatement,
+  rootsThatFit,
+  type ForgeRootsOptions,
+} from '../src/modules/forge/stages/QueryRoots.js';
 import {
   RootPlanError,
   openRootPlan,
@@ -848,8 +855,9 @@ Clone records and what each reaches, in place of one --record:
                                                           (default: 200)
                          A query that chooses more, without a LIMIT, is refused
                          before anything else is read (ROOTS_EXCEEDED), exit 1:
-                         add ORDER BY CreatedDate DESC LIMIT <n> to take the
-                         newest, narrow its WHERE, or raise --max-roots; past
+                         add ORDER BY CreatedDate DESC, Id DESC LIMIT <n> to
+                         take the newest, narrow its WHERE, or raise
+                         --max-roots; past
                          2000, copy a sample of the whole org (--depth all
                          --fit share) with a filter on its roots. A query that
                          chooses none is refused too (NO_ROOTS), exit 1.
@@ -5726,6 +5734,134 @@ export function wholeOrgMaxTotalRefusal(
 }
 
 /**
+ * The roots of a clone from records as a refusal of its volume weighs them:
+ * their object and how many, the query that chose them — absent of records
+ * named one by one —, how many of them fit, and what each takes on average,
+ * in the refusal's words.
+ */
+export interface FewerRoots {
+  objectApiName: string;
+  count: number;
+  query?: ForgeRootsQuery;
+  /** How many of them fit ({@link rootsThatFit}): none when one alone takes more. */
+  fits: number;
+  /** What each takes on average: "about 32 records", "about 0.06 MB". */
+  each: string;
+  /** What one alone may take more than: "the 100 --max-total holds the run to". */
+  past: string;
+}
+
+/**
+ * The way through a refusal of a clone from records for its volume: fewer of
+ * its roots, each with what its clone copies — as many as fit, the query
+ * that takes that many written out whole for --query, or that many of the
+ * records named —, or, when one of them alone takes more, nothing of the
+ * roots. Never a cap on each object: `--max 20`, offered on a query that
+ * chose 41 accounts, kept the 41 and 20 of their 1 200 contacts, taken by an
+ * order nobody chose. Exported so it can be tested.
+ */
+export function fewerRootsWords(roots: FewerRoots): string | undefined {
+  const { objectApiName, count, query, fits, each } = roots;
+  const chosen = query ? 'the query chooses' : 'named';
+  if (fits < 1) return undefined;
+  const taken =
+    `the ${count} ${objectApiName} records ${chosen} take ${each} each, and about ${fits} ` +
+    `of them fit`;
+  if (!query) return `${taken}: name ${fits} of them at most`;
+  const newest =
+    query.orderBy === undefined ? `the newest ${fits}` : `the first ${fits} in its order`;
+  return (
+    `${taken}: ${ownOptionWords('--query')} "${rootsQueryWithLimit(objectApiName, query, fits)}" ` +
+    `clones ${newest}, its dry run first, or narrow its WHERE`
+  );
+}
+
+/** Of the roots of a clone from records, the words of one of them alone past what holds the run. */
+function oneRootTakesMore(roots: FewerRoots): string {
+  return (
+    `one of the ${roots.count} ${roots.objectApiName} records ` +
+    `${roots.query ? 'the query chooses' : 'named'} takes ${roots.each} on average, more than ` +
+    `${roots.past} by itself`
+  );
+}
+
+/**
+ * Why a clone from records is refused past `--max-total`, and what narrows
+ * it: fewer roots ({@link fewerRootsWords}), the objects it writes, or a
+ * higher `--max-total`. Relayed by a command that holds the run to the count
+ * of its plan, said as {@link maxTotalRefusal} says it. Exported so it can
+ * be tested.
+ */
+export function rootsMaxTotalRefusal(
+  rows: number,
+  max: number,
+  roots: FewerRoots,
+  dryRun = false,
+): string {
+  if (relayHoldsToItsPlan()) return maxTotalRefusal(rows, max, dryRun);
+  const fewer = fewerRootsWords(roots);
+  const objects =
+    `leave objects out (${ownOptionWords('--exclude-object')}) or narrow them ` +
+    `(${ownOptionWords('--filter')})`;
+  return (
+    `The run would write ${rows} records, more than the ${max} ` +
+    `${ownOptionWords('--max-total')} holds it to: ` +
+    (fewer !== undefined
+      ? `${fewer}; or ${objects}, or raise ${ownOptionWords('--max-total')}.`
+      : `${oneRootTakesMore(roots)}: ${objects}, clone less deep (${ownOptionWords('--depth')} ` +
+        `direct), or raise ${ownOptionWords('--max-total')}.`)
+  );
+}
+
+/**
+ * Why a clone from records may not write past the data storage the target
+ * has left, and what makes it fit: fewer roots ({@link fewerRootsWords}),
+ * the objects it writes, or storage freed in the target — never the records
+ * per object. Nothing when they fit. Exported so it can be tested.
+ */
+export function rootsStorageRefusal(
+  check: StorageCheck,
+  target: string,
+  roots: FewerRoots,
+): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  const fewer = fewerRootsWords(roots);
+  const objects = `leave objects out (${ownOptionWords('--exclude-object')})`;
+  return (
+    `The records to write take ${storageTakesWords(check)}, and ` +
+    `${target} has ${check.remainingMB} MB left of ${check.maxMB} MB: ` +
+    (fewer !== undefined
+      ? `${fewer}; or ${objects}, or free data storage in ${target}.`
+      : `${oneRootTakesMore(roots)}: ${objects}, clone less deep ` +
+        `(${ownOptionWords('--depth')} direct), or free data storage in ${target}.`)
+  );
+}
+
+/**
+ * The roots of a clone from records weighed against `room` of what its rows
+ * take, `taken` in all, each said in `unit`: what a refusal of its volume
+ * names ({@link FewerRoots}), or nothing for any other run. Exported so it
+ * can be tested.
+ */
+export function fewerRootsOf(
+  boundary: Pick<ForgeWriteBoundary, 'roots'>,
+  query: ForgeRootsQuery | undefined,
+  weighed: { taken: number; room: number; each: (perRoot: number) => string; past: string },
+): FewerRoots | undefined {
+  const roots = boundary.roots;
+  if (!roots || roots.count < 1) return undefined;
+  const fromAQuery = roots.from !== 'records';
+  return {
+    objectApiName: roots.objectApiName,
+    count: roots.count,
+    ...(fromAQuery && query ? { query } : {}),
+    fits: rootsThatFit(roots.count, weighed.taken, weighed.room),
+    each: weighed.each(weighed.taken / roots.count),
+    past: weighed.past,
+  };
+}
+
+/**
  * Why a clone of every record of the whole org may not write past the data
  * storage the target has left, in the line's own words: a sample that fits
  * it, as the panel offers on the same refusal, or fewer records of fewer
@@ -6694,12 +6830,14 @@ export function executeOptions(
 /**
  * What a clone from records hands its executor beside its line: the plan of
  * roots a run takes (`--roots-plan`, opened), where a dry run keeps the
- * roots it reads, and what the source has left of its requests today.
+ * roots it reads, what the source has left of its requests today, and the
+ * ids its query chose, read before anything else ({@link rootsChosenFirst}).
  */
 export interface RootsHanded {
   plan?: RootPlan;
   keepAt?: string;
   sourceRequestsLeft?: number;
+  chosen?: { ids: readonly string[]; readAt: string };
 }
 
 /**
@@ -6727,7 +6865,61 @@ export function rootsOptionsOf(
       : {}),
     ...(handed.plan ? { plan: handed.plan } : {}),
     ...(handed.keepAt !== undefined ? { keepAt: handed.keepAt } : {}),
+    ...(handed.chosen && roots.query ? { chosen: handed.chosen } : {}),
   };
+}
+
+/**
+ * The records a clone from a query chooses, read before anything else of the
+ * run, by the statement its executor reads them by (`rootsStatement`): the
+ * query's WHERE and the filter `--filter` gives its object, in the query's
+ * order or by Id, to its LIMIT or to one past the most the run takes. One
+ * request of the source, two past a page, nothing of the target: a query
+ * that chooses none (`NO_ROOTS`) or more than the run takes
+ * (`ROOTS_EXCEEDED`) is refused there, before discovery has asked the source
+ * for its describes. Read by the executor alone, the refusal came after
+ * discovery, the target's automation, its gaps and the preflight — 403
+ * requests to the source and 74 to the target on a trap org —, in words that
+ * said "refused before anything else was read". The ids read go to the
+ * executor (`ForgeRootsOptions.chosen`), which does not send the query again.
+ *
+ * Nothing is read, and nothing returned, for any other line; for a run that
+ * resumes, which writes the roots its journal names; a run given a plan
+ * (`--roots-plan`), which writes the plan's; and a listing, which reads no
+ * record. A statement the source refuses is left to the executor, which
+ * sends it again and fails on it as a run always did. Exported so it can be
+ * tested.
+ *
+ * @param query - Reads a statement of the source, every page of it.
+ */
+export async function rootsChosenFirst(
+  args: Pick<CliArgs, 'roots' | 'objectSoqlFilters' | 'resume' | 'listObjects'>,
+  query: (soql: string) => Promise<readonly Record<string, unknown>[]>,
+  plan?: RootPlan,
+): Promise<{ chosen: { ids: string[]; readAt: string } } | { refused: RunRefusal } | undefined> {
+  const asked = args.roots?.query;
+  if (!asked || args.resume !== undefined || plan || args.listObjects) return undefined;
+  const { objectApiName, roots: rootsQuery } = asked;
+  const cap = args.roots?.cap ?? FORGE_ROOTS_DEFAULT;
+  let rows: readonly Record<string, unknown>[];
+  try {
+    rows = await query(
+      rootsStatement(objectApiName, rootsQuery, args.objectSoqlFilters[objectApiName], cap),
+    );
+  } catch {
+    return undefined;
+  }
+  const ids = [
+    ...new Set(rows.flatMap((row) => (typeof row['Id'] === 'string' ? [row['Id']] : []))),
+  ];
+  const stop =
+    ids.length > cap
+      ? rootsExceededStop(objectApiName, cap, 'query')
+      : ids.length === 0
+        ? noRootsStop(objectApiName, rootsQuery, cap)
+        : undefined;
+  if (stop) return { refused: { code: stop.code, message: stop.message } };
+  return { chosen: { ids, readAt: new Date().toISOString() } };
 }
 
 /**
@@ -11948,6 +12140,51 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         : `anonymize: off, the personal data copied as ${args.source} holds it`,
     );
   }
+  // The records a query chooses, read before anything else of the run: a
+  // query that chooses none or more than the run takes is refused here, one
+  // statement of the source sent, nothing of the target read.
+  const rootsFirst = await rootsChosenFirst(
+    args,
+    async (soql) => {
+      const c = conns.get(args.source)!;
+      return (
+        await queryAllPages<Record<string, unknown>>(
+          {
+            query: async (q) => c.query<Record<string, unknown>>(q),
+            queryMore: async (url) => c.queryMore<Record<string, unknown>>(url),
+          },
+          soql,
+          FORGE_ROOTS_MAX + 1,
+        )
+      ).records;
+    },
+    rootsPlan,
+  );
+  if (rootsFirst && 'refused' in rootsFirst) {
+    const { refused } = rootsFirst;
+    recordClone({ outcome: 'stopped', code: refused.code, context: runAudit().context() });
+    process.stderr.write(`${refusedLine(refused)}\n`);
+    if (args.json) {
+      process.stdout.write(
+        refusedSummary(
+          {
+            tool: 'sandforge-clone',
+            source: args.source,
+            target: args.target,
+            dryRun: args.dryRun,
+            elapsedMs: elapsedSince(t0),
+            apiRequests: cloneApiRequestsJson(
+              { target: sentOf(args.target), source: sentOf(args.source) },
+              {},
+            ),
+          },
+          refused,
+        ),
+      );
+    }
+    process.exit(1);
+  }
+  const rootsChosen = rootsFirst?.chosen;
   // An owner mapping to a user the target holds inactive, or holds no user
   // of, is refused here, before discovery reads the source and before the
   // target's automation is read. Refused only once the executor had the run,
@@ -13073,6 +13310,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       // say is held to, which a refusal past them names.
     }
     if (rootsPlan) rootsHanded.plan = rootsPlan;
+    if (rootsChosen) rootsHanded.chosen = rootsChosen;
     if (args.dryRun && args.roots.plan !== undefined) {
       rmSync(args.roots.plan, { force: true });
       rootsHanded.keepAt = args.roots.plan;
@@ -13240,6 +13478,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     | {
         totalRows: number;
         storageBytes: number;
+        /** What the target's automation that still runs creates under them, beside `storageBytes`. */
+        automationBytes?: number;
         objects: WritePlan['objects'];
         leftOut?: WritePlan['leftOut'];
         emails?: Array<{ limit: string; emails: number }>;
@@ -13625,7 +13865,16 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     } catch (err: unknown) {
       storage = { unread: extractErrorMessage(err) };
     }
-    const check = storageCheckOf(plan, storage);
+    // What the target's automation that still runs creates under each record
+    // the run writes, counted with the records, as a clone of the whole org
+    // counts it: on a trap org, 41 accounts and their 1 200 contacts were
+    // said to take 2.58 MB of the 5 MB it had left, and a flow no mute
+    // reaches opens a task under each contact, about 2.3 MB more.
+    const automation = automationRoomOf(
+      { firing: stillRunningOf(gated, undefined, runWrites).firing },
+      (objectApiName, act) => runWrites(objectApiName, act),
+    ).perRecord;
+    const check = storageCheckOf(plan, storage, automationBytesOf(plan, automation));
     say('');
     for (const line of writePlanLines(plan, check, args.target)) say(line);
     // The daily API requests the rows take of the target, read with its
@@ -13703,11 +13952,33 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     if (emailsUncounted !== undefined) {
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
+    // Of a clone from records, its roots are what a refusal of its volume
+    // takes fewer of: as many as fit, each with what its clone copies.
+    const rootsQuery = args.roots?.query?.roots;
+    const fewerForTotal = fewerRootsOf(boundary, rootsQuery, {
+      taken: plan.totalRows,
+      room: args.maxTotal,
+      each: (rows) => `about ${Math.ceil(rows)} records`,
+      past: `the ${args.maxTotal} --max-total holds the run to`,
+    });
     const overTotal =
       plan.totalRows > args.maxTotal
-        ? maxTotalRefusal(plan.totalRows, args.maxTotal, args.dryRun)
+        ? fewerForTotal
+          ? rootsMaxTotalRefusal(plan.totalRows, args.maxTotal, fewerForTotal, args.dryRun)
+          : maxTotalRefusal(plan.totalRows, args.maxTotal, args.dryRun)
         : undefined;
-    const overStorage = storageRefusal(check, args.target);
+    const fewerForStorage =
+      check.verdict === 'exceeds'
+        ? fewerRootsOf(boundary, rootsQuery, {
+            taken: check.estimateMB,
+            room: check.remainingMB,
+            each: (megabytes) => `about ${formatMB(megabytes)} MB`,
+            past: `what ${args.target} has left`,
+          })
+        : undefined;
+    const overStorage = fewerForStorage
+      ? rootsStorageRefusal(check, args.target, fewerForStorage)
+      : storageRefusal(check, args.target);
     // The checkpoint's refusal in the command's words, and the requests past
     // what the target has left, each said whatever else refuses the run.
     const checkpointRefused =
@@ -13738,9 +14009,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         emailsStop && emails ? sendersOfNothingWritten(emails.ofRun.senders, plan) : [];
       const idleLine = sendersOfNothingWrittenLine(idleSenders);
       if (idleLine !== undefined) say(idleLine);
+      const automationBytes = automationBytesOf(plan, automation);
       dryRunWritePlan = {
         totalRows: plan.totalRows,
         storageBytes: plan.storageBytes,
+        ...(automationBytes > 0 ? { automationBytes } : {}),
         objects: plan.objects,
         ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
         ...(emailCounts !== undefined ? { emails: emailCounts } : {}),

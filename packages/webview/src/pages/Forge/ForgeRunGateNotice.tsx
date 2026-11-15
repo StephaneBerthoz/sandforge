@@ -150,6 +150,14 @@ function sentenceOf(
     if (stop.sample?.fittedMB !== undefined) return 'forgeRun.gate.sampleTargetMoved';
     if (stop.storage?.kind === 'files') return 'forgeRun.gate.storageExceededFiles';
     if (wholeOrg) return 'forgeRun.gate.storageExceededAll';
+    // A clone from the records a query chose: fewer of them, each with what
+    // its clone copies, never fewer records per object, which kept every
+    // root and some of its records.
+    if (stop.roots) {
+      return stop.roots.fits !== undefined
+        ? 'forgeRun.gate.storageExceededRoots'
+        : 'forgeRun.gate.storageExceededRootsOne';
+    }
   }
   if (stop.code === 'API_BUDGET_EXCEEDED' && stop.api) {
     // A sample that fits takes fewer requests and batches with its records:
@@ -240,6 +248,8 @@ export function gateStopSentence(
       object: stop.roots?.objectApiName ?? '',
       cap: (stop.roots?.cap ?? FORGE_ROOTS_DEFAULT).toLocaleString(locale),
       limit: String(stop.roots?.cap ?? FORGE_ROOTS_DEFAULT),
+      // Of one refused for its storage, how many of those records fit.
+      fits: String(stop.roots?.fits ?? 0),
     },
   );
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Connection } from 'jsforce';
 import type { ForgeGraph, ForgeRunVerification } from '@sandforge/shared';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
@@ -38,7 +39,9 @@ import {
   sourceConn,
   sourceId,
   targetConn,
+  volumeSource,
   type TargetCreate,
+  type TargetSetup,
 } from './testing/cloneRootsWorld.js';
 import type { SampleSourceOrg } from '../src/test/sampleSourceOrg.js';
 
@@ -129,13 +132,22 @@ afterEach(() => {
   rmSync(journalDir, { recursive: true, force: true });
 });
 
-/** Both orgs answering for SRC and TGT, the source given or made; `onCreate` hears the target. */
+/**
+ * Both orgs answering for SRC and TGT, the source given or made; `onCreate`
+ * hears the target, `setup` sets it up. Every call either connection is
+ * made is named in `calls`, a describe by what it describes.
+ */
 function withOrgs(
   source: SampleSourceOrg = rootsSource(),
   onCreate?: (call: TargetCreate) => void,
+  setup?: TargetSetup,
 ) {
-  const target = targetConn(onCreate);
-  const conns = { SRC: sourceConn(source), TGT: target.conn };
+  const target = targetConn(onCreate, setup);
+  const calls = { SRC: [] as string[], TGT: [] as string[] };
+  const conns = {
+    SRC: namingCalls(sourceConn(source), calls.SRC),
+    TGT: namingCalls(target.conn, calls.TGT),
+  };
   vi.mocked(loadOrg).mockImplementation(async (alias) => ({
     alias,
     username: '',
@@ -143,7 +155,45 @@ function withOrgs(
     accessToken: 'token',
   }));
   vi.mocked(makeConn).mockImplementation((org) => conns[org.alias as keyof typeof conns]);
-  return { source, target };
+  return { source, target, calls };
+}
+
+/**
+ * `conn`, each call it is made named in `calls` as it is made: its requests,
+ * its statements and their pages, its describes by the object described, its
+ * list of objects, its identity, its Tooling API reads.
+ */
+function namingCalls(conn: Connection, calls: string[]): Connection {
+  const c = conn as unknown as Record<string, unknown> & {
+    sobject: (name: string) => Record<string, unknown> & { describe: () => Promise<unknown> };
+    tooling: Record<string, unknown>;
+  };
+  const named = (on: Record<string, unknown>, method: string, name = method): void => {
+    const call = on[method] as ((...args: unknown[]) => unknown) | undefined;
+    if (typeof call !== 'function') return;
+    on[method] = (...args: unknown[]) => {
+      calls.push(name);
+      return call(...args);
+    };
+  };
+  for (const method of ['request', 'query', 'queryMore', 'describeGlobal', 'identity']) {
+    named(c, method);
+  }
+  for (const method of ['query', 'queryMore', 'describeGlobal']) {
+    named(c.tooling, method, `tooling.${method}`);
+  }
+  const sobject = c.sobject;
+  c.sobject = (name: string) => {
+    const object = sobject(name);
+    return {
+      ...object,
+      describe: async () => {
+        calls.push(`describe ${name}`);
+        return object.describe();
+      },
+    };
+  };
+  return conn;
 }
 
 /** The JSON the command printed on stdout. */
@@ -667,6 +717,208 @@ describe('a clone from records, run against the orgs', () => {
     expect(printed.join('\n')).toContain(
       'roots: 2 Account records taken from the journal of the run taken up (sha256 ',
     );
+  });
+});
+
+/** What a dry run's JSON says of its gate, as these tests read it. */
+interface GateJson {
+  writePlan?: { totalRows: number; storageBytes: number; automationBytes?: number };
+  wouldBeRefused?: string[];
+  wouldBeRefusedCodes?: string[];
+  refused?: { code: string; message: string };
+  apiRequests?: { source?: { sent: number }; target?: { sent: number } };
+}
+
+/** The words a dry run says a real run would be refused in, for `code`. */
+function wouldBeRefusedFor(gate: GateJson, code: string): string | undefined {
+  const at = gate.wouldBeRefusedCodes?.indexOf(code) ?? -1;
+  return at < 0 ? undefined : gate.wouldBeRefused?.[at];
+}
+
+/** A target of 5 MB of data storage, `remaining` of them left. */
+function fiveMegabytes(remaining: number): Record<string, unknown> {
+  return {
+    DataStorageMB: { Max: 5, Remaining: remaining },
+    DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+    DailyBulkApiBatches: { Max: 15_000, Remaining: 15_000 },
+    FileStorageMB: { Max: 20, Remaining: 20 },
+  };
+}
+
+describe('a clone from records weighed before it writes', () => {
+  // Run for real on a trap org, a query of every account (41 of them, 1 200
+  // contacts) refused past --max-roots 10 after discovery, the target's
+  // automation and the preflight: 403 requests to the source, 74 to the
+  // target, and its words said "refused before anything else was read".
+  it('refuses a query that chooses more than the run takes on its one statement of the source, nothing of the target read', async () => {
+    const { calls } = withOrgs();
+
+    expect(
+      await run(argv('SELECT Id FROM Account', '--max-roots', '2', '--dry-run', '--json')),
+    ).toBe(1);
+
+    expect(json<GateJson>().refused?.code).toBe('ROOTS_EXCEEDED');
+    expect(stderr.join('')).toContain(
+      'refused (ROOTS_EXCEEDED): The query chooses more than the 2 Account records',
+    );
+    expect(calls.SRC.filter((call) => call === 'request').length).toBeLessThanOrEqual(3);
+    expect(calls.SRC.filter((call) => call.startsWith('describe'))).toEqual([]);
+    expect(calls.TGT).toEqual([]);
+    expect(json<GateJson>().apiRequests).toEqual({
+      target: { sent: 0 },
+      source: { sent: calls.SRC.filter((call) => call === 'request').length },
+    });
+  });
+
+  it('refuses a query that chooses none on that statement too, nothing of the target read', async () => {
+    const { calls } = withOrgs();
+
+    expect(
+      await run(argv("SELECT Id FROM Account WHERE Industry = 'Mining'", '--dry-run', '--json')),
+    ).toBe(1);
+
+    expect(json<GateJson>().refused?.code).toBe('NO_ROOTS');
+    expect(calls.SRC.filter((call) => call.startsWith('describe'))).toEqual([]);
+    expect(calls.TGT).toEqual([]);
+  });
+
+  it('reads the records the query chooses once, before discovery, and its run takes those', async () => {
+    const { source } = withOrgs();
+
+    expect(await run(argv(ENERGY, '--dry-run', '--json'))).toBeUndefined();
+
+    const statements = source.sent.map((s) => s.soql);
+    const roots = "SELECT Id FROM Account WHERE (Industry = 'Energy') ORDER BY Id LIMIT 201";
+    expect(statements.filter((soql) => soql === roots)).toHaveLength(1);
+    expect(statements[0]).toBe(roots);
+    expect(json<RootsJson>().result.roots).toMatchObject({ from: 'query', read: 2, written: 2 });
+  });
+
+  // Run for real on a trap org, the gate said the 1 320 records of 41
+  // accounts took 2.58 MB of the 5 MB left, while a flow no mute reaches
+  // opens a task under each of their 1 200 contacts: about 2.3 MB more, that
+  // a clone of the whole org counts and a clone from records did not.
+  it('counts with its records what the target’s automation creates under them, and is refused the storage they take with it', async () => {
+    withOrgs(volumeSource(41, 1_200), undefined, {
+      limits: fiveMegabytes(4),
+      taskOnContact: true,
+    });
+
+    expect(
+      await run(argv('SELECT Id FROM Account', '--accept-automation', '--dry-run', '--json')),
+    ).toBeUndefined();
+
+    const gate = json<GateJson>();
+    expect(gate.writePlan?.totalRows).toBe(1_241);
+    expect(gate.writePlan?.automationBytes).toBe(1_200 * 2_048);
+    expect(gate.wouldBeRefusedCodes).toContain('STORAGE_EXCEEDED');
+    expect(stderr.join('')).toMatch(
+      /write gate: 1241 record\(s\) to write to TGT, about 4\.\d+ MB of data storage, about 2\.35 MB of it for what the target's automation creates under them/,
+    );
+  });
+
+  it('counts nothing more when nothing the target runs creates a record under them', async () => {
+    withOrgs(volumeSource(41, 1_200), undefined, { limits: fiveMegabytes(4) });
+
+    expect(await run(argv('SELECT Id FROM Account', '--dry-run', '--json'))).toBeUndefined();
+
+    const gate = json<GateJson>();
+    expect(gate.writePlan).not.toHaveProperty('automationBytes');
+    expect(gate.wouldBeRefusedCodes ?? []).not.toContain('STORAGE_EXCEEDED');
+  });
+
+  // Refused past --max-total 100, a query of 41 accounts was told "narrow the
+  // clone (--max, --exclude-object, --filter)": --max 20 kept the 41 and 20
+  // of their 1 200 contacts, taken by an order nobody chose.
+  it('offers fewer of its roots past --max-total, the query that takes as many as fit written out, never --max', async () => {
+    withOrgs(volumeSource(41, 1_200));
+
+    expect(
+      await run(argv('SELECT Id FROM Account', '--max-total', '100', '--dry-run', '--json')),
+    ).toBeUndefined();
+
+    const refusal = wouldBeRefusedFor(json<GateJson>(), 'MAX_TOTAL_EXCEEDED');
+    expect(refusal).toContain(
+      'the 41 Account records the query chooses take about 31 records each, and about 3 of ' +
+        'them fit: --query "SELECT Id FROM Account ORDER BY CreatedDate DESC, Id DESC LIMIT 3" ' +
+        'clones the newest 3, its dry run first, or narrow its WHERE',
+    );
+    expect(refusal).not.toMatch(/--max\b(?!-)/);
+
+    // The query it gives, as it gives it, fits.
+    stdout = [];
+    const given = /--query "([^"]+)"/.exec(refusal ?? '')?.[1] ?? '';
+    expect(await run(argv(given, '--max-total', '100', '--dry-run', '--json'))).toBeUndefined();
+    const fitted = json<GateJson & RootsJson>();
+    expect(fitted.wouldBeRefusedCodes ?? []).not.toContain('MAX_TOTAL_EXCEEDED');
+    expect(fitted.result.roots).toMatchObject({ read: 3 });
+    expect(fitted.writePlan?.totalRows).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps the query’s own order and WHERE in the way it offers, and names records one by one otherwise', async () => {
+    withOrgs(volumeSource(41, 1_200));
+
+    expect(
+      await run(
+        argv(
+          "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY Name ASC",
+          '--max-total',
+          '100',
+          '--dry-run',
+          '--json',
+        ),
+      ),
+    ).toBeUndefined();
+    expect(wouldBeRefusedFor(json<GateJson>(), 'MAX_TOTAL_EXCEEDED')).toContain(
+      `--query "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY Name ASC LIMIT 3" ` +
+        'clones the first 3 in its order',
+    );
+
+    stdout = [];
+    const named = [101, 102, 103, 104].flatMap((n) => ['--record', sourceId('001', n)]);
+    expect(
+      await run(argv(undefined, ...named, '--max-total', '50', '--dry-run', '--json')),
+    ).toBeUndefined();
+    expect(wouldBeRefusedFor(json<GateJson>(), 'MAX_TOTAL_EXCEEDED')).toContain(
+      'the 4 Account records named take about 31 records each, and about 1 of them fit: ' +
+        'name 1 of them at most',
+    );
+  });
+
+  it('offers fewer of its roots past the storage the target has left, never fewer records per object', async () => {
+    withOrgs(volumeSource(41, 1_200), undefined, {
+      limits: fiveMegabytes(4),
+      taskOnContact: true,
+    });
+
+    expect(
+      await run(argv('SELECT Id FROM Account', '--accept-automation', '--dry-run', '--json')),
+    ).toBeUndefined();
+
+    const refusal = wouldBeRefusedFor(json<GateJson>(), 'STORAGE_EXCEEDED');
+    expect(refusal).toContain(
+      'and TGT has 4 MB left of 5 MB: the 41 Account records the query chooses take about ' +
+        '0.12 MB each, and about 34 of them fit: --query "SELECT Id FROM Account ORDER BY ' +
+        'CreatedDate DESC, Id DESC LIMIT 34" clones the newest 34',
+    );
+    expect(refusal).not.toContain('records per object');
+  });
+
+  it('says when one of its roots alone takes more than --max-total, and offers no LIMIT', async () => {
+    withOrgs(volumeSource(2, 100));
+
+    expect(
+      await run(argv('SELECT Id FROM Account', '--max-total', '20', '--dry-run', '--json')),
+    ).toBeUndefined();
+
+    const refusal = wouldBeRefusedFor(json<GateJson>(), 'MAX_TOTAL_EXCEEDED');
+    expect(refusal).toContain(
+      'one of the 2 Account records the query chooses takes about 51 records on average, ' +
+        'more than the 20 --max-total holds the run to by itself: leave objects out ' +
+        '(--exclude-object) or narrow them (--filter), clone less deep (--depth direct), or ' +
+        'raise --max-total.',
+    );
+    expect(refusal).not.toContain('LIMIT');
   });
 });
 

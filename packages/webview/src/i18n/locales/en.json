@@ -4297,6 +4297,7 @@
     "hintAiUnchecked": "Draft a query and let it pass the check against the source org to discover the graph",
     "hintSameOrg": "Source and target must be different",
     "hintRecordNotInSource": "The source org picked does not hold this record: pick the org it comes from, or another record",
+    "hintRootsPastTheRun": "Take fewer of the records the query chooses to discover the graph: a run would be refused for them",
     "hintSoqlFilterRefused": "Shorten or rewrite the WHERE clause to discover the graph",
     "hintSoqlAliasRefused": "Fix the alias after FROM to discover the graph",
     "depthDirectTooltip": "Only directly related child objects (1 level)",
@@ -4703,6 +4704,8 @@
       "readDeclined": "You cancelled the run at the confirmation of the tables it reads with no cap per object, each past {{ceiling}} records. Nothing was read or written. Set Records per object to read fewer.",
       "writeDeclined": "You cancelled the run before it wrote anything. The source records were read; nothing was written to the target org. To write less, leave objects out or lower Records per object on Review; Simulate says what a run writes without writing it.",
       "storageExceeded": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. Leave objects out, lower the records per object, or free data storage in the target org.",
+      "storageExceededRoots": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left. About {{fits}} of the {{object}} records its query chooses fit, each with what its clone copies: give the query LIMIT {{fits}}, after ORDER BY CreatedDate DESC, Id DESC for the newest, or narrow its WHERE; else leave objects out, or free data storage in the target org.",
+      "storageExceededRootsOne": "The run was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and the target org has {{remaining}} MB left, less than one of the {{object}} records its query chooses takes on average with what its clone copies. Leave objects out on Review, clone less deep, or free data storage in the target org.",
       "confirmationUnavailable": "The run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
       "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records: leave objects out or lower Records per object on Review.",
@@ -4731,7 +4734,7 @@
       "sampleDrawEmpty": "The run was refused before it wrote anything: no object has a root in the window, the filters of the roots and the strata asked. Widen the window, change the filters, or draw without them, under Which roots on Review.",
       "rootsQueryRefused": "The run did not start: its query cannot choose the records to clone — a clause that changes the rows it returns (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE or a COUNT()), an alias that does not lead back to its object, or a WHERE, ORDER BY or LIMIT past the rules. Nothing was read or written. Correct the query, choosing its records by WHERE, ORDER BY and LIMIT.",
       "noRoots": "The run was refused before it wrote anything: its query chooses no {{object}} record of the source org. Check its WHERE against the source org.",
-      "rootsExceeded": "The run was refused before it read anything else: its query chooses more {{object}} records than the {{cap}} it clones, and nothing was written. Add ORDER BY CreatedDate DESC LIMIT {{limit}} to the query to clone the newest, or narrow its WHERE.",
+      "rootsExceeded": "The run was refused before it read anything else: its query chooses more {{object}} records than the {{cap}} it clones, and nothing was written. Add ORDER BY CreatedDate DESC, Id DESC LIMIT {{limit}} to the query to clone the newest, or narrow its WHERE.",
       "rootsPlanMismatch": "The run was refused before it wrote anything: the records its simulation chose were read of another org or by another query, or have changed since. Simulate again to choose them anew.",
       "rootsPlanGone": "The run was refused before it wrote anything: the records it was cloning are not in its journal, and reading its query again could choose others. Run it again from Review, or remove what it wrote from Results.",
       "sampleTargetMoved": "The run was refused before it wrote anything: the sample was fitted to {{fitted}} MB of the target org’s data storage, and what the target has left now holds {{holds}} MB of a sample. Simulate again to draw a sample that fits.",
@@ -5091,8 +5094,8 @@
         "wholeOrg_other": "Copy the whole of {{source}} into {{target}}: {{formatted}} records counted in {{objects}} objects.",
         "sample_one": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} record counted in {{objects}} objects.",
         "sample_other": "Copy a sample of {{source}} that fits {{target}}, drawn from {{formatted}} records counted in {{objects}} objects.",
-        "queryRecords_one": "Copy the {{object}} records the query chooses, {{cap}} at most, and what they reach in {{count}} object, from {{source}} into {{target}}.",
-        "queryRecords_other": "Copy the {{object}} records the query chooses, {{cap}} at most, and what they reach in {{count}} objects, from {{source}} into {{target}}."
+        "queryRecords_one": "Copy up to {{cap}} {{object}} record and what it reaches, from {{source}} into {{target}}.",
+        "queryRecords_other": "Copy up to {{cap}} {{object}} records and what they reach, from {{source}} into {{target}}."
       },
       "left": {
         "none": "Nothing is left to decide.",

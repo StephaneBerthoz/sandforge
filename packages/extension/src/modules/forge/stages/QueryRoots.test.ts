@@ -9,12 +9,15 @@ import {
   rootsExceededStop,
   rootsQueryIssue,
   rootsQueryOf,
+  rootsQueryWithLimit,
   rootsReadBoundStop,
   rootsReadTotalOf,
   rootsReadingBound,
   rootsReadingStop,
   rootsSha256,
   rootsStatement,
+  rootsStorageStop,
+  rootsThatFit,
   sameRootsQuery,
   sortedRootIds,
 } from './QueryRoots.js';
@@ -152,6 +155,81 @@ describe('a plan of roots given to a run', () => {
   });
 });
 
+describe('fewer roots, as a refusal of a run’s volume offers them', () => {
+  it('counts the roots that fit at what each takes on average, fewer than all of them', () => {
+    // 41 accounts, 1 241 records, against --max-total 100.
+    expect(rootsThatFit(41, 1_241, 100)).toBe(3);
+    // 41 accounts taking 4.77 MB, against 4 MB left.
+    expect(rootsThatFit(41, 4.77, 4)).toBe(34);
+    // Room for every one of them is no refusal: one fewer at most.
+    expect(rootsThatFit(10, 50, 1_000)).toBe(9);
+  });
+
+  it('counts none when one root alone takes more than the room, or nothing is weighed', () => {
+    expect(rootsThatFit(2, 102, 20)).toBe(0);
+    expect(rootsThatFit(0, 10, 10)).toBe(0);
+    expect(rootsThatFit(5, 0, 10)).toBe(0);
+    expect(rootsThatFit(5, 10, 0)).toBe(0);
+    expect(rootsThatFit(5, Number.NaN, 10)).toBe(0);
+  });
+
+  it('writes out the query that takes that many: its WHERE, its own order or the newest first, to the LIMIT', () => {
+    expect(rootsQueryWithLimit('Account', {}, 3)).toBe(
+      'SELECT Id FROM Account ORDER BY CreatedDate DESC, Id DESC LIMIT 3',
+    );
+    expect(
+      rootsQueryWithLimit(
+        'Account',
+        { where: "Industry = 'Energy'", orderBy: 'Name ASC', limit: 50 },
+        12,
+      ),
+    ).toBe("SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY Name ASC LIMIT 12");
+    expect(() => rootsQueryWithLimit('Account; DELETE', {}, 1)).toThrow(/Invalid Salesforce/);
+  });
+});
+
+describe('the refusal of a clone from records for the storage its records take', () => {
+  const exceeds = {
+    verdict: 'exceeds' as const,
+    estimateMB: 4.77,
+    maxMB: 5,
+    remainingMB: 4,
+    automationMB: 2.35,
+  };
+
+  it('names how many of its roots fit and the LIMIT that takes them, never fewer records per object', () => {
+    const stop = rootsStorageStop(exceeds, 'TGT', { objectApiName: 'Account', count: 41 });
+    expect(stop).toMatchObject({
+      code: 'STORAGE_EXCEEDED',
+      storage: { estimateMB: 4.77, remainingMB: 4 },
+      roots: { objectApiName: 'Account', fits: 34 },
+    });
+    expect(stop?.message).toContain(
+      "about 2.35 MB of it for what the target's automation creates under them, and TGT has 4 " +
+        'MB left of 5 MB: about 34 of the 41 Account records the query chooses fit',
+    );
+    expect(stop?.message).toContain('a LIMIT of 34 in the query');
+    expect(stop?.message).toContain('ORDER BY CreatedDate DESC, Id DESC');
+    expect(stop?.message).not.toContain('records per object');
+  });
+
+  it('names no LIMIT when one of its roots alone takes more, and nothing when the records fit', () => {
+    const one = rootsStorageStop({ ...exceeds, estimateMB: 9 }, 'TGT', {
+      objectApiName: 'Account',
+      count: 2,
+    });
+    expect(one?.roots).toEqual({ objectApiName: 'Account' });
+    expect(one?.message).toContain('takes more than that by itself');
+    expect(one?.message).not.toContain('LIMIT');
+    expect(
+      rootsStorageStop({ ...exceeds, verdict: 'near' }, 'TGT', {
+        objectApiName: 'Account',
+        count: 41,
+      }),
+    ).toBeUndefined();
+  });
+});
+
 describe('the refusals of a run from roots', () => {
   it('give the ways through a query that chooses too many, in words a terminal runs', () => {
     const stop = rootsExceededStop('Account', 200, 'query');
@@ -159,7 +237,10 @@ describe('the refusals of a run from roots', () => {
       code: 'ROOTS_EXCEEDED',
       roots: { objectApiName: 'Account', cap: 200 },
     });
-    expect(stop.message).toContain('ORDER BY CreatedDate DESC LIMIT 200');
+    // By their creation date and then by their ids: records loaded in the
+    // same second came back by the date alone in an order that changed with
+    // the WHERE.
+    expect(stop.message).toContain('ORDER BY CreatedDate DESC, Id DESC LIMIT 200');
     expect(stop.message).toContain('--max-roots');
     expect(stop.message).toContain('2,000');
   });

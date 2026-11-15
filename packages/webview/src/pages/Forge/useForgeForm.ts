@@ -238,8 +238,15 @@ export interface ForgeFormState {
   /** What the query this run would send chooses, read before Discover. */
   roots: RootsPreviewState;
   /**
+   * The query chooses more records than a run takes, as the read of what it
+   * chooses said before Discover: Discover is held back, and says why. A run
+   * of it would be refused for them before it read anything else, once
+   * discovery, the target's automation and its gaps had been read.
+   */
+  rootsPastTheRun: boolean;
+  /**
    * Put the newest of the records the typed query chooses in its place, as
-   * many as a run takes: `ORDER BY CreatedDate DESC LIMIT <n>` written into
+   * many as a run takes: `ORDER BY CreatedDate DESC, Id DESC LIMIT <n>` written into
    * the query, where the user sees it. Absent where the query cannot be
    * changed here (a template, an AI draft), or has a LIMIT already.
    */
@@ -756,13 +763,19 @@ export function useForgeForm(): ForgeFormState {
   // A clone from a record the source does not hold reads nothing of its
   // root: its preview said so, and Discover went on all the same.
   const recordNotInSource = !wholeOrg && inputMode === 'record' && previewNotInSource;
+  // A query that chooses more records than a run takes, as its read before
+  // Discover said: the run is refused for them before it reads anything
+  // else, and Discover is held back with the ways through, rather than walk
+  // the graph, read the target's automation and its gaps first. Run for real,
+  // the refusal came 403 requests to the source and 74 to the target late.
+  const rootsPastTheRun = !wholeOrg && roots.status === 'read' && roots.preview?.more === true;
   const canDiscover =
     hasInput() &&
     !recordNotInSource &&
     sourceOrgId.length > 0 &&
     targetOrgId.length > 0 &&
     !sameOrgSelected &&
-    (wholeOrg || rootQueryIssue === undefined);
+    (wholeOrg || (rootQueryIssue === undefined && !rootsPastTheRun));
 
   /** Refs to the depth chips so arrow-key nav can move DOM focus. */
   const depthRefs = useRef<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>({});
@@ -1218,6 +1231,7 @@ export function useForgeForm(): ForgeFormState {
     canDiscover,
     rootQueryIssue,
     roots,
+    rootsPastTheRun,
     takeNewest,
     queryBefore181,
     templateSoqlQuery,

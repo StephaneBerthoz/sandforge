@@ -262,14 +262,46 @@ export interface TargetCreate {
   rows: Array<Record<string, unknown>>;
 }
 
+/** How the target is set up besides what it creates. */
+export interface TargetSetup {
+  /** What its `/limits` says: {@link LIMITS} unless given. */
+  limits?: Record<string, unknown>;
+  /**
+   * A flow of its own, after save, that creates a task under each contact
+   * inserted, as the Tooling API gives a flow's version: its definition read,
+   * its record-create element named. No bypass keeps it quiet.
+   */
+  taskOnContact?: boolean;
+}
+
+/** The metadata of the flow that creates a task under each contact. */
+const TASK_ON_CONTACT = { start: {}, recordCreates: [{ name: 'Follow_up', object: 'Task' }] };
+
 /**
  * The target: it creates what it is sent, and answers every read empty but
- * its Organization record. `onCreate` hears each call before it is answered.
+ * its Organization record, its `/limits` and, set up so, the flow it runs on
+ * contacts. `onCreate` hears each call before it is answered.
  */
-export function targetConn(onCreate?: (call: TargetCreate) => void): {
+export function targetConn(
+  onCreate?: (call: TargetCreate) => void,
+  setup: TargetSetup = {},
+): {
   conn: Connection;
   creates: TargetCreate[];
 } {
+  const limits = setup.limits ?? LIMITS;
+  const flows = setup.taskOnContact
+    ? [
+        {
+          ApiName: 'Contact_Follow_Up',
+          Label: 'Contact follow up',
+          TriggerType: 'RecordAfterSave',
+          RecordTriggerType: 'Create',
+          TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+          ActiveVersionId: '301000000000001AAA',
+        },
+      ]
+    : [];
   const creates: TargetCreate[] = [];
   let made = 0;
   const idOf = (name: string): string =>
@@ -289,16 +321,41 @@ export function targetConn(onCreate?: (call: TargetCreate) => void): {
     }),
     describeGlobal: async () => ({ sobjects: globalOf() }),
     identity: async () => ({ user_id: RUN_USER }),
-    query: async (soql: string) => organizationOf(soql, TARGET_ORG) ?? page([]),
+    query: async (soql: string) => {
+      const organization = organizationOf(soql, TARGET_ORG);
+      if (organization) return organization;
+      // Its processes are read from the same view: it holds none.
+      if (soql.includes(" ProcessType = 'Workflow'")) return page([]);
+      if (soql.includes(' FROM FlowDefinitionView ')) return page(flows);
+      return page([]);
+    },
     queryMore: async () => page([]),
     tooling: {
-      query: async () => page([]),
+      query: async (soql: string) =>
+        page(flows.length > 0 && / FROM Flow\b/.test(soql) ? [{ Metadata: TASK_ON_CONTACT }] : []),
       queryMore: async () => page([]),
       describeGlobal: async () => ({ sobjects: [{ name: 'ApexClass' }] }),
     },
-    request: async (request: string | { url: string }) => {
+    request: async (request: string | { url: string; body?: string }) => {
       const url = typeof request === 'string' ? request : request.url;
-      if (url === '/limits') return LIMITS;
+      if (url === '/limits') return limits;
+      if (url === '/tooling/composite' && typeof request !== 'string') {
+        // Each part answered as the Tooling API answers it alone: a flow's
+        // version retrieved by id with its metadata, any query empty.
+        const { compositeRequest } = JSON.parse(String(request.body)) as {
+          compositeRequest: Array<{ url: string; referenceId: string }>;
+        };
+        return {
+          compositeResponse: compositeRequest.map((sub) => {
+            const version = /\/tooling\/sobjects\/Flow\/(\w+)$/.exec(sub.url)?.[1];
+            return {
+              referenceId: sub.referenceId,
+              httpStatusCode: 200,
+              body: version ? { Id: version, Metadata: TASK_ON_CONTACT } : page([]),
+            };
+          }),
+        };
+      }
       return {};
     },
   };
@@ -314,4 +371,40 @@ export function sentNames(creates: readonly TargetCreate[]): Record<string, stri
     }
   }
   return sent;
+}
+
+/**
+ * A source of `accounts` accounts made a minute apart and `contacts` contacts
+ * spread over them in turn, as a seeded org holds them: what a query of every
+ * account chooses, each with the contacts its clone copies.
+ */
+export function volumeSource(accounts: number, contacts: number): SampleSourceOrg {
+  const org = new SampleSourceOrg();
+  for (const [name, describe] of Object.entries(DESCRIBES)) {
+    org.columns.set(
+      name,
+      describe.fields.map((field) => field.name),
+    );
+  }
+  const at = (n: number): string => new Date(Date.UTC(2026, 0, 1, 0, n)).toISOString();
+  for (let n = 1; n <= accounts; n++) {
+    org.add('Account', {
+      Id: sourceId('001', 100 + n),
+      Name: `Account ${n}`,
+      Industry: 'Energy',
+      CreatedDate: at(n),
+      IsDeleted: false,
+    });
+  }
+  for (let n = 1; n <= contacts; n++) {
+    org.add('Contact', {
+      Id: sourceId('003', 100 + n),
+      LastName: `Contact ${n}`,
+      Department: 'Sales',
+      AccountId: sourceId('001', 100 + ((n - 1) % accounts) + 1),
+      CreatedDate: at(accounts + n),
+      IsDeleted: false,
+    });
+  }
+  return org;
 }

@@ -4297,6 +4297,7 @@
     "hintAiUnchecked": "Rédigez une requête et faites-la valider par l'org source pour découvrir le graphe",
     "hintSameOrg": "La source et la cible doivent être différentes",
     "hintRecordNotInSource": "L'org source choisie ne contient pas cet enregistrement : choisissez l'org d'où il vient, ou un autre enregistrement",
+    "hintRootsPastTheRun": "Prenez moins des enregistrements que la requête choisit pour découvrir le graphe : un clonage serait refusé pour eux",
     "hintSoqlFilterRefused": "Raccourcissez ou réécrivez la clause WHERE pour découvrir le graphe",
     "hintSoqlAliasRefused": "Corrigez l'alias après FROM pour découvrir le graphe",
     "depthDirectTooltip": "Uniquement les objets enfants directs (1 niveau)",
@@ -4703,6 +4704,8 @@
       "readDeclined": "Vous avez annulé le clonage à la confirmation des tables qu'il lit sans limite par objet, chacune au-delà de {{ceiling}} enregistrements. Rien n'a été lu ni écrit. Réglez Enregistrements / objet pour en lire moins.",
       "writeDeclined": "Vous avez annulé le clonage avant qu'il n'écrive quoi que ce soit. Les enregistrements source ont été lus ; rien n'a été écrit dans l'org cible. Pour écrire moins, excluez des objets ou baissez Enregistrements / objet dans la revue ; Simuler dit ce qu'un clonage écrit sans l'écrire.",
       "storageExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Excluez des objets, réduisez le nombre d'enregistrements par objet ou libérez du stockage de données dans l'org cible.",
+      "storageExceededRoots": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible. Environ {{fits}} des enregistrements {{object}} que sa requête choisit y tiennent, chacun avec ce que son clonage copie : donnez à la requête LIMIT {{fits}}, après ORDER BY CreatedDate DESC, Id DESC pour les plus récents, ou resserrez son WHERE ; sinon excluez des objets, ou libérez du stockage de données dans l'org cible.",
+      "storageExceededRootsOne": "Le clonage a été refusé avant d'écrire quoi que ce soit : ses enregistrements occupent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo à l'org cible, moins que ce que prend en moyenne un des enregistrements {{object}} que sa requête choisit, avec ce que son clonage copie. Excluez des objets dans la revue, clonez moins profond, ou libérez du stockage de données dans l'org cible.",
       "confirmationUnavailable": "Le clonage a été arrêté avant d'écrire quoi que ce soit : il lui fallait votre confirmation, et aucune n'a pu être demandée.",
       "checkpointRefused": "Le clonage a été refusé avant d'écrire quoi que ce soit : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris. Rien n'a été écrit. Lancez-le sans point de contrôle préalable, ou corrigez ce qui le refuse.",
       "apiBudgetExceeded": "Le clonage a été refusé avant d'écrire quoi que ce soit : il prend plus de requêtes d'API qu'il n'en reste aujourd'hui à l'org cible, et se serait arrêté en cours de route. Lancez-le quand l'org aura des requêtes à revendre — la limite quotidienne se compte sur les dernières 24 heures — ou écrivez moins d'enregistrements : excluez des objets ou baissez Enregistrements / objet dans la revue.",
@@ -4731,7 +4734,7 @@
       "sampleDrawEmpty": "Le clonage a été refusé avant d'écrire quoi que ce soit : aucun objet n'a de racine dans la fenêtre, les filtres des racines et les strates demandés. Élargissez la fenêtre, changez les filtres, ou tirez sans eux, sous Quelles racines dans la revue.",
       "rootsQueryRefused": "Le clonage n'a pas démarré : sa requête ne peut pas choisir les enregistrements à cloner — une clause qui change les lignes qu'elle renvoie (GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE ou un COUNT()), un alias qui ne ramène pas à son objet, ou un WHERE, un ORDER BY ou une LIMIT hors des règles. Rien n'a été lu ni écrit. Corrigez la requête en choisissant ses enregistrements par WHERE, ORDER BY et LIMIT.",
       "noRoots": "Le clonage a été refusé avant d'écrire quoi que ce soit : sa requête ne choisit aucun enregistrement {{object}} de l'org source. Vérifiez son WHERE sur l'org source.",
-      "rootsExceeded": "Le clonage a été refusé avant de lire quoi que ce soit d'autre : sa requête choisit plus d'enregistrements {{object}} que les {{cap}} qu'il clone, et rien n'a été écrit. Ajoutez ORDER BY CreatedDate DESC LIMIT {{limit}} à la requête pour cloner les plus récents, ou resserrez son WHERE.",
+      "rootsExceeded": "Le clonage a été refusé avant de lire quoi que ce soit d'autre : sa requête choisit plus d'enregistrements {{object}} que les {{cap}} qu'il clone, et rien n'a été écrit. Ajoutez ORDER BY CreatedDate DESC, Id DESC LIMIT {{limit}} à la requête pour cloner les plus récents, ou resserrez son WHERE.",
       "rootsPlanMismatch": "Le clonage a été refusé avant d'écrire quoi que ce soit : les enregistrements choisis par sa simulation ont été lus d'une autre org ou par une autre requête, ou ont changé depuis. Simulez de nouveau pour les choisir à nouveau.",
       "rootsPlanGone": "Le clonage a été refusé avant d'écrire quoi que ce soit : les enregistrements qu'il clonait ne sont pas dans son journal, et relire sa requête pourrait en choisir d'autres. Relancez-le depuis la revue, ou retirez ce qu'il a écrit depuis les Résultats.",
       "sampleTargetMoved": "Le clonage a été refusé avant d'écrire quoi que ce soit : l'échantillon a été ajusté à {{fitted}} Mo du stockage de données de l'org cible, et ce qu'il lui reste maintenant en contient {{holds}} Mo. Simulez de nouveau pour tirer un échantillon qui tient.",
@@ -5091,8 +5094,8 @@
         "wholeOrg_other": "Copier toute l’org {{source}} dans {{target}} : {{formatted}} enregistrements comptés dans {{objects}} objets.",
         "sample_one": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrement compté dans {{objects}} objets.",
         "sample_other": "Copier un échantillon de {{source}} qui tient dans {{target}}, tiré de {{formatted}} enregistrements comptés dans {{objects}} objets.",
-        "queryRecords_one": "Copier les enregistrements {{object}} que la requête choisit, {{cap}} au plus, et ce qu’ils atteignent dans {{count}} objet, de {{source}} vers {{target}}.",
-        "queryRecords_other": "Copier les enregistrements {{object}} que la requête choisit, {{cap}} au plus, et ce qu’ils atteignent dans {{count}} objets, de {{source}} vers {{target}}."
+        "queryRecords_one": "Copier jusqu’à {{cap}} enregistrement {{object}} et ce qu’il atteint, de {{source}} vers {{target}}.",
+        "queryRecords_other": "Copier jusqu’à {{cap}} enregistrements {{object}} et ce qu’ils atteignent, de {{source}} vers {{target}}."
       },
       "left": {
         "none": "Il ne reste rien à décider.",

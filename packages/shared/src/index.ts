@@ -368,6 +368,7 @@ export {
   type SampleGatePlanRefusal,
 } from './utils/forge-run-gate.js';
 export {
+  SOQL_NEWEST_FIRST,
   SOQL_ROOT_ORDER_BY_MAX,
   SOQL_ROOT_REFUSED_CLAUSES,
   isRecordScoped,

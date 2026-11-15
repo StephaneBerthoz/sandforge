@@ -75,6 +75,32 @@ describe('forge run gate stops', () => {
       ).toBeNull();
     });
 
+    it('reads, of one refused for its storage, how many of its roots fit, and nothing of roots on another stop', () => {
+      expect(
+        forgeRunGateStopOf({
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 4.77, remainingMB: 4 },
+          roots: { objectApiName: 'Account', fits: 34 },
+        }),
+      ).toEqual({
+        code: 'STORAGE_EXCEEDED',
+        storage: { estimateMB: 4.77, remainingMB: 4 },
+        roots: { objectApiName: 'Account', fits: 34 },
+      });
+      expect(
+        forgeRunGateStopOf({
+          code: 'API_BUDGET_EXCEEDED',
+          roots: { objectApiName: 'Account', fits: 34 },
+        }),
+      ).toEqual({ code: 'API_BUDGET_EXCEEDED' });
+      expect(
+        forgeRunGateStopOf({
+          code: 'STORAGE_EXCEEDED',
+          roots: { objectApiName: 'Account', fits: 0 },
+        }),
+      ).toBeNull();
+    });
+
     it('reads nothing past what a page names: a cap past the most, a name that is no object', () => {
       expect(
         forgeRunGateStopOf({
@@ -94,12 +120,13 @@ describe('forge run gate stops', () => {
     });
 
     it('drops what a stop says of the roots on a stop that is not of them', () => {
+      // A refusal for the storage names its roots, how many of them fit: see above.
       expect(
         forgeRunGateStopOf({
-          code: 'STORAGE_EXCEEDED',
+          code: 'WRITE_DECLINED',
           roots: { objectApiName: 'Account', cap: 200 },
         }),
-      ).toEqual({ code: 'STORAGE_EXCEEDED' });
+      ).toEqual({ code: 'WRITE_DECLINED' });
     });
 
     it('reads the bound of the records the roots reach, apart from the rows of one object read whole', () => {

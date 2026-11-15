@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { FORGE_ROOTS_MAX } from './forge-run-gate.js';
 import {
+  SOQL_NEWEST_FIRST,
   SOQL_ROOT_REFUSED_CLAUSES,
   isRecordScoped,
   soqlOrderBySchema,
@@ -298,6 +299,14 @@ describe('the rules a clone from a query holds its clauses to', () => {
     ]) {
       expect(soqlOrderBySchema.safeParse(orderBy).success, orderBy).toBe(false);
     }
+  });
+
+  it('proposes the newest first in an order its own rules take, which the ids make total', () => {
+    expect(soqlOrderBySchema.safeParse(SOQL_NEWEST_FIRST).success).toBe(true);
+    expect(SOQL_NEWEST_FIRST.split(',').map((ordering) => ordering.trim())).toEqual([
+      'CreatedDate DESC',
+      'Id DESC',
+    ]);
   });
 
   it('takes a WHERE as an object filter is taken, and refuses what would end the statement', () => {

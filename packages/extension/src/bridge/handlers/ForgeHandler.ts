@@ -327,6 +327,7 @@ import {
   rootsQueryRefusedStop,
   rootsSha256,
   rootsStatement,
+  rootsStorageStop,
   sortedRootIds,
 } from '../../modules/forge/stages/QueryRoots.js';
 import {
@@ -3362,9 +3363,9 @@ export class ForgeHandler implements DomainHandler {
         // plan, by the one function every computation before the lease takes
         // it from: the creations of what the mute keeps quiet are not held.
         // A sample keeps room under each record it draws for what still runs
-        // creates under it, and the gate of a clone of the whole org counts
-        // it with every record: read from the same plan.
-        if ((checkpointFirst !== undefined || sampled || wholeOrg) && 'automation' in read) {
+        // creates under it, and the gate of every run counts it with its
+        // records against the target's storage: read from the same plan.
+        if ('automation' in read) {
           running = stillRunningOf(read.automation, mutePlan, writes);
         }
         targetAutomation = automation;
@@ -3707,7 +3708,9 @@ export class ForgeHandler implements DomainHandler {
         ...(jobsUnderway && jobsUnderway.length > 0 ? { jobsUnderway } : {}),
         ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
         updatedAfterInsert: [...updatedNames],
-        ...(wholeOrg ? { automationRoom: () => automationRoomOf(running, writes).perRecord } : {}),
+        // What the target's automation that still runs creates under each
+        // record, counted with the records against its data storage.
+        automationRoom: () => automationRoomOf(running, writes).perRecord,
         ...(wholeOrg
           ? {
               wholeOrg: {
@@ -5393,12 +5396,12 @@ export class ForgeHandler implements DomainHandler {
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
     /**
-     * Of a clone of the whole org, what the target's automation that still
-     * runs creates under one record of each object the run writes
-     * (`automationRoomOf`): counted with its records against the data
-     * storage, as a sample counts it. A flow no mute reaches, opening a task
-     * under each contact, took 2.34 MB a gate that counted the records alone
-     * let through into a target with 5 MB left.
+     * What the target's automation that still runs creates under one record
+     * of each object the run writes (`automationRoomOf`): counted with its
+     * records against the data storage, as a sample counts it. A flow no
+     * mute reaches, opening a task under each contact, took 2.34 MB a gate
+     * that counted the records alone let through into a target with 5 MB
+     * left.
      */
     automationRoom?: () => readonly { objectApiName: string; bytes: number }[];
     /**
@@ -5527,10 +5530,14 @@ export class ForgeHandler implements DomainHandler {
       if (plan.totalRows === 0) return {};
       run.lookup.requests++;
       const limits = await this.readTargetDataStorage(run.targetOrgId);
+      // What the target's automation that still runs creates under them,
+      // counted with them, whatever the run clones: a clone from records
+      // counted the records alone, a task a flow opens under each contact
+      // left out.
       const storage = storageCheckOf(
         plan,
         limits,
-        whole && run.automationRoom ? automationBytesOf(plan, run.automationRoom()) : 0,
+        run.automationRoom ? automationBytesOf(plan, run.automationRoom()) : 0,
       );
       // A sample is held to what the target has left now by the terms it was
       // fitted to: drawn against more room than there is, it is refused for
@@ -5562,6 +5569,12 @@ export class ForgeHandler implements DomainHandler {
           const offer = sampleBudgetTermsOf({ storage: limits });
           if (offer) run.onSampleOffer?.(offer.budget);
         }
+        // Of a clone from records, fewer of its roots, each with what its
+        // clone copies: never fewer records per object, which kept every
+        // root and some of its records.
+        const fewerRoots =
+          boundary.roots && !whole ? rootsStorageStop(storage, run.org, boundary.roots) : undefined;
+        if (fewerRoots) throw ForgeRunGateError.of(fewerRoots);
         throw new ForgeRunGateError('STORAGE_EXCEEDED', `${refusal} Nothing was written.`, {
           estimateMB: Number(formatMB(storage.estimateMB)),
           remainingMB: storage.remainingMB,

@@ -30,7 +30,7 @@ import { ReviewMetadataTab } from './ReviewMetadataTab';
 import { ReviewAutomationTab, forgeRunMuteOffer } from './ReviewAutomationTab';
 import { muteOffered } from '../../utils/muteOffer';
 import { ReviewGapsTab, useUndecidedBlockingGaps } from './ReviewGapsTab';
-import { ReviewPlanLine } from './ReviewPlanLine';
+import { ReviewPlanLine, ReviewSourceTablesNote } from './ReviewPlanLine';
 import { ReviewLeftOutCost } from './ReviewLeftOutCost';
 import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
@@ -626,7 +626,6 @@ export const ForgeReview: React.FC = () => {
                   cycleCount={plan?.cycleResolutions.length ?? 0}
                   truncated={graph.truncated === true}
                   oneRecord={oneRecord}
-                  fromQuery={oneRecord && config?.inputMode === 'soql'}
                   maxNodes={config?.maxNodes}
                 />
               ) : (
@@ -638,6 +637,9 @@ export const ForgeReview: React.FC = () => {
             onToggle={() => toggleRow('plan')}
           >
             <div className="flex flex-col gap-3">
+              {oneRecord && buckets && !buckets.cloneRecordsUnknown && (
+                <ReviewSourceTablesNote fromQuery={config?.inputMode === 'soql'} />
+              )}
               {/* The view follows the sandforge.forge.graphView setting and the
                   switch of the discovery before it: Review drew the graph
                   whatever its size, hundreds of objects included. */}

@@ -3,7 +3,7 @@
  * ForgeInput.tsx so they can be unit-tested in isolation.
  */
 
-import { soqlRootQuery } from '@sandforge/shared';
+import { SOQL_NEWEST_FIRST, soqlRootQuery } from '@sandforge/shared';
 
 /** Preview data returned by the extension for a Salesforce record. */
 export interface RecordPreview {
@@ -90,11 +90,12 @@ export const MOST_OBJECTS_OFFERED = 500;
 
 /**
  * The query that takes the newest of the records `soql` chooses, `cap` of
- * them: `ORDER BY CreatedDate DESC LIMIT <cap>` after it — the order of the
- * ids is not the order the records were made in —, or `LIMIT <cap>` alone
- * after an ORDER BY of its own, the first of them in that order. Nothing for
- * a query that has a LIMIT already, which the user changes themselves, or
- * that names no object.
+ * them: `ORDER BY CreatedDate DESC, Id DESC LIMIT <cap>` after it — the order
+ * of the ids is not the order the records were made in, and records made in
+ * the same second need the ids to come back in one order —, or `LIMIT <cap>`
+ * alone after an ORDER BY of its own, the first of them in that order.
+ * Nothing for a query that has a LIMIT already, which the user changes
+ * themselves, or that names no object.
  */
 export function newestQueryOf(soql: string, cap: number): string | undefined {
   const query = soqlRootQuery(soql);
@@ -102,5 +103,5 @@ export function newestQueryOf(soql: string, cap: number): string | undefined {
   const typed = soql.trimEnd();
   return query.orderBy !== null
     ? `${typed} LIMIT ${cap}`
-    : `${typed} ORDER BY CreatedDate DESC LIMIT ${cap}`;
+    : `${typed} ORDER BY ${SOQL_NEWEST_FIRST} LIMIT ${cap}`;
 }

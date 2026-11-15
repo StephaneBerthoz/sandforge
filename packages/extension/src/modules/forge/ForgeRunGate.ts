@@ -3767,7 +3767,9 @@ export class ForgeRunGateError extends Error {
         ? { readBound: this.readBound }
         : {}),
       ...(this.sample ? { sample: this.sample } : {}),
-      ...(this.roots && ROOTS_STOP_CODES.has(this.code) ? { roots: this.roots } : {}),
+      ...(this.roots && (ROOTS_STOP_CODES.has(this.code) || this.code === 'STORAGE_EXCEEDED')
+        ? { roots: this.roots }
+        : {}),
     };
   }
 }

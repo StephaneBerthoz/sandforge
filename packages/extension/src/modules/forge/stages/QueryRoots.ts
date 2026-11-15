@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import {
   FORGE_ROOTS_MAX,
   FORGE_ROOTS_READ_TOTAL,
+  SOQL_NEWEST_FIRST,
   soqlOrderBySchema,
   soqlRootIssueWords,
   soqlRootQuery,
@@ -39,7 +40,12 @@ import {
 } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import { compareIds, idKey } from '../sample/sampleRank.js';
-import type { ForgeGateStop } from '../ForgeRunGate.js';
+import {
+  formatMB,
+  storageTakesWords,
+  type ForgeGateStop,
+  type StorageCheck,
+} from '../ForgeRunGate.js';
 import type { RootPlan } from '../roots/rootPlanStore.js';
 
 /**
@@ -58,6 +64,17 @@ export interface ForgeRootsOptions {
   query?: ForgeRootsQuery;
   /** The roots named one by one (the command line's repeated `--record`): no query is read. */
   ids?: readonly string[];
+  /**
+   * The ids `query` chose, read by the run's own statement
+   * (`rootsStatement`) before anything else of the run, and when: taken as
+   * the query's, the query not sent again. The command line reads them
+   * before discovery, so that a query choosing none, or more than the run
+   * takes, is refused before the source is asked for its describes: read by
+   * the executor alone, after discovery, the target's automation, its gaps
+   * and the preflight, the refusal came 403 requests to the source and 74
+   * to the target late, and said "refused before anything else was read".
+   */
+  chosen?: { ids: readonly string[]; readAt: string };
   /**
    * The roots a dry run read and kept (`roots/rootPlanStore.ts`): written
    * rather than the query read again, when they were read of this source,
@@ -191,6 +208,81 @@ export function rootsStatement(
   return `SELECT Id FROM ${object}${where} ORDER BY ${query.orderBy ?? 'Id'} LIMIT ${take}`;
 }
 
+/**
+ * How many of a clone's `roots` fit in `room`, at what each takes on average
+ * of `taken` — records against --max-total, bytes against the data storage —,
+ * fewer than `roots`: none when one of them alone takes more than `room`.
+ * What a dry run counted under them, divided by them, as the way through a
+ * refusal names it: a LIMIT of that many keeps each root with what its clone
+ * copies, where a cap on each object kept every root and some of its records,
+ * taken by an order nobody chose.
+ */
+export function rootsThatFit(roots: number, taken: number, room: number): number {
+  if (!Number.isFinite(roots) || roots < 1 || !Number.isFinite(taken) || taken <= 0) return 0;
+  if (!Number.isFinite(room) || room <= 0) return 0;
+  return Math.max(0, Math.min(Math.floor(roots) - 1, Math.floor((room * roots) / taken)));
+}
+
+/**
+ * The query that clones `limit` of the records `query` chooses of
+ * `objectApiName`: its WHERE, in its own order, or the newest first
+ * (`SOQL_NEWEST_FIRST`, an order the ids make total), to `limit`. Written out
+ * whole, to be given to `--query` as it is.
+ */
+export function rootsQueryWithLimit(
+  objectApiName: string,
+  query: ForgeRootsQuery,
+  limit: number,
+): string {
+  const where = query.where !== undefined ? ` WHERE ${query.where}` : '';
+  return (
+    `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)}${where} ` +
+    `ORDER BY ${query.orderBy ?? SOQL_NEWEST_FIRST} LIMIT ${Math.max(1, Math.floor(limit))}`
+  );
+}
+
+/**
+ * The stop of a clone from the records a query chose refused for the data
+ * storage its records take, what the target's automation creates under them
+ * counted (`STORAGE_EXCEEDED`), as the panel's gate raises it: how many of
+ * its roots fit, at what each takes on average with what its clone copies,
+ * the LIMIT that takes them — never fewer records per object, which kept
+ * every root and some of its records, taken by an order nobody chose —, or,
+ * when one of them alone takes more, the objects it writes. Nothing when the
+ * records fit, or the storage could not be read.
+ *
+ * @param roots - The roots as the gate was told them: their object and how many.
+ */
+export function rootsStorageStop(
+  check: StorageCheck,
+  target: string,
+  roots: { objectApiName: string; count: number },
+): ForgeGateStop | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  const fits = rootsThatFit(roots.count, check.estimateMB, check.remainingMB);
+  const chosen = `the ${roots.count} ${roots.objectApiName} records the query chooses`;
+  const through =
+    fits >= 1
+      ? `about ${fits} of ${chosen} fit, each with what its clone copies: a LIMIT of ${fits} ` +
+        `in the query clones that many — after ORDER BY ${SOQL_NEWEST_FIRST}, the newest —, or ` +
+        `narrow its WHERE; or leave objects out, or free data storage in ${target}.`
+      : `one of ${chosen} takes more than that by itself, with what its clone copies: leave ` +
+        `objects out, clone less deep, or free data storage in ${target}.`;
+  return {
+    code: 'STORAGE_EXCEEDED',
+    message:
+      `The records to write take ${storageTakesWords(check)}, and ${target} has ` +
+      `${check.remainingMB} MB left of ${check.maxMB} MB: ${through} ${NOTHING_WRITTEN}`,
+    storage: {
+      estimateMB: Number(formatMB(check.estimateMB)),
+      remainingMB: check.remainingMB,
+    },
+    ...(rootsOf(roots.objectApiName).roots
+      ? { roots: { objectApiName: roots.objectApiName, ...(fits >= 1 ? { fits } : {}) } }
+      : {}),
+  };
+}
+
 /** The ids of `ids` once each, by the record they name, in the order a plan keeps them. */
 export function sortedRootIds(ids: Iterable<string>): string[] {
   const seen = new Set<string>();
@@ -314,7 +406,7 @@ export function rootsExceededStop(
   const most = FORGE_ROOTS_MAX.toLocaleString('en-US');
   const through =
     given === 'query'
-      ? `Add ORDER BY CreatedDate DESC LIMIT ${cap} to the query to clone the newest, narrow ` +
+      ? `Add ORDER BY ${SOQL_NEWEST_FIRST} LIMIT ${cap} to the query to clone the newest, narrow ` +
         `its WHERE, or raise --max-roots (the sandforge.forge.maxRoots setting) up to ${most}; ` +
         'past that, copy a sample of the whole org with a filter on its roots.'
       : `Name ${cap} at most, or raise --max-roots up to ${most}.`;

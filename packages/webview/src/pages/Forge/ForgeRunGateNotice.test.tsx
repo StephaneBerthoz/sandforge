@@ -471,7 +471,7 @@ describe('ForgeRunGateNotice', () => {
       );
       const { unmount } = render(<ForgeRunGateNotice />);
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
-        'The run was refused before it read anything else: its query chooses more Account records than the 2,000 it clones, and nothing was written. Add ORDER BY CreatedDate DESC LIMIT 2000 to the query to clone the newest, or narrow its WHERE.',
+        'The run was refused before it read anything else: its query chooses more Account records than the 2,000 it clones, and nothing was written. Add ORDER BY CreatedDate DESC, Id DESC LIMIT 2000 to the query to clone the newest, or narrow its WHERE.',
       );
       unmount();
       // A LIMIT grouped as the language groups a figure — 2 000, 2.000 — is
@@ -486,6 +486,37 @@ describe('ForgeRunGateNotice', () => {
       } finally {
         await act(() => i18n.changeLanguage('en'));
       }
+    });
+
+    it('says a run refused for its storage how many of the records its query chooses fit, never fewer records per object', () => {
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 4.77, remainingMB: 4 },
+          roots: { objectApiName: 'Account', fits: 34 },
+        }),
+      );
+      const { unmount } = render(<ForgeRunGateNotice />);
+      const reason = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+      expect(reason).toBe(
+        'The run was refused before it wrote anything: its records take about 4.77 MB of data storage, and the target org has 4 MB left. About 34 of the Account records its query chooses fit, each with what its clone copies: give the query LIMIT 34, after ORDER BY CreatedDate DESC, Id DESC for the newest, or narrow its WHERE; else leave objects out, or free data storage in the target org.',
+      );
+      expect(reason).not.toContain('records per object');
+      unmount();
+
+      // One of them alone takes more than the target has left: no LIMIT.
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'STORAGE_EXCEEDED',
+          storage: { estimateMB: 9, remainingMB: 4 },
+          roots: { objectApiName: 'Account' },
+        }),
+      );
+      render(<ForgeRunGateNotice />);
+      const one = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+      expect(one).toContain('less than one of the Account records its query chooses takes');
+      expect(one).not.toContain('LIMIT');
+      expect(one).not.toContain('records per object');
     });
 
     it('opens the setting that takes more records, up to the most of all, and offers none past it', () => {

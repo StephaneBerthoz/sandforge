@@ -36,13 +36,12 @@ export interface ReviewPlanLineProps {
   cycleCount: number;
   truncated: boolean;
   /**
-   * The run clones one record's graph (`clonesFromRecords`): the counts are
-   * the source tables', and the calls and the duration reckoned from them are
-   * left out.
+   * The run clones records and what they reach (`clonesFromRecords`): the
+   * counts are the source tables', said so on the line, and the calls and
+   * the duration reckoned from them are left out. Why they are the source
+   * tables' is said in the row once it is open (`ReviewSourceTablesNote`).
    */
   oneRecord?: boolean;
-  /** Of such a run, the records are those a query chooses, not one record. */
-  fromQuery?: boolean;
   /** The object cap discovery was given (`ForgeConfig.maxNodes`); absent, the default. */
   maxNodes?: number;
 }
@@ -58,7 +57,6 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
   cycleCount,
   truncated,
   oneRecord = false,
-  fromQuery = false,
   maxNodes,
 }) => {
   const { t } = useTranslation();
@@ -154,15 +152,27 @@ export const ReviewPlanLine: React.FC<ReviewPlanLineProps> = ({
           {t('forgeRun.preview.countsComeWithDiscovery')}
         </span>
       )}
-      {oneRecord && !buckets.cloneRecordsUnknown && (
-        <span data-testid="forge-preview-source-tables" className="text-xs text-text-secondary">
-          {t(
-            fromQuery
-              ? 'forgeRun.preview.readsWhatTheRecordsReach'
-              : 'forgeRun.preview.readsWhatTheRecordReaches',
-          )}
-        </span>
-      )}
     </span>
+  );
+};
+
+/**
+ * Why the Plan line's counts are the source tables' of a run that clones
+ * records and what they reach: it reads only what its record, or the records
+ * its query chooses, reach. Said in the Plan row once it is open: on its
+ * folded line, two lines more of every row's height, it pushed Automation
+ * under the fold of a 1280 by 800 panel, the Gaps row open, in every
+ * language. The line itself says "in the source tables".
+ */
+export const ReviewSourceTablesNote: React.FC<{ fromQuery: boolean }> = ({ fromQuery }) => {
+  const { t } = useTranslation();
+  return (
+    <p data-testid="forge-preview-source-tables" className="text-xs text-text-secondary">
+      {t(
+        fromQuery
+          ? 'forgeRun.preview.readsWhatTheRecordsReach'
+          : 'forgeRun.preview.readsWhatTheRecordReaches',
+      )}
+    </p>
   );
 };
