@@ -788,6 +788,52 @@ function unknownAliasSf(home, alias) {
 const HELP_HEAD = (tool) => `sandforge ${tool} — `;
 
 /**
+ * A pipeline file as the Automation page exports one, in `home`, whose org no
+ * sf of a sealed home reaches: its plan stands up the host a run goes
+ * through, then says the org was not reached, and runs nothing.
+ *
+ * @returns Its path.
+ */
+function pipelineFixture(home) {
+  const file = join(home, 'nightly.sandforge-pipeline.json');
+  writeFileSync(
+    file,
+    JSON.stringify({
+      sandforgePipeline: 1,
+      exportedAt: '2026-11-20T10:00:00.000Z',
+      exportedBy: 'SandForge 1.81.0',
+      digest: `sha256:${'0'.repeat(64)}`,
+      pipeline: {
+        id: 'pipe-npm-check',
+        name: 'Nightly',
+        description: '',
+        steps: [
+          { id: 's1', name: 'Health', type: 'precheck', config: { orgId: 'reg-dev' } },
+          { id: 's2', name: 'Go?', type: 'approval', config: {} },
+        ],
+        variables: [],
+        tags: [],
+      },
+      schedule: null,
+      orgs: {
+        'reg-dev': {
+          alias: 'DEV',
+          organizationId: '00D000000000001AAA',
+          kind: 'sandbox',
+          staging: false,
+        },
+      },
+      syncConfigs: {},
+      seedTemplates: {},
+      maskingTemplates: {},
+      settings: {},
+      notes: [],
+    }),
+  );
+  return file;
+}
+
+/**
  * The checks a built package passes before it is published, each one a
  * function that throws what it found. `node scripts/npm-package.mjs check`
  * runs them on a package already built; `scripts/npm-package.test.mjs` on one
@@ -1179,41 +1225,7 @@ export const CHECKS = [
         // goes through — under this Node, every module of the editor's
         // handlers loaded — then says the org was not reached, and runs
         // nothing.
-        const file = join(home, 'nightly.sandforge-pipeline.json');
-        writeFileSync(
-          file,
-          JSON.stringify({
-            sandforgePipeline: 1,
-            exportedAt: '2026-11-20T10:00:00.000Z',
-            exportedBy: 'SandForge 1.81.0',
-            digest: `sha256:${'0'.repeat(64)}`,
-            pipeline: {
-              id: 'pipe-npm-check',
-              name: 'Nightly',
-              description: '',
-              steps: [
-                { id: 's1', name: 'Health', type: 'precheck', config: { orgId: 'reg-dev' } },
-                { id: 's2', name: 'Go?', type: 'approval', config: {} },
-              ],
-              variables: [],
-              tags: [],
-            },
-            schedule: null,
-            orgs: {
-              'reg-dev': {
-                alias: 'DEV',
-                organizationId: '00D000000000001AAA',
-                kind: 'sandbox',
-                staging: false,
-              },
-            },
-            syncConfigs: {},
-            seedTemplates: {},
-            maskingTemplates: {},
-            settings: {},
-            notes: [],
-          }),
-        );
+        const file = pipelineFixture(home);
         const planned = runBin(out, ['sandforge', 'pipeline', 'plan', '--file', file, '--json'], {
           node,
           env: sealedEnv(home),
@@ -1236,6 +1248,90 @@ export const CHECKS = [
             `sandforge pipeline plan ended on ${planned.code}: ${planned.stderr}${planned.stdout}`,
           );
         }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    name: 'pipeline plan and checkpoint replay answer --help, each its command’s own lines',
+    run: ({ out, node }) => {
+      // The help asked after a verb: the line is read as far as the verb,
+      // then the help said, under this Node, before anything is reached.
+      for (const [tool, verb, words] of [
+        ['pipeline', 'plan', ['plan      connect each org', '--approve <step>']],
+        ['checkpoint', 'replay', ['replay    set a checkpoint', '--key-env <VAR>']],
+      ]) {
+        const asked = runBin(out, ['sandforge', tool, verb, '--help'], { node });
+        if (asked.code !== 0 || !asked.stdout.startsWith(HELP_HEAD(tool))) {
+          throw new Error(
+            `sandforge ${tool} ${verb} --help ended on ${asked.code}: ${asked.stderr || asked.stdout.slice(0, 200)}`,
+          );
+        }
+        for (const said of words) {
+          if (!asked.stdout.includes(said)) {
+            throw new Error(`sandforge ${tool} ${verb} --help does not say "${said}"`);
+          }
+        }
+      }
+    },
+  },
+  {
+    name: 'the MCP server lists the tools of a clone from a query, a replay and a pipeline, and plans a pipeline through the packaged script',
+    run: async ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const version = readJson(join(out, 'package.json')).version;
+        const file = pipelineFixture(home);
+        const { answers, code, stderr } = await talkToMcp(
+          out,
+          [
+            {
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'initialize',
+              params: {
+                protocolVersion: '2025-11-25',
+                capabilities: {},
+                clientInfo: { name: 'sandforge-npm-check', version },
+              },
+            },
+            { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+            {
+              jsonrpc: '2.0',
+              id: 3,
+              method: 'tools/call',
+              params: { name: 'pipeline_plan', arguments: { file } },
+            },
+          ],
+          { node, env: sealedEnv(home), cwd: home },
+        );
+        const [, listed, called] = answers;
+        const names = (listed?.result?.tools ?? []).map((tool) => tool.name);
+        for (const name of [
+          'clone_records',
+          'checkpoint_replay',
+          'checkpoint_replay_remove',
+          'pipeline_plan',
+        ]) {
+          if (!names.includes(name)) {
+            throw new Error(`tools/list does not list ${name}: ${names.join(', ')}`);
+          }
+        }
+        if (names.includes('pipeline_run')) throw new Error('tools/list lists pipeline_run');
+        // pipeline_plan runs the packaged pipeline script in a process of its
+        // own: the plan it answers is that script's, its org refused unreached.
+        const structured = called?.result?.structuredContent;
+        if (
+          called?.result?.isError !== true ||
+          structured?.exitCode !== 2 ||
+          structured?.answer?.refusals?.[0]?.code !== 'ORG_NOT_CONNECTED' ||
+          !called.result.content?.[0]?.text?.includes('No tool runs a pipeline')
+        ) {
+          throw new Error(`pipeline_plan answered ${JSON.stringify(called)}\n${stderr}`);
+        }
+        if (code !== 0)
+          throw new Error(`the MCP server ended on ${code} once its input closed\n${stderr}`);
       } finally {
         rmSync(home, { recursive: true, force: true });
       }

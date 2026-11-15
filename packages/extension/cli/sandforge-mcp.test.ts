@@ -9,7 +9,9 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 
+import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
 import { removalAutomationRefusal } from '../src/modules/forge/ForgeRunGate.js';
+import type { ClonePlanReceipt } from './mcpClonePlans.js';
 import { refusedLine } from './runRefused.js';
 import { main as envMain } from './sandforge-env.js';
 import { runInProcess } from './testing/envWorld.js';
@@ -22,7 +24,10 @@ import {
   PROTOCOL_VERSION,
   TOOLS,
   claimStdout,
+  cloneOrgPlanLine,
   exitWords,
+  planLines,
+  planSummaryOf,
   serve,
   toolRunner,
   type CommandRun,
@@ -71,8 +76,15 @@ function scripts(
   return { ran, run };
 }
 
-/** A client of a server it stands up, with the scripts it is given. */
-function client(runCommand: CommandRunner = scripts().run) {
+/**
+ * A client of a server it stands up, with the scripts it is given, and the
+ * journal folder its plans and runs are kept in when a test runs a tool that keeps one, and how
+ * long a call holds its script before it hands its run back.
+ */
+function client(
+  runCommand: CommandRunner = scripts().run,
+  options: { journalDir?: string; holdMs?: number } = {},
+) {
   const input = new PassThrough();
   const lines: string[] = [];
   const received: Message[] = [];
@@ -91,6 +103,8 @@ function client(runCommand: CommandRunner = scripts().run) {
     },
     runCommand,
     log: () => undefined,
+    ...(options.journalDir !== undefined ? { journalDir: options.journalDir } : {}),
+    ...(options.holdMs !== undefined ? { holdMs: options.holdMs } : {}),
   });
   let next = 1;
   const nextMessage = (until: (message: Message) => boolean): Promise<Message> =>
@@ -280,7 +294,7 @@ describe('sandforge-mcp: the protocol', () => {
 });
 
 describe('sandforge-mcp: the tools', () => {
-  it('lists the twenty tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
+  it('lists the twenty-four tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
     const c = client();
     await c.initialized();
 
@@ -296,6 +310,7 @@ describe('sandforge-mcp: the tools', () => {
       'seed_templates',
       'seed_run',
       'clone_record',
+      'clone_records',
       'clone_org_plan',
       'clone_org',
       'run_remove',
@@ -307,12 +322,15 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      'checkpoint_replay',
+      'checkpoint_replay_remove',
       'empty_preview',
       'empty_run',
       'empty_undo',
       'env_plan',
       'env_apply',
       'env_destroy',
+      'pipeline_plan',
     ]);
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
     for (const name of [
@@ -322,6 +340,8 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_preview',
       'empty_preview',
       'env_plan',
+      // A pipeline's plan reads its orgs, on a copy of its store.
+      'pipeline_plan',
     ]) {
       expect(hints[name], name).toMatchObject({ readOnlyHint: true });
       expect(hints[name]?.destructiveHint, name).toBeUndefined();
@@ -331,6 +351,9 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      // A replay given again takes back first what the replays before it created.
+      'checkpoint_replay',
+      'checkpoint_replay_remove',
       'empty_run',
       'empty_undo',
       // An apply takes back the runs a replace or a resource the file dropped held.
@@ -346,6 +369,7 @@ describe('sandforge-mcp: the tools', () => {
     for (const name of [
       'seed_run',
       'clone_record',
+      'clone_records',
       'clone_org_plan',
       'clone_org',
       'run_stop',
@@ -413,10 +437,25 @@ describe('sandforge-mcp: confirm', () => {
       org: 'SB',
       args: { source: 'SRC', target: 'SB', recordId: '001000000000001AAA', dryRun: false },
     },
+    {
+      tool: 'clone_records',
+      org: 'SB',
+      args: { source: 'SRC', target: 'SB', object: 'Account', limit: 5, dryRun: false },
+    },
     { tool: 'run_remove', org: 'DEV', args: { module: 'seed', org: 'DEV', run: 'run.ndjson' } },
     { tool: 'checkpoint_rewind', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_undo', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_delete', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
+    {
+      tool: 'checkpoint_replay',
+      org: 'SB',
+      args: { checkpoint: 'ck-20261101-110000-c3d4', target: 'SB', dryRun: false, maxRecords: 12 },
+    },
+    {
+      tool: 'checkpoint_replay_remove',
+      org: 'SB',
+      args: { checkpoint: 'ck-20261101-110000-c3d4', target: 'SB' },
+    },
     { tool: 'empty_run', org: 'DEV', args: { org: 'DEV', objects: ['Contact'] } },
     { tool: 'empty_undo', org: 'DEV', args: { org: 'DEV', run: 'em-20261113-101500-ab12' } },
     { tool: 'env_apply', org: 'SB', args: { file: 'sandforge.yaml', org: 'SB' } },
@@ -493,6 +532,8 @@ describe('sandforge-mcp: confirm', () => {
       },
       { script: 'sandforge-checkpoint', args: ['take', '--org', 'DEV', '--estimate', '--json'] },
       { script: 'sandforge-checkpoint', args: ['list', '--org', 'DEV', '--json'] },
+      // The replays into the org, read off this machine as its checkpoints are.
+      { script: 'sandforge-checkpoint', args: ['replays', '--target', 'DEV', '--json'] },
       {
         script: 'sandforge-env',
         args: ['plan', '--file', 'envs/sandforge.yaml', '--org', 'SB', '--json'],
@@ -1991,13 +2032,16 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     });
     expect(list.result, stderr).toMatchObject({
       isError: false,
-      structuredContent: { exitCode: 0, answer: [] },
+      structuredContent: { exitCode: 0, answer: [], replays: [] },
     });
     expect(textOf(list.result as unknown as CallResult)).toContain('No checkpoint is kept in');
+    expect(textOf(list.result as unknown as CallResult)).toContain(
+      'No replay into DEV is kept on this machine.',
+    );
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge mcp: 20 tools on stdio');
+    expect(stderr).toContain('sandforge mcp: 24 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });
@@ -2283,6 +2327,953 @@ describe('sandforge-mcp: what the tools reach', () => {
     );
     // What the package rewrites (scripts/npm-package.mjs, REWRITES).
     expect(INSTRUCTIONS).toContain('run from a checkout of its repository. ');
+    await c.close();
+  });
+});
+
+describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
+  const clone = { source: 'SRC', target: 'SB' };
+
+  it('clones the records its object, where, orderBy and limit choose as one query, or the ids it names, the most a run takes their limit or count', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      where: "Industry = 'Energy'",
+      orderBy: 'CreatedDate DESC',
+      limit: 50,
+      depth: 'direct',
+      maxReadTotal: 20_000,
+      dryRun: true,
+    });
+    await c.call('clone_records', {
+      ...clone,
+      recordIds: ['001000000000001AAA', '001000000000002AAA', '001000000000003AAA'],
+      dryRun: false,
+      confirm: 'SB',
+      muteAutomation: true,
+      checkpointFirst: {},
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-clone',
+        args: [
+          '--query',
+          "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY CreatedDate DESC LIMIT 50",
+          '--max-roots',
+          '50',
+          '--source',
+          'SRC',
+          '--target',
+          'SB',
+          '--depth',
+          'direct',
+          '--max-read-total',
+          '20000',
+          '--dry-run',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-clone',
+        args: [
+          '--record',
+          '001000000000001AAA',
+          '--record',
+          '001000000000002AAA',
+          '--record',
+          '001000000000003AAA',
+          '--max-roots',
+          '3',
+          '--source',
+          'SRC',
+          '--target',
+          'SB',
+          '--mute-automation',
+          '--checkpoint-first',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('refuses, before any script runs, a query and ids both or neither, a query without its limit, ids of two objects, and a query the clone would refuse, in its words', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+
+    const refusals = {
+      both: await c.call('clone_records', {
+        ...clone,
+        object: 'Account',
+        limit: 5,
+        recordIds: ['001000000000001AAA', '001000000000002AAA'],
+        dryRun: true,
+      }),
+      neither: await c.call('clone_records', { ...clone, dryRun: true }),
+      noLimit: await c.call('clone_records', { ...clone, object: 'Account', dryRun: true }),
+      pastTheMost: await c.call('clone_records', {
+        ...clone,
+        object: 'Account',
+        limit: 2001,
+        dryRun: true,
+      }),
+      oneId: await c.call('clone_records', {
+        ...clone,
+        recordIds: ['001000000000001AAA'],
+        dryRun: true,
+      }),
+      twoObjects: await c.call('clone_records', {
+        ...clone,
+        recordIds: ['001000000000001AAA', '003000000000001AAA'],
+        dryRun: true,
+      }),
+      whereOfIds: await c.call('clone_records', {
+        ...clone,
+        recordIds: ['001000000000001AAA', '001000000000002AAA'],
+        where: "Name = 'x'",
+        dryRun: true,
+      }),
+      comment: await c.call('clone_records', {
+        ...clone,
+        object: 'Account',
+        where: "Name = 'x' -- y",
+        limit: 5,
+        dryRun: true,
+      }),
+      grouped: await c.call('clone_records', {
+        ...clone,
+        object: 'Account',
+        where: "Name = 'x' GROUP BY Name",
+        limit: 5,
+        dryRun: true,
+      }),
+      orderedByAFunction: await c.call('clone_records', {
+        ...clone,
+        object: 'Account',
+        orderBy: 'COUNT(Id)',
+        limit: 5,
+        dryRun: true,
+      }),
+    };
+
+    for (const [name, result] of Object.entries(refusals)) {
+      expect(result.isError, name).toBe(true);
+      expect(result.structuredContent, name).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+      expect(textOf(result), name).toContain('Nothing was run.');
+    }
+    expect(textOf(refusals.both)).toContain('give object, with limit,');
+    expect(textOf(refusals.noLimit)).toContain('limit goes with object');
+    expect(textOf(refusals.twoObjects)).toContain('the records of one object: these are of 2');
+    expect(textOf(refusals.whereOfIds)).toContain('where goes with object');
+    expect(textOf(refusals.grouped)).toContain(
+      'where: The query’s GROUP BY changes the records it returns',
+    );
+    expect(textOf(refusals.grouped)).toContain('(ROOTS_QUERY_REFUSED)');
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('reads the refusal the clone said on a line of its own, exit 2 and no JSON, as its code and its words, and names the parameters that make the query', async () => {
+    const said = refusedLine({
+      code: 'ROOTS_QUERY_REFUSED',
+      message:
+        'The query’s OFFSET changes the records it returns, and the clone would read others ' +
+        'than it shows: take it out. Nothing was read or written.',
+    });
+    const { run } = scripts(() => ({ code: 2, stderr: `${said}\n` }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      limit: 5,
+      dryRun: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      exitCode: 2,
+      refused: {
+        code: 'ROOTS_QUERY_REFUSED',
+        message:
+          'The query’s OFFSET changes the records it returns, and the clone would read others ' +
+          'than it shows: take it out. Nothing was read or written.',
+      },
+    });
+    expect(textOf(result)).toContain(
+      'exit 2: the clone refused what it was asked before any org was reached',
+    );
+    expect(textOf(result)).toContain('change the parameter it names, then dryRun: true again');
+    await c.close();
+  });
+
+  it('says how to take a run back, and names the parameter each flag of its lines stands for', async () => {
+    const { run } = scripts(() => ({
+      code: 1,
+      stdout: '',
+      stderr:
+        'refused (READ_BOUND_EXCEEDED): 61,000 records to read, past --max-read-total 50000\n' +
+        'refused (ROOTS_EXCEEDED): give --max-roots 300\n',
+    }));
+    const c = client(run);
+    await c.initialized();
+    const refused = await c.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      limit: 5,
+      dryRun: true,
+    });
+    await c.close();
+
+    const done = scripts(() => ({
+      stdout: JSON.stringify({ journal: '/j/forge-runs/fr-1.ndjson' }),
+    }));
+    const d = client(done.run);
+    await d.initialized();
+    const wrote = await d.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      limit: 5,
+      dryRun: false,
+      confirm: 'SB',
+    });
+    const dry = await d.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      limit: 5,
+      dryRun: true,
+    });
+
+    expect(textOf(refused)).toContain(
+      "--max-read-total, named above, is this tool's maxReadTotal.",
+    );
+    expect(textOf(refused)).toContain("--max-roots, named above, is this tool's limit");
+    expect(refused.structuredContent.refused).toMatchObject({ code: 'READ_BOUND_EXCEEDED' });
+    expect(textOf(wrote)).toContain(
+      'run_remove with module "forge" and run "/j/forge-runs/fr-1.ndjson" takes this run back.',
+    );
+    expect(textOf(dry)).not.toContain('run_remove with');
+    await d.close();
+  });
+});
+
+describe('sandforge-mcp: the draw of a sample of the whole org', () => {
+  it('hands the oldest roots, a window of dates, the conditions of the roots and the strata to the dry run’s line', () => {
+    const line = cloneOrgPlanLine({
+      source: 'SRC',
+      target: 'TGT',
+      fit: 'share',
+      fitDraw: 'oldest',
+      fitWindow: { field: 'created', from: '2025-01-01', to: '2025-06-30T12:00:00Z' },
+      fitWhere: [
+        { objectApiName: 'Account', where: "BillingCountry = 'France'" },
+        { objectApiName: 'Case', where: "Status = 'New'" },
+      ],
+      fitStrata: ['RecordTypeId', 'Case.Priority'],
+    });
+    const lastDays = cloneOrgPlanLine({
+      source: 'SRC',
+      target: 'TGT',
+      fit: 'share',
+      fitWindow: { field: 'modified', lastDays: 30 },
+    });
+    const openEnded = cloneOrgPlanLine({
+      source: 'SRC',
+      target: 'TGT',
+      fit: 'share',
+      fitWindow: { field: 'created', to: '2024-12-31' },
+    });
+
+    expect(line.slice(line.indexOf('--fit-draw'), line.indexOf('--anonymize'))).toEqual([
+      '--fit-draw',
+      'oldest',
+      '--fit-window',
+      'created:2025-01-01..2025-06-30T12:00:00Z',
+      '--fit-where',
+      "Account=BillingCountry = 'France'",
+      '--fit-where',
+      "Case=Status = 'New'",
+      '--fit-strata',
+      'RecordTypeId',
+      '--fit-strata',
+      'Case.Priority',
+    ]);
+    expect(lastDays).toContain('modified:30d');
+    expect(openEnded).toContain('created:..2024-12-31');
+  });
+
+  it('refuses, before any script runs, a window with both bounds and days or neither, one that ends before it starts, a date the calendar has not, a condition with a comment, two strata of one object, and any of them without fit', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+    const plan = { source: 'SRC', target: 'TGT', fit: 'share' };
+
+    const refusals = [
+      await c.call('clone_org_plan', {
+        ...plan,
+        fitWindow: { field: 'created', from: '2025-01-01', lastDays: 30 },
+      }),
+      await c.call('clone_org_plan', { ...plan, fitWindow: { field: 'created' } }),
+      await c.call('clone_org_plan', {
+        ...plan,
+        fitWindow: { field: 'created', from: '2025-07-01', to: '2025-06-30' },
+      }),
+      await c.call('clone_org_plan', {
+        ...plan,
+        fitWindow: { field: 'created', from: '2025-02-30' },
+      }),
+      await c.call('clone_org_plan', {
+        ...plan,
+        fitWindow: { field: 'CreatedDate', lastDays: 3 },
+      }),
+      await c.call('clone_org_plan', {
+        ...plan,
+        fitWhere: [{ objectApiName: 'Account', where: "Name = 'x' /* y */" }],
+      }),
+      await c.call('clone_org_plan', { ...plan, fitStrata: ['Account.Type', 'Account.Rating'] }),
+      await c.call('clone_org_plan', { ...plan, fitStrata: ['--fit-whole'] }),
+      await c.call('clone_org_plan', { ...plan, fitDraw: 'newest' }),
+      await c.call('clone_org_plan', {
+        source: 'SRC',
+        target: 'TGT',
+        fitStrata: ['RecordTypeId'],
+      }),
+    ];
+
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refusals[0] as CallResult)).toContain(
+      'a window gives from, to or both, or lastDays',
+    );
+    expect(textOf(refusals[2] as CallResult)).toContain('a window starts before it ends');
+    expect(textOf(refusals[6] as CallResult)).toContain(
+      'the roots of Account are stratified by one field at most',
+    );
+    expect(textOf(refusals[9] as CallResult)).toContain('the fit* parameters go with fit: "share"');
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('names the parameter of each flag of the draw a refusal names, and says a draw refused for what it was asked keeps no plan', async () => {
+    const journalDir = mkdtempSync(join(tmpdir(), 'sandforge-mcp-draw-'));
+    try {
+      const invalid = {
+        refused: {
+          code: 'SAMPLE_DRAW_INVALID',
+          message:
+            'The source refuses the condition --fit-where gives Account, and Case has no field ' +
+            'Priority__c that --fit-strata names; --fit-window reads CreatedDate.',
+        },
+      };
+      const { run } = scripts(() => ({
+        code: 2,
+        stdout: JSON.stringify(invalid),
+        stderr: `refused (SAMPLE_DRAW_INVALID): ${invalid.refused.message}\n`,
+      }));
+      const c = client(run, { journalDir });
+      await c.initialized();
+
+      const result = await c.call('clone_org_plan', {
+        source: 'SRC',
+        target: 'TGT',
+        fit: 'share',
+        fitWhere: [{ objectApiName: 'Account', where: "Name = 'x'" }],
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain(
+        'exit 2: refused for what it was asked, before any record was drawn',
+      );
+      expect(textOf(result)).toContain(
+        "--fit-where, named above, is this tool's fitWhere, an objectApiName and the where its roots match.",
+      );
+      expect(textOf(result)).toContain("--fit-strata, named above, is this tool's fitStrata");
+      expect(textOf(result)).toContain("--fit-window, named above, is this tool's fitWindow");
+      expect(result.structuredContent).toMatchObject({ exitCode: 2, answer: invalid });
+      expect(result.structuredContent.plan).toBeUndefined();
+      await c.close();
+    } finally {
+      rmSync(journalDir, { recursive: true, force: true });
+    }
+  });
+
+  it('says how the roots of a plan were drawn, and carries what the dry run said of them', () => {
+    const receipt: ClonePlanReceipt = {
+      version: 1,
+      id: 'co-20261115-101500-ab12',
+      createdAt: '2026-11-15T10:15:00.000Z',
+      expiresAt: '2026-11-16T10:15:00.000Z',
+      source: 'SRC',
+      target: 'TGT',
+      args: [],
+      mode: 'sample',
+      totalRows: 120,
+      accepted: [],
+      runs: [],
+    };
+    const roots = {
+      window: { field: 'CreatedDate', from: '2025-01-01T00:00:00Z' },
+      strata: [{ objectApiName: 'Account', field: 'RecordTypeId', values: [] }],
+    };
+    const drawn = planSummaryOf(receipt, {
+      wholeOrg: {
+        wouldInsert: [{}, {}],
+        sample: { share: 0.25, seed: 1, draw: 'oldest', budget: { limitedBy: 'draw' }, roots },
+      },
+    });
+    const uniform = planSummaryOf(receipt, {
+      wholeOrg: { wouldInsert: [{}], sample: { share: 0.5, seed: 1, draw: 'uniform' } },
+    });
+
+    expect(drawn.sample).toEqual({
+      share: 0.25,
+      seed: 1,
+      draw: 'oldest',
+      limitedBy: 'draw',
+      roots,
+    });
+    expect(planLines(drawn)[0]).toContain(
+      "a sample of SRC, 25 % of each object's roots, its roots drawn oldest first, within a " +
+        'window of their dates, by strata (plan.sample.roots says how), held by draw,',
+    );
+    expect(planLines(uniform)[0]).toContain("50 % of each object's roots, every personal field");
+    expect(uniform.sample?.roots).toBeUndefined();
+  });
+});
+
+describe('sandforge-mcp: a checkpoint replayed into another org', () => {
+  const CHECKPOINT = 'ck-20261101-110000-c3d4';
+
+  it('runs the dry run of a replay with its choices, the replay with the count its dry run said and --yes once confirmed, and its verification with neither', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('checkpoint_replay', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      dryRun: true,
+      objects: ['Account', 'Contact'],
+      excludedObjects: ['Task'],
+      owners: 'me',
+      customSettings: true,
+      mask: true,
+      acceptEmails: true,
+      checkpointFirst: { keepDays: 3 },
+    });
+    await c.call('checkpoint_replay', {
+      checkpoint: 'Before UAT',
+      from: '00D000000000001AAA',
+      target: 'SB',
+      dryRun: false,
+      maxRecords: 412,
+      confirm: 'SB',
+      again: true,
+      muteAutomation: true,
+      acceptAutomation: true,
+    });
+    await c.call('checkpoint_replay', { checkpoint: CHECKPOINT, target: 'SB', verify: true });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'replay',
+          '--checkpoint',
+          CHECKPOINT,
+          '--target',
+          'SB',
+          '--dry-run',
+          '--objects',
+          'Account,Contact',
+          '--exclude-object',
+          'Task',
+          '--owners',
+          'me',
+          '--custom-settings',
+          '--mask',
+          '--accept-emails',
+          '--checkpoint-first',
+          '--checkpoint-keep-days',
+          '3',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'replay',
+          '--checkpoint',
+          'Before UAT',
+          '--from',
+          '00D000000000001AAA',
+          '--target',
+          'SB',
+          '--again',
+          '--mute-automation',
+          '--accept-automation',
+          '--max-records',
+          '412',
+          '--yes',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-checkpoint',
+        args: ['replay', '--checkpoint', CHECKPOINT, '--target', 'SB', '--verify', '--json'],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('replays a file a teammate sent with its key read from the variable keyEnv names, and refuses a key given as an argument without repeating it', async () => {
+    // A key as an export shows it, and the same with its dashes left out.
+    const key = archiveKeyText(Buffer.alloc(32, 7));
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('checkpoint_replay', {
+      file: '/shared/recette.sfcheckpoint',
+      keyEnv: 'D8_KEY',
+      target: 'SB',
+      dryRun: true,
+    });
+    const refusals = {
+      asAnArgument: await c.call('checkpoint_replay', {
+        file: '/shared/recette.sfcheckpoint',
+        key,
+        target: 'SB',
+        dryRun: true,
+      }),
+      asItsName: await c.call('checkpoint_replay', {
+        file: '/shared/recette.sfcheckpoint',
+        keyEnv: key.replace(/-/g, ''),
+        target: 'SB',
+        dryRun: true,
+      }),
+      noVariable: await c.call('checkpoint_replay', {
+        file: '/shared/recette.sfcheckpoint',
+        target: 'SB',
+        dryRun: true,
+      }),
+      kept: await c.call('checkpoint_replay', {
+        checkpoint: CHECKPOINT,
+        keyEnv: 'D8_KEY',
+        target: 'SB',
+        dryRun: true,
+      }),
+      both: await c.call('checkpoint_replay', {
+        checkpoint: CHECKPOINT,
+        file: '/shared/recette.sfcheckpoint',
+        keyEnv: 'D8_KEY',
+        target: 'SB',
+        dryRun: true,
+      }),
+    };
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'replay',
+          '--file',
+          '/shared/recette.sfcheckpoint',
+          '--key-env',
+          'D8_KEY',
+          '--target',
+          'SB',
+          '--dry-run',
+          '--json',
+        ],
+      },
+    ]);
+    for (const [name, result] of Object.entries(refusals)) {
+      expect(result.isError, name).toBe(true);
+      expect(result.structuredContent, name).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+      expect(JSON.stringify(result), name).not.toContain(key);
+      expect(JSON.stringify(result), name).not.toContain(key.replace(/-/g, ''));
+    }
+    expect(textOf(refusals.asAnArgument)).toContain('checkpoint_replay takes no key (key)');
+    expect(textOf(refusals.asItsName)).toContain(
+      'the name of the variable that holds the key, never the key',
+    );
+    expect(textOf(refusals.noVariable)).toContain('a file goes with keyEnv');
+    expect(textOf(refusals.kept)).toContain('keyEnv goes with file');
+    await c.close();
+  });
+
+  it('refuses, before any script runs, a replay that writes without the count of its dry run, a dry run and a verification both or neither, a verification given choices, and a checkpoint named without its org', async () => {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+    const replay = { checkpoint: CHECKPOINT, target: 'SB' };
+
+    const refusals = {
+      noCount: await c.call('checkpoint_replay', { ...replay, dryRun: false, confirm: 'SB' }),
+      countOfADryRun: await c.call('checkpoint_replay', { ...replay, dryRun: true, maxRecords: 3 }),
+      neither: await c.call('checkpoint_replay', replay),
+      both: await c.call('checkpoint_replay', { ...replay, dryRun: true, verify: true }),
+      verifyWithChoices: await c.call('checkpoint_replay', {
+        ...replay,
+        verify: true,
+        mask: true,
+      }),
+      named: await c.call('checkpoint_replay', {
+        checkpoint: 'Before UAT',
+        target: 'SB',
+        dryRun: true,
+      }),
+      noRealData: await c.call('checkpoint_replay', { ...replay, dryRun: true, noRealData: true }),
+      removalNamed: await c.call('checkpoint_replay_remove', {
+        checkpoint: 'latest',
+        target: 'SB',
+        preview: true,
+      }),
+    };
+
+    for (const [name, result] of Object.entries(refusals)) {
+      expect(result.isError, name).toBe(true);
+      expect(result.structuredContent, name).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refusals.noCount)).toContain(
+      'maxRecords: a replay that writes takes maxRecords, the count its dry run said',
+    );
+    expect(textOf(refusals.verifyWithChoices)).toContain(
+      'mask goes with a replay or its dry run: verify reads the choices',
+    );
+    expect(textOf(refusals.named)).toContain('"Before UAT" is not a checkpoint\'s id');
+    expect(textOf(refusals.removalNamed)).toContain('"latest" is not a checkpoint\'s id');
+    expect(ran).toEqual([]);
+    await c.close();
+  });
+
+  it('says after a dry run the replay that writes, with the count it said, and names the parameter of each flag its lines name', async () => {
+    const dry = {
+      command: 'replay',
+      dryRun: true,
+      plan: { perObject: [{ toInsert: 400 }, { toInsert: 12 }] },
+      removeWith: `sandforge checkpoint replay --checkpoint ${CHECKPOINT} --target SB --remove`,
+    };
+    const realData =
+      'refused (REPLAY_COPY_UNKNOWN): this sandbox checkpoint was taken before SandForge 1.81: ' +
+      'replay it masked (--mask), or declare it holds no real data (--no-real-data).\n';
+    let next: Partial<CommandRun> = { stdout: JSON.stringify(dry) };
+    const { run } = scripts(() => next);
+    const c = client(run);
+    await c.initialized();
+
+    const planned = await c.call('checkpoint_replay', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      dryRun: true,
+    });
+    next = { code: 1, stderr: realData };
+    const refused = await c.call('checkpoint_replay', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      dryRun: true,
+    });
+
+    expect(textOf(planned)).toContain(
+      'checkpoint_replay with the same parameters, dryRun: false, maxRecords: 412 and confirm ' +
+        '"SB" creates them, once the person using you has agreed to it',
+    );
+    expect(textOf(planned)).toContain('--remove, named above, is checkpoint_replay_remove');
+    expect(textOf(refused)).toContain("--mask, named above, is this tool's mask: true.");
+    expect(textOf(refused)).toContain(
+      '--no-real-data, named above, is no parameter of any tool: the declaration that a ' +
+        "sandbox's checkpoint holds no real data is the person's, on a terminal",
+    );
+    expect(textOf(refused)).not.toContain('maxRecords: 412');
+    await c.close();
+  });
+
+  it('refuses the removal of a replay this server still runs into its target, naming its run, and previews it all the same', async () => {
+    const journalDir = mkdtempSync(join(tmpdir(), 'sandforge-mcp-replay-'));
+    const ran: string[][] = [];
+    // The replay goes on until it is stopped, as one past its call's hold does.
+    const run: CommandRunner = (_script, args, signal) => {
+      ran.push([...args]);
+      if (!args.includes('--max-records')) {
+        return Promise.resolve({ code: 0, stdout: '{}', stderr: '' });
+      }
+      return new Promise((done) => {
+        signal.addEventListener('abort', () => done({ code: 130, stdout: '', stderr: '' }));
+      });
+    };
+    const c = client(run, { journalDir, holdMs: 0 });
+    try {
+      await c.initialized();
+      const replaying = await c.call('checkpoint_replay', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        dryRun: false,
+        maxRecords: 3,
+        confirm: 'SB',
+      });
+      const handle = (replaying.structuredContent.running as { run: string }).run;
+
+      const refused = await c.call('checkpoint_replay_remove', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        confirm: 'SB',
+      });
+      const previewed = await c.call('checkpoint_replay_remove', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        preview: true,
+      });
+
+      expect(refused).toMatchObject({
+        isError: true,
+        structuredContent: { refusal: { code: 'RUN_UNDER_WAY' } },
+      });
+      expect(textOf(refused)).toContain(`run_stop with run "${handle}" stops it`);
+      expect(previewed.isError).toBe(false);
+      expect(ran.filter((args) => args.includes('--remove'))).toEqual([
+        ['replay', '--checkpoint', CHECKPOINT, '--target', 'SB', '--remove', '--preview', '--json'],
+      ]);
+    } finally {
+      await c.close();
+      rmSync(journalDir, { recursive: true, force: true });
+    }
+  });
+
+  it('previews a removal of a replay without confirm, and removes with --yes once confirmed', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('checkpoint_replay_remove', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      preview: true,
+      sweep: true,
+    });
+    await c.call('checkpoint_replay_remove', {
+      checkpoint: 'Before UAT',
+      from: 'DEV',
+      target: 'SB',
+      confirm: 'SB',
+      includeChanged: true,
+      muteAutomation: true,
+      acceptAutomation: true,
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'replay',
+          '--checkpoint',
+          CHECKPOINT,
+          '--target',
+          'SB',
+          '--remove',
+          '--preview',
+          '--sweep',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'replay',
+          '--checkpoint',
+          'Before UAT',
+          '--from',
+          'DEV',
+          '--target',
+          'SB',
+          '--remove',
+          '--include-changed',
+          '--mute-automation',
+          '--accept-automation',
+          '--yes',
+          '--json',
+        ],
+      },
+    ]);
+    await c.close();
+  });
+
+  it('lists with the checkpoints of an org the replays into it, each with the call that takes it back, and the dry run that replays a checkpoint that no longer rewinds it', async () => {
+    const list = [
+      {
+        id: CHECKPOINT,
+        name: 'Before UAT',
+        valid: false,
+        why: 'refreshed',
+        replayWith: `sandforge checkpoint replay --checkpoint ${CHECKPOINT} --target DEV --dry-run`,
+      },
+      { id: 'ck-20261102-110000-e5f6', name: 'Later', valid: true },
+    ];
+    const replays = [
+      {
+        checkpointId: CHECKPOINT,
+        sourceOrganizationId: '00D000000000001AAA',
+        target: { organizationId: '00D000000000002AAA', name: 'DEV' },
+        inPlace: 412,
+        inPlaceByObject: [{ objectApiName: 'Account', records: 412 }],
+        removeWith: `sandforge checkpoint replay --checkpoint ${CHECKPOINT} --target DEV --remove`,
+      },
+      {
+        checkpointId: 'ck-20261020-110000-a1b2',
+        sourceOrganizationId: '00D000000000001AAA',
+        target: { organizationId: '00D000000000002AAA', name: 'DEV' },
+        inPlace: 0,
+        inPlaceByObject: [],
+        removed: true,
+        removeWith:
+          'sandforge checkpoint replay --checkpoint ck-20261020-110000-a1b2 --target DEV --remove',
+      },
+    ];
+    const { ran, run } = scripts((_script, args) => ({
+      stdout: JSON.stringify(args[0] === 'list' ? list : replays),
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('checkpoint_list', { org: 'DEV' });
+
+    expect(ran.map((each) => each.args)).toEqual([
+      ['list', '--org', 'DEV', '--json'],
+      ['replays', '--target', 'DEV', '--json'],
+    ]);
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({ exitCode: 0, answer: list, replays });
+    expect(textOf(result)).toContain(
+      `checkpoint "${CHECKPOINT}" no longer rewinds its org, and replays into another: ` +
+        `checkpoint_replay with checkpoint "${CHECKPOINT}", target "DEV" and dryRun: true says ` +
+        'what it would create there.',
+    );
+    expect(textOf(result)).toContain(
+      '2 replay(s) into DEV kept on this machine, 1 of them with records still there (replays):',
+    );
+    expect(textOf(result)).toContain(
+      `checkpoint_replay_remove with checkpoint "${CHECKPOINT}" and target "DEV" takes them back`,
+    );
+    expect(textOf(result)).not.toContain('ck-20261020-110000-a1b2" and target');
+    await c.close();
+  });
+});
+
+describe('sandforge-mcp: the plan of a pipeline', () => {
+  it('runs pipeline plan with what the run it plans would be given, and never runs one', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('pipeline_plan', {
+      file: '/repo/nightly.sandforge-pipeline.json',
+      acceptOrgs: [{ key: 'reg-dev', organizationId: '00D000000000003AAA' }],
+      vars: [{ name: 'env', value: 'uat 2' }],
+      varEnvs: [{ name: 'token', env: 'NIGHTLY_TOKEN' }],
+      approve: ['Go?'],
+      store: '/repo/.pipeline-store',
+    });
+    const refusals = [
+      await c.call('pipeline_plan', {
+        file: '/repo/nightly.sandforge-pipeline.json',
+        orgs: { 'reg-dev': 'PROD' },
+      }),
+      await c.call('pipeline_plan', {
+        file: '/repo/nightly.sandforge-pipeline.json',
+        dryRun: true,
+      }),
+      await c.call('pipeline_plan', {
+        file: '/repo/nightly.sandforge-pipeline.json',
+        vars: [{ name: 'a=b', value: 'c' }],
+      }),
+    ];
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-pipeline',
+        args: [
+          'plan',
+          '--file',
+          '/repo/nightly.sandforge-pipeline.json',
+          '--accept-org',
+          'reg-dev=00D000000000003AAA',
+          '--var',
+          'env=uat 2',
+          '--var-env',
+          'token=NIGHTLY_TOKEN',
+          '--approve',
+          'Go?',
+          '--store',
+          '/repo/.pipeline-store',
+          '--json',
+        ],
+      },
+    ]);
+    expect(textOf(result)).toContain(
+      "No tool runs a pipeline: its run is the person's, on a terminal, pnpm exec tsx " +
+        'packages/extension/cli/sandforge-pipeline.ts run --file /repo/nightly.sandforge-pipeline.json ' +
+        '--dry-run first',
+    );
+    for (const refused of refusals) {
+      expect(refused.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refusals[0] as CallResult)).toContain(
+      'pipeline_plan plans the orgs the file names, each by its alias in the file',
+    );
+    expect(textOf(refusals[1] as CallResult)).toContain('no tool runs a pipeline');
+    expect(TOOLS.map((t) => t.definition.name)).not.toContain('pipeline_run');
+    await c.close();
+  });
+
+  it('answers a plan that refuses as an error in its words, each flag its refusals name read as the parameter it stands for, and says the plan had no terminal', async () => {
+    const answer = {
+      pipeline: { id: 'pipe-1', name: 'Nightly' },
+      plan: true,
+      orgs: [],
+      steps: [],
+      refusals: [
+        {
+          code: 'APPROVAL_NO_TERMINAL',
+          step: 'Go?',
+          message: 'Approval step "Go?" has no one to ask: this run has no terminal.',
+          wayOut: 'run it in a terminal, or add --approve "Go?".',
+        },
+        {
+          code: 'PRODUCTION_TARGET',
+          message: 'Step "Load" writes to PRD, a production org.',
+          wayOut: 'point the step at a sandbox; or map reg-prd to one with --org.',
+        },
+      ],
+      notes: [],
+      exit: 2,
+    };
+    const { run } = scripts(() => ({
+      code: 2,
+      stdout: JSON.stringify(answer),
+      stderr: 'Pipeline "Nightly" (2 steps), exported from SandForge 1.81.0 on 2026-11-20.\n',
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('pipeline_plan', { file: 'nightly.sandforge-pipeline.json' });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ exitCode: 2, answer });
+    expect(textOf(result)).toContain('exit 2: the plan refuses: a run would be refused');
+    expect(textOf(result)).toContain("--approve, named above, is this tool's approve");
+    expect(textOf(result)).toContain(
+      '--org, named above, is no parameter of pipeline_plan, which plans the aliases the file names',
+    );
+    expect(textOf(result)).toContain('This plan had no terminal: an Approval step it says');
     await c.close();
   });
 });

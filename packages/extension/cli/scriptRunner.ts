@@ -27,7 +27,8 @@ export type RunnableScript =
   | 'sandforge-frozen'
   | 'sandforge-dataops'
   | 'sandforge-empty'
-  | 'sandforge-env';
+  | 'sandforge-env'
+  | 'sandforge-pipeline';
 
 /** What one run of a script came to. */
 export interface CommandRun {

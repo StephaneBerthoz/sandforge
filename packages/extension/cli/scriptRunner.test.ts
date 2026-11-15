@@ -157,6 +157,7 @@ describe('the scripts a runner starts', () => {
     'sandforge-dataops': true,
     'sandforge-empty': true,
     'sandforge-env': true,
+    'sandforge-pipeline': true,
   };
 
   it('starts each of them from its own file in this folder', () => {

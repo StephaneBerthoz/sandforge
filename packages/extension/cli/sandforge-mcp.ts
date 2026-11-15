@@ -1,9 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, the
- * emptying of objects or of a whole org, Checkpoints and the environments of
- * a `sandforge.yaml` as tools an AI agent calls, over the Model Context
- * Protocol on stdio.
+ * sandforge-mcp — Seed, Forge's clone of a record, of the records a query
+ * chooses or of the whole org, the removal of a run, the emptying of objects
+ * or of a whole org, Checkpoints and their replay into another org, the
+ * environments of a `sandforge.yaml` and the plan of an Automation pipeline
+ * as tools an AI agent calls, over the Model Context Protocol on stdio.
  *
  * Each tool runs the command-line script of this folder that does the same
  * thing, with `--json`, in a process of its own, and answers with what the
@@ -43,7 +44,24 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
-import { CHECKPOINT_BEFORE_RUN_KEEP_DAYS, PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
+import {
+  CHECKPOINT_BEFORE_RUN_KEEP_DAYS,
+  FORGE_ROOTS_MAX,
+  FORGE_SAMPLE_MAX_LAST_DAYS,
+  FORGE_SAMPLE_MAX_ROOT_WHERE,
+  FORGE_SAMPLE_MAX_STRATA,
+  FORGE_SAMPLE_STRATUM_PATTERN,
+  PREBUILT_SEED_TEMPLATES,
+  REPLAY_MAX_RECORDS,
+  SOQL_ROOT_ORDER_BY_MAX,
+  checkpointIdSchema,
+  forgeSampleStrataSchema,
+  forgeSampleWindowBound,
+  soqlOrderBySchema,
+  soqlRootIssueWords,
+  soqlRootQueryIssue,
+  soqlWhereFragmentSchema,
+} from '@sandforge/shared';
 import { SF_ALIAS_RE, refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
@@ -85,6 +103,7 @@ import {
   type ClonePlanReceipt,
 } from './mcpClonePlans.js';
 import { makePrivateDir } from '../src/modules/checkpoint/OrgCheckpointStore.js';
+import { parseArchiveKey } from '../src/modules/checkpoint/checkpointArchive.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -132,9 +151,10 @@ const SERVER_INFO = {
 
 /** What the model is told of the server as a whole, beside each tool's own description. */
 export const INSTRUCTIONS =
-  "SandForge's Seed, Forge's clone of a record or of the whole org, the removal of a run, the " +
-  'emptying of objects or of a whole org, Checkpoints and the environments of a ' +
-  'sandforge.yaml, run from a ' +
+  "SandForge's Seed, Forge's clone of a record, of the records a query chooses or of the whole " +
+  'org, the removal of a run, the emptying of objects or of a whole org, Checkpoints and their ' +
+  'replay into another org, the environments of a sandforge.yaml and the plan of an Automation ' +
+  'pipeline, run from a ' +
   'checkout of its repository. Every org is named ' +
   'by its sf CLI alias, as `sf alias list` shows them. A tool that writes to an org takes ' +
   'confirm, the alias of that org exactly: give it only once the person using you has agreed ' +
@@ -145,8 +165,10 @@ export const INSTRUCTIONS =
   'target: clone_org_plan, show the person the question its plan comes back with, then ' +
   'clone_org with that plan and confirm; its personal fields are always anonymized. A call ' +
   `still running after ${Math.round(holdMsOf() / 1000)} seconds hands back a run: run_status ` +
-  'follows it, run_stop stops it. No tool clones whole tables ' +
-  `(${commandOf('clone')} --object <ApiName> --where <condition>), nor compares two orgs ` +
+  'follows it, run_stop stops it. pipeline_plan says what a run of a pipeline exported from the ' +
+  'Automation page would do and refuse, writing nothing; no tool runs one: its run is the ' +
+  `person's, on a terminal (${commandOf('pipeline')} run --file <file>). No tool clones whole ` +
+  `tables (${commandOf('clone')} --object <ApiName> --where <condition>), nor compares two orgs ` +
   `(${commandOf('compare')}) or takes a DataOps snapshot (${commandOf('backup')}): give the ` +
   'person the command to run in a terminal, or a sandforge.yaml resource that env_plan and ' +
   'env_apply run.';
@@ -166,7 +188,8 @@ export type Script =
   | 'sandforge-sync'
   | 'sandforge-checkpoint'
   | 'sandforge-empty'
-  | 'sandforge-env';
+  | 'sandforge-env'
+  | 'sandforge-pipeline';
 
 export type { CommandRun };
 
@@ -713,6 +736,63 @@ const envFile = () =>
         'started.',
     );
 
+// ─── The plan of a pipeline ──────────────────────────────────────────────────
+
+/** A variable of a pipeline, as `--var <name>=<value>` names it: no `=`, not starting with `-`. */
+const PIPELINE_VARIABLE = /^[^=\r\n-][^=\r\n]{0,199}$/;
+
+/** An org of a pipeline file, by its key in the file: neither a space nor `=`, not starting with `-`. */
+const PIPELINE_ORG_KEY = /^[^\s=-][^\s=]{0,199}$/;
+
+/** An Organization Id: `00D`, then 12 letters and digits, or 15. */
+const ORGANIZATION_ID = /^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+
+/** What `pipeline_plan` reads of its arguments, and passes to the plan's line. */
+interface PipelinePlanArgs {
+  file: string;
+  approve?: string[] | undefined;
+  vars?: Array<{ name: string; value: string }> | undefined;
+  varEnvs?: Array<{ name: string; env: string }> | undefined;
+  acceptOrgs?: Array<{ key: string; organizationId: string }> | undefined;
+  store?: string | undefined;
+}
+
+/**
+ * The line of `pipeline_plan`: `pipeline plan --file`, with what the run it
+ * plans would be given, and `--json`. Never `run`: no tool runs a pipeline.
+ * Exported so it can be tested.
+ */
+export function pipelinePlanLine(args: PipelinePlanArgs): string[] {
+  return [
+    'plan',
+    '--file',
+    args.file,
+    ...(args.acceptOrgs ?? []).flatMap((org) => [
+      '--accept-org',
+      `${org.key}=${org.organizationId}`,
+    ]),
+    ...(args.vars ?? []).flatMap((each) => ['--var', `${each.name}=${each.value}`]),
+    ...(args.varEnvs ?? []).flatMap((each) => ['--var-env', `${each.name}=${each.env}`]),
+    ...(args.approve ?? []).flatMap((step) => ['--approve', step]),
+    ...(args.store !== undefined ? ['--store', args.store] : []),
+    '--json',
+  ];
+}
+
+/**
+ * What a plan of a pipeline says after its own lines: that no tool runs it,
+ * where it runs, and that the plan had no terminal to ask its Approval steps
+ * on, as a person's run on a terminal has.
+ */
+function pipelineRunWords(file: string): string {
+  return (
+    "No tool runs a pipeline: its run is the person's, on a terminal, " +
+    `${commandOf('pipeline')} run --file ${shellWord(file)} --dry-run first, then without ` +
+    '--dry-run. This plan had no terminal: an Approval step it says has no one to ask ' +
+    '(APPROVAL_NO_TERMINAL) is asked there, or answered ahead by approve.'
+  );
+}
+
 /** The alias `confirm` must name for a call of `tool` to `org`, and why, as its refusal says it. */
 export function confirmRefusal(
   served: Pick<ServedTool, 'definition' | 'writes' | 'readFirst'>,
@@ -755,6 +835,444 @@ function rewindHint(answer: unknown): string[] {
     : [];
 }
 
+/**
+ * A SOQL condition without WHERE, as a filter of Forge takes one
+ * (`soqlWhereFragmentSchema`): one line, 512 characters at most, no comment
+ * marker, no semicolon at its end.
+ */
+const whereCondition = () =>
+  z
+    .string()
+    .min(1)
+    .max(512)
+    .regex(ON_A_LINE, 'one line, not starting with "-"')
+    .refine((text) => soqlWhereFragmentSchema.safeParse(text).success, {
+      message: 'a SOQL condition without WHERE: no comment marker (--, /*, */) and no ; at its end',
+    })
+    .describe('A SOQL WHERE condition, without WHERE.');
+
+// ─── A checkpoint replayed into another org ──────────────────────────────────
+
+/** The name of an environment variable, as `--key-env` and `--var-env` take one. */
+const ENV_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+/** The checkpoint a replay or its removal is of: its id, or its name or latest with its org. */
+const replayOf = {
+  checkpoint: checkpointRef(
+    'The checkpoint: its id, as checkpoint_list names it; or its name, or latest, with from.',
+  ),
+  from: alias(
+    'With a checkpoint named by its name or latest: the org it was taken of, by its alias, ' +
+      'its username or its Organization Id, as checkpoint_list names it. Refreshed or expired ' +
+      'since, it is not reached.',
+  ).optional(),
+};
+
+/** What a replay of a checkpoint is refused for when it names its checkpoint otherwise than by its id. */
+function refuseReplayOf(
+  args: { checkpoint?: string | undefined; from?: string | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (args.from !== undefined && args.checkpoint === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['from'],
+      message: 'from goes with checkpoint, named by its name or latest',
+    });
+  }
+  if (
+    args.checkpoint !== undefined &&
+    args.from === undefined &&
+    !checkpointIdSchema.safeParse(args.checkpoint).success
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['from'],
+      message:
+        `"${args.checkpoint}" is not a checkpoint's id: a name, or latest, names one of an ` +
+        "org's checkpoints, so give from, the org it was taken of, or its id",
+    });
+  }
+}
+
+/** The arguments a replay's choices are read from, as `checkpoint_replay` takes them. */
+interface ReplayArgs {
+  checkpoint?: string | undefined;
+  from?: string | undefined;
+  file?: string | undefined;
+  keyEnv?: string | undefined;
+  target: string;
+  dryRun?: boolean | undefined;
+  verify?: true | undefined;
+  maxRecords?: number | undefined;
+  objects?: string[] | undefined;
+  excludedObjects?: string[] | undefined;
+  owners?: 'same' | 'me' | undefined;
+  customSettings?: boolean | undefined;
+  mask?: boolean | undefined;
+  again?: boolean | undefined;
+  acceptAutomation?: boolean | undefined;
+  acceptEmails?: boolean | undefined;
+  muteAutomation?: boolean | undefined;
+  checkpointFirst?: { keepDays?: number | undefined; excluded?: string[] | undefined } | undefined;
+}
+
+/** What a verification takes none of: the choices and acceptances of a replay that writes. */
+const NOT_WITH_VERIFY = [
+  'maxRecords',
+  'objects',
+  'excludedObjects',
+  'owners',
+  'customSettings',
+  'mask',
+  'again',
+  'acceptAutomation',
+  'acceptEmails',
+  'muteAutomation',
+  'checkpointFirst',
+] as const;
+
+/**
+ * What a `checkpoint_replay` call is refused for before any script runs: a
+ * checkpoint and a file both or neither, a file without the variable its key
+ * is read from, a dry run and a verification both or neither, a replay that
+ * writes without the count its dry run said, and a verification given the
+ * choices of a replay.
+ */
+function refuseReplay(args: ReplayArgs, ctx: z.RefinementCtx): void {
+  const issue = (path: string, message: string) =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if ((args.checkpoint === undefined) === (args.file === undefined)) {
+    issue(
+      'checkpoint',
+      'give checkpoint, one kept on this machine, or file, a .sfcheckpoint a teammate sent: one ' +
+        'of them',
+    );
+  }
+  if (args.file !== undefined && args.keyEnv === undefined) {
+    issue(
+      'keyEnv',
+      "a file goes with keyEnv, the name of the variable of the server's environment that holds " +
+        'its key: no terminal is there to type it',
+    );
+  }
+  if (args.keyEnv !== undefined && args.file === undefined) {
+    issue('keyEnv', 'keyEnv goes with file: a checkpoint kept on this machine needs no key');
+  }
+  refuseReplayOf(args, ctx);
+  if ((args.dryRun === undefined) === (args.verify === undefined)) {
+    issue(
+      'dryRun',
+      'give dryRun — true first, then false to replay — or verify: true, one of them',
+    );
+  }
+  if (args.verify === true) {
+    for (const key of NOT_WITH_VERIFY) {
+      if (args[key] !== undefined) {
+        issue(
+          key,
+          `${key} goes with a replay or its dry run: verify reads the choices its last replay ` +
+            'was made with, and writes nothing',
+        );
+      }
+    }
+  }
+  if (args.dryRun === false && args.maxRecords === undefined) {
+    issue(
+      'maxRecords',
+      'a replay that writes takes maxRecords, the count its dry run said, once the person ' +
+        'using you has agreed to that many',
+    );
+  }
+  if (args.dryRun === true && args.maxRecords !== undefined) {
+    issue('maxRecords', 'maxRecords goes with dryRun: false: the dry run says the count');
+  }
+}
+
+/** The checkpoint a replay's line names: kept here, by `--checkpoint`, or received, by `--file`. */
+function replayOfLine(args: {
+  checkpoint?: string | undefined;
+  from?: string | undefined;
+  file?: string | undefined;
+  keyEnv?: string | undefined;
+}): string[] {
+  return args.file !== undefined
+    ? ['--file', args.file, '--key-env', args.keyEnv ?? '']
+    : [
+        '--checkpoint',
+        args.checkpoint ?? '',
+        ...(args.from !== undefined ? ['--from', args.from] : []),
+      ];
+}
+
+/**
+ * The line of `checkpoint_replay`: its checkpoint, the other org, the dry
+ * run, the verification or the replay, its choices, what accepts its write,
+ * and of a replay the count its dry run said and `--yes`, the person having
+ * agreed through `confirm`. Exported so it can be tested.
+ */
+export function checkpointReplayLine(args: ReplayArgs): string[] {
+  return [
+    'replay',
+    ...replayOfLine(args),
+    '--target',
+    args.target,
+    ...(args.verify === true ? ['--verify'] : args.dryRun === true ? ['--dry-run'] : []),
+    ...(args.objects !== undefined ? ['--objects', args.objects.join(',')] : []),
+    ...(args.excludedObjects ?? []).flatMap((name) => ['--exclude-object', name]),
+    ...(args.owners !== undefined ? ['--owners', args.owners] : []),
+    ...(args.customSettings === true ? ['--custom-settings'] : []),
+    ...(args.mask === true ? ['--mask'] : []),
+    ...(args.again === true ? ['--again'] : []),
+    ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+    ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+    ...checkpointFirstLine(args.checkpointFirst),
+    ...(args.dryRun === false ? ['--max-records', String(args.maxRecords), '--yes'] : []),
+    '--json',
+  ];
+}
+
+/** The records a replay's dry run would create, from its plan. */
+function replayPlannedRecords(answer: unknown): number | undefined {
+  const perObject = objectOf(objectOf(answer).plan).perObject;
+  if (!Array.isArray(perObject)) return undefined;
+  return perObject.reduce(
+    (total: number, object: unknown) => total + (numberOf(objectOf(object).toInsert) ?? 0),
+    0,
+  );
+}
+
+/** What a replay's dry run says next: the call that replays it, with the count it said. */
+function replayWriteHint(args: ReplayArgs, answer: unknown): string[] {
+  const records = replayPlannedRecords(answer);
+  if (records === undefined || records === 0) return [];
+  return [
+    `checkpoint_replay with the same parameters, dryRun: false, maxRecords: ${records} and ` +
+      `confirm "${args.target}" creates them, once the person using you has agreed to it; ` +
+      'checkpoint_replay_remove takes it back.',
+  ];
+}
+
+/**
+ * What a list of checkpoints says of the ones that no longer rewind their
+ * org and replay into another (`replayWith`): the dry run of their replay.
+ */
+function replayWithHints(answer: unknown): string[] {
+  if (!Array.isArray(answer)) return [];
+  return answer.flatMap((entry: unknown) => {
+    const { id, replayWith } = objectOf(entry);
+    const line = stringOf(replayWith);
+    if (typeof id !== 'string' || line === undefined) return [];
+    const target = /--target (\S+)/.exec(line)?.[1];
+    return [
+      `checkpoint "${id}" no longer rewinds its org, and replays into another: ` +
+        `checkpoint_replay with checkpoint "${id}", ` +
+        (target !== undefined && target !== '<alias>'
+          ? `target "${target}"`
+          : 'target the org it goes into') +
+        ' and dryRun: true says what it would create there.',
+    ];
+  });
+}
+
+/**
+ * Read, after the checkpoints of an org, the replays kept on this machine
+ * that went into it, as `checkpoint replays --target` lists them: the
+ * removal of each, by its checkpoint, is a call of `checkpoint_replay_remove`.
+ * What cannot be read is said, never the list's failure.
+ */
+async function withReplays(org: string, settling: Settling): Promise<ResultParts> {
+  const { parts, context } = settling;
+  const args = ['replays', '--target', org, '--json'];
+  let ran: CommandRun;
+  try {
+    ran = await context.runCommand('sandforge-checkpoint', args, context.stopping);
+  } catch (err: unknown) {
+    ran = {
+      code: FAILED_EXIT,
+      stdout: '',
+      stderr: `${nameOf('sandforge-checkpoint')} could not be started: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const read = `read by: ${commandText('sandforge-checkpoint', args)}`;
+  const replays = answerOf(ran.stdout);
+  if (ran.code !== DONE_EXIT || !Array.isArray(replays)) {
+    return {
+      ...parts,
+      added: [
+        ...parts.added,
+        `The replays into ${org} could not be read (exit ${ran.code}): ${ran.stderr.trimEnd()}`,
+        read,
+      ],
+    };
+  }
+  const inPlace = replays.map(objectOf).filter((entry) => (numberOf(entry.inPlace) ?? 0) > 0);
+  return {
+    ...parts,
+    added: [
+      ...parts.added,
+      replays.length === 0
+        ? `No replay into ${org} is kept on this machine.`
+        : `${replays.length} replay(s) into ${org} kept on this machine, ${inPlace.length} of ` +
+          'them with records still there (replays):',
+      ...inPlace.map(
+        (entry) =>
+          `  checkpoint "${String(entry.checkpointId)}": ${String(entry.inPlace)} record(s) in ` +
+          `${org}; checkpoint_replay_remove with checkpoint "${String(entry.checkpointId)}" and ` +
+          `target "${org}" takes them back, preview: true first.`,
+      ),
+      read,
+    ],
+    structured: { ...parts.structured, replays },
+  };
+}
+
+// ─── A clone of the records a query chooses ──────────────────────────────────
+
+/** What `clone_records` reads of its arguments, and passes to the clone's line. */
+interface CloneRecordsArgs {
+  source: string;
+  target: string;
+  object?: string | undefined;
+  where?: string | undefined;
+  orderBy?: string | undefined;
+  limit?: number | undefined;
+  recordIds?: string[] | undefined;
+  depth?: 'direct' | 'full' | number | undefined;
+  maxNodes?: number | undefined;
+  maxReadTotal?: number | undefined;
+  dryRun: boolean;
+  acceptAutomation?: boolean | undefined;
+  acceptEmails?: boolean | undefined;
+  muteAutomation?: boolean | undefined;
+  checkpointFirst?: { keepDays?: number | undefined; excluded?: string[] | undefined } | undefined;
+}
+
+/**
+ * The query `clone_records` hands the clone for an object and what narrows
+ * it: `SELECT Id FROM <object> [WHERE …] [ORDER BY …] LIMIT <limit>`, whose
+ * records the clone takes as its roots.
+ */
+export function rootsQueryOf(args: {
+  object: string;
+  where?: string | undefined;
+  orderBy?: string | undefined;
+  limit: number;
+}): string {
+  return (
+    `SELECT Id FROM ${args.object}` +
+    (args.where !== undefined ? ` WHERE ${args.where}` : '') +
+    (args.orderBy !== undefined ? ` ORDER BY ${args.orderBy}` : '') +
+    ` LIMIT ${args.limit}`
+  );
+}
+
+/**
+ * The line of `clone_records`: the records a query chooses (`--query`), the
+ * most it takes its limit, or the records named one by one (`--record`
+ * given for each), the most it takes their count; then what bounds the read
+ * and what accepts the write, as `clone_record` gives them. Exported so it
+ * can be tested.
+ */
+export function cloneRecordsLine(args: CloneRecordsArgs): string[] {
+  const roots =
+    args.recordIds !== undefined
+      ? [
+          ...args.recordIds.flatMap((id) => ['--record', id]),
+          '--max-roots',
+          String(args.recordIds.length),
+        ]
+      : [
+          '--query',
+          rootsQueryOf({
+            object: args.object ?? '',
+            where: args.where,
+            orderBy: args.orderBy,
+            limit: args.limit ?? FORGE_ROOTS_MAX,
+          }),
+          '--max-roots',
+          String(args.limit ?? FORGE_ROOTS_MAX),
+        ];
+  return [
+    ...roots,
+    '--source',
+    args.source,
+    '--target',
+    args.target,
+    ...(args.depth === undefined
+      ? []
+      : typeof args.depth === 'number'
+        ? ['--depth', 'custom', '--custom-depth', String(args.depth)]
+        : ['--depth', args.depth]),
+    ...(args.maxNodes !== undefined ? ['--max-nodes', String(args.maxNodes)] : []),
+    ...(args.maxReadTotal !== undefined ? ['--max-read-total', String(args.maxReadTotal)] : []),
+    ...(args.dryRun ? ['--dry-run'] : []),
+    ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+    ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+    ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+    ...checkpointFirstLine(args.checkpointFirst),
+    '--json',
+  ];
+}
+
+/**
+ * What a `clone_records` call is refused for before any script runs: a query
+ * and records named both or neither, a query without its limit, records of
+ * two objects, and a query the clone would refuse, in the clone's own words
+ * (`soqlRootQueryIssue`), at the parameter that makes it.
+ */
+function refuseCloneRecords(args: CloneRecordsArgs, ctx: z.RefinementCtx): void {
+  const issue = (path: string, message: string) =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if ((args.object === undefined) === (args.recordIds === undefined)) {
+    issue(
+      'object',
+      'give object, with limit, for the records a query chooses, or recordIds, the records ' +
+        'named one by one: one of them',
+    );
+    return;
+  }
+  if (args.recordIds !== undefined) {
+    for (const key of ['where', 'orderBy', 'limit'] as const) {
+      if (args[key] !== undefined) {
+        issue(key, `${key} goes with object: recordIds names its records one by one`);
+      }
+    }
+    const prefixes = [...new Set(args.recordIds.map((id) => id.slice(0, 3)))];
+    if (prefixes.length > 1) {
+      issue(
+        'recordIds',
+        `the records of one object: these are of ${prefixes.length} (${prefixes.map((p) => `${p}…`).join(', ')}); ` +
+          'clone each object’s apart',
+      );
+    }
+    return;
+  }
+  if (args.limit === undefined) {
+    issue(
+      'limit',
+      `limit goes with object: the most records the query chooses, 1 to ${FORGE_ROOTS_MAX}, ` +
+        'which the run clones and no more',
+    );
+    return;
+  }
+  const refused = soqlRootQueryIssue(
+    rootsQueryOf({
+      object: args.object ?? '',
+      where: args.where,
+      orderBy: args.orderBy,
+      limit: args.limit,
+    }),
+  );
+  if (refused !== undefined) {
+    issue(
+      refused.kind === 'orderBy' ? 'orderBy' : refused.kind === 'object' ? 'object' : 'where',
+      `${soqlRootIssueWords(refused)} (ROOTS_QUERY_REFUSED)`,
+    );
+  }
+}
+
 /** The scripts whose removal `run_remove` runs, by module. */
 const REMOVAL_SCRIPT: Readonly<Record<'seed' | 'forge' | 'sync', Script>> = {
   seed: 'sandforge-seed',
@@ -780,6 +1298,95 @@ const REAL_DATA_WORDS =
 /** An object and one of its fields, `Account.Description`, as `--exclude` takes them. */
 const OBJECT_FIELD = /^[A-Za-z][A-Za-z0-9_]{0,79}\.[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
+/** A bound of a window of dates: a date, or an instant in UTC, as `--fit-window` takes one. */
+const windowBound = (end: boolean) =>
+  z.string().refine((text) => forgeSampleWindowBound(text, end) !== undefined, {
+    message: 'a date, as 2025-06-30, or an instant in UTC, as 2025-06-30T12:00:00Z',
+  });
+
+/**
+ * `fitWindow`: the window of dates a sample draws its roots in, its bounds
+ * or its last days, never both; a start before its end, read as the clone
+ * reads them, a date alone ending with its whole day.
+ */
+const fitWindowArg = () =>
+  z
+    .strictObject({
+      field: z
+        .enum(['created', 'modified'])
+        .describe('created: the roots made in the window; modified: those last changed in it.'),
+      from: windowBound(false)
+        .optional()
+        .describe('Its start: a date, from 00:00 UTC, or an instant in UTC.'),
+      to: windowBound(true)
+        .optional()
+        .describe('Its end, left out of it: a date alone takes its whole day.'),
+      lastDays: z
+        .number()
+        .int()
+        .min(1)
+        .max(FORGE_SAMPLE_MAX_LAST_DAYS)
+        .optional()
+        .describe(
+          'The last days, counted back from when the sample is drawn; not with from or to.',
+        ),
+    })
+    .superRefine((window, ctx) => {
+      const bounded = window.from !== undefined || window.to !== undefined;
+      if (bounded === (window.lastDays !== undefined)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['lastDays'],
+          message: 'a window gives from, to or both, or lastDays: one or the other',
+        });
+      }
+      const from =
+        window.from !== undefined ? forgeSampleWindowBound(window.from, false) : undefined;
+      const to = window.to !== undefined ? forgeSampleWindowBound(window.to, true) : undefined;
+      if (from !== undefined && to !== undefined && from >= to) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['to'],
+          message: 'a window starts before it ends: no root is made in this one',
+        });
+      }
+    })
+    .optional()
+    .describe(
+      'With fit: draw only the roots made, or last changed, in a window of dates, in UTC. The ' +
+        'records under or above a root come whatever their date.',
+    );
+
+/**
+ * `fitStrata`: the fields the roots are stratified by, `Field` of every
+ * object that has it or `Object.Field`, one of each object at most.
+ */
+const fitStrataArg = () =>
+  z
+    .array(
+      z
+        .string()
+        .regex(
+          FORGE_SAMPLE_STRATUM_PATTERN,
+          'a field, as RecordTypeId, or an object and its field, as Account.RecordTypeId',
+        ),
+    )
+    .min(1)
+    .max(FORGE_SAMPLE_MAX_STRATA)
+    .superRefine((strata, ctx) => {
+      const checked = forgeSampleStrataSchema.safeParse(strata);
+      if (checked.success) return;
+      for (const issue of checked.error.issues) {
+        ctx.addIssue({ code: 'custom', path: [...issue.path], message: issue.message });
+      }
+    })
+    .optional()
+    .describe(
+      'With fit: keep the same share of the roots of each value of a picklist, a checkbox or a ' +
+        'lookup (RecordTypeId, OwnerId), at least fitFloor of each value: Field, of every ' +
+        'object drawn that has it, or Object.Field, one field of each object.',
+    );
+
 /** The most a sample may be asked to take of the target, in MB, as `--fit-within` takes it. */
 const FIT_WITHIN_MOST_MB = 1_000_000;
 
@@ -800,6 +1407,25 @@ const PLAN_NO_LONGER_HOLDS: ReadonlySet<string> = new Set([
   'AUTOMATION_NOT_ACCEPTED',
 ]);
 
+/**
+ * The window of dates a sample draws its roots in, as `fitWindow` takes it:
+ * the field, then its bounds — a date or an instant in UTC, either left out —
+ * or its last days.
+ */
+interface FitWindow {
+  field: 'created' | 'modified';
+  from?: string | undefined;
+  to?: string | undefined;
+  lastDays?: number | undefined;
+}
+
+/** A window as `--fit-window` takes it: `created:2025-01-01..2025-06-30`, `modified:30d`. */
+function fitWindowValue(window: FitWindow): string {
+  return window.lastDays !== undefined
+    ? `${window.field}:${window.lastDays}d`
+    : `${window.field}:${window.from ?? ''}..${window.to ?? ''}`;
+}
+
 /** What `clone_org_plan` reads of its arguments, and passes to the clone's line. */
 interface CloneOrgPlanArgs {
   source: string;
@@ -807,7 +1433,10 @@ interface CloneOrgPlanArgs {
   fit?: 'share' | undefined;
   fitWithinMB?: number | undefined;
   fitSeed?: number | undefined;
-  fitDraw?: 'uniform' | 'recent' | undefined;
+  fitDraw?: 'uniform' | 'recent' | 'oldest' | undefined;
+  fitWindow?: FitWindow | undefined;
+  fitWhere?: Array<{ objectApiName: string; where: string }> | undefined;
+  fitStrata?: string[] | undefined;
   fitParents?: 'all' | 'required' | undefined;
   fitChildren?: number | 'all' | undefined;
   fitWhole?: string[] | undefined;
@@ -840,6 +1469,12 @@ export function cloneOrgPlanLine(args: CloneOrgPlanArgs): string[] {
     ...(args.fitWithinMB !== undefined ? ['--fit-within', String(args.fitWithinMB)] : []),
     ...(args.fitSeed !== undefined ? ['--fit-seed', String(args.fitSeed)] : []),
     ...(args.fitDraw !== undefined ? ['--fit-draw', args.fitDraw] : []),
+    ...(args.fitWindow !== undefined ? ['--fit-window', fitWindowValue(args.fitWindow)] : []),
+    ...(args.fitWhere ?? []).flatMap((each) => [
+      '--fit-where',
+      `${each.objectApiName}=${each.where}`,
+    ]),
+    ...(args.fitStrata ?? []).flatMap((stratum) => ['--fit-strata', stratum]),
     ...(args.fitParents !== undefined ? ['--fit-parents', args.fitParents] : []),
     ...(args.fitChildren !== undefined ? ['--fit-children', String(args.fitChildren)] : []),
     ...(args.fitWhole ?? []).flatMap((name) => ['--fit-whole', name]),
@@ -890,7 +1525,7 @@ function stringOf(value: unknown): string | undefined {
 }
 
 /** A plan as `clone_org_plan` answers it, beside the dry run's own JSON. */
-interface PlanSummary {
+export interface PlanSummary {
   id: string;
   expiresAt: string;
   mode: 'sample' | 'whole';
@@ -905,11 +1540,21 @@ interface PlanSummary {
   question?: string;
   anonymize: boolean;
   accepted: string[];
-  sample?: { share?: number; seed?: number; draw?: string; limitedBy?: string };
+  sample?: {
+    share?: number;
+    seed?: number;
+    draw?: string;
+    limitedBy?: string;
+    /** How its roots were chosen, as the dry run said it: the window, the filters, the strata. */
+    roots?: Record<string, unknown>;
+  };
 }
 
-/** What `clone_org_plan` says of the plan it kept: the receipt, and the dry run's own figures. */
-function planSummaryOf(receipt: ClonePlanReceipt, answer: unknown): PlanSummary {
+/**
+ * What `clone_org_plan` says of the plan it kept: the receipt, and the dry
+ * run's own figures. Exported so it can be tested.
+ */
+export function planSummaryOf(receipt: ClonePlanReceipt, answer: unknown): PlanSummary {
   const dry = objectOf(answer);
   const whole = objectOf(dry.wholeOrg);
   const storage = objectOf(whole.storage);
@@ -929,6 +1574,7 @@ function planSummaryOf(receipt: ClonePlanReceipt, answer: unknown): PlanSummary 
     ...(estimate(requests.source) !== undefined ? { source: estimate(requests.source) } : {}),
   };
   const limitedBy = stringOf(objectOf(sample.budget).limitedBy);
+  const roots = objectOf(sample.roots);
   return {
     id: receipt.id,
     expiresAt: receipt.expiresAt,
@@ -954,19 +1600,45 @@ function planSummaryOf(receipt: ClonePlanReceipt, answer: unknown): PlanSummary 
             ...(numberOf(sample.seed) !== undefined ? { seed: numberOf(sample.seed) } : {}),
             ...(stringOf(sample.draw) !== undefined ? { draw: stringOf(sample.draw) } : {}),
             ...(limitedBy !== undefined ? { limitedBy } : {}),
+            ...(Object.keys(roots).length > 0 ? { roots } : {}),
           },
         }
       : {}),
   };
 }
 
-/** What the server says of a plan it kept: what it writes, its question, and the call that writes it. */
-function planLines(plan: PlanSummary): string[] {
+/** How a sample's roots were chosen, as a plan's line says it; nothing of a draw among every root. */
+function rootsChosenWords(sample: NonNullable<PlanSummary['sample']>): string {
+  const order =
+    sample.draw === 'recent'
+      ? 'newest first'
+      : sample.draw === 'oldest'
+        ? 'oldest first'
+        : undefined;
+  const roots = sample.roots ?? {};
+  const by = [
+    ...(roots.window !== undefined ? ['within a window of their dates'] : []),
+    ...(roots.where !== undefined ? ['among the records a condition keeps'] : []),
+    ...(roots.strata !== undefined ? ['by strata'] : []),
+  ];
+  if (order === undefined && by.length === 0) return '';
+  return (
+    `, its roots drawn ${[...(order !== undefined ? [order] : []), ...by].join(', ')}` +
+    (by.length > 0 ? ' (plan.sample.roots says how)' : '')
+  );
+}
+
+/**
+ * What the server says of a plan it kept: what it writes, its question, and
+ * the call that writes it. Exported so it can be tested.
+ */
+export function planLines(plan: PlanSummary): string[] {
   const share = plan.sample?.share;
   const what =
     plan.mode === 'sample'
       ? `a sample of ${plan.source}` +
         (share !== undefined ? `, ${Math.round(share * 1000) / 10} % of each object's roots` : '') +
+        (plan.sample !== undefined ? rootsChosenWords(plan.sample) : '') +
         (plan.sample?.limitedBy !== undefined ? `, held by ${plan.sample.limitedBy}` : '')
       : `every record of ${plan.source} it can take`;
   return [
@@ -1594,6 +2266,141 @@ export const TOOLS: readonly ServedTool[] = [
     }),
   }),
   tool({
+    name: 'clone_records',
+    title: 'Clone records a query chooses (Forge)',
+    description:
+      'Clone from source into target the records a query chooses — object, with where, orderBy ' +
+      `and limit, 1 to ${FORGE_ROOTS_MAX} —, or several records named by their ids ` +
+      '(recordIds, of one object), each with the records it needs and the ones that hang from ' +
+      'it, as sandforge clone --query --json does: a record they share is read and written once. ' +
+      'Run it with dryRun: true first: it reads both orgs, says the records the query chose ' +
+      'and per object what it would write, and what would stop a real run, and writes nothing. ' +
+      'dryRun: false writes into target, a sandbox or a Developer Edition only, and needs ' +
+      'confirm, the alias of target; the run reads the query again. acceptAutomation, ' +
+      'acceptEmails, muteAutomation and checkpointFirst as for clone_record. maxReadTotal bounds ' +
+      'the records it reads in all before it writes. The answer names the run journal, which ' +
+      'run_remove with module "forge" takes the run back from.',
+    readOnly: false,
+    destructive: false,
+    args: z
+      .strictObject({
+        source: alias('The org to read from: its sf CLI alias.'),
+        target: alias('The org to write into: its sf CLI alias.'),
+        object: z
+          .string()
+          .regex(API_NAME, 'an object API name')
+          .optional()
+          .describe('The object whose records the query chooses, by API name; or give recordIds.'),
+        where: whereCondition()
+          .optional()
+          .describe(
+            'With object: the condition its records are chosen by, without WHERE. It chooses the ' +
+              'records cloned, and filters nothing they reach.',
+          ),
+        orderBy: z
+          .string()
+          .min(1)
+          .max(SOQL_ROOT_ORDER_BY_MAX)
+          .refine((text) => soqlOrderBySchema.safeParse(text).success, {
+            message:
+              'field paths, each with ASC or DESC and NULLS FIRST or LAST, separated by commas',
+          })
+          .optional()
+          .describe(
+            'With object: the order the records are chosen in, without ORDER BY (default Id): ' +
+              'CreatedDate DESC takes the newest.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(FORGE_ROOTS_MAX)
+          .optional()
+          .describe(
+            `With object: the most records the query chooses and the run clones, 1 to ${FORGE_ROOTS_MAX}.`,
+          ),
+        recordIds: z
+          .array(z.string().regex(RECORD_ID, 'a 15- or 18-character Salesforce record id'))
+          .min(2)
+          .max(FORGE_ROOTS_MAX)
+          .optional()
+          .describe(
+            'In place of object: the records to clone, by their ids in source, two or more, all ' +
+              'of one object; clone_record clones one.',
+          ),
+        depth: z
+          .union([z.enum(['direct', 'full']), z.number().int().min(1).max(10)])
+          .optional()
+          .describe(
+            'How far from each record discovery goes: "direct", "full", or a number of hops ' +
+              '(default 5).',
+          ),
+        maxNodes: z
+          .number()
+          .int()
+          .min(10)
+          .max(500)
+          .optional()
+          .describe('How many objects discovery may reach (default 50).'),
+        maxReadTotal: z
+          .number()
+          .int()
+          .min(1)
+          .max(10_000_000)
+          .optional()
+          .describe(
+            'The most records the run reads in all before it writes (default 50,000): past it, ' +
+              'it is refused, nothing written.',
+          ),
+        dryRun: z
+          .boolean()
+          .describe('true: read both orgs and say what a clone would do, writing nothing.'),
+        confirm: confirmOf('target').optional(),
+        acceptAutomation: acceptance(
+          'Write although the target runs flows, Apex triggers, processes or workflow rules as ' +
+            'the records go in, or would not say what it runs: only once the person using you ' +
+            'has accepted what the dry run named.',
+        ),
+        acceptEmails: acceptance(
+          'Write although the target delivers every email of what still runs as the records go ' +
+            'in, or would not say whether it does. acceptAutomation never stands for it. Only ' +
+            'once the person using you has accepted that these emails go out.',
+        ),
+        muteAutomation: muteFor('the clone'),
+        checkpointFirst: checkpointFirst('the clone'),
+      })
+      .superRefine(refuseCloneRecords),
+    writesTo: (args) => (args.dryRun ? undefined : args.target),
+    writes: 'creates the records of the clone in it',
+    readFirst: 'a dry run of the same clone says the records it chose and what it would write',
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
+    },
+    named: {
+      '--query':
+        "is this tool's object, where, orderBy and limit: the query they make, SELECT Id FROM " +
+        '<object> WHERE <where> ORDER BY <orderBy> LIMIT <limit>.',
+      '--max-roots': `is this tool's limit, or the count of its recordIds: the records a run clones, 1 to ${FORGE_ROOTS_MAX}.`,
+      '--max-read-total': "is this tool's maxReadTotal.",
+      '--checkpoint-first': "is this tool's checkpointFirst: {} takes it with the defaults.",
+      '--fit':
+        'is clone_org_plan\'s fit: "share", a sample of the whole org, whose fitWhere draws ' +
+        "an object's roots among the records a condition keeps.",
+    },
+    exits: {
+      [NO_TERMINAL_EXIT]:
+        'the clone refused what it was asked before any org was reached — a query its ' +
+        'object, where, orderBy and limit make that cannot choose the records it clones ' +
+        '(ROOTS_QUERY_REFUSED), records of two objects —: change the parameter it names, then ' +
+        'dryRun: true again; nothing was read or written',
+    },
+    after: (args, answer) =>
+      args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)],
+    run: (args) => ({ script: 'sandforge-clone', args: cloneRecordsLine(args) }),
+  }),
+  tool({
     name: 'clone_org_plan',
     title: 'Plan a clone of the whole org (Forge)',
     description:
@@ -1639,12 +2446,30 @@ export const TOOLS: readonly ServedTool[] = [
           .optional()
           .describe('With fit: the seed the roots are drawn by (default 1).'),
         fitDraw: z
-          .enum(['uniform', 'recent'])
+          .enum(['uniform', 'recent', 'oldest'])
           .optional()
           .describe(
             'With fit: "uniform" spreads the roots over each object (default), "recent" takes ' +
-              'the newest by their creation date.',
+              'the newest by their creation date, "oldest" the oldest.',
           ),
+        fitWindow: fitWindowArg(),
+        fitWhere: z
+          .array(
+            z.strictObject({
+              objectApiName: z.string().regex(API_NAME, 'an object API name'),
+              where: whereCondition(),
+            }),
+          )
+          .min(1)
+          .max(FORGE_SAMPLE_MAX_ROOT_WHERE)
+          .optional()
+          .describe(
+            "With fit: draw an object's roots only among its records that match, one condition " +
+              'an object. Unlike filters, the records under or above the roots come whatever it ' +
+              'says, and no lookup is written empty for it. Not of an object of fitWhole or ' +
+              'excludedObjects.',
+          ),
+        fitStrata: fitStrataArg(),
         fitParents: z
           .enum(['all', 'required'])
           .optional()
@@ -1734,6 +2559,9 @@ export const TOOLS: readonly ServedTool[] = [
             args.fitWithinMB,
             args.fitSeed,
             args.fitDraw,
+            args.fitWindow,
+            args.fitWhere,
+            args.fitStrata,
             args.fitParents,
             args.fitChildren,
             args.fitWhole,
@@ -1767,6 +2595,11 @@ export const TOOLS: readonly ServedTool[] = [
       '--fit-within': "is this tool's fitWithinMB.",
       '--fit-seed': "is this tool's fitSeed.",
       '--fit-draw': "is this tool's fitDraw.",
+      '--fit-window':
+        'is this tool\'s fitWindow: {field: "created" or "modified", from, to}, each a date or ' +
+        'an instant in UTC, either left out, or {field, lastDays}.',
+      '--fit-where': "is this tool's fitWhere, an objectApiName and the where its roots match.",
+      '--fit-strata': "is this tool's fitStrata, a Field or an Object.Field.",
       '--fit-parents': "is this tool's fitParents.",
       '--fit-children': "is this tool's fitChildren.",
       '--fit-whole': "is this tool's fitWhole, an object by API name.",
@@ -1784,6 +2617,10 @@ export const TOOLS: readonly ServedTool[] = [
       [FAILED_EXIT]:
         'refused, or a run of this plan would be: each refusal is said above, with the ' +
         'parameter that lifts it; no plan was kept',
+      [NO_TERMINAL_EXIT]:
+        'refused for what it was asked, before any record was drawn: a window, a condition ' +
+        'of the roots or a stratum the source cannot take, or two parameters that do not go ' +
+        'together, each said above with the parameter of its flag; no plan was kept',
     },
     run: (args) => ({
       script: 'sandforge-clone',
@@ -1967,8 +2804,9 @@ export const TOOLS: readonly ServedTool[] = [
         path: ['preview'],
       }),
     // A removal under way of a run still writing would delete what the run
-    // goes on writing under it: no lock of the clone holds a journal against
-    // a removal, so the server holds its own runs.
+    // goes on writing under it. The script refuses that itself (RUN_WRITING),
+    // naming the process that writes; the server refuses first a run it runs
+    // itself, naming its handle, which run_stop stops.
     prepare: async (args, context) => {
       const under = await runUnderWay(context.runs, args.run);
       return under ? { refusal: runUnderWayRefusal(under, args.run) } : { prepared: undefined };
@@ -2061,16 +2899,21 @@ export const TOOLS: readonly ServedTool[] = [
     title: 'List checkpoints',
     description:
       'The checkpoints of org kept on this machine, newest first, with what a rewind and an ' +
-      'undo can still reach. Reads this machine alone, and never contacts an org. Named org ' +
-      "only: the other orgs' names and aliases never reach the agent.",
+      'undo can still reach, and of one that no longer rewinds it, the dry run of its replay ' +
+      'into another org; then the replays into org kept on this machine (replays), each with ' +
+      'the records it left there, which checkpoint_replay_remove takes back. Reads this machine ' +
+      "alone, and never contacts an org. Named org only: the other orgs' names and aliases " +
+      'never reach the agent.',
     readOnly: true,
     args: z.strictObject({
       org: alias('The org, by its sf CLI alias: its checkpoints alone.'),
     }),
+    after: (_args, answer) => replayWithHints(answer),
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: ['list', '--org', args.org, '--json'],
     }),
+    settle: (args, _prepared, settling) => withReplays(args.org, settling),
   }),
   tool({
     name: 'checkpoint_preview',
@@ -2315,6 +3158,254 @@ export const TOOLS: readonly ServedTool[] = [
     run: (args) => ({
       script: 'sandforge-checkpoint',
       args: ['delete', '--org', args.org, '--checkpoint', args.checkpoint, '--yes', '--json'],
+    }),
+  }),
+  tool({
+    name: 'checkpoint_replay',
+    title: 'Replay a checkpoint into another org',
+    description:
+      "Set a checkpoint's records up again in another org (target), parents first, with new " +
+      'Ids, as sandforge checkpoint replay --json does: the sandbox its org became once ' +
+      "refreshed, another sandbox, a scratch org. The checkpoint's own org is never reached, " +
+      'and nothing target holds is changed or deleted. Run it with dryRun: true first: it reads ' +
+      'target and says what it would create, link, leave and refuse — owners, record types, ' +
+      'currencies, the files a checkpoint keeps no content of —, writing nothing. dryRun: false ' +
+      'replays, with confirm, the alias of target, and maxRecords, the count its dry run said. ' +
+      'A checkpoint of a Partial Copy, a Full or a Staging sandbox replays masked only (mask: ' +
+      "true). file replays a .sfcheckpoint a teammate sent, its key read from the server's " +
+      'environment by the variable keyEnv names, never given in an argument. verify: true ' +
+      'counts what its last replay created there. again replays over what the replays before ' +
+      'created there, which goes first. checkpoint_replay_remove takes a replay back. A ' +
+      "production org, a sandbox marked Staging and the checkpoint's own org are refused.",
+    readOnly: false,
+    destructive: true,
+    args: z
+      .strictObject({
+        checkpoint: replayOf.checkpoint.optional(),
+        from: replayOf.from,
+        file: z
+          .string()
+          .min(1)
+          .max(4096)
+          .regex(ON_A_LINE, 'one line, not starting with "-"')
+          .optional()
+          .describe(
+            'In place of checkpoint: a .sfcheckpoint file a teammate sent, replayed without its ' +
+              "org, the key standing for the teammate's consent; a relative path is read from " +
+              'where the server was started. With keyEnv.',
+          ),
+        keyEnv: z
+          .string()
+          .regex(ENV_VARIABLE, 'the name of an environment variable')
+          .refine((name) => parseArchiveKey(name) === undefined, {
+            message:
+              'the name of the variable that holds the key, never the key: a key in the ' +
+              "arguments stays in the agent's context and in its client's logs",
+          })
+          .optional()
+          .describe(
+            "With file: the name of the variable of the server's environment that holds its " +
+              'key, which the person using you set where the server is started. Never the key.',
+          ),
+        target: alias(
+          'The org the records go into: its sf CLI alias. A sandbox, a scratch org or a ' +
+            'Developer Edition org.',
+        ),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe(
+            'true: read target and say what the replay would do, writing nothing; false: ' +
+              'replay, with maxRecords and confirm. Not with verify.',
+          ),
+        verify: z
+          .literal(true)
+          .optional()
+          .describe(
+            'Read target and count what the last replay of the checkpoint created there against ' +
+              'what it said it created; writes nothing. Not with dryRun.',
+          ),
+        maxRecords: z
+          .number()
+          .int()
+          .min(1)
+          .max(REPLAY_MAX_RECORDS)
+          .optional()
+          .describe(
+            'With dryRun: false: the most records it may create, the count its dry run said; ' +
+              'more is refused before it writes.',
+          ),
+        confirm: confirmOf('target').optional(),
+        objects: z
+          .array(z.string().regex(API_NAME, 'an object API name'))
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Replay these objects of the checkpoint alone, by API name (default: all).'),
+        excludedObjects: z
+          .array(z.string().regex(API_NAME, 'an object API name'))
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Objects of the checkpoint to leave out, by API name.'),
+        owners: z
+          .enum(['same', 'me'])
+          .optional()
+          .describe(
+            '"same" (default): a record keeps its owner where target has that user active, and ' +
+              'goes to the user who replays otherwise; "me": every record to that user.',
+          ),
+        customSettings: acceptance(
+          'Set up the custom settings the checkpoint holds too; a row target has already is ' +
+            'kept, never written over.',
+        ),
+        mask: acceptance(
+          "Mask personal data, as Forge's anonymization masks it: required of a checkpoint of a " +
+            'Partial Copy, a Full or a Staging sandbox, which may hold real data.',
+        ),
+        again: acceptance(
+          'Replay over what the replays of this checkpoint before created in target, which ' +
+            'goes first, deleted. Only once the person using you has agreed to it.',
+        ),
+        acceptAutomation: acceptance(
+          'Write although target runs flows, Apex triggers, processes or workflow rules as the ' +
+            'records go in, or would not say what it runs: only once the person using you has ' +
+            'accepted what the dry run named.',
+        ),
+        acceptEmails: acceptance(
+          'Write although target delivers the emails what still runs sends, or would not say ' +
+            'whether it does. acceptAutomation never stands for it. Only once the person using ' +
+            'you has accepted that these emails go out.',
+        ),
+        muteAutomation: muteFor('the replay'),
+        checkpointFirst: checkpointFirst('the replay'),
+      })
+      .superRefine(refuseReplay),
+    refuseFirst: (raw) => {
+      const keys = Object.keys(raw).filter((key) => /key/i.test(key) && key !== 'keyEnv');
+      return keys.length > 0
+        ? `checkpoint_replay takes no key (${keys.join(', ')}): a key in the arguments stays in ` +
+            "the agent's context and in its client's logs. keyEnv names the variable of the " +
+            "server's environment that holds it, which the person using you sets where the " +
+            'server is started. Nothing was run.'
+        : undefined;
+    },
+    writesTo: (args) => (args.dryRun === false ? args.target : undefined),
+    writes: 'creates there the records of the checkpoint, with new Ids',
+    readFirst: 'checkpoint_replay with dryRun: true says what it would create, link and leave',
+    flags: {
+      '--accept-automation': 'acceptAutomation',
+      '--accept-emails': 'acceptEmails',
+      '--mute-automation': 'muteAutomation',
+    },
+    named: {
+      '--dry-run': "is this tool's dryRun: true.",
+      '--verify': "is this tool's verify: true.",
+      '--remove':
+        'is checkpoint_replay_remove, with the checkpoint and the target: preview: true first ' +
+        'says what it would delete.',
+      '--again': "is this tool's again: true, once the person using you has agreed to it.",
+      '--mask': "is this tool's mask: true.",
+      '--max-records':
+        "is this tool's maxRecords: the count the dry run said, once the person using you has " +
+        'agreed to that many.',
+      '--objects': "is this tool's objects, by API name.",
+      '--exclude-object': "is this tool's excludedObjects, by API name.",
+      '--owners': 'is this tool\'s owners: "same" or "me".',
+      '--custom-settings': "is this tool's customSettings: true.",
+      '--checkpoint-first': "is this tool's checkpointFirst: {} takes it with the defaults.",
+      '--key-env':
+        "is this tool's keyEnv: the name of a variable of the server's environment that holds " +
+        'the key, never the key.',
+      '--no-real-data':
+        "is no parameter of any tool: the declaration that a sandbox's checkpoint holds no " +
+        "real data is the person's, on a terminal, kept in the audit trail " +
+        `(${commandOf('checkpoint')} replay … --no-real-data). mask: true replays it masked.`,
+    },
+    after: (args, answer) => (args.dryRun === true ? replayWriteHint(args, answer) : []),
+    run: (args) => ({ script: 'sandforge-checkpoint', args: checkpointReplayLine(args) }),
+  }),
+  tool({
+    name: 'checkpoint_replay_remove',
+    title: 'Take a replay back',
+    description:
+      'Delete from target, into its recycle bin, what the replays of a checkpoint created ' +
+      'there, children first, the checkpoint kept or not, as sandforge checkpoint replay ' +
+      '--remove --json does; records changed since are kept, unless includeChanged. preview: ' +
+      'true says what it would delete, deleting nothing and needing no confirm; otherwise it ' +
+      'needs confirm, the alias of target. sweep takes too what the automation of target made ' +
+      'for those records. acceptAutomation lets it delete although target runs automation as ' +
+      "the records go; muteAutomation keeps that automation quiet through target's own " +
+      'bypass. checkpoint_list names the replays into an org, by their checkpoint. A replay ' +
+      'this server still runs into target is refused: run_stop stops it first. A production ' +
+      'org is refused.',
+    readOnly: false,
+    destructive: true,
+    args: z
+      .strictObject({
+        ...replayOf,
+        target: alias('The org the replay went into: its sf CLI alias.'),
+        preview: acceptance(
+          'Say what the removal would delete, and delete nothing: it reads target, and takes ' +
+            'no confirm.',
+        ),
+        confirm: confirmOf('target').optional(),
+        sweep: acceptance(
+          "Take too what target's automation made for the records of the replay. Only once the " +
+            'person using you has seen, in a preview with it, what it takes.',
+        ),
+        includeChanged: acceptance(
+          'Take also the records changed since the replay, and what was added under them since: ' +
+            "on a shared sandbox, others' work. Only once the person using you has accepted it.",
+        ),
+        acceptAutomation: acceptance(
+          'Delete although target runs flows, Apex triggers, processes or workflow rules as the ' +
+            'records go, or would not say what it runs: only once the person using you has ' +
+            'accepted it.',
+        ),
+        muteAutomation: muteActFor('the removal'),
+      })
+      .superRefine(refuseReplayOf),
+    // A replay this server handed back may still be writing into target: a
+    // removal now would delete under it what it goes on creating.
+    prepare: (args, context) => {
+      const busy = context.runs.busyWith(args.target);
+      return Promise.resolve(
+        args.preview !== true && busy?.meta.tool === 'checkpoint_replay'
+          ? { refusal: replayUnderWayRefusal(busy, args.target) }
+          : { prepared: undefined },
+      );
+    },
+    writesTo: (args) => (args.preview === true ? undefined : args.target),
+    writes: 'deletes from it, into its recycle bin, what the replays of the checkpoint created',
+    readFirst:
+      'checkpoint_replay_remove with preview: true says what it would delete, deleting nothing',
+    flags: {
+      '--include-changed': 'includeChanged',
+      '--sweep': 'sweep',
+      '--accept-automation': 'acceptAutomation',
+      '--mute-automation': 'muteAutomation',
+    },
+    named: {
+      '--preview':
+        "is this tool's preview: true: it says what it would delete, and deletes nothing.",
+    },
+    run: (args) => ({
+      script: 'sandforge-checkpoint',
+      args: [
+        'replay',
+        ...replayOfLine(args),
+        '--target',
+        args.target,
+        '--remove',
+        ...(args.preview === true ? ['--preview'] : []),
+        ...(args.sweep === true ? ['--sweep'] : []),
+        ...(args.includeChanged === true ? ['--include-changed'] : []),
+        ...(args.muteAutomation === true ? ['--mute-automation'] : []),
+        ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
+        ...(args.preview === true ? [] : ['--yes']),
+        '--json',
+      ],
     }),
   }),
   tool({
@@ -2593,6 +3684,144 @@ export const TOOLS: readonly ServedTool[] = [
       ],
     }),
   }),
+  tool({
+    name: 'pipeline_plan',
+    title: 'Plan a pipeline',
+    description:
+      'What a run of a pipeline exported from the Automation page would do and refuse, as ' +
+      'sandforge pipeline plan --json says it: each org of the file reached by its alias and ' +
+      'typed, each step, and every refusal a run would meet before its first step, with what ' +
+      "lifts it. It reads the orgs, on a copy of the pipeline's store, and writes nothing. No " +
+      "tool runs a pipeline: its run is the person's, on a terminal, where its Approval steps " +
+      'are asked. approve answers one ahead, as a run with no terminal is answered; vars and ' +
+      "varEnvs give its variables, a secret by varEnvs, a variable of the server's " +
+      'environment; acceptOrgs takes an org whose Organization Id changed since the export, a ' +
+      'sandbox refreshed, once the person using you checked it is the one.',
+    readOnly: true,
+    args: z.strictObject({
+      file: z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(ON_A_LINE, 'one line, not starting with "-"')
+        .describe(
+          'The pipeline file the Automation page exported (<name>.sandforge-pipeline.json), by ' +
+            'its path; a relative path is read from where the server was started.',
+        ),
+      approve: z
+        .array(z.string().min(1).max(200).regex(ON_A_LINE, 'one line, not starting with "-"'))
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+          'Approval steps, by name, answered ahead, yes, as --approve answers them for a run ' +
+            'with no terminal; never one before a write to a sandbox marked Staging.',
+        ),
+      vars: z
+        .array(
+          z.strictObject({
+            name: z.string().regex(PIPELINE_VARIABLE, 'a variable of the pipeline, by its name'),
+            value: z
+              .string()
+              .min(1)
+              .max(2_000)
+              .regex(/^[^\r\n]*$/, 'one line'),
+          }),
+        )
+        .min(1)
+        .max(200)
+        .optional()
+        .describe('Variables of the pipeline and their values. A secret goes by varEnvs.'),
+      varEnvs: z
+        .array(
+          z.strictObject({
+            name: z.string().regex(PIPELINE_VARIABLE, 'a variable of the pipeline, by its name'),
+            env: z.string().regex(ENV_VARIABLE, 'the name of an environment variable'),
+          }),
+        )
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+          "Variables of the pipeline, each read from a variable of the server's environment: a " +
+            'secret, which neither the file nor the arguments hold.',
+        ),
+      acceptOrgs: z
+        .array(
+          z.strictObject({
+            key: z.string().regex(PIPELINE_ORG_KEY, 'an org of the file, by its key in its orgs'),
+            organizationId: z
+              .string()
+              .regex(ORGANIZATION_ID, 'an Organization Id, 00D and 12 or 15 letters and digits'),
+          }),
+        )
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          'Orgs of the file whose alias reaches an org of another Organization Id than the ' +
+            "file's — a sandbox refreshed since —, taken for it once the person using you checked " +
+            'it is the one: the key of the org in the file, and the Id the plan said.',
+        ),
+      store: z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(ON_A_LINE, 'one line, not starting with "-"')
+        .optional()
+        .describe(
+          "Where the pipeline's runs keep their state, as its runs are given it: the plan reads " +
+            "a copy of it. The default is the pipeline's folder under the journal folder.",
+        ),
+    }),
+    refuseFirst: (raw) => {
+      if ('org' in raw || 'orgs' in raw) {
+        return (
+          'pipeline_plan plans the orgs the file names, each by its alias in the file: a ' +
+          'person maps one to another alias on a terminal, ' +
+          `${commandOf('pipeline')} plan --file <file> --org <key>=<alias>. Nothing was run.`
+        );
+      }
+      if (['dryRun', 'run', 'confirm'].some((key) => key in raw)) {
+        return (
+          "pipeline_plan only plans: no tool runs a pipeline. Its run is the person's, on a " +
+          `terminal, ${commandOf('pipeline')} run --file <file> --dry-run first. Nothing was run.`
+        );
+      }
+      return undefined;
+    },
+    named: {
+      '--approve':
+        "is this tool's approve: the Approval steps answered ahead, by name; never one before " +
+        'a write to a sandbox marked Staging, which a person answers at a terminal.',
+      '--accept-org':
+        "is this tool's acceptOrgs, the key of an org of the file and the Organization Id taken " +
+        'for it, once the person using you checked it is the one.',
+      '--var': "is this tool's vars, a name and its value; a secret goes by varEnvs.",
+      '--var-env':
+        "is this tool's varEnvs, a name and the variable of the server's environment that holds " +
+        'its value.',
+      '--store': "is this tool's store.",
+      '--org':
+        'is no parameter of pipeline_plan, which plans the aliases the file names: a person maps ' +
+        'an org of the file to another alias on a terminal, ' +
+        `${commandOf('pipeline')} plan --file <file> --org <key>=<alias>.`,
+      '--confirm-rewind':
+        'is no parameter of any tool: a Rewind step is confirmed by the person, on a terminal, ' +
+        `${commandOf('pipeline')} confirm --file <file>.`,
+    },
+    exits: {
+      [NO_TERMINAL_EXIT]:
+        'the plan refuses: a run would be refused before its first step, or the file does not ' +
+        'read, each refusal said above with what lifts it; nothing ran',
+    },
+    run: (args) => ({ script: 'sandforge-pipeline', args: pipelinePlanLine(args) }),
+    settle: (args, _prepared, settling) =>
+      Promise.resolve({
+        ...settling.parts,
+        added: [...settling.parts.added, pipelineRunWords(args.file)],
+      }),
+  }),
 ];
 
 const TOOLS_BY_NAME: ReadonlyMap<string, ServedTool> = new Map(
@@ -2703,12 +3932,26 @@ const NO_TERMINAL = 'no terminal to answer';
 const names = (text: string, flag: string): boolean =>
   new RegExp(`(?<![\\w-])${flag}(?![\\w-])`).test(text);
 
+/** A word of a line as a shell reads it: as it is, or quoted. */
+function shellWord(arg: string): string {
+  return /^[\w.@:+/=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
 /** A script's line as a person would type it. */
 export function commandText(script: Script, args: readonly string[]): string {
-  const quoted = args.map((arg) =>
-    /^[\w.@:+/=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`,
-  );
+  const quoted = args.map(shellWord);
   return ['pnpm exec tsx', `packages/extension/cli/${script}.ts`, ...quoted].join(' ');
+}
+
+/**
+ * The refusal a script said on a line of its own, `refused (CODE): message`,
+ * when it answered no JSON: a line it refused before any org was reached, a
+ * query the clone cannot take among them. Told only "exit 2", an agent had
+ * the words but no code to tell one refusal from another.
+ */
+function lineRefusalOf(stderr: string): { code: string; message: string } | undefined {
+  const said = /^refused \(([A-Z][A-Z0-9_]*)\): (.+)$/m.exec(stderr);
+  return said ? { code: said[1] ?? '', message: (said[2] ?? '').trim() } : undefined;
 }
 
 /** The JSON a script answered on stdout, or nothing when it printed none. */
@@ -2804,11 +4047,16 @@ function resultPartsOf(
       );
     }
   }
+  const lineRefusal = answer === undefined ? lineRefusalOf(ran.stderr) : undefined;
   return {
     head: [],
     said: lines,
     added,
-    structured: { exitCode: ran.code, ...(answer !== undefined ? { answer } : {}) },
+    structured: {
+      exitCode: ran.code,
+      ...(answer !== undefined ? { answer } : {}),
+      ...(lineRefusal !== undefined ? { refused: lineRefusal } : {}),
+    },
     answer,
     isError: !ANSWERED.has(ran.code),
   };
@@ -3068,6 +4316,19 @@ function runUnderWayRefusal(run: McpRun<ToolResult>, named: string): Refusal {
       'still runs: a removal now would delete under it what it goes on writing. run_stop with ' +
       `run "${run.handle}" stops it, and run_status says when it has ended; then run_remove ` +
       'takes back what it wrote. Refused: nothing was read or written.',
+  };
+}
+
+/** The refusal of the removal of a replay this server still runs into `target`. */
+function replayUnderWayRefusal(run: McpRun<ToolResult>, target: string): Refusal {
+  return {
+    code: 'RUN_UNDER_WAY',
+    message:
+      `checkpoint_replay_remove: run "${run.handle}" of checkpoint_replay, which this server ` +
+      `still runs, writes into ${target}: a removal now would delete under it what it goes on ` +
+      `creating. run_stop with run "${run.handle}" stops it, and run_status says when it has ` +
+      'ended; then checkpoint_replay_remove takes back what it created. Refused: nothing was ' +
+      'read or written.',
   };
 }
 
@@ -3564,9 +4825,10 @@ export function claimStdout(stdout: Writable, stderr: Writable): (line: string) 
   };
 }
 
-const HELP = `sandforge mcp — Seed, Forge's clone of a record or of the whole org, the removal of a
-run, the emptying of objects or of a whole org, Checkpoints and the environments of a
-sandforge.yaml, as tools for an AI agent, over the Model Context Protocol on stdio.
+const HELP = `sandforge mcp — Seed, Forge's clone of a record, of the records a query chooses or of the
+whole org, the removal of a run, the emptying of objects or of a whole org, Checkpoints and their
+replay into another org, the environments of a sandforge.yaml and the plan of an Automation
+pipeline, as tools for an AI agent, over the Model Context Protocol on stdio.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
@@ -3592,6 +4854,10 @@ plan and nothing else, its personal fields always anonymized. A call whose scrip
 after the hold answers with the handle of its run, which goes on: run_status follows it,
 run_stop stops it, and the server stops it as it ends. What a later server reads of it is kept
 in mcp-runs/ under the journal directory.
+
+checkpoint_replay replays a .sfcheckpoint file a teammate sent with the key the variable keyEnv
+names holds in this server's environment: a key is never an argument. pipeline_plan plans a
+pipeline and writes nothing; no tool runs one.
 
 Environment:
   SANDFORGE_JOURNAL_DIR=<dir>   where the scripts keep their run files, journals and

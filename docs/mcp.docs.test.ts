@@ -58,7 +58,7 @@ function declaredTools(): Array<{
 
 /** The names in backticks of a stretch of prose, in order. */
 const named = (text: string): string[] =>
-  [...text.matchAll(/`([a-z]+_[a-z]+)`/g)].map((m) => m[1] as string);
+  [...text.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)].map((m) => m[1] as string);
 
 describe('docs/mcp.md', () => {
   it('lists every tool the server declares, in its order, and no other', () => {
@@ -111,7 +111,9 @@ describe('docs/mcp.md', () => {
     expect(SERVER).toContain(`    ${line}\n`);
     const run = [...section('The tools').matchAll(/`sandforge ([a-z]+)\b/g)].map((m) => m[1]);
     // Positive control: the table names the command each tool runs.
-    expect(new Set(run)).toEqual(new Set(['seed', 'clone', 'sync', 'checkpoint', 'empty', 'env']));
+    expect(new Set(run)).toEqual(
+      new Set(['seed', 'clone', 'sync', 'checkpoint', 'empty', 'env', 'pipeline']),
+    );
     for (const tool of new Set(run)) {
       expect(
         existsSync(resolve(REPO_ROOT, `packages/extension/cli/sandforge-${tool}.ts`)),
@@ -203,21 +205,90 @@ describe('docs/mcp.md', () => {
     // checkpoint_rewind and checkpoint_undo relayed "--mute-automation keeps
     // quiet …" of their refusal for the emails, and took no such parameter.
     expect(rule).toContain(
-      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, `clone_org_plan`, ' +
-        '`checkpoint_rewind`, `checkpoint_undo`, `empty_preview`, `empty_run` and `empty_undo` too',
+      '`muteAutomation` is `--mute-automation` for `seed_run`, `clone_record`, `clone_records`, ' +
+        '`clone_org_plan`, `checkpoint_rewind`, `checkpoint_undo`, `checkpoint_replay`, ' +
+        '`checkpoint_replay_remove`, `empty_preview`, `empty_run` and `empty_undo` too',
     );
     expect(SERVER).toContain(
       "flags: { '--accept-emails': 'acceptEmails', '--mute-automation': 'muteAutomation' },",
     );
-    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(7);
+    expect(SERVER.split("'--mute-automation': 'muteAutomation',")).toHaveLength(10);
     expect(
       SERVER.split("...(args.muteAutomation === true ? ['--mute-automation'] : []),"),
-    ).toHaveLength(8);
+    ).toHaveLength(11);
     expect(rule).toContain("the script's line calls this script's own");
     expect(rule).toContain('No environment mutes, and none of its runs offers it.');
     expect(SERVER).toContain(
       "named: { '--accept-automation': fileAcceptsAutomation('env_destroy') },",
     );
+  });
+
+  it('says for each tool what it runs and what it writes, each script its declaration runs named', () => {
+    const blocks = SERVER.split(/\n {2}tool\(\{\n/).slice(1);
+    const rows = new Map(
+      section('The tools')
+        .split('\n')
+        .filter((line) => /^\| `[a-z_]+`/.test(line))
+        .map((line) => {
+          const cells = line
+            .replace(/^\|/, '')
+            .replace(/\|\s*$/, '')
+            .split(' | ')
+            .map((cell) => cell.trim());
+          return [/^`([a-z_]+)`/.exec(cells[0] ?? '')?.[1] ?? '', cells] as const;
+        }),
+    );
+
+    for (const tool of declaredTools()) {
+      const block = blocks.find((each) => each.includes(`name: '${tool.name}',`)) ?? '';
+      const [, does, runs, writes] = rows.get(tool.name) ?? [];
+      expect(does, tool.name).toBeTruthy();
+      expect(runs, tool.name).toBeTruthy();
+      expect(writes, tool.name).toBeTruthy();
+      const scripts = new Set(
+        [...block.matchAll(/script: 'sandforge-([a-z]+)'/g)].map((m) => m[1] as string),
+      );
+      for (const script of scripts) {
+        expect(runs, `${tool.name} runs sandforge ${script}`).toContain(`sandforge ${script}`);
+      }
+      if (/\blocal: /.test(block)) expect(runs, tool.name).toMatch(/^nothing/);
+      if (tool.readOnly) expect(writes, tool.name).toMatch(/^nothing/);
+      if (tool.confirms) expect(writes, tool.name).not.toMatch(/^nothing/);
+    }
+    // Positive control: the tools of 1.81 are rows, each naming its own line.
+    expect(rows.get('clone_records')?.[2]).toContain('`sandforge clone --query');
+    expect(rows.get('checkpoint_replay')?.[2]).toContain('`sandforge checkpoint replay');
+    expect(rows.get('pipeline_plan')?.[2]).toContain('`sandforge pipeline plan --file');
+  });
+
+  it('says no tool runs a pipeline, pipeline_plan alone planning one, as the server runs no line but a plan', () => {
+    const pipelines = section('Pipelines');
+
+    expect(pipelines).toContain('`pipeline_plan`');
+    expect(pipelines).toContain('No tool runs a pipeline');
+    expect(declaredTools().filter((tool) => tool.name.startsWith('pipeline_'))).toEqual([
+      { name: 'pipeline_plan', readOnly: true, destructive: false, confirms: false },
+    ]);
+    // The one line of the pipeline script the server runs: its plan.
+    expect([...SERVER.matchAll(/script: 'sandforge-pipeline'/g)]).toHaveLength(1);
+    expect(SERVER).toContain("    'plan',\n    '--file',\n    args.file,");
+    expect(SERVER).not.toMatch(/'sandforge-pipeline'[^\n]*'run'/);
+  });
+
+  it('says the key of a checkpoint file reaches the server by the name of a variable, never in an argument', () => {
+    const replay = section('A checkpoint replayed into another org');
+
+    expect(replay).toContain('`keyEnv`');
+    expect(replay).toContain('never the key');
+    expect(SERVER).toContain("['--file', args.file, '--key-env', args.keyEnv ?? '']");
+    expect(SERVER).toContain('parseArchiveKey(name) === undefined');
+    expect(SERVER).not.toMatch(/\n {8}key: z/);
+  });
+
+  it('says a removal of a run still writing is refused by its script, and by the server for its own runs', () => {
+    expect(section('Long calls')).toContain('(`RUN_WRITING`)');
+    expect(SERVER).toContain('The script refuses that itself (RUN_WRITING)');
+    expect(SERVER).not.toContain('no lock of the clone holds a journal');
   });
 
   it('names every code the server refuses a call with, and no other', () => {
