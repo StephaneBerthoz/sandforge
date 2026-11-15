@@ -34,7 +34,7 @@
     "enumMembers": "off"
   },
   "ignoreExportsUsedInFile": true,
-  "ignoreBinaries": ["vsce", "sf"],
+  "ignoreBinaries": ["vsce", "sf", "pwsh"],
   "ignoreDependencies": [
     "@vscode/vsce",
     "@axe-core/playwright",
