@@ -2214,7 +2214,7 @@ describe('the duplicate record sets the target’s rules made with what a sweep 
     ).toMatchObject({ found: 1, deleted: 0, keptDependents: 1, heldBy: ['DuplicateRecordItem'] });
   });
 
-  it('takes no set an item of which reports a record neither the run’s nor found, and reads none for a sweep that found nothing', async () => {
+  it('takes a set that reports one record neither the run’s nor found beside them: once they go, it reports that record alone', async () => {
     const org = tiedOrg();
     withSets(org);
     org.add('DuplicateRecordItem', {
@@ -2222,6 +2222,22 @@ describe('the duplicate record sets the target’s rules made with what a sweep 
       DuplicateRecordSetId: MIXED,
       RecordId: id('00T', 6),
     });
+
+    const listing = await listSweep(org, tiedInput());
+
+    expect(listing.found.find((f) => f.objectApiName === 'DuplicateRecordSet')).toMatchObject({
+      count: 1,
+    });
+  });
+
+  it('takes no set two items of which report records neither the run’s nor found, and reads none for a sweep that found nothing', async () => {
+    const org = tiedOrg();
+    withSets(org);
+    org.add(
+      'DuplicateRecordItem',
+      { Id: id('0GL', 5), DuplicateRecordSetId: MIXED, RecordId: id('00T', 6) },
+      { Id: id('0GL', 6), DuplicateRecordSetId: MIXED, RecordId: id('003', 91) },
+    );
     const listing = await listSweep(org, tiedInput());
     expect(listing.found.map((f) => f.objectApiName)).not.toContain('DuplicateRecordSet');
 

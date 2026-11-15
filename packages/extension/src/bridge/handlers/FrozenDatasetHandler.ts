@@ -2426,7 +2426,12 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (err instanceof VolumetryBudgetExceededError) {
       return { total: err.total, budgetMax: err.budgetMax, heaviest: err.heaviest };
     }
-    if (err instanceof LoadConfigError && err.gaps) return { gaps: err.gaps };
+    if (err instanceof LoadConfigError && err.gaps) {
+      return {
+        gaps: err.gaps,
+        ...((err.refusedBeside ?? []).length > 0 ? { refusedBeside: err.refusedBeside } : {}),
+      };
+    }
     if (err instanceof LoadConfigError && err.recordTypesUntold) {
       return { recordTypesUntold: err.recordTypesUntold };
     }
@@ -4722,17 +4727,37 @@ export class FrozenDatasetHandler implements DomainHandler {
           )(objectApiNames);
         },
       });
-      const plan = await loader.planLoad({
-        orgId: parsed.targetOrgId,
-        orgTier: this.targetTier(parsed.targetOrgId),
-        dataset,
-        manifest,
-        sasDir,
-        reload: parsed.reload,
-        pilot: parsed.pilot ? {} : undefined,
-        ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
-        ...(replay ? { linkByKeys: true } : {}),
-      });
+      const plan = await loader
+        .planLoad({
+          orgId: parsed.targetOrgId,
+          orgTier: this.targetTier(parsed.targetOrgId),
+          dataset,
+          manifest,
+          sasDir,
+          reload: parsed.reload,
+          pilot: parsed.pilot ? {} : undefined,
+          ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
+          ...(replay ? { linkByKeys: true } : {}),
+        })
+        .catch(async (err: unknown) => {
+          // Required fields the configuration leaves empty leave no plan:
+          // what else a load would be refused for reads the dataset and the
+          // target, not the plan, and goes beside the gaps. Stopped on them
+          // alone, a replay's dry run said its storage and what the org runs
+          // only once a configuration covered the field, a run later.
+          if (err instanceof LoadConfigError && err.gaps !== undefined) {
+            err.refusedBeside = await this.refusedBesideOf({
+              conn,
+              orgId: parsed.targetOrgId,
+              dataset,
+              store: source.mappingStore(guard),
+              config,
+              parsed,
+              ...(replay ? { replay } : {}),
+            }).catch(() => []);
+          }
+          throw err;
+        });
       // Asked for the checkpoint first, the preview says what it would hold
       // and cost, and the refusal a load would meet: Frozen has no question
       // of its own before it writes, and the checkpoint's cost is that of the
@@ -4803,6 +4828,47 @@ export class FrozenDatasetHandler implements DomainHandler {
         extraPayload: this.errorDetailOf(err),
       });
     }
+  }
+
+  /**
+   * What a load would be refused for beside the required fields its
+   * configuration leaves empty, judged as the preview judges each gate: what
+   * the target runs, its emails, of a replay its data storage, and its API
+   * requests, each under its code, in the order a load meets them.
+   */
+  private async refusedBesideOf(input: {
+    conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
+    orgId: string;
+    dataset: FrozenDataset;
+    store: SasReferenceIdMappingStore;
+    config: FrozenProjectConfig;
+    parsed: {
+      reload?: boolean;
+      pilot?: boolean;
+      muteAutomation?: boolean;
+      acceptEmails?: boolean;
+      acceptAutomation?: boolean;
+    };
+    replay?: ReplayLoad;
+  }): Promise<Array<{ code: string; message: string }>> {
+    const { replay, ...asked } = input;
+    const { emails, automation, apiRequests } = await this.previewWhatRuns({
+      ...asked,
+      ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
+    });
+    const storage = replay
+      ? await this.replayStorageOf({
+          conn: input.conn,
+          dataset: input.dataset,
+          ...(input.parsed.reload === true
+            ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
+            : {}),
+          targetOrgId: input.orgId,
+        })
+      : undefined;
+    return [automation?.refused, emails?.refused, storage?.refusal, apiRequests?.refused].filter(
+      (refused): refused is { code: string; message: string } => refused !== undefined,
+    );
   }
 
   /**

@@ -56,13 +56,15 @@ import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { main, parseArgs } from './sandforge-checkpoint.js';
-import { REPLAY_AUDIT_FILE, replayWords } from './checkpointReplay.js';
+import { REPLAY_AUDIT_FILE, replayFlagsOf, replayWords } from './checkpointReplay.js';
 import { loadRecordsRefusal } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import {
   REPLAYING_USER,
   SOURCE_ORG_ID,
   TARGET_ORG_ID,
+  describedFields,
   idOf,
+  type ReplayField,
   type ReplayTargetOrg,
 } from '../src/test/replayOrgs.js';
 import {
@@ -101,6 +103,9 @@ const LIMITS = {
   DailyBulkApiBatches: { Max: 15_000, Remaining: 15_000 },
 };
 
+/** The data storage the other org has left, where a test gives it less than {@link LIMITS}. */
+let storageLeft: { Max: number; Remaining: number } | undefined;
+
 /** A page of rows, as jsforce answers a query. */
 const page = (records: Array<Record<string, unknown>>) => ({
   done: true,
@@ -120,7 +125,9 @@ function connectionOf(target: ReplayTargetOrg) {
       return org.version;
     },
     request: async (request: { method: string; url: string }) =>
-      /\/limits\/?$/.test(request.url) ? LIMITS : org.request(request),
+      /\/limits\/?$/.test(request.url)
+        ? { ...LIMITS, ...(storageLeft ? { DataStorageMB: storageLeft } : {}) }
+        : org.request(request),
     query: async (soql: string, options?: { scanAll?: boolean }) => {
       if (/\bFROM Organization\b/.test(soql)) {
         return page([{ Id: target.organizationId, IsSandbox: true }]);
@@ -250,6 +257,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.mocked(loadOrg).mockClear();
   writes.target = undefined;
+  storageLeft = undefined;
   process.exitCode = undefined;
   for (const world of worlds.splice(0)) world.remove();
 });
@@ -689,6 +697,326 @@ describe('sandforge checkpoint replay', () => {
     expect(said).not.toMatch(/dataset/i);
     expect(said).not.toMatch(/frozen/i);
     expect(said).not.toMatch(/\bsas\b/);
+  });
+});
+
+describe('sandforge checkpoint replay --dry-run, every refusal and the line it hands on', () => {
+  it('refuses a dry run whose records take more data storage than the other org has left, naming --objects, with no line that would replay it whole: exit 1', async () => {
+    // Run for real: 13 MB of a checkpoint into an org with 5 MB left. Its dry
+    // run said the figures alone, the refusal kept under replay.storage, and
+    // with what the org runs accepted it ended 0 on a line that replayed it all.
+    const world = await made({ accounts: 650, perAccount: 10 });
+    storageLeft = { Max: 5, Remaining: 5 };
+
+    const code = await run(world, ...of(world, '--dry-run', '--accept-automation', '--json'));
+
+    expect(code).toBe(1);
+    const answer = JSON.parse(stdout) as {
+      refusalCodes?: string[];
+      refusals?: string[];
+      replay?: { storage?: { refusal?: { code: string } } };
+      exit: number;
+    };
+    expect(answer.refusalCodes).toEqual(['FROZEN_STORAGE_EXCEEDED']);
+    expect(answer.refusals?.[0]).toContain('(--objects A,B)');
+    expect(answer.replay?.storage?.refusal?.code).toBe('FROZEN_STORAGE_EXCEEDED');
+    expect(answer.exit).toBe(1);
+    expect(stderr).toContain('a replay would be refused (FROZEN_STORAGE_EXCEEDED): ');
+    expect(stderr).not.toContain('To replay it:');
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+
+    // The way out it names fits: the accounts alone, and the line that replays them.
+    expect(await run(world, ...of(world, '--dry-run', '--objects', 'Account'))).toBe(0);
+    expect(stdout).not.toContain('would be refused');
+    expect(stdout).toContain(
+      'To replay it: pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay ' +
+        `--checkpoint ${world.checkpoint.checkpointId} --target DEV2 --objects Account`,
+    );
+  });
+
+  it('says every refusal at once, a required field its configuration does not cover among them', async () => {
+    // Run for real: the dry run stopped on the required field it was not
+    // given a default for, and said its storage and what the org runs only
+    // once a configuration covered it, a run later.
+    const fields = describedFields({ personAccounts: true, multiCurrency: false });
+    const world = await made({
+      accounts: 650,
+      perAccount: 10,
+      target: {
+        fields: {
+          ...fields,
+          Account: [
+            ...(fields.Account ?? []),
+            {
+              name: 'Site_Code__c',
+              type: 'string',
+              createable: true,
+              nillable: false,
+              defaultedOnCreate: false,
+              length: 20,
+            },
+          ],
+        },
+      },
+    });
+    storageLeft = { Max: 5, Remaining: 5 };
+
+    const code = await run(world, ...of(world, '--dry-run', '--json'));
+
+    expect(code).toBe(1);
+    const answer = JSON.parse(stdout) as { refusalCodes?: string[]; refusals?: string[] };
+    expect(answer.refusalCodes).toEqual(['LOAD_CONFIG', 'FROZEN_STORAGE_EXCEEDED']);
+    expect(answer.refusals?.[0]).toContain('requiredFieldDefaults["Account.Site_Code__c"]');
+    expect(stderr).toContain('[LOAD_CONFIG]');
+    expect(stderr).toContain('a replay would be refused (FROZEN_STORAGE_EXCEEDED): ');
+    expect(stderr).not.toContain('To replay it:');
+  });
+
+  it('refuses the replay itself past that storage before its question, nothing sent to be written: exit 1', async () => {
+    const world = await made({ accounts: 650, perAccount: 10 });
+    storageLeft = { Max: 5, Remaining: 5 };
+    const handled = vi.spyOn(FrozenDatasetHandler.prototype, 'handle');
+
+    const code = await run(world, ...of(world, '--yes'));
+
+    expect(code).toBe(1);
+    expect(handled.mock.calls.map(([message]) => (message as { type: string }).type)).toEqual([
+      'frozen:load:preview',
+    ]);
+    expect(stdout).toContain('a replay would be refused (FROZEN_STORAGE_EXCEEDED): ');
+    expect(stdout).toContain('Nothing written.');
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+  });
+
+  it('gives the line that replays it with every flag that changes what it does, which typed again asks what the dry run asked', async () => {
+    // Run for real: the line left --replay-config out, and typed as it was
+    // given it failed on the required field the configuration covered.
+    const world = await made();
+    const config = join(world.dir, 'replay-config.json');
+    writeFileSync(
+      config,
+      JSON.stringify({ requiredFieldDefaults: { 'Account.Site': 'replayed' } }),
+    );
+    const owners = join(world.dir, 'owners.json');
+    writeFileSync(owners, JSON.stringify({ [idOf('005', 1)]: REPLAYING_USER }));
+    const asked = [
+      '--objects',
+      'Account,Contact',
+      '--owner-map',
+      owners,
+      '--keep-contact-points',
+      '--replay-config',
+      config,
+      '--mute-automation',
+      '--accept-automation',
+      '--accept-emails',
+      '--again',
+      '--max-records',
+      '9',
+    ];
+
+    expect(await run(world, ...of(world, '--dry-run', ...asked))).toBe(0);
+
+    const given = /^To replay it: (.*)$/m.exec(stdout)?.[1] ?? '';
+    const prefix = 'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts ';
+    expect(given.startsWith(prefix)).toBe(true);
+    const typed = parseArgs(argv(...given.slice(prefix.length).split(' ')));
+    const dry = parseArgs(argv(...of(world, '--dry-run', ...asked)));
+    if (typed.command !== 'replay' || dry.command !== 'replay') throw new Error('not a replay');
+    expect({ ...typed.replay, action: 'dryRun' }).toEqual(dry.replay);
+  });
+
+  it('hands on the checkpoint it takes first, its days and the objects it leaves out, as the dry run was given them', () => {
+    const dry = parseArgs(
+      argv(
+        'replay',
+        '--checkpoint',
+        'ck-20261110-091400-a1b2',
+        '--target',
+        'DEV2',
+        '--dry-run',
+        '--checkpoint-first',
+        '--checkpoint-keep-days',
+        '3',
+        '--checkpoint-exclude-object',
+        'Task',
+        '--checkpoint-exclude-object',
+        'Event',
+      ),
+    );
+    if (dry.command !== 'replay') throw new Error('not a replay');
+
+    const typed = parseArgs(
+      argv(
+        ...`replay --checkpoint ck-20261110-091400-a1b2 --target DEV2${replayFlagsOf(dry.replay)}`
+          .trim()
+          .split(' '),
+      ),
+    );
+
+    if (typed.command !== 'replay') throw new Error('not a replay');
+    expect(typed.replay.checkpointFirst).toEqual({ keepDays: 3, excluded: ['Task', 'Event'] });
+    expect({ ...typed.replay, action: 'dryRun' }).toEqual(dry.replay);
+  });
+});
+
+/** The org's Automated Process user, who writes what a duplicate rule reports. */
+const AUTOMATED = idOf('005', 90);
+/** An account the other org held before any replay, which the replayed one resembles. */
+const HELD_ACCOUNT = idOf('001', 900);
+
+/**
+ * The other org with a duplicate rule that alerts on accounts, as one did
+ * live: each account the replay creates that resembles one the org held is
+ * reported with it, in a set and an item for each, written by the org's
+ * Automated Process user within the second of the save. The org deletes an
+ * item with its record, and a set's items with the set.
+ */
+async function withAlertRule(): Promise<ReplayWorld> {
+  const world = await made({
+    accounts: 1,
+    perAccount: 0,
+    target: {
+      children: {
+        Account: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+        DuplicateRecordSet: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      },
+    },
+  });
+  const { target } = world;
+  const written = (name: string, type = 'datetime'): ReplayField => ({
+    name,
+    type,
+    createable: false,
+    nillable: true,
+    defaultedOnCreate: true,
+  });
+  const audit = [
+    written('CreatedById', 'reference'),
+    written('CreatedDate'),
+    written('LastModifiedById', 'reference'),
+    written('LastModifiedDate'),
+  ];
+  target
+    .withObject('DuplicateRecordSet', audit, { deletable: true })
+    .withObject(
+      'DuplicateRecordItem',
+      [...audit, written('RecordId', 'reference'), written('DuplicateRecordSetId', 'reference')],
+      { deletable: true },
+    );
+  target.addUser({ id: AUTOMATED, username: 'autoproc@example.com', userType: 'AutomatedProcess' });
+  target.hold('Account', {
+    Id: HELD_ACCOUNT,
+    Name: 'SFENV held 1',
+    CreatedDate: '2026-10-07T09:00:00.000+0000',
+    LastModifiedDate: '2026-10-07T09:00:00.000+0000',
+  });
+  const create = target.org.create.bind(target.org);
+  let sets = 0;
+  vi.spyOn(target.org, 'create').mockImplementation(async (objectApiName, records) => {
+    const answer = await create(objectApiName, records);
+    if (objectApiName !== 'Account') return answer;
+    for (const outcome of answer as Array<{ id?: string; success: boolean }>) {
+      if (!outcome.success || outcome.id === undefined) continue;
+      const set = idOf('0GK', ++sets);
+      const by = { CreatedById: AUTOMATED, LastModifiedById: AUTOMATED };
+      target.org.add('DuplicateRecordSet', { Id: set, ...by });
+      target.org.add('DuplicateRecordItem', {
+        Id: idOf('0GL', 2 * sets - 1),
+        DuplicateRecordSetId: set,
+        RecordId: outcome.id,
+        ...by,
+      });
+      target.org.add('DuplicateRecordItem', {
+        Id: idOf('0GL', 2 * sets),
+        DuplicateRecordSetId: set,
+        RecordId: HELD_ACCOUNT,
+        ...by,
+      });
+    }
+    return answer;
+  });
+  return world;
+}
+
+/** What the other org holds of the duplicate rules' reports, and of its accounts. */
+function reports(world: ReplayWorld): { sets: number; items: number; accounts: string[] } {
+  return {
+    sets: world.target.org.all('DuplicateRecordSet').length,
+    items: world.target.org.all('DuplicateRecordItem').length,
+    accounts: world.target.org.all('Account').map((row) => String(row.Id)),
+  };
+}
+
+describe('sandforge checkpoint replay --remove, what the other org’s duplicate rules made', () => {
+  it('takes back the set a rule that alerts made of a replayed account and one the org held, with both items, the org’s account kept', async () => {
+    // Run for real: the replay's account met an account the org held under a
+    // rule that alerts; its removal deleted the account, and its item with it,
+    // and left the set and the held account's item, which nothing named.
+    const world = await withAlertRule();
+    expect(await run(world, ...of(world, '--yes'))).toBe(0);
+    expect(reports(world)).toMatchObject({ sets: 1, items: 2 });
+
+    expect(await run(world, ...of(world, '--remove', '--preview'))).toBe(0);
+    expect(stdout).toContain('DuplicateRecordSet: 1 to delete of 1');
+
+    expect(await run(world, ...of(world, '--remove', '--yes'))).toBe(0);
+
+    expect(reports(world)).toEqual({ sets: 0, items: 0, accounts: [HELD_ACCOUNT] });
+    expect(stdout).toContain('DuplicateRecordSet: 1 deleted of 1');
+    expect(stdout).toContain('removal: SUCCESS');
+  });
+
+  it('names no flag in what its removal says that its own line does not read, and hands those it names to the removal', async () => {
+    // Run for real: the preview of a replay's sweep said its item made late
+    // was taken by --sweep-late, which the replay's line refused, exit 2.
+    const world = await withAlertRule();
+    expect(await run(world, ...of(world, '--yes'))).toBe(0);
+    let said = '';
+    for (const line of [
+      of(world, '--remove', '--preview', '--sweep'),
+      of(world, '--remove', '--sweep-list'),
+      of(world, '--remove', '--preview'),
+    ]) {
+      await run(world, ...line);
+      said += stdout + stderr;
+    }
+    expect(said).toContain('--sweep-late takes them');
+
+    // `--help`, which a refusal names, is read by every line and runs nothing.
+    const named = [...new Set(said.match(/--[a-z][a-z-]*/g) ?? [])].filter(
+      (flag) => flag !== '--help',
+    );
+    const readByRemoval = (flag: string): boolean =>
+      [[flag], ['--sweep', flag], ['--sweep-list', flag]].some((beside) => {
+        exited = undefined;
+        try {
+          parseArgs(argv(...of(world, '--remove', ...beside)));
+        } catch {
+          // `process.exit` throws so the parse stops where it would.
+        }
+        return exited === undefined;
+      });
+    expect(named.filter((flag) => !readByRemoval(flag))).toEqual([]);
+
+    const handled = vi.spyOn(FrozenDatasetHandler.prototype, 'handle');
+    expect(
+      await run(
+        world,
+        ...of(world, '--remove', '--sweep', '--sweep-late', '--sweep-untied', '--yes'),
+      ),
+    ).toBe(0);
+    const removal = handled.mock.calls
+      .map(([message]) => message as unknown as { type: string; payload: Record<string, unknown> })
+      .find((message) => message.type === 'frozen:remove');
+    expect(removal?.payload).toMatchObject({ sweep: true, sweepLate: true, sweepUntied: true });
+    expect(reports(world)).toEqual({ sets: 0, items: 0, accounts: [HELD_ACCOUNT] });
   });
 });
 

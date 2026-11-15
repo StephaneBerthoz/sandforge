@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Snowflake } from 'lucide-react';
 import type { FrozenLastVerifyInfo, FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
@@ -12,9 +12,25 @@ import { PageTabs } from '../../components/ui/PageTabs';
 import { KPICard } from '../../components/ui/KPICard';
 import { useFrozenPushChannels } from './useFrozenBridge';
 import { FrozenExtractTab } from './FrozenExtractTab';
-import { FrozenLoadTab } from './FrozenLoadTab';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { PartBoundary } from '../../components/ui/PartBoundary';
+import { withEnglish } from '../../i18n/englishNamespaces';
 import { orgDisplayName } from '@sandforge/shared';
+
+/*
+ * The Load tab, a chunk of its own fetched the first time it is opened, with
+ * the words of what the target runs as a load writes and of what a removal
+ * deletes: the page opens on Extract. It parsed 997 kB before it painted while
+ * it held them, 3 kB short of its budget.
+ */
+const LoadedFrozenLoadTab = lazy(() =>
+  withEnglish(
+    () => import('./FrozenLoadTab'),
+    ['automationMute', 'checkpointNotes', 'runRemoval'],
+  )().then((module) => ({
+    default: module.FrozenLoadTab,
+  })),
+);
 
 /**
  * Frozen Reference Dataset page — extract a pseudonymized reference dataset
@@ -184,7 +200,13 @@ export const FrozenPage: React.FC = () => {
       />
 
       {tab === 'extract' && <FrozenExtractTab onRefetchStatus={refetchStatusAndManifest} />}
-      {tab === 'load' && <FrozenLoadTab onRefetchStatus={refetchStatus} />}
+      {tab === 'load' && (
+        <PartBoundary>
+          <Suspense fallback={null}>
+            <LoadedFrozenLoadTab onRefetchStatus={refetchStatus} />
+          </Suspense>
+        </PartBoundary>
+      )}
       {manifest && tab === 'extract' && (
         <p className="text-[10px] text-text-secondary" data-testid="frozen-manifest-footnote">
           {t('frozen.manifest.version', { version: manifest.version })} — {manifest.frozenAt}

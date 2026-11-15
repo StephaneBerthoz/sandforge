@@ -186,7 +186,7 @@ export function frozenErrorWords(
 }
 
 /** MB as the host says them: rounded up, two decimals under 10 MB. */
-function megabytes(value: number): number {
+export function megabytes(value: number): number {
   const factor = value < 10 ? 100 : 10;
   return value <= 0 ? 0 : Math.ceil(value * factor - 1e-9) / factor;
 }

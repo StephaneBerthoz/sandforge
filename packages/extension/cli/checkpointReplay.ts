@@ -77,6 +77,7 @@ import { CHECKPOINT_FIRST_FLAGS, checkpointFirstArgs } from './beforeRunCheckpoi
 import { commandOf } from './invocation.js';
 import { hidden } from './prompt.js';
 import type { RunRefusal } from './runRefused.js';
+import { SWEEP_CLASS_FLAGS, sweepClassArgsOf } from './sandforge-clone.js';
 import {
   runFrozen,
   type FrozenAnswer,
@@ -113,8 +114,19 @@ const REPLAY_ALONE = [
   ...CHECKPOINT_FIRST_FLAGS.values,
 ] as const;
 
-/** What a removal alone takes. */
-const REMOVAL_ALONE = ['--preview', '--sweep', '--include-changed'] as const;
+/**
+ * What a removal alone takes: its sweep's own among them, as a Frozen
+ * removal takes them. Its lines name them — "(--sweep-late takes them)", "run
+ * --sweep-list to see what" — and read by no line of a replay, the one a
+ * preview gave was refused, exit 2.
+ */
+const REMOVAL_ALONE = [
+  '--preview',
+  '--sweep',
+  '--sweep-list',
+  ...SWEEP_CLASS_FLAGS,
+  '--include-changed',
+] as const;
 
 /** What a replay's line asks: the replay, its dry run, its verification, or its removal. */
 export type ReplayAction = 'replay' | 'dryRun' | 'verify' | 'remove';
@@ -135,8 +147,12 @@ export interface ReplayAsked {
   /** The other org, by its `sf` alias or username. */
   target: string;
   choices: CheckpointReplayChoices;
+  /** The file `--owner-map` named, absolute: the line a dry run hands on names it again. */
+  ownerMapFile?: string;
   /** `--replay-config`: the load's part of a Frozen project's configuration. */
   config?: FrozenReplayLoadConfig;
+  /** The file `--replay-config` named, absolute: the line a dry run hands on names it again. */
+  configFile?: string;
   /** `--again`: replay over what the replays before created there, which goes first. */
   again: boolean;
   muteAutomation: boolean;
@@ -148,6 +164,12 @@ export interface ReplayAsked {
   /** With `--remove`: say what it would do, and delete nothing. */
   preview: boolean;
   sweep: boolean;
+  /** With `--remove`: list what `--sweep` would take, and delete nothing. */
+  sweepList: boolean;
+  /** With the sweep: take too what it lists as made late (`--sweep-late`). */
+  sweepLate?: true;
+  /** With the sweep: take too what it lists as tied to nothing of the replay (`--sweep-untied`). */
+  sweepUntied?: true;
   includeChanged: boolean;
   yes: boolean;
 }
@@ -236,6 +258,19 @@ export function parseReplay(args: readonly string[], refuse: (line: string) => n
       refuse(`${removal.join(', ')} goes with --remove. Nothing was run.`);
     }
   }
+  // As a Frozen removal reads them: a sweep deletes, its list only lists, and
+  // a preview lists what the sweep would take with --sweep.
+  if (has('--sweep') && has('--sweep-list')) {
+    refuse('--sweep deletes and --sweep-list only lists: give one of them. Nothing was run.');
+  }
+  if (has('--preview') && has('--sweep-list')) {
+    refuse(
+      '--preview deletes nothing, and --sweep-list lists what a sweep would take: give ' +
+        '--preview without it, or with --sweep. Nothing was run.',
+    );
+  }
+  const classes = sweepClassArgsOf(args);
+  if ('refusal' in classes) refuse(`${classes.refusal} Nothing was run.`);
   if (action === 'verify') {
     const muting = flagsGiven(['--mute-automation', '--accept-automation']);
     if (muting.length > 0) {
@@ -349,7 +384,9 @@ export function parseReplay(args: readonly string[], refuse: (line: string) => n
     keepDays: wholeNumber('--keep-days') ?? DEFAULT_KEEP_DAYS,
     target,
     choices,
+    ...(ownerMapFile !== undefined ? { ownerMapFile: resolve(ownerMapFile) } : {}),
     ...(config !== undefined ? { config } : {}),
+    ...(configFile !== undefined ? { configFile: resolve(configFile) } : {}),
     again: has('--again'),
     muteAutomation: has('--mute-automation'),
     acceptAutomation: has('--accept-automation'),
@@ -358,6 +395,8 @@ export function parseReplay(args: readonly string[], refuse: (line: string) => n
     ...(maxRecords !== undefined ? { maxRecords } : {}),
     preview: has('--preview'),
     sweep: has('--sweep'),
+    sweepList: has('--sweep-list'),
+    ...classes,
     includeChanged: has('--include-changed'),
     yes: has('--yes'),
   };
@@ -943,6 +982,10 @@ export async function runReplay(asked: ReplayAsked, context: ReplayContext): Pro
     question: (plan) =>
       `Replay ${name} into ${asked.target}, creating ${count(plannedRecords(plan))} record(s) there` +
       `${asked.again ? ' once what its replays before created there is purged' : ''}?`,
+    // Once every refusal is said, and only when none was: what refuses it
+    // names its own way out, and the line typed as it stood met it again.
+    dryRunEnd: (refused) =>
+      refused.length > 0 ? [] : [`To replay it: ${again}${replayFlagsOf(asked)}`],
     answer: (answer, ending) => replayAnswer(answer, ending, { asked, chosen, again }),
   };
   await runFrozen(frozenArgsOf(asked, context.json), run);
@@ -968,7 +1011,9 @@ function frozenArgsOf(asked: ReplayAsked, json: boolean): FrozenCliArgs {
     includeChanged: asked.includeChanged,
     acceptEmails: asked.acceptEmails,
     sweep: asked.sweep,
-    sweepList: false,
+    sweepList: asked.sweepList,
+    ...(asked.sweepLate ? { sweepLate: true } : {}),
+    ...(asked.sweepUntied ? { sweepUntied: true } : {}),
     preview: asked.preview,
     ...(asked.maxRecords !== undefined ? { maxTotal: asked.maxRecords } : {}),
     yes: asked.yes,
@@ -1258,7 +1303,7 @@ function replayInfoIn(message: FrozenPosted): FrozenReplayInfo | undefined {
 function replayLinesOf(message: FrozenPosted, lines: string[], said: Said): string[] {
   const info = replayInfoIn(message);
   if (info === undefined) return lines;
-  const { asked, again } = said;
+  const { again } = said;
   const target = info.target.name;
   const files =
     info.filesLeft.length > 0
@@ -1273,7 +1318,6 @@ function replayLinesOf(message: FrozenPosted, lines: string[], said: Said): stri
         `Ids; nothing ${target} holds is changed or deleted.${files}`,
       ...lines,
       ...replayDetailLines(info),
-      ...(asked.action === 'dryRun' ? [`To replay it: ${again}${flagsOf(asked)}`] : []),
     ];
   }
   if (message.type === 'frozen:load:response') {
@@ -1282,19 +1326,37 @@ function replayLinesOf(message: FrozenPosted, lines: string[], said: Said): stri
   return lines;
 }
 
-/** The choices and flags of a dry run's line, as its replay is typed again. */
-function flagsOf(asked: ReplayAsked): string {
+/**
+ * The flags of a dry run's line that change what its replay does, as the
+ * replay is typed again: its choices, the files it read them from, its
+ * gates' answers, its checkpoint first and its bound. Without the
+ * configuration's file, the line a dry run gave failed on the required field
+ * the configuration covered (`LOAD_CONFIG`); without what the org runs
+ * accepted, it was refused for what the dry run had been told to accept.
+ * Exported so it can be tested.
+ */
+export function replayFlagsOf(asked: ReplayAsked): string {
   const { choices } = asked;
+  const first = asked.checkpointFirst;
   return [
     choices.objects.length > 0 ? ` --objects ${choices.objects.join(',')}` : '',
     ...choices.excluded.map((name) => ` --exclude-object ${name}`),
     choices.owners !== 'same' ? ` --owners ${choices.owners}` : '',
+    asked.ownerMapFile !== undefined ? ` --owner-map ${typedPath(asked.ownerMapFile)}` : '',
     ...choices.link.map((link) => ` --link ${link.objectApiName}=${link.fields.join(',')}`),
     choices.customSettings ? ' --custom-settings' : '',
     choices.mask ? ' --mask' : '',
     choices.contactPoints === 'kept' ? ' --keep-contact-points' : '',
     choices.noRealData ? ' --no-real-data' : '',
+    asked.configFile !== undefined ? ` --replay-config ${typedPath(asked.configFile)}` : '',
     asked.again ? ' --again' : '',
+    asked.muteAutomation ? ' --mute-automation' : '',
+    asked.acceptAutomation ? ' --accept-automation' : '',
+    asked.acceptEmails ? ' --accept-emails' : '',
+    first !== undefined ? ' --checkpoint-first' : '',
+    first?.keepDays !== undefined ? ` --checkpoint-keep-days ${first.keepDays}` : '',
+    ...(first?.excluded ?? []).map((name) => ` --checkpoint-exclude-object ${name}`),
+    asked.maxRecords !== undefined ? ` --max-records ${asked.maxRecords}` : '',
   ].join('');
 }
 

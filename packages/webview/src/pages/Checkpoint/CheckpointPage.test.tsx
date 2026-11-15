@@ -895,7 +895,7 @@ describe('CheckpointPage', () => {
       orgId: '00D000000000022EAA',
     });
 
-    it('opens the replay of a checkpoint of the sandbox before its refresh from its row, and comes back to the list read again', () => {
+    it('opens the replay of a checkpoint of the sandbox before its refresh from its row, and comes back to the list read again', async () => {
       useOrgStore.setState({
         orgs: [developerOrg({ orgType: 'Sandbox' }), QA],
         selectedOrgId: 'org-dev',
@@ -903,16 +903,18 @@ describe('CheckpointPage', () => {
       render(<CheckpointPage />);
       answerList([listEntry(readyCheckpoint(), { valid: false, why: 'refreshed' })]);
       fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
-      expect(
-        screen.getByRole('heading', { name: 'Replay “Before UAT” in another org' }),
-      ).toHaveFocus();
+      // Its own chunk, fetched the first time it opens.
+      const heading = await screen.findByRole('heading', {
+        name: 'Replay “Before UAT” in another org',
+      });
+      await waitFor(() => expect(heading).toHaveFocus());
       const lists = host.current?.sent('checkpoint:list').length ?? 0;
       fireEvent.click(screen.getByTestId('checkpoint-replay-close'));
       expect(screen.getByTestId('checkpoint-list')).toBeInTheDocument();
       expect(host.current?.sent('checkpoint:list').length).toBeGreaterThan(lists);
     });
 
-    it('opens on the replay Home asked for, once the list says the checkpoint is there', () => {
+    it('opens on the replay Home asked for, once the list says the checkpoint is there', async () => {
       useOrgStore.setState({
         orgs: [developerOrg({ orgType: 'Sandbox' }), QA],
         selectedOrgId: 'org-dev',
@@ -923,7 +925,7 @@ describe('CheckpointPage', () => {
       });
       render(<CheckpointPage />);
       answerList([listEntry(readyCheckpoint(), { valid: false, why: 'refreshed' })]);
-      expect(screen.getByTestId('checkpoint-replay')).toBeInTheDocument();
+      expect(await screen.findByTestId('checkpoint-replay')).toBeInTheDocument();
     });
 
     it('opens no replay of a checkpoint that does not read, which the list keeps', () => {

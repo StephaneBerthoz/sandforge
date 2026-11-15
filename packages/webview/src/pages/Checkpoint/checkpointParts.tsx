@@ -6,6 +6,7 @@ import type { RewindPreviewProps } from './RewindPreview';
 import type { RewindRunProps } from './RewindRun';
 import type { StopComparingFieldsProps } from './StopComparingFields';
 import type { ExportCheckpointProps, ImportCheckpointProps } from './CheckpointTransfer';
+import type { ReplayCheckpointProps } from './ReplayCheckpoint';
 
 /*
  * The parts of the Checkpoints page its first paint does not draw, each a
@@ -13,28 +14,44 @@ import type { ExportCheckpointProps, ImportCheckpointProps } from './CheckpointT
  * org's checkpoints, or its empty state, and what a take asks and shows comes
  * once Take a checkpoint is pressed, what a rewind would do once Rewind… is,
  * the rewind and what it did once it is confirmed, the fields a checkpoint
- * compares once they are to change, and the key of an export or the facts of
- * a file to import once Export… or Import… has its answer. Their words are
- * loaded with the page: its own namespace, and those of what the org runs as a
- * removal writes and of what a removal deleted, which the preview and the run
- * say as the Forge and Sync removals do — and which a replay in another org,
- * drawn by the page itself, says of its load and of its removal.
+ * compares once they are to change, the key of an export or the facts of a
+ * file to import once Export… or Import… has its answer, and a replay in
+ * another org once Replay in another org… is pressed. Their words are loaded
+ * with each: the page's own namespace is the page's, and what the org runs as
+ * a removal writes, what a removal deleted, and what a run checks before it
+ * writes come with the preview, the run and the replay that say them, as the
+ * Forge and Sync removals do. The replay brings the words of the Frozen load
+ * it runs too. Drawn by the page itself, the replay and those words took the
+ * page to 1,000 kB before it painted, its budget to the byte.
  */
 
+// A replay in another org: its plan, its run, its verification and its
+// removal, said as a Frozen load says them, and the replays of the checkpoint.
+const LoadedReplayCheckpoint = lazy(() =>
+  withEnglish(
+    () => import('./ReplayCheckpoint'),
+    ['checkpointNotes', 'frozen', 'orgAutomation', 'runRemoval', 'runResults'],
+  )().then((module) => ({
+    default: module.ReplayCheckpoint,
+  })),
+);
+
 const LoadedTakeCheckpoint = lazy(() =>
-  withEnglish(() => import('./TakeCheckpoint'), [])().then((module) => ({
+  withEnglish(() => import('./TakeCheckpoint'), ['checkpointNotes'])().then((module) => ({
     default: module.TakeCheckpoint,
   })),
 );
 
 const LoadedRewindPreview = lazy(() =>
-  withEnglish(() => import('./RewindPreview'), [])().then((module) => ({
-    default: module.RewindPreview,
-  })),
+  withEnglish(() => import('./RewindPreview'), ['orgAutomation', 'runRemoval'])().then(
+    (module) => ({
+      default: module.RewindPreview,
+    }),
+  ),
 );
 
 const LoadedRewindRun = lazy(() =>
-  withEnglish(() => import('./RewindRun'), [])().then((module) => ({
+  withEnglish(() => import('./RewindRun'), ['orgAutomation', 'runRemoval'])().then((module) => ({
     default: module.RewindRun,
   })),
 );
@@ -98,6 +115,15 @@ export const ExportCheckpoint: FC<ExportCheckpointProps> = (props) => (
   <PartBoundary>
     <Suspense fallback={null}>
       <LoadedExportCheckpoint {...props} />
+    </Suspense>
+  </PartBoundary>
+);
+
+/** A checkpoint's records replayed in another org, its simulation first, and taken back. */
+export const ReplayCheckpoint: FC<ReplayCheckpointProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedReplayCheckpoint {...props} />
     </Suspense>
   </PartBoundary>
 );

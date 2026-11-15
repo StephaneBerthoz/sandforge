@@ -100,8 +100,29 @@ describe('duplicateSetsOf', () => {
     expect(sets.map((s) => s.id)).toEqual([id('0GK', 1)]);
   });
 
-  it('leaves a set one item of which names a record that is not the run’s: it reports that record too', async () => {
-    const org = orgOf([set(1)], [item(1, 1, id('003', 1)), item(2, 1, id('003', 9))]);
+  it('takes a set made in the window of a record of the run and one the org held: once the run’s goes, it reports that record alone', async () => {
+    // Replayed for real into an org whose rule on accounts alerts: an account
+    // met one the org held, and the removal left their set, and the held
+    // account's item in it, which nothing named.
+    const org = orgOf(
+      [set(1, { LastModifiedById: AUTOMATED })],
+      [item(1, 1, id('003', 1)), item(2, 1, id('003', 9))],
+    );
+
+    expect((await duplicateSetsOf(org, run)).map((s) => s.id)).toEqual([id('0GK', 1)]);
+  });
+
+  it('leaves a set two items of which name records that are not the run’s: it still reports them alike', async () => {
+    const org = orgOf(
+      [set(1)],
+      [item(1, 1, id('003', 1)), item(2, 1, id('003', 9)), item(3, 1, id('003', 8))],
+    );
+
+    expect(await duplicateSetsOf(org, run)).toEqual([]);
+  });
+
+  it('leaves a set every item of which names a record that is not the run’s, whoever last modified it', async () => {
+    const org = orgOf([set(1)], [item(1, 1, id('003', 9))]);
 
     expect(await duplicateSetsOf(org, run)).toEqual([]);
   });
@@ -139,7 +160,7 @@ describe('duplicateSetsOf', () => {
           LastModifiedDate: '2026-11-13T14:50:58.000+0000',
           LastModifiedById: AUTOMATED,
         }),
-        // Made alike, reporting a record that is not the run's too: not taken.
+        // Made alike, reporting two records that are not the run's too: not taken.
         set(3, { CreatedDate: made, LastModifiedDate: made, LastModifiedById: AUTOMATED }),
       ],
       [
@@ -148,6 +169,7 @@ describe('duplicateSetsOf', () => {
         item(3, 2, id('003', 1)),
         item(4, 3, id('003', 2)),
         item(5, 3, id('003', 9)),
+        item(6, 3, id('003', 8)),
       ],
     );
 

@@ -106,6 +106,15 @@ function resetStore(): void {
 
 /* ---- Tests ---- */
 
+/**
+ * Wait for the Load tab, a chunk of its own the page fetches the first time
+ * the tab is shown, whichever test shows it first.
+ */
+async function loadTabShown(): Promise<void> {
+  // The first fetch transforms the tab's whole module graph: past a second on a busy machine.
+  await screen.findByTestId('frozen-load-tab', {}, { timeout: 15_000 });
+}
+
 /** A table cell's text, the error catalogue's hint under it set aside. */
 function textBesideHint(cell: Element): string | null {
   const copy = cell.cloneNode(true) as Element;
@@ -146,9 +155,10 @@ describe('FrozenPage', () => {
     expect(screen.getByTestId('frozen-status-strip')).toBeDefined();
   });
 
-  it('switches to the load tab', () => {
+  it('switches to the load tab', async () => {
     render(<FrozenPage />);
     fireEvent.click(screen.getByTestId('page-tab-load'));
+    await loadTabShown();
     expect(screen.getByTestId('frozen-load-tab')).toBeDefined();
     expect(screen.queryByTestId('frozen-extract-tab')).toBeNull();
   });
@@ -496,7 +506,7 @@ describe('FrozenPage', () => {
     expect(screen.getByText('Case-000001')).toBeDefined();
   });
 
-  it('dispatches frozen:load with the pilot flag', () => {
+  it('dispatches frozen:load with the pilot flag', async () => {
     mockOrgState = {
       orgs: [
         { id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] },
@@ -506,6 +516,7 @@ describe('FrozenPage', () => {
     };
     useFrozenStore.setState({ tab: 'load', status: statusFixture(), targetOrgId: 'org-2' });
     render(<FrozenPage />);
+    await loadTabShown();
     fireEvent.click(screen.getByTestId('frozen-load-pilot'));
     fireEvent.click(screen.getByTestId('frozen-load-run'));
     expect(mockMutate).toHaveBeenCalledWith('frozen:load', {
@@ -514,7 +525,7 @@ describe('FrozenPage', () => {
     });
   });
 
-  it('shows per-phase progress during a load', () => {
+  it('shows per-phase progress during a load', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -530,11 +541,12 @@ describe('FrozenPage', () => {
       ],
     });
     render(<FrozenPage />);
+    await loadTabShown();
     expect(screen.getByTestId('frozen-load-progress')).toBeDefined();
     expect(screen.getByText(/Inserting/)).toBeDefined();
   });
 
-  it('names each phase of a load in words, not by its code', () => {
+  it('names each phase of a load in words, not by its code', async () => {
     // The badge printed the phase's code itself: "guards", "insert", "pass2".
     useFrozenStore.setState({
       tab: 'load',
@@ -545,6 +557,7 @@ describe('FrozenPage', () => {
       ],
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const badgeOf = (line: RegExp): string =>
       screen.getByText(line).closest('li')?.firstElementChild?.textContent ?? '';
@@ -552,7 +565,7 @@ describe('FrozenPage', () => {
     expect(badgeOf(/Patching cycle FKs/)).toBe('Second pass');
   });
 
-  it("names the catalog's line by its step, marked failed when a read of it threw", () => {
+  it("names the catalog's line by its step, marked failed when a read of it threw", async () => {
     // Read with no line open, the catalog's read that threw left the mapping's
     // line last, marked done, and said why only in the error banner.
     useFrozenStore.setState({
@@ -574,6 +587,7 @@ describe('FrozenPage', () => {
       ],
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const badge = screen.getByText(/Catalog not looked up/).closest('li')?.firstElementChild;
     expect(badge?.textContent).toBe('Catalog');
@@ -598,7 +612,7 @@ describe('FrozenPage', () => {
     }
   });
 
-  it('marks an object a cancel stopped while it was written apart from the ones written whole', () => {
+  it('marks an object a cancel stopped while it was written apart from the ones written whole', async () => {
     // Ended done, the object the cancel cut short read as written whole
     // beside the ones that were; its line alone said otherwise.
     useFrozenStore.setState({
@@ -624,6 +638,7 @@ describe('FrozenPage', () => {
       ],
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const markOf = (line: RegExp): string =>
       screen.getByText(line).closest('li')?.firstElementChild?.className ?? '';
@@ -631,7 +646,7 @@ describe('FrozenPage', () => {
     expect(markOf(/99 not inserted/)).toContain('bg-status-warning');
   });
 
-  it('says which statuses were applied after insert, and which were refused', () => {
+  it('says which statuses were applied after insert, and which were refused', async () => {
     // An activated order is created as a draft and activated once its items
     // are in; a refusal there has to show, not vanish into the counts.
     useFrozenStore.setState({
@@ -671,12 +686,13 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const statuses = screen.getByTestId('frozen-report-statuses');
     expect(statuses.textContent).toContain('Statuses applied after insert: 2 — refused: 1');
     expect(statuses.textContent).toContain('Order-000003 → Activated');
   });
 
-  it('names the records the load left out because the platform writes them itself', () => {
+  it('names the records the load left out because the platform writes them itself', async () => {
     // A tracked change is never sent — the platform refuses one from a copy —
     // and neither inserted nor failed, it would count nowhere else.
     useFrozenStore.setState({
@@ -709,12 +725,13 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const leftOut = screen.getByTestId('frozen-report-left-to-the-platform');
     expect(leftOut.textContent).toContain('the platform writes these records');
     expect(leftOut.textContent).toContain('FeedItem (2), FeedComment (1)');
   });
 
-  it('names each object the load did not send, and why', () => {
+  it('names each object the load did not send, and why', async () => {
     // An object the target takes no insert of makes the load one with errors;
     // with no failed record to show, the report said nothing of which.
     useFrozenStore.setState({
@@ -748,6 +765,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const excluded = screen.getByTestId('frozen-report-excluded');
     expect(excluded.textContent).toContain('Objects not loaded');
     expect(excluded.textContent).toContain(
@@ -755,7 +773,7 @@ describe('FrozenPage', () => {
     );
   });
 
-  it('says which feed items a dataset without their type could not load, and to extract it again', () => {
+  it('says which feed items a dataset without their type could not load, and to extract it again', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -786,6 +804,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const untyped = screen.getByTestId('frozen-report-untyped-feed-items');
     expect(untyped.textContent).toContain('extract the dataset again');
     expect(untyped.textContent).toContain('FeedItem (3), FeedComment (1)');
@@ -793,7 +812,7 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-excluded')).toBeNull();
   });
 
-  it('says which records a load left out for a parent excludedObjects leaves out', () => {
+  it('says which records a load left out for a parent excludedObjects leaves out', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -818,12 +837,13 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const held = screen.getByTestId('frozen-report-held-for-excluded');
     expect(held.textContent).toContain('excludedObjects leaves out');
     expect(held.textContent).toContain('InsurancePolicyParticipant (2)');
   });
 
-  it('says why records failed: per object, each status code and message, with how many', () => {
+  it('says why records failed: per object, each status code and message, with how many', async () => {
     // The report counted the failed records and never said why: the reasons
     // were in the report the page held, and nowhere on it.
     useFrozenStore.setState({
@@ -869,6 +889,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const failures = screen.getByTestId('frozen-report-failures');
     expect(failures.textContent).toContain('Why records failed');
     const rows = Array.from(failures.querySelectorAll('tbody tr')).map((row) =>
@@ -887,7 +908,7 @@ describe('FrozenPage', () => {
     ]);
   });
 
-  it('shows no failure reasons for a load where no record failed', () => {
+  it('shows no failure reasons for a load where no record failed', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -918,6 +939,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     expect(screen.getByTestId('frozen-load-report')).toBeDefined();
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
     // A load without Reload purges nothing, and says nothing of a purge.
@@ -925,7 +947,7 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-written-without-fields')).toBeNull();
   });
 
-  it('names each field the target refused records on that went in written again, what refused it, and how', () => {
+  it('names each field the target refused records on that went in written again, what refused it, and how', async () => {
     // Counted among the inserted alone, a record in the target short of a
     // value the dataset held read as one written whole.
     useFrozenStore.setState({
@@ -982,6 +1004,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const section = screen.getByTestId('frozen-report-written-without-fields');
     expect(section.textContent).toContain(en.frozen.report.writtenWithoutFields.title);
@@ -1013,7 +1036,7 @@ describe('FrozenPage', () => {
     ]);
   });
 
-  it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', () => {
+  it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', async () => {
     // A reload whose only errors were in its purge read "Completed with
     // errors" over a report that named none: the purge was counted nowhere.
     useFrozenStore.setState({
@@ -1064,6 +1087,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const purge = screen.getByTestId('frozen-report-purge');
     expect(purge.textContent).toContain('What the reload purged of earlier loads');
@@ -1096,7 +1120,7 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
   });
 
-  it('says what a reload left in place that the platform does not delete, though it purged nothing else', () => {
+  it('says what a reload left in place that the platform does not delete, though it purged nothing else', async () => {
     // Sent to be deleted, the business hours were refused at every reload.
     useFrozenStore.setState({
       tab: 'load',
@@ -1124,13 +1148,14 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     expect(screen.getByTestId('frozen-report-purge-kept').textContent).toBe(
       'Kept — the platform does not delete these records, which earlier loads created and this one does not find again: BusinessHours (1)',
     );
   });
 
-  it('says what a reload’s purge took along that the loads did not write, under the object it deleted', () => {
+  it('says what a reload’s purge took along that the loads did not write, under the object it deleted', async () => {
     // Live (GC15 C2), the contact a trigger made with an account of a load
     // went with the account the purge deleted, and nothing named it.
     useFrozenStore.setState({
@@ -1159,13 +1184,14 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     expect(screen.getByTestId('frozen-report-purge-came-along').textContent).toBe(
       'Taken along with what it deleted — not written by the loads, made with their records as they wrote: Account: 1 (Contact)',
     );
   });
 
-  it('says what the sweep asked with a reload took and left, per load it replaced', () => {
+  it('says what the sweep asked with a reload took and left, per load it replaced', async () => {
     // Purged alone, the loads replaced left the tasks a flow had opened on
     // each contact: the report said nothing of them.
     useFrozenStore.setState({
@@ -1201,6 +1227,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     const sweeps = screen.getByTestId('frozen-report-sweeps');
     expect(sweeps.textContent).toContain('Swept for the load of 2026-10-15');
@@ -1211,7 +1238,7 @@ describe('FrozenPage', () => {
     expect(report.textContent).not.toContain('Completed');
   });
 
-  it('names the links the load left unresolved, by object and lookup, with what each cost', () => {
+  it('names the links the load left unresolved, by object and lookup, with what each cost', async () => {
     // Counted nowhere on screen, where the resolved ones were: a load whose
     // only errors were its unresolved links read "Completed with errors" over
     // a report that named none.
@@ -1294,6 +1321,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     // Counted where the resolved ones are, lookup by lookup as they are.
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
@@ -1326,7 +1354,7 @@ describe('FrozenPage', () => {
     );
   });
 
-  it('says nothing of unresolved links when the load resolved them all', () => {
+  it('says nothing of unresolved links when the load resolved them all', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -1348,6 +1376,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
 
     expect(screen.getByTestId('frozen-report-postload').textContent).toBe(
       'Pass 2: 2 cycle links resolved, 0 unresolved — Person contacts: 1 linked, 0 sent as ' +
@@ -1356,7 +1385,7 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-unresolved')).toBeNull();
   });
 
-  it('renders the load report with removals and skipped duplicates', () => {
+  it('renders the load report with removals and skipped duplicates', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -1405,6 +1434,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     expect(screen.getByTestId('frozen-load-report')).toBeDefined();
     expect(screen.getByTestId('frozen-report-removals')).toBeDefined();
     expect(screen.getByText('Case.LegacyField__c')).toBeDefined();
@@ -1412,7 +1442,7 @@ describe('FrozenPage', () => {
     expect(screen.getByText('Case-000007')).toBeDefined();
   });
 
-  it('renders the post-load verdict', () => {
+  it('renders the post-load verdict', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -1427,12 +1457,13 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     expect(screen.getByTestId('frozen-verify-result')).toBeDefined();
     expect(screen.getByText('stability')).toBeDefined();
     expect(screen.getByText('counts')).toBeDefined();
   });
 
-  it('calls partial the verdict of a load that wrote part of the dataset, and says what it did not write', () => {
+  it('calls partial the verdict of a load that wrote part of the dataset, and says what it did not write', async () => {
     useFrozenStore.setState({
       tab: 'load',
       status: statusFixture(),
@@ -1447,6 +1478,7 @@ describe('FrozenPage', () => {
       },
     });
     render(<FrozenPage />);
+    await loadTabShown();
     const result = screen.getByTestId('frozen-verify-result');
     expect(within(result).getByText('Partial')).toBeDefined();
     expect(within(result).getByText('1 record(s) not loaded')).toBeDefined();
@@ -1493,9 +1525,10 @@ describe('FrozenPage', () => {
       expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('QA');
     });
 
-    it("shows the target's once one is picked in the Load tab, and none for an org never verified", () => {
+    it("shows the target's once one is picked in the Load tab, and none for an org never verified", async () => {
       render(<FrozenPage />);
       fireEvent.click(screen.getByTestId('page-tab-load'));
+      await loadTabShown();
 
       fireEvent.click(screen.getByTestId('frozen-load-target'));
       fireEvent.click(screen.getByTestId('frozen-load-target-option-org-2'));
@@ -1510,7 +1543,7 @@ describe('FrozenPage', () => {
       expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('UAT');
     });
 
-    it('keeps the target picked when the Load tab is left and shown again', () => {
+    it('keeps the target picked when the Load tab is left and shown again', async () => {
       useFrozenStore.setState({
         status: statusFixture({
           lastLoad: { status: 'completed', orgId: 'org-2', at: '2026-08-01T12:00:00Z' },
@@ -1520,6 +1553,7 @@ describe('FrozenPage', () => {
       });
       render(<FrozenPage />);
       fireEvent.click(screen.getByTestId('page-tab-load'));
+      await loadTabShown();
       fireEvent.click(screen.getByTestId('frozen-load-target'));
       fireEvent.click(screen.getByTestId('frozen-load-target-option-org-2'));
 

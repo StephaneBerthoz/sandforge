@@ -34,10 +34,10 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
-import { ReplayCheckpoint } from './ReplayCheckpoint';
 import {
   ExportCheckpoint,
   ImportCheckpoint,
+  ReplayCheckpoint,
   RewindPreview,
   RewindRun,
   StopComparingFields,

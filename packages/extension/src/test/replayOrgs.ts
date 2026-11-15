@@ -58,7 +58,7 @@ import type {
   TargetOrgAccess,
 } from '../modules/frozendataset/loadTypes.js';
 import type { OperationOutcome } from '../modules/sync/DataSync.js';
-import { MEMORY_ORG_USER, orgError, type MemoryRow } from './memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, orgError, type MemoryChild, type MemoryRow } from './memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from './memoryRestoreOrg.js';
 
 /** The org a fabricated checkpoint is of, unless it names another. */
@@ -415,6 +415,8 @@ export interface ReplayTargetOptions {
   fields?: Record<string, ReplayField[]>;
   /** Objects it does not let anyone create records of. */
   notCreateable?: string[];
+  /** Per object, the child relationships its describe lists, which a delete follows: none unless given. */
+  children?: Record<string, MemoryChild[]>;
 }
 
 /** A record type of the other org, as its describe gives it to the user who replays. */
@@ -437,18 +439,21 @@ export class ReplayTargetOrg {
   /** The user the replay writes as: none of the checkpoint's org's, which another org never holds. */
   readonly runningUserId = REPLAYING_USER;
   /** The records, read and written. */
-  readonly org = new MemoryRestoreOrg();
+  readonly org: MemoryRestoreOrg;
   /** Every statement it was asked, in order. */
   readonly asked: string[] = [];
   /** Every describe it was asked, in order. */
   readonly described: string[] = [];
   private readonly fields: Record<string, ReplayField[]>;
   private readonly notCreateable: ReadonlySet<string>;
+  /** Per object, what its describe says of deleting its records, where a test gives it. */
+  private readonly deletable = new Map<string, boolean>();
   private readonly recordTypeInfos = new Map<string, TargetRecordTypeSpec[]>();
   readonly personAccounts: boolean;
   readonly currencies: readonly string[] | undefined;
 
   constructor(options: ReplayTargetOptions = {}) {
+    this.org = new MemoryRestoreOrg(options.children ?? {});
     this.organizationId = options.organizationId ?? TARGET_ORG_ID;
     this.personAccounts = options.personAccounts ?? true;
     this.currencies = options.currencies;
@@ -479,9 +484,19 @@ export class ReplayTargetOrg {
     this.org.refuseCreate = (objectApiName, record) => this.refusal(objectApiName, record);
   }
 
-  /** Give the org a field list for an object it did not have: a custom setting, a custom object. */
-  withObject(objectApiName: string, fields: ReplayField[]): this {
+  /**
+   * Give the org a field list for an object it did not have: a custom
+   * setting, a custom object, or one the platform writes, whose describe
+   * then says whether its records may be deleted (a sweep looks only at
+   * those it says may be).
+   */
+  withObject(
+    objectApiName: string,
+    fields: ReplayField[],
+    describe: { deletable?: boolean } = {},
+  ): this {
     this.fields[objectApiName] = fields;
+    if (describe.deletable !== undefined) this.deletable.set(objectApiName, describe.deletable);
     return this;
   }
 
@@ -551,6 +566,9 @@ export class ReplayTargetOrg {
     return {
       name: objectApiName,
       createable: !this.notCreateable.has(objectApiName),
+      ...(this.deletable.has(objectApiName)
+        ? { deletable: this.deletable.get(objectApiName) }
+        : {}),
       fields: fields.map((field) => ({ ...field })),
       ...(types.length > 0
         ? {

@@ -301,6 +301,35 @@ describe('what a replay says beside its plan', () => {
     );
   });
 
+  it('says the refusal its simulation found for the data storage, and the way out, as the command line does', () => {
+    // Run for real: 13 MB of a checkpoint into an org with 5 MB left; the
+    // simulation said the figures alone, and only a Replay met the refusal.
+    const lines = replayLines(
+      infoOf(plainSummary(), {
+        storage: {
+          estimateMB: 12.98,
+          remainingMB: 5,
+          maxMB: 5,
+          refusal: {
+            code: 'FROZEN_STORAGE_EXCEEDED',
+            message: 'The replay was refused before it wrote anything: …',
+          },
+        },
+      }),
+      'QA',
+      t,
+    );
+
+    expect(lines.find((line) => line.id === 'storage')).toEqual({
+      id: 'storage',
+      text:
+        'A replay would be refused, nothing written: the checkpoint’s records take about 13 MB ' +
+        'of data storage, and QA has 5 MB left of 5 MB. Untick some objects, or free data ' +
+        'storage in QA.',
+      warn: true,
+    });
+  });
+
   it('says nothing of the standard price book when the annex told it', () => {
     const lines = replayLines(infoOf(plainSummary({ standardPricebook: 'annex' })), 'QA', t);
     expect(lines.some((line) => line.id === 'standard-pricebook')).toBe(false);

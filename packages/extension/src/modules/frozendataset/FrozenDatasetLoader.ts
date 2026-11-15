@@ -413,6 +413,13 @@ export interface RecordTypesUntold {
 
 /** Error thrown when required configuration is missing (actionable). */
 export class LoadConfigError extends Error {
+  /**
+   * What else a preview found a load would be refused for, each under its
+   * code, said beside the gaps: set by the preview, which judges the gates
+   * that need no plan once the gaps leave it none.
+   */
+  refusedBeside?: ReadonlyArray<{ code: string; message: string }>;
+
   constructor(
     message: string,
     /** What the configuration has to declare, each as the message lists it, when it lists any. */

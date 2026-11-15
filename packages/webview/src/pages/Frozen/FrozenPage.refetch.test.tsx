@@ -137,7 +137,7 @@ function answerStatuses(from: number): number {
 }
 
 describe('FrozenPage — the status it reads again', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [DEV], selectedOrgId: DEV.id });
     // The target picked: the Load tab offers none until one is.
@@ -150,6 +150,8 @@ describe('FrozenPage — the status it reads again', () => {
       lastError: null,
     });
     render(<FrozenPage />);
+    // The Load tab, a chunk of its own, fetched the first time it is shown.
+    await screen.findByTestId('frozen-load-tab', {}, { timeout: 15_000 });
     answerStatuses(0);
   });
 

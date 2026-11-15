@@ -4404,7 +4404,7 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
   const SET = id('0GK', 1);
   /** A set the target already held, into which a contact of the run was reported. */
   const HELD_SET = id('0GK', 2);
-  /** A set made in the window, one item of which reports a colleague's contact. */
+  /** A set made in the window, two items of which report colleagues' contacts. */
   const SHARED_SET = id('0GK', 3);
 
   function withSets(): { org: FakeOrg; plan: ForgeRunObjectRecords[] } {
@@ -4432,9 +4432,41 @@ describe('removeRunRecords — the duplicate record sets the target’s rules ma
       { Id: id('0GL', 3), DuplicateRecordSetId: HELD_SET, RecordId: id('003', 1) },
       { Id: id('0GL', 4), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 2) },
       { Id: id('0GL', 5), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 9) },
+      { Id: id('0GL', 6), DuplicateRecordSetId: SHARED_SET, RecordId: id('003', 8) },
     );
     return { org, plan };
   }
+
+  it('takes the set made as the run wrote of a record of the run and one the org held, its items with it, and keeps the org’s record', async () => {
+    // Replayed for real into an org whose rule on accounts alerts: an
+    // account met one the org held, and the removal left their set and the
+    // held account's item, which nothing named.
+    const { org, plan } = withSets();
+    const ALIKE_SET = id('0GK', 4);
+    const made = { CreatedById: AUTOMATED, LastModifiedById: AUTOMATED };
+    org.add('DuplicateRecordSet', {
+      Id: ALIKE_SET,
+      CreatedDate: DURING_RUN,
+      LastModifiedDate: DURING_RUN,
+      ...made,
+    });
+    org.add(
+      'DuplicateRecordItem',
+      { Id: id('0GL', 7), DuplicateRecordSetId: ALIKE_SET, RecordId: id('003', 1) },
+      { Id: id('0GL', 8), DuplicateRecordSetId: ALIKE_SET, RecordId: id('003', 7) },
+    );
+
+    const outcome = await removeRunRecords(org, plan, options({ runUserId: RUN_USER }));
+
+    expect(org.has('DuplicateRecordSet', ALIKE_SET)).toBe(false);
+    expect(org.has('DuplicateRecordItem', id('0GL', 8))).toBe(false);
+    expect(org.has('DuplicateRecordSet', SHARED_SET)).toBe(true);
+    expect(outcome.objects.find((o) => o.objectApiName === 'DuplicateRecordSet')).toMatchObject({
+      planned: 2,
+      deleted: 2,
+      platformCopies: 2,
+    });
+  });
 
   it('takes the sets made as the run wrote whose every item reports a record of the run, whoever created them, and says them apart', async () => {
     // Live, a clone of the whole org left the two sets the target's Lead and

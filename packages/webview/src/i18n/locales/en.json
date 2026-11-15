@@ -8738,6 +8738,7 @@
         "filesLeft_one": "{{files}} file is not replayed, a checkpoint keeping no file’s content: {{names}}.",
         "filesLeft_other": "{{files}} files are not replayed, a checkpoint keeping no file’s content: {{names}}.",
         "storage": "Data storage: about {{estimate}} MB, with {{remaining}} MB left in {{target}} of {{max}} MB.",
+        "storageRefused": "A replay would be refused, nothing written: the checkpoint’s records take about {{estimate}} MB of data storage, and {{target}} has {{remaining}} MB left of {{max}} MB. Untick some objects, or free data storage in {{target}}.",
         "earlier": "An earlier replay of this checkpoint into {{target}} is still in place: this one creates its records again beside it. Remove it first, or tick Replace."
       },
       "result": {

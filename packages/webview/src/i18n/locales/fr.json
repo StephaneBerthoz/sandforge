@@ -8738,6 +8738,7 @@
         "filesLeft_one": "{{files}} fichier n’est pas rejoué, un point de contrôle ne gardant pas le contenu des fichiers : {{names}}.",
         "filesLeft_other": "{{files}} fichiers ne sont pas rejoués, un point de contrôle ne gardant pas le contenu des fichiers : {{names}}.",
         "storage": "Stockage de données : environ {{estimate}} Mo, avec {{remaining}} Mo restants dans {{target}} sur {{max}} Mo.",
+        "storageRefused": "Un rejeu serait refusé, rien d'écrit : les enregistrements du point de contrôle prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{target}}. Décochez des objets, ou libérez du stockage dans {{target}}.",
         "earlier": "Un rejeu antérieur de ce point de contrôle dans {{target}} est encore en place : celui-ci recrée ses enregistrements à côté. Retirez-le d’abord, ou cochez Remplacer."
       },
       "result": {

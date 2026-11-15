@@ -11,6 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import { formatNumber } from '../../utils/formatters';
+import { megabytes } from '../Frozen/frozenErrorWords';
 
 /** Translates a key in the interface language. */
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -441,7 +442,21 @@ export function replayLines(info: FrozenReplayInfo, target: string, t: Translate
       warn: true,
     });
   }
-  if (info.storage) {
+  // Past what the other org has left, the refusal a Replay would meet, said
+  // as the command line's dry run says it: shown as figures alone, it was
+  // met only once Replay was pressed.
+  if (info.storage?.refusal) {
+    lines.push({
+      id: 'storage',
+      text: t('checkpoint.replay.plan.storageRefused', {
+        estimate: megabytes(info.storage.estimateMB),
+        remaining: info.storage.remainingMB,
+        max: info.storage.maxMB,
+        target,
+      }),
+      warn: true,
+    });
+  } else if (info.storage) {
     lines.push({
       id: 'storage',
       text: t('checkpoint.replay.plan.storage', {
@@ -450,7 +465,6 @@ export function replayLines(info: FrozenReplayInfo, target: string, t: Translate
         max: info.storage.maxMB,
         target,
       }),
-      ...(info.storage.refusal ? { warn: true as const } : {}),
     });
   }
   return lines;

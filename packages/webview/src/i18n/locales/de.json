@@ -8738,6 +8738,7 @@
         "filesLeft_one": "{{files}} Datei wird nicht wiedergegeben, da ein Prüfpunkt keinen Dateiinhalt aufbewahrt: {{names}}.",
         "filesLeft_other": "{{files}} Dateien werden nicht wiedergegeben, da ein Prüfpunkt keinen Dateiinhalt aufbewahrt: {{names}}.",
         "storage": "Datenspeicher: rund {{estimate}} MB, bei {{remaining}} MB frei in {{target}} von {{max}} MB.",
+        "storageRefused": "Eine Wiedergabe würde abgelehnt, nichts geschrieben: Die Datensätze des Prüfpunkts brauchen rund {{estimate}} MB Datenspeicher, und in {{target}} sind noch {{remaining}} MB von {{max}} MB frei. Deaktivieren Sie einige Objekte oder geben Sie Datenspeicher in {{target}} frei.",
         "earlier": "Eine frühere Wiedergabe dieses Prüfpunkts in {{target}} ist noch vorhanden: Diese legt ihre Datensätze daneben erneut an. Entfernen Sie sie zuerst oder haken Sie Ersetzen an."
       },
       "result": {

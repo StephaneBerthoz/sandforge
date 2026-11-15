@@ -65,6 +65,7 @@ import type {
   FrozenReloadSweep,
   FrozenReloadSweepListing,
   FrozenRemovalResult,
+  FrozenReplayInfo,
   FrozenReplayRequest,
   FrozenSelectProgress,
   FrozenSelectionStop,
@@ -2436,6 +2437,12 @@ export interface FrozenReplayRun {
   lines(message: FrozenPosted, lines: string[]): string[];
   /** The question asked before a replay writes, of what its dry run counted. */
   question(plan: FrozenLoadPlanInfo): string;
+  /**
+   * What a dry run says last, once every refusal it found is said: the line
+   * that runs the replay, which a refused dry run does not give — typed as it
+   * was given, it met the same refusal, or wrote what it was refused for.
+   */
+  dryRunEnd(refused: readonly RunRefusal[]): string[];
   /** What --json prints: the replay's own answer, made of the load's. */
   answer(
     answer: FrozenAnswer,
@@ -2952,6 +2959,17 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
     // The load's own count gate, said of the plan it would be held to.
     const plan = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload?.plan as
       FrozenLoadPlanInfo | undefined;
+    // Required fields the configuration leaves empty leave no plan: said on
+    // the error's line, they are among the refusals, under LOAD_CONFIG, with
+    // what else the preview found a load would be refused for, each said.
+    const gaps = posted.find(
+      (m) => m.type === 'frozen:load:preview:error' && m.payload?.code === 'LOAD_CONFIG',
+    )?.payload;
+    if (plan === undefined && gaps !== undefined) {
+      refusals.push({ code: 'LOAD_CONFIG', message: String(gaps.message ?? '') });
+      const beside = Array.isArray(gaps.refusedBeside) ? (gaps.refusedBeside as RunRefusal[]) : [];
+      for (const refused of beside) wouldRefuse(refused);
+    }
     const tooMany = plan ? loadRecordsRefusal(loadPlanRecords(plan), args.maxTotal) : undefined;
     // MAX_RECORDS, as the load refuses it.
     if (tooMany) wouldRefuse({ code: 'MAX_RECORDS', message: tooMany });
@@ -2964,6 +2982,14 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
     // delivered without --accept-emails, under the load's own code.
     const emailsRefused = plan?.emails?.refused;
     if (emailsRefused) wouldRefuse(emailsRefused);
+    // And its gate on the data storage its records take: past what the
+    // target has left, under FROZEN_STORAGE_EXCEEDED, as the load is. A
+    // replay's preview reads it; kept under its part of the answer alone, a
+    // dry run of 13 MB into an org with 5 MB left said the figures, ended 0
+    // once what the org runs was accepted, and gave the line that replayed it all.
+    const preview = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload;
+    const storageRefused = (preview?.replay as FrozenReplayInfo | undefined)?.storage?.refusal;
+    if (storageRefused) wouldRefuse(storageRefused);
     // And its gate on the API requests it takes of the target, its
     // checkpoint and its mute's lease among them: past what the target
     // has left today, under API_BUDGET_EXCEEDED, as the load is.
@@ -3071,6 +3097,8 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
         // written when their removal would leave records.
         if (args.dryRun) {
           await previewTheLoad(true);
+          // A replay's line, once each refusal is said: none when one refused it.
+          if (replay && !failed) for (const line of replay.dryRunEnd(refusals)) log(line);
           break;
         }
         // A replay says what it would do before it asks, and loads no more

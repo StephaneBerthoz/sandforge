@@ -366,7 +366,13 @@ replay:
   --remove                       delete from the other org what the replays created there, children
                                  first, the checkpoint kept or not; --preview says what it would
                                  delete; --sweep takes too what the other org's automation made for
-                                 them; --include-changed takes too what was changed since
+                                 them, and --sweep-list lists it and deletes nothing;
+                                 --include-changed takes too what was changed since
+  --sweep-late                   with --sweep: take too what it lists as made late; with
+                                 --sweep-list, say what it would take
+  --sweep-untied                 with --sweep: take too what it lists as tied to nothing of the
+                                 replay, refused when another run of this machine wrote to the
+                                 other org meanwhile; with --sweep-list, say what it would take
 replays:
   --target <alias|00D…>          the replays into this org alone
 Options:
@@ -716,6 +722,9 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--remove',
       '--preview',
       '--sweep',
+      '--sweep-list',
+      '--sweep-late',
+      '--sweep-untied',
       '--include-changed',
       '--custom-settings',
       '--mask',

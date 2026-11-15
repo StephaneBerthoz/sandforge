@@ -8738,6 +8738,7 @@
         "filesLeft_one": "{{files}} archivo no se reproduce, pues un punto de control no guarda el contenido de los archivos: {{names}}.",
         "filesLeft_other": "{{files}} archivos no se reproducen, pues un punto de control no guarda el contenido de los archivos: {{names}}.",
         "storage": "Almacenamiento de datos: unos {{estimate}} MB, con {{remaining}} MB libres en {{target}} de {{max}} MB.",
+        "storageRefused": "Una reproducción se rechazaría, sin escribir nada: los registros del punto de control ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{target}} le quedan {{remaining}} MB de {{max}} MB. Desmarque algunos objetos, o libere almacenamiento en {{target}}.",
         "earlier": "Una reproducción anterior de este punto de control en {{target}} sigue en su lugar: esta vuelve a crear sus registros al lado. Quítela primero, o marque Reemplazar."
       },
       "result": {

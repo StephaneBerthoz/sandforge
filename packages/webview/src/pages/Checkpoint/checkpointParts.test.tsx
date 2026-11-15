@@ -62,6 +62,15 @@ vi.mock('./StopComparingFields', () => {
   };
 });
 
+vi.mock('./ReplayCheckpoint', () => {
+  evaluated.add('ReplayCheckpoint');
+  return {
+    ReplayCheckpoint: ({ entry }: { entry: { checkpoint: { name: string } } }) => (
+      <div data-testid="replay-stand-in">{entry.checkpoint.name}</div>
+    ),
+  };
+});
+
 vi.mock('./CheckpointTransfer', () => {
   evaluated.add('CheckpointTransfer');
   return {
@@ -77,6 +86,7 @@ vi.mock('./CheckpointTransfer', () => {
 import {
   ExportCheckpoint,
   ImportCheckpoint,
+  ReplayCheckpoint,
   RewindPreview,
   RewindRun,
   StopComparingFields,
@@ -152,6 +162,28 @@ describe('the parts of the Checkpoints page loaded on demand', () => {
     expect((await screen.findByTestId('import-stand-in')).textContent).toBe(
       'before-uat.sfcheckpoint',
     );
+  });
+
+  it('loads a replay in another org the first time it is opened, with the props it was given', async () => {
+    // Drawn by the page itself, the replay and the words of the Frozen load
+    // it runs took the page to 1,000 kB before it painted.
+    expect([...evaluated]).not.toContain('ReplayCheckpoint');
+    const checkpoint = readyCheckpoint();
+    render(
+      <ReplayCheckpoint
+        org={developerOrg()}
+        entry={{
+          organizationId: checkpoint.org.organizationId,
+          checkpointId: checkpoint.checkpointId,
+          valid: true,
+          checkpoint,
+        }}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+    expect((await screen.findByTestId('replay-stand-in')).textContent).toBe('Before UAT');
+    expect([...evaluated]).toContain('ReplayCheckpoint');
   });
 
   it('says a take that could not load in its place, and leaves the page around it up', async () => {

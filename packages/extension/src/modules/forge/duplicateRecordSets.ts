@@ -12,10 +12,16 @@
  *
  * A set is the run's when it was created while the run wrote — from
  * {@link TIE_LEAD_MS} before its first write to {@link MADE_WITHIN_MS} after
- * its last, the platform writing it a moment after the save — and every item
- * it still holds names a record of the run: one holding a record that is not
- * the run's is that record's report too, and stays. Whoever created it: the
- * org's Automated Process user creates the sets, within the second of the
+ * its last, the platform writing it a moment after the save — and the items
+ * it still holds name records of the run, beside one record the org held at
+ * most, which a record of the run was found alike to. Once the run's records
+ * go, such a set reports that record alone, beside nothing: replayed for real
+ * into an org whose rule on accounts alerts, an account met one the org held,
+ * and its removal left their set and the held account's item, named by no
+ * removal and no sweep. One that names two records or more that are not the
+ * run's still reports them alike once the run's are gone: it is their report
+ * too, and stays. Whoever created it: the org's Automated Process user
+ * creates the sets, within the second of the
  * save, and the user whose records go in or out of one is only its last
  * modifier. Read by its creator, a removal on a scratch org took neither of
  * the two sets the Lead and Contact rules made of a clone's records, and both
@@ -136,8 +142,11 @@ export async function duplicateSetsRead(
   }
   const ids = sets.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
   if (ids.length === 0) return [];
-  /** Keys of the sets an item of which names a record that is not the run's. */
-  const others = new Set<string>();
+  /**
+   * By the key of each set, the records its items name that are not the
+   * run's, by key — or, for an item that names none, by the item's own.
+   */
+  const others = new Map<string, Set<string>>();
   /** By the key of each set, the records its items name. */
   const names = new Map<string, string[]>();
   /** By the key of each set, when its latest item was made. */
@@ -158,19 +167,33 @@ export async function duplicateSetsRead(
         if (Number.isFinite(made) && !(made <= (itemsMade.get(recordKey(set)) ?? Number.NaN))) {
           itemsMade.set(recordKey(set), made);
         }
-        if (typeof named !== 'string' || !run.has(recordKey(named))) others.add(recordKey(set));
-        else names.set(recordKey(set), [...(names.get(recordKey(set)) ?? []), recordKey(named)]);
+        if (typeof named !== 'string' || !run.has(recordKey(named))) {
+          const of = others.get(recordKey(set)) ?? new Set<string>();
+          of.add(typeof named === 'string' ? recordKey(named) : `item ${String(row.Id)}`);
+          others.set(recordKey(set), of);
+        } else {
+          names.set(recordKey(set), [...(names.get(recordKey(set)) ?? []), recordKey(named)]);
+        }
       }
     }
   } catch {
     return [];
   }
   const user = recordKey(run.user);
+  /**
+   * Whether a set is the run's: it names records of the run and one record
+   * the org held at most, or it names none at all any more and the run's
+   * user last modified it, as records left it.
+   */
+  const ofTheRun = (key: string, lastModifiedBy: unknown): boolean => {
+    const notTheRuns = others.get(key)?.size ?? 0;
+    if (names.has(key)) return notTheRuns <= 1;
+    return (
+      notTheRuns === 0 && typeof lastModifiedBy === 'string' && recordKey(lastModifiedBy) === user
+    );
+  };
   return sets.flatMap((row) =>
-    typeof row.Id === 'string' &&
-    !others.has(recordKey(row.Id)) &&
-    (names.has(recordKey(row.Id)) ||
-      (typeof row.LastModifiedById === 'string' && recordKey(row.LastModifiedById) === user))
+    typeof row.Id === 'string' && ofTheRun(recordKey(row.Id), row.LastModifiedById)
       ? [
           {
             id: row.Id,
@@ -200,8 +223,8 @@ export async function duplicateSetsRead(
  * one modified since but to report records into it — made, and last
  * modified, within {@link MADE_WITHIN_MS} of the run's end, its last date its
  * creation or no later than the second its latest item was made — whose
- * items name records, all of the run's: its dates are its making, for the
- * run. Run for real, a clone killed two seconds after it saved its contacts
+ * items name records of the run, beside one the org held at most: its dates
+ * are its making, for the run. Run for real, a clone killed two seconds after it saved its contacts
  * by REST had the Automated Process make their set six seconds after the
  * save, its last modifier; read by its own date, the removal kept it, empty,
  * as changed since the run. Another made its set in the second the run
@@ -218,8 +241,9 @@ export function modifiedOf(
   if (by === recordKey(run.user) && set.modified <= run.end + MADE_WITHIN_MS) {
     return Math.min(set.modified, run.end);
   }
-  // The sets read hold no item naming a record that is not the run's
-  // (`duplicateSetsRead`): naming some, it names the run's alone.
+  // The sets read name records of the run, and one the org held at most
+  // (`duplicateSetsRead`): made for them, whoever it was the run's record
+  // was found alike to.
   const within = run.end + MADE_WITHIN_MS;
   const madeForTheRun =
     set.names.length > 0 &&

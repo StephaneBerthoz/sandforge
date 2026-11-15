@@ -8738,6 +8738,7 @@
         "filesLeft_one": "{{files}} arquivo não é reproduzido, já que um ponto de verificação não guarda o conteúdo dos arquivos: {{names}}.",
         "filesLeft_other": "{{files}} arquivos não são reproduzidos, já que um ponto de verificação não guarda o conteúdo dos arquivos: {{names}}.",
         "storage": "Armazenamento de dados: cerca de {{estimate}} MB, com {{remaining}} MB restantes em {{target}} de {{max}} MB.",
+        "storageRefused": "Uma reprodução seria recusada, nada gravado: os registros do ponto de verificação ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{target}}. Desmarque alguns objetos, ou libere armazenamento em {{target}}.",
         "earlier": "Uma reprodução anterior deste ponto de verificação em {{target}} ainda está no lugar: esta recria os registros dele ao lado. Remova-a primeiro, ou marque Substituir."
       },
       "result": {
