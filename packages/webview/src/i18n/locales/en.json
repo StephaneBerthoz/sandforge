@@ -3983,7 +3983,7 @@
     "tipLabel": "Tip:",
     "forge": {
       "step1": "Pick the Target Org; the Source Org is already the org selected in the side panel.",
-      "step2": "Paste a Record ID on the Record tab, or pick ALL to copy the whole org, then click Discover Graph.",
+      "step2": "Paste a Record ID, a query on the SOQL tab, or pick ALL to copy the whole org; click Discover Graph.",
       "step3": "When discovery ends, click Review & Execute.",
       "step4": "Click Execute Forge, then read the Inserted card once the run ends.",
       "tip": "Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them."

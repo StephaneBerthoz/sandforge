@@ -367,6 +367,87 @@ run, which the removal kept. The result says per object what was found,
 deleted, already gone, kept and refused, the run keeps its counts (`sweep`),
 and the audit trail records it as a `cleanup_delete` with a `sweep` detail.
 
+## From a query, or several records
+
+A clone from a query (`ForgeConfig.queryScope: 'records'`: the SOQL tab, the
+clone command's `--query`) or from records named one by one (`--record`
+given more than once) is the clone of one record for each of them, run as
+one (`ExecuteOptions.roots`, `stages/QueryRoots.ts`). Each root takes what
+the clone of it alone would copy — its parents through foreign keys, its
+children through reverse lookups — into one `RecordScopeCache`, so a record
+two of them share is read and written once, and a record of the roots'
+object that one of them names comes as a parent, as the clone of one record
+brings it. The query's WHERE chooses the roots and filters no other read: no
+object they reach is read from its whole table, nor held to 200 rows.
+
+- **The roots first.** Before any other read, the executor reads the roots
+  by a statement of its own, never the query as typed: their ids alone,
+  under the query's WHERE and the object's own filter (`objectSoqlFilters`),
+  in the query's order or by `Id`, to the query's LIMIT when the run takes
+  that many and to one past the most it takes otherwise (`maxRoots`, the
+  command line's `--max-roots`: 200 unless given, `FORGE_ROOTS_MAX` 2 000 at
+  most). A row
+  past the most refuses the run (`ROOTS_EXCEEDED`) rather than cut it at an
+  order nobody chose, and no row refuses it too (`NO_ROOTS`); without an
+  ORDER BY the roots are read by `Id`, as a LIMIT with no order would choose
+  others each time. The query is read by `soqlRootQuery` of the shared
+  package, the one parser the panel, the extension and the command line
+  use: a GROUP BY, HAVING, OFFSET, FOR, WITH, USING SCOPE, UPDATE or
+  aggregate, an alias that does not lead back to the object, or a WHERE,
+  ORDER BY or LIMIT past the rules, is refused before anything is read
+  (`ROOTS_QUERY_REFUSED`, exit `2` on the command line).
+- **Fixed once read.** A dry run keeps the ids it read as a plan
+  (`roots/rootPlanStore.ts`): one JSON file of the org, the run's
+  fingerprint, the query, when they were read and the ids sorted, with their
+  SHA-256, the owner's alone (0600, in a 0700 folder). The panel keeps it in
+  `forge-roots/<fingerprint>.json` under the extension's storage, for a day;
+  the command line in the file `--roots-plan` names. A run given the plan
+  writes those ids and reads no query: one deleted since is said gone, never
+  failed; a plan of another org, query or records, or whose ids no longer
+  give its SHA-256, is refused (`ROOTS_PLAN_MISMATCH`), and one not there
+  (`ROOTS_PLAN_GONE`); a plan a day old has the query read again, and the
+  result says what it held (`roots.readAgain`). The roots go into the
+  journal on a line of their own (`ForgeRunStore.nameRoots`, read back by
+  `ForgeRunJournalRead.roots`): a resume writes them and reads no query, and
+  `--roots-plan` does not go with `--resume`. A retry writes the roots of the
+  run it retries, from its journal while it is kept, else from its entry in
+  the history (`roots.ids`), whatever their age, and is refused when neither
+  keeps them (`RETRY_UNAVAILABLE`).
+- **Two bounds.** A clone from records reads everything before it writes,
+  and holds it. Before each object's statements go and once each object is
+  read, the records it holds in all are held to `FORGE_ROOTS_READ_TOTAL`
+  (50 000, the command line's `--max-read-total` lower), and the requests it
+  sends the source to a tenth of what the source has left today, 2 000 when
+  it will not say. Past either, the run is refused with nothing written
+  (`READ_BOUND_EXCEEDED`, `API_BUDGET_EXCEEDED`).
+- **What the result says.** `ForgeExecutionResult.roots` (`ForgeRunRoots`):
+  the roots' object, where they came from (`from`: the query, a plan, or
+  records named), how many were asked and read, written, linked to a record
+  the target held, refused with the target's reason, and gone since; each
+  root's id with its copy's in the target (`ids`, 2 000 at most), which the
+  results export as a CSV file and the command line gives with `--json`;
+  and of a retry, that it wrote the roots of the run it retried
+  (`ofTheRunRetried`). `reads` counts what reading what they reach sent the
+  source, and each entry of `readByObject` says how its rows came in
+  (`origin`: chosen as roots, read under the clone's records, named by
+  them) and the objects they were read under (`readUnder`): a parent read
+  by id brings its other children, as in the clone of one record. A
+  verification counts the roots the target holds (`verification.roots`,
+  `--verify`).
+- **The question before the write.** When the run asks before it writes,
+  its question opens on the roots and where they came from
+  (`WriteConfirmation.roots`): "Clone 37 Account records and what they
+  reach, from SRC to TGT: 412 records of 9 objects (roots of the simulation
+  of 14:02)", or the roots the query chose at a time, those of the run
+  retried, those a resumed run's journal names, or records named one by
+  one.
+- **One writer of a journal.** Every clone that writes holds a lock beside
+  its journal (`ForgeRunLock.ts`, `<journal>.lock`) from before its first
+  line to its part's end, and a removal holds it while it deletes: a
+  removal, its preview, or a resume of a journal another process holds is
+  refused before any org is read, naming that run, where it was started and
+  how to stop it (`RUN_WRITING`).
+
 ## ExecuteOptions
 
 | Option                 | Default                                  | Effect                                                                         |
@@ -381,6 +462,7 @@ and the audit trail records it as a `cleanup_delete` with a `sweep` detail.
 | `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
 | `keepContactPoints`    | `false`                                  | write email addresses and phone numbers as read; off, each is neutralized      |
 | `stream`               | — (every node read whole)                | a run of whole tables read and written page by page; see below                 |
+| `roots`                | — (one root, `rootRecordId`)             | the records a query chooses, or records named one by one; see above            |
 
 `stream` is how a run of whole tables reads: each object with the org's
 cursor, in the order of its ids, each page written before the next is read,

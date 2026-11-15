@@ -9,7 +9,7 @@ Forge needs two orgs: one that holds the records, and one to fill. With a single
 ## How to
 
 1. Pick the Target Org; the Source Org is already the org selected in the side panel.
-2. Paste a Record ID on the Record tab, or pick ALL to copy the whole org, then click Discover Graph.
+2. Paste a Record ID, a query on the SOQL tab, or pick ALL to copy the whole org; click Discover Graph.
 3. When discovery ends, click Review & Execute.
 4. Click Execute Forge, then read the Inserted card once the run ends.
 
@@ -48,13 +48,12 @@ The main Forge journey, end to end — from a real record to a populated sandbox
      → the Source Org is already the org selected in the side panel:
        pick the Target Org (your dev sandbox)
      → "Record" tab → input "Record ID or Salesforce URL"
-       (e.g. an Account from your UAT / partial-copy org)
+       (e.g. an Account from your UAT org), or a query on the "SOQL" tab
 3. Tune the options, on the same form, above "Discover Graph":
      • Depth: "Direct only" / "Deep (5 levels)" / "Custom depth"
      • "Records per object" — cap rows per object (Smart / 10…1000 / All);
-       Smart caps nothing of one record's graph and 100 of a SOQL run, a
-       SOQL run takes 200 at most and greys the choices past it, and Results,
-       a simulation and the confirmation name the objects a cap stopped
+       Smart caps nothing of a record's graph or a query's records, and
+       Results, a simulation and the confirmation name the objects a cap stopped
      • "Anonymize PII" — protect sensitive fields on the way in
      • "Skip empty objects" / "Auto-fetch parents"
      • "Keep emails and phone numbers as they are" — off by default:
@@ -133,7 +132,8 @@ You type the org's name to go on, and Production Guard refuses a production org.
 
 ## Going further
 
-- [Copy the whole org (ALL)](forge-reference.md#copy-the-whole-org-all): the fourth depth chip clones every object the target can create, or [a sample of it that fits the target](forge-reference.md#copy-a-sample-of-the-whole-org); what it leaves out, its prudent defaults, its dry run that stops at the gate, and its refusals
+- [Clone the records a query chooses](forge-reference.md#clone-the-records-a-query-chooses): the SOQL tab clones each record its query returns with what it reaches, its records kept by **Simulate** for the run, and exported with their copies
+- [Copy the whole org (ALL)](forge-reference.md#copy-the-whole-org-all): the fourth depth chip clones every object the target can create, or [a sample of it that fits the target](forge-reference.md#copy-a-sample-of-the-whole-org), its roots drawn the newest or the oldest first, in [a window, under a condition or by strata](forge-reference.md#choose-the-roots); what it leaves out, its prudent defaults, its dry run that stops at the gate, and its refusals
 - [Graph or table](forge-reference.md#graph-or-table): with `sandforge.forge.graphView` on `auto`, the default, the graph is drawn up to 25 objects and listed in a table past that, or on a panel narrower than 560 pixels
 - [What the target runs as the clone writes](forge-reference.md#what-the-target-runs-as-the-clone-writes): the **Automation** row, and what Review reads of the target's metadata
 - [Emails and phone numbers](forge-reference.md#emails-and-phone-numbers), neutralized unless you keep them, and [whether the emails go out](forge-reference.md#whether-the-emails-go-out)
@@ -202,7 +202,7 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
 
 The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)), and a run of the clone whose `--json` summary you kept can have them removed with `--remove` ([reference](forge-reference.md#the-command-line)).
 
-`--object <ApiName>`, repeated, clones whole tables in place of a record, each `--where <condition>` filtering the `--object` before it. A lookup at a table it does not write keeps the ids the target holds, and goes empty, said, for those it does not ([how](forge-reference.md#the-command-line)):
+`--query "SELECT Id FROM Account WHERE Industry = 'Energy' LIMIT 50"`, in place of `--record`, clones each record a query chooses with what it reaches, a record they share written once, and `--roots-plan <file>` keeps those its dry run chose for the run to write. `--object <ApiName>`, repeated, clones whole tables in place of a record, each `--where <condition>` filtering the `--object` before it. A lookup at a table it does not write keeps the ids the target holds, and goes empty, said, for those it does not ([how](forge-reference.md#the-command-line)):
 
 ```bash
 pnpm exec tsx packages/extension/cli/sandforge-clone.ts \

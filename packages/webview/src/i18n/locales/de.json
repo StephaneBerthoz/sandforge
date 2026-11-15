@@ -3983,7 +3983,7 @@
     "tipLabel": "Tipp:",
     "forge": {
       "step1": "Wählen Sie die Ziel-Org; die Quell-Org ist bereits die im Seitenpanel ausgewählte Org.",
-      "step2": "Fügen Sie auf dem Tab Datensatz eine Datensatz-ID ein oder wählen Sie ALL für die gesamte Org, und klicken Sie auf Graph ermitteln.",
+      "step2": "Fügen Sie eine Datensatz-ID oder auf dem Tab SOQL eine Abfrage ein, oder wählen Sie ALL für die gesamte Org, und klicken Sie auf Graph ermitteln.",
       "step3": "Klicken Sie nach Abschluss der Ermittlung auf Überprüfen & Ausführen.",
       "step4": "Klicken Sie auf Forge ausführen und lesen Sie nach dem Durchlauf die Karte Eingefügt ab.",
       "tip": "Simulieren schreibt nichts; Probelauf schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Letzte Durchläufe, löscht sie."

@@ -3983,7 +3983,7 @@
     "tipLabel": "Astuce :",
     "forge": {
       "step1": "Choisissez l'Org cible ; l'Org source est déjà l'org sélectionnée dans le panneau latéral.",
-      "step2": "Collez un ID d'enregistrement dans l'onglet Enregistrement, ou choisissez ALL pour copier toute l'org, puis cliquez sur Découvrir le graphe.",
+      "step2": "Collez un ID d'enregistrement ou une requête dans l'onglet SOQL, ou choisissez ALL pour copier toute l'org, puis cliquez sur Découvrir le graphe.",
       "step3": "Une fois la découverte terminée, cliquez sur Revoir et exécuter.",
       "step4": "Cliquez sur Exécuter le Forge, puis lisez la carte Insérés une fois l'exécution terminée.",
       "tip": "Simuler n'écrit rien ; Essai à blanc écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans Exécutions récentes, les efface."

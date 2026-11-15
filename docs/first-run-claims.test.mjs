@@ -537,6 +537,16 @@ test('both READMEs link the command-line scripts and say what they run on', () =
     const cli = docs.split('\n').find((line) => line.includes('ci-examples/README.md'));
     assert.ok(cli, `${relPath}: the Documentation table does not link the command-line scripts`);
     assert.ok(cli.toLowerCase().includes(`${count} scripts`), `${relPath}: say how many scripts`);
+    // The SFDMU answer counts them too, and said thirteen once a fourteenth shipped.
+    const counted = [...text.matchAll(/\b([a-z]+) \[command-line scripts\]/gi)].map((m) =>
+      m[1].toLowerCase(),
+    );
+    assert.ok(counted.length > 0, `${relPath}: no answer counts the command-line scripts`);
+    assert.deepEqual(
+      counted.filter((word) => NUMBER_WORDS.includes(word) && word !== count),
+      [],
+      `${relPath}: a sentence counts the scripts otherwise than the ${count} there are`,
+    );
     const requirements = section(text, '## Requirements');
     assert.match(requirements, new RegExp(`Node\\.js ${node} and pnpm ${pnpm}`));
     assert.match(requirements, /`pnpm install` and `pnpm build:shared`/);

@@ -3983,7 +3983,7 @@
     "tipLabel": "Consejo:",
     "forge": {
       "step1": "Elija la Org de destino; la Org de origen ya es la org seleccionada en el panel lateral.",
-      "step2": "Pegue un ID de registro en la pestaña Registro, o elija ALL para copiar toda la org, y haga clic en Descubrir grafo.",
+      "step2": "Pegue un ID de registro o una consulta en la pestaña SOQL, o elija ALL para copiar toda la org, y haga clic en Descubrir grafo.",
       "step3": "Cuando termine el descubrimiento, haga clic en Revisar y ejecutar.",
       "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
       "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Ejecuciones recientes, los borra."
