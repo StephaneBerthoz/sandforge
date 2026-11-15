@@ -1494,6 +1494,61 @@ describe('sandforge-frozen load, held to the daily API requests the target has l
     expect(said).toContain('a load would be refused (API_BUDGET_EXCEEDED): The run takes about');
   });
 
+  it('says with --dry-run the data storage a load would take and that it would be refused past what is left, as a replay says it: exit 1', async () => {
+    // A replay's dry run measured it; a load's read nothing of it, and only
+    // its run was refused.
+    const { writes, conn } = targetOrg();
+    const answering = {
+      ...conn,
+      request: async ({ url }: { url: string }) => {
+        if (url === '/limits') {
+          return {
+            DataStorageMB: { Max: 5, Remaining: 0 },
+            DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+          };
+        }
+        throw new Error(`not answered: ${url}`);
+      },
+    };
+    vi.mocked(makeConn).mockReturnValue(answering as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(answering as never);
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(NOTHING_RUNS);
+    vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      plannedAt: '2026-10-21T10:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    } as unknown as FrozenLoadPlanInfo);
+    const said: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      said.push(String(chunk));
+      return true;
+    }) as never);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--dry-run', '--json'));
+
+    expect(writes).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    const answer = JSON.parse(printed.join('')) as {
+      refusalCodes?: string[];
+      refusals?: string[];
+    };
+    expect(answer.refusalCodes).toEqual(['FROZEN_STORAGE_EXCEEDED']);
+    expect(said.join('')).toMatch(
+      /\n {2}data storage: about [\d.]+ MB of the 0 MB the target has left of 5 MB\n/,
+    );
+    expect(said.join('')).toContain(
+      "a load would be refused (FROZEN_STORAGE_EXCEEDED): The load was refused before it wrote anything: the dataset's records take about",
+    );
+  });
+
   it('says on a load it lets by what it took of what the target had left', async () => {
     limitedTo(14_000);
     vi.spyOn(FrozenDatasetLoader.prototype, 'load').mockResolvedValue({

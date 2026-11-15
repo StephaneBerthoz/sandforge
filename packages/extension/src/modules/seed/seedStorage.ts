@@ -22,6 +22,7 @@ import {
   checkpointPartOf,
   checkpointScopeStop,
   countedStorageBytes,
+  formatMB,
   readApiBudget,
   readDataStorage,
   runRequestsEstimate,
@@ -32,7 +33,12 @@ import {
   type RunRequestParts,
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
-import { fitBudgetOf, type FitBudget } from '../forge/fitBudget.js';
+import {
+  fitBudgetOf,
+  roomBytesOf,
+  type AutomationRoom,
+  type FitBudget,
+} from '../forge/fitBudget.js';
 import { SEED_SLICE_LEAST, seedRunSliceOf, seedSliceOf } from './SeedOrchestrator.js';
 import { PARENT_IDS_PER_QUERY } from './existingParents.js';
 import { STANDARD_DUPLICATE_RULE_OBJECTS } from './seedDuplicateRules.js';
@@ -481,6 +487,28 @@ export interface SeedStorageGate {
 }
 
 /**
+ * The data storage a seed's records take against what its target has left,
+ * as `sandforge seed` and a pipeline's dry run say it before the first write:
+ * and of it, what the target's automation that still runs creates under them,
+ * which the gate counts with them.
+ */
+export function seedStorageWords(check: StorageCheck, target: string): string {
+  const taken =
+    `data storage: about ${formatMB(check.estimateMB)} MB to write` +
+    (check.automationMB !== undefined && check.automationMB > 0
+      ? `, about ${formatMB(check.automationMB)} MB of it for what the target's automation ` +
+        'creates under them'
+      : '');
+  if (check.verdict === 'unread') {
+    return `${taken}; what ${target} has left could not be read (${check.unread})`;
+  }
+  return (
+    `${taken}, ${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    (check.verdict === 'near' ? ': close to what it has left' : '')
+  );
+}
+
+/**
  * The code a seed refused for the data storage it takes is answered with: in
  * the panel, and in the command's line and summary.
  */
@@ -508,6 +536,11 @@ export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
  *   priced: the duplicate rules read with the target's automation, the
  *   partitions of the run, its Bulk API threshold, whether it types the org
  *   first (`seedRequestsEstimate`).
+ * @param room - What the target's automation that still runs creates under
+ *   one record of each object, the mute's plan holding (`seedRoomOf`):
+ *   counted with the records, as the seed's fit and a clone's gate count
+ *   it. Weighed alone, 1,500 accounts went through into an org with 5 MB
+ *   left whose flow opens a task under each: 5.86 MB in all.
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
@@ -517,6 +550,7 @@ export async function seedStorageGate(
   checkpoint?: RunCheckpointEstimate,
   beside: Pick<RunRequestParts, 'deliverability' | 'mute'> = {},
   path: SeedWritePath = {},
+  room: Pick<AutomationRoom, 'perRecord'> = { perRecord: [] },
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
   let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
@@ -525,7 +559,10 @@ export async function seedStorageGate(
   } catch (err: unknown) {
     storage = { unread: extractErrorMessage(err) };
   }
-  const check = storageCheckOf(plan, storage);
+  // Under each record as many times as the run writes it so, as a fit counts it.
+  const counts = new Map(template.objects.map((o) => [o.objectApiName, o.recordCount]));
+  const roomBytes = roomBytesOf(room, (objectApiName) => counts.get(objectApiName) ?? 0);
+  const check = storageCheckOf(plan, storage, roomBytes);
   // The daily requests on their own when the storage could not be read, as
   // Sync reads them: a Standard User's `/limits` list them and not the
   // storage, and the seed took both for unread, refused past neither.

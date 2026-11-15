@@ -996,6 +996,14 @@ export interface FrozenLoadPlanInfo {
    */
   apiRequests?: FrozenLoadApiRequests;
   /**
+   * The data storage the dataset's records would take against what the
+   * target has left, as the load's gate measures them, and the refusal a
+   * load would meet past it. Absent of a pilot, which the gate lets through,
+   * of a replay, whose part of the answer says it, and when the target would
+   * not say.
+   */
+  storage?: FrozenLoadStorageInfo;
+  /**
    * What the target runs as the load would insert its records and update
    * them, the mute planned when asked, nothing assigned, and the refusal a
    * load would meet without the accord. Absent when nothing runs and
@@ -1008,6 +1016,21 @@ export interface FrozenLoadPlanInfo {
    * them. Absent when there is nothing to say.
    */
   recordTypesGiven?: RecordTypeGiven[];
+}
+
+/**
+ * The data storage a load's records take against what the target has left,
+ * as its gate measures them before the first write: the dataset's records at
+ * the documented sizes, and on a reload what its purge frees first. With the
+ * refusal a load would meet past it (`FROZEN_STORAGE_EXCEEDED`).
+ */
+export interface FrozenLoadStorageInfo {
+  estimateMB: number;
+  remainingMB: number;
+  maxMB: number;
+  /** MB a reload's purge frees first, counted with what is left; absent for a first load. */
+  freedMB?: number;
+  refusal?: { code: string; message: string };
 }
 
 /**

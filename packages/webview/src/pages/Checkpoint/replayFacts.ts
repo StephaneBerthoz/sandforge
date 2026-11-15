@@ -11,7 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import { formatNumber } from '../../utils/formatters';
-import { megabytes } from '../Frozen/frozenErrorWords';
+import { frozenErrorWords, megabytes, type FrozenErrorPayload } from '../Frozen/frozenErrorWords';
 
 /** Translates a key in the interface language. */
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -119,6 +119,32 @@ export function replayAskKey(
       excluded: [...choices.excluded].sort(),
     },
     replace,
+  });
+}
+
+/**
+ * What else a simulation found a replay would be refused for, beside the
+ * fields the other org requires and nothing fills (`LOAD_CONFIG`), each in the
+ * page's words as that refusal alone is said — from what it names beside its
+ * code — or in the host's when the page has none. The page said the fields
+ * alone, and the storage the replay would then meet came a simulation later;
+ * the command line said them all at once. Nothing beside any other refusal.
+ *
+ * @param aliasOf - The name the panel gives an org, by its registered id.
+ */
+export function refusedBesideWords(
+  payload: FrozenErrorPayload | null,
+  t: Translate,
+  aliasOf: (orgId: string) => string,
+): string[] {
+  if (payload?.code !== 'LOAD_CONFIG' || !Array.isArray(payload.refusedBeside)) return [];
+  return (payload.refusedBeside as unknown[]).flatMap((refused) => {
+    if (typeof refused !== 'object' || refused === null) return [];
+    const said = refused as FrozenErrorPayload;
+    const words =
+      frozenErrorWords(said, t, aliasOf, 'replay') ??
+      (typeof said.message === 'string' ? said.message : undefined);
+    return words !== undefined ? [words] : [];
   });
 }
 

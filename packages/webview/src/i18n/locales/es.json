@@ -6700,6 +6700,7 @@
         "cancelled": "Detuvo la reproducción antes de que escribiera nada, y no se escribió nada.",
         "cancelledWrote": "Detuvo la reproducción a mitad de camino. Registros escritos hasta entonces: {{records}}. Lo que creó se guarda con las reproducciones de este punto de control: Quitar esta reproducción lo retira.",
         "checkpointRefused": "La reproducción se rechazó antes de escribir nada: el punto de control que debía tomar primero de los objetos que escribe se rechazó, o no se pudo tomar, como dice la salida de SandForge. No se escribió nada. Desmarque Primero un punto de control, o corrija lo que lo rechaza.",
+        "alsoRefused": "Además de esos campos, la reproducción sería rechazada por:",
         "loadConfig": "Los registros del punto de control dejan vacíos campos obligatorios de la otra org, y no se escribió nada: {{gaps}}. Desmarque sus objetos, o reproduzca desde la línea de comandos con una configuración que les dé un valor (--replay-config).",
         "nonSandbox": "{{org}} no es ni sandbox, ni scratch org, ni org Developer Edition: una reproducción solo va a esos, y no se escribió nada. Elija uno de ellos.",
         "staging": "{{org}} es un sandbox marcado como Staging: contiene datos reales, y una reproducción nunca va a uno de ellos. No se escribió nada. Elija otra org.",

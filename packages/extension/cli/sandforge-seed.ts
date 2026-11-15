@@ -148,6 +148,7 @@ import {
   seedRunSlicesOf,
   seedStorageBytes,
   seedStorageGate,
+  seedStorageWords,
   watchedBy,
   type SeedWritePath,
 } from '../src/modules/seed/seedStorage.js';
@@ -1709,14 +1710,7 @@ export function seedWritePathOf(count: number, bulkThreshold: number, watched?: 
 
 /** What the run says of the data storage its records take, against what the target has left. */
 export function storageLine(check: StorageCheck, target: string): string {
-  const taken = `data storage: about ${formatMB(check.estimateMB)} MB to write`;
-  if (check.verdict === 'unread') {
-    return `${taken}; what ${target} has left could not be read (${check.unread})`;
-  }
-  return (
-    `${taken}, ${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
-    (check.verdict === 'near' ? ': close to what it has left' : '')
-  );
+  return seedStorageWords(check, target);
 }
 
 /** What the run says of the target's automation before it writes, and the gate its emails met. */
@@ -2337,6 +2331,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     typedFirst: args.dryRun,
     sentBefore: sentSoFar(),
   };
+  // What still runs creates under the records counted with them, as --fit
+  // keeps room for it: weighed alone, a seed whose flows open a task under
+  // each account went through past what the target had left.
   let storage = await seedStorageGate(
     conn,
     taken,
@@ -2345,6 +2342,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     checkpointPlanned?.estimate,
     besideTheRun,
     writePath,
+    room.room,
   );
   /** The fit asked, or the one a refusal for the storage or the requests proposes. */
   let fit: { applied: boolean; fit: SeedFit } | undefined;
@@ -2403,6 +2401,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           checkpointPlanned?.estimate,
           besideTheRun,
           writePath,
+          room.room,
         );
       }
     }

@@ -16,6 +16,11 @@ export interface FrozenErrorPayload {
   heaviest?: unknown;
   /** What the configuration has to declare for a load, as the host says each, with `LOAD_CONFIG`. */
   gaps?: unknown;
+  /**
+   * What else a preview found a load would be refused for, with `LOAD_CONFIG`:
+   * each refusal's code and English, and what it names beside them.
+   */
+  refusedBeside?: unknown;
   /** The records a removal left of the last load, with `LOAD_REMOVED`. */
   left?: unknown;
   /** The records a load stopped had written, with `LOAD_CANCELLED`. */

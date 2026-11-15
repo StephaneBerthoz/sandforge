@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildFrozenManifest } from '../../modules/frozendataset/index.js';
+import { buildFrozenManifest, LoadConfigError } from '../../modules/frozendataset/index.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -506,5 +506,103 @@ describe('frozen:load, the daily API requests its target has left', () => {
     });
     expect(loaderLoad).not.toHaveBeenCalled();
     expect(org.writes).toEqual([]);
+  });
+
+  /** A plan of the two accounts and the contact, as the loader reads it. */
+  const PLAN = {
+    orgId: 'org-2',
+    mode: { pilot: false, reload: false },
+    plannedAt: '2026-11-01T10:00:00.000Z',
+    perObject: [],
+    excludedObjects: [],
+    removals: [],
+    placeholders: [],
+    requiredDefaults: [],
+    recordTypeIssues: 0,
+    personContacts: 0,
+    earlierLoads: 0,
+  };
+
+  it('says in its preview the data storage a load would take and the refusal it would meet past it, as a replay says its own', async () => {
+    // A replay's dry run measured it; a load's did not, and was refused by its run.
+    loaderPlan.mockResolvedValue(PLAN);
+    const org = targetWithStorage(0);
+
+    await send('frozen:load:preview', {});
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: Record<string, unknown> } | undefined;
+    expect(plan?.storage).toEqual({
+      estimateMB: (3 * 2048) / (1024 * 1024),
+      remainingMB: 0,
+      maxMB: 5,
+      refusal: {
+        code: 'FROZEN_STORAGE_EXCEEDED',
+        message:
+          "The load was refused before it wrote anything: the dataset's records take about " +
+          '0.01 MB of data storage, and DEV has 0 MB left of 5 MB. Load a pilot first, one root ' +
+          'folder of it; or extract a smaller dataset, with a lower budget in the configuration, ' +
+          'a new selection and a new extraction; or free data storage in DEV. Nothing was ' +
+          'written.',
+      },
+    });
+    expect(loaderLoad).not.toHaveBeenCalled();
+    expect(org.writes).toEqual([]);
+  });
+
+  it('says the storage of a load that fits, and nothing of it for a pilot, which its gate lets through', async () => {
+    loaderPlan.mockResolvedValue(PLAN);
+    targetWithStorage(5);
+
+    await send('frozen:load:preview', {});
+    await send('frozen:load:preview', { pilot: true });
+
+    const [whole, pilot] = posted('frozen:load:preview:response').map(
+      (m) => (m.payload.plan as { storage?: Record<string, unknown> }).storage,
+    );
+    expect(whole).toEqual({ estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 5, maxMB: 5 });
+    expect(pilot).toBeUndefined();
+  });
+
+  it('says the storage refusal beside the fields its configuration leaves empty, which leave no plan', async () => {
+    loaderPlan.mockRejectedValue(
+      new LoadConfigError('Declare them all', ['Account.Region__c: a value for required field']),
+    );
+    targetWithStorage(0);
+
+    await send('frozen:load:preview', {});
+
+    const [error] = posted('frozen:load:preview:error');
+    expect(error?.payload).toMatchObject({ code: 'LOAD_CONFIG' });
+    // With what its own refusal names beside its words, for the panel to say
+    // it in its language: the org and the figures.
+    expect(error?.payload.refusedBeside).toContainEqual({
+      code: 'FROZEN_STORAGE_EXCEEDED',
+      message: expect.stringMatching(/^The load was refused before it wrote anything/) as string,
+      orgId: 'org-2',
+      storage: { estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 0, maxMB: 5 },
+    });
+  });
+
+  it('names beside the fields the figures of each other refusal, as the refusal itself names them', async () => {
+    loaderPlan.mockRejectedValue(
+      new LoadConfigError('Declare them all', ['Account.Region__c: a value for required field']),
+    );
+    target(RUN - 1);
+
+    await send('frozen:load:preview', {});
+
+    const [error] = posted('frozen:load:preview:error');
+    expect(error?.payload.refusedBeside).toContainEqual({
+      code: 'API_BUDGET_EXCEEDED',
+      message: expect.stringContaining('API requests') as string,
+      orgId: 'org-2',
+      apiRequests: expect.objectContaining({
+        verdict: 'exceeds',
+        estimate: RUN,
+        remaining: RUN - 1,
+        max: MAX,
+      }) as unknown,
+    });
   });
 });

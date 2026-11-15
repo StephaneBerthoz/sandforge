@@ -8,6 +8,7 @@ import {
   defaultReplayChoices,
   holdsFileContent,
   plannedRecords,
+  refusedBesideWords,
   replayAskKey,
   replayChoicesSent,
   replayInto,
@@ -333,6 +334,56 @@ describe('what a replay says beside its plan', () => {
   it('says nothing of the standard price book when the annex told it', () => {
     const lines = replayLines(infoOf(plainSummary({ standardPricebook: 'annex' })), 'QA', t);
     expect(lines.some((line) => line.id === 'standard-pricebook')).toBe(false);
+  });
+});
+
+describe('what else a replay refused for its fields would be refused for', () => {
+  const aliasOf = (orgId: string): string => (orgId === 'org-qa' ? 'QA' : orgId);
+
+  it('words each refusal the simulation found beside the fields as the page words it alone, and keeps the words of the host for one it has none of', () => {
+    const words = refusedBesideWords(
+      {
+        code: 'LOAD_CONFIG',
+        gaps: ['Account.Region__c'],
+        refusedBeside: [
+          {
+            code: 'API_BUDGET_EXCEEDED',
+            message: 'host words of the requests',
+            orgId: 'org-qa',
+            apiRequests: { estimate: 900, remaining: 20, max: 15_000 },
+          },
+          { code: 'SOME_LATER_GATE', message: 'The replay would be refused for a later gate.' },
+          { code: 'FROZEN_STORAGE_EXCEEDED' },
+          'not a refusal',
+        ],
+      },
+      t,
+      aliasOf,
+    );
+
+    expect(words).toEqual([
+      t('frozen.replay.refusal.apiBudget', {
+        org: 'QA',
+        estimate: 900,
+        remaining: 20,
+        max: 15_000,
+      }),
+      'The replay would be refused for a later gate.',
+    ]);
+  });
+
+  it('says nothing beside any other refusal, nor beside fields alone', () => {
+    expect(
+      refusedBesideWords({ code: 'LOAD_CONFIG', gaps: ['Account.Region__c'] }, t, aliasOf),
+    ).toEqual([]);
+    expect(
+      refusedBesideWords(
+        { code: 'MAX_RECORDS', refusedBeside: [{ code: 'X', message: 'words' }] },
+        t,
+        aliasOf,
+      ),
+    ).toEqual([]);
+    expect(refusedBesideWords(null, t, aliasOf)).toEqual([]);
   });
 });
 

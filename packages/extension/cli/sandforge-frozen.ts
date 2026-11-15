@@ -60,6 +60,7 @@ import type {
   FrozenLoadEmailsInfo,
   FrozenLoadPlanInfo,
   FrozenLoadReportInfo,
+  FrozenLoadStorageInfo,
   FrozenObjectVerdict,
   FrozenRemovalPreview,
   FrozenReloadSweep,
@@ -120,6 +121,7 @@ import {
   CHECKPOINT_REFUSED,
   CHECKPOINT_STOPPED_WORDS,
   bypassesToAssign,
+  formatMB,
   removalStepsAutomationLines,
   removalStepsAutomationRefusal,
   takeCheckpointFirst,
@@ -1352,6 +1354,21 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
 }
 
 /**
+ * The data storage a load's records would take against what the target has
+ * left, as its gate measures them and a replay's dry run says them, and what
+ * a reload's purge frees first. Exported so it can be tested.
+ */
+export function loadStorageLine(storage: FrozenLoadStorageInfo, target: string): string {
+  return (
+    `  data storage: about ${formatMB(storage.estimateMB)} MB of the ` +
+    `${formatMB(storage.remainingMB)} MB ${target} has left of ${formatMB(storage.maxMB)} MB` +
+    (storage.freedMB !== undefined
+      ? `, and the reload's purge frees about ${formatMB(storage.freedMB)} MB first`
+      : '')
+  );
+}
+
+/**
  * The API requests a load's gate counted against what the target has left
  * today, as a clone's and an Autopilot run's line says them. Exported so it
  * can be tested.
@@ -1952,6 +1969,9 @@ export function messageLines(
       // And of the API requests it would take of the target.
       const api = (p.plan as { apiRequests?: FrozenLoadApiRequests }).apiRequests;
       if (api) lines.push(loadApiRequestsLine(api, 'the target'));
+      // And of the data storage its records would take, as its gate measures it.
+      const storage = (p.plan as { storage?: FrozenLoadStorageInfo }).storage;
+      if (storage) lines.push(loadStorageLine(storage, 'the target'));
       return lines;
     }
     case 'frozen:verify:result': {
@@ -2968,7 +2988,8 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
     if (plan === undefined && gaps !== undefined) {
       refusals.push({ code: 'LOAD_CONFIG', message: String(gaps.message ?? '') });
       const beside = Array.isArray(gaps.refusedBeside) ? (gaps.refusedBeside as RunRefusal[]) : [];
-      for (const refused of beside) wouldRefuse(refused);
+      // Its code and words: what each names beside them is the panel's.
+      for (const { code, message } of beside) wouldRefuse({ code, message });
     }
     const tooMany = plan ? loadRecordsRefusal(loadPlanRecords(plan), args.maxTotal) : undefined;
     // MAX_RECORDS, as the load refuses it.
@@ -2987,8 +3008,11 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
     // replay's preview reads it; kept under its part of the answer alone, a
     // dry run of 13 MB into an org with 5 MB left said the figures, ended 0
     // once what the org runs was accepted, and gave the line that replayed it all.
+    // A load's preview reads it too, under its plan: its dry run read none,
+    // and only its run was refused.
     const preview = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload;
-    const storageRefused = (preview?.replay as FrozenReplayInfo | undefined)?.storage?.refusal;
+    const storageRefused =
+      (preview?.replay as FrozenReplayInfo | undefined)?.storage?.refusal ?? plan?.storage?.refusal;
     if (storageRefused) wouldRefuse(storageRefused);
     // And its gate on the API requests it takes of the target, its
     // checkpoint and its mute's lease among them: past what the target

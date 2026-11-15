@@ -257,9 +257,10 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     expect(steps.indexOf('automation read')).toBeLessThan(steps.indexOf('limits read'));
     expect(executed).toEqual([]);
     const [error] = posted('seed:error');
+    // The records' 14.9 MB and the Task the flow opens under each account.
     expect(error.payload).toMatchObject({
       code: 'SEED_STORAGE_EXCEEDED',
-      estimateMB: 14.9,
+      estimateMB: 15.9,
       remainingMB: 5,
       maxMB: 5,
       org: 'my-dev-org',
@@ -284,6 +285,44 @@ describe('SeedOpsHandler — a seed fitted to the storage', () => {
     await execute(fitted, { fit: { share: fit.share, before } });
     await vi.waitFor(() => expect(executed).toHaveLength(1));
     expect(executed[0].objects.map((o) => o.recordCount)).toEqual(fit.objects.map((o) => o.after));
+  });
+
+  it("refuses a seed whose records fit but not with what the org's flows create under them, and says that part", async () => {
+    // 1,500 accounts take about 2.93 MB of the 5 left; the account flow that
+    // still runs opens a task under each, 2.93 MB more. The gate counted the
+    // records alone and let the seed through, while its fit, which keeps that
+    // room, held the same seed to fewer accounts.
+    developerEdition();
+    const accounts = CRM_STARTER.objects.find((o) => o.objectApiName === 'Account');
+    if (!accounts) throw new Error('CRM_STARTER seeds accounts');
+    const template: SeedTemplate = {
+      ...CRM_STARTER,
+      id: 'accounts-only',
+      objects: [{ ...accounts, recordCount: 1_500 }],
+      relations: [],
+    };
+
+    await execute(template);
+
+    expect(executed).toEqual([]);
+    const [error] = posted('seed:error');
+    expect(error.payload).toMatchObject({
+      code: 'SEED_STORAGE_EXCEEDED',
+      estimateMB: 5.86,
+      remainingMB: 5,
+      maxMB: 5,
+    });
+    expect(error.payload.message).toBe(
+      'The records to write take about 5.86 MB of data storage, about 2.93 MB of it for what ' +
+        "the target's automation creates under them, and my-dev-org has 5 MB left of 5 MB: " +
+        'leave objects out, lower the records per object, or free data storage in my-dev-org. ' +
+        'Nothing was written.',
+    );
+    // The fit it proposes keeps the same room: what it proposes, the gate lets through.
+    const fit = error.payload.fit as SeedFitProposal;
+    const fitted = applied(template, fit);
+    await execute(fitted, { fit: { share: fit.share, before: 1_500 } });
+    await vi.waitFor(() => expect(executed).toHaveLength(1));
   });
 
   it('answers a refusal for the API requests with why no smaller seed fits: the day is spent past its last tenth', async () => {

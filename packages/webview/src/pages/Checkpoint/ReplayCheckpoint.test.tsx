@@ -348,6 +348,45 @@ describe('ReplayCheckpoint', () => {
     ).toBe(true);
   });
 
+  it('says beside the fields the other org requires every other refusal the simulation found, as the command line does', () => {
+    // Only the fields were said: the storage the replay would then meet was
+    // found by the next simulation, once they were filled.
+    renderReplay();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-simulate'));
+    act(() =>
+      host.current?.answer('frozen:load:preview', 'frozen:load:preview:error', {
+        code: 'LOAD_CONFIG',
+        message: 'host words',
+        retryable: false,
+        gaps: ['Account.Region__c'],
+        refusedBeside: [
+          {
+            code: 'FROZEN_STORAGE_EXCEEDED',
+            message: 'host words of the storage',
+            orgId: 'org-dev',
+            storage: { estimateMB: 13, remainingMB: 5, maxMB: 5 },
+          },
+          {
+            code: 'SOME_LATER_GATE',
+            message: 'The replay would be refused for a gate this page has no words of.',
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByTestId('checkpoint-replay-refused').textContent).toContain(
+      'Account.Region__c',
+    );
+    const beside = screen.getByTestId('checkpoint-replay-refused-beside');
+    expect(beside.textContent).toContain('Beside those fields, the replay would be refused for:');
+    expect(
+      screen.getAllByTestId('checkpoint-replay-refused-beside-item').map((li) => li.textContent),
+    ).toEqual([
+      'The checkpoint’s records take about 13 MB of data storage, and DEV-SB has 5 MB left of 5 MB: the replay would stop part way through, and nothing was written. Untick some objects, or free data storage in DEV-SB.',
+      'The replay would be refused for a gate this page has no words of.',
+    ]);
+  });
+
   it('lets a sandbox’s checkpoint that does not say go unmasked on the person’s word, which it sends', () => {
     renderReplay(refreshedEntry(sandboxCheckpoint()));
     expect(screen.getByTestId('checkpoint-replay-mask')).toBeChecked();

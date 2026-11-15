@@ -6700,6 +6700,7 @@
         "cancelled": "Vous avez arrêté le rejeu avant qu'il n'écrive quoi que ce soit, et rien n'a été écrit.",
         "cancelledWrote": "Vous avez arrêté le rejeu en cours de route. Enregistrements écrits d'ici là : {{records}}. Ce qu'il a créé est gardé avec les rejeux de ce point de contrôle : Retirer ce rejeu le reprend.",
         "checkpointRefused": "Le rejeu a été refusé avant toute écriture : le point de contrôle qu'il devait prendre d'abord des objets qu'il écrit a été refusé, ou n'a pas pu être pris, ce que dit la sortie SandForge. Rien n'a été écrit. Décochez Point de contrôle d'abord, ou corrigez ce qui le refuse.",
+        "alsoRefused": "En plus de ces champs, le rejeu serait refusé pour :",
         "loadConfig": "Les enregistrements du point de contrôle laissent vides des champs obligatoires de l'autre org, et rien n'a été écrit : {{gaps}}. Décochez leurs objets, ou rejouez depuis la ligne de commande avec une configuration qui leur donne une valeur (--replay-config).",
         "nonSandbox": "{{org}} n'est ni une sandbox, ni une scratch org, ni une org Developer Edition : un rejeu ne va que dans celles-ci, et rien n'a été écrit. Choisissez-en une.",
         "staging": "{{org}} est une sandbox marquée Staging : elle contient des données réelles, et un rejeu n'y va jamais. Rien n'a été écrit. Choisissez une autre org.",

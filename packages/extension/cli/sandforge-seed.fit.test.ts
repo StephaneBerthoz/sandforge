@@ -331,7 +331,10 @@ describe('a seed fitted from the command line', () => {
       '  Salesforce can take several minutes to count a load in what TGT says it has left: ' +
         'a run started sooner after another may read room it no longer has\n',
     );
-    expect(out).toMatch(/data storage: about [\d.]+ MB to write, TGT has 5 MB left of 5 MB\n/);
+    // The gate met again counts the room the fit kept, and says it.
+    expect(out).toMatch(
+      /data storage: about [\d.]+ MB to write, about [\d.]+ MB of it for what the target's automation creates under them, TGT has 5 MB left of 5 MB\n/,
+    );
     expect(out).not.toContain('a real run would be refused');
     // The gate met again by the counts fitted, its limits read again.
     expect(steps.filter((step) => step === 'limits read').length).toBe(2);
@@ -414,6 +417,38 @@ describe('a seed fitted from the command line', () => {
         message: expect.stringMatching(/^The records to write take about/) as string,
       },
     });
+  });
+
+  it("refuses, dry run and run alike, records that fit but not with what the target's flow creates under them, and says that part", async () => {
+    // 750 accounts and their 1,500 contacts take about 4.39 MB of the 5 TGT
+    // has left; the account flow opens a task under each account, about 1.47
+    // MB more. The gate weighed the records alone and let them through, while
+    // --fit share, which keeps that room, cut the same seed.
+    fakeOrg();
+
+    await main(argv(750, '--dry-run', '--json'));
+
+    const { storage } = summary();
+    const refusal =
+      'The records to write take about 5.86 MB of data storage, about 1.47 MB of it for what ' +
+      "the target's automation creates under them, and TGT has 5 MB left of 5 MB: leave " +
+      'objects out, lower the records per object, or free data storage in TGT. Nothing was ' +
+      'written.';
+    expect(storage).toMatchObject({ verdict: 'exceeds', automationMB: 1.46484375, refusal });
+    expect((JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] }).wouldBeRefused).toContain(
+      refusal,
+    );
+    expect(stderr.join('')).toContain(
+      "data storage: about 5.86 MB to write, about 1.47 MB of it for what the target's " +
+        'automation creates under them, TGT has 5 MB left of 5 MB\n',
+    );
+
+    stdout.length = 0;
+    steps.length = 0;
+    await expect(main(argv(750))).rejects.toThrow(
+      /^refused \(SEED_STORAGE_EXCEEDED\): The records to write take about 5\.86 MB/,
+    );
+    expect(steps.some((step) => step.startsWith('write '))).toBe(false);
   });
 
   /** A dry run, `--json`, of 2,000 accounts and 2,000 articles the org has no object for. */

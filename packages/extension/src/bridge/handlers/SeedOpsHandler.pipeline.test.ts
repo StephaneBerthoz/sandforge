@@ -82,31 +82,58 @@ function accounts(count: number, ruleType: 'faker' | 'ai_generate' = 'faker'): S
   };
 }
 
-/** What the org runs on the objects read: nothing, or a contact flow that emails each contact. */
-function automationOf(objects: readonly string[], contactEmails = false): ForgeTargetAutomation {
+/** An account flow that opens a task under each account created, which nothing keeps quiet. */
+const ACCOUNT_TASKS: ForgeTargetAutomation['objects'][number] = {
+  objectApiName: 'Account',
+  flows: [
+    {
+      apiName: 'Account_Follow_Up',
+      label: 'Account follow-up',
+      timing: 'afterSave',
+      startsOn: 'create',
+      condition: 'read',
+      permissions: [],
+      creates: ['Task'],
+    },
+  ],
+  triggers: [],
+  workflowRules: [],
+};
+
+/**
+ * What the org runs on the objects read: nothing, a contact flow that emails
+ * each contact, or an account flow that opens a task under each account.
+ */
+function automationOf(
+  objects: readonly string[],
+  contactEmails = false,
+  accountTasks = false,
+): ForgeTargetAutomation {
   return {
     objectsRead: [...objects],
-    objects: contactEmails
-      ? [
-          {
-            objectApiName: 'Contact',
-            flows: [
-              {
-                apiName: 'Welcome_Email',
-                label: 'Welcome Email',
-                timing: 'afterSave',
-                startsOn: 'create',
-                condition: 'read',
-                permissions: [],
-                paths: [{ kind: 'async' }],
-                messages: [{ kind: 'email', name: 'Send Welcome Email', limit: 'SingleEmail' }],
-              },
-            ],
-            triggers: [],
-            workflowRules: [],
-          },
-        ]
-      : [],
+    objects: accountTasks
+      ? [ACCOUNT_TASKS]
+      : contactEmails
+        ? [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Welcome_Email',
+                  label: 'Welcome Email',
+                  timing: 'afterSave',
+                  startsOn: 'create',
+                  condition: 'read',
+                  permissions: [],
+                  paths: [{ kind: 'async' }],
+                  messages: [{ kind: 'email', name: 'Send Welcome Email', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+              workflowRules: [],
+            },
+          ]
+        : [],
     unread: [],
     conditionsNotRead: 0,
     conditionsBound: 25,
@@ -381,6 +408,26 @@ describe('SeedOpsHandler.seedForPipeline', () => {
       ).rejects.toMatchObject({
         code: 'SEED_STORAGE_EXCEEDED',
         message: expect.stringMatching(/my-dev-org has 5 MB left of 5 MB.*Nothing was written\.$/),
+      });
+      expect(executed).toEqual([]);
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it("refuses a template whose records fit but not with what the org's flows create under them, approved or not", async () => {
+      // 1,500 accounts take about 2.93 MB of the 5 left, and a task the
+      // account flow opens under each about 2.93 MB more.
+      read.mockImplementation(async (_orgId, objects) => automationOf(objects, false, true));
+      saved(accounts(1_500));
+
+      await expect(
+        seed({ templateId: 'tpl-accounts', answer: { approved: true } }),
+      ).rejects.toMatchObject({
+        code: 'SEED_STORAGE_EXCEEDED',
+        message:
+          'The records to write take about 5.86 MB of data storage, about 2.93 MB of it for ' +
+          "what the target's automation creates under them, and my-dev-org has 5 MB left of 5 " +
+          'MB: leave objects out, lower the records per object, or free data storage in ' +
+          'my-dev-org. Nothing was written.',
       });
       expect(executed).toEqual([]);
       expect(rowsWritten()).toBe(0);
@@ -682,6 +729,14 @@ describe('SeedOpsHandler.seedForPipeline', () => {
         'past the storage the org has left',
         (): void => undefined,
         { templateId: SALES_CLOUD_STARTER.id, answer: { approved: true } },
+      ],
+      [
+        "whose records fit but not with what the org's flows create under them",
+        (): void => {
+          read.mockImplementation(async (_orgId, objects) => automationOf(objects, false, true));
+          saved(accounts(1_500));
+        },
+        { templateId: 'tpl-accounts', answer: { approved: true } },
       ],
       [
         'past the API requests the org has left today',

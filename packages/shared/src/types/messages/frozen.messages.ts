@@ -13,6 +13,7 @@ import type {
   FrozenLoadProgress,
   FrozenSelectProgress,
   FrozenLoadReportInfo,
+  FrozenLoadStorageInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenReloadSweepListing,
@@ -157,13 +158,7 @@ export interface FrozenReplayInfo {
    * and the refusal a replay would meet past it. Absent when the org would
    * not say.
    */
-  storage?: {
-    estimateMB: number;
-    remainingMB: number;
-    maxMB: number;
-    freedMB?: number;
-    refusal?: { code: string; message: string };
-  };
+  storage?: FrozenLoadStorageInfo;
   /** The requests its reads of the other org took, before the load's own. */
   requests: number;
 }

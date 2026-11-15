@@ -13,7 +13,9 @@ import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
 import { removalAutomationRefusal } from '../src/modules/forge/ForgeRunGate.js';
 import type { ClonePlanReceipt } from './mcpClonePlans.js';
 import { refusedLine } from './runRefused.js';
+import { rootsMaxTotalRefusal, rootsStorageRefusal, sweepOptionWords } from './sandforge-clone.js';
 import { main as envMain } from './sandforge-env.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { runInProcess } from './testing/envWorld.js';
 import { undeletableRefusal } from './undeletableAnswer.js';
 
@@ -2514,6 +2516,80 @@ describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
     await c.close();
   });
 
+  it('answers a refusal of its volume with the limit and the orderBy that take as many records as fit, the query the clone names being made of them', async () => {
+    // What the clone says, relayed by this server: its own --query, which no
+    // parameter of this tool is. The call's limit and orderBy make it.
+    const relayed = process.env[RELAYED_BY_VARIABLE];
+    process.env[RELAYED_BY_VARIABLE] = 'sandforge mcp';
+    let overStorage: string;
+    let overTotal: string;
+    try {
+      const roots = {
+        objectApiName: 'Account',
+        count: 41,
+        query: { where: "Industry = 'Energy'", limit: 41 },
+        fits: 3,
+      };
+      overStorage =
+        rootsStorageRefusal(
+          { verdict: 'exceeds', estimateMB: 13, remainingMB: 5, maxMB: 5 },
+          'SB',
+          { ...roots, each: 'about 0.32 MB', past: 'what SB has left' },
+        ) ?? '';
+      overTotal = rootsMaxTotalRefusal(
+        1_320,
+        100,
+        {
+          ...roots,
+          query: { ...roots.query, orderBy: 'Name ASC' },
+          each: 'about 33 records',
+          past: 'the 100 --max-total holds the run to',
+        },
+        true,
+      );
+    } finally {
+      if (relayed === undefined) delete process.env[RELAYED_BY_VARIABLE];
+      else process.env[RELAYED_BY_VARIABLE] = relayed;
+    }
+    const answered = (message: string, code: string) => () => ({
+      code: 1,
+      stdout: JSON.stringify({ dryRun: true, refusals: [{ code, message }] }),
+      stderr: `  a real run would be refused (${code}): ${message}\n`,
+    });
+    const call = async (message: string, code: string, orderBy?: string) => {
+      const c = client(scripts(answered(message, code)).run);
+      await c.initialized();
+      const result = await c.call('clone_records', {
+        source: 'SRC',
+        target: 'SB',
+        object: 'Account',
+        where: "Industry = 'Energy'",
+        ...(orderBy !== undefined ? { orderBy } : {}),
+        limit: 41,
+        dryRun: true,
+      });
+      await c.close();
+      return textOf(result);
+    };
+
+    const storage = await call(overStorage, 'STORAGE_EXCEEDED');
+    const total = await call(overTotal, 'MAX_TOTAL_EXCEEDED', 'Name ASC');
+
+    // Relayed as the clone said it, then read for this tool.
+    expect(storage).toContain(
+      `this script's own --query "SELECT Id FROM Account WHERE Industry = 'Energy' ORDER BY ` +
+        `CreatedDate DESC, Id DESC LIMIT 3"`,
+    );
+    expect(storage).toContain(
+      '--query, named above, is this call with limit: 3 and orderBy: "CreatedDate DESC, Id ' +
+        'DESC", its object and where as they were: dryRun: true first.',
+    );
+    expect(total).toContain(
+      '--query, named above, is this call with limit: 3 and orderBy: "Name ASC", its object ' +
+        'and where as they were: dryRun: true first.',
+    );
+  });
+
   it('says how to take a run back, and names the parameter each flag of its lines stands for', async () => {
     const { run } = scripts(() => ({
       code: 1,
@@ -3107,6 +3183,123 @@ describe('sandforge-mcp: a checkpoint replayed into another org', () => {
     await c.close();
   });
 
+  it('hands the removal of a replay the flags of its sweep: what came late, what is tied to nothing, and its list, which deletes nothing and takes no confirm', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    const listed = await c.call('checkpoint_replay_remove', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      sweepList: true,
+      sweepLate: true,
+      sweepUntied: true,
+    });
+    const removed = await c.call('checkpoint_replay_remove', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      confirm: 'SB',
+      sweep: true,
+      sweepLate: true,
+      sweepUntied: true,
+    });
+    // As the command refuses them, before any script runs.
+    const refused = {
+      lateAlone: await c.call('checkpoint_replay_remove', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        confirm: 'SB',
+        sweepLate: true,
+      }),
+      sweepAndList: await c.call('checkpoint_replay_remove', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        sweep: true,
+        sweepList: true,
+      }),
+      previewAndList: await c.call('checkpoint_replay_remove', {
+        checkpoint: CHECKPOINT,
+        target: 'SB',
+        preview: true,
+        sweepList: true,
+      }),
+    };
+
+    expect(listed.isError).toBe(false);
+    expect(removed.isError).toBe(false);
+    expect(ran.map((each) => each.args)).toEqual([
+      [
+        'replay',
+        '--checkpoint',
+        CHECKPOINT,
+        '--target',
+        'SB',
+        '--remove',
+        '--sweep-list',
+        '--sweep-late',
+        '--sweep-untied',
+        '--json',
+      ],
+      [
+        'replay',
+        '--checkpoint',
+        CHECKPOINT,
+        '--target',
+        'SB',
+        '--remove',
+        '--sweep',
+        '--sweep-late',
+        '--sweep-untied',
+        '--yes',
+        '--json',
+      ],
+    ]);
+    for (const [why, result] of Object.entries(refused)) {
+      expect(result.structuredContent, why).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    expect(textOf(refused.lateAlone)).toContain('sweepLate goes with sweep, or with sweepList');
+    expect(textOf(refused.sweepAndList)).toContain('sweep deletes and sweepList only lists');
+    expect(textOf(refused.previewAndList)).toContain('preview deletes nothing');
+    await c.close();
+  });
+
+  it('names the parameter each flag of its sweep stands for, as the removal of the replay names them', async () => {
+    // What the removal says of what its sweep kept, relayed by this server.
+    const relayed = process.env[RELAYED_BY_VARIABLE];
+    process.env[RELAYED_BY_VARIABLE] = 'sandforge mcp';
+    let said: string;
+    try {
+      said =
+        `  Task: 1 made late — ${sweepOptionWords('--sweep-late')} takes them\n` +
+        `  Contact: 2 tied to nothing of the replay — ${sweepOptionWords('--sweep-untied')} ` +
+        'takes them\n' +
+        `  run ${sweepOptionWords('--sweep-list')} to see what\n`;
+    } finally {
+      if (relayed === undefined) delete process.env[RELAYED_BY_VARIABLE];
+      else process.env[RELAYED_BY_VARIABLE] = relayed;
+    }
+    const { run } = scripts(() => ({ stdout: '{}', stderr: said }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('checkpoint_replay_remove', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      preview: true,
+      sweep: true,
+    });
+
+    expect(textOf(result)).toContain("--sweep-late, named above, is this tool's sweepLate: true.");
+    expect(textOf(result)).toContain(
+      "--sweep-untied, named above, is this tool's sweepUntied: true.",
+    );
+    expect(textOf(result)).toContain(
+      "--sweep-list, named above, is this tool's sweepList: true: it lists what the sweep " +
+        'would take, and deletes nothing.',
+    );
+    await c.close();
+  });
+
   it('lists with the checkpoints of an org the replays into it, each with the call that takes it back, and the dry run that replays a checkpoint that no longer rewinds it', async () => {
     const list = [
       {
@@ -3231,6 +3424,49 @@ describe('sandforge-mcp: the plan of a pipeline', () => {
     );
     expect(textOf(refusals[1] as CallResult)).toContain('no tool runs a pipeline');
     expect(TOOLS.map((t) => t.definition.name)).not.toContain('pipeline_run');
+    await c.close();
+  });
+
+  it('takes an org whose Organization Id changed by the alias its refusal names, as --accept-org does, and says so', async () => {
+    const answer = {
+      pipeline: { id: 'pipe-1', name: 'Nightly' },
+      plan: true,
+      orgs: [],
+      steps: [],
+      refusals: [
+        {
+          code: 'ORG_MOVED',
+          message: 'UAT answers with another Organization Id than the file says.',
+          wayOut: 'run again with --accept-org UAT=00D000000000004AAA once you checked it.',
+        },
+      ],
+      notes: [],
+      exit: 2,
+    };
+    const { ran, run } = scripts(() => ({ code: 2, stdout: JSON.stringify(answer) }));
+    const c = client(run);
+    await c.initialized();
+
+    const refused = await c.call('pipeline_plan', {
+      file: '/repo/nightly.sandforge-pipeline.json',
+    });
+    await c.call('pipeline_plan', {
+      file: '/repo/nightly.sandforge-pipeline.json',
+      acceptOrgs: [{ key: 'UAT', organizationId: '00D000000000004AAA' }],
+    });
+
+    const acceptOrgs = (
+      TOOLS.find((t) => t.definition.name === 'pipeline_plan')?.definition.inputSchema
+        .properties as Record<string, { description?: string }>
+    ).acceptOrgs;
+    expect(acceptOrgs?.description).toContain(
+      'the org by its alias, or by its key in the file, and the Id the plan said',
+    );
+    expect(textOf(refused)).toContain(
+      "--accept-org, named above, is this tool's acceptOrgs: the org by its alias, or by its " +
+        'key in the file, and the Organization Id taken for it',
+    );
+    expect(ran[1]?.args).toContain('UAT=00D000000000004AAA');
     await c.close();
   });
 

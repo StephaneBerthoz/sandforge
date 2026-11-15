@@ -6700,6 +6700,7 @@
         "cancelled": "Sie haben die Wiedergabe angehalten, bevor sie etwas geschrieben hat, und nichts wurde geschrieben.",
         "cancelledWrote": "Sie haben die Wiedergabe mittendrin angehalten. Bis dahin geschriebene Datensätze: {{records}}. Was sie angelegt hat, wird mit den Wiedergaben dieses Prüfpunkts aufbewahrt: Diese Wiedergabe entfernen nimmt es zurück.",
         "checkpointRefused": "Die Wiedergabe wurde vor jedem Schreiben abgelehnt: Der Prüfpunkt, den sie zuerst von den geschriebenen Objekten erstellen sollte, wurde abgelehnt oder konnte nicht erstellt werden, was die SandForge-Ausgabe sagt. Nichts wurde geschrieben. Deaktivieren Sie „Zuerst ein Prüfpunkt“ oder beheben Sie, was ihn ablehnt.",
+        "alsoRefused": "Neben diesen Feldern würde die Wiedergabe auch aus diesen Gründen abgelehnt:",
         "loadConfig": "Die Datensätze des Prüfpunkts lassen Pflichtfelder der anderen Org leer, und nichts wurde geschrieben: {{gaps}}. Deaktivieren Sie ihre Objekte oder geben Sie über die Befehlszeile mit einer Konfiguration wieder, die ihnen einen Wert gibt (--replay-config).",
         "nonSandbox": "{{org}} ist weder Sandbox noch Scratch-Org noch Developer-Edition-Org: Eine Wiedergabe geht nur in diese, und nichts wurde geschrieben. Wählen Sie eine davon.",
         "staging": "{{org}} ist eine als Staging markierte Sandbox: Sie enthält echte Daten, und eine Wiedergabe geht nie in eine solche. Nichts wurde geschrieben. Wählen Sie eine andere Org.",

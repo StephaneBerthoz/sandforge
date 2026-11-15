@@ -1910,6 +1910,9 @@ export class SeedOpsHandler implements DomainHandler {
       bulkThreshold: robustnessConfigOf(this.deps).bulk.threshold,
       automationRead: automationReadRequests(read),
     };
+    // What still runs creates under the records counted with them, as the
+    // fit below keeps room for it: weighed alone, a seed whose flows open a
+    // task under each account went through past what the org had left.
     const storage = await seedStorageGate(
       conn,
       taken,
@@ -1918,6 +1921,7 @@ export class SeedOpsHandler implements DomainHandler {
       checkpoint?.planned,
       { ...deliverabilityPartOf(emailsOfRun.ofRun), ...mutePartOf(mute?.plan) },
       writePath,
+      stillRunning.room,
     );
     if (storage.check.verdict === 'unread') {
       warn(

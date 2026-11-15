@@ -224,6 +224,50 @@ describe('seedStorageGate', () => {
     expect(gate.check).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
     expect(gate.api).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
   });
+
+  it("counts with the records what the target's automation that still runs creates under them, and refuses past what is left", async () => {
+    // 1,500 accounts take about 2.93 MB of a Developer Edition's 5; a flow
+    // no mute reaches opens a task under each, 2.93 MB more. Counted alone,
+    // the records went through, as a clone from records did until its gate
+    // counted the same.
+    const seed = objects(['Account', 1_500]);
+    const room = {
+      perRecord: [
+        {
+          objectApiName: 'Account',
+          act: 'insert' as const,
+          bytes: 2 * KB,
+          creates: [{ objectApiName: 'Task', by: 'Account_Follow_Up' }],
+        },
+      ],
+    };
+
+    const alone = await seedStorageGate(limits(5, 5), seed, [], 'my-dev-org');
+    const counted = await seedStorageGate(
+      limits(5, 5),
+      seed,
+      [],
+      'my-dev-org',
+      undefined,
+      {},
+      {},
+      room,
+    );
+
+    expect(alone.check.verdict).toBe('fits');
+    expect(counted.check).toMatchObject({
+      verdict: 'exceeds',
+      estimateMB: (6_000 * KB) / MB,
+      automationMB: (3_000 * KB) / MB,
+    });
+    expect(counted.refusedFor).toBe('storage');
+    expect(counted.refusal).toBe(
+      'The records to write take about 5.86 MB of data storage, about 2.93 MB of it for what ' +
+        "the target's automation creates under them, and my-dev-org has 5 MB left of 5 MB: " +
+        'leave objects out, lower the records per object, or free data storage in my-dev-org. ' +
+        'Nothing was written.',
+    );
+  });
 });
 
 describe('seedFitBudgetOf', () => {

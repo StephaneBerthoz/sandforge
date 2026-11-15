@@ -6700,6 +6700,7 @@
         "cancelled": "Você parou a reprodução antes que ela gravasse algo, e nada foi gravado.",
         "cancelledWrote": "Você parou a reprodução no meio do caminho. Registros gravados até lá: {{records}}. O que ela criou é guardado com as reproduções deste ponto de verificação: Remover esta reprodução o retira.",
         "checkpointRefused": "A reprodução foi recusada antes de gravar qualquer coisa: o ponto de verificação que ela devia tirar primeiro dos objetos que grava foi recusado, ou não pôde ser tirado, como diz a saída do SandForge. Nada foi gravado. Desmarque Primeiro um ponto de verificação, ou corrija o que o recusa.",
+        "alsoRefused": "Além desses campos, a reprodução seria recusada por:",
         "loadConfig": "Os registros do ponto de verificação deixam vazios campos obrigatórios da outra org, e nada foi gravado: {{gaps}}. Desmarque os objetos deles, ou reproduza pela linha de comando com uma configuração que lhes dê um valor (--replay-config).",
         "nonSandbox": "{{org}} não é sandbox, scratch org nem org Developer Edition: uma reprodução só vai para essas, e nada foi gravado. Escolha uma delas.",
         "staging": "{{org}} é uma sandbox marcada como Staging: contém dados reais, e uma reprodução nunca vai para uma delas. Nada foi gravado. Escolha outra org.",

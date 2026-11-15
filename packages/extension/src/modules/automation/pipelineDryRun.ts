@@ -20,8 +20,8 @@ import {
 import { pipelineSeedAsked } from '../../bridge/handlers/seedPipeline.js';
 import type { PipelineSeedPreview } from '../../bridge/handlers/seedPipeline.js';
 import { dataOpsBackupPayloadSchema } from '../../bridge/validatePayload.js';
-import { formatMB } from '../forge/ForgeRunGate.js';
 import type { ApiBudgetCheck, StorageCheck } from '../forge/ForgeRunGate.js';
+import { seedStorageWords } from '../seed/seedStorage.js';
 import { grantRefusalWords } from './RewindGrants.js';
 import {
   StepCancelledError,
@@ -332,14 +332,7 @@ function dryAnswer(context: StepContext): { approved: boolean } {
 
 /** The data storage a seed takes against what its org has left, as `sandforge seed` says it. */
 function storageWords(check: StorageCheck, org: string): string {
-  const taken = `data storage: about ${formatMB(check.estimateMB)} MB to write`;
-  if (check.verdict === 'unread') {
-    return `${taken}; what ${org} has left could not be read (${check.unread})`;
-  }
-  return (
-    `${taken}, ${org} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
-    (check.verdict === 'near' ? ': close to what it has left' : '')
-  );
+  return seedStorageWords(check, org);
 }
 
 /** The daily API requests a seed makes against what its org has left. */

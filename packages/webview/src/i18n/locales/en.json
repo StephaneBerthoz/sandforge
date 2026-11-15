@@ -6700,6 +6700,7 @@
         "cancelled": "You stopped the replay before it wrote anything, and nothing was written.",
         "cancelledWrote": "You stopped the replay part way. Records it had written by then: {{records}}. What it created is kept with this checkpoint’s replays: Remove this replay takes it back.",
         "checkpointRefused": "The replay was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first, or fix what refuses it.",
+        "alsoRefused": "Beside those fields, the replay would be refused for:",
         "loadConfig": "The checkpoint’s records leave required fields empty that the other org requires, and nothing was written: {{gaps}}. Untick their objects, or replay from the command line with a configuration that gives them a value (--replay-config).",
         "nonSandbox": "{{org}} is no sandbox, scratch org or Developer Edition org: a replay goes into those alone, and nothing was written. Pick one of those.",
         "staging": "{{org}} is a sandbox marked Staging: it holds real data, and a replay never goes into one. Nothing was written. Pick another org.",

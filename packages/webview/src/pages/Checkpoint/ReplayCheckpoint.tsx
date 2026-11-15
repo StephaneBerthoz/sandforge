@@ -35,6 +35,7 @@ import { recordsHeld } from './checkpointFacts';
 import {
   defaultReplayChoices,
   plannedRecords,
+  refusedBesideWords,
   replayAskKey,
   replayChoicesSent,
   replayInto,
@@ -195,6 +196,9 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
     );
   const wordsOf = (payload: ReplayErrorPayload | null, fallback: string | null): string =>
     (payload ? frozenErrorWords(payload, t, aliasOf, 'replay') : undefined) ?? fallback ?? '';
+  // What else the simulation found the replay would be refused for, beside
+  // the fields the other org requires: said with them, as the command line does.
+  const refusedBeside = refusedBesideWords(preview.errorPayload, t, aliasOf);
 
   const requestOf = (): Record<string, unknown> => ({
     targetOrgId,
@@ -593,6 +597,21 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
             code={preview.errorPayload?.code ?? null}
             data-testid="checkpoint-replay-refused"
           />
+          {refusedBeside.length > 0 && (
+            <div
+              className="flex flex-col gap-1 text-xs text-text-secondary"
+              data-testid="checkpoint-replay-refused-beside"
+            >
+              <p>{t('frozen.replay.refusal.alsoRefused')}</p>
+              <ul className="list-disc pl-5">
+                {refusedBeside.map((words) => (
+                  <li key={words} data-testid="checkpoint-replay-refused-beside-item">
+                    {words}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {preview.errorPayload?.code === 'REPLAY_SAME_ORG' && onRewind && (
             <Button
               variant="secondary"

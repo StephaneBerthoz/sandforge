@@ -317,9 +317,10 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>, P = undefined> 
    * a switch, or not at all, with what stands for each: the line the server
    * adds after "<flag>, named above,". A refusal of an environment's removal
    * said "Add --accept-automation", which no parameter of env_destroy takes:
-   * the file's accept does.
+   * the file's accept does. Given the script's lines, the words may read what
+   * they gave the flag.
    */
-  named?: Readonly<Record<string, string>>;
+  named?: Readonly<Record<string, NamedWords>>;
   /** What an exit code of its script means for this tool, where it is not what it means for all. */
   exits?: Readonly<Partial<Record<number, string>>>;
   /**
@@ -340,6 +341,12 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>, P = undefined> 
   settle?: (args: z.output<S>, prepared: P, settling: Settling) => Promise<ResultParts>;
 }
 
+/**
+ * What stands for a flag a script's lines name: the same words whatever they
+ * gave it, or words read from those lines (the script's stderr and stdout).
+ */
+type NamedWords = string | ((said: string) => string);
+
 /** A tool, its arguments read: what a call of it runs, and what it must be confirmed with. */
 interface Call {
   writesTo?: string;
@@ -356,7 +363,7 @@ interface ServedTool {
   writes?: string;
   readFirst?: string;
   flags: Readonly<Record<string, string>>;
-  named: Readonly<Record<string, string>>;
+  named: Readonly<Record<string, NamedWords>>;
   exits: Readonly<Partial<Record<number, string>>>;
   read: (
     raw: Record<string, unknown>,
@@ -895,6 +902,50 @@ function refuseReplayOf(
   }
 }
 
+/** What the removal of a replay asks of its sweep, as `checkpoint_replay_remove` takes it. */
+interface ReplaySweepArgs {
+  preview?: boolean | undefined;
+  sweep?: boolean | undefined;
+  sweepList?: boolean | undefined;
+  sweepLate?: boolean | undefined;
+  sweepUntied?: boolean | undefined;
+}
+
+/** Whether the removal of a replay only says what it would delete, or what its sweep would take. */
+function listsOnly(args: Pick<ReplaySweepArgs, 'preview' | 'sweepList'>): boolean {
+  return args.preview === true || args.sweepList === true;
+}
+
+/**
+ * What the removal of a replay is refused for in its sweep, as the command
+ * refuses it (`parseReplay`, `sweepClassArgsOf`), before any script runs: a
+ * sweep and its list both, a preview with the list, which it gives with
+ * sweep, and what came late or is tied to nothing without either. Read by
+ * the command alone, `--sweep-late` was refused, exit 2, the line its own
+ * preview had proposed.
+ */
+function refuseReplaySweep(args: ReplaySweepArgs, ctx: z.RefinementCtx): void {
+  const issue = (path: string, message: string) =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if (args.sweep === true && args.sweepList === true) {
+    issue('sweepList', 'sweep deletes and sweepList only lists: give one of them');
+  }
+  if (args.preview === true && args.sweepList === true) {
+    issue(
+      'sweepList',
+      'preview deletes nothing, and sweepList lists what a sweep would take: give preview ' +
+        'without it, or with sweep',
+    );
+  }
+  if (args.sweep !== true && args.sweepList !== true) {
+    for (const key of ['sweepLate', 'sweepUntied'] as const) {
+      if (args[key] === true) {
+        issue(key, `${key} goes with sweep, or with sweepList to see what it would take`);
+      }
+    }
+  }
+}
+
 /** The arguments a replay's choices are read from, as `checkpoint_replay` takes them. */
 interface ReplayArgs {
   checkpoint?: string | undefined;
@@ -1214,6 +1265,36 @@ export function cloneRecordsLine(args: CloneRecordsArgs): string[] {
     ...checkpointFirstLine(args.checkpointFirst),
     '--json',
   ];
+}
+
+/** What `--query`, named by the clone's lines, is to `clone_records`. */
+const ROOTS_QUERY_WORDS =
+  "is this tool's object, where, orderBy and limit: the query they make, SELECT Id FROM " +
+  '<object> WHERE <where> ORDER BY <orderBy> LIMIT <limit>.';
+
+/**
+ * The query a refusal of a clone's volume names to take as many records as
+ * fit, as the clone writes it (`rootsQueryWithLimit`): its ORDER BY, the one
+ * asked or the newest first, and its LIMIT, the last of the statement.
+ */
+const QUERY_THAT_FITS = /--query "SELECT Id FROM [^"]* ORDER BY ([^"]+?) LIMIT (\d+)"/;
+
+/**
+ * What `--query`, named by a clone's lines, is to `clone_records`: of a
+ * refusal of its volume, which names the query that takes as many records
+ * as fit, this call again with that limit and order, its object and where
+ * kept; otherwise the query its parameters make. Relayed, the refusal of a
+ * query of 41 accounts said "this script's own --query "SELECT … LIMIT 3"",
+ * a flag of no tool: the call's limit, 3, is what takes them. Exported so it
+ * can be tested.
+ */
+export function rootsQueryWords(said: string): string {
+  const fits = QUERY_THAT_FITS.exec(said);
+  if (!fits) return ROOTS_QUERY_WORDS;
+  return (
+    `is this call with limit: ${fits[2] ?? ''} and orderBy: "${fits[1] ?? ''}", its object and ` +
+    'where as they were: dryRun: true first.'
+  );
 }
 
 /**
@@ -2380,9 +2461,7 @@ export const TOOLS: readonly ServedTool[] = [
       '--mute-automation': 'muteAutomation',
     },
     named: {
-      '--query':
-        "is this tool's object, where, orderBy and limit: the query they make, SELECT Id FROM " +
-        '<object> WHERE <where> ORDER BY <orderBy> LIMIT <limit>.',
+      '--query': rootsQueryWords,
       '--max-roots': `is this tool's limit, or the count of its recordIds: the records a run clones, 1 to ${FORGE_ROOTS_MAX}.`,
       '--max-read-total': "is this tool's maxReadTotal.",
       '--checkpoint-first': "is this tool's checkpointFirst: {} takes it with the defaults.",
@@ -3335,7 +3414,9 @@ export const TOOLS: readonly ServedTool[] = [
       '--remove --json does; records changed since are kept, unless includeChanged. preview: ' +
       'true says what it would delete, deleting nothing and needing no confirm; otherwise it ' +
       'needs confirm, the alias of target. sweep takes too what the automation of target made ' +
-      'for those records. acceptAutomation lets it delete although target runs automation as ' +
+      'for those records, and sweepList lists it, deleting nothing and needing no confirm; ' +
+      'sweepLate and sweepUntied take too what the list says came late, or is tied to nothing ' +
+      'of the replay. acceptAutomation lets it delete although target runs automation as ' +
       "the records go; muteAutomation keeps that automation quiet through target's own " +
       'bypass. checkpoint_list names the replays into an org, by their checkpoint. A replay ' +
       'this server still runs into target is refused: run_stop stops it first. A production ' +
@@ -3355,6 +3436,19 @@ export const TOOLS: readonly ServedTool[] = [
           "Take too what target's automation made for the records of the replay. Only once the " +
             'person using you has seen, in a preview with it, what it takes.',
         ),
+        sweepList: acceptance(
+          'List what sweep would take, per object, and delete nothing: it reads target, and ' +
+            'takes no confirm. Not with sweep, nor with preview, which lists it with sweep.',
+        ),
+        sweepLate: acceptance(
+          'With sweep, take too what the list says came late, after the replay ended; with ' +
+            'sweepList, say what it would take. Only once the person using you has seen it.',
+        ),
+        sweepUntied: acceptance(
+          'With sweep, take too what the list says is tied to nothing of the replay, refused ' +
+            'when another run of this machine wrote to target meanwhile; with sweepList, say ' +
+            'what it would take. Only once the person using you has seen it.',
+        ),
         includeChanged: acceptance(
           'Take also the records changed since the replay, and what was added under them since: ' +
             "on a shared sandbox, others' work. Only once the person using you has accepted it.",
@@ -3366,30 +3460,35 @@ export const TOOLS: readonly ServedTool[] = [
         ),
         muteAutomation: muteActFor('the removal'),
       })
-      .superRefine(refuseReplayOf),
+      .superRefine(refuseReplayOf)
+      .superRefine(refuseReplaySweep),
     // A replay this server handed back may still be writing into target: a
     // removal now would delete under it what it goes on creating.
     prepare: (args, context) => {
       const busy = context.runs.busyWith(args.target);
       return Promise.resolve(
-        args.preview !== true && busy?.meta.tool === 'checkpoint_replay'
+        !listsOnly(args) && busy?.meta.tool === 'checkpoint_replay'
           ? { refusal: replayUnderWayRefusal(busy, args.target) }
           : { prepared: undefined },
       );
     },
-    writesTo: (args) => (args.preview === true ? undefined : args.target),
+    writesTo: (args) => (listsOnly(args) ? undefined : args.target),
     writes: 'deletes from it, into its recycle bin, what the replays of the checkpoint created',
     readFirst:
       'checkpoint_replay_remove with preview: true says what it would delete, deleting nothing',
     flags: {
       '--include-changed': 'includeChanged',
       '--sweep': 'sweep',
+      '--sweep-late': 'sweepLate',
+      '--sweep-untied': 'sweepUntied',
       '--accept-automation': 'acceptAutomation',
       '--mute-automation': 'muteAutomation',
     },
     named: {
       '--preview':
         "is this tool's preview: true: it says what it would delete, and deletes nothing.",
+      '--sweep-list':
+        "is this tool's sweepList: true: it lists what the sweep would take, and deletes nothing.",
     },
     run: (args) => ({
       script: 'sandforge-checkpoint',
@@ -3401,10 +3500,13 @@ export const TOOLS: readonly ServedTool[] = [
         '--remove',
         ...(args.preview === true ? ['--preview'] : []),
         ...(args.sweep === true ? ['--sweep'] : []),
+        ...(args.sweepList === true ? ['--sweep-list'] : []),
+        ...(args.sweepLate === true ? ['--sweep-late'] : []),
+        ...(args.sweepUntied === true ? ['--sweep-untied'] : []),
         ...(args.includeChanged === true ? ['--include-changed'] : []),
         ...(args.muteAutomation === true ? ['--mute-automation'] : []),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
-        ...(args.preview === true ? [] : ['--yes']),
+        ...(listsOnly(args) ? [] : ['--yes']),
         '--json',
       ],
     }),
@@ -3750,7 +3852,9 @@ export const TOOLS: readonly ServedTool[] = [
       acceptOrgs: z
         .array(
           z.strictObject({
-            key: z.string().regex(PIPELINE_ORG_KEY, 'an org of the file, by its key in its orgs'),
+            key: z
+              .string()
+              .regex(PIPELINE_ORG_KEY, 'an org of the file, by its alias or its key in its orgs'),
             organizationId: z
               .string()
               .regex(ORGANIZATION_ID, 'an Organization Id, 00D and 12 or 15 letters and digits'),
@@ -3762,7 +3866,8 @@ export const TOOLS: readonly ServedTool[] = [
         .describe(
           'Orgs of the file whose alias reaches an org of another Organization Id than the ' +
             "file's — a sandbox refreshed since —, taken for it once the person using you checked " +
-            'it is the one: the key of the org in the file, and the Id the plan said.',
+            'it is the one: the org by its alias, or by its key in the file, and the Id the plan ' +
+            'said, as its refusal (ORG_MOVED) names them.',
         ),
       store: z
         .string()
@@ -3796,8 +3901,8 @@ export const TOOLS: readonly ServedTool[] = [
         "is this tool's approve: the Approval steps answered ahead, by name; never one before " +
         'a write to a sandbox marked Staging, which a person answers at a terminal.',
       '--accept-org':
-        "is this tool's acceptOrgs, the key of an org of the file and the Organization Id taken " +
-        'for it, once the person using you checked it is the one.',
+        "is this tool's acceptOrgs: the org by its alias, or by its key in the file, and the " +
+        'Organization Id taken for it, once the person using you checked it is the one.',
       '--var': "is this tool's vars, a name and its value; a secret goes by varEnvs.",
       '--var-env':
         "is this tool's varEnvs, a name and the variable of the server's environment that holds " +
@@ -4035,7 +4140,8 @@ function resultPartsOf(
     );
   }
   for (const [flag, line] of Object.entries(served.named ?? {})) {
-    if (names(text, flag)) added.push(`${flag}, named above, ${line}`);
+    if (!names(text, flag)) continue;
+    added.push(`${flag}, named above, ${typeof line === 'function' ? line(text) : line}`);
   }
   if (ANSWERED.has(ran.code)) added.push(...after(answer));
   else if (STOPPED.has(ran.code)) {

@@ -23,6 +23,7 @@ import type {
   FrozenLoadEmailsInfo,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
+  FrozenLoadStorageInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenRemovalPreview,
@@ -548,6 +549,31 @@ function loadStorageRefusal(input: {
       'it; or extract a smaller dataset, with a lower budget in the configuration, a new ' +
       `selection and a new extraction; or free data storage in ${input.target}. Nothing was ` +
       'written.',
+  };
+}
+
+/**
+ * A refusal a load's preview found beside the required fields its
+ * configuration leaves empty: its code and its words, the org, and what its
+ * gate found, as the load's own refusal for it names them (`errorDetailOf`).
+ */
+interface RefusedBeside {
+  code: string;
+  message: string;
+  orgId: string;
+  automation?: FrozenLoadAutomationInfo;
+  emails?: FrozenLoadEmailsInfo;
+  storage?: FrozenLoadStorage;
+  apiRequests?: FrozenLoadApiRequests;
+}
+
+/** What a load's gate measured of the data storage, as its refusal names it: the figures, without the refusal. */
+function storageFiguresOf(storage: FrozenLoadStorageInfo): FrozenLoadStorage {
+  return {
+    estimateMB: storage.estimateMB,
+    remainingMB: storage.remainingMB,
+    maxMB: storage.maxMB,
+    ...(storage.freedMB !== undefined ? { freedMB: storage.freedMB } : {}),
   };
 }
 
@@ -2920,17 +2946,20 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * The data storage a replay's records take against what the other org has
-   * left, as its load's gate counts them, and the refusal its replay would
-   * meet past it (`FROZEN_STORAGE_EXCEEDED`): said by its dry run, which a
-   * Frozen preview does not say. Undefined when the org would not say.
+   * The data storage a load's records take against what the target has
+   * left, as its gate counts them (`loadStorageRefusal`), and the refusal it
+   * would meet past it (`FROZEN_STORAGE_EXCEEDED`), in a replay's words for a
+   * replay: said by a preview, its dry run's. A replay's dry run said it and
+   * a load's did not, which only its run refused. Undefined when the target
+   * would not say.
    */
-  private async replayStorageOf(input: {
+  private async loadStorageOf(input: {
     conn: LimitsTransport;
     dataset: FrozenDataset;
     purged?: LoadRequestsInput['purged'];
     targetOrgId: string;
-  }): Promise<FrozenReplayInfo['storage']> {
+    replay?: boolean;
+  }): Promise<FrozenLoadStorageInfo | undefined> {
     const limits = await readDataStorage(input.conn).catch(() => undefined);
     if (limits === undefined) return undefined;
     const over = loadStorageRefusal({
@@ -2938,7 +2967,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       storage: limits,
       ...(input.purged ? { purged: input.purged } : {}),
       target: this.orgNameOf(input.targetOrgId),
-      replay: true,
+      ...(input.replay === true ? { replay: true } : {}),
     });
     const MB = 1024 * 1024;
     const estimateMB =
@@ -4793,20 +4822,23 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(checkpoint ? { checkpoint } : {}),
         ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
       });
-      // A replay says what does not go across as it was, and the data
-      // storage its records take, with the refusal its replay would meet.
+      // The data storage its records take, with the refusal its load would
+      // meet, as the load's gate measures it: none of a pilot, which the gate
+      // lets through. A replay says it with what does not go across as it was.
+      const storage = await this.previewStorageOf({
+        conn,
+        dataset,
+        store,
+        config,
+        parsed,
+        targetOrgId: parsed.targetOrgId,
+        replay: replay !== undefined,
+      });
       const replayInfo = replay
         ? this.replayInfoOf(
             replay,
             plan.perObject.reduce((sum, object) => sum + object.reusedByKeys, 0),
-            await this.replayStorageOf({
-              conn,
-              dataset,
-              ...(parsed.reload === true
-                ? { purged: await this.purgedOf(store, config).catch(() => []) }
-                : {}),
-              targetOrgId: parsed.targetOrgId,
-            }),
+            storage,
           )
         : undefined;
       this.deps.broker.postToWebview(
@@ -4817,6 +4849,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ...(emails ? { emails } : {}),
             ...(automation ? { automation } : {}),
             ...(apiRequests ? { apiRequests } : {}),
+            ...(storage && !replay ? { storage } : {}),
           },
           ...replayPart(replayInfo),
         }),
@@ -4833,8 +4866,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * What a load would be refused for beside the required fields its
    * configuration leaves empty, judged as the preview judges each gate: what
-   * the target runs, its emails, of a replay its data storage, and its API
-   * requests, each under its code, in the order a load meets them.
+   * the target runs, its emails, its data storage, and its API requests, each
+   * under its code, in the order a load meets them, with what its own refusal
+   * names beside its words (`errorDetailOf`): the org and what the gate found,
+   * for the panel to say each in its language as it says that refusal alone.
+   * The page said the fields alone, and the person met the storage a
+   * simulation later.
    */
   private async refusedBesideOf(input: {
     conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
@@ -4850,25 +4887,56 @@ export class FrozenDatasetHandler implements DomainHandler {
       acceptAutomation?: boolean;
     };
     replay?: ReplayLoad;
-  }): Promise<Array<{ code: string; message: string }>> {
+  }): Promise<RefusedBeside[]> {
     const { replay, ...asked } = input;
     const { emails, automation, apiRequests } = await this.previewWhatRuns({
       ...asked,
       ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
     });
-    const storage = replay
-      ? await this.replayStorageOf({
-          conn: input.conn,
-          dataset: input.dataset,
-          ...(input.parsed.reload === true
-            ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
-            : {}),
-          targetOrgId: input.orgId,
-        })
-      : undefined;
-    return [automation?.refused, emails?.refused, storage?.refusal, apiRequests?.refused].filter(
-      (refused): refused is { code: string; message: string } => refused !== undefined,
-    );
+    const storage = await this.previewStorageOf({
+      conn: input.conn,
+      dataset: input.dataset,
+      store: input.store,
+      config: input.config,
+      parsed: input.parsed,
+      targetOrgId: input.orgId,
+      replay: replay !== undefined,
+    });
+    const { orgId } = input;
+    const beside: RefusedBeside[] = [];
+    if (automation?.refused) beside.push({ ...automation.refused, orgId, automation });
+    if (emails?.refused) beside.push({ ...emails.refused, orgId, emails });
+    if (storage?.refusal) {
+      beside.push({ ...storage.refusal, orgId, storage: storageFiguresOf(storage) });
+    }
+    if (apiRequests?.refused) beside.push({ ...apiRequests.refused, orgId, apiRequests });
+    return beside;
+  }
+
+  /**
+   * The data storage a preview says its load would take, as the load's gate
+   * measures it ({@link loadStorageOf}): on a reload, what its purge frees
+   * first counted; nothing of a pilot, which the gate lets through.
+   */
+  private async previewStorageOf(input: {
+    conn: LimitsTransport;
+    dataset: FrozenDataset;
+    store: SasReferenceIdMappingStore;
+    config: FrozenProjectConfig;
+    parsed: { reload?: boolean; pilot?: boolean };
+    targetOrgId: string;
+    replay: boolean;
+  }): Promise<FrozenLoadStorageInfo | undefined> {
+    if (input.parsed.pilot === true) return undefined;
+    return this.loadStorageOf({
+      conn: input.conn,
+      dataset: input.dataset,
+      ...(input.parsed.reload === true
+        ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
+        : {}),
+      targetOrgId: input.targetOrgId,
+      replay: input.replay,
+    });
   }
 
   /**
