@@ -343,6 +343,17 @@ describe('the GitHub Actions workflow of a pipeline', () => {
     );
     expect(often.text).toContain('# GitHub starts a schedule every 5 minutes at most');
   });
+
+  it('tells how to print each org’s auth URL by the command current CLIs reveal it by, never sf org display, which redacts it', () => {
+    const text = githubActionsWorkflow(launcherInput()).text;
+    expect(text).toContain(
+      '#   SFDX_AUTH_URL_UAT: the sfdx auth URL of "UAT" (sf org auth show-sfdx-auth-url --target-org UAT --json, its result.sfdxAuthUrl)',
+    );
+    expect(text).toContain(
+      '#   SFDX_AUTH_URL_PIPELINE_ORG_2: the sfdx auth URL of "org-dev" (sf org auth show-sfdx-auth-url --target-org <its username> --json, its result.sfdxAuthUrl)',
+    );
+    expect(text).not.toContain('sf org display');
+  });
 });
 
 describe('the launchers of an export', () => {

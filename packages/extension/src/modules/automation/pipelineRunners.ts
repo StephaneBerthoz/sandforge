@@ -636,7 +636,10 @@ export function githubActionsWorkflow(raw: LauncherInput): PipelineLauncher {
       `${input.fileName} at the repository's root. Each org signs in from a repository secret:`,
       ...orgs.map(
         (org) =>
-          `  ${org.secret}: the sfdx auth URL of "${oneLine(org.label)}" (sf org display --verbose)`,
+          // `sf org display --verbose` prints it redacted in current CLIs: stored as the
+          // secret, that sentence fails every `sf org login sfdx-url`.
+          `  ${org.secret}: the sfdx auth URL of "${oneLine(org.label)}" (sf org auth show-sfdx-auth-url ` +
+          `--target-org ${org.alias ?? '<its username>'} --json, its result.sfdxAuthUrl)`,
       ),
       ...input.variables.map(
         (variable) =>

@@ -777,6 +777,39 @@ test('the guides name the Salesforce CLI import and the Organizations page as th
 });
 
 /**
+ * A pipeline's Staging refusal and an emptying's refusal sent people to
+ * "Org Manager" for the Staging mark, a page no screen shows by that name.
+ * Comments may still say it; a line the extension or the command line prints
+ * may not.
+ */
+test('no message the extension or the command line prints names the retired Org Manager', () => {
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(join(repoRoot, dir), { withFileTypes: true })) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && entry.name !== 'dist') walk(path);
+      } else if (/\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+        read(...path.split('/'))
+          .split('\n')
+          .forEach((line, i) => {
+            const code = line.trim();
+            if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) return;
+            if (/Org Manager/.test(code)) offenders.push(`${path}:${i + 1}: ${code.slice(0, 100)}`);
+          });
+      }
+    }
+  };
+  walk('packages/extension/src');
+  walk('packages/extension/cli');
+  assert.deepEqual(
+    offenders,
+    [],
+    `messages that name a page no screen shows:\n  ${offenders.join('\n  ')}`,
+  );
+});
+
+/**
  * Getting Started and the Seed guide still pointed at Minimal Demo as the
  * template marked Start here, after CRM Starter took its place at the head of
  * the gallery.

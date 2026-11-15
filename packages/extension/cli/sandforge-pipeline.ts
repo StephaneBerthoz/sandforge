@@ -651,7 +651,7 @@ function approvalRefusals(
           code: 'STAGING_NEEDS_PERSON',
           step: step.name,
           message: `${who} stands before a write to a sandbox marked Staging: only a person at a terminal answers it, never --approve.`,
-          wayOut: `leave --approve "${step.name}" out and run it in a terminal; or take the Staging mark off the sandbox in Org Manager, and export again.`,
+          wayOut: `leave --approve "${step.name}" out and run it in a terminal; or take the Staging mark off the sandbox on the Organizations page, and export again.`,
         },
       ];
     }
@@ -662,7 +662,7 @@ function approvalRefusals(
           step: step.name,
           message: `${who} stands before a write to a sandbox marked Staging, and this run has no terminal: only a person at a terminal answers it.`,
           wayOut:
-            'run it in a terminal; or take the Staging mark off the sandbox in Org Manager, and export again.',
+            'run it in a terminal; or take the Staging mark off the sandbox on the Organizations page, and export again.',
         },
       ];
     }

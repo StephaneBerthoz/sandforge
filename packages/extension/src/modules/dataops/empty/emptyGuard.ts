@@ -152,7 +152,7 @@ export async function guardEmpty(
         message:
           `${orgName} is a sandbox marked Staging: it holds real data, and SandForge never ` +
           'empties the whole of it. Pick the objects to empty instead, which Production Guard ' +
-          `asks about, or unmark it in Org Manager if it holds nobody's work. ${NOTHING_READ}`,
+          `asks about, or unmark it on the Organizations page if it holds nobody's work. ${NOTHING_READ}`,
       },
     };
   }
