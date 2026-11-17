@@ -69,8 +69,11 @@ describe('the command line history of a pipeline', () => {
 
     const file = cliHistoryFileOf(pipelines, PIPELINE);
     expect(file).toBe(join(pipelines, PIPELINE, 'history.json'));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(pipelineFolderOf(pipelines, PIPELINE)).mode & 0o777).toBe(0o700);
+    // Windows keeps no permission bits: Node reads 0o666 there, whatever was asked.
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(pipelineFolderOf(pipelines, PIPELINE)).mode & 0o777).toBe(0o700);
+    }
 
     const listed = cliRunHistory(pipelines, vi.fn()).read();
     expect(listed).toEqual([

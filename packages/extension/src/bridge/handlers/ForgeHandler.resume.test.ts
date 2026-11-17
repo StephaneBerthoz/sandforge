@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
@@ -26,6 +26,7 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -208,10 +209,13 @@ describe('a run taken up where it stopped', () => {
   let tracker: LiveOperationTracker;
   /** The org the registry holds as the target, as Salesforce knows it; none once it is gone. */
   let targetOrg: string | undefined;
+  /** The journals' locks, each window a process of its own, gone once the next one opens. */
+  let locks: WindowJournalLocks;
 
   beforeEach(() => {
     settings = {};
     files = new PathMap();
+    locks = windowJournalLocks();
     targetOrg = TARGET_ORG;
     tracker = new LiveOperationTracker();
     configStore = new ConfigStore(new InMemoryConfigStoreBackend());
@@ -251,6 +255,7 @@ describe('a run taken up where it stopped', () => {
         }) as never,
     );
   });
+  afterEach(() => locks.dispose());
 
   /** A handler of a window, whose orchestrator runs `execute`. */
   function windowRunning(
@@ -271,7 +276,7 @@ describe('a run taken up where it stopped', () => {
         resume: vi.fn(),
         clearDiscoveryCache: vi.fn(),
       } as unknown as ForgeOrchestrator,
-      { targetAutomation: reader, runJournal: journal },
+      { targetAutomation: reader, runJournal: journal, journalLocks: locks.opened() },
     );
     handler.setLiveOperationTracker(tracker);
     return { handler, execute: run };

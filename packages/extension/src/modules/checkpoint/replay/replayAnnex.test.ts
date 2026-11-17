@@ -445,7 +445,10 @@ describe('the file of the annex', () => {
     const summary = await writeReplayAnnex(at, annexOfOrg());
 
     expect(summary).toEqual({ recordTypes: 1, users: 1, queues: 1, standardPricebook: true });
-    expect(statSync(replayAnnexFileOf(at)).mode & 0o777).toBe(0o600);
+    // Windows keeps no permission bits: Node reads 0o666 there, whatever was asked.
+    if (process.platform !== 'win32') {
+      expect(statSync(replayAnnexFileOf(at)).mode & 0o777).toBe(0o600);
+    }
     expect(await readReplayAnnex(at)).toEqual(annexOfOrg());
   });
 

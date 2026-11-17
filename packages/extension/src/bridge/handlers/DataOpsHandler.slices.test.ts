@@ -129,9 +129,14 @@ function memoryBackups(
   });
 }
 
+/** A file of the backups, by the path the store gives it on this platform. */
+function backupFile(name: string): string {
+  return path.join('/storage', 'backups', name);
+}
+
 /** The ids a snapshot's file holds of Contact. */
 function idsIn(files: Map<string, string>, snapshotId: string): string[] {
-  return (files.get(`/storage/backups/${snapshotId}__Contact.ndjson`) ?? '')
+  return (files.get(backupFile(`${snapshotId}__Contact.ndjson`)) ?? '')
     .split('\n')
     .filter((line) => line !== '')
     .map((line) => String((JSON.parse(line) as { Id: string }).Id));
@@ -570,9 +575,7 @@ describe('DataOpsHandler — masking in slices', () => {
     expect(result.recordsFailed).toBe(3);
     expect(result.slices.state).toBe('open');
     expect(result.slices.objects[0].slices.map((s) => s.refused)).toEqual([1, 1, 1]);
-    expect(files.get('/storage/backups/run-1-s0002___refused_Contact.ndjson')).toContain(
-      idOf(1500),
-    );
+    expect(files.get(backupFile('run-1-s0002___refused_Contact.ndjson'))).toContain(idOf(1500));
 
     org.refuse.clear();
     const resumeFrom = await checkpointId();

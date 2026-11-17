@@ -93,8 +93,11 @@ describe('where replays are kept', () => {
     const folder = await store.record(CHECKPOINT, { organizationId: TARGET, name: 'UAT' }, CHOICES);
 
     expect(folder.dir).toBe(join(dir, 'replays', SOURCE, CHECKPOINT_ID));
-    expect(statSync(folder.dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(folder.dir, REPLAY_RECORD_FILE)).mode & 0o777).toBe(0o600);
+    // Windows keeps no permission bits: Node reads 0o666 there, whatever was asked.
+    if (process.platform !== 'win32') {
+      expect(statSync(folder.dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(folder.dir, REPLAY_RECORD_FILE)).mode & 0o777).toBe(0o600);
+    }
     expect(() => new ReplayStore({ root: join(guard.repoRoot, 'replays'), guard })).toThrow(
       /inside the repository/,
     );

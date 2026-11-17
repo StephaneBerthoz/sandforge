@@ -5,12 +5,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -61,6 +62,12 @@ function scratch(): string {
 }
 
 /**
+ * Whether this machine lacks the bash a cron launcher is written for:
+ * Windows has no /bin/bash, and its launcher is the PowerShell one.
+ */
+const NO_BASH = process.platform === 'win32';
+
+/**
  * A folder of the commands the bash launcher uses, and nothing else: what
  * cron gives a script, without the node and sf this machine may have.
  */
@@ -75,16 +82,43 @@ function bareBin(dir: string): string {
 }
 
 /** Stand-ins for node, sf and npx: npx writes the words it was given, and ends as `npxExit` says. */
-function fakeTools(bin: string, npxExit: number): string {
+function fakeTools(bin: string, npxExit: number, withNode = true): string {
   const said = join(bin, '..', 'npx-args');
   const tool = (name: string, body: string): void => {
     writeFileSync(join(bin, name), `#!/bin/bash\n${body}\n`);
     chmodSync(join(bin, name), 0o755);
   };
-  tool('node', 'exit 0');
+  if (withNode) tool('node', 'exit 0');
   tool('sf', 'exit 0');
   tool('npx', `printf '%s\\n' "$@" > ${bashQuote(said)}\nexit ${npxExit}`);
   return said;
+}
+
+/**
+ * Stand-ins for sf and npx as PowerShell finds them, the node of this test
+ * left to answer the launcher's check of its release: on Windows, scripts of
+ * PowerShell, as npm puts npx.ps1 beside npx.cmd; elsewhere, those above.
+ */
+function pwshTools(bin: string, npxExit: number): string {
+  if (process.platform !== 'win32') return fakeTools(bin, npxExit, false);
+  const said = join(bin, '..', 'npx-args');
+  writeFileSync(join(bin, 'sf.ps1'), 'exit 0\n');
+  writeFileSync(
+    join(bin, 'npx.ps1'),
+    `[IO.File]::WriteAllText(${pwshQuote(said)}, (($args -join "\`n") + "\`n"))\nexit ${npxExit}\n`,
+  );
+  return said;
+}
+
+/** This environment, its PATH searched in `first`, then where the node of this test is, then as it was. */
+function envWithPath(first: string, more: Record<string, string>): NodeJS.ProcessEnv {
+  // Windows names it Path and reads any case of it: one entry alone, or the
+  // child may be handed the one left as it was.
+  const env: NodeJS.ProcessEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'PATH'),
+  );
+  env['PATH'] = [first, dirname(process.execPath), process.env['PATH'] ?? ''].join(delimiter);
+  return { ...env, ...more };
 }
 
 function runBash(script: string, home: string, bin: string, env: Record<string, string> = {}) {
@@ -102,7 +136,9 @@ describe('the bash launcher of a pipeline', () => {
     writeFileSync(script, launcher.text);
 
     expect(launcher.fileName).toBe('nightly-reset.sh');
-    expect(spawnSync('/bin/bash', ['-n', script], { encoding: 'utf8' }).status).toBe(0);
+    if (!NO_BASH) {
+      expect(spawnSync('/bin/bash', ['-n', script], { encoding: 'utf8' }).status).toBe(0);
+    }
     // 02:00 in Paris in November is 01:00 in UTC; in summer it is 00:00.
     expect(launcher.schedule).toMatchObject({
       kind: 'line',
@@ -117,73 +153,91 @@ describe('the bash launcher of a pipeline', () => {
     );
   });
 
-  it('says Node.js is not found and ends in 127, under the bare environment cron gives it', () => {
-    const dir = scratch();
-    const launcher = bashLauncher(launcherInput());
-    const script = join(dir, launcher.fileName);
-    writeFileSync(script, launcher.text);
+  it.skipIf(NO_BASH)(
+    'says Node.js 20.19 or later is not found and ends in 127, under the bare environment cron gives it, an older node first on it',
+    () => {
+      const dir = scratch();
+      const launcher = bashLauncher(launcherInput());
+      const script = join(dir, launcher.fileName);
+      writeFileSync(script, launcher.text);
+      // The launcher adds /usr/local/bin and ~/.local/bin to cron's PATH, and
+      // a runner may hold a recent node in the first: one stands in the
+      // second here. A Node.js older than 20.19 stands first, as a
+      // distribution packages one, and its check of the release fails.
+      const bin = bareBin(dir);
+      writeFileSync(join(bin, 'node'), '#!/bin/bash\nexit 1\n');
+      chmodSync(join(bin, 'node'), 0o755);
+      mkdirSync(join(dir, 'home', '.local', 'bin'), { recursive: true });
+      symlinkSync(process.execPath, join(dir, 'home', '.local', 'bin', 'node'));
 
-    const ran = runBash(script, join(dir, 'home'), bareBin(dir));
+      const ran = runBash(script, join(dir, 'home'), bin);
 
-    expect(ran.status).toBe(127);
-    expect(ran.stderr).toContain('Node.js 20.19 or later is not found on this PATH');
-    const log = readFileSync(
-      join(dir, 'home', '.sandforge', 'pipelines', PIPELINE, 'runs.log'),
-      'utf8',
-    );
-    expect(log).toContain('nothing ran');
-  });
+      expect(ran.status).toBe(127);
+      expect(ran.stderr).toContain('Node.js 20.19 or later is not found on this PATH');
+      const log = readFileSync(
+        join(dir, 'home', '.sandforge', 'pipelines', PIPELINE, 'runs.log'),
+        'utf8',
+      );
+      expect(log).toContain('nothing ran');
+    },
+  );
 
-  it('runs nothing, ending in 2, while the alias of an org or a secret is not set, and names each', () => {
-    const dir = scratch();
-    const bin = bareBin(dir);
-    const said = fakeTools(bin, 0);
-    const script = join(dir, 'nightly-reset.sh');
-    writeFileSync(script, bashLauncher(launcherInput()).text);
+  it.skipIf(NO_BASH)(
+    'runs nothing, ending in 2, while the alias of an org or a secret is not set, and names each',
+    () => {
+      const dir = scratch();
+      const bin = bareBin(dir);
+      const said = fakeTools(bin, 0);
+      const script = join(dir, 'nightly-reset.sh');
+      writeFileSync(script, bashLauncher(launcherInput()).text);
 
-    const ran = runBash(script, join(dir, 'home'), bin);
+      const ran = runBash(script, join(dir, 'home'), bin);
 
-    expect(ran.status).toBe(2);
-    expect(ran.stderr).toContain('org_alias_1 (the alias of org "org-dev")');
-    expect(ran.stderr).toContain('SANDFORGE_VAR_APITOKEN (variable "apiToken", a secret)');
-    expect(existsSync(said)).toBe(false);
-  });
+      expect(ran.status).toBe(2);
+      expect(ran.stderr).toContain('org_alias_1 (the alias of org "org-dev")');
+      expect(ran.stderr).toContain('SANDFORGE_VAR_APITOKEN (variable "apiToken", a secret)');
+      expect(existsSync(said)).toBe(false);
+    },
+  );
 
-  it('runs the exact release on the file beside it, with what it was given, and ends as the run ends', () => {
-    const dir = scratch();
-    const bin = bareBin(dir);
-    const said = fakeTools(bin, 3);
-    const script = join(dir, 'nightly-reset.sh');
-    writeFileSync(script, bashLauncher(launcherInput()).text);
-    const store = join(dir, 'journal', 'pipelines', PIPELINE);
-    mkdirSync(store, { recursive: true });
-    writeFileSync(
-      join(store, 'env'),
-      "export ORG_ALIAS_1='DEV'\nexport SANDFORGE_VAR_APITOKEN='x'\n",
-    );
+  it.skipIf(NO_BASH)(
+    'runs the exact release on the file beside it, with what it was given, and ends as the run ends',
+    () => {
+      const dir = scratch();
+      const bin = bareBin(dir);
+      const said = fakeTools(bin, 3);
+      const script = join(dir, 'nightly-reset.sh');
+      writeFileSync(script, bashLauncher(launcherInput()).text);
+      const store = join(dir, 'journal', 'pipelines', PIPELINE);
+      mkdirSync(store, { recursive: true });
+      writeFileSync(
+        join(store, 'env'),
+        "export ORG_ALIAS_1='DEV'\nexport SANDFORGE_VAR_APITOKEN='x'\n",
+      );
 
-    const ran = runBash(script, join(dir, 'home'), bin, {
-      SANDFORGE_JOURNAL_DIR: join(dir, 'journal'),
-    });
+      const ran = runBash(script, join(dir, 'home'), bin, {
+        SANDFORGE_JOURNAL_DIR: join(dir, 'journal'),
+      });
 
-    expect(ran.status).toBe(3);
-    expect(readFileSync(said, 'utf8').trim().split('\n')).toEqual([
-      '-y',
-      'sandforge@1.81.0',
-      'pipeline',
-      'run',
-      '--file',
-      join(dir, 'nightly-reset.sandforge-pipeline.json'),
-      '--triggered-by',
-      'schedule',
-      '--fail-on-partial',
-      '--org',
-      'org-dev=DEV',
-      '--var-env',
-      'apiToken=SANDFORGE_VAR_APITOKEN',
-    ]);
-    expect(readFileSync(join(store, 'runs.log'), 'utf8')).toMatch(/start\n[\s\S]*exit 3\n$/);
-  });
+      expect(ran.status).toBe(3);
+      expect(readFileSync(said, 'utf8').trim().split('\n')).toEqual([
+        '-y',
+        'sandforge@1.81.0',
+        'pipeline',
+        'run',
+        '--file',
+        join(dir, 'nightly-reset.sandforge-pipeline.json'),
+        '--triggered-by',
+        'schedule',
+        '--fail-on-partial',
+        '--org',
+        'org-dev=DEV',
+        '--var-env',
+        'apiToken=SANDFORGE_VAR_APITOKEN',
+      ]);
+      expect(readFileSync(join(store, 'runs.log'), 'utf8')).toMatch(/start\n[\s\S]*exit 3\n$/);
+    },
+  );
 
   it('never answers an Approval nor confirms a Rewind itself: the lines that would are commented out, none for a Staging gate', () => {
     const text = bashLauncher(launcherInput()).text;
@@ -250,7 +304,9 @@ describe('the PowerShell launcher of a pipeline', () => {
   it.skipIf(!pwsh)(
     'is PowerShell that parses, and runs the exact release with what it was given',
     () => {
-      const dir = scratch();
+      // By its long name: Windows gives the temporary folder by its short
+      // one, which the launcher's own path would not name.
+      const dir = realpathSync.native(scratch());
       const launcher = pwshLauncher(launcherInput());
       const script = join(dir, launcher.fileName);
       writeFileSync(script, launcher.text);
@@ -269,18 +325,16 @@ describe('the PowerShell launcher of a pipeline', () => {
 
       const bin = join(dir, 'bin');
       mkdirSync(bin);
-      const said = fakeTools(bin, 0);
+      const said = pwshTools(bin, 0);
       const ran = spawnSync('pwsh', ['-NoProfile', '-File', script], {
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env['PATH'] ?? ''}`,
+        env: envWithPath(bin, {
           SANDFORGE_JOURNAL_DIR: join(dir, 'journal'),
           ORG_ALIAS_1: 'DEV',
           SANDFORGE_VAR_APITOKEN: 'x',
-        },
+        }),
         encoding: 'utf8',
       });
-      expect(ran.status).toBe(0);
+      expect(ran.status, ran.stderr).toBe(0);
       expect(readFileSync(said, 'utf8').trim().split('\n')).toEqual([
         '-y',
         'sandforge@1.81.0',
@@ -327,7 +381,10 @@ describe('the GitHub Actions workflow of a pipeline', () => {
     expect(run?.env?.['SANDFORGE_VAR_APITOKEN']).toBe('${{ secrets.SANDFORGE_VAR_APITOKEN }}');
     expect(run?.run).toContain("args+=(--org 'org-dev=pipeline-org-2')");
     expect(run?.run).toContain('npx -y \'sandforge@1.81.0\' "${args[@]}"');
-    expect(spawnSync('/bin/bash', ['-n'], { input: run?.run, encoding: 'utf8' }).status).toBe(0);
+    // Its steps run in bash on an ubuntu runner.
+    if (!NO_BASH) {
+      expect(spawnSync('/bin/bash', ['-n'], { input: run?.run, encoding: 'utf8' }).status).toBe(0);
+    }
   });
 
   it('runs by hand alone a pipeline with no schedule, and says GitHub starts a schedule every 5 minutes at most', () => {
@@ -402,7 +459,7 @@ describe('the launchers of an export', () => {
     }
     const bash = bashLauncher(broken).text;
     writeFileSync(join(dir, 'run.sh'), bash);
-    expect(spawnSync('/bin/bash', ['-n', join(dir, 'run.sh')]).status).toBe(0);
+    if (!NO_BASH) expect(spawnSync('/bin/bash', ['-n', join(dir, 'run.sh')]).status).toBe(0);
     expect(bash).toContain(
       '# Variable "token - run: evil" holds a line break in its name, which no line gives: rename it.',
     );

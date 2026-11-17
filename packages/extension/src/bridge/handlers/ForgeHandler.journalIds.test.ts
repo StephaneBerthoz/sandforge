@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type {
   BaseMessage,
   ForgeConfig,
@@ -39,6 +39,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -353,8 +354,11 @@ describe('a run whose ids are in its journal', () => {
   let handler: ForgeHandler;
   /** A window of the editor opened on the same storage: a handler of its own. */
   let windowOpened: () => ForgeHandler;
+  /** The journals' locks, each window a process of its own, gone once the next one opens. */
+  let locks: WindowJournalLocks;
 
   beforeEach(() => {
+    locks = windowJournalLocks();
     removals.length = 0;
     removalOptions.length = 0;
     verified.length = 0;
@@ -439,12 +443,14 @@ describe('a run whose ids are in its journal', () => {
           } as unknown as TargetAutomationReader,
           runJournal: disk.journal,
           removalPlans: plans,
+          journalLocks: locks.opened(),
         },
       );
       return opened;
     };
     handler = windowOpened();
   });
+  afterEach(() => locks.dispose());
 
   function send(id: string, type: string, payload: unknown): Promise<boolean> {
     return handler.handle(

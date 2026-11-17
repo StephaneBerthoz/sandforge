@@ -62,7 +62,7 @@ describe('the run lock of a pipeline', () => {
     }
     expect(pipelineFolderName('a/b')).toBe(pipelineFolderName('a/b'));
     expect(pipelineFolderName('a/b')).not.toBe(pipelineFolderName('a\\b'));
-    expect(pipelineFolderOf('/root', '../x')).toMatch(/^\/root\/p-/);
+    expect(pipelineFolderOf('/root', '../x')).toBe(join('/root', pipelineFolderName('../x')));
   });
 
   it('is held once on the machine: a run from the command line refuses the editor, which is told who and since when', () => {
@@ -135,7 +135,8 @@ describe('the run lock of a pipeline', () => {
     });
     if (!('lock' in taken)) throw new Error('the lock was not taken');
     const file = pipelineRunLockFileOf(root, PIPELINE);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows keeps no permission bits: Node reads 0o666 there, whatever was asked.
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ dryRun: true });
 
     taken.lock.release();
