@@ -43,6 +43,7 @@ You can expect:
 - Privilege escalation in pipeline steps (approval gate, conditional router)
 - AI prompt injection via record-derived content
 - Webview ↔ extension bridge: message spoofing, schema bypass
+- The sf plugin of the `sandforge` npm package, its `init` hook included
 
 ## Out of scope
 
@@ -50,6 +51,30 @@ You can expect:
   (we will follow up if a fix is required on our side)
 - Issues that require write access to the user's machine to reproduce
 - Issues affecting unsupported VS Code versions (< 1.95)
+
+## The sf plugin
+
+The `sandforge` npm package installs into the Salesforce CLI as a plugin.
+Salesforce does not sign it: sf takes a plugin's signature from Salesforce's
+own site only, so it asks before it installs this one, unless its name is on
+your allowlist (`sf plugins trust allowlist add --name sandforge`, then
+`sf plugins install sandforge`). The allowlist trusts the name, whatever
+version sf installs under it later.
+
+What to check instead is where the package was built. From 1.80.0, each
+version is published by this repository's `npm-publish.yml` workflow, by
+OIDC and with npm provenance, which ties the version to the commit and the
+run that built it: `npm view sandforge dist.attestations` shows it, and
+`npm audit signatures`, in a folder where the package is installed, verifies
+its registry signature and that attestation.
+
+Once the plugin is installed, sf loads its `init` hook before every sf
+command, SandForge's or not. The hook reads the command line: when the
+command is one of SandForge's and `--help` or `-h` comes before any `--`, it
+prints that command's own help, by running the package's
+`bin/sandforge.mjs` with the same words, and ends sf on its exit code; for
+any other command it does nothing. The commands themselves run in sf's
+process, with the guards they have under `npx sandforge`.
 
 ## Webview hardening
 

@@ -18,6 +18,8 @@ Or from the repository root of a checkout, once `pnpm install` and `pnpm build:s
 claude mcp add sandforge -- pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
 ```
 
+With the package installed as an [sf plugin](../packages/cli/README.md#as-an-sf-plugin), `claude mcp add sandforge -- sf sandforge mcp` starts the plugin's version of the same server, through sf: each session then waits for sf to start, and sf's telemetry counts it as a command. The npx line above stays the one the server's own `--help` gives.
+
 The scope is the folder's own, where `claude mcp add` ran (`local`, Claude Code's default), and the server starts in it. It reaches the orgs as the scripts do, through the `sf` CLI: each tool names an org by its alias, as `sf alias list` shows them. With `-e SANDFORGE_JOURNAL_DIR=<dir>` before the `--`, the scripts keep their run files, journals and checkpoints in `<dir>` rather than in `~/.sandforge`, as each script's `--help` says. Any other client that starts an MCP server on stdio runs the same command, from the same folder.
 
 ## The tools

@@ -39,6 +39,8 @@ A run of the clone, of Sync or of Seed is taken back with `--remove` and the sum
 
 Compare and Monitor keep their host's state in `compare/` and `monitor/` under the same folder, readable by you alone (`--store` names another). `--store` is not one thing across the scripts: the snapshot folder of the backup and DataOps, the folder a saved Sync configuration is kept in, the state file of Frozen (by default in the `sasDir` its configuration names, or `~/.sandforge-sas`), the host's folder of Compare and Monitor, the store of the checkpoints (by default `checkpoints/` under the same folder, shared with the panel). The org written to is `--org` for the backup, DataOps, Monitor and the checkpoint, and `--target` for the others.
 
+The same package installs into the Salesforce CLI as a plugin, and `sf sandforge <name> ...` runs the same script in sf's own process, with the same flags and the same exit codes, on sf's Node, Node.js 20.19 or later there too. sf's own flags are not among them: `--target-org` is refused with exit code `2`, and no script takes sf's default org ([the plugin](../packages/cli/README.md#as-an-sf-plugin)). Salesforce does not sign it, and sf asks before it installs a plugin it has no signature for, a question no job answers: in CI, `sf plugins trust allowlist add --name sandforge && sf plugins install sandforge@<version>` installs it without one. The pipelines here keep `npx sandforge`, which needs nothing installed, and so do the lines the scripts print.
+
 ## Exit codes
 
 One table for every script, the clone's:

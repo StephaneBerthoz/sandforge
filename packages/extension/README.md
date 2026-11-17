@@ -210,7 +210,7 @@ A `sandforge.yaml` committed with your project says what records its tests need 
 | Salesforce CLI (`sf`) | Latest             |
 | AI API key (optional) | Anthropic (Claude) |
 
-The [command-line scripts](https://github.com/StephaneBerthoz/sandforge/blob/master/ci-examples/README.md) need neither VS Code nor the extension. The `sandforge` npm package runs them with Node.js 20.19 or later and no checkout -- `npx sandforge --help`, and `claude mcp add sandforge -- npx -y sandforge mcp` for the [MCP server](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/mcp.md); from a checkout of this repository they run with Node.js 24 and pnpm 11, once `pnpm install` and `pnpm build:shared` have run.
+The [command-line scripts](https://github.com/StephaneBerthoz/sandforge/blob/master/ci-examples/README.md) need neither VS Code nor the extension. The `sandforge` npm package runs them with Node.js 20.19 or later and no checkout -- `npx sandforge --help`, and `claude mcp add sandforge -- npx -y sandforge mcp` for the [MCP server](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/mcp.md) --, or as an sf plugin, on sf's own Node: `sf plugins trust allowlist add --name sandforge`, `sf plugins install sandforge`, then `sf sandforge --help` ([why the allowlist](https://github.com/StephaneBerthoz/sandforge/blob/master/packages/cli/README.md#as-an-sf-plugin)); from a checkout of this repository they run with Node.js 24 and pnpm 11, once `pnpm install` and `pnpm build:shared` have run.
 
 ---
 

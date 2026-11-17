@@ -24,3 +24,4 @@ Change course by adding a new ADR that supersedes the old one.
 | [0002](./0002-message-contract-zero-drift.md)    | Message contract zero-drift          | Accepted | 2026-08-03 |
 | [0003](./0003-frozen-dataset-salt-model.md)      | Frozen dataset salt model            | Accepted | 2026-08-03 |
 | [0005](./0005-types-node-follows-vscode-host.md) | @types/node follows the VS Code host | Accepted | 2026-09-16 |
+| [0006](./0006-sf-plugin-without-oclif.md)        | The sf plugin, without @oclif/core   | Accepted | 2026-11-17 |
