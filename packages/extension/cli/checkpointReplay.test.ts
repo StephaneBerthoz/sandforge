@@ -56,7 +56,7 @@ import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { main, parseArgs } from './sandforge-checkpoint.js';
-import { REPLAY_AUDIT_FILE, replayFlagsOf, replayWords } from './checkpointReplay.js';
+import { REPLAY_AUDIT_FILE, replayFlagsOf, replayWords, typedPath } from './checkpointReplay.js';
 import { loadRecordsRefusal } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import {
   REPLAYING_USER,
@@ -84,6 +84,14 @@ import {
  */
 
 const argv = (...args: string[]): string[] => ['node', 'sandforge-checkpoint.ts', ...args];
+
+/**
+ * The words of a line as a shell reads them, PowerShell as a POSIX shell: a
+ * word in single quotes kept whole, without them. A path of Windows comes
+ * quoted, for its backslashes.
+ */
+const wordsOf = (line: string): string[] =>
+  [...line.matchAll(/'([^']*)'|(\S+)/g)].map((word) => word[1] ?? word[2] ?? '');
 
 /** What the other org runs as records are written: nothing. */
 const NOTHING_RUNS: ForgeTargetAutomation = {
@@ -665,7 +673,7 @@ describe('sandforge checkpoint replay', () => {
     expect(replayFiles(world)).toEqual([]);
     const removeWith =
       'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --checkpoint ' +
-      `${world.checkpoint.checkpointId} --target DEV2 --store ${store} --remove`;
+      `${world.checkpoint.checkpointId} --target DEV2 --store ${typedPath(store)} --remove`;
     expect(JSON.parse(stdout)).toMatchObject({ removeWith });
 
     expect(await run(world, 'replays', '--store', store, '--json')).toBe(0);
@@ -820,10 +828,24 @@ describe('sandforge checkpoint replay --dry-run, every refusal and the line it h
     const given = /^To replay it: (.*)$/m.exec(stdout)?.[1] ?? '';
     const prefix = 'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts ';
     expect(given.startsWith(prefix)).toBe(true);
-    const typed = parseArgs(argv(...given.slice(prefix.length).split(' ')));
+    const typed = parseArgs(argv(...wordsOf(given.slice(prefix.length))));
     const dry = parseArgs(argv(...of(world, '--dry-run', ...asked)));
     if (typed.command !== 'replay' || dry.command !== 'replay') throw new Error('not a replay');
     expect({ ...typed.replay, action: 'dryRun' }).toEqual(dry.replay);
+  });
+
+  it('gives a path of Windows quoted, which a shell reads back whole, its backslashes and spaces kept', () => {
+    for (const path of [
+      'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\owners.json',
+      'C:\\Users\\dev one\\replay-config.json',
+    ]) {
+      expect(typedPath(path)).toBe(`'${path}'`);
+      expect(wordsOf(`--owner-map ${typedPath(path)} --again`)).toEqual([
+        '--owner-map',
+        path,
+        '--again',
+      ]);
+    }
   });
 
   it('hands on the checkpoint it takes first, its days and the objects it leaves out, as the dry run was given them', () => {

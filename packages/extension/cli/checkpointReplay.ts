@@ -529,7 +529,7 @@ function receivedStoreOf(storeRoot: string, locksDir?: string): OrgCheckpointSto
 }
 
 /** A path as a line gives it to be typed again: quoted when a shell would split it. */
-function typedPath(path: string): string {
+export function typedPath(path: string): string {
   return /^[\w./:@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
 }
 

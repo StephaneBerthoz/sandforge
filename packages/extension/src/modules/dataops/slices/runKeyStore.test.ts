@@ -41,8 +41,11 @@ describe('runKeyStore', () => {
     await keys.save('cli-dataops-anonymize-1', KEY);
 
     const file = path.join(store, 'keys', 'cli-dataops-anonymize-1.key');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(path.join(store, 'keys')).mode & 0o777).toBe(0o700);
+    // Windows keeps no permission bits: Node reads 0o666 there, whatever was asked.
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(path.join(store, 'keys')).mode & 0o777).toBe(0o700);
+    }
     expect(await keys.load('cli-dataops-anonymize-1')).toBe(KEY);
     await keys.delete('cli-dataops-anonymize-1');
     expect(readdirSync(path.join(store, 'keys'))).toEqual([]);

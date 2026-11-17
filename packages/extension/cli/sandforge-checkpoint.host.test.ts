@@ -8,6 +8,7 @@ import type { ForgeTargetAutomation, OrgCheckpoint } from '@sandforge/shared';
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring, PanelRequest } from './panelHost.js';
 import { main } from './sandforge-checkpoint.js';
+import { typedPath } from './checkpointReplay.js';
 import { commandOf } from './invocation.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import {
@@ -2912,7 +2913,7 @@ describe('sandforge-checkpoint export and import', () => {
     // The way that file goes into this org, said as a command to run.
     expect(into.stderr).toContain(
       'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --file ' +
-        `${team.file} --target DEV-SB --dry-run`,
+        `${typedPath(team.file)} --target DEV-SB --dry-run`,
     );
     expect(into.stderr).not.toContain('Key of the file');
     expect(existsSync(team.store) ? readdirSync(team.store) : []).toEqual([]);
