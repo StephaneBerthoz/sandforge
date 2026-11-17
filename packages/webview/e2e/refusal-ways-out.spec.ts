@@ -35,7 +35,9 @@ import {
   cleanupObject,
   forgeGraph,
   simulationCutAtReadCap,
+  syncHistoryEntryCutAtReadCap,
   syncHistoryEntrySentAgain,
+  syncRunCutAtReadCap,
   syncRunSentAgain,
 } from './fixtures/refusals';
 import {
@@ -1134,6 +1136,43 @@ test.describe('the bound a Sync reads each object to', () => {
 
     await expect(page.getByTestId('sync-simulation-read-cut-Invoice__c')).toHaveText(
       'The read stopped at 50,000 records, the most a run holds of an object: a run copies part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run.',
+    );
+  });
+
+  test('a run whose read the bound cut says partial, and on the object what it copied and how to copy the rest', async ({
+    page,
+  }) => {
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+    await runSyncDraft(bridge, page, syncRunCutAtReadCap(10_000));
+
+    await expect(page.getByTestId('sync-result-summary')).toContainText('Partially complete');
+    await expect(page.getByTestId('sync-result-read-cut-Contact')).toHaveText(
+      'The read of the source org stopped at 10,000 records, the bound: this run copied part of this object. To copy the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at most), or read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.',
+    );
+  });
+
+  test('Quick Sync’s results say it, at the most a run holds, with slices and the sample alone', async ({
+    page,
+  }) => {
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_PREVIEW });
+    await runQuickSync(bridge, page, syncRunCutAtReadCap(50_000));
+
+    await expect(page.getByTestId('quick-sync-result-read-cut-Contact')).toHaveText(
+      'The read of the source org stopped at 50,000 records, the most a run holds of an object: this run copied part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.',
+    );
+  });
+
+  test('the run, opened from the Sync page’s History, says it as its results did', async ({
+    page,
+  }) => {
+    const bridge = new MockBridge();
+    await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+    await openSyncHistoryEntry(bridge, page, syncHistoryEntryCutAtReadCap());
+
+    await expect(page.getByTestId('history-read-cut-Contact')).toContainText(
+      'The read of the source org stopped at 10,000 records, the bound: this run copied part of this object.',
     );
   });
 

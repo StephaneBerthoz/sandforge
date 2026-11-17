@@ -6,6 +6,7 @@ import { createPanelHost, orgFromIdentity, problemLine, settles } from './panelH
 import type { PostedMessage } from './panelHost.js';
 import type { InfraServices } from '../src/bridge/ExtensionHandlers.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
+import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
 import {
   expiredScratchWords,
   renewSessionsFrom,
@@ -149,6 +150,26 @@ describe('createPanelHost', () => {
         },
       });
       expect(typeof seeded).toBe('function');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('hands the handlers the sync orchestrator factory every Sync run and simulation builds its engine with', () => {
+    // Without it, a Sync of the panel hosted here failed "this.deps.services
+    // .syncOrchestrator is not a function", and a live gate added it itself.
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      let built: unknown;
+      createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        compose: ({ services }) => {
+          built = services.syncOrchestrator?.({} as never);
+        },
+      });
+      expect(built).toBeInstanceOf(SyncOrchestrator);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

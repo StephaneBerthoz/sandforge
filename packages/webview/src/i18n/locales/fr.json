@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total réussi",
     "totalFailed": "Total échoué",
     "totalSkipped": "Total ignoré",
+    "readCut": "La lecture de l'org source s'est arrêtée à {{cap}} enregistrements, la borne : cette exécution a copié une partie de cet objet. Pour copier le reste, relevez sandforge.sync.maxRecordsPerObject (50 000 au plus), ou lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
+    "readCutAtMost": "La lecture de l'org source s'est arrêtée à {{cap}} enregistrements, le plus qu'une exécution tienne d'un objet : cette exécution en a copié une partie. Pour copier le reste, lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
     "savedConfigs": {
       "title": "Configurations enregistrées",
       "hint": "Exécutez-en une maintenant, telle qu'elle a été enregistrée : elle est vérifiée comme une exécution lancée depuis l'onglet Sync, et Production Guard la juge avant toute écriture. Une configuration qui supprime s'ouvre plutôt dans l'onglet Sync, qui dit ce que fait chacun de ses objets : Lancer la synchronisation l'y exécute.",

@@ -620,6 +620,51 @@ describe('SyncScheduleExecutor', () => {
       expect(entry.lastResult).toBe('partial');
     });
 
+    it('announces a run whose read of an object the bound cut as one that copied part, not as one whose records failed', async () => {
+      // Partial for the cut alone, it was announced "completed with errors:
+      // some records failed", of a run the target refused nothing.
+      const entry = createScheduleEntry({
+        notifyOnComplete: true,
+        notifyOnFailure: false,
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+      });
+      const cutRun: SyncExecutionResult = {
+        ...createSuccessResult(),
+        status: 'partial',
+        readCap: 1_000,
+        cutAtReadCap: ['Contact'],
+      };
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        onExecute: vi.fn(async () => cutRun),
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(vi.mocked(deps.notificationCenter.notify).mock.calls.slice(1)).toEqual([
+        [
+          'warning',
+          'Sync schedule copied part of the source',
+          'Daily Account Sync: the read of the source stopped at 1000 records of Contact ' +
+            '(sandforge.sync.maxRecordsPerObject): the run copied part of it. To copy the rest, ' +
+            'raise the sandforge.sync.maxRecordsPerObject setting (50000 at most), or read it in ' +
+            'slices: a filter on CreatedDate, one range per run. To copy a sample of the source ' +
+            'that fits the target instead, use Forge, with Depth ALL and Records per object set ' +
+            'to A sample that fits the target.',
+        ],
+      ]);
+      expect(entry.lastResult).toBe('partial');
+    });
+
     it('announces a run cancelled from Live Operations as cancelled, not as one with errors', async () => {
       const entry = createScheduleEntry({
         notifyOnComplete: true,

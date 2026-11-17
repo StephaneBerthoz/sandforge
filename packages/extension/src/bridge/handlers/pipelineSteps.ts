@@ -36,6 +36,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { grantRefusalWords, type GrantRefusal } from '../../modules/automation/RewindGrants.js';
 import { mutedOfError, muteLines } from '../../modules/forge/AutomationMuteLease.js';
+import { runReadCutSaid } from '../../modules/sync/syncReadCap.js';
 import {
   StepCancelledError,
   type StepCheck,
@@ -916,14 +917,18 @@ function syncHandler(runners: PipelineStepRunners): StepHandler {
       `${counted(result.totalSuccess, 'record')} written, ${result.totalFailed} failed and ` +
       `${result.totalSkipped} skipped of ${result.totalProcessed} read`;
     // A run that wrote some records and failed others is no success: the
-    // steps after it would go on as if every record were there.
+    // steps after it would go on as if every record were there. Nor is one
+    // whose read of an object the bound cut, which says so.
     if (result.status !== 'success') {
+      const why = [result.error, runReadCutSaid(result)].filter(
+        (part): part is string => part !== undefined && part !== '',
+      );
       return failed(
         step,
         startTime,
         output,
         `Sync step "${step.name}" ran "${name}" into ${target} and did not complete: ${counts}` +
-          (result.error ? `; ${result.error}` : '.'),
+          (why.length > 0 ? `; ${why.join('; ')}` : '.'),
       );
     }
     return completed(step, startTime, output, `Synced "${name}" into ${target}: ${counts}.`);

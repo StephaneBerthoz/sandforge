@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total success",
     "totalFailed": "Total failed",
     "totalSkipped": "Total skipped",
+    "readCut": "The read of the source org stopped at {{cap}} records, the bound: this run copied part of this object. To copy the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at most), or read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
+    "readCutAtMost": "The read of the source org stopped at {{cap}} records, the most a run holds of an object: this run copied part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
     "savedConfigs": {
       "title": "Saved configurations",
       "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written. One that deletes opens on the Sync tab instead, which says what each of its objects does: Run the sync runs it there.",

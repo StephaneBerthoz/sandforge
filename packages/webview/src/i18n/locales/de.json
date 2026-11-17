@@ -1876,6 +1876,8 @@
     "totalSuccess": "Gesamt erfolgreich",
     "totalFailed": "Gesamt fehlgeschlagen",
     "totalSkipped": "Gesamt übersprungen",
+    "readCut": "Das Lesen der Quell-Org endete bei {{cap}} Datensätzen, der Grenze: Dieser Lauf hat einen Teil dieses Objekts kopiert. Um den Rest zu kopieren, erhöhen Sie sandforge.sync.maxRecordsPerObject (höchstens 50.000) oder lesen Sie es in Abschnitten mit einem Filter auf CreatedDate, ein Bereich pro Lauf. Um stattdessen eine Stichprobe der Quelle zu kopieren, die in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt.",
+    "readCutAtMost": "Das Lesen der Quell-Org endete bei {{cap}} Datensätzen, dem Höchsten, das ein Lauf von einem Objekt hält: Dieser Lauf hat einen Teil davon kopiert. Um den Rest zu kopieren, lesen Sie es in Abschnitten mit einem Filter auf CreatedDate, ein Bereich pro Lauf. Um stattdessen eine Stichprobe der Quelle zu kopieren, die in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt.",
     "savedConfigs": {
       "title": "Gespeicherte Konfigurationen",
       "hint": "Führen Sie eine jetzt so aus, wie sie gespeichert wurde: Sie wird geprüft wie ein Lauf aus dem Sync-Tab, und Production Guard beurteilt sie, bevor etwas geschrieben wird. Eine, die löscht, öffnet sich stattdessen im Sync-Tab, der sagt, was jedes ihrer Objekte tut: Synchronisierung starten führt sie dort aus.",

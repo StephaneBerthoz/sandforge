@@ -350,6 +350,17 @@ export interface SyncExecutionResult {
    * configuration asked (`keepContactPoints`).
    */
   contactPoints?: ForgeContactPointsReport;
+  /**
+   * The most records of one object the run read, of either org
+   * (`sandforge.sync.maxRecordsPerObject`), when it cut a read of the source.
+   * Absent when every read held every record.
+   */
+  readCap?: number;
+  /**
+   * The objects whose read of the source the bound cut: the run copied part
+   * of each, and is partial unless it failed. Absent when none.
+   */
+  cutAtReadCap?: ApiName[];
 }
 
 /**

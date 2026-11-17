@@ -5,6 +5,7 @@ import {
   SYNC_READ_CAP_MAX,
   heavyReadAdvice,
   readCutRemedy,
+  runReadCutSaid,
   syncReadCapOf,
 } from './syncReadCap.js';
 
@@ -48,6 +49,22 @@ describe('what a read the bound cut short says to do', () => {
     expect(readCutRemedy('target', 1_000, { raise: '--max-records-per-object', sample: 'x' })).toBe(
       "To compare every record, raise --max-records-per-object (50000 at most), or narrow the object's filter.",
     );
+  });
+});
+
+describe('what a run of the panel says of its cut reads where no page shows its results', () => {
+  it('names the objects and the bound, then what copies the rest', () => {
+    expect(runReadCutSaid({ readCap: 1_000, cutAtReadCap: ['Contact', 'Case'] })).toBe(
+      'the read of the source stopped at 1000 records of Contact, Case ' +
+        '(sandforge.sync.maxRecordsPerObject): the run copied part of each. ' +
+        readCutRemedy('source', 1_000, PANEL_READ_CUT_WORDS),
+    );
+  });
+
+  it('says nothing of a run that cut no read, or one kept before runs named their cuts', () => {
+    expect(runReadCutSaid({ readCap: 1_000, cutAtReadCap: [] })).toBeUndefined();
+    expect(runReadCutSaid({ cutAtReadCap: ['Contact'] })).toBeUndefined();
+    expect(runReadCutSaid({})).toBeUndefined();
   });
 });
 

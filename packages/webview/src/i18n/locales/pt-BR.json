@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total com sucesso",
     "totalFailed": "Total com falha",
     "totalSkipped": "Total ignorados",
+    "readCut": "A leitura da org de origem parou em {{cap}} registros, o limite: esta execução copiou uma parte deste objeto. Para copiar o restante, aumente sandforge.sync.maxRecordsPerObject (50.000 no máximo), ou leia-o em fatias com um filtro em CreatedDate, um intervalo por execução. Para copiar em vez disso uma amostra da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino.",
+    "readCutAtMost": "A leitura da org de origem parou em {{cap}} registros, o máximo que uma execução mantém de um objeto: esta execução copiou uma parte dele. Para copiar o restante, leia-o em fatias com um filtro em CreatedDate, um intervalo por execução. Para copiar em vez disso uma amostra da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino.",
     "savedConfigs": {
       "title": "Configurações salvas",
       "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação. Uma que exclui abre na aba Sync, que diz o que cada um de seus objetos faz: Executar a sincronização a executa lá.",
