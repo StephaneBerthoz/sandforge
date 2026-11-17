@@ -783,15 +783,18 @@ describe('what a run says of a fit', () => {
   });
 
   it('says a fitted plan copies no object whole, and no bound cut it short', () => {
-    const lines = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Account', 'Contact'],
-      parents: [],
-      leftEmpty: [],
-      standardNeeded: [],
-      fitted: report,
-    });
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Account', 'Contact'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        fitted: report,
+      },
+      { source: 'SRC', target: 'TGT' },
+    );
 
     expect(lines).toContain(
       "  fitted to the target's storage, read by id: Account 3000 of 12000, Contact 5000 of 20000",

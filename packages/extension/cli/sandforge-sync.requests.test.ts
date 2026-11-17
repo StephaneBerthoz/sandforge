@@ -3,10 +3,11 @@
  * `--json` says them (`apiRequests`): what its gate priced the run at and
  * every request the command sent the target, counted as it sent them,
  * through the real orchestrator over a pair of fake orgs whose target takes
- * each call through its own `request`, as jsforce sends each.
+ * each call through its own `request`, as jsforce sends each. And, over the
+ * same pair, how a run whose read of the source the bound cut ends.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -39,6 +40,7 @@ vi.mock('./sandforge-clone.js', async (original) => ({
 
 import { makeConn } from './sfSession.js';
 import { main, syncApiRequestsJson } from './sandforge-sync.js';
+import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
 
 const QUIET: ForgeTargetAutomation = {
   objectsRead: ['Account'],
@@ -401,5 +403,90 @@ describe('sandforge-sync --json, its API requests', () => {
     expect(
       syncApiRequestsJson({ verdict: 'fits', estimate: 20, remaining: 900, max: 1_000 }, 12),
     ).toEqual({ verdict: 'fits', estimate: 20, remaining: 900, max: 1_000, sent: 12 });
+  });
+});
+
+describe('sandforge-sync, a run whose read of the source the bound cut short', () => {
+  let out: string[];
+
+  beforeEach(() => {
+    out = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Exited(code);
+    }) as never);
+    readAutomation.mockReset();
+    readAutomation.mockResolvedValue(QUIET);
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+  });
+
+  /** The source's 150 accounts read up to 100 of them. */
+  const CUT = [{ objectApiName: 'Account', read: 100, bound: 100 }];
+
+  it('says partial under result.status and at the end of its file, as its exit 3 says it', async () => {
+    // It exited 3 under --fail-on-partial and printed "status": "success",
+    // its file ending on success too: a pipeline reading the summary saw a
+    // whole copy of an object it copied in part.
+    orgs();
+    await main(argv('--max-records-per-object', '100', '--json', '--fail-on-partial'));
+    const ran = JSON.parse(out.join('')) as {
+      result: { status: string };
+      readCut?: unknown;
+      created: { runFile?: string };
+    };
+
+    expect(process.exitCode).toBe(3);
+    expect(ran.readCut).toEqual(CUT);
+    expect(ran.result.status).toBe('partial');
+    expect(readRunFile(readFileSync(ran.created.runFile ?? '', 'utf8'))?.end?.status).toBe(
+      'partial',
+    );
+  });
+
+  it('says partial without --fail-on-partial too, and exits 0', async () => {
+    orgs();
+    await main(argv('--max-records-per-object', '100', '--json'));
+    const ran = JSON.parse(out.join('')) as { result: { status: string } };
+
+    expect(ran.result.status).toBe('partial');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('exits 3 on a dry run under --fail-on-partial whose read the bound cut, as the run would, and 0 without it', async () => {
+    // A dry run reads the source as the run does, to the same bound: it said
+    // the cut under readCut and exited 0, and a pipeline gating its run on
+    // the dry run went on to copy part of the object.
+    orgs();
+    await main(argv('--dry-run', '--max-records-per-object', '100', '--json', '--fail-on-partial'));
+    expect((JSON.parse(out.join('')) as { readCut?: unknown }).readCut).toEqual(CUT);
+    expect(process.exitCode).toBe(3);
+
+    process.exitCode = undefined;
+    out.length = 0;
+    orgs();
+    await main(argv('--dry-run', '--max-records-per-object', '100', '--fail-on-partial'));
+    expect(process.exitCode).toBe(3);
+
+    process.exitCode = undefined;
+    out.length = 0;
+    orgs();
+    await main(argv('--dry-run', '--max-records-per-object', '100', '--json'));
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('exits 0 on a dry run under --fail-on-partial that read every record', async () => {
+    orgs();
+    await main(argv('--dry-run', '--json', '--fail-on-partial'));
+
+    expect((JSON.parse(out.join('')) as { readCut?: unknown }).readCut).toBeUndefined();
+    expect(process.exitCode).toBeUndefined();
   });
 });
