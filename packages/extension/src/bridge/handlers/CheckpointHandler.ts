@@ -1999,14 +1999,19 @@ export class CheckpointHandler implements DomainHandler {
   /** Answer `msg` with a failure: a refusal under its code, anything else under `code`. */
   private fail(msg: InboundRequest, err: unknown, code: string, retryable = true): void {
     if (err instanceof Refused) {
+      const holdingLimit = err.refusal?.holdingLimit;
+      const extraPayload = {
+        // Each refusal beside the first, so a caller told of one is not
+        // refused next for another it could have been told of at once.
+        ...(err.alsoRefused.length > 0 ? { alsoRefused: [...err.alsoRefused] } : {}),
+        // The limit a take past its own is not refused at, which the command
+        // line names with its flag.
+        ...(holdingLimit !== undefined ? { holdingLimit } : {}),
+      };
       sendHandlerError(this.deps, msg.type, 'checkpoint:error', msg, err, {
         code: err.code,
         retryable: err.retryable,
-        // Each refusal beside the first, so a caller told of one is not
-        // refused next for another it could have been told of at once.
-        ...(err.alsoRefused.length > 0
-          ? { extraPayload: { alsoRefused: [...err.alsoRefused] } }
-          : {}),
+        ...(Object.keys(extraPayload).length > 0 ? { extraPayload } : {}),
       });
       return;
     }

@@ -7612,6 +7612,7 @@
       "limitHint": "Past this many records in all, the take is refused before it reads any: {{standard}} unless changed, {{most}} at most.",
       "limitRule": "A whole number of records, from 1 to {{most}}.",
       "tooManyRecords": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}): pick fewer objects, or raise it, up to {{most}}. No record was read.",
+      "tooManyRecordsPastMost": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}), and no limit up to {{most}} holds them: pick fewer objects. No record was read.",
       "limitHolds": "Records at most set to {{records}} or more holds it."
     },
     "preview": {

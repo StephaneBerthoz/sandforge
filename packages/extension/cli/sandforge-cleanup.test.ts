@@ -514,7 +514,7 @@ describe('sandforge-cleanup', () => {
         new SfSessionError(
           'TGT',
           'sf does not know TGT: "sf org list" names the orgs it knows; "sf org login web --alias ' +
-            'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdxurl").',
+            'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdx-url").',
         ),
       );
 
@@ -522,7 +522,7 @@ describe('sandforge-cleanup', () => {
 
       expect(stderr).toBe(
         'sf does not know TGT: "sf org list" names the orgs it knows; "sf org login web --alias ' +
-          'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdxurl"). Nothing was ' +
+          'TGT" adds it (in a CI job, "sf org login jwt" or "sf org login sfdx-url"). Nothing was ' +
           'read from TGT.\n',
       );
     });

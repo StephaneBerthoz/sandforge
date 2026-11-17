@@ -127,6 +127,7 @@ import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import {
   DEFAULT_MAX_TOTAL,
   OBJECT_ROWS_MAX,
+  holdingLimit,
   takeOrgOf,
 } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
@@ -181,7 +182,8 @@ take:
                                  Customize Application
   --ignore-field <Object.Field>  do not compare a field, nor write it back (one your automation sets
                                  on every save); repeat for more
-  --max-total <n>                refuse, before reading, more than <n> records (default: ${DEFAULT_MAX_TOTAL})
+  --max-total <n>                refuse, before reading, more than <n> records (default: ${DEFAULT_MAX_TOTAL},
+                                 ${OBJECT_ROWS_MAX} at most)
   --keep-days <n>                when it expires (default: ${DEFAULT_KEEP_DAYS}; 0 keeps it until deleted)
   --estimate                     say the records, API requests, time and disk it would take, then stop
 preview, rewind, undo, delete, export:
@@ -972,18 +974,19 @@ export function checkpointsOf(
   return entries.filter((entry) => orgs.some((id) => sameOrganization(id, entry.organizationId)));
 }
 
+/** Where a checkpoint not in the folder read may be kept, and how it is read there. */
+const ELSEWHERE_WORDS =
+  'One kept in another folder is read with --store <folder>, or with SANDFORGE_JOURNAL_DIR set ' +
+  'as when it was taken — in a CI job, a folder its cache restores; one taken on another machine ' +
+  'comes here by export there, then import here.';
+
 /**
  * Where a checkpoint the command did not find may be kept, and how each place
  * is read: "No checkpoint … is kept on this machine" was said of one kept in
  * another folder, or on the CI runner whose cache was not restored.
  */
 function notKeptWords(orgName: string): string {
-  return (
-    `"${commandOf('checkpoint')} list --org ${orgName}" names those it holds. One kept in ` +
-    'another folder is read with --store <folder>, or with SANDFORGE_JOURNAL_DIR set as when ' +
-    'it was taken — in a CI job, a folder its cache restores; one taken on another machine ' +
-    'comes here by export there, then import here.'
-  );
+  return `"${commandOf('checkpoint')} list --org ${orgName}" names those it holds. ${ELSEWHERE_WORDS}`;
 }
 
 /** Which checkpoint `--checkpoint` means, or why none or more than one. */
@@ -1088,6 +1091,8 @@ const FROZEN_WORDS = `${CHECKPOINT_FROZEN_FOR_ANOTHER_ORG.replace(/\.$/, '')} ($
 export interface CheckpointRefusalLike {
   code: string;
   message: string;
+  /** Of a take past its limit, the least limit it is not refused at. */
+  holdingLimit?: number;
 }
 
 // ─── Words ───────────────────────────────────────────────────────────────────
@@ -1138,15 +1143,36 @@ const SAID_LEFT_OUT = /^Left out(?::\s*|\s+(?=as asked\b))/;
  * a reason read on its own starts with it, and the line said "left out:
  * ProcessInstance — Left out: Salesforce alone creates its records".
  */
-function leftOutLines(leftOut: readonly CheckpointLeftOutObject[]): string[] {
+function leftOutLines(
+  leftOut: readonly CheckpointLeftOutObject[],
+  kept: readonly number[],
+): string[] {
+  // A limit that holds an object keeps every object no larger: "--max-total
+  // 3542 or more holds it", said of Contact, kept its relations too, and the
+  // take was refused for the 10902 records of all of them.
+  const scoped = [
+    ...kept,
+    ...leftOut.flatMap(({ code, records }) =>
+      code === 'pastTheLimit' && records !== undefined ? [records] : [],
+    ),
+  ];
+  // Every object a limit can hold kept: from there, any higher limit keeps them.
+  const whole = scoped
+    .filter((records) => records <= OBJECT_ROWS_MAX)
+    .reduce((total, records) => total + records, 0);
   const byReason = new Map<string, string[]>();
   for (const { objectApiName, reason, code, records } of leftOut) {
     // Past the limit the take was given, the flag that holds the object; past
     // what any checkpoint holds, the reason says there is none.
-    const said =
-      code === 'pastTheLimit' && records !== undefined && records <= OBJECT_ROWS_MAX
-        ? `${reason} --max-total ${records} or more holds it.`
-        : reason;
+    let said = reason;
+    if (code === 'pastTheLimit' && records !== undefined && records <= OBJECT_ROWS_MAX) {
+      const limit = holdingLimit(scoped, records);
+      said =
+        limit > OBJECT_ROWS_MAX
+          ? `${reason} With it, every object no larger is kept, more than ${OBJECT_ROWS_MAX} ` +
+            'records in all, past any --max-total: --exclude-object <ApiName> leaves some out.'
+          : `${reason} --max-total ${limit}${limit === whole ? ' or more' : ''} holds it.`;
+    }
     byReason.set(said, [...(byReason.get(said) ?? []), objectApiName]);
   }
   return [...byReason].map(
@@ -1205,8 +1231,26 @@ const WHY_WORDS: Readonly<Record<string, string>> = {
   scratchExpired: 'its scratch org has expired: it can only be deleted',
 };
 
-/** The lines `list` prints, newest first. */
-export function listLines(entries: readonly CheckpointListEntry[], store: string): string[] {
+/**
+ * The lines `list` prints, newest first.
+ *
+ * @param of - The org `--org` asked for, and how many checkpoints the store
+ *   keeps in all: one that keeps none of the org but some of another said
+ *   "No checkpoint is kept in", and `list` named one.
+ */
+export function listLines(
+  entries: readonly CheckpointListEntry[],
+  store: string,
+  of?: { org: string; kept: number },
+): string[] {
+  if (entries.length === 0 && of !== undefined) {
+    const others =
+      of.kept === 0
+        ? ''
+        : `, which keeps ${of.kept === 1 ? '1 of another org' : `${of.kept} of other orgs`}: ` +
+          `"${commandOf('checkpoint')} list" names ${of.kept === 1 ? 'it' : 'them'}`;
+    return [`No checkpoint of ${of.org} is kept in ${store}${others}. ${ELSEWHERE_WORDS}`];
+  }
   if (entries.length === 0) return [`No checkpoint is kept in ${store}.`];
   const lines: string[] = [];
   for (const entry of entries) {
@@ -1315,12 +1359,21 @@ export function scopeJson(scope: ScopeAnswer): Record<string, unknown> {
  */
 export function takeRefusalWords<T extends CheckpointRefusalLike>(refusal: T): T {
   if (refusal.code !== 'TOO_MANY_RECORDS') return refusal;
-  const raise =
-    `, or raise the limit with --max-total <n> (${DEFAULT_MAX_TOTAL.toLocaleString('en-US')} ` +
-    'unless given)';
+  // The limit the take, run again with it, is not refused at: "--max-total
+  // <n>" left the reader to raise it to the records said, and the objects
+  // left out for their size came back in past it.
+  const fewer = 'pick fewer objects (--exclude-object <ApiName> leaves one out)';
+  const unless = `(${count(DEFAULT_MAX_TOTAL)} unless given)`;
+  const limit = refusal.holdingLimit;
+  const words =
+    limit === undefined
+      ? `${fewer}, or raise the limit with --max-total <n> ${unless}`
+      : limit > OBJECT_ROWS_MAX
+        ? `${fewer}: no --max-total holds them all, ${count(OBJECT_ROWS_MAX)} at most`
+        : `${fewer}, or raise the limit with --max-total ${limit} ${unless}`;
   return {
     ...refusal,
-    message: refusal.message.replace(/: pick fewer objects\./, `: pick fewer objects${raise}.`),
+    message: refusal.message.replace(/: pick fewer objects\./, `: ${words}.`),
   };
 }
 
@@ -1345,7 +1398,10 @@ export function scopeLines(orgName: string, scope: ScopeAnswer): string[] {
       `caught too), about ${count(scope.estimate.records)} records`,
     ...[...packages].map(([namespace, n]) => `  includes ${n} objects of the ${namespace} package`),
     estimateLine(scope.estimate),
-    ...leftOutLines(scope.leftOut),
+    ...leftOutLines(
+      scope.leftOut,
+      scope.objects.map((object) => object.records),
+    ),
     ...fieldsLeftOutLines(scope.objects),
     ...withParentLine(scope.objects),
     ...(scope.files ? scopeFilesLines(scope.files) : []),
@@ -1468,7 +1524,10 @@ export function takeLines(
             'in the org.',
         ]
       : []),
-    ...leftOutLines(checkpoint.scope.leftOut),
+    ...leftOutLines(
+      checkpoint.scope.leftOut,
+      checkpoint.objects.map((object) => object.records),
+    ),
     ...fieldsLeftOutLines(checkpoint.objects),
     ...(checkpoint.ignoredFields.length > 0
       ? [`  not compared, nor written back (you chose): ${checkpoint.ignoredFields.join(', ')}`]
@@ -2677,12 +2736,18 @@ function stoppedBeforeWritingWords(orgName: string, checkpointName: string): str
   );
 }
 
-/** The lines a rewind prints once it answered, stopped part way included. */
+/**
+ * The lines a rewind prints once it answered, stopped part way included.
+ *
+ * @param store - The folder the checkpoints were read in, when it is not the
+ *   one a command reads unless told: the undo's line names it.
+ */
 export function rewindLines(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'checkpointId' | 'name'>,
   result: RewindResult,
   names: Readonly<Record<string, string>> = {},
+  store?: string,
 ): string[] {
   const differing = sumOf(result.residual, (r) => r.count);
   const others = result.residual.filter((r) => r.reason === 'changedDuringRewind');
@@ -2777,9 +2842,12 @@ export function rewindLines(
   lines.push(...linksLines('rewind', orgName, result));
   lines.push(...followingLines('rewind', result, names));
   if (result.undo) {
+    // The command whole, as a line runs it, and the folder it was read in:
+    // "undo --org …" ran nowhere.
     lines.push(
-      `  undo it until ${when(result.undo.until)}, sooner if the recycle bin fills: undo ` +
-        `--org ${orgName} --checkpoint ${checkpoint.checkpointId}`,
+      `  undo it until ${when(result.undo.until)}, sooner if the recycle bin fills: ` +
+        `${commandOf('checkpoint')} undo --org ${orgName} --checkpoint ${checkpoint.checkpointId}` +
+        (store !== undefined ? ` --store ${store}` : ''),
     );
     for (const { words, of } of undoCannotByReason(result.undo.cannot)) {
       lines.push(
@@ -3171,7 +3239,8 @@ function refusalOfAnswer(answer: PanelAnswer, what: string): CheckpointRefusalLi
   }
   const message = typeof payload.message === 'string' ? payload.message : JSON.stringify(payload);
   const code = typeof payload.code === 'string' ? payload.code : answer.outcome.toUpperCase();
-  return { code, message };
+  const { holdingLimit: limit } = payload;
+  return { code, message, ...(typeof limit === 'number' ? { holdingLimit: limit } : {}) };
 }
 
 /**
@@ -3300,7 +3369,8 @@ export async function main(
       case 'list': {
         const all = await listAll();
         const entries = args.org !== undefined ? checkpointsOf(all, args.org) : all;
-        for (const line of listLines(entries, store.root)) say(line);
+        const of = args.org !== undefined ? { org: args.org, kept: all.length } : undefined;
+        for (const line of listLines(entries, store.root, of)) say(line);
         answerJson(entries.map(listEntryJson));
         return;
       }
@@ -4055,7 +4125,10 @@ async function rewind(
       ? { ...refusal, message: stoppedBeforeWritingWords(args.org, checkpoint.name) }
       : rewindRefusalWords(refusal),
   );
-  for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames)) say(line);
+  const store = args.storeRoot !== defaultCheckpointStoreRoot() ? args.storeRoot : undefined;
+  for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames, store)) {
+    say(line);
+  }
   for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
     say(line);
   }

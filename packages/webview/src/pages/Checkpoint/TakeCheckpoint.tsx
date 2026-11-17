@@ -967,14 +967,20 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
       size: formatFileSize(answer.estimate.bytes),
     };
     // Past Records at most, said with the field: the extension's English
-    // leaves each surface to name what raises its limit.
+    // leaves each surface to name what raises its limit. Where no limit up
+    // to a million holds the take, raising it is no way out: the page said
+    // "raise it, up to 1,000,000" with the field at 1,000,000.
+    const raisable = (answer.refusal?.holdingLimit ?? limit + 1) <= CHECKPOINT_OBJECT_ROWS_MAX;
     const refusal =
       answer.refusal?.code === 'TOO_MANY_RECORDS'
-        ? t('checkpoint.take.tooManyRecords', {
-            records: formatNumber(answer.estimate.records),
-            limit: formatNumber(limit),
-            most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
-          })
+        ? t(
+            raisable ? 'checkpoint.take.tooManyRecords' : 'checkpoint.take.tooManyRecordsPastMost',
+            {
+              records: formatNumber(answer.estimate.records),
+              limit: formatNumber(limit),
+              most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
+            },
+          )
         : answer.refusal?.message;
     body = (
       <div className="flex flex-col gap-1.5 text-xs text-text-primary">

@@ -328,7 +328,7 @@ describe('ConnectionHelper', () => {
         expect((err as Error).message).toContain(
           'The session with "test-org" has expired and could not be renewed. Sign in to it ' +
             'again with "sf org login web --alias test-org" (in a CI job, "sf org login jwt" or ' +
-            '"sf org login sfdxurl"), then run the command again, with its --resume if it ' +
+            '"sf org login sfdx-url"), then run the command again, with its --resume if it ' +
             'stopped a run part way.',
         );
         expect((err as Error).message).not.toMatch(/Organizations page|Reconnect/);

@@ -38,7 +38,7 @@ describe('what sf said when it could not show an org', () => {
     expect(refusal.stack).toBe(refusal.message);
     expect(refusal.message).toBe(
       'sf does not know DEV: "sf org list" names the orgs it knows; "sf org login web --alias ' +
-        'DEV" adds it (in a CI job, "sf org login jwt" or "sf org login sfdxurl"). Nothing was ' +
+        'DEV" adds it (in a CI job, "sf org login jwt" or "sf org login sfdx-url"). Nothing was ' +
         'read from DEV.',
     );
     expect(refusal.message).not.toMatch(/Command failed/);

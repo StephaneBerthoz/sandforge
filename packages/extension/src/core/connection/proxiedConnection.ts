@@ -5,9 +5,11 @@
  *
  * jsforce takes HTTPS_PROXY or HTTP_PROXY as the default of every request as
  * it loads, and never reads NO_PROXY: a connection built with no proxy of its
- * own went to that proxy, an org NO_PROXY names among them, while `sf`, which
- * reads NO_PROXY, signed in to it straight. A direct connection is given a
- * proxy transport with no proxy, which jsforce's request reads as none.
+ * own went to that proxy, an org NO_PROXY names among them. A direct
+ * connection is given a proxy transport with no proxy, which jsforce's
+ * request reads as none. `sf` itself does not read NO_PROXY (2.154.4): its
+ * own calls, those that read the session this connection is given among
+ * them, go through the proxy whatever NO_PROXY names.
  *
  * Built through the lazy boundary the extension keeps jsforce behind
  * (`jsforceEntry.ts`), imported from this directory by that name.

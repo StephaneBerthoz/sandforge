@@ -7612,6 +7612,7 @@
       "limitHint": "Über diese Zahl an Datensätzen insgesamt hinaus wird die Erstellung abgelehnt, bevor einer gelesen wird: {{standard}}, sofern nicht geändert, höchstens {{most}}.",
       "limitRule": "Eine ganze Zahl an Datensätzen, von 1 bis {{most}}.",
       "tooManyRecords": "Die Objekte, die dieser Prüfpunkt behalten würde, enthalten {{records}} Datensätze, über Höchstens Datensätze ({{limit}}): Wählen Sie weniger Objekte, oder erhöhen Sie den Wert bis {{most}}. Es wurde kein Datensatz gelesen.",
+      "tooManyRecordsPastMost": "Die Objekte, die dieser Prüfpunkt behalten würde, enthalten {{records}} Datensätze, über Höchstens Datensätze ({{limit}}), und kein Wert bis {{most}} fasst sie: Wählen Sie weniger Objekte. Es wurde kein Datensatz gelesen.",
       "limitHolds": "Mit Höchstens Datensätze ab {{records}} wird es behalten."
     },
     "preview": {

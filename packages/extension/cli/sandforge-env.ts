@@ -197,6 +197,7 @@ import {
   type EnvStore,
 } from './env/envState.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import { commandOf } from './invocation.js';
 
 const HELP = `sandforge env — apply a sandforge.yaml to an org: the data an environment needs, declared in
 your repository, created, kept and taken back, without the editor.
@@ -1683,6 +1684,32 @@ function validate(
   };
 }
 
+/**
+ * What `state` says when it lists none: of the environment or the org asked,
+ * the states the folder keeps of others, which `state` alone lists. "no state
+ * kept in" was said of a folder that kept those of another org.
+ */
+function noStateWords(
+  root: string,
+  kept: number,
+  envName: string | undefined,
+  org: string | undefined,
+): string {
+  if (envName === undefined && org === undefined) return `no state kept in ${root}`;
+  const of =
+    envName !== undefined && org !== undefined ? `${envName} on ${org}` : (envName ?? org ?? '');
+  const others =
+    kept === 0
+      ? ''
+      : `, which keeps ${kept === 1 ? '1 other state' : `${kept} other states`}: ` +
+        `"${commandOf('env')} state" lists ${kept === 1 ? 'it' : 'them'}`;
+  return (
+    `no state of ${of} is kept in ${root}${others}. A state kept in another folder is read ` +
+    'with SANDFORGE_JOURNAL_DIR set as when it was written — in a CI job, a folder its cache ' +
+    'restores.'
+  );
+}
+
 /** `state`: the states kept on this machine, those of one org, or of one file. */
 async function listStates(
   args: CliArgs,
@@ -1700,7 +1727,8 @@ async function listStates(
     envName = read.checked.file.name;
   }
   const org = args.org;
-  const states = (await opened.store.list()).filter(
+  const kept = await opened.store.list();
+  const states = kept.filter(
     (listing) =>
       (envName === undefined || listing.env === envName) &&
       (org === undefined ||
@@ -1710,7 +1738,7 @@ async function listStates(
   for (const gone of expired) {
     say(`expired and deleted: ${gone.env} on ${gone.alias ?? gone.organizationId}`);
   }
-  if (states.length === 0) say(`no state kept in ${opened.store.root}`);
+  if (states.length === 0) say(noStateWords(opened.store.root, kept.length, envName, org));
   for (const listing of states) {
     const state = listing.state;
     if (state === undefined) {

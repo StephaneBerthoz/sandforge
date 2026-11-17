@@ -790,6 +790,14 @@ export interface CheckpointEmails {
 export interface CheckpointRefusal {
   code: CheckpointRefusalCode;
   message: string;
+  /**
+   * Of a take past its limit (`TOO_MANY_RECORDS`), the least limit the same
+   * take is not refused at: the records of what it keeps there, the objects
+   * its own limit left out for their size among them. Past a million, the
+   * most any checkpoint holds of one object, no limit a take is given holds
+   * them, and only fewer objects do.
+   */
+  holdingLimit?: number;
 }
 
 // ─── A checkpoint taken before a run (Checkpoint first) ──────────────────────

@@ -206,7 +206,7 @@ describe('ci-examples quality stage', () => {
     it('writes auth URLs to a private temp dir removed on exit, in the same shell as the logins', () => {
       const source = read(pipeline);
       const start = source.indexOf('umask 077');
-      const lastLogin = source.lastIndexOf('sf org login sfdxurl');
+      const lastLogin = source.lastIndexOf('sf org login sfdx-url');
 
       expect(start).toBeGreaterThan(-1);
       expect(lastLogin).toBeGreaterThan(start);
@@ -390,7 +390,7 @@ describe('ci-examples quality stage', () => {
       .filter((stage) => REMOVAL_CALL.test(stage));
 
     expect(removing).toHaveLength(1);
-    expect(removing[0]).toMatch(/sf org login sfdxurl[^\n]*--alias ci-target/);
+    expect(removing[0]).toMatch(/sf org login sfdx-url[^\n]*--alias ci-target/);
   });
 
   it('names the removals file as the clone command derives it from the summary', () => {

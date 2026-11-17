@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TOOLS, dispatchOf, helpText, main, toolFile, versionOf, type Tool } from './sandforge.js';
+import { commandOf } from './invocation.js';
 
 const here = __dirname;
 
@@ -85,10 +86,17 @@ describe('sandforge, the scripts of this folder under one command', () => {
       kind: 'refused',
       reason: expect.stringContaining('"--dry-run" is not a flag sandforge reads'),
     });
-    // A script's own name, from a message that names it, is pointed at its command.
+    // A script's own name, from a message that names it, is pointed at its
+    // command as a line runs it: "sandforge checkpoint …" ran neither under
+    // npx, where the package's command is `npx sandforge checkpoint`, nor
+    // from a checkout, where nothing called sandforge is on the PATH.
     expect(dispatchOf(['sandforge-checkpoint', 'list'])).toEqual({
       kind: 'refused',
-      reason: '"sandforge-checkpoint" is named checkpoint here: sandforge checkpoint ….',
+      reason: `"sandforge-checkpoint" is named checkpoint here: ${commandOf('checkpoint')} ….`,
+    });
+    expect(dispatchOf(['sandforge-seed', '--target', 'DEV'])).toEqual({
+      kind: 'refused',
+      reason: `"sandforge-seed" is named seed here: ${commandOf('seed')} ….`,
     });
   });
 

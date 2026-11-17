@@ -7612,6 +7612,7 @@
       "limitHint": "Au-delà de ce nombre d'enregistrements en tout, la création est refusée avant d'en lire un seul : {{standard}} sauf changement, {{most}} au plus.",
       "limitRule": "Un nombre entier d'enregistrements, de 1 à {{most}}.",
       "tooManyRecords": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}) : choisissez moins d'objets, ou relevez-le, jusqu'à {{most}}. Aucun enregistrement n'a été lu.",
+      "tooManyRecordsPastMost": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}), et aucune limite jusqu'à {{most}} ne les tient : choisissez moins d'objets. Aucun enregistrement n'a été lu.",
       "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde."
     },
     "preview": {

@@ -82,7 +82,7 @@ describe('a production org', () => {
           'TGT refused the session sf gave for it (Session expired or invalid), and sandforge ' +
           'env writes to no org it cannot tell from a production one. "sf org display ' +
           '--target-org TGT" says what sf holds for it; "sf org login web --alias TGT" signs in ' +
-          'again (in a CI job, "sf org login jwt" or "sf org login sfdxurl"); then run the ' +
+          'again (in a CI job, "sf org login jwt" or "sf org login sfdx-url"); then run the ' +
           'command again. Nothing was written.',
         exit: 1,
       },

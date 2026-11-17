@@ -257,6 +257,32 @@ describe('TakeCheckpoint', () => {
     expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
   });
 
+  it('offers no higher Records at most where none, up to a million, holds the take', () => {
+    // At a million, the page still said "raise it, up to 1,000,000".
+    renderTake();
+    answerScope();
+    fireEvent.change(screen.getByTestId('checkpoint-take-limit'), {
+      target: { value: '1000000' },
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    answerScope({
+      refusal: {
+        code: 'TOO_MANY_RECORDS',
+        message:
+          'The objects this checkpoint would keep hold 2424 records in DEV-SB, past its limit of ' +
+          '1000000: pick fewer objects. No record was read.',
+        holdingLimit: 1_200_000,
+      },
+    });
+    expect(screen.getByTestId('checkpoint-refusal').textContent).toBe(
+      'The objects this checkpoint would keep hold 2,424 records, past Records at most ' +
+        '(1,000,000), and no limit up to 1,000,000 holds them: pick fewer objects. No record was ' +
+        'read.',
+    );
+  });
+
   it('takes under the limit typed', () => {
     renderTake();
     fireEvent.change(screen.getByTestId('checkpoint-take-limit'), {

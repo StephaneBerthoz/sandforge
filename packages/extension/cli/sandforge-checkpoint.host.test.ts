@@ -8,6 +8,7 @@ import type { ForgeTargetAutomation, OrgCheckpoint } from '@sandforge/shared';
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring, PanelRequest } from './panelHost.js';
 import { main } from './sandforge-checkpoint.js';
+import { commandOf } from './invocation.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import {
   openCheckpointStore,
@@ -174,6 +175,73 @@ class CliTestOrg extends MemoryRestoreOrg {
     const answer = await super.update(objectApiName, records);
     this.afterUpdate?.(objectApiName);
     return answer;
+  }
+}
+
+/** The memory org with a third object, and more records of each: three Accounts, two Cases, two Contacts. */
+class ThreeObjectOrg extends CliTestOrg {
+  constructor() {
+    super();
+    clock = LONG_AGO;
+    this.changeSchema('Contact', [...STAMP_FIELDS, writable('LastName')]);
+    this.add('Account', { Id: id('001', 3), Name: 'Fabrikam' });
+    this.add('Case', { Id: id('500', 2), Subject: 'Slow' });
+    this.add('Contact', { Id: id('003', 1), LastName: 'Lee' });
+    this.add('Contact', { Id: id('003', 2), LastName: 'Diaz' });
+    clock = T0;
+  }
+
+  override async describeGlobal(): Promise<unknown> {
+    const global = (await super.describeGlobal()) as { sobjects: Array<{ name: string }> };
+    const [account] = global.sobjects;
+    return { sobjects: [...global.sobjects, { ...account, name: 'Contact', label: 'Contact' }] };
+  }
+}
+
+/**
+ * An org with Contacts to Multiple Accounts: the platform writes a relation
+ * with each contact, which goes with its contact or its account.
+ */
+class RelationsOrg extends CliTestOrg {
+  constructor() {
+    super({
+      children: {
+        Account: [
+          { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+          { childSObject: 'AccountContactRelation', field: 'AccountId', cascadeDelete: true },
+        ],
+        Contact: [
+          { childSObject: 'AccountContactRelation', field: 'ContactId', cascadeDelete: true },
+        ],
+      },
+    });
+    const parent = (name: string, to: string) => ({
+      ...writable(name),
+      type: 'reference',
+      referenceTo: [to],
+    });
+    this.changeSchema('Contact', [
+      ...STAMP_FIELDS,
+      writable('LastName'),
+      parent('AccountId', 'Account'),
+    ]);
+    this.changeSchema('AccountContactRelation', [
+      ...STAMP_FIELDS,
+      { ...parent('AccountId', 'Account'), updateable: false },
+      { ...parent('ContactId', 'Contact'), updateable: false },
+      writable('Roles'),
+    ]);
+  }
+
+  override async describeGlobal(): Promise<unknown> {
+    const global = (await super.describeGlobal()) as { sobjects: Array<{ name: string }> };
+    const [account] = global.sobjects;
+    return {
+      sobjects: [
+        ...global.sobjects,
+        ...['Contact', 'AccountContactRelation'].map((name) => ({ ...account, name, label: name })),
+      ],
+    };
   }
 }
 
@@ -571,6 +639,113 @@ describe('sandforge-checkpoint take', () => {
     });
   });
 
+  it('prints, past its limit, a --max-total that takes the checkpoint when the line is run again, and names --exclude-object', async () => {
+    // Past --max-total 3000, Contact (3542) and its relations (3473) were left
+    // out and the rest, 3887, still refused: "--max-total 3542 or more holds
+    // it", run again, met a second refusal for the 10902 records of all of
+    // them. Here, past 2: Account (3) is left out, Case and Contact (2 each)
+    // still refused.
+    const org = new ThreeObjectOrg();
+    const h = harness({ org });
+
+    const estimate = await h.run('take', '--org', 'DEV-SB', '--estimate', '--max-total', '2');
+    const real = await h.run('take', '--org', 'DEV-SB', '--max-total', '2');
+
+    expect(estimate.code).toBe(1);
+    expect(real.code).toBe(1);
+    const refusal = /^refused: .*$/m.exec(estimate.stdout)?.[0] ?? '';
+    expect(refusal).toContain('--exclude-object <ApiName>');
+    expect(real.stderr).toContain('--exclude-object <ApiName>');
+    const printed = /--max-total (\d+)/.exec(refusal)?.[1];
+    const printedByTake = /--max-total (\d+)/.exec(real.stderr)?.[1];
+    expect(printedByTake).toBe(printed);
+    const forAccount = /^ {2}left out: Account — .*--max-total (\d+)/m.exec(estimate.stdout)?.[1];
+    expect(await h.kept()).toEqual([]);
+
+    // Each line printed, run again, holds what it said it holds.
+    const again = await h.run(
+      'take',
+      '--org',
+      'DEV-SB',
+      '--estimate',
+      '--max-total',
+      `${forAccount}`,
+    );
+    expect(again.code).toBe(0);
+    expect(again.stdout).not.toMatch(/left out: Account/);
+    const checkpoint = await taken(h, '--max-total', `${printed}`);
+    expect(checkpoint.objects.map((object) => object.objectApiName).sort()).toEqual([
+      'Account',
+      'Case',
+      'Contact',
+    ]);
+  });
+
+  it('holds, picked with the contacts, the relation the platform writes with each: a rewind takes back the contacts and accounts made since, none kept outside it', async () => {
+    // Taken before a run of accounts and contacts, a checkpoint left out the
+    // relation the platform wrote with each contact: the rewind its line
+    // gave deleted nothing, every contact and account "kept, unless
+    // --accept-outside".
+    const quiet: ForgeTargetAutomation = {
+      objectsRead: ['Account', 'Contact', 'AccountContactRelation'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 0,
+      requests: 0,
+    };
+    const h = harness({ org: new RelationsOrg(), automation: quiet });
+    const checkpoint = await taken(
+      h,
+      '--name',
+      'Before the run',
+      '--object',
+      'Account',
+      '--object',
+      'Contact',
+    );
+    clock = T0 + 60_000;
+    h.org.add('Account', {
+      Id: id('001', 3),
+      Name: 'Made by the run',
+      LastModifiedById: COLLEAGUE,
+    });
+    h.org.add('Contact', {
+      Id: id('003', 1),
+      LastName: 'Lee',
+      AccountId: id('001', 3),
+      LastModifiedById: COLLEAGUE,
+    });
+    h.org.add('AccountContactRelation', {
+      Id: id('07k', 1),
+      AccountId: id('001', 3),
+      ContactId: id('003', 1),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock = T0 + 120_000;
+
+    const dry = await h.run('rewind', '--org', 'DEV-SB', '--dry-run', '--json');
+    expect(dry.code, dry.stderr).toBe(0);
+    expect(JSON.parse(dry.stdout)).not.toHaveProperty('kept');
+    expect(dry.stderr).not.toContain('unless --accept-outside');
+
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before the run',
+      '--yes',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    expect(h.org.all('Account').map((row) => row.Id)).not.toContain(id('001', 3));
+    expect(h.org.all('Contact')).toEqual([]);
+    expect(h.org.all('AccountContactRelation')).toEqual([]);
+    expect(checkpoint.objects.map((object) => object.objectApiName)).toContain(
+      'AccountContactRelation',
+    );
+  });
+
   it('keeps the fields not to compare it is given, and the days it is kept', async () => {
     const h = harness();
 
@@ -679,6 +854,21 @@ describe('sandforge-checkpoint list', () => {
     expect(stdout).toContain("Removed checkpoint 'Before UAT' of DEV-SB");
     expect(stdout).toContain('No checkpoint is kept in');
     expect(await h.kept()).toEqual([]);
+  });
+
+  it('says of an org the store keeps no checkpoint of that it keeps those of another, which list names', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+
+    const other = await h.run('list', '--org', 'OTHER-SB');
+    const all = await h.run('list');
+
+    expect(other.code).toBe(0);
+    expect(other.stdout).toMatch(
+      /^No checkpoint of OTHER-SB is kept in .+, which keeps 1 of another org: ".+ list" names it\./m,
+    );
+    expect(other.stdout).not.toContain('No checkpoint is kept in');
+    expect(all.stdout).toContain("'Before UAT'  DEV-SB");
   });
 });
 
@@ -1127,7 +1317,16 @@ describe('sandforge-checkpoint rewind', () => {
     expect(stderr).toContain(
       "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
     );
-    expect(stderr).toContain(`undo --org DEV-SB --checkpoint ${checkpoint.checkpointId}`);
+    // The command whole, the folder it keeps its checkpoints in with it: run
+    // as printed, the undo finds the rewind.
+    const undoLine = new RegExp(
+      `sooner if the recycle bin fills: (.+ undo --org DEV-SB --checkpoint ${checkpoint.checkpointId} --store .+)$`,
+      'm',
+    ).exec(stderr)?.[1];
+    expect(undoLine).toBe(
+      `${commandOf('checkpoint')} undo --org DEV-SB --checkpoint ${checkpoint.checkpointId} ` +
+        `--store ${h.storeDir}`,
+    );
     const listed = JSON.parse((await h.run('list', '--org', 'DEV-SB', '--json')).stdout) as Array<{
       lastRewind?: { rewindId: string; undoable: boolean };
     }>;

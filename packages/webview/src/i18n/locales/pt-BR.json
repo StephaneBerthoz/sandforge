@@ -7612,6 +7612,7 @@
       "limitHint": "Acima deste número de registros no total, a criação é recusada antes de ler qualquer um: {{standard}} se não for alterado, {{most}} no máximo.",
       "limitRule": "Um número inteiro de registros, de 1 a {{most}}.",
       "tooManyRecords": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}): escolha menos objetos, ou aumente-o, até {{most}}. Nenhum registro foi lido.",
+      "tooManyRecordsPastMost": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}), e nenhum limite de até {{most}} os comporta: escolha menos objetos. Nenhum registro foi lido.",
       "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado."
     },
     "preview": {

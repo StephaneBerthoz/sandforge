@@ -954,6 +954,19 @@ export const CHECKS = [
         if (/sandforge-[a-z]+ (?:anonymize|--)/.test(refused.stderr)) {
           throw new Error(`sandforge dataops names a command npx would fetch: ${refused.stderr}`);
         }
+        // A script's own name, from a message that names it, is answered with
+        // the line that runs it here: "sandforge seed …" ran under no npx.
+        const renamed = runBin(out, ['sandforge', 'sandforge-seed', '--target', 'DEV'], {
+          node,
+          env: sealedEnv(home),
+          cwd: home,
+        });
+        if (renamed.code !== 2 || !renamed.stderr.includes(': npx sandforge seed …')) {
+          throw new Error(
+            `sandforge sandforge-seed --target DEV ended on ${renamed.code}: ` +
+              `${renamed.stderr}${renamed.stdout}`,
+          );
+        }
       } finally {
         rmSync(home, { recursive: true, force: true });
       }

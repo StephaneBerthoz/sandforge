@@ -34,6 +34,7 @@ import {
   undoLine,
   undoLines,
 } from './sandforge-checkpoint.js';
+import { commandOf } from './invocation.js';
 
 /*
  * The command line of Checkpoint & Rewind, read without any org: its words,
@@ -402,6 +403,10 @@ describe('parseArgs', () => {
       [['--keep-days', '3651'], '--keep-days:'],
       [['--max-total', '0'], '--max-total:'],
       [['--max-total', 'all'], '--max-total takes a whole number'],
+      // The page, the MCP server and sandforge.yaml hold a take to a million
+      // records at most, the most any checkpoint holds of one object: the
+      // command line took 1000001.
+      [['--max-total', '1000001'], '--max-total: Too big: expected number to be <=1000000'],
       [['--ignore-field', 'Last_Touched__c'], '--ignore-field: Expected an Object.Field name'],
       [['--object', 'Account', '--object', 'Account'], '--object: An object is named twice'],
       [['--exclude-object', 'Case WHERE Id != null'], '--exclude-object:'],
@@ -441,7 +446,8 @@ describe('parseArgs', () => {
       '--object <ApiName>             limit the rewind to an object of the checkpoint; repeat for more',
       'with --object, limitedTo,',
       'an --object the checkpoint does not hold,',
-      '--max-total <n>                refuse, before reading, more than <n> records (default: 500000)',
+      '--max-total <n>                refuse, before reading, more than <n> records (default: 500000,',
+      '                               1000000 at most)',
       '--keep-days <n>                when it expires (default: 30; 0 keeps it until deleted)',
       'A production org is refused before anything is read or written, exit 1. No flag lifts it.',
       'JSON (--json), one value on stdout:',
@@ -674,6 +680,31 @@ describe('listLines', () => {
     expect(
       listEntryJson(entry('ck-20261022-160000-cccc', ORG_A, of, { scratchExpiresSoon: true })),
     ).toMatchObject({ scratchExpiresSoon: true });
+  });
+});
+
+describe('listLines of one org', () => {
+  it('says no checkpoint of the org asked is kept, how many of others are, and where another may be, rather than none at all', () => {
+    // `list --org` over a store that held a checkpoint of another org said
+    // "No checkpoint is kept in ~/.sandforge/checkpoints.", and `list` named it.
+    const elsewhere =
+      'One kept in another folder is read with --store <folder>, or with SANDFORGE_JOURNAL_DIR ' +
+      'set as when it was taken — in a CI job, a folder its cache restores; one taken on another ' +
+      'machine comes here by export there, then import here.';
+
+    expect(listLines([], '/store', { org: 'GC-ORG', kept: 1 })).toEqual([
+      `No checkpoint of GC-ORG is kept in /store, which keeps 1 of another org: ` +
+        `"${commandOf('checkpoint')} list" names it. ${elsewhere}`,
+    ]);
+    expect(listLines([], '/store', { org: 'GC-ORG', kept: 3 })).toEqual([
+      `No checkpoint of GC-ORG is kept in /store, which keeps 3 of other orgs: ` +
+        `"${commandOf('checkpoint')} list" names them. ${elsewhere}`,
+    ]);
+    expect(listLines([], '/store', { org: 'GC-ORG', kept: 0 })).toEqual([
+      `No checkpoint of GC-ORG is kept in /store. ${elsewhere}`,
+    ]);
+    // Asked of no org, the store holds none at all.
+    expect(listLines([], '/store')).toEqual(['No checkpoint is kept in /store.']);
   });
 });
 
@@ -1908,7 +1939,8 @@ describe('rewindLines, undoLines and resultJson', () => {
       '  deleted 1 record(s) added since the checkpoint — created, or brought back from the recycle bin they were in when it was taken — (in the recycle bin for up to 15 days)',
       '  gave 2 record(s) back their checkpoint values',
       '  brought back 2 record(s) deleted since the checkpoint, with their original Ids, and 1 that came back with them',
-      '  undo it until 2026-11-06 17:00 UTC, sooner if the recycle bin fills: undo --org DEV-SB --checkpoint ck-20261022-160000-cccc',
+      // The command whole, as a line runs it: "undo --org …" ran nowhere.
+      `  undo it until 2026-11-06 17:00 UTC, sooner if the recycle bin fills: ${commandOf('checkpoint')} undo --org DEV-SB --checkpoint ck-20261022-160000-cccc`,
       "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent",
       '  sent 40 API requests to the org; 14,860 left today',
     ]);
@@ -2568,54 +2600,89 @@ describe('files', () => {
     expect(scopeJson(scope).leftOut).toEqual(scope.leftOut);
   });
 
-  it('names --max-total where a take is past its limit, and what holds an object past it, or that none does past a million', () => {
+  it("names, past a take's limit, --exclude-object and the --max-total the take is not refused at, or that none is past a million", () => {
+    // "--max-total <n>" left the reader to raise the limit to the records
+    // said, and the objects left out for their size came back in past it.
+    const refusal = (holdingLimit?: number) => ({
+      code: 'TOO_MANY_RECORDS' as const,
+      message:
+        'The objects this checkpoint would keep hold 3887 records in DEV-SB, past its limit of ' +
+        '3000: pick fewer objects. No record was read.',
+      ...(holdingLimit !== undefined ? { holdingLimit } : {}),
+    });
+    const said = (words: string) =>
+      'The objects this checkpoint would keep hold 3887 records in DEV-SB, past its limit of ' +
+      `3000: pick fewer objects (--exclude-object <ApiName> leaves one out)${words}. No record ` +
+      'was read.';
+
+    expect(takeRefusalWords(refusal(10_902)).message).toBe(
+      said(', or raise the limit with --max-total 10902 (500,000 unless given)'),
+    );
+    expect(takeRefusalWords(refusal(1_500_000)).message).toBe(
+      said(': no --max-total holds them all, 1,000,000 at most'),
+    );
+    // A refusal that does not say it, as one from another surface, is left to the reader.
+    expect(takeRefusalWords(refusal()).message).toBe(
+      said(', or raise the limit with --max-total <n> (500,000 unless given)'),
+    );
+  });
+
+  it('names what holds an object past the limit with every object no larger, or that none does past a million', () => {
+    const past = (objectApiName: string, records: number, limit: number) => ({
+      objectApiName,
+      code: 'pastTheLimit' as const,
+      records,
+      limit,
+      reason:
+        `${objectApiName} has ${records} records, past the checkpoint's limit of ${limit} for ` +
+        'one object: left out of the checkpoint, as part of it would be taken for all of it.',
+    });
+    const task = {
+      objectApiName: 'Task',
+      code: 'pastTheLimit' as const,
+      records: 2_000_000,
+      limit: 1_000_000,
+      reason:
+        'Task has 2000000 records, more than any checkpoint holds of one object (1000000): ' +
+        'left out of the checkpoint, and a rewind to it does not touch Task. Data Export, in ' +
+        'Setup, or a Bulk API query keeps a copy of it.',
+    };
     const scope = {
       mode: 'everything' as const,
       objects: [],
-      leftOut: [
-        {
-          objectApiName: 'Account',
-          code: 'pastTheLimit' as const,
-          records: 600_000,
-          limit: 500_000,
-          reason:
-            "Account has 600000 records, past the checkpoint's limit of 500000 for one object: " +
-            'left out of the checkpoint, as part of it would be taken for all of it.',
-        },
-        {
-          objectApiName: 'Task',
-          code: 'pastTheLimit' as const,
-          records: 2_000_000,
-          limit: 1_000_000,
-          reason:
-            'Task has 2000000 records, more than any checkpoint holds of one object (1000000): ' +
-            'left out of the checkpoint, and a rewind to it does not touch Task. Data Export, in ' +
-            'Setup, or a Bulk API query keeps a copy of it.',
-        },
-      ],
+      leftOut: [past('Account', 600_000, 500_000), past('Contact', 550_000, 500_000), task],
       estimate,
       refusal: {
         code: 'TOO_MANY_RECORDS' as const,
         message:
           'The objects this checkpoint would keep hold 700000 records in DEV-SB, past its limit ' +
           'of 500000: pick fewer objects. No record was read.',
+        holdingLimit: 1_850_000,
       },
     };
 
     const lines = scopeLines('DEV-SB', scope);
 
+    // Held at 550000, Contact is kept alone of the three; any more keeps Account too.
     expect(lines).toContain(
-      "  left out: Account — Account has 600000 records, past the checkpoint's limit of 500000 " +
-        'for one object: left out of the checkpoint, as part of it would be taken for all of it. ' +
-        '--max-total 600000 or more holds it.',
+      `  left out: Contact — ${past('Contact', 550_000, 500_000).reason} --max-total 550000 ` +
+        'holds it.',
+    );
+    // Held, Account keeps Contact with it: 1150000 records, past any limit.
+    expect(lines).toContain(
+      `  left out: Account — ${past('Account', 600_000, 500_000).reason} With it, every object ` +
+        'no larger is kept, more than 1000000 records in all, past any --max-total: ' +
+        '--exclude-object <ApiName> leaves some out.',
     );
     expect(lines.find((line) => line.startsWith('  left out: Task'))).not.toContain('--max-total');
-    expect(lines).toContain(
-      'refused: The objects this checkpoint would keep hold 700000 records in DEV-SB, past its ' +
-        'limit of 500000: pick fewer objects, or raise the limit with --max-total <n> (500,000 ' +
-        'unless given). No record was read.',
+    expect(lines.at(-1)).toBe(`refused: ${takeRefusalWords(scope.refusal).message}`);
+    // Where the limit keeps every object a limit can, a higher one keeps them too.
+    expect(
+      scopeLines('DEV-SB', { ...scope, leftOut: [past('Account', 600_000, 500_000), task] }),
+    ).toContain(
+      `  left out: Account — ${past('Account', 600_000, 500_000).reason} --max-total 600000 or ` +
+        'more holds it.',
     );
-    expect(takeRefusalWords(scope.refusal).message).toBe(lines.at(-1)?.replace(/^refused: /, ''));
   });
 
   it('says before a take the files it keeps, the objects of files added to those picked, and what a user without Query All Files does not see; and answers them in --json', () => {
