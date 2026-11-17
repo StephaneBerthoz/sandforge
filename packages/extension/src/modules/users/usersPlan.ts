@@ -671,11 +671,17 @@ export function planUsers(
         'accepts: --accept-user-emails, once those people may receive them',
     });
   }
-  if (emailsToPeople > 0 && options.deliverability === 'open' && options.acceptEmails !== true) {
+  // An org whose deliverability could not be read may deliver all email: it is
+  // asked about as one that does, as every run reading the probe asks.
+  const mayDeliver = options.deliverability === 'open' || options.deliverability === 'unread';
+  if (emailsToPeople > 0 && mayDeliver && options.acceptEmails !== true) {
     refusals.push({
       code: 'USERS_EMAILS_OPEN',
       message:
-        `the org delivers all email, and ${emailsToPeople} ` +
+        (options.deliverability === 'unread'
+          ? "the org's deliverability could not be read, so it may deliver all email, and "
+          : 'the org delivers all email, and ') +
+        `${emailsToPeople} ` +
         `${emailsToPeople === 1 ? 'address' : 'addresses'} would be asked back before the ` +
         'masking is done: set Setup > Deliverability to System email only until the masking is ' +
         'done, or accept with --accept-emails that what runs there emails these people',

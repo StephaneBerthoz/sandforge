@@ -598,6 +598,37 @@ describe('the emails to people', () => {
     ]);
     expect(accepted.plan.refusals).toEqual([]);
   });
+
+  it('asks as for an org that delivers all email when its deliverability could not be read', async () => {
+    // The probe reads `unread` when its anonymous Apex is refused or does not
+    // answer in time: nothing then says the org holds its email back.
+    const unread = await planOf([{ username: 'jane.qa@acme.com', email: 'restore' }], acmeSetup(), {
+      acceptUserEmails: true,
+      deliverability: 'unread',
+    });
+    const accepted = await planOf(
+      [{ username: 'jane.qa@acme.com', email: 'restore' }],
+      acmeSetup(),
+      { acceptUserEmails: true, deliverability: 'unread', acceptEmails: true },
+    );
+    const closed = await planOf([{ username: 'jane.qa@acme.com', email: 'restore' }], acmeSetup(), {
+      acceptUserEmails: true,
+      deliverability: 'closed',
+    });
+
+    expect(unread.plan.refusals).toEqual([
+      {
+        code: 'USERS_EMAILS_OPEN',
+        message:
+          "the org's deliverability could not be read, so it may deliver all email, and 1 address " +
+          'would be asked back before the masking is done: set Setup > Deliverability to System ' +
+          'email only until the masking is done, or accept with --accept-emails that what runs ' +
+          'there emails these people',
+      },
+    ]);
+    expect(accepted.plan.refusals).toEqual([]);
+    expect(closed.plan.refusals).toEqual([]);
+  });
 });
 
 describe('the requests', () => {
