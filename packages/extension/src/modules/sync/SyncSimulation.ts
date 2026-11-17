@@ -16,7 +16,8 @@
  * refused, as Forge's simulation finds it (`rowGapsOf`): a field the target
  * requires left empty, a text longer than its field, a number past its field's
  * places; and a value of a field the target keeps unique that it holds
- * already, or that a record sent before holds. A row it refuses is the
+ * already, or that a record sent before holds; and an upsert's key two
+ * records of one call carry (`repeatedKeysOf`). A row it refuses is the
  * refused parent of the rows under it.
  *
  * What it cannot ask is the rest of what the target decides as it saves: a
@@ -24,7 +25,12 @@
  * refuse is counted as the run would send it.
  */
 
-import type { ConflictRecord, SyncObjectConfig, SyncObjectSimulation } from '@sandforge/shared';
+import type {
+  ConflictRecord,
+  SyncObjectConfig,
+  SyncObjectSimulation,
+  SyncSimulatedRefusal,
+} from '@sandforge/shared';
 import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import { leftToThePlatformNote, type RowsLeftOut } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
@@ -171,6 +177,13 @@ export interface ObjectSimulationInput {
    */
   readonly inTarget: ReadonlyMap<string, number>;
   /**
+   * What the write does with each of `records`, in their order, where the
+   * caller told it beyond what the target holds — an upsert's record that
+   * updates what a record of an earlier call created (`repeatedKeysOf`).
+   * Told from `inTarget` when absent.
+   */
+  readonly simulated?: readonly SimulatedRecord[];
+  /**
    * On a bidirectional run: the records both orgs hold with different values,
    * as the run detects them, and the records as they were before the strategy
    * settled them. Empty on a run that writes source to target.
@@ -253,6 +266,122 @@ export function simulateRecord(
   return operation === 'update' ? 'update' : 'delete';
 }
 
+/**
+ * Rows of a Bulk API 2.0 job the platform writes as one batch of its own: it
+ * splits the data of a job in batches of ten thousand rows.
+ */
+export const BULK_JOB_BATCH_ROWS = 10_000;
+
+/** How a write sends an object's records: the call each goes in, and whether the calls are one job's. */
+export interface WriteCalls {
+  /** The call the record at a position of the write goes in, from 0, in the order sent. */
+  readonly callOf: (position: number) => number;
+  /** Whether the calls are the batches of one Bulk API job, which the platform may write at once. */
+  readonly job: boolean;
+}
+
+/**
+ * The calls a write sends `rows` records of an object in, as `BulkDataWriter`
+ * sends them: up to its Bulk API threshold, REST calls of the object's batch
+ * size, one after the other; past it, one Bulk API job, which the platform
+ * writes in batches of {@link BULK_JOB_BATCH_ROWS} rows.
+ */
+export function writeCallsOf(rows: number, batchSize: number, bulkThreshold: number): WriteCalls {
+  const size = rows > bulkThreshold ? BULK_JOB_BATCH_ROWS : Math.max(1, batchSize);
+  return { callOf: (position) => Math.floor(position / size), job: rows > bulkThreshold };
+}
+
+/** What {@link repeatedKeysOf} finds of the records an upsert sends. */
+export interface RepeatedKeys {
+  /** The positions of the records the target refuses: another of their call carries their key. */
+  readonly refused: ReadonlySet<number>;
+  /** Those it updates: a record of an earlier call carries their key and created its record. */
+  readonly updated: ReadonlySet<number>;
+  readonly notes: string[];
+  readonly refusedFor: SyncSimulatedRefusal[];
+}
+
+/**
+ * Of the records an upsert sends, in the order sent, those whose key another
+ * of them carries, and what the target does with them:
+ *
+ * - in the same call, it refuses every one of them, each `DUPLICATE_VALUE:
+ *   Duplicate external id specified`. Run between two scratch orgs, two leads
+ *   of the source with one e-mail address, upserted on Email, were counted two
+ *   to create by the dry run; the run had both refused in the one call they
+ *   went in;
+ * - in a later REST call, the upsert finds the record the earlier one created
+ *   and updates it: two records of the source end as one in the target;
+ * - in another batch of a Bulk API job, which the platform may write at the
+ *   same time as the first, what it does cannot be told before the run: they
+ *   stay counted as the target's holdings say, and a note says so.
+ *
+ * A record without a key is left to {@link simulateRecord}.
+ *
+ * @param keyField - The field the upsert matches on.
+ * @param keys - The key each record carries, as {@link simulationKey} gives it.
+ * @param simulated - What the write does with each record, from what the target holds.
+ * @param calls - The calls the write sends them in.
+ */
+export function repeatedKeysOf(
+  keyField: string,
+  keys: readonly (string | null)[],
+  simulated: readonly SimulatedRecord[],
+  calls: WriteCalls,
+): RepeatedKeys {
+  const ofCall = new Map<string, number[]>();
+  keys.forEach((key, position) => {
+    if (key === null) return;
+    const at = `${calls.callOf(position)}\u0000${key}`;
+    const positions = ofCall.get(at);
+    if (positions) positions.push(position);
+    else ofCall.set(at, [position]);
+  });
+  const refused = new Set<number>();
+  for (const positions of ofCall.values()) {
+    if (positions.length > 1) for (const position of positions) refused.add(position);
+  }
+  // The call that created a record of each key, as the calls go one after the other.
+  const createdIn = new Map<string, number>();
+  const updated = new Set<number>();
+  let apart = 0;
+  keys.forEach((key, position) => {
+    if (key === null || refused.has(position)) return;
+    const call = calls.callOf(position);
+    const earlier = createdIn.get(key);
+    if (earlier === undefined) {
+      if (simulated[position] === 'insert') createdIn.set(key, call);
+      return;
+    }
+    if (calls.job) apart++;
+    else if (simulated[position] === 'insert') updated.add(position);
+  });
+  const notes: string[] = [];
+  const refusedFor: SyncSimulatedRefusal[] = [];
+  if (refused.size > 0) {
+    const note =
+      `${refused.size} record(s) carry the ${keyField} of another record of the same call: ` +
+      `an upsert finds its record by its key, and the target refuses every record of a call ` +
+      `whose key another carries (DUPLICATE_VALUE: Duplicate external id specified).`;
+    notes.push(note);
+    refusedFor.push({ code: 'DUPLICATE_VALUE', rows: refused.size, note });
+  }
+  if (updated.size > 0) {
+    notes.push(
+      `${updated.size} record(s) carry the ${keyField} of a record sent in an earlier call: ` +
+        `the upsert finds the record that one created and updates it with theirs.`,
+    );
+  }
+  if (apart > 0) {
+    notes.push(
+      `${apart} record(s) carry the ${keyField} of a record in another batch of the Bulk API ` +
+        `job: the platform may write the batches at once, so whether each updates the ` +
+        `record the other created or creates one of its own cannot be told before the run.`,
+    );
+  }
+  return { refused, updated, notes, refusedFor };
+}
+
 /** One object's line of a simulation, from what was read of both orgs. */
 export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectSimulation {
   const { objectConfig, records, inTarget } = input;
@@ -272,7 +401,7 @@ export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectS
   const written = new Set<number>();
 
   records.forEach((record, index) => {
-    const simulated = simulateRecord(objectConfig, record, inTarget);
+    const simulated = input.simulated?.[index] ?? simulateRecord(objectConfig, record, inTarget);
     counts[simulated]++;
     if (simulated === 'insert' || simulated === 'update') written.add(index);
   });
@@ -362,6 +491,13 @@ export interface PayloadToCheck {
   readonly creates: boolean;
 }
 
+/** The status code the target refuses rows with for each kind of gap {@link refusalNote} says. */
+const GAP_CODES: Readonly<Record<string, string>> = {
+  required_field_missing: 'REQUIRED_FIELD_MISSING',
+  value_too_long: 'STRING_TOO_LONG',
+  number_out_of_range: 'NUMBER_OUTSIDE_VALID_RANGE',
+};
+
 /** How a gap the target refuses rows for reads, counted. */
 function refusalNote(gap: {
   kind: string;
@@ -400,13 +536,13 @@ function refusalNote(gap: {
  * the simulation says so rather than count them written, and says each kind
  * once, with how many rows it refuses.
  *
- * @returns The positions of the payloads refused, and the notes.
+ * @returns The positions of the payloads refused, the notes, and each note's code.
  */
 export function refusedOnTheirFields(
   objectApiName: string,
   rows: readonly PayloadToCheck[],
   fields: readonly FieldInfo[],
-): { refused: Set<number>; notes: string[] } {
+): { refused: Set<number>; notes: string[]; refusedFor: SyncSimulatedRefusal[] } {
   const refused = new Set<number>();
   const found = new SimulationGaps();
   rows.forEach(({ payload, source, creates }, position) => {
@@ -431,11 +567,12 @@ export function refusedOnTheirFields(
     // Its id and source are given again by the collector.
     for (const gap of blocking) found.add(gap);
   });
-  const notes = found.list(new Set()).flatMap((gap) => {
+  const refusedFor = found.list(new Set()).flatMap((gap): SyncSimulatedRefusal[] => {
     const note = refusalNote(gap);
-    return note ? [note] : [];
+    const code = GAP_CODES[gap.kind];
+    return note && code ? [{ code, rows: gap.rows, note }] : [];
   });
-  return { refused, notes };
+  return { refused, notes: refusedFor.map(({ note }) => note), refusedFor };
 }
 
 /**
@@ -455,16 +592,22 @@ export function refusedOnTheirFields(
  * @param rows - The payloads the write would create, in the order sent.
  * @param heldByField - Per unique field, how many target records hold each
  *   value the rows carry, by the value as {@link simulationKey} gives it.
- * @returns The positions of the rows refused and of those linked, and a note
- *   per field.
+ * @returns The positions of the rows refused and of those linked, a note
+ *   per field, and the code of each note that counts rows refused.
  */
 export function refusedOnUniqueValues(
   rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
   heldByField: ReadonlyMap<string, ReadonlyMap<string, number>>,
-): { refused: Set<number>; linked: Set<number>; notes: string[] } {
+): {
+  refused: Set<number>;
+  linked: Set<number>;
+  notes: string[];
+  refusedFor: SyncSimulatedRefusal[];
+} {
   const refused = new Set<number>();
   const linked = new Set<number>();
   const notes: string[] = [];
+  const refusedFor: SyncSimulatedRefusal[] = [];
   for (const [field, held] of heldByField) {
     const seen = new Set<string>();
     let linkedHere = 0;
@@ -495,19 +638,20 @@ export function refusedOnUniqueValues(
       );
     }
     if (inTarget + twice === 0) continue;
-    notes.push(
+    const note =
       `${inTarget + twice} record(s) hold a ${field} the target keeps unique, which ` +
-        [
-          inTarget > 0 ? `several records of the target hold already (${inTarget})` : '',
-          twice > 0 ? `a record sent before them holds (${twice})` : '',
-        ]
-          .filter(Boolean)
-          .join(' or ') +
-        `: it refuses them (DUPLICATE_VALUE).`,
-    );
+      [
+        inTarget > 0 ? `several records of the target hold already (${inTarget})` : '',
+        twice > 0 ? `a record sent before them holds (${twice})` : '',
+      ]
+        .filter(Boolean)
+        .join(' or ') +
+      `: it refuses them (DUPLICATE_VALUE).`;
+    notes.push(note);
+    refusedFor.push({ code: 'DUPLICATE_VALUE', rows: inTarget + twice, note });
   }
   // Refused on one field, a row is not linked by another: which record, if
   // any, the target would name cannot be told.
   for (const position of refused) linked.delete(position);
-  return { refused, linked, notes };
+  return { refused, linked, notes, refusedFor };
 }

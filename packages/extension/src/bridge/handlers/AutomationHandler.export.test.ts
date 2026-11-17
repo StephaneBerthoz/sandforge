@@ -234,6 +234,41 @@ describe('AutomationHandler beside the command line', () => {
       expect(outcome.launchers.cron.text).toContain("npx -y 'sandforge@1.81.0'");
     });
 
+    it('exports a Rewind step never confirmed here as the terminal of the run confirms it, never refused in the page’s words', async () => {
+      // Exported, the step was marked refused, "open it and type the org's
+      // alias", and the dialog listed it among what a run of the file
+      // refuses: a run of the file confirms it on its own machine.
+      handler.setSandforgeVersion('1.81.0');
+      handler.setStepRunners({
+        ...runners(),
+        rewind: vi.fn(),
+        orgTier: () => 'sandbox',
+      } as unknown as PipelineStepRunners);
+      await save(
+        definition([
+          {
+            type: 'rewind',
+            name: 'Back',
+            config: { orgId: 'org-uat', checkpointId: 'ck-20261120-020000-abcd', maxRecords: 10 },
+          },
+        ]),
+      );
+
+      const outcome = await exportOf('pipe-1');
+
+      if (!outcome.exported) throw new Error(outcome.message);
+      expect(outcome.steps).toEqual([
+        expect.objectContaining({
+          name: 'Back',
+          fate: 'asks',
+          notes: ['REWIND_NEEDS_CONFIRMATION', 'REWIND_CHECKPOINT_ELSEWHERE'],
+        }),
+      ]);
+      expect(outcome.problems).toEqual([]);
+      expect(outcome.text).toContain('--confirm-rewind uat');
+      expect(outcome.text).not.toContain('open it');
+    });
+
     it('names the release the checkpoint dialogs of the host name, and refuses where none is named', async () => {
       await save(definition([BACKUP]));
       expect(await exportOf('pipe-1')).toMatchObject({ exported: false, code: 'VERSION_UNKNOWN' });

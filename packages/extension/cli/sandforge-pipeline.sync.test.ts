@@ -236,3 +236,101 @@ describe('sandforge pipeline, a Sync step', () => {
     }
   });
 });
+
+describe('sandforge pipeline, a Sync step whose upsert reads two records of one key', () => {
+  /*
+   * Run between two scratch orgs, an upsert of leads on Email read four, two
+   * of them sharing one address: the pipeline's dry run said "4 to create …
+   * 0 refused", the run "2 records written, 2 failed" and nothing of why,
+   * where the org had refused both twins "DUPLICATE_VALUE: Duplicate external
+   * id specified" in the one call they went in. Here every org is the memory
+   * org: the contacts read are upserted into it on Email, which a mapping
+   * fills with their last name, which the twins share and no contact holds
+   * as its address.
+   */
+  const TWINS_SYNC = {
+    ...ACCOUNTS_SYNC,
+    id: 'cfg-twins',
+    name: 'Twins',
+    objects: [
+      {
+        ...ACCOUNTS_SYNC.objects[0],
+        objectApiName: 'Contact',
+        operation: 'upsert',
+        externalIdField: 'Email',
+        fieldMappings: [
+          { sourceField: 'LastName', targetField: 'LastName', type: 'direct' },
+          { sourceField: 'LastName', targetField: 'Email', type: 'rename' },
+        ],
+      },
+    ],
+  };
+
+  function twinsFile(world: PipelineWorld): string {
+    world.env.copyIn('Contact', [
+      { LastName: 'twin-key' },
+      { LastName: 'twin-key' },
+      { LastName: 'other-b' },
+      { LastName: 'other-c' },
+    ]);
+    return world.file({
+      orgs: ORGS,
+      steps: [step('s1', 'Upsert contacts', 'sync', { configId: TWINS_SYNC.id })],
+      syncConfigs: { [TWINS_SYNC.id]: TWINS_SYNC },
+    });
+  }
+
+  const REPEATED =
+    '2 record(s) carry the Email of another record of the same call: an upsert finds its ' +
+    'record by its key, and the target refuses every record of a call whose key another ' +
+    'carries (DUPLICATE_VALUE: Duplicate external id specified)';
+
+  it('counts the two refused in its dry run, with the code, as its run then refuses them', async () => {
+    const world = new PipelineWorld(dir, [UAT, SOURCE]);
+    const file = twinsFile(world);
+
+    const dry = await world.run(['run', '--file', file, '--dry-run', '--json']);
+
+    const answer = JSON.parse(dry.stdout) as RunAnswer;
+    // The step would fail, as its run fails: the dry run ends as the run does.
+    expect(dry.code).toBe(1);
+    expect(answer.steps[0]?.error).toBe(
+      'Sync step "Upsert contacts" would run "Twins" into UAT and not complete: 2 to create, ' +
+        `0 to update, 0 to delete, 0 skipped and 2 refused of 4 read; refused: Contact, ${REPEATED}. ` +
+        'Nothing was written.',
+    );
+    expect(answer.steps[0]?.output?.['objects']).toEqual([
+      expect.objectContaining({
+        refused: 2,
+        refusedFor: [expect.objectContaining({ code: 'DUPLICATE_VALUE', rows: 2 })],
+      }),
+    ]);
+    expect(world.env.records('Contact')).toHaveLength(4);
+
+    const run = await world.run(['run', '--file', file, '--json']);
+
+    const ran = JSON.parse(run.stdout) as RunAnswer;
+    expect(run.code).toBe(1);
+    expect(ran.steps[0]?.error).toBe(
+      'Sync step "Upsert contacts" ran "Twins" into UAT and did not complete: 2 records ' +
+        'written, 2 failed and 0 skipped of 4 read; refused: Contact, 2 × DUPLICATE_VALUE: ' +
+        'Duplicate external id specified: twin-key [Email].',
+    );
+    expect(ran.steps[0]?.output?.['objects']).toEqual([
+      expect.objectContaining({
+        success: 2,
+        failed: 2,
+        refusals: [
+          {
+            code: 'DUPLICATE_VALUE',
+            fields: ['Email'],
+            count: 2,
+            example: 'DUPLICATE_VALUE: Duplicate external id specified: twin-key [Email]',
+          },
+        ],
+      }),
+    ]);
+    expect(run.stderr).toContain('refused: Contact, 2 × DUPLICATE_VALUE');
+    expect(world.env.records('Contact')).toHaveLength(6);
+  });
+});

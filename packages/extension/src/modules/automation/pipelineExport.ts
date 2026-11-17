@@ -45,6 +45,7 @@ import {
   writePipelineFile,
 } from '@sandforge/shared';
 import { pipelineLaunchers, type LauncherOrg, type LauncherVariable } from './pipelineRunners.js';
+import { grantRefusalWords } from './RewindGrants.js';
 
 /** An org as the registry holds it: what the export reads of it, and nothing it writes as it is. */
 export interface ExportedOrgSource {
@@ -90,6 +91,14 @@ export interface PipelineExportInput {
   stepRefusal?(step: PipelineStep, index: number): string | undefined;
   /** Every refusal of the editor's check of the whole pipeline, steps' among them. */
   problems?: readonly string[];
+  /**
+   * Whether the check is made on the machine the file runs on: the command
+   * line checks a file through the export before it runs it, and a Rewind
+   * step not confirmed there is refused, as its run is. Left out, the export
+   * is the page's, for a run on another machine, which confirms the step
+   * itself.
+   */
+  checkedWhereItRuns?: boolean;
 }
 
 /**
@@ -426,6 +435,32 @@ function gather(input: PipelineExportInput): Gathered | PipelineExportOutcome {
   };
 }
 
+/**
+ * Whether `refusal` is a Rewind step's for want of this machine's
+ * confirmation (`grantRefusalWords`) in a file for another machine: no
+ * refusal of a run of it, which that machine confirms — `--confirm-rewind`
+ * or `pipeline confirm` there, as the step's note says
+ * (`REWIND_NEEDS_CONFIRMATION`); a confirmation made here does not travel
+ * with the file. In the page's words, "open it and type the org's alias",
+ * the export marked such a step refused, where a terminal has no page to
+ * open. What the check reads after the confirmation, the checkpoint, the
+ * run's machine reads in its own store. Checked where it runs, the step is
+ * refused, as its run is (`checkedWhereItRuns`).
+ */
+function confirmedWhereItRuns(
+  input: Pick<PipelineExportInput, 'checkedWhereItRuns'>,
+  step: Pick<PipelineStep, 'type' | 'name'>,
+  refusal: string | undefined,
+): boolean {
+  return (
+    input.checkedWhereItRuns !== true &&
+    step.type === 'rewind' &&
+    refusal !== undefined &&
+    (refusal === grantRefusalWords(step.name, 'never') ||
+      refusal === grantRefusalWords(step.name, 'changed'))
+  );
+}
+
 /** What the dialog and the notes say of each step, in order. */
 function stepsOf(
   input: PipelineExportInput,
@@ -443,7 +478,8 @@ function stepsOf(
       codes.push(code);
       notes.push(note(code, text, { step: step.name }));
     };
-    const refusal = input.stepRefusal?.(step, index);
+    const checked = input.stepRefusal?.(step, index);
+    const refusal = confirmedWhereItRuns(input, step, checked) ? undefined : checked;
     const production = writesOf(index).find(
       (orgId) => fileOrg(gathered.orgs, orgId)?.kind === 'production',
     );
@@ -699,7 +735,10 @@ export function buildPipelineExport(input: PipelineExportInput): PipelineExportO
         }),
     }),
     notes,
-    problems: [...(input.problems ?? [])],
+    // What a run of the file refuses too: a Rewind confirmed on the run's machine is not.
+    problems: (input.problems ?? []).filter(
+      (problem) => !gathered.steps.some((step) => confirmedWhereItRuns(input, step, problem)),
+    ),
   };
   return { exported: true, pipelineId, ...exported };
 }

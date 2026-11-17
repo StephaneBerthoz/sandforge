@@ -405,14 +405,17 @@ export class EnvWorld {
             return { success: true, id: String(id), errors: [] };
           }),
         // What a restore of a masking's snapshot sends: its values written
-        // back by Id over the records the org holds.
+        // back by Id over the records the org holds. On another key, a Sync's
+        // upsert, answered as the org answers one call of it.
         upsert: async (records: Array<Record<string, unknown>>, field: string) =>
-          records.map((record) => {
-            this.onUpdate?.(objectApiName);
-            const { [field]: id, ...values } = record;
-            this.org.edit(objectApiName, String(id), values);
-            return { success: true, id: String(id), errors: [], created: false };
-          }),
+          field !== 'Id'
+            ? this.upsertOn(objectApiName, records, field)
+            : records.map((record) => {
+                this.onUpdate?.(objectApiName);
+                const { [field]: id, ...values } = record;
+                this.org.edit(objectApiName, String(id), values);
+                return { success: true, id: String(id), errors: [], created: false };
+              }),
       }),
       describe: async (objectApiName: string) => this.describeOf(objectApiName),
       describe$: async (objectApiName: string) => this.describeOf(objectApiName),
@@ -459,6 +462,69 @@ export class EnvWorld {
         throw new Error(`The world's org answers no request to ${url}`);
       },
     };
+  }
+
+  /**
+   * One upsert call on `field`, as the org answers it: a key two records of
+   * the call carry refuses both (`DUPLICATE_VALUE: Duplicate external id
+   * specified`, as two leads of one e-mail address were refused in a scratch
+   * org); a key one record of the org holds updates that record; one none
+   * holds creates a record, which a later call finds.
+   */
+  private upsertOn(
+    objectApiName: string,
+    records: Array<Record<string, unknown>>,
+    field: string,
+  ): unknown[] {
+    const keyOf = (value: unknown): string | undefined =>
+      typeof value === 'string' && value !== '' ? value.toLowerCase() : undefined;
+    const inCall = new Map<string, number>();
+    for (const record of records) {
+      const key = keyOf(record[field]);
+      if (key !== undefined) inCall.set(key, (inCall.get(key) ?? 0) + 1);
+    }
+    return records.map((record) => {
+      const key = keyOf(record[field]);
+      if (key !== undefined && (inCall.get(key) ?? 0) > 1) {
+        return {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATE_VALUE',
+              message: `Duplicate external id specified: ${String(record[field])}`,
+              fields: [field],
+            },
+          ],
+        };
+      }
+      const held = this.org.all(objectApiName).filter((row) => keyOf(row[field]) === key);
+      if (key !== undefined && held.length > 1) {
+        return {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATE_EXTERNAL_ID',
+              message: `${field}: more than one record found for external id field`,
+              fields: [field],
+            },
+          ],
+        };
+      }
+      if (key !== undefined && held.length === 1) {
+        this.onUpdate?.(objectApiName);
+        const id = String(held[0]['Id']);
+        this.org.edit(objectApiName, id, record);
+        return { success: true, id, errors: [], created: false };
+      }
+      this.onCreate?.(objectApiName, this.made);
+      const id = `${PREFIX[objectApiName] ?? '0xx'}${String(this.made++).padStart(12, '0')}AAA`;
+      this.org.add(
+        objectApiName,
+        { ...record, Id: id, CreatedById: MEMORY_ORG_USER, LastModifiedById: MEMORY_ORG_USER },
+        orgStamp(Date.now()),
+      );
+      return { success: true, id, errors: [], created: true };
+    });
   }
 
   /** The source org's connection: what discovery and the clone's reads see. */

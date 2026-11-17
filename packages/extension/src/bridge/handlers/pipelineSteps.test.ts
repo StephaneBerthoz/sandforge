@@ -5,6 +5,7 @@ import type {
   PipelineStep,
   PipelineStepType,
   SyncExecutionResult,
+  SyncObjectResult,
 } from '@sandforge/shared';
 import { ApprovalGate } from '../../modules/automation/ApprovalGate.js';
 import { StepCancelledError, StepExecutor } from '../../modules/automation/StepExecutor.js';
@@ -539,6 +540,156 @@ describe('registerPipelineSteps', () => {
           '9 records written, 3 failed and 0 skipped of 12 read.',
       );
       expect(result.output).toMatchObject({ totalFailed: 3 });
+    });
+
+    it('names the code and the message of what the org refused, grouped by code, in its line and its output', async () => {
+      // Run from a terminal, a step whose org refused two leads said "2
+      // failed" and nothing more, in its line and its JSON: a run of a
+      // schedule had nothing to act on. `sandforge sync` said the org's words.
+      const refused = 'DUPLICATE_VALUE: Duplicate external id specified: twin@example.com [Email]';
+      const lead = {
+        objectApiName: 'Lead',
+        operation: 'upsert' as const,
+        processed: 4,
+        success: 2,
+        failed: 2,
+        skipped: 0,
+        conflictCount: 0,
+        errors: [refused, refused],
+      };
+      const own = withSync(
+        syncFlows(
+          { decision: 'allowed' },
+          {
+            runSync: vi.fn(async () =>
+              syncResult({
+                status: 'partial',
+                objectResults: [lead],
+                totalProcessed: 4,
+                totalSuccess: 2,
+                totalFailed: 2,
+              }),
+            ),
+          },
+        ),
+      );
+
+      const result = await own.execute(sync, context());
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe(
+        'Sync step "Step" ran "Accounts to dev" into dev and did not complete: ' +
+          '2 records written, 2 failed and 0 skipped of 4 read; refused: Lead, 2 × ' +
+          `${refused}.`,
+      );
+      expect(result.output?.['objects']).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Lead',
+          failed: 2,
+          refusals: [{ code: 'DUPLICATE_VALUE', fields: ['Email'], count: 2, example: refused }],
+        }),
+      ]);
+    });
+
+    it('says three reasons the org refused records for, and counts the others', async () => {
+      const failing = (objectApiName: string, errors: string[]) => ({
+        objectApiName,
+        operation: 'insert' as const,
+        processed: errors.length,
+        success: 0,
+        failed: errors.length,
+        skipped: 0,
+        conflictCount: 0,
+        errors,
+      });
+      const own = withSync(
+        syncFlows(
+          { decision: 'allowed' },
+          {
+            runSync: vi.fn(async () =>
+              syncResult({
+                status: 'failure',
+                objectResults: [
+                  failing('Account', [
+                    'REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c] [Region__c]',
+                    'FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter a postal code',
+                  ]),
+                  failing('Contact', [
+                    'INVALID_EMAIL_ADDRESS: Email: invalid email address [Email]',
+                    'STRING_TOO_LONG: Title: data value too large [Title]',
+                  ]),
+                ],
+                totalProcessed: 4,
+                totalSuccess: 0,
+                totalFailed: 4,
+              }),
+            ),
+          },
+        ),
+      );
+
+      const result = await own.execute(sync, context());
+
+      expect(result.error).toContain(
+        '; refused: Account, 1 × REQUIRED_FIELD_MISSING: Required fields are missing: ' +
+          '[Region__c] [Region__c]; Account, 1 × FIELD_CUSTOM_VALIDATION_EXCEPTION: Enter a ' +
+          'postal code; Contact, 1 × INVALID_EMAIL_ADDRESS: Email: invalid email address ' +
+          '[Email]; and 1 other reason.',
+      );
+    });
+
+    it('says, of a delta configuration, the objects it read from the last run’s watermark and those it read whole for want of one', async () => {
+      // Its dry run said "Lead read from the last run's watermark"; the run
+      // said "0 records written … of 0 read" and nothing of where it read from.
+      const object = (objectApiName: string, delta: SyncObjectResult['delta']) => ({
+        objectApiName,
+        operation: 'upsert' as const,
+        processed: 0,
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        conflictCount: 0,
+        errors: [],
+        delta,
+      });
+      const fromWatermark = {
+        read: 'delta' as const,
+        since: '2026-11-13T22:08:33.000Z',
+        changed: 0,
+        deletionsChecked: false,
+        deleted: 0,
+        deleteFailed: 0,
+        recorded: '2026-11-17T16:30:00.000Z',
+      };
+      const own = withSync(
+        syncFlows(
+          { decision: 'allowed' },
+          {
+            runSync: vi.fn(async () =>
+              syncResult({
+                objectResults: [
+                  object('Lead', fromWatermark),
+                  object('Contact', { ...fromWatermark, read: 'full', reason: 'first_run' }),
+                ],
+                totalProcessed: 0,
+                totalSuccess: 0,
+              }),
+            ),
+          },
+        ),
+      );
+
+      const result = await own.execute(sync, context());
+
+      expect(result.summary).toBe(
+        'Synced "Accounts to dev" into dev: 0 records written, 0 failed and 0 skipped of 0 ' +
+          'read; first run from this store for Contact: no watermark yet, every record was ' +
+          "read; Lead read from the last run's watermark.",
+      );
+      expect(result.output?.['objects']).toEqual([
+        expect.objectContaining({ objectApiName: 'Lead', delta: fromWatermark }),
+        expect.objectContaining({ objectApiName: 'Contact' }),
+      ]);
     });
 
     it('fails a run whose read of an object the bound cut, saying the cut and how to copy the rest', async () => {

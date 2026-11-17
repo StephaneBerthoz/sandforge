@@ -14,6 +14,7 @@ import type { CheckpointEstimate } from '@sandforge/shared';
 import { CheckpointStepRefused } from '../../bridge/handlers/CheckpointHandler.js';
 import {
   acceptancesOf,
+  deltaReadWords,
   readSavedSync,
   type PipelineStepRunners,
 } from '../../bridge/handlers/pipelineSteps.js';
@@ -164,21 +165,7 @@ function simulatedWords(objects: readonly SyncObjectSimulation[]): string {
  * those the read bound cut.
  */
 function readingWords(result: SyncSimulationResult): string {
-  const notes: string[] = [];
-  const firstRun = result.objects
-    .filter((o) => o.delta?.read === 'full' && o.delta.reason === 'first_run')
-    .map((o) => o.objectApiName);
-  if (firstRun.length > 0) {
-    notes.push(
-      `first run from this store for ${firstRun.join(', ')}: no watermark yet, every record is read`,
-    );
-  }
-  const fromWatermark = result.objects.filter((o) => o.delta?.read === 'delta');
-  if (fromWatermark.length > 0) {
-    notes.push(
-      `${fromWatermark.map((o) => o.objectApiName).join(', ')} read from the last run's watermark`,
-    );
-  }
+  const notes = deltaReadWords(result.objects, false);
   if (result.cutAtReadCap && result.cutAtReadCap.length > 0) {
     notes.push(
       `${result.cutAtReadCap.join(', ')} read only up to ${result.readCap ?? 'the bound of'} ` +
@@ -186,6 +173,28 @@ function readingWords(result: SyncSimulationResult): string {
     );
   }
   return notes.length > 0 ? `; ${notes.join('; ')}` : '';
+}
+
+/** How many reasons a dry run's line says the target would refuse records for, before it counts the rest. */
+const REFUSALS_SAID = 3;
+
+/**
+ * Why the target would refuse records, of those the simulation knows the
+ * code of (`refusedFor`), as the run's line names what the org refused: of
+ * two leads an upsert sent with one e-mail address, the run named
+ * DUPLICATE_VALUE, and a dry run's count alone would have left the reason to
+ * the run.
+ */
+function wouldBeRefusedWords(objects: readonly SyncObjectSimulation[]): string {
+  const reasons = objects.flatMap((o) =>
+    (o.refusedFor ?? []).map(({ note }) => `${o.objectApiName}, ${note.replace(/\.$/, '')}`),
+  );
+  if (reasons.length === 0) return '';
+  const more = reasons.length - REFUSALS_SAID;
+  return (
+    `; refused: ${reasons.slice(0, REFUSALS_SAID).join('; ')}` +
+    (more > 0 ? `; and ${counted(more, 'other reason')}` : '')
+  );
 }
 
 function dryDelay(step: PipelineStep): Promise<PipelineStepResult> {
@@ -285,6 +294,7 @@ function drySync(runners: PipelineStepRunners) {
         delete: o.delete,
         skipped: o.skipped,
         refused: o.refused,
+        ...(o.refusedFor ? { refusedFor: o.refusedFor } : {}),
         ...(o.delta ? { delta: o.delta } : {}),
       })),
       ...(result.readCap !== undefined ? { readCap: result.readCap } : {}),
@@ -308,7 +318,7 @@ function drySync(runners: PipelineStepRunners) {
         startTime,
         output,
         `${who} would run "${name}" into ${target} and not complete: ${counts}` +
-          `${readingWords(result)}. Nothing was written.`,
+          `${readingWords(result)}${wouldBeRefusedWords(result.objects)}. Nothing was written.`,
       );
     }
     return wouldDo(

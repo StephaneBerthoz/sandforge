@@ -16,6 +16,7 @@ import type {
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
+  SF_LIMITS,
   TRANSFORM_RULE_BAD_PATTERN,
   TRANSFORM_RULE_NO_FIELD,
   fieldlessTransformRefusal,
@@ -59,10 +60,12 @@ import {
   REFUSED_BY_THE_TARGET,
   refusedOnTheirFields,
   refusedOnUniqueValues,
+  repeatedKeysOf,
   simulateObjectOutcome,
   simulateRecord,
   simulationKey,
   targetKeyOf,
+  writeCallsOf,
   type SimulatedRecord,
 } from './SyncSimulation.js';
 import {
@@ -254,6 +257,14 @@ export interface SyncOrchestratorDeps {
    * saved configuration made, before it leaves their records as they are.
    */
   findInTarget?: OrchestratorFindFn;
+  /**
+   * The record count past which the run's writer sends an object's records
+   * as a Bulk API job rather than in REST calls of its batch size
+   * (`BulkApiExecutor`'s threshold): what tells a simulation which records
+   * of an upsert go in one call (`writeCallsOf`). The writer's default when
+   * absent.
+   */
+  bulkThreshold?: number;
   /**
    * What the target lets a write carry, the describe the write reads too: the
    * lookups of each object, which the run and a simulation write the parents
@@ -3038,8 +3049,26 @@ export class SyncOrchestrator {
     const simulated: SimulatedRecord[] = sentRecords.map((record) =>
       simulateRecord(objectConfig, record, inTarget),
     );
+    // Of an upsert's records, those whose key another carries, in the calls
+    // the writer sends them in: refused in the same call, the record an
+    // earlier call created updated in a later one. On the Id, the source's
+    // records carry each their own.
+    const repeated =
+      objectConfig.operation === 'upsert' && keyField !== null && keyField.toLowerCase() !== 'id'
+        ? repeatedKeysOf(
+            keyField,
+            sentRecords.map((record) => simulationKey(record[keyField])),
+            simulated,
+            writeCallsOf(
+              sentRecords.length,
+              objectConfig.batchSize,
+              this.deps.bulkThreshold ?? SF_LIMITS.REST_API_BATCH_SIZE,
+            ),
+          )
+        : undefined;
+    for (const k of repeated?.updated ?? []) simulated[k] = 'update';
     const writes = simulated.flatMap((kind, k) =>
-      kind === 'insert' || kind === 'update' ? [k] : [],
+      (kind === 'insert' || kind === 'update') && repeated?.refused.has(k) !== true ? [k] : [],
     );
     const checked =
       target?.fields !== undefined && writes.length > 0
@@ -3052,8 +3081,11 @@ export class SyncOrchestrator {
             })),
             target.fields,
           )
-        : { refused: new Set<number>(), notes: [] };
-    const refusedAt = new Set([...checked.refused].map((position) => writes[position]));
+        : { refused: new Set<number>(), notes: [], refusedFor: [] };
+    const refusedAt = new Set([
+      ...[...checked.refused].map((position) => writes[position]),
+      ...(repeated?.refused ?? []),
+    ]);
 
     // Of the records it would write, those a lookup the run did not settle
     // names an id the target does not hold: the run is refused them, and
@@ -3108,6 +3140,7 @@ export class SyncOrchestrator {
       records: kept.map((k) => sentRecords[k]),
       leftOut: leftOut.counts(objectConfig.objectApiName),
       inTarget,
+      simulated: kept.map((k) => simulated[k]),
       conflicts: prepared.conflicts,
       unsettled,
       matchField: prepared.matchField,
@@ -3166,6 +3199,12 @@ export class SyncOrchestrator {
       namedTargetRecordTypes(target?.recordTypes ?? [], writeRun.recordTypes),
     );
 
+    // The refusals whose code the target names, as the run names them.
+    const refusedFor = [
+      ...(repeated?.refusedFor ?? []),
+      ...checked.refusedFor,
+      ...unique.refusedFor,
+    ];
     const withHeld: SyncObjectSimulation = {
       ...outcome,
       skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied + roles.linked,
@@ -3174,6 +3213,7 @@ export class SyncOrchestrator {
       ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
       ...(recordTypeGiven ? { recordTypeGiven } : {}),
       refused: outcome.refused + rows.held.length + refusedAt.size + heldWith.length,
+      ...(refusedFor.length > 0 ? { refusedFor } : {}),
       notes: [
         ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
         // Said as the command line says them: the simulation's notes are text.
@@ -3182,6 +3222,7 @@ export class SyncOrchestrator {
         ),
         ...(roles.linked > 0 ? [rolesLinkedNote(roles.linked)] : []),
         ...outcome.notes,
+        ...(repeated?.notes ?? []),
         ...rows.notes,
         ...(heldWith.length > 0
           ? [pricesHeldWithTheirsNote(objectConfig.objectApiName, heldWith.length)]

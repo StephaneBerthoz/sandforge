@@ -11,6 +11,7 @@ import {
   type ExportedOrgSource,
   type PipelineExportInput,
 } from './pipelineExport.js';
+import { grantRefusalWords } from './RewindGrants.js';
 
 const USERNAME = 'admin.person@example.com.uat';
 const DEV_USERNAME = 'dev.person@example.com.dev';
@@ -304,6 +305,83 @@ describe('a pipeline exported as a file', () => {
       ['Health', 'runs', undefined],
     ]);
     expect(out.problems).toEqual(['Step "Restore it" cannot run in a pipeline.']);
+  });
+
+  it.each(['never', 'changed'] as const)(
+    'notes a Rewind step not confirmed here (%s) as the terminal confirms it, never refused in the page’s words',
+    (refusal) => {
+      // Exported from a scratch org's pipeline, the step was marked refused,
+      // "open it and type the org's alias", where the run's terminal confirms
+      // it with --confirm-rewind or pipeline confirm.
+      const unconfirmed = grantRefusalWords('Back', refusal);
+      const out = exported(
+        buildPipelineExport(
+          input({
+            stepRefusal: (s) => (s.type === 'rewind' ? unconfirmed : undefined),
+            problems: [unconfirmed],
+          }),
+        ),
+      );
+
+      expect(out.steps.find((s) => s.name === 'Back')).toEqual({
+        stepId: 's-rewind',
+        name: 'Back',
+        type: 'rewind',
+        fate: 'asks',
+        notes: ['REWIND_NEEDS_CONFIRMATION', 'REWIND_CHECKPOINT_ELSEWHERE'],
+      });
+      expect(out.notes).toContainEqual(
+        expect.objectContaining({
+          code: 'REWIND_NEEDS_CONFIRMATION',
+          step: 'Back',
+          text: expect.stringContaining('--confirm-rewind UAT'),
+        }),
+      );
+      expect(out.notes.map((n) => n.code)).not.toContain('STEP_REFUSED');
+      expect(out.text).not.toContain('open it');
+      expect(out.problems).toEqual([]);
+    },
+  );
+
+  it('keeps refused a Rewind step not confirmed on the machine the check is made on, where the file runs', () => {
+    // The command line checks a file through its export before it runs it:
+    // there, the step is refused until it is confirmed (REWIND_NOT_CONFIRMED).
+    const unconfirmed = grantRefusalWords('Back', 'never');
+    const out = exported(
+      buildPipelineExport(
+        input({
+          stepRefusal: (s) => (s.type === 'rewind' ? unconfirmed : undefined),
+          problems: [unconfirmed],
+          checkedWhereItRuns: true,
+        }),
+      ),
+    );
+
+    expect(out.steps.find((s) => s.name === 'Back')).toMatchObject({
+      fate: 'refused',
+      refusal: unconfirmed,
+    });
+    expect(out.problems).toEqual([unconfirmed]);
+  });
+
+  it('still marks refused a Rewind step its check refuses for anything but its confirmation', () => {
+    const gone =
+      'Rewind step "Back" rewinds to the checkpoint cp-1, which is not kept on this machine.';
+    const out = exported(
+      buildPipelineExport(
+        input({
+          stepRefusal: (s) => (s.type === 'rewind' ? gone : undefined),
+          problems: [gone],
+        }),
+      ),
+    );
+
+    expect(out.steps.find((s) => s.name === 'Back')).toMatchObject({
+      fate: 'refused',
+      refusal: gone,
+      notes: ['STEP_REFUSED'],
+    });
+    expect(out.problems).toEqual([gone]);
   });
 
   it('carries the settings the steps read that differ from their defaults, and refuses one past its bounds', () => {

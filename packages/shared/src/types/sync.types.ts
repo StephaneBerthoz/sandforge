@@ -1060,6 +1060,16 @@ export interface SyncValidationRule {
   field?: string;
 }
 
+/** Records a simulation counts refused for one reason the target names by its status code. */
+export interface SyncSimulatedRefusal {
+  /** The status code: `DUPLICATE_VALUE`, `REQUIRED_FIELD_MISSING`… */
+  code: string;
+  /** How many records. */
+  rows: number;
+  /** Why, in the words of the object's notes, the code among them. */
+  note: string;
+}
+
 /**
  * What a sync run would do with one object, as a simulation found it: both
  * orgs read and compared, nothing written. The target's validation rules,
@@ -1081,6 +1091,13 @@ export interface SyncObjectSimulation {
   skipped: number;
   /** Records the run would send that the target cannot take as asked; `notes` says why. */
   refused: number;
+  /**
+   * Of the records counted `refused`, those the simulation knows the status
+   * code the target refuses them with, by code and reason — a record refused
+   * for two counted under each —, as a run names what the org refused: what
+   * a pipeline's dry run says beside its counts. Absent when none.
+   */
+  refusedFor?: SyncSimulatedRefusal[];
   /**
    * On a bidirectional run, records both orgs hold whose values differ on a
    * field the run writes: the strategy decides which value is written. Zero

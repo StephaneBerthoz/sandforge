@@ -2232,9 +2232,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         viewsEncrypted: viewsEncryptedDataOnce(targetRows),
       })
     : undefined;
+  // Past its threshold, the writer sends an object as a Bulk API job: a
+  // dry run tells by it which records of an upsert go in one call.
+  const bulkExecutor = new BulkApiExecutor();
   const writer = new BulkDataWriter({
     connection: targetConn,
-    bulkExecutor: new BulkApiExecutor(),
+    bulkExecutor,
     bulkManager: new BulkApiManager(),
     retryConfig: {},
     signal: controller.signal,
@@ -2624,6 +2627,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       query: async (q) => targetConn.query<Record<string, unknown>>(q),
       queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
     }),
+    bulkThreshold: bulkExecutor.getThreshold(),
     // The parents its objects' lookups name written first.
     describeTargetFields,
     // The same, asked of the org again once the mute's lease assigned a

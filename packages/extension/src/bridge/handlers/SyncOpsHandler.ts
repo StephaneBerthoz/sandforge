@@ -1608,6 +1608,9 @@ export class SyncOpsHandler implements DomainHandler {
         services: this.deps.services,
         signal: abortController.signal,
         findInTarget: readers.findInTarget,
+        // Past it, the run's writer sends an object as a Bulk API job: which
+        // records of an upsert go in one call, as the run sends them.
+        bulkThreshold: robustnessConfig.bulk.threshold,
         describeTargetFields: readers.describeTargetFields,
         // What the run leaves as earlier runs copied it, found as the run
         // finds it; and what it writes, counted and measured as its gate

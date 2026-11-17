@@ -383,6 +383,11 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
       '1 record(s) hold a Code__c the target keeps unique, which a record sent before them ' +
         'holds (1): it refuses them (DUPLICATE_VALUE).',
     );
+    // The refusals whose code the target names, as a pipeline's dry run names them.
+    expect(simulated.objects[0].refusedFor?.map(({ code, rows }) => [code, rows])).toEqual([
+      ['REQUIRED_FIELD_MISSING', 1],
+      ['DUPLICATE_VALUE', 1],
+    ]);
   });
 
   it('stops before the first record that carries a record type when the record types cannot be read', async () => {

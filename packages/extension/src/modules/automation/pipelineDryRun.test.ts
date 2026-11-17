@@ -459,6 +459,55 @@ describe('applyDryRun', () => {
     expect(flows.runSync).not.toHaveBeenCalled();
   });
 
+  it('says why the target would refuse the records it counts refused, with the code, and gives the code in its output', async () => {
+    // Two leads read with one e-mail address, upserted on Email: the dry run
+    // said "0 refused", the run had both refused with DUPLICATE_VALUE.
+    const note =
+      '2 record(s) carry the Email of another record of the same call: an upsert finds its ' +
+      'record by its key, and the target refuses every record of a call whose key another ' +
+      'carries (DUPLICATE_VALUE: Duplicate external id specified).';
+    const flows = runners({
+      simulateSync: vi.fn(async () =>
+        simulation({
+          objects: [
+            {
+              ...simulation().objects[0],
+              objectApiName: 'Lead',
+              read: 4,
+              insert: 2,
+              update: 0,
+              refused: 2,
+              refusedFor: [{ code: 'DUPLICATE_VALUE', rows: 2, note }],
+              notes: [note],
+              delta: undefined,
+            },
+          ],
+          cutAtReadCap: undefined,
+        }),
+      ),
+    });
+
+    const run = await orchestratorOf(flows, true).execute(nightly(), {}, 'manual');
+
+    expect(said(run)['Copy']).toEqual({
+      status: 'failed',
+      text:
+        'Sync step "Copy" would run "Accounts to dev" into dev and not complete: 2 to create, ' +
+        '0 to update, 0 to delete, 0 skipped and 2 refused of 4 read; refused: Lead, 2 ' +
+        'record(s) carry the Email of another record of the same call: an upsert finds its ' +
+        'record by its key, and the target refuses every record of a call whose key another ' +
+        'carries (DUPLICATE_VALUE: Duplicate external id specified). Nothing was written.',
+    });
+    const copy = run.stepResults.find((result) => result.stepName === 'Copy');
+    expect(copy?.output?.['objects']).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Lead',
+        refused: 2,
+        refusedFor: [{ code: 'DUPLICATE_VALUE', rows: 2, note }],
+      }),
+    ]);
+  });
+
   it('says a Sync step read from the last watermark as such', async () => {
     const flows = runners({
       simulateSync: vi.fn(async () =>

@@ -14,7 +14,9 @@ import type {
   RewindResult,
   SeedTemplate,
   SyncConfig,
+  SyncDeltaOutcome,
   SyncExecutionResult,
+  SyncObjectResult,
   SyncSimulationResult,
   TriggerType,
 } from '@sandforge/shared';
@@ -27,6 +29,7 @@ import {
   PREBUILT_SEED_TEMPLATES,
   approvalDefect,
   approvalTimeoutMinutes,
+  groupRecordErrors,
   pipelineAnonymizeStepConfigSchema,
   pipelineCheckpointStepConfigSchema,
   pipelineRewindStepConfigSchema,
@@ -993,6 +996,67 @@ function givenAnswer(context: StepContext): GivenAnswer {
   };
 }
 
+/**
+ * How a delta configuration's objects are read, said beside the counts: those
+ * read whole for want of a watermark in this store — on a machine, or a
+ * command line's store, that never ran the configuration — and those read
+ * from the last run's watermark. A dry run says what its run would read, a
+ * run what it read: its dry run said "Lead read from the last run's
+ * watermark", and the run that followed said only "0 records written … of 0
+ * read".
+ * @param objects - The objects simulated or run, each with how it was read
+ * @param ran - Whether they were run, not simulated
+ */
+export function deltaReadWords(
+  objects: ReadonlyArray<{ objectApiName: string; delta?: SyncDeltaOutcome }>,
+  ran: boolean,
+): string[] {
+  const words: string[] = [];
+  const firstRun = objects
+    .filter((o) => o.delta?.read === 'full' && o.delta.reason === 'first_run')
+    .map((o) => o.objectApiName);
+  if (firstRun.length > 0) {
+    words.push(
+      `first run from this store for ${firstRun.join(', ')}: no watermark yet, every record ` +
+        `${ran ? 'was' : 'is'} read`,
+    );
+  }
+  const fromWatermark = objects.filter((o) => o.delta?.read === 'delta');
+  if (fromWatermark.length > 0) {
+    words.push(
+      `${fromWatermark.map((o) => o.objectApiName).join(', ')} read from the last run's watermark`,
+    );
+  }
+  return words;
+}
+
+/** How many of the org's reasons a Sync step's line says before it counts the rest. */
+const SYNC_REASONS_SAID = 3;
+
+/**
+ * What a Sync run's objects were refused for, as its step says it: by object,
+ * the refusals grouped by code and the fields named, each with how many and
+ * the first one's words, as `sandforge sync` and the Sync page name them. Run
+ * from a terminal, a step whose org refused two leads said "2 failed" and
+ * nothing more, in its line and its JSON: a run of a schedule, whose output
+ * is all there is, left nothing to act on.
+ */
+function syncRefusedWords(objects: readonly SyncObjectResult[]): string {
+  const reasons = objects
+    .filter((object) => object.failed > 0)
+    .flatMap((object) =>
+      groupRecordErrors(object.errors).map(
+        (group) => `${object.objectApiName}, ${group.count} × ${group.example}`,
+      ),
+    );
+  if (reasons.length === 0) return '';
+  const more = reasons.length - SYNC_REASONS_SAID;
+  return (
+    `; refused: ${reasons.slice(0, SYNC_REASONS_SAID).join('; ')}` +
+    (more > 0 ? `; and ${counted(more, 'other reason')}` : '')
+  );
+}
+
 function syncHandler(runners: PipelineStepRunners): StepHandler {
   return async (step: PipelineStep, context: StepContext) => {
     const startTime = new Date().toISOString();
@@ -1025,19 +1089,28 @@ function syncHandler(runners: PipelineStepRunners): StepHandler {
       totalSuccess: result.totalSuccess,
       totalFailed: result.totalFailed,
       totalSkipped: result.totalSkipped,
-      objects: result.objectResults.map((object) => ({
-        objectApiName: object.objectApiName,
-        operation: object.operation,
-        processed: object.processed,
-        success: object.success,
-        failed: object.failed,
-        skipped: object.skipped,
-      })),
+      objects: result.objectResults.map((object) => {
+        // What the org refused, grouped as the step's line says it.
+        const refusals = object.failed > 0 ? groupRecordErrors(object.errors) : [];
+        return {
+          objectApiName: object.objectApiName,
+          operation: object.operation,
+          processed: object.processed,
+          success: object.success,
+          failed: object.failed,
+          skipped: object.skipped,
+          ...(refusals.length > 0 ? { refusals } : {}),
+          ...(object.delta ? { delta: object.delta } : {}),
+        };
+      }),
       ...(typeof runSummary === 'object' && runSummary !== null ? { summary: runSummary } : {}),
     };
+    const read = deltaReadWords(result.objectResults, true)
+      .map((words) => `; ${words}`)
+      .join('');
     const counts =
       `${counted(result.totalSuccess, 'record')} written, ${result.totalFailed} failed and ` +
-      `${result.totalSkipped} skipped of ${result.totalProcessed} read`;
+      `${result.totalSkipped} skipped of ${result.totalProcessed} read${read}`;
     // A run that wrote some records and failed others is no success: the
     // steps after it would go on as if every record were there. Nor is one
     // whose read of an object the bound cut, which says so.
@@ -1050,6 +1123,7 @@ function syncHandler(runners: PipelineStepRunners): StepHandler {
         startTime,
         output,
         `Sync step "${step.name}" ran "${name}" into ${target} and did not complete: ${counts}` +
+          syncRefusedWords(result.objectResults) +
           (why.length > 0 ? `; ${why.join('; ')}` : '.'),
       );
     }

@@ -3,11 +3,13 @@ import type { ConflictRecord, SyncObjectConfig } from '@sandforge/shared';
 import {
   keyBatches,
   refusedOnUniqueValues,
+  repeatedKeysOf,
   simulateObjectOutcome,
   simulationKey,
   soqlLiteral,
   targetKeyOf,
   targetLookup,
+  writeCallsOf,
   type ObjectSimulationInput,
 } from './SyncSimulation';
 
@@ -396,5 +398,78 @@ describe('refusedOnUniqueValues', () => {
 
     expect([...linked]).toEqual([]);
     expect([...refused]).toEqual([0]);
+  });
+
+  it('gives the code of the rows it counts refused, never of those it links', () => {
+    const rows = [{ Ext_Id__c: 'A' }, { Ext_Id__c: 'B' }, { Ext_Id__c: 'b' }];
+    const held = new Map([['Ext_Id__c', new Map([['a', 1]])]]);
+
+    const { refusedFor } = refusedOnUniqueValues(rows, held);
+
+    expect(refusedFor).toEqual([expect.objectContaining({ code: 'DUPLICATE_VALUE', rows: 1 })]);
+  });
+});
+
+describe('writeCallsOf', () => {
+  it('sends an object up to the Bulk API threshold in REST calls of its batch size', () => {
+    const calls = writeCallsOf(5, 2, 200);
+
+    expect(calls.job).toBe(false);
+    expect([0, 1, 2, 3, 4].map(calls.callOf)).toEqual([0, 0, 1, 1, 2]);
+  });
+
+  it('sends one past it as a Bulk API job, which the platform writes in batches of ten thousand', () => {
+    const calls = writeCallsOf(25_000, 200, 200);
+
+    expect(calls.job).toBe(true);
+    expect([0, 9_999, 10_000, 24_999].map(calls.callOf)).toEqual([0, 0, 1, 2]);
+  });
+});
+
+describe('repeatedKeysOf', () => {
+  it('refuses every record of a call another of which carries its key, whatever the case', () => {
+    const repeated = repeatedKeysOf(
+      'Email',
+      ['a@example.com', 'b@example.com', 'a@example.com', null, null],
+      ['insert', 'insert', 'insert', 'noKey', 'noKey'],
+      writeCallsOf(5, 200, 200),
+    );
+
+    expect([...repeated.refused].sort()).toEqual([0, 2]);
+    expect(repeated.updated.size).toBe(0);
+    expect(repeated.refusedFor).toEqual([
+      expect.objectContaining({ code: 'DUPLICATE_VALUE', rows: 2 }),
+    ]);
+  });
+
+  it('updates, in a later REST call, the record an earlier call created of the same key', () => {
+    const repeated = repeatedKeysOf(
+      'Email',
+      ['a@example.com', 'a@example.com', 'a@example.com'],
+      ['insert', 'insert', 'insert'],
+      writeCallsOf(3, 1, 200),
+    );
+
+    expect(repeated.refused.size).toBe(0);
+    expect([...repeated.updated]).toEqual([1, 2]);
+    expect(repeated.refusedFor).toEqual([]);
+  });
+
+  it('leaves as counted, and says so, a key repeated in another batch of a Bulk API job', () => {
+    const keys = Array.from({ length: 10_001 }, (_, i) => (i === 10_000 ? 'k-0' : `k-${i}`));
+    const repeated = repeatedKeysOf(
+      'Ext_Id__c',
+      keys,
+      keys.map(() => 'insert' as const),
+      writeCallsOf(keys.length, 200, 200),
+    );
+
+    expect(repeated.refused.size).toBe(0);
+    expect(repeated.updated.size).toBe(0);
+    expect(repeated.notes).toEqual([
+      '1 record(s) carry the Ext_Id__c of a record in another batch of the Bulk API job: the ' +
+        'platform may write the batches at once, so whether each updates the record the other ' +
+        'created or creates one of its own cannot be told before the run.',
+    ]);
   });
 });

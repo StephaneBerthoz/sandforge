@@ -1694,6 +1694,8 @@ export class AutomationHandler implements DomainHandler {
       stepRefusal: (step, index) =>
         stepExecutor.check(step, { steps: saved.steps, index, declared }),
       problems: orchestrator.check(saved),
+      // The command line checks a file through its export on the machine it runs on.
+      checkedWhereItRuns: this.deps.services?.runsFrom === 'commandLine',
     });
   }
 
