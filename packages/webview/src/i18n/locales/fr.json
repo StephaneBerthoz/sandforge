@@ -5886,6 +5886,11 @@
         "exceeds": "Requêtes d'API : environ {{estimate}}, plus que les {{remaining}} qu'il reste à {{org}} de ses {{max}} par jour : le chargement serait refusé.",
         "unread": "Requêtes d'API : environ {{estimate}}. Ce qu'il reste aujourd'hui à {{org}} n'a pas pu être lu ({{reason}})."
       },
+      "storage": {
+        "fits": "Stockage de données : environ {{estimate}} Mo, sur les {{remaining}} Mo qu'il reste à {{org}} de ses {{max}} Mo.",
+        "exceeds": "Stockage de données : environ {{estimate}} Mo, plus que les {{remaining}} Mo qu'il reste à {{org}} de ses {{max}} Mo : le chargement serait refusé.",
+        "freed": "La purge du rechargement en libère d'abord environ {{freed}} Mo."
+      },
       "automation": {
         "title": "Ce que {{org}} exécute quand le chargement insère ses enregistrements et les met à jour :",
         "onInsert": "{{object}} — {{what}}, à l'insertion de ses enregistrements",
@@ -7615,7 +7620,9 @@
       "limitRule": "Un nombre entier d'enregistrements, de 1 à {{most}}.",
       "tooManyRecords": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}) : choisissez moins d'objets, ou relevez-le, jusqu'à {{most}}. Aucun enregistrement n'a été lu.",
       "tooManyRecordsPastMost": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}), et aucune limite jusqu'à {{most}} ne les tient : choisissez moins d'objets. Aucun enregistrement n'a été lu.",
-      "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde."
+      "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde.",
+      "limitHoldsAt": "Enregistrements au plus à {{records}} le garde.",
+      "limitHoldsNone": "Avec lui, tout objet qui n'est pas plus grand serait gardé aussi, plus de {{most}} enregistrements en tout, au-delà de tout Enregistrements au plus : choisissez moins d'objets."
     },
     "preview": {
       "title": "Faire revenir {{org}} à « {{name}} » ({{date}})",

@@ -5886,6 +5886,11 @@
         "exceeds": "API requests: about {{estimate}}, more than the {{remaining}} {{org}} has left of its {{max}} a day: the load would be refused.",
         "unread": "API requests: about {{estimate}}. What {{org}} has left today could not be read ({{reason}})."
       },
+      "storage": {
+        "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB {{org}} has left of its {{max}} MB.",
+        "exceeds": "Data storage: about {{estimate}} MB, more than the {{remaining}} MB {{org}} has left of its {{max}} MB: the load would be refused.",
+        "freed": "The reload's purge frees about {{freed}} MB of it first."
+      },
       "automation": {
         "title": "What {{org}} runs as the load inserts its records and updates them:",
         "onInsert": "{{object}} — {{what}}, as its records are inserted",
@@ -7615,7 +7620,9 @@
       "limitRule": "A whole number of records, from 1 to {{most}}.",
       "tooManyRecords": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}): pick fewer objects, or raise it, up to {{most}}. No record was read.",
       "tooManyRecordsPastMost": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}), and no limit up to {{most}} holds them: pick fewer objects. No record was read.",
-      "limitHolds": "Records at most set to {{records}} or more holds it."
+      "limitHolds": "Records at most set to {{records}} or more holds it.",
+      "limitHoldsAt": "Records at most set to {{records}} holds it.",
+      "limitHoldsNone": "With it, every object no larger is kept too, more than {{most}} records in all, past any Records at most: pick fewer objects."
     },
     "preview": {
       "title": "Rewind {{org}} to “{{name}}” ({{date}})",

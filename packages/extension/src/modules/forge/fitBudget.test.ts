@@ -12,6 +12,7 @@ import { apiBudgetCheckOf } from './ForgeRunGate.js';
 import {
   STORAGE_ROUNDING_MARGIN_MB,
   automationRoomOf,
+  bytesLimitOf,
   evenlyKept,
   fitBudgetOf,
   roomBytesOf,
@@ -114,6 +115,33 @@ describe('fitBudgetOf', () => {
     expect(fitBudgetOf({ storage: { maxMB: 5, remainingMB: 5 }, withinMB: 50 })).toMatchObject({
       terms: { withinMB: 50, limitedBy: 'storage' },
     });
+  });
+
+  it('names the storage, not the MB asked, as what holds a need past both', () => {
+    // Asked to take 1 MB of a trap org whose storage left 3.6, a sample of
+    // the whole org that needed 14 MB was refused with "or let it take more
+    // (--fit-within)": past the storage too, more MB let none of it through.
+    const budget = fitBudgetOf({ storage: { maxMB: 5, remainingMB: 5 }, withinMB: 1 });
+    if ('unread' in budget) throw new Error('read');
+
+    expect(budget.terms.limitedBy).toBe('within');
+    // 0.8 × (5 − 0.5) MB, what the storage leaves the run.
+    const of = {
+      bytesLimit: budget.terms.limitedBy,
+      storageBytes: Math.floor(3.6 * BYTES_PER_MB),
+    };
+    expect(bytesLimitOf(14 * BYTES_PER_MB, of)).toBe('storage');
+    // Within what the storage leaves, the MB asked holds it: more of them let it through.
+    expect(bytesLimitOf(2 * BYTES_PER_MB, of)).toBe('within');
+    // Held by the storage, it stays the storage's.
+    expect(bytesLimitOf(14 * BYTES_PER_MB, { bytesLimit: 'storage' })).toBe('storage');
+  });
+
+  it('holds a need to the MB asked alone where the target would not say its storage', () => {
+    const budget = fitBudgetOf({ storage: { unread: 'INSUFFICIENT_ACCESS' }, withinMB: 1 });
+    if ('unread' in budget) throw new Error('fitted to the MB asked');
+
+    expect(bytesLimitOf(14 * BYTES_PER_MB, { bytesLimit: budget.terms.limitedBy })).toBe('within');
   });
 
   it('leaves nothing to write in an org that says less than its rounding, and nothing to fit to in one that would not say', () => {

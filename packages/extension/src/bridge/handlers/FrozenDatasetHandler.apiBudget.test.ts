@@ -507,4 +507,87 @@ describe('frozen:load, the daily API requests its target has left', () => {
     expect(loaderLoad).not.toHaveBeenCalled();
     expect(org.writes).toEqual([]);
   });
+
+  /** A plan of the two accounts and the contact, as the loader reads it. */
+  const PLAN = {
+    orgId: 'org-2',
+    mode: { pilot: false, reload: false },
+    plannedAt: '2026-11-01T10:00:00.000Z',
+    perObject: [],
+    excludedObjects: [],
+    removals: [],
+    placeholders: [],
+    requiredDefaults: [],
+    recordTypeIssues: 0,
+    personContacts: 0,
+    earlierLoads: 0,
+  };
+
+  it('says in its preview the data storage a load would take and the refusal it would meet past it, in the load’s words', async () => {
+    // Run on the trap org, a dry run of a dataset of 17.8 MB into the 5 MB a
+    // Developer Edition has said nothing of the storage and ended 0; the load
+    // itself was refused for it.
+    loaderPlan.mockResolvedValue(PLAN);
+    const org = targetWithStorage(0);
+
+    await send('frozen:load:preview', {});
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: Record<string, unknown> } | undefined;
+    expect(plan?.storage).toEqual({
+      estimateMB: (3 * 2048) / (1024 * 1024),
+      remainingMB: 0,
+      maxMB: 5,
+      refusal: {
+        code: 'FROZEN_STORAGE_EXCEEDED',
+        message:
+          "The load was refused before it wrote anything: the dataset's records take about " +
+          '0.01 MB of data storage, and DEV has 0 MB left of 5 MB. Load a pilot first, one root ' +
+          'folder of it; or extract a smaller dataset, with a lower budget in the configuration, ' +
+          'a new selection and a new extraction; or free data storage in DEV. Nothing was ' +
+          'written.',
+      },
+    });
+    expect(loaderLoad).not.toHaveBeenCalled();
+    expect(org.writes).toEqual([]);
+  });
+
+  it('says the storage of a load that fits, and nothing of it for a pilot, which its gate lets through', async () => {
+    loaderPlan.mockResolvedValue(PLAN);
+    targetWithStorage(5);
+
+    await send('frozen:load:preview', {});
+    await send('frozen:load:preview', { pilot: true });
+
+    const [whole, pilot] = posted('frozen:load:preview:response').map(
+      (m) => (m.payload.plan as { storage?: Record<string, unknown> }).storage,
+    );
+    expect(whole).toEqual({ estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 5, maxMB: 5 });
+    expect(pilot).toBeUndefined();
+  });
+
+  it('reads the limits once for its storage and its API requests, as the load does', async () => {
+    loaderPlan.mockResolvedValue(PLAN);
+    let reads = 0;
+    const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.connection,
+      request: async ({ url }: { url: string }) => {
+        if (url !== '/limits') throw new Error(`not answered: ${url}`);
+        reads++;
+        return {
+          DataStorageMB: { Max: 5, Remaining: 0 },
+          DailyApiRequests: { Max: MAX, Remaining: MAX },
+        };
+      },
+    } as never);
+
+    await send('frozen:load:preview', {});
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: { refusal?: unknown }; apiRequests?: { verdict: string } } | undefined;
+    expect(plan?.storage?.refusal).toBeDefined();
+    expect(plan?.apiRequests?.verdict).toBe('fits');
+    expect(reads).toBe(1);
+  });
 });

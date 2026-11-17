@@ -5886,6 +5886,11 @@
         "exceeds": "API-Anfragen: etwa {{estimate}}, mehr als die {{remaining}}, die {{org}} von ihren {{max}} pro Tag bleiben: Der Ladevorgang würde abgelehnt.",
         "unread": "API-Anfragen: etwa {{estimate}}. Was {{org}} heute bleibt, konnte nicht gelesen werden ({{reason}})."
       },
+      "storage": {
+        "fits": "Datenspeicher: etwa {{estimate}} MB, von den {{remaining}} MB, die {{org}} von seinen {{max}} MB bleiben.",
+        "exceeds": "Datenspeicher: etwa {{estimate}} MB, mehr als die {{remaining}} MB, die {{org}} von seinen {{max}} MB bleiben: Der Ladevorgang würde abgelehnt.",
+        "freed": "Die Bereinigung des Neuladens gibt zuerst etwa {{freed}} MB davon frei."
+      },
       "automation": {
         "title": "Was {{org}} ausführt, wenn der Ladevorgang seine Datensätze einfügt und aktualisiert:",
         "onInsert": "{{object}} — {{what}}, beim Einfügen seiner Datensätze",
@@ -7615,7 +7620,9 @@
       "limitRule": "Eine ganze Zahl an Datensätzen, von 1 bis {{most}}.",
       "tooManyRecords": "Die Objekte, die dieser Prüfpunkt behalten würde, enthalten {{records}} Datensätze, über Höchstens Datensätze ({{limit}}): Wählen Sie weniger Objekte, oder erhöhen Sie den Wert bis {{most}}. Es wurde kein Datensatz gelesen.",
       "tooManyRecordsPastMost": "Die Objekte, die dieser Prüfpunkt behalten würde, enthalten {{records}} Datensätze, über Höchstens Datensätze ({{limit}}), und kein Wert bis {{most}} fasst sie: Wählen Sie weniger Objekte. Es wurde kein Datensatz gelesen.",
-      "limitHolds": "Mit Höchstens Datensätze ab {{records}} wird es behalten."
+      "limitHolds": "Mit Höchstens Datensätze ab {{records}} wird es behalten.",
+      "limitHoldsAt": "Mit Höchstens Datensätze auf {{records}} wird es behalten.",
+      "limitHoldsNone": "Mit ihm würde auch jedes Objekt behalten, das nicht größer ist, mehr als {{most}} Datensätze insgesamt, über jedes Höchstens Datensätze hinaus: Wählen Sie weniger Objekte."
     },
     "preview": {
       "title": "{{org}} auf „{{name}}“ zurücksetzen ({{date}})",

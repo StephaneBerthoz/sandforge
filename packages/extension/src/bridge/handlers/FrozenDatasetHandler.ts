@@ -19,6 +19,7 @@ import type {
   FrozenLoadEmailsInfo,
   FrozenLoadRecordsInfo,
   FrozenLoadReportInfo,
+  FrozenLoadStorageInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenRemovalPreview,
@@ -454,6 +455,60 @@ function megabytesWords(mb: number): string {
 }
 
 /**
+ * What a load's gate measures of the data storage: the dataset's records at
+ * the documented sizes against what the target has left and, on a reload,
+ * what its purge deletes first; whether they fit. Nothing when the target
+ * would not say.
+ */
+function loadStorageOf(input: {
+  dataset: FrozenDataset;
+  storage: DataStorage | { unread: string };
+  purged?: LoadRequestsInput['purged'];
+}): { storage: FrozenLoadStorage; fits: boolean } | undefined {
+  if ('unread' in input.storage) return undefined;
+  const bytes = input.dataset.objects.reduce(
+    (sum, object) =>
+      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
+    0,
+  );
+  const freedBytes = (input.purged ?? [])
+    .filter((step) => step.deletes)
+    .reduce((sum, step) => sum + countedStorageBytes(step.objectApiName, { rows: step.rows }), 0);
+  const MB = 1024 * 1024;
+  const { remainingMB, maxMB } = input.storage;
+  return {
+    storage: {
+      estimateMB: bytes / MB,
+      remainingMB,
+      maxMB,
+      ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
+    },
+    fits: bytes <= remainingMB * MB + freedBytes,
+  };
+}
+
+/**
+ * What a load's preview says of the data storage its load would take: what
+ * the load's gate measures ({@link loadStorageOf}), with the refusal the load
+ * would meet past it in the load's own words ({@link loadStorageRefusal}).
+ * Nothing when the target would not say.
+ */
+function loadStorageInfoOf(input: {
+  dataset: FrozenDataset;
+  storage: DataStorage | { unread: string };
+  purged?: LoadRequestsInput['purged'];
+  target: string;
+}): FrozenLoadStorageInfo | undefined {
+  const measured = loadStorageOf(input);
+  if (!measured) return undefined;
+  const refused = loadStorageRefusal(input);
+  return {
+    ...measured.storage,
+    ...(refused ? { refusal: { code: FROZEN_STORAGE_EXCEEDED, message: refused.message } } : {}),
+  };
+}
+
+/**
  * The refusal of a load whose records take more data storage than the
  * target has left, or nothing: the dataset's records at most, by the
  * documented sizes, against what is left and, on a reload, what its purge
@@ -467,27 +522,13 @@ function loadStorageRefusal(input: {
   purged?: LoadRequestsInput['purged'];
   target: string;
 }): { message: string; storage: FrozenLoadStorage } | undefined {
-  if ('unread' in input.storage) return undefined;
-  const bytes = input.dataset.objects.reduce(
-    (sum, object) =>
-      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
-    0,
-  );
-  const freedBytes = (input.purged ?? [])
-    .filter((step) => step.deletes)
-    .reduce((sum, step) => sum + countedStorageBytes(step.objectApiName, { rows: step.rows }), 0);
-  const MB = 1024 * 1024;
-  const { remainingMB, maxMB } = input.storage;
-  if (bytes <= remainingMB * MB + freedBytes) return undefined;
-  const storage: FrozenLoadStorage = {
-    estimateMB: bytes / MB,
-    remainingMB,
-    maxMB,
-    ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
-  };
+  const measured = loadStorageOf(input);
+  if (!measured || measured.fits) return undefined;
+  const { storage } = measured;
+  const { remainingMB, maxMB } = storage;
   const freed =
-    freedBytes > 0
-      ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB ?? 0)} MB first`
+    storage.freedMB !== undefined
+      ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB)} MB first`
       : '';
   return {
     storage,
@@ -4062,7 +4103,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       // refused would have a plan apply what it cannot.
       // So are the API requests it would take of the target, counted as its
       // gate counts them, the checkpoint said above among them.
-      const { emails, automation, apiRequests } = await this.previewWhatRuns({
+      // And the data storage its records would take, measured as the load's
+      // gate measures it, with the refusal it would meet past it: a dry run
+      // of 17.8 MB into the 5 MB of a Developer Edition said nothing of it,
+      // ended 0, and only the load was refused.
+      const { emails, automation, apiRequests, storage } = await this.previewWhatRuns({
         conn,
         orgId: parsed.targetOrgId,
         dataset,
@@ -4079,6 +4124,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             ...(emails ? { emails } : {}),
             ...(automation ? { automation } : {}),
             ...(apiRequests ? { apiRequests } : {}),
+            ...(storage ? { storage } : {}),
           },
         }),
       );
@@ -4093,11 +4139,13 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   /**
    * What the target runs as a load of the preview would write, the emails of
-   * what still runs, and the API requests it would take, judged as the load
-   * judges them before its first write: what the target runs on what it
-   * would insert, and on what a reload's purge would delete; the mute
-   * planned when it is asked, nothing assigned. None, said in the log, when
-   * they could not be judged.
+   * what still runs, the data storage its records would take and the API
+   * requests it would take, judged as the load judges them before its first
+   * write: what the target runs on what it would insert, and on what a
+   * reload's purge would delete; the mute planned when it is asked, nothing
+   * assigned; the storage and the requests read from one answer of
+   * `/limits`, and no storage of a pilot, which the load's gate lets
+   * through. None, said in the log, when they could not be judged.
    */
   private async previewWhatRuns(input: {
     conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
@@ -4118,6 +4166,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     emails?: FrozenLoadEmailsInfo;
     automation?: FrozenLoadAutomationInfo;
     apiRequests?: FrozenLoadApiRequests;
+    storage?: FrozenLoadStorageInfo;
   }> {
     const { parsed } = input;
     try {
@@ -4125,6 +4174,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         parsed.reload === true && !parsed.pilot
           ? await this.purgeStepsOf(input.store, input.config)
           : undefined;
+      const purged = purge ? await this.purgedOf(input.store, input.config) : undefined;
       const purgeWrites = purge ? removalStepsWrites(purge) : undefined;
       const writes = (object: string, write: ForgeAutomationWrite): boolean =>
         LOAD_WRITES(object, write) || purgeWrites?.(object, write) === true;
@@ -4165,10 +4215,33 @@ export class FrozenDatasetHandler implements DomainHandler {
         logger.warn(`Frozen preview: the emails could not be judged (${extractErrorMessage(err)})`);
         return undefined;
       });
+      // One answer of `/limits` for the storage and the requests, as the load reads it.
+      const limitsAnswer: Promise<unknown> = Promise.resolve().then(() =>
+        input.conn.request({ method: 'GET', url: '/limits' }),
+      );
+      limitsAnswer.catch(() => {});
+      const limitsOnce: LimitsTransport = { request: () => limitsAnswer };
+      const storage = parsed.pilot
+        ? undefined
+        : await readDataStorage(limitsOnce)
+            .then((limits) =>
+              loadStorageInfoOf({
+                dataset: input.dataset,
+                storage: limits,
+                ...(purged ? { purged } : {}),
+                target: this.orgNameOf(input.orgId),
+              }),
+            )
+            .catch((err: unknown) => {
+              logger.warn(
+                `Frozen preview: the data storage could not be judged (${extractErrorMessage(err)})`,
+              );
+              return undefined;
+            });
       const apiRequests = await this.loadApiCheck({
-        conn: input.conn,
+        conn: limitsOnce,
         dataset: input.dataset,
-        ...(purge ? { purged: await this.purgedOf(input.store, input.config) } : {}),
+        ...(purged ? { purged } : {}),
         read,
         ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
         ...(mute?.plan ? { plan: mute.plan } : {}),
@@ -4185,6 +4258,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(emails && saysSomething(emails.info) ? { emails: emails.info } : {}),
         ...(automation ? { automation } : {}),
         ...(apiRequests ? { apiRequests } : {}),
+        ...(storage ? { storage } : {}),
       };
     } catch (err: unknown) {
       logger.warn(

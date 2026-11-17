@@ -45,6 +45,7 @@ import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes
 import { fileConfigStore } from './fileConfigStore.js';
 import {
   BACKUP_CAP_MAX,
+  BACKUP_CAP_MIN,
   backupCapOf,
   DataOpsHandler,
 } from '../src/bridge/handlers/DataOpsHandler.js';
@@ -132,8 +133,9 @@ Options:
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
                          more writes nothing, and a dry run says so (default:
-                         50000; 100 to 1000000: past that, mask in slices with
-                         --where, each run taking its own snapshot)
+                         50000; 100 to 1000000, any other refused, exit 2:
+                         past that, mask in slices with --where, each run
+                         taking its own snapshot)
 ${dataOpsAutomationHelp('written over', '--dry-run')}  --yes                  do not ask before writing. Without it, a command with no
                          terminal to answer the question — a CI step — stops
                          there, exit 2, and writes nothing. It answers no to a
@@ -306,6 +308,20 @@ export function parseArgs(argv: string[]): CliArgs {
   const maxRecords = get('--max-records');
   if (maxRecords !== undefined && !/^[1-9]\d*$/.test(maxRecords)) {
     refuseLine(`Not a number of records: "${maxRecords}"`);
+  }
+  // A cap the snapshot cannot hold is refused, never read as its bound: run
+  // on the trap org, --max-records 50 was taken, and its dry run said "more
+  // than the 100 a snapshot holds of one object".
+  if (
+    maxRecords !== undefined &&
+    (Number(maxRecords) < BACKUP_CAP_MIN || Number(maxRecords) > BACKUP_CAP_MAX)
+  ) {
+    refuseLine(
+      `--max-records takes ${BACKUP_CAP_MIN} to ${BACKUP_CAP_MAX} records, not ${maxRecords}: a ` +
+        `snapshot holds at least ${BACKUP_CAP_MIN} records of one object and at most ` +
+        `${BACKUP_CAP_MAX}; past that, mask in slices with --where, each run taking its own ` +
+        'snapshot.',
+    );
   }
   const rewriteAll = args.includes('--rewrite-all');
   if (rewriteAll && restoreId === undefined) refuseLine('--rewrite-all goes with --restore.');

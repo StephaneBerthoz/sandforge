@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as z from 'zod';
 import type { Connection } from 'jsforce';
-import type { ForgeTargetAutomation, FrozenLoadPlanInfo } from '@sandforge/shared';
+import type {
+  ForgeSweepListing,
+  ForgeTargetAutomation,
+  FrozenLoadPlanInfo,
+} from '@sandforge/shared';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -22,6 +26,11 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
   ...(await original<typeof import('../src/core/connection/ConnectionHelper.js')>()),
   getJsforceConnection: vi.fn(),
 }));
+// The real listing of a sweep, which a case answers as the trap org did.
+vi.mock('../src/modules/forge/ForgeRunSweep.js', async (original) => {
+  const actual = await original<typeof import('../src/modules/forge/ForgeRunSweep.js')>();
+  return { ...actual, listSweep: vi.fn(actual.listSweep) };
+});
 
 import { makeConn } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
@@ -30,6 +39,7 @@ import { FrozenDatasetLoader } from '../src/modules/frozendataset/FrozenDatasetL
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
 import { TargetAutomationReader } from '../src/modules/forge/TargetAutomationReader.js';
 import { memoryPermissionOrg } from '../src/test/memoryPermissionOrg.js';
+import { listSweep } from '../src/modules/forge/ForgeRunSweep.js';
 import { frozenAnswer, main } from './sandforge-frozen.js';
 
 /*
@@ -788,6 +798,112 @@ describe('sandforge-frozen remove --preview', () => {
   });
 });
 
+describe('sandforge-frozen remove, without --sweep, of a load whose flow made records as it wrote', () => {
+  /** What the trap org's sweep found once the load's contacts went: the tasks its flow opened on them. */
+  const LEFT: ForgeSweepListing = {
+    window: { from: '2026-10-20T10:00:59.000Z', to: '2026-10-20T10:05:00.000Z' },
+    looked: ['Task', 'Account', 'Contact'],
+    found: [
+      {
+        objectApiName: 'Task',
+        count: 6,
+        names: ['Trap follow-up: one', 'Trap follow-up: two'],
+        classes: { made: 0, madeOver: 0, late: 0, untied: 6 },
+      },
+    ],
+    unread: [],
+    handWork: [],
+    untied: { objects: [{ objectApiName: 'Task', count: 6 }] },
+    late: [],
+  };
+
+  /** The target, deleting what it is sent to delete, as an org does. */
+  function deletingTarget(): string[] {
+    const { writes, conn } = targetOrg();
+    const gone = new Set<string>();
+    const query = conn.query;
+    const deleting = {
+      ...conn,
+      query: vi.fn(async (soql: string) => {
+        const answer = (await query(soql)) as { records: Array<{ Id?: string }> };
+        const records = answer.records.filter((row) => !gone.has(String(row.Id)));
+        return { totalSize: records.length, done: true, records };
+      }),
+      sobject: (object: string) => ({
+        ...conn.sobject(object),
+        destroy: vi.fn(async (ids: string[]) => {
+          writes.push(`destroy ${object}`);
+          for (const id of ids) gone.add(id);
+          return ids.map((id) => ({ id, success: true, errors: [] }));
+        }),
+      }),
+    };
+    vi.mocked(makeConn).mockReturnValue(deleting as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(deleting as never);
+    return writes;
+  }
+
+  it('says what stays of what the automation made, and the sweep that takes it, its records all gone: exit 0', async () => {
+    // Run on the trap org, the removal said SUCCESS and left six tasks the
+    // flow had opened on the load's contacts, naming no sweep.
+    const writes = deletingTarget();
+    await loaded();
+    vi.mocked(listSweep).mockResolvedValueOnce(LEFT);
+    const said: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      said.push(String(chunk));
+      return true;
+    }) as never);
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--yes', '--json'));
+
+    expect(writes).toEqual(['destroy Contact', 'destroy Account']);
+    expect(process.exitCode ?? 0).toBe(0);
+    const answer = JSON.parse(printed.join('')) as {
+      status: string;
+      notSwept?: ForgeSweepListing;
+      posted: Array<{ type: string }>;
+    };
+    expect(answer.status).toBe('success');
+    expect(answer.notSwept).toEqual(LEFT);
+    // Its listing stays out of what the removal posted.
+    expect(answer.posted.map((m) => m.type)).not.toContain('frozen:remove:sweep:response');
+    const lines = said.join('');
+    expect(lines).toContain(
+      "not swept: 6 record(s) the load's user created in its window stay, what the target's " +
+        'automation made for the load likely: Task: 6\n' +
+        '  remove --sweep --sweep-untied takes the 6 tied to nothing of the load now\n' +
+        "  remove --sweep-list names them first: a record made by hand as that user in the load's " +
+        "window reads as the automation's, so check the names before a sweep\n",
+    );
+  });
+
+  it('says nothing more when a sweep would find nothing', async () => {
+    deletingTarget();
+    await loaded();
+    vi.mocked(listSweep).mockClear();
+    vi.mocked(listSweep).mockResolvedValueOnce({ ...LEFT, found: [], untied: { objects: [] } });
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--yes'));
+
+    expect(vi.mocked(listSweep)).toHaveBeenCalledTimes(1);
+    expect(printed.join('')).not.toContain('not swept');
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it('fails no removal whose listing after it could not be read', async () => {
+    deletingTarget();
+    await loaded();
+    vi.mocked(listSweep).mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+
+    await main(argv('remove', '--config', configPath, '--target', 'TGT', '--yes'));
+
+    expect(printed.join('')).toContain('removal: SUCCESS');
+    expect(printed.join('')).not.toContain('not swept');
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+});
+
 describe('sandforge-frozen load --reload, a replace', () => {
   it('is refused before anything is written when the removal of the load before would keep a record changed since: exit 1', async () => {
     const { writes } = targetOrg('2026-10-20T11:00:00.000+0000');
@@ -1492,6 +1608,84 @@ describe('sandforge-frozen load, held to the daily API requests the target has l
       /\n {2}API requests: about \d+, of the 3 the target has left of its 15000 a day: more than it has left\n/,
     );
     expect(said).toContain('a load would be refused (API_BUDGET_EXCEEDED): The run takes about');
+  });
+
+  /** The target, its limits saying it has `remainingMB` of its 5 MB of data storage left. */
+  function storageLeft(remainingMB: number): string[] {
+    const { writes, conn } = targetOrg();
+    const answering = {
+      ...conn,
+      request: async ({ url }: { url: string }) => {
+        if (url === '/limits') {
+          return {
+            DataStorageMB: { Max: 5, Remaining: remainingMB },
+            DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+          };
+        }
+        throw new Error(`not answered: ${url}`);
+      },
+    };
+    vi.mocked(makeConn).mockReturnValue(answering as unknown as Connection);
+    vi.mocked(getJsforceConnection).mockResolvedValue(answering as never);
+    vi.spyOn(TargetAutomationReader.prototype, 'read').mockResolvedValue(NOTHING_RUNS);
+    vi.spyOn(FrozenDatasetLoader.prototype, 'planLoad').mockResolvedValue({
+      orgId: ORG_ID,
+      mode: { pilot: false, reload: false },
+      plannedAt: '2026-10-21T10:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    } as unknown as FrozenLoadPlanInfo);
+    return writes;
+  }
+
+  it('says with --dry-run the data storage a load would take and that it would be refused past what is left, under its code: exit 1', async () => {
+    // Run on the trap org, the dry run of a dataset of 17.8 MB into the 5 MB
+    // a Developer Edition has said no word of the storage and ended 0, as
+    // its help promised otherwise; the load itself was refused for it.
+    const writes = storageLeft(0);
+    const said: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation(((chunk: string) => {
+      said.push(String(chunk));
+      return true;
+    }) as never);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--dry-run', '--json'));
+
+    expect(writes).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    const answer = JSON.parse(printed.join('')) as {
+      refusalCodes?: string[];
+      refusals?: string[];
+    };
+    expect(answer.refusalCodes).toEqual(['FROZEN_STORAGE_EXCEEDED']);
+    expect(answer.refusals?.[0]).toMatch(
+      /^The load was refused before it wrote anything: the dataset's records take about [\d.]+ MB of data storage, and TGT has 0 MB left of 5 MB\. Load a pilot first/,
+    );
+    expect(said.join('')).toMatch(
+      /\n {2}data storage: about [\d.]+ MB, of the 0 MB the target has left of 5 MB: more than it has left\n/,
+    );
+    expect(said.join('')).toContain(
+      "a load would be refused (FROZEN_STORAGE_EXCEEDED): The load was refused before it wrote anything: the dataset's records take about",
+    );
+  });
+
+  it('says with --dry-run the data storage a load that fits would take, and ends 0', async () => {
+    storageLeft(5);
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--dry-run'));
+
+    expect(process.exitCode ?? 0).toBe(0);
+    const said = printed.join('');
+    expect(said).toMatch(
+      /\n {2}data storage: about [\d.]+ MB, of the 5 MB the target has left of 5 MB\n/,
+    );
+    expect(said).not.toContain('FROZEN_STORAGE_EXCEEDED');
   });
 
   it('says on a load it lets by what it took of what the target had left', async () => {

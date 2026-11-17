@@ -47,7 +47,7 @@ import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { FrozenLoadEmails } from './FrozenLoadEmails';
-import { formatNumber } from '../../utils/formatters';
+import { formatNumber, roundedUpMegabytes } from '../../utils/formatters';
 import { FrozenLoadAutomation } from './FrozenLoadAutomation';
 import {
   CheckpointFirstEstimate,
@@ -1107,6 +1107,27 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                         remaining: formatNumber(plan.apiRequests.remaining ?? 0),
                         max: formatNumber(plan.apiRequests.max ?? 0),
                       })}
+                </p>
+              )}
+              {plan.storage && (
+                <p
+                  className={`text-[11px] ${
+                    plan.storage.refusal ? 'text-status-warning' : 'text-text-primary'
+                  }`}
+                  data-testid="frozen-preview-storage"
+                >
+                  {t(`frozen.preview.storage.${plan.storage.refusal ? 'exceeds' : 'fits'}`, {
+                    org: planOrg,
+                    estimate: roundedUpMegabytes(plan.storage.estimateMB),
+                    remaining: formatNumber(plan.storage.remainingMB),
+                    max: formatNumber(plan.storage.maxMB),
+                  })}
+                  {plan.storage.freedMB !== undefined &&
+                    ` ${t('frozen.preview.storage.freed', {
+                      freed: roundedUpMegabytes(plan.storage.freedMB),
+                    })}`}
+                  {plan.storage.refusal &&
+                    ` ${t('frozen.refusal.storageExceeded.action', { org: planOrg })}`}
                 </p>
               )}
               {plan.mode.reload && !plan.mode.pilot && (

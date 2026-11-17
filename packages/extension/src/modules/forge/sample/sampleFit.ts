@@ -43,7 +43,7 @@ import {
   type WholeOrgSamplePartialMaster,
 } from '@sandforge/shared';
 import { ACCOUNT, CONTACT } from '../../../core/common/platformRecords.js';
-import { largestFitting } from '../fitBudget.js';
+import { bytesLimitOf, largestFitting } from '../fitBudget.js';
 import { countedStorageBytes, rowStorageBytes } from '../ForgeRunGate.js';
 import {
   SampleClosure,
@@ -119,6 +119,12 @@ export interface SampleBounds {
   bytes: number;
   /** What gives `bytes`: what the target has left, or the MB asked. */
   bytesLimit: 'storage' | 'within';
+  /**
+   * The bytes the target's storage leaves the sample, the MB asked aside: a
+   * share past them is held by the storage, whatever MB is asked
+   * (`bytesLimitOf`). Absent when the target would not say.
+   */
+  storageBytes?: number;
   /** The most records the run may write (`--max-total`). */
   maxTotal?: number;
   /**
@@ -409,7 +415,7 @@ function brokenAt(
   bounds: SampleBounds,
 ): WholeOrgSampleLimit | undefined {
   const totals = totalsAt(items, rank, bounds.requests !== undefined);
-  if (totals.bytes > bounds.bytes) return bounds.bytesLimit;
+  if (totals.bytes > bounds.bytes) return bytesLimitOf(totals.bytes, bounds);
   if (bounds.maxTotal !== undefined && totals.records > bounds.maxTotal) return 'maxTotal';
   return bounds.requests?.(totals.written);
 }

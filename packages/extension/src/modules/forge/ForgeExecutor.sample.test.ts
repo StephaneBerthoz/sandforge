@@ -641,6 +641,34 @@ describe('a clone of the whole org that copies a sample of it', () => {
     expect(byWithin?.message).toContain('or let it take more (--fit-within)');
     expect(byWithin?.sample).toMatchObject({ limitedBy: 'within' });
 
+    // Asked to take 1 MB of a trap org whose storage left 3.6, a sample that
+    // needed 14 MB was refused with "or let it take more (--fit-within)":
+    // past the storage too, more MB asked lets none of it through.
+    const pastBoth = await refusalOf({
+      budget: { bytes: 0, withinMB: 0, remainingMB: 0.5, maxMB: 5, limitedBy: 'within' },
+      bytesLimit: 'within',
+      roomBytes: 1024,
+      storageBytes: 1024,
+    });
+    expect(pastBoth?.message).toContain('past the data storage the target has left');
+    expect(pastBoth?.message).toContain('free data storage in the target');
+    expect(pastBoth?.message).not.toContain('--fit-within');
+    // What the sample may take of that storage, which held it, not the MB asked.
+    expect(pastBoth?.sample).toMatchObject({ limitedBy: 'storage', budgetMB: 0 });
+    expect(sampleGateErrorOf(pastBoth, 'draw')?.stop?.sample).toMatchObject({
+      limitedBy: 'storage',
+    });
+
+    // Within what the storage leaves, the MB asked holds it, and more of them lets it through.
+    const withinOnly = await refusalOf({
+      budget: { bytes: 0, withinMB: 0, remainingMB: 500, maxMB: 500, limitedBy: 'within' },
+      bytesLimit: 'within',
+      roomBytes: 1024 * 1024 * 1024,
+      storageBytes: 1024 * 1024 * 1024,
+    });
+    expect(withinOnly?.message).toContain('or let it take more (--fit-within)');
+    expect(withinOnly?.sample).toMatchObject({ limitedBy: 'within' });
+
     const byRecords = await refusalOf({
       budget: { bytes: 1024 * 1024 * 1024, maxTotal: 1, limitedBy: 'maxTotal' },
       bytesLimit: 'storage',

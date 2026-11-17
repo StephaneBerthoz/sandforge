@@ -893,8 +893,10 @@ Copy a sample of the whole org that fits the target, with --depth all:
                          storage, with neither --fit-within nor --max-total
                          (SAMPLE_STORAGE_UNREAD); the objects copied whole
                          and the floors alone past what it may take, the
-                         heaviest named (SAMPLE_CANNOT_FIT); more than a
-                         million records to hold (SAMPLE_TOO_LARGE); the
+                         heaviest named (SAMPLE_CANNOT_FIT; with --json,
+                         refused.sample names what held it, limitedBy, and
+                         of a bound in MB the needMB and budgetMB); more
+                         than a million records to hold (SAMPLE_TOO_LARGE); the
                          roots' ids past a tenth of the source's requests
                          left today (API_BUDGET_EXCEEDED); a target that has
                          less room than the plan was fitted to: simulate
@@ -13024,11 +13026,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // Refused for its files, it said a sentence with no code and left stdout
     // empty: a CI job could not tell files too big from a crash.
     if (refusedBefore) {
-      endRefused(
-        { code: refusedBefore.code, message: refusedBefore.message },
-        gate ? alsoRefusedAtGate : [],
-        sampleRefusalExit(refusedBefore.code),
-      );
+      // With what the stop names of a sample, as the page reads it: what held
+      // it, and the MB it needs and may take. A CI job told SAMPLE_CANNOT_FIT
+      // alone could not tell a bound it may raise from the storage it cannot.
+      const refused: RunRefusal & { sample?: ForgeRunGateError['sample'] } = {
+        code: refusedBefore.code,
+        message: refusedBefore.message,
+        ...(gate?.sample ? { sample: gate.sample } : {}),
+      };
+      endRefused(refused, gate ? alsoRefusedAtGate : [], sampleRefusalExit(refusedBefore.code));
     }
     const partial = stoppedPartial;
     if (partial && (interrupted !== undefined || err instanceof ForgeAbortedError)) {

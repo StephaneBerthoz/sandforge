@@ -5886,6 +5886,11 @@
         "exceeds": "Solicitações de API: cerca de {{estimate}}, mais do que as {{remaining}} que restam a {{org}} de suas {{max}} diárias: a carga seria recusada.",
         "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje a {{org}} não pôde ser lido ({{reason}})."
       },
+      "storage": {
+        "fits": "Armazenamento de dados: cerca de {{estimate}} MB, dos {{remaining}} MB que restam a {{org}} de seus {{max}} MB.",
+        "exceeds": "Armazenamento de dados: cerca de {{estimate}} MB, mais do que os {{remaining}} MB que restam a {{org}} de seus {{max}} MB: a carga seria recusada.",
+        "freed": "A limpeza da recarga libera antes cerca de {{freed}} MB."
+      },
       "automation": {
         "title": "O que {{org}} executa quando a carga insere seus registros e os atualiza:",
         "onInsert": "{{object}} — {{what}}, ao inserir seus registros",
@@ -7615,7 +7620,9 @@
       "limitRule": "Um número inteiro de registros, de 1 a {{most}}.",
       "tooManyRecords": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}): escolha menos objetos, ou aumente-o, até {{most}}. Nenhum registro foi lido.",
       "tooManyRecordsPastMost": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}), e nenhum limite de até {{most}} os comporta: escolha menos objetos. Nenhum registro foi lido.",
-      "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado."
+      "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado.",
+      "limitHoldsAt": "Com Registros no máximo em {{records}}, ele é guardado.",
+      "limitHoldsNone": "Com ele, todo objeto que não seja maior também seria guardado, mais de {{most}} registros no total, acima de qualquer Registros no máximo: escolha menos objetos."
     },
     "preview": {
       "title": "Retroceder {{org}} para “{{name}}” ({{date}})",

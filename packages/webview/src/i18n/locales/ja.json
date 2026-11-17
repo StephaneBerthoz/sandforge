@@ -5559,6 +5559,11 @@
         "exceeds": "API 要求: 約 {{estimate}} 件。{{org}} に残っている 1 日 {{max}} 件のうちの {{remaining}} 件を超えるため、ロードは拒否されます。",
         "unread": "API 要求: 約 {{estimate}} 件。{{org}} の今日の残り数を読み取れませんでした ({{reason}})。"
       },
+      "storage": {
+        "fits": "データストレージ: 約 {{estimate}} MB。{{org}} に残っている {{max}} MB のうちの {{remaining}} MB に収まります。",
+        "exceeds": "データストレージ: 約 {{estimate}} MB。{{org}} に残っている {{max}} MB のうちの {{remaining}} MB を超えるため、ロードは拒否されます。",
+        "freed": "再ロードのパージが先に約 {{freed}} MB を空けます。"
+      },
       "automation": {
         "title": "ロードがレコードを挿入・更新するときに {{org}} が実行するもの:",
         "onInsert": "{{object}} — {{what}}（レコードの挿入時）",
@@ -7161,7 +7166,9 @@
       "limitRule": "1 から {{most}} までの整数のレコード数を入力してください。",
       "tooManyRecords": "このチェックポイントが保持するオブジェクトには {{records}} 件のレコードがあり、最大レコード数 ({{limit}}) を超えています。オブジェクトを減らすか、{{most}} 件まで値を上げてください。レコードは読み取っていません。",
       "tooManyRecordsPastMost": "このチェックポイントが保持するオブジェクトには {{records}} 件のレコードがあり、最大レコード数 ({{limit}}) を超えています。{{most}} 件までのどの上限にも収まりません。オブジェクトを減らしてください。レコードは読み取っていません。",
-      "limitHolds": "最大レコード数を {{records}} 件以上にすると保持されます。"
+      "limitHolds": "最大レコード数を {{records}} 件以上にすると保持されます。",
+      "limitHoldsAt": "最大レコード数を {{records}} 件にすると保持されます。",
+      "limitHoldsNone": "これを含めると、同じ件数以下のオブジェクトもすべて保持され、合計で {{most}} 件を超えるため、どの最大レコード数にも収まりません。オブジェクトを減らしてください。"
     },
     "preview": {
       "title": "{{org}} を「{{name}}」({{date}}) に巻き戻す",

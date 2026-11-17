@@ -346,7 +346,7 @@ const CHECKPOINT_STAMP = 'SystemModstamp';
 const BACKUP_CAP_DEFAULT = 50_000;
 
 /** The fewest rows of an object the setting may set a backup to read: what its manifest allows. */
-const BACKUP_CAP_MIN = 100;
+export const BACKUP_CAP_MIN = 100;
 
 /** The most rows of an object the setting may set a backup to read: what its manifest allows. */
 export const BACKUP_CAP_MAX = BACKUP_MAX_RECORDS_PER_OBJECT;
