@@ -455,6 +455,54 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says in the preview the data storage a load would take, that it would be refused past what is left, and the ways out', () => {
+      // A preview of a dataset of 17.8 MB into a trap org of 5 MB said nothing
+      // of the storage, and only the load was refused for it.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: false },
+            storage: {
+              estimateMB: 17.71,
+              remainingMB: 5,
+              maxMB: 5,
+              refusal: {
+                code: 'FROZEN_STORAGE_EXCEEDED',
+                message: 'The load was refused before it wrote anything…',
+              },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-storage').textContent).toBe(
+        'Data storage: about 17.8 MB, more than the 5 MB DEV-SANDBOX has left of its 5 MB: the ' +
+          'load would be refused. Load a pilot first, one root folder of it; or extract a smaller ' +
+          'dataset: lower the budget in the configuration, then run the selection and the ' +
+          'extraction again; or free data storage in DEV-SANDBOX.',
+      );
+    });
+
+    it('says in the preview the data storage a load that fits would take, and what a reload frees first', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: false, reload: true },
+            storage: { estimateMB: 0.0123, remainingMB: 4, maxMB: 5, freedMB: 0.004 },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-storage').textContent).toBe(
+        'Data storage: about 0.02 MB, of the 4 MB DEV-SANDBOX has left of its 5 MB. The ' +
+          "reload's purge frees about 0.01 MB of it first.",
+      );
+    });
+
     it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
       for (const encryptedNotKept of [[], ['Contact.SSN__c']]) {
         useFrozenStore.setState({ status: WITH_COVERAGE(encryptedNotKept) });

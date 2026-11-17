@@ -722,6 +722,47 @@ export const QUICK_SYNC_ON_A_CUT_PREVIEW = {
   },
 };
 
+/**
+ * A Sync run of contacts whose read of the source stopped at the bound
+ * `readCap`: every record it read written, none refused, and partial.
+ */
+export function syncRunCutAtReadCap(readCap: number): Record<string, unknown> {
+  return {
+    configId: 'cfg-ways-out',
+    operationId: 'run-read-cut',
+    status: 'partial',
+    objectResults: [
+      {
+        objectApiName: 'Contact',
+        operation: 'insert',
+        processed: readCap,
+        success: readCap,
+        failed: 0,
+        skipped: 0,
+        conflictCount: 0,
+        errors: [],
+      },
+    ],
+    totalProcessed: readCap,
+    totalSuccess: readCap,
+    totalFailed: 0,
+    totalSkipped: 0,
+    duration: 900,
+    timestamp: '2026-11-17T10:00:00.000Z',
+    readCap,
+    cutAtReadCap: ['Contact'],
+  };
+}
+
+/** That run, cut at 10,000 records, as the Sync page's History lists it and opens it. */
+export function syncHistoryEntryCutAtReadCap(): Record<string, unknown> {
+  return {
+    ...syncHistoryEntrySentAgain(),
+    id: 'h-read-cut',
+    result: syncRunCutAtReadCap(10_000),
+  };
+}
+
 /** A simulation whose read of Invoice__c stopped at the bound `readCap`. */
 export function simulationCutAtReadCap(readCap: number): Record<string, unknown> {
   const simulation = simulationWithUnwritable('notInTarget');

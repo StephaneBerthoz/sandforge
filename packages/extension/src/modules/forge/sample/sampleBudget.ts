@@ -80,6 +80,13 @@ export function sampleBudgetTermsOf(input: {
   const fit = fitBudgetOf({ storage, ...(withinMB !== undefined ? { withinMB } : {}) });
   if ('unread' in fit) return undefined;
   const bytesLimit = fit.terms.limitedBy === 'within' ? 'within' : 'storage';
+  // What the storage leaves the sample, the MB asked aside: past it, the
+  // storage holds what the sample needs, whatever MB is asked.
+  const storageBytes = Math.floor(
+    STORAGE_NEAR_SHARE *
+      Math.max(0, storage.remainingMB - STORAGE_ROUNDING_MARGIN_MB) *
+      BYTES_PER_MB,
+  );
   return {
     budget: {
       bytes: fit.bytes,
@@ -91,11 +98,8 @@ export function sampleBudgetTermsOf(input: {
       limitedBy: bytesLimit,
     },
     bytesLimit,
-    roomBytes: Math.floor(
-      STORAGE_NEAR_SHARE *
-        Math.max(0, storage.remainingMB - STORAGE_ROUNDING_MARGIN_MB) *
-        BYTES_PER_MB,
-    ),
+    roomBytes: storageBytes,
+    storageBytes,
     ...automation,
   };
 }

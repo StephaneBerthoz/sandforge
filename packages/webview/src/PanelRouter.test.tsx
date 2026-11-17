@@ -73,7 +73,10 @@ describe('PanelRouter', () => {
 
   it('should render ReportsPage for moduleId "reports"', async () => {
     render(<PanelRouter moduleId="reports" />);
-    expect(await screen.findByTestId('page-reports')).toBeDefined();
+    // The route loads the real ReportsContainer, only its page mocked: the
+    // first import of its modules took 0.87 to 1.35 s here alone, about the
+    // 1 s a find waits unless told, and failed two runs in three.
+    expect(await screen.findByTestId('page-reports', {}, { timeout: 5_000 })).toBeDefined();
   });
 
   it('should render unknown module fallback for invalid moduleId', () => {

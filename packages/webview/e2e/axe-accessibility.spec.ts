@@ -30,7 +30,9 @@ import {
   cleanupObject,
   forgeGraph,
   simulationCutAtReadCap,
+  syncHistoryEntryCutAtReadCap,
   syncHistoryEntrySentAgain,
+  syncRunCutAtReadCap,
   syncRunSentAgain,
 } from './fixtures/refusals';
 import {
@@ -16015,6 +16017,26 @@ for (const theme of SCANNED_THEMES) {
 
       await toMiddle(page, 'sync-simulation-read-cut-Invoice__c');
       await expectMeasuredReadable(page, theme, byTestId('sync-simulation-read-cut-Invoice__c'));
+    });
+
+    test('Sync results, Quick Sync results and history detail saying an object the bound cut', async ({
+      page,
+    }) => {
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await runSyncDraft(bridge, page, syncRunCutAtReadCap(10_000));
+      await toMiddle(page, 'sync-result-read-cut-Contact');
+      await expectMeasuredReadable(page, theme, byTestId('sync-result-read-cut-Contact'));
+
+      await openModule(bridge, page, 'sync', { state: QUICK_SYNC_ON_PREVIEW });
+      await runQuickSync(bridge, page, syncRunCutAtReadCap(50_000));
+      await toMiddle(page, 'quick-sync-result-read-cut-Contact');
+      await expectMeasuredReadable(page, theme, byTestId('quick-sync-result-read-cut-Contact'));
+
+      await openModule(bridge, page, 'sync', { state: { syncDraft: SYNC_READY_DRAFT } });
+      await openSyncHistoryEntry(bridge, page, syncHistoryEntryCutAtReadCap());
+      await page.getByTestId('history-read-cut-Contact').waitFor();
+      await toMiddle(page, 'history-read-cut-Contact');
+      await expectMeasuredReadable(page, theme, byTestId('history-read-cut-Contact'));
     });
 
     test('Forge verification of an object only the platform wrote, with the run’s', async ({

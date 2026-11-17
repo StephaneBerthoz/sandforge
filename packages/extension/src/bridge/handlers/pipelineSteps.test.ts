@@ -541,6 +541,34 @@ describe('registerPipelineSteps', () => {
       expect(result.output).toMatchObject({ totalFailed: 3 });
     });
 
+    it('fails a run whose read of an object the bound cut, saying the cut and how to copy the rest', async () => {
+      // Partial for the cut, the step said "did not complete" of a run that
+      // wrote every record it read and refused none, and not why.
+      const own = withSync(
+        syncFlows(
+          { decision: 'allowed' },
+          {
+            runSync: vi.fn(async () =>
+              syncResult({ status: 'partial', readCap: 12, cutAtReadCap: ['Account'] }),
+            ),
+          },
+        ),
+      );
+
+      const result = await own.execute(sync, context());
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe(
+        'Sync step "Step" ran "Accounts to dev" into dev and did not complete: ' +
+          '12 records written, 0 failed and 0 skipped of 12 read; the read of the source ' +
+          'stopped at 12 records of Account (sandforge.sync.maxRecordsPerObject): the run ' +
+          'copied part of it. To copy the rest, raise the sandforge.sync.maxRecordsPerObject ' +
+          'setting (50000 at most), or read it in slices: a filter on CreatedDate, one range ' +
+          'per run. To copy a sample of the source that fits the target instead, use Forge, ' +
+          'with Depth ALL and Records per object set to A sample that fits the target.',
+      );
+    });
+
     it('ends cancelled, without a retry, when its run is cancelled from Live Operations', async () => {
       const runSync = vi.fn(async () =>
         syncResult({ status: 'partial', cancelled: true, error: 'Cancelled by the user.' }),

@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total réussi",
     "totalFailed": "Total échoué",
     "totalSkipped": "Total ignoré",
+    "readCut": "La lecture de l'org source s'est arrêtée à {{cap}} enregistrements, la borne : cette exécution a copié une partie de cet objet. Pour copier le reste, relevez sandforge.sync.maxRecordsPerObject (50 000 au plus), ou lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
+    "readCutAtMost": "La lecture de l'org source s'est arrêtée à {{cap}} enregistrements, le plus qu'une exécution tienne d'un objet : cette exécution en a copié une partie. Pour copier le reste, lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
     "savedConfigs": {
       "title": "Configurations enregistrées",
       "hint": "Exécutez-en une maintenant, telle qu'elle a été enregistrée : elle est vérifiée comme une exécution lancée depuis l'onglet Sync, et Production Guard la juge avant toute écriture. Une configuration qui supprime s'ouvre plutôt dans l'onglet Sync, qui dit ce que fait chacun de ses objets : Lancer la synchronisation l'y exécute.",
@@ -3601,6 +3603,18 @@
       "npm1790Desc": "Les scripts en ligne de commande et le serveur MCP sont livrés dans le paquet npm sandforge, pour Node.js 20.19 ou plus récent, sans copie du dépôt : npx -y sandforge mcp démarre le serveur pour un agent d'IA.",
       "removal1790": "Les retraits emportent les ensembles de doublons restés",
       "removal1790Desc": "Dans Forge, retirer un run emporte l'ensemble d'enregistrements en double que Salesforce remplit une seconde après la fin du run et, avec les enregistrements modifiés depuis le run, celui qu'un retrait précédent avait gardé.",
+      "sync1800": "Sync lit plus de 500 enregistrements par objet",
+      "sync1800Desc": "Sync ne s'arrête plus à 500 enregistrements d'un objet d'une org de production ou d'une Developer Edition : toute org est lue jusqu'au réglage sandforge.sync.maxRecordsPerObject, 50 000 au plus. La vérification dit jusqu'où chaque objet est lu, et une exécution qui a copié un objet en partie le dit, avec la façon de lire le reste.",
+      "locks1800": "Les lignes refusées pour un verrou repartent",
+      "locks1800Desc": "Dans Sync, Seed, Autopilot et Jeu de données figé, les lignes que la cible refuse faute de pouvoir verrouiller un enregistrement dont leur écriture a besoin repartent seules, jusqu'à trois fois, avec une attente plus longue à chaque fois, comme celles de Forge. Les résultats de Sync et d'Autopilot disent combien sont reparties et combien ont été écrites.",
+      "storage1800": "Seed et Jeu de données figé vérifient le stockage restant",
+      "storage1800Desc": "Un clonage Seed, un import CSV et un chargement de Jeu de données figé sont refusés avant d'écrire quoi que ce soit quand leurs enregistrements prennent plus de stockage de données qu'il n'en reste dans la cible, et disent ce qui tient : un filtre plus étroit, moins de lignes, un pilote, ou un échantillon de Forge avec la profondeur ALL.",
+      "checkpoint1800": "Choisir combien d'enregistrements garde un point de contrôle",
+      "checkpoint1800Desc": "Dans Points de contrôle, Enregistrements au plus règle combien d'enregistrements un point de contrôle peut garder en tout, jusqu'à un million. La liste avertit aussi trois jours avant l'expiration d'une scratch org, dont les points de contrôle ne pourront ensuite qu'être supprimés, et nomme un Jeu de données figé pour garder ses données pour une autre org.",
+      "marketplace1800": "Des modèles de la Marketplace qui s'exécutent",
+      "marketplace1800Desc": "Dans Automatisation → Marketplace, chaque modèle s'exécute une fois installé : ceux dont des étapes ne s'exécutaient jamais sont réécrits avec des étapes qui s'exécutent, ou retirés, et Emergency Rollback devient Protected Write, un point de contrôle avant une Sync. Les étapes Délai et Sauvegarde ne comptent plus dans sandforge.pipeline.timeout.",
+      "refusals1800": "Chaque refus dit quoi faire ensuite",
+      "refusals1800Desc": "Quand une exécution est refusée dans Forge, Sync, Seed, DataOps, Points de contrôle, Automatisation, Comparaison ou Moniteur, le message nomme sa cause et une issue que vous pouvez prendre là où vous le lisez : un réglage, un bouton de la page ou une commande à taper. Les messages qui renvoyaient vers une option inexistante ont disparu.",
       "newMark1411": "Une nouvelle marque",
       "newMark1411Desc": "SandForge a une nouvelle marque : le feu de la forge qui monte d'une sandbox. Elle figure sur l'icône du Marketplace, la barre d'activité et le panneau latéral.",
       "safety1420": "Un clone vérifie avant d'écrire",
@@ -6328,6 +6342,11 @@
         "exceeds": "Requêtes d'API : environ {{estimate}}, plus que les {{remaining}} qu'il reste à {{org}} de ses {{max}} par jour : le chargement serait refusé.",
         "unread": "Requêtes d'API : environ {{estimate}}. Ce qu'il reste aujourd'hui à {{org}} n'a pas pu être lu ({{reason}})."
       },
+      "storage": {
+        "fits": "Stockage de données : environ {{estimate}} Mo, sur les {{remaining}} Mo qu'il reste à {{org}} de ses {{max}} Mo.",
+        "exceeds": "Stockage de données : environ {{estimate}} Mo, plus que les {{remaining}} Mo qu'il reste à {{org}} de ses {{max}} Mo : le chargement serait refusé.",
+        "freed": "La purge du rechargement en libère d'abord environ {{freed}} Mo."
+      },
       "automation": {
         "title": "Ce que {{org}} exécute quand le chargement insère ses enregistrements et les met à jour :",
         "onInsert": "{{object}} — {{what}}, à l'insertion de ses enregistrements",
@@ -8147,7 +8166,10 @@
       "limitHint": "Au-delà de ce nombre d'enregistrements en tout, la création est refusée avant d'en lire un seul : {{standard}} sauf changement, {{most}} au plus.",
       "limitRule": "Un nombre entier d'enregistrements, de 1 à {{most}}.",
       "tooManyRecords": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}) : choisissez moins d'objets, ou relevez-le, jusqu'à {{most}}. Aucun enregistrement n'a été lu.",
-      "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde."
+      "tooManyRecordsPastMost": "Les objets que ce point de contrôle garderait contiennent {{records}} enregistrements, au-delà d'Enregistrements au plus ({{limit}}), et aucune limite jusqu'à {{most}} ne les tient : choisissez moins d'objets. Aucun enregistrement n'a été lu.",
+      "limitHolds": "Enregistrements au plus à {{records}} ou plus le garde.",
+      "limitHoldsAt": "Enregistrements au plus à {{records}} le garde.",
+      "limitHoldsNone": "Avec lui, tout objet qui n'est pas plus grand serait gardé aussi, plus de {{most}} enregistrements en tout, au-delà de tout Enregistrements au plus : choisissez moins d'objets."
     },
     "preview": {
       "title": "Faire revenir {{org}} à « {{name}} » ({{date}})",

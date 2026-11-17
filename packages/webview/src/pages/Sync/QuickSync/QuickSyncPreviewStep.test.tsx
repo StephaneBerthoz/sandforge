@@ -395,6 +395,37 @@ describe('QuickSyncPreviewStep', () => {
     expect(screen.queryByTestId('quick-sync-result-errors-Pricebook2')).toBeNull();
   });
 
+  it('says on the object whose read the bound cut that the run copied part of it, as the Sync tab does', () => {
+    // Quick Sync runs the same sync: its run came back partial for the cut,
+    // under a badge with no word of why.
+    const contacts = {
+      objectApiName: 'Contact',
+      operation: 'insert' as const,
+      processed: 100,
+      success: 100,
+      failed: 0,
+      skipped: 0,
+      conflictCount: 0,
+      errors: [],
+    };
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{
+          ...mockResult,
+          status: 'partial',
+          objectResults: [contacts],
+          readCap: 100,
+          cutAtReadCap: ['Contact'],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-sync-result-read-cut-Contact').textContent).toMatch(
+      /^The read of the source org stopped at 100 records, the bound: this run copied part of this object\./,
+    );
+  });
+
   it('says the rows written in another currency and the prices it settled, as the Sync tab does, with no refusal listed', () => {
     // Quick Sync runs the same sync as the Sync tab, whose results and history
     // say both; its own results said neither.

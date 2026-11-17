@@ -131,7 +131,7 @@ export async function loadOrg(
       `The Salesforce CLI showed no usable access token for alias '${alias}'. Sign in again ` +
         `with "sf org login web --alias ${alias}" where a browser opens; in a CI job, with ` +
         `"sf org login jwt --alias ${alias}" (a client id, a key file and a username) or ` +
-        `"sf org login sfdxurl --alias ${alias} --sfdx-url-file <file>" (see ci-examples/README.md).`,
+        `"sf org login sfdx-url --alias ${alias} --sfdx-url-file <file>" (see ci-examples/README.md).`,
     );
   }
   return {

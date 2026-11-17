@@ -2,6 +2,7 @@ import type { SyncScheduleEntry, SyncConfig, SyncExecutionResult } from '@sandfo
 import { nextCronRun, SCHEDULE_HORIZON_MS } from '../../core/common/cronSchedule.js';
 import type { SyncScheduleStore } from './SyncScheduleStore.js';
 import { memoryTriggerClaims, type TriggerClaims } from '../automation/TriggerClaims.js';
+import { runReadCutSaid } from './syncReadCap.js';
 
 /** Dependencies required by SyncScheduleExecutor. */
 export interface SyncScheduleExecutorDeps {
@@ -254,12 +255,17 @@ export class SyncScheduleExecutor {
             );
           }
         } else if (result.status === 'partial' && schedule.notifyOnComplete) {
-          // Some records were refused: announcing that as a success hid them.
+          // Some records were refused, or the bound cut a read: announcing
+          // that as a success hid them. A cut alone failed no record.
           const firstError = result.objectResults.flatMap((o) => o.errors)[0];
+          const cut = runReadCutSaid(result);
+          const said = [firstError, cut].filter((part): part is string => part !== undefined);
           this.deps.notificationCenter.notify(
             'warning',
-            'Sync schedule completed with errors',
-            `${schedule.name}: ${firstError ?? 'some records failed; its entry in the sync history has the details.'}`,
+            firstError === undefined && cut !== undefined
+              ? 'Sync schedule copied part of the source'
+              : 'Sync schedule completed with errors',
+            `${schedule.name}: ${said.length > 0 ? said.join('; ') : 'some records failed; its entry in the sync history has the details.'}`,
           );
         } else if (schedule.notifyOnComplete) {
           this.deps.notificationCenter.notify('success', 'Sync schedule completed', schedule.name);

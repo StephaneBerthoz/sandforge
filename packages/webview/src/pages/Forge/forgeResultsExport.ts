@@ -439,12 +439,13 @@ const REPORT_CELL_MAX = 300;
  * `text` as a cell of a Markdown table: its spaces and line breaks run into
  * one space — an Apex message spans lines, and a line break ends the row —
  * cut at 300 characters with an ellipsis, then each `|` escaped, which would
- * otherwise open a column.
+ * otherwise open a column, and each `\` with it, which would otherwise escape
+ * the next character: a message's own `\|` would open a column.
  */
 export function reportCell(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   const cut = flat.length > REPORT_CELL_MAX ? `${flat.slice(0, REPORT_CELL_MAX - 1)}…` : flat;
-  return cut.replace(/\|/g, '\\|');
+  return cut.replace(/[\\|]/g, '\\$&');
 }
 
 /**

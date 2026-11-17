@@ -1322,6 +1322,59 @@ describe('SyncPage', () => {
       expect(screen.queryByTestId('sync-result-errors-Pricebook2')).toBeNull();
     });
 
+    it('says partial for a run whose read of an object the bound cut, and on that object what it copied and how to copy the rest', () => {
+      // The run wrote the 1,000 contacts it read of 3,000 and the page said
+      // "Sync complete", with no word of the cut but a toast that closed itself.
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      const written = {
+        operation: 'insert' as const,
+        failed: 0,
+        skipped: 0,
+        conflictCount: 0,
+        errors: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'partial',
+        objectResults: [
+          { ...written, objectApiName: 'Account', processed: 30, success: 30 },
+          { ...written, objectApiName: 'Contact', processed: 1_000, success: 1_000 },
+        ],
+        totalProcessed: 1_030,
+        totalSuccess: 1_030,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-11-17T10:00:01.000Z',
+        readCap: 1_000,
+        cutAtReadCap: ['Contact'],
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('sync-result-summary').textContent).toContain('Partially complete');
+      const line = screen.getByTestId('sync-result-read-cut-Contact');
+      expect(line.textContent).toBe(
+        'The read of the source org stopped at 1,000 records, the bound: this run copied part ' +
+          'of this object. To copy the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at ' +
+          'most), or read it in slices with a filter on CreatedDate, one range per run. To copy a ' +
+          'sample of the source that fits the target instead, use Forge with Depth ALL and ' +
+          'Records per object set to A sample that fits the target.',
+      );
+      expect(screen.queryByTestId('sync-result-read-cut-Account')).toBeNull();
+    });
+
     it('says on the results the emails and phone numbers neutralized, and the rows linked or written without their owner, in the panel’s words and not among the refusals', () => {
       // Every default Sync of contacts showed "1 × 12 email address(es) and
       // phone number(s) of Contact neutralized" in red, in English, under a

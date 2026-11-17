@@ -94,3 +94,26 @@ export function readCutRemedy(side: 'source' | 'target', cap: number, words: Rea
     `To copy a sample of the source that fits the target instead, use ${words.sample}.`
   );
 }
+
+/**
+ * What a run of the panel says of the objects whose read of the source the
+ * bound cut, where no page shows its results: a schedule's notification, a
+ * pipeline's step. Partial for the cut alone, a schedule announced "some
+ * records failed" of a run the target refused nothing, and a step "did not
+ * complete" with no word of why. Nothing when no read was cut.
+ *
+ * @param result - The run's result: its bound and the objects it cut.
+ */
+export function runReadCutSaid(result: {
+  readCap?: number;
+  cutAtReadCap?: readonly string[];
+}): string | undefined {
+  const objects = result.cutAtReadCap ?? [];
+  if (result.readCap === undefined || objects.length === 0) return undefined;
+  return (
+    `the read of the source stopped at ${result.readCap} records of ${objects.join(', ')} ` +
+    `(sandforge.sync.maxRecordsPerObject): the run copied part of ` +
+    `${objects.length === 1 ? 'it' : 'each'}. ` +
+    readCutRemedy('source', result.readCap, PANEL_READ_CUT_WORDS)
+  );
+}

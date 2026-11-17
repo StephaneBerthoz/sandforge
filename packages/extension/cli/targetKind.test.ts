@@ -123,7 +123,7 @@ describe('the refusal before a command writes or deletes', () => {
         'invalid), and sandforge seed writes to no org it cannot tell from a production one. ' +
         '"sf org display --target-org CI-TARGET" says what sf holds for it; "sf org login web ' +
         '--alias CI-TARGET" signs in again (in a CI job, "sf org login jwt" or "sf org login ' +
-        'sfdxurl"); then run the command again. Nothing was written.\n',
+        'sfdx-url"); then run the command again. Nothing was written.\n',
     );
   });
 

@@ -135,6 +135,27 @@ export function fitBudgetOf(input: FitBudgetInput): FitBudget | { unread: string
   return withRequests(input, bytes, terms);
 }
 
+/**
+ * The bound that holds what needs `needBytes` past a fit's budget: the one
+ * that gives the budget (`bytesLimit`), the lesser of the two, unless the
+ * need is past what the target's storage leaves too: the MB asked then gives
+ * the budget, but asking more of them lets none of it through, and the
+ * storage holds it. A target that would not say its storage leaves the MB
+ * asked to hold it. Asked to take 1 MB of a trap org whose storage left 3.6,
+ * a sample of the whole org that needed 14 MB was refused with "or let it
+ * take more (--fit-within)", a way out that led nowhere.
+ */
+export function bytesLimitOf<Limit extends string>(
+  needBytes: number,
+  budget: { bytesLimit: Limit; storageBytes?: number | undefined },
+): Limit | 'storage' {
+  return budget.bytesLimit === 'within' &&
+    budget.storageBytes !== undefined &&
+    needBytes > budget.storageBytes
+    ? 'storage'
+    : budget.bytesLimit;
+}
+
 /** A fit's budget of `bytes` and `terms`, with the run's own API requests the target's leave it. */
 function withRequests(input: FitBudgetInput, bytes: number, terms: FitBudget['terms']): FitBudget {
   if (!input.api) return { bytes, terms };

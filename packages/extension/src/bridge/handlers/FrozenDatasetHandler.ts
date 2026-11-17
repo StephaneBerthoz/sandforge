@@ -496,6 +496,24 @@ function megabytesWords(mb: number): string {
 }
 
 /**
+ * The target's `/limits`, asked once however many of a preview's gates read
+ * them: its data storage and its API requests read from one answer, as the
+ * load reads them.
+ */
+function limitsReadOnce(conn: LimitsTransport): LimitsTransport {
+  let answer: Promise<unknown> | undefined;
+  return {
+    request: (request) => {
+      if (answer === undefined) {
+        answer = Promise.resolve().then(() => conn.request(request));
+        answer.catch(() => {});
+      }
+      return answer;
+    },
+  };
+}
+
+/**
  * The refusal of a load whose records take more data storage than the
  * target has left, or nothing: the dataset's records at most, by the
  * documented sizes, with what the target's automation that still runs
@@ -531,8 +549,8 @@ function loadStorageRefusal(input: {
     ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
   };
   const freed =
-    freedBytes > 0
-      ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB ?? 0)} MB first`
+    storage.freedMB !== undefined
+      ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB)} MB first`
       : '';
   // As a clone's and a seed's refusal say it: the part their records do not take themselves.
   const automation =
@@ -4884,8 +4902,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       // So are the API requests it would take of the target, counted as its
       // gate counts them, the checkpoint said above among them.
       const store = source.mappingStore(guard);
+      // One answer of `/limits` for the storage and the requests, as the load reads it.
+      const limits = limitsReadOnce(conn);
       const { emails, automation, apiRequests, automationBytes } = await this.previewWhatRuns({
         conn,
+        limits,
         orgId: parsed.targetOrgId,
         dataset,
         store,
@@ -4899,7 +4920,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // measures it: none of a pilot, which the gate lets through. A replay
       // says it with what does not go across as it was.
       const storage = await this.previewStorageOf({
-        conn,
+        conn: limits,
         dataset,
         store,
         config,
@@ -4963,12 +4984,14 @@ export class FrozenDatasetHandler implements DomainHandler {
     replay?: ReplayLoad;
   }): Promise<RefusedBeside[]> {
     const { replay, ...asked } = input;
+    const limits = limitsReadOnce(input.conn);
     const { emails, automation, apiRequests, automationBytes } = await this.previewWhatRuns({
       ...asked,
+      limits,
       ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
     });
     const storage = await this.previewStorageOf({
-      conn: input.conn,
+      conn: limits,
       dataset: input.dataset,
       store: input.store,
       config: input.config,
@@ -5022,11 +5045,14 @@ export class FrozenDatasetHandler implements DomainHandler {
    * what still runs, and the API requests it would take, judged as the load
    * judges them before its first write: what the target runs on what it
    * would insert, and on what a reload's purge would delete; the mute
-   * planned when it is asked, nothing assigned. None, said in the log, when
-   * they could not be judged.
+   * planned when it is asked, nothing assigned; the requests read from the
+   * preview's one answer of `/limits`, which its storage reads too. None,
+   * said in the log, when they could not be judged.
    */
   private async previewWhatRuns(input: {
     conn: LimitsTransport & Parameters<typeof muteOrgOf>[0];
+    /** The preview's `/limits`, read once for its storage and its requests ({@link limitsReadOnce}). */
+    limits: LimitsTransport;
     orgId: string;
     dataset: FrozenDataset;
     store: SasReferenceIdMappingStore;
@@ -5098,7 +5124,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         return undefined;
       });
       const apiRequests = await this.loadApiCheck({
-        conn: input.conn,
+        conn: input.limits,
         dataset: written,
         ...(purge ? { purged: await this.purgedOf(input.store, input.config) } : {}),
         read,

@@ -415,6 +415,11 @@ describe('a cell of the copied report', () => {
     expect(reportCell('Status must be Open | Closed')).toBe('Status must be Open \\| Closed');
   });
 
+  it('escapes a backslash too, so a message’s own \\| keeps its pipe in the cell', () => {
+    expect(reportCell('Path C:\\temp | other')).toBe('Path C:\\\\temp \\| other');
+    expect(reportCell('Open \\| Closed')).toBe('Open \\\\\\| Closed');
+  });
+
   it('cuts a long message at 300 characters with an ellipsis', () => {
     const cell = reportCell('x'.repeat(400));
     expect(cell).toHaveLength(300);

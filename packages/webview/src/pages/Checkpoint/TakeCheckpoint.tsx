@@ -40,6 +40,7 @@ import {
   heldPerObject,
   isCheckpointName,
   leftOutForAccess,
+  limitHoldingOf,
   objectsWithRecords,
   recordsHeld,
   refusedBeforeScope,
@@ -352,7 +353,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             </p>
             {leftOutOtherwise.length > 0 && (
               <LeftOut
-                raisable
+                raisable={answer ?? undefined}
                 objects={leftOutOtherwise}
                 summary={t('checkpoint.take.seeLeftOut', {
                   count: leftOutOtherwise.length,
@@ -672,40 +673,55 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
   );
 };
 
-/** Whether a higher Records at most holds an object the scope left out for its size. */
-function heldHigher(object: ScopeAnswer['leftOut'][number]): boolean {
-  return (
-    object.code === 'pastTheLimit' &&
-    object.records !== undefined &&
-    object.records <= CHECKPOINT_OBJECT_ROWS_MAX
-  );
+/**
+ * What an object the scope left out for its size says of the Records at most
+ * that holds it with the rest the take keeps ({@link limitHoldingOf}), as the
+ * command line names its `--max-total`; nothing for one no limit holds alone.
+ */
+function limitHoldsWords(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  answer: Pick<ScopeAnswer, 'objects' | 'leftOut'>,
+  object: ScopeAnswer['leftOut'][number],
+): string | undefined {
+  const holding = limitHoldingOf(answer, object);
+  if (holding === undefined) return undefined;
+  if (holding === 'none') {
+    return t('checkpoint.take.limitHoldsNone', {
+      most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
+    });
+  }
+  return t(holding.orMore ? 'checkpoint.take.limitHolds' : 'checkpoint.take.limitHoldsAt', {
+    records: formatNumber(holding.limit),
+  });
 }
 
 /**
- * Objects a scope leaves out, folded under `summary`, each with why; with
- * `raisable`, an object past the limit says the Records at most that holds it.
+ * Objects a scope leaves out, folded under `summary`, each with why; given
+ * the scope (`raisable`), an object past the limit says the Records at most
+ * that holds it with the rest.
  */
 const LeftOut: React.FC<{
   objects: ScopeAnswer['leftOut'];
   summary: string;
   testId: string;
-  raisable?: boolean;
-}> = ({ objects, summary, testId, raisable = false }) => {
+  raisable?: Pick<ScopeAnswer, 'objects' | 'leftOut'>;
+}> = ({ objects, summary, testId, raisable }) => {
   const { t } = useTranslation();
   return (
     <details className="text-xs text-text-primary" data-testid={testId}>
       <summary className="cursor-pointer">{summary}</summary>
       <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-        {objects.map((object) => (
-          <li key={object.objectApiName}>
-            <span className="font-mono">{object.objectApiName}</span>
-            {' — '}
-            {leftOutWords(t, object)}
-            {raisable &&
-              heldHigher(object) &&
-              ` ${t('checkpoint.take.limitHolds', { records: formatNumber(object.records ?? 0) })}`}
-          </li>
-        ))}
+        {objects.map((object) => {
+          const holds = raisable ? limitHoldsWords(t, raisable, object) : undefined;
+          return (
+            <li key={object.objectApiName}>
+              <span className="font-mono">{object.objectApiName}</span>
+              {' — '}
+              {leftOutWords(t, object)}
+              {holds !== undefined && ` ${holds}`}
+            </li>
+          );
+        })}
       </ul>
     </details>
   );
@@ -967,14 +983,20 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
       size: formatFileSize(answer.estimate.bytes),
     };
     // Past Records at most, said with the field: the extension's English
-    // leaves each surface to name what raises its limit.
+    // leaves each surface to name what raises its limit. Where no limit up
+    // to a million holds the take, raising it is no way out: the page said
+    // "raise it, up to 1,000,000" with the field at 1,000,000.
+    const raisable = (answer.refusal?.holdingLimit ?? limit + 1) <= CHECKPOINT_OBJECT_ROWS_MAX;
     const refusal =
       answer.refusal?.code === 'TOO_MANY_RECORDS'
-        ? t('checkpoint.take.tooManyRecords', {
-            records: formatNumber(answer.estimate.records),
-            limit: formatNumber(limit),
-            most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
-          })
+        ? t(
+            raisable ? 'checkpoint.take.tooManyRecords' : 'checkpoint.take.tooManyRecordsPastMost',
+            {
+              records: formatNumber(answer.estimate.records),
+              limit: formatNumber(limit),
+              most: formatNumber(CHECKPOINT_OBJECT_ROWS_MAX),
+            },
+          )
         : answer.refusal?.message;
     body = (
       <div className="flex flex-col gap-1.5 text-xs text-text-primary">

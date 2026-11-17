@@ -705,7 +705,7 @@ export function githubActionsWorkflow(raw: LauncherInput): PipelineLauncher {
       `          trap 'rm -rf "$auth_dir"' EXIT`,
       ...orgs.flatMap((org, index) => [
         `          printf '%s' "$${org.secret}" > "$auth_dir/org-${index + 1}.txt"`,
-        `          sf org login sfdxurl --sfdx-url-file "$auth_dir/org-${index + 1}.txt" --alias ${bashQuote(org.ciAlias)}`,
+        `          sf org login sfdx-url --sfdx-url-file "$auth_dir/org-${index + 1}.txt" --alias ${bashQuote(org.ciAlias)}`,
       ]),
     );
   }

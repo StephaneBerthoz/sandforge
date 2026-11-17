@@ -515,6 +515,24 @@ describe('beforeRunEstimateOf', () => {
     });
   });
 
+  it('says why it holds the relations the platform writes with each contact the run writes', () => {
+    const estimate = beforeRunEstimateOf(
+      scope,
+      read(['Account', 'Contact', 'AccountContactRelation'], []),
+      7,
+    );
+
+    expect(estimate.state === 'planned' ? estimate.added : []).toEqual([
+      {
+        objectApiName: 'AccountContactRelation',
+        code: 'heldUnasked',
+        reason:
+          'Account contact relations, which the platform writes with each contact: a rewind ' +
+          'deletes those made since with their contacts, and keeps no contact for them.',
+      },
+    ]);
+  });
+
   it('keeps of an object left out what its code names, and says in words alone one a take gave no code', () => {
     const estimate = beforeRunEstimateOf(
       scope,

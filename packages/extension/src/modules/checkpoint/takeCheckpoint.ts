@@ -534,6 +534,31 @@ export function pastTheLimit(
   };
 }
 
+/**
+ * The least limit, `from` or more, a take of a scope whose objects hold
+ * `records` is not refused at: raised to it, the take keeps every object of
+ * as many records or fewer, up to {@link OBJECT_ROWS_MAX}, and their records
+ * together are within it. Each limit tried keeps more objects than the one
+ * before, so it is tried again with their records until they fit. Past
+ * {@link OBJECT_ROWS_MAX}, no limit a take is given holds what it would keep.
+ * Exported so it can be tested.
+ *
+ * @param records - The records of each object of the scope: those the take
+ *   keeps, and those its limit left out for their size.
+ * @param from - What the limit must reach: the records the take keeps, or an
+ *   object's own, for the limit that holds it.
+ */
+export function holdingLimit(records: readonly number[], from: number): number {
+  let limit = from;
+  for (;;) {
+    const held = records
+      .filter((count) => count <= Math.min(limit, OBJECT_ROWS_MAX))
+      .reduce((total, count) => total + count, 0);
+    if (held <= limit) return limit;
+    limit = held;
+  }
+}
+
 function clipped(text: string): string {
   return text.length <= REASON_MAX ? text : `${text.slice(0, REASON_MAX - 1)}…`;
 }
@@ -1084,6 +1109,13 @@ async function planOf(
   // had no field for it, and a run, which has none, looking for one. A
   // surface that takes a limit names it beside this, by the code.
   if (cost.records > maxTotal) {
+    // The limit a surface names is one the take, asked again with it, is not
+    // refused at: raised to the records it kept, it kept the objects left out
+    // for their size too, and was refused again for all of them.
+    const scoped = [
+      ...objects.map((object) => object.records),
+      ...leftOut.flatMap((out) => (out.code === 'pastTheLimit' ? [out.records ?? 0] : [])),
+    ];
     return {
       ...plan,
       refusal: {
@@ -1091,6 +1123,7 @@ async function planOf(
         message:
           `The objects this checkpoint would keep hold ${cost.records} records in ` +
           `${request.orgName}, past its limit of ${maxTotal}: pick fewer objects. ${NOTHING_READ}`,
+        holdingLimit: holdingLimit(scoped, cost.records),
       },
     };
   }

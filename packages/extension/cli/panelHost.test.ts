@@ -11,6 +11,7 @@ import type { PipelineStepRunners } from '../src/bridge/handlers/pipelineSteps.j
 import { CheckpointHandler } from '../src/bridge/handlers/CheckpointHandler.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { SyncOpsHandler } from '../src/bridge/handlers/SyncOpsHandler.js';
+import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
 import {
   expiredScratchWords,
   renewSessionsFrom,
@@ -162,6 +163,26 @@ describe('createPanelHost', () => {
         },
       });
       expect(typeof seeded).toBe('function');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('hands the handlers the sync orchestrator factory every Sync run and simulation builds its engine with', () => {
+    // Without it, a Sync of the panel hosted here failed "this.deps.services
+    // .syncOrchestrator is not a function", and a live gate added it itself.
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      let built: unknown;
+      createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        compose: ({ services }) => {
+          built = services.syncOrchestrator?.({} as never);
+        },
+      });
+      expect(built).toBeInstanceOf(SyncOrchestrator);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -81,6 +81,7 @@ import {
   syncRemovePayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
+import { OBJECT_ROWS_MAX } from '../modules/checkpoint/takeCheckpoint.js';
 
 type MockDeps = Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>;
 
@@ -1048,6 +1049,9 @@ describe('checkpoint:* payloads', () => {
   it('takes the objects to leave out and the limit of records the command line names, each checked', () => {
     const asked = { excluded: ['Case', 'Task'], maxTotal: 250_000 };
     expect(checkpointTakePayloadSchema.safeParse(take(asked)).success).toBe(true);
+    expect(checkpointTakePayloadSchema.safeParse(take({ maxTotal: OBJECT_ROWS_MAX })).success).toBe(
+      true,
+    );
     expect(
       checkpointScopePayloadSchema.safeParse({ orgId: 'org-1', mode: 'everything', ...asked })
         .success,
@@ -1059,6 +1063,9 @@ describe('checkpoint:* payloads', () => {
       { maxTotal: 0 },
       { maxTotal: 1.5 },
       { maxTotal: '500000' },
+      // Past what any checkpoint holds of one object: the bound of the page,
+      // the MCP server and sandforge.yaml.
+      { maxTotal: OBJECT_ROWS_MAX + 1 },
     ]) {
       expect(checkpointTakePayloadSchema.safeParse(take(wrong)).success).toBe(false);
       expect(

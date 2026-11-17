@@ -90,7 +90,7 @@ describe('loadOrg', () => {
 
     await expect(refusal).rejects.toThrow(/sf org login jwt --alias CI-TARGET/);
     await expect(refusal).rejects.toThrow(
-      /sf org login sfdxurl --alias CI-TARGET --sfdx-url-file <file>/,
+      /sf org login sfdx-url --alias CI-TARGET --sfdx-url-file <file>/,
     );
   });
 

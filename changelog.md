@@ -5,6 +5,56 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.80.0] - 2026-11-17
+
+Every refusal names a way through that exists, Sync reads past 500 records per object, and rows refused for a record lock go again.
+
+### Added
+
+- **Sync**: reads each object up to `sandforge.sync.maxRecordsPerObject`, 50,000 at most, where a production org stopped at 500.
+- **Sync, Seed, Autopilot, Frozen Dataset**: rows the target refused for a record lock go again on their own, as Forge's do.
+- **Seed, Frozen Dataset**: a clone, a CSV import or a load past the data storage the target has left is refused before it writes.
+- **Autopilot**: copies a selected object up to `sandforge.forge.maxRecordsPerObject`, a million at most, no longer 50,000.
+- **Checkpoints**: Records at most sets what a take holds, up to a million; the list warns before a scratch org expires.
+- **DataOps**: Cleanup exports the next 1,000 records, and holds Delete back on an object the connected user may not delete.
+- **Forge**: Review sets the sample drawn of each object, takes an owner by Id, and copies for the admin what a gap needs.
+- **Environments**: `sandforge.yaml` clones a whole org (`depth: all`, `fit`), fits a seed, and bounds its checkpoints.
+- **Command line and MCP**: sync `--max-records-per-object`, `--max-file-mb`, `--max-run-mb`; clone `--max-orphans`, `--sweep-user`; `checkpoint_take` `maxTotal`.
+
+### Changed
+
+- **Forge, command line**: a refused `--resume` exits 1 under its `RESUME_*` code, no longer 2 with none.
+- **Forge, command line**: an `--exclude` naming no field exits 2 (`FIELD_EXCLUSION_UNMATCHED`), an `--object` no clone writes too (`TABLE_NEVER_CLONED`).
+- **Command line**: `sandforge cleanup` exits 3, not 0, when it left records past `--max`; `sync --fail-on-partial` exits 3 on an object read in part.
+- **Environments**: `destroy` with no state while runs of the environment are kept exits 1 (`NO_STATE`), not 0: run `state recover` first.
+- **Environments**: a `sandforge.yaml` with `depth: all`, `fit`, `checkpoint.maxTotal` or `checkpoint.excludeObjects` is refused by 1.79 and earlier.
+- **Checkpoints**: a checkpoint of picked objects that holds Contact also holds `AccountContactRelation`, so a run's checkpoint first takes back what the run wrote.
+- **Checkpoints, command line**: `--max-total` past a million exits 2, as the page, the MCP server and `sandforge.yaml` refuse it.
+- **Automation**: a pipeline's Sync step whose read stopped at its bound fails as a step with refused rows does; tick its Continue on Error to go on.
+
+### Fixed
+
+- **Every module**: a refusal names its cause and a way through that exists where you read it: a setting, a button, a command.
+- **Every module**: finding a trigger's name in a very long refusal, or a username's shape in a long alias, no longer slows as it grows.
+- **Forge**: contacts are no longer skipped when their account fails to write, and a table whose count timed out is kept.
+- **Forge**: a field exclusion matches in any case, ALL counts without the objects left out, and a row lock behind a trigger goes again.
+- **Forge**: a pipe or a backslash in a message no longer breaks the table of the report copied as Markdown.
+- **Sync**: an object read only up to its bound says so, in the panel and on the command line, where the run said success.
+- **DataOps**: a masking or a backup past what a snapshot holds says how to work in slices; `--yes` on a restore says when it means no.
+- **Checkpoints**: a take past its limit names what raises it, and an org that could not be typed is no longer called production.
+- **Automation**: Marketplace templates all run once installed, and a Delay or a Backup step no longer counts toward the pipeline timeout.
+- **Connections**: the panel's connections honour `NO_PROXY`, as the command lines do.
+- **Sync, command line**: a run whose read stopped at `--max-records-per-object` says `partial` in its JSON and run file; a dry run under `--fail-on-partial` exits 3 too.
+- **Autopilot, command line**: the Forge sample a table read in part points to names the orgs and runs as printed.
+- **Command line, CI examples**: an org sf does not know is signed in with `sf org login sfdx-url`; the messages and example pipelines named `sfdxurl`, which sf lacks.
+- **Checkpoints**: a take past its limit names the `--max-total` that holds it and `--exclude-object`; a rewind's undo line runs as printed.
+- **Command line**: `checkpoint list --org` and `env state --org` say none is kept of that org and how many of others are.
+- **Sync**: a run from the panel whose read stopped at its bound ends partial in its results, history and run file, and says how to copy the rest.
+- **Frozen Dataset**: a load's dry run and preview say the storage it would take and are refused past what the target has left, as the load is.
+- **Frozen Dataset**: a removal without `--sweep` says what the target's automation left for the load and the sweep that takes it.
+- **Forge**: a whole-org sample past the target's storage names the storage, never `--fit-within`; its refusal says what held it.
+- **DataOps, command line**: `--max-records` below 100 or past a million is refused, where it was read as the bound without a word.
+
 ## [1.79.0] - 2026-11-14
 
 Forge copies a sample of a whole org that fits the target, and the command-line scripts and MCP server come as the `sandforge` npm package.

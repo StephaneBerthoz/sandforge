@@ -484,6 +484,52 @@ describe('sandforge-dataops', () => {
       expect(message).not.toBe('');
     });
 
+    it.each([
+      ['below the fewest a snapshot holds', '50'],
+      ['past the most a snapshot holds', '2000000'],
+    ])('refuses a cap %s, which it read as the bound without a word: exit 2', (_label, cap) => {
+      // Run on the trap org, --max-records 50 was taken, and its dry run said
+      // "more than the 100 a snapshot holds of one object".
+      const { code, message } = refuse(
+        'anonymize',
+        '--org',
+        'O',
+        '--object',
+        'Lead',
+        '--template',
+        't',
+        '--max-records',
+        cap,
+      );
+      expect(code).toBe(2);
+      expect(message).toBe(
+        `--max-records takes 100 to 1000000 records, not ${cap}: a snapshot holds at least 100 ` +
+          'records of one object and at most 1000000; past that, --slices masks the object in ' +
+          'slices of --max-records records, each backed up just before it is masked, or narrow ' +
+          'the run with --where.\n',
+      );
+    });
+
+    it('reads the fewest and the most a snapshot holds as given', () => {
+      for (const cap of [100, 1_000_000]) {
+        expect(
+          parseArgs(
+            argv(
+              'anonymize',
+              '--org',
+              'O',
+              '--object',
+              'Lead',
+              '--template',
+              't',
+              '--max-records',
+              String(cap),
+            ),
+          ),
+        ).toMatchObject({ maxRecords: cap });
+      }
+    });
+
     it('refuses a rules file with a method the panel does not save', () => {
       const file = join(store, 'bad.json');
       writeFileSync(

@@ -417,7 +417,7 @@ describe('sandforge-clone --verify', () => {
         unavailable:
           'the org the run read from, SRC, could not be reached: sf does not know SRC: ' +
           '"sf org list" names the orgs it knows; "sf org login web --alias SRC" adds it (in a ' +
-          'CI job, "sf org login jwt" or "sf org login sfdxurl"). Nothing was read from SRC.',
+          'CI job, "sf org login jwt" or "sf org login sfdx-url"). Nothing was read from SRC.',
       });
     });
 

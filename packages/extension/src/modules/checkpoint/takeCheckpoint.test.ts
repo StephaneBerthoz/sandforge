@@ -31,6 +31,7 @@ import {
   CheckpointTakeStopped,
   DEFAULT_MAX_TOTAL,
   OBJECT_ROWS_MAX,
+  holdingLimit,
   pastTheLimit,
   scopeCheckpoint,
   takeCheckpoint,
@@ -979,6 +980,31 @@ describe('takeCheckpoint — refused before anything is read', () => {
         'the checkpoint, as part of it would be taken for all of it.',
     });
     expect(snapshotReads(h.sent)).not.toContain('Account');
+  });
+
+  it('names the limit a take past its own is not refused at, the objects left out for their size kept there with the rest', async () => {
+    // Past 2, Contact (3) is left out and the rest, 5, still refused: raised
+    // to 5, the take kept Contact too, and was refused again for 8.
+    const h = harness();
+    seed(h.org);
+
+    const refused = await takeCheckpoint(h.deps, request({ maxTotal: 2 }));
+    const scope = await scopeCheckpoint(h.deps, request({ maxTotal: 2 }));
+
+    expect(refused.taken ? undefined : refused.refusal).toMatchObject({
+      code: 'TOO_MANY_RECORDS',
+      holdingLimit: 8,
+    });
+    expect(refused.taken ? '' : refused.refusal.message).toContain('hold 5 records');
+    expect(scope.leftOut.map((out) => out.objectApiName)).toContain('Contact');
+    expect(scope.refusal).toMatchObject({ code: 'TOO_MANY_RECORDS', holdingLimit: 8 });
+    expect(await takeCheckpoint(h.deps, request({ maxTotal: 5 }))).toMatchObject({
+      taken: false,
+      refusal: { code: 'TOO_MANY_RECORDS', holdingLimit: 8 },
+    });
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request({ maxTotal: 8 })));
+    expect(checkpoint.objects.map((object) => object.objectApiName)).toContain('Contact');
+    expect(checkpoint.scope.leftOut.filter((out) => out.code === 'pastTheLimit')).toEqual([]);
   });
 
   it('refuses a take that would cost more API requests than the org has left today, before reading any record', async () => {
@@ -2302,6 +2328,27 @@ describe('takeCheckpoint — a take before a run', () => {
     ).rejects.toThrow();
     expect(h.org.asked).toEqual([]);
     expect(checkpointFolders(h.root)).toEqual([]);
+  });
+});
+
+describe('holdingLimit', () => {
+  it('is the least limit whose objects, every one no larger, fit in it', () => {
+    // A run of the gate: past 3000, Contact (3542) and its relations (3473)
+    // left out, 3887 kept; 3542 kept them both, 10902 in all.
+    expect(holdingLimit([3887, 3542, 3473], 3887)).toBe(3887 + 3542 + 3473);
+    expect(holdingLimit([3887, 3542, 3473], 3542)).toBe(10_902);
+    // Held at 9, the object of 5 leaves the one of 20 out; holding that one
+    // takes 29, the three of them.
+    expect(holdingLimit([4, 5, 20], 5)).toBe(9);
+    expect(holdingLimit([4, 5, 20], 20)).toBe(29);
+    expect(holdingLimit([4, 5, 9], 5)).toBe(18);
+    expect(holdingLimit([4, 5], 9)).toBe(9);
+  });
+
+  it('counts no object past what any checkpoint holds, and answers past it when nothing smaller holds the rest', () => {
+    expect(holdingLimit([10, OBJECT_ROWS_MAX + 1], 10)).toBe(10);
+    expect(holdingLimit([600_000, 550_000], 600_000)).toBe(1_150_000);
+    expect(holdingLimit([600_000, 550_000], 600_000)).toBeGreaterThan(OBJECT_ROWS_MAX);
   });
 });
 

@@ -1967,6 +1967,33 @@ describe('SyncOpsHandler', () => {
       });
     });
 
+    it('keeps, under the run’s id, what a run of a configuration sent with no id created, so its removal finds it', async () => {
+      // The bridge takes a configuration with no id, which the page always
+      // gives and a host may not: its file was written with no configId, the
+      // store read no line of it, and the removal answered "nothing to
+      // remove" with 1,000 contacts the run wrote in the target.
+      handler.setRunCreations(creations);
+      creatingOrchestrator({});
+      const anonymous = validSyncConfig();
+      delete anonymous.id;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-no-id-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: anonymous },
+        } as BaseMessage),
+      );
+
+      expect(await creations.get('sync-no-id-1')).toMatchObject({
+        configId: 'sync-no-id-1',
+        end: { status: 'success' },
+        created: [{ objectApiName: 'Account', ids: [CREATED] }],
+      });
+      expect((await creations.list()).map((run) => run.runId)).toContain('sync-no-id-1');
+    });
+
     it('keeps each call of a write as it goes and as it answers, before the object is done', async () => {
       handler.setRunCreations(creations);
       /** What the run had kept while its first call was under way, and once it answered. */
@@ -2738,7 +2765,9 @@ describe('SyncOpsHandler', () => {
       expect(warned).toHaveLength(1);
       expect(warned[0].message).toContain('Account');
       expect(warned[0].message).toContain('5000 record(s)');
-      expect(warned[0].message).toContain('500 pages');
+      // The pages are what stopped it here, short of the records' bound.
+      expect(warned[0].message).toContain('(bound: 500 pages)');
+      expect(warned[0].message).not.toContain('50000 records');
       // The side matters: a short read means something different on each.
       expect(warned[0].message).toContain('from the source');
       expect(warned[0].message).toContain('copies a subset');
@@ -2789,7 +2818,12 @@ describe('SyncOpsHandler', () => {
       const warned = notifications().filter((n) => n.level === 'warning');
       expect(warned).toHaveLength(1);
       expect(warned[0].message).toContain('only 1000 record(s) were read from the source');
-      expect(warned[0].message).toContain('1000 records (sandforge.sync.maxRecordsPerObject)');
+      // The bound that cut it, and no other: "/ 500 pages" followed it, the
+      // pages a read of 1,000 records never reaches.
+      expect(warned[0].message).toContain(
+        '(bound: 1000 records (sandforge.sync.maxRecordsPerObject)) —',
+      );
+      expect(warned[0].message).not.toContain('pages');
       // What lifts it, and what else gets a copy that fits: never a filter
       // or a split run offered against a cap they cannot lift.
       expect(warned[0].message).toContain(

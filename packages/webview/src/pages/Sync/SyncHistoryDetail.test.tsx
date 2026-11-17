@@ -330,6 +330,24 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('sync-history-errors-Pricebook2')).toBeNull();
   });
 
+  it('says on the object whose read the bound cut that the run copied part of it, in the words of the results', () => {
+    // The history kept the run as a success and said nothing of the cut: the
+    // one place the user comes back to had no word that the object was copied in part.
+    const entry = makeMockEntry();
+    entry.result = { ...entry.result, readCap: 50_000, cutAtReadCap: ['Contact'] };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-read-cut-Contact').textContent).toBe(
+      'The read of the source org stopped at 50,000 records, the most a run holds of an ' +
+        'object: this run copied part of it. To copy the rest, read it in slices with a filter ' +
+        'on CreatedDate, one range per run. To copy a sample of the source that fits the target ' +
+        'instead, use Forge with Depth ALL and Records per object set to A sample that fits the ' +
+        'target.',
+    );
+    expect(screen.queryByTestId('history-read-cut-Account')).toBeNull();
+  });
+
   it('says the emails and phone numbers the run neutralized, and the rows linked or written without a lookup, not among the refusals', () => {
     const entry = makeMockEntry();
     entry.result.objectResults[1] = {

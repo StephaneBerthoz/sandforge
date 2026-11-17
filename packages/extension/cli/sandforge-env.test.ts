@@ -24,6 +24,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { loadOrg } from './sfSession.js';
+import { commandOf } from './invocation.js';
 import { sfDisplayFailure } from './sfFailure.js';
 import { acquireEnvLock } from './env/envLock.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
@@ -329,9 +330,14 @@ describe('plan, apply, plan again, destroy', () => {
         expiresAt: expect.any(String),
       }),
     ]);
-    expect(
-      envStateListSchema.parse((await run(['state', '--org', 'OTHER', '--json'])).answer).states,
-    ).toEqual([]);
+    const other = await run(['state', '--org', 'OTHER', '--json']);
+    expect(envStateListSchema.parse(other.answer).states).toEqual([]);
+    // The store keeps the state of another org, which "no state kept in" hid.
+    expect(other.said).toContain('no state of OTHER is kept in ');
+    expect(other.said).toContain(
+      `, which keeps 1 other state: "${commandOf('env')} state" lists it.`,
+    );
+    expect(other.said).not.toContain('no state kept in');
 
     // Drift: a record gone since.
     const [contact] = world.records('Contact');
@@ -662,7 +668,7 @@ describe('asking before it writes', () => {
       message:
         'sf does not know admin@example.com: "sf org list" names the orgs it knows; "sf org ' +
         'login web --alias admin@example.com" adds it (in a CI job, "sf org login jwt" or "sf ' +
-        'org login sfdxurl"). Nothing was read from admin@example.com.',
+        'org login sfdx-url"). Nothing was read from admin@example.com.',
     });
     expect(world.records('Account')).toEqual([]);
   });
