@@ -354,6 +354,22 @@ describe('the GitHub Actions workflow of a pipeline', () => {
     );
     expect(text).not.toContain('sf org display');
   });
+
+  it('signs in to each org with sf org login sfdx-url, the command sf has, never sfdxurl', () => {
+    // Run against a trap org, the workflow it wrote stopped at its sign-in:
+    // sf answered the word it named "Command org:login:sfdxurl not found."
+    const workflow = parse(githubActionsWorkflow(launcherInput()).text) as {
+      jobs: { run: { steps: Array<{ name?: string; run?: string }> } };
+    };
+    const signIn = workflow.jobs.run.steps.find((s) => s.name === "Sign in to the pipeline's orgs");
+    const logins = (signIn?.run ?? '').split('\n').filter((line) => line.includes('sf org login'));
+    expect(logins).toHaveLength(2);
+    expect(logins[0]).toMatch(
+      /^sf org login sfdx-url --sfdx-url-file "\$auth_dir\/org-1\.txt" --alias '?UAT'?$/,
+    );
+    expect(logins[1]).toMatch(/^sf org login sfdx-url --sfdx-url-file "\$auth_dir\/org-2\.txt" /);
+    expect(signIn?.run).not.toContain('sfdxurl');
+  });
 });
 
 describe('the launchers of an export', () => {
