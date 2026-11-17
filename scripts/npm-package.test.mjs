@@ -12,7 +12,14 @@
  * and the refusal of a Node older than the package's floor. A test that only
  * read the sources would pass on a package that cannot start.
  *
+ * The same package is a plugin of the Salesforce CLI: where an sf is found,
+ * the package is installed into a world of its own (its home, its sf folders
+ * in a scratch folder, never the machine's) and run through it, as
+ * `node scripts/npm-package.mjs check-sf` does; with no sf, those tests say
+ * so and are skipped.
+ *
  * SANDFORGE_BIN_NODE=<node> runs the package under another Node than this one.
+ * SANDFORGE_SF=<sf> names the sf to check the plugin with (the PATH's by default).
  *
  * Run: node --test scripts/npm-package.test.mjs
  */
@@ -20,12 +27,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   CHECKS,
   NODE_FLOOR,
   REDIRECT_CHECKS,
   REDIRECT_EXIT,
+  SF_CHECKS,
   build,
   buildRedirects,
   nodeVersionOf,
@@ -33,6 +41,8 @@ import {
   redirectMessage,
   runBin,
   scratchFolder,
+  sfOnPath,
+  sfWorld,
   toolNames,
 } from './npm-package.mjs';
 
@@ -42,14 +52,19 @@ const node = process.env.SANDFORGE_BIN_NODE ?? process.execPath;
 let folder;
 let built;
 let redirects;
+/** The sf the plugin is checked with, or null: none on this machine. */
+const sf = process.env.SANDFORGE_SF ?? sfOnPath();
+let world;
 
 before(async () => {
   folder = scratchFolder();
   built = await build(join(folder, 'package'));
   redirects = buildRedirects(join(folder, 'redirects'));
+  if (sf !== null) world = sfWorld(built.out, node, sf);
 });
 
 after(() => {
+  world?.dispose();
   rmSync(folder, { recursive: true, force: true });
 });
 
@@ -65,6 +80,20 @@ test(`the package runs under the Node it is checked with (${nodeVersionOf(node)}
 for (const check of CHECKS) {
   test(check.name, async () => {
     await check.run({ out: built.out, node, requireNames: false });
+  });
+}
+
+for (const check of SF_CHECKS) {
+  test(`as an sf plugin: ${check.name}`, async (t) => {
+    if (world === undefined) {
+      t.skip('no sf: neither SANDFORGE_SF nor an sf on the PATH');
+      return;
+    }
+    if (check.localOnly && process.env.CI === 'true') {
+      t.skip('a CI runner has no sf of its own to keep');
+      return;
+    }
+    await check.run({ out: built.out, node, world });
   });
 }
 
@@ -170,9 +199,11 @@ test('the build empties no folder that holds something other than a build of the
 
 test('the publish workflow checks the package on its Node floor, and publishes with no token', () => {
   const workflow = readFileSync(join(root, '.github', 'workflows', 'npm-publish.yml'), 'utf8');
-  const matrix = /^\s+bin-node: \[([^\]]+)\]$/m.exec(workflow)?.[1];
-  assert.ok(matrix, 'the workflow has no bin-node matrix');
-  const nodes = matrix.split(',').map((each) => each.trim().replace(/^['"]|['"]$/g, ''));
+  const legs = [...workflow.matchAll(/^\s+- \{ bin-node: '([^']+)', sf: '([^']+)' \}/gm)].map(
+    ([, binNode, sfVersion]) => ({ binNode, sfVersion }),
+  );
+  assert.ok(legs.length > 0, 'the workflow has no bin-node legs');
+  const nodes = legs.map((leg) => leg.binNode);
   const [floorMajor, floorMinor] = NODE_FLOOR.split('.');
   assert.ok(
     nodes.includes(`${floorMajor}.${floorMinor}`),
@@ -206,6 +237,52 @@ test('the publish workflow checks the package on its Node floor, and publishes w
   assert.match(loop, /exit 1/, 'the redirect loop goes on past a failure of npm that is not E404');
 });
 
+test('the publish workflow checks the package as an sf plugin on each leg, with a pinned sf, the oldest one on the Node floor', () => {
+  const workflow = readFileSync(join(root, '.github', 'workflows', 'npm-publish.yml'), 'utf8');
+  const legs = [...workflow.matchAll(/^\s+- \{ bin-node: '([^']+)', sf: '([^']+)' \}/gm)].map(
+    ([, binNode, sfVersion]) => ({ binNode, sfVersion }),
+  );
+  for (const { binNode, sfVersion } of legs) {
+    assert.match(sfVersion, /^\d+\.\d+\.\d+$/, `the leg on Node ${binNode} does not pin its sf`);
+  }
+  // sf 2.140.6, on oclif 4, runs on Node 18.6 and later, where sf 2.150.5 and
+  // later ask for 22: the plugin is proven there on the package's floor.
+  const [floorMajor, floorMinor] = NODE_FLOOR.split('.');
+  assert.deepEqual(
+    legs.find((leg) => leg.binNode === `${floorMajor}.${floorMinor}`)?.sfVersion,
+    '2.140.6',
+  );
+  for (const binNode of ['22', '24']) {
+    assert.ok(
+      legs.some((leg) => leg.binNode === binNode),
+      `no leg runs the plugin on Node ${binNode}`,
+    );
+  }
+  const job = workflow.slice(workflow.indexOf('\n  bin:'), workflow.indexOf('\n  publish:'));
+  const installs = job.indexOf('npm install --global @salesforce/cli@${{ matrix.sf }}');
+  const checks = job.indexOf('node scripts/npm-package.mjs check-sf packages/cli/dist');
+  assert.ok(installs !== -1, 'the bin legs do not install the pinned sf');
+  assert.ok(checks > installs, 'the bin legs do not check the package as an sf plugin');
+  assert.ok(
+    job.indexOf('node-version: ${{ matrix.bin-node }}') < installs,
+    'sf is installed under the repository’s Node, not the leg’s',
+  );
+});
+
+test('a run dispatched by hand checks every leg and never publishes: publishing is a tag’s, behind the npm environment', () => {
+  const workflow = readFileSync(join(root, '.github', 'workflows', 'npm-publish.yml'), 'utf8');
+  assert.match(workflow, /^ {2}workflow_dispatch:\s*$/m, 'the workflow cannot be run by hand');
+  assert.doesNotMatch(workflow, /inputs\./, 'a run dispatched by hand can still ask to publish');
+  const publish = workflow.slice(workflow.indexOf('\n  publish:'));
+  assert.match(
+    publish,
+    /^ {4}if: \$\{\{ github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}$/m,
+  );
+  assert.match(publish, /^ {4}environment: npm$/m);
+  assert.match(publish, /^ {4}needs: bin$/m);
+  assert.match(workflow, /^ {2}push:\n {4}tags: \['v\*'\]$/m);
+});
+
 test('the guides give the package first and the checkout second, at the Node the package runs on', () => {
   const read = (...path) => readFileSync(join(root, ...path), 'utf8');
   const sectionOf = (text, heading) => {
@@ -236,6 +313,44 @@ test('the guides give the package first and the checkout second, at the Node the
   assert.ok(cli.includes('`npx sandforge <name> ...`') && cli.includes(floor));
   const own = read('packages', 'cli', 'README.md');
   assert.ok(own.includes(floor) && own.includes(npx), 'the package README says otherwise');
+});
+
+test('the package README says how to install the sf plugin after npx, what it runs on, what sf records, and every command', async () => {
+  const read = (...path) => readFileSync(join(root, ...path), 'utf8');
+  const own = read('packages', 'cli', 'README.md');
+  const heading = '## As an sf plugin';
+  const at = own.indexOf(`\n${heading}\n`);
+  assert.notEqual(at, -1, `the package README has no "${heading}" section`);
+  const end = own.indexOf('\n## ', at + heading.length + 2);
+  const plugin = own.slice(at, end === -1 ? undefined : end);
+  const floor = `Node.js ${NODE_FLOOR.split('.').slice(0, 2).join('.')} or later`;
+  for (const said of [
+    'sf plugins trust allowlist add --name sandforge',
+    'sf plugins install sandforge',
+    'sf sandforge <command>',
+    floor,
+    'disable-telemetry',
+    'sf plugins uninstall sandforge',
+  ]) {
+    assert.ok(plugin.includes(said), `the sf plugin section does not say "${said}"`);
+  }
+  // The menu of sfdx-hardis: each entry the plugin gives it.
+  const { HARDIS_MENUS } = await import(pathToFileURL(join(built.out, 'lib', 'sfPlugin.mjs')).href);
+  for (const { command } of HARDIS_MENUS.flatMap((menu) => menu.commands)) {
+    assert.ok(plugin.includes(`\`${command}\``), `the sf plugin section does not name ${command}`);
+  }
+  // npx first: it needs nothing installed.
+  assert.ok(own.indexOf('npx sandforge') < at, 'the package README gives the plugin before npx');
+  const requirements = read('README.md');
+  assert.ok(
+    requirements.indexOf('npx sandforge --help') <
+      requirements.indexOf('sf plugins install sandforge'),
+    'the README gives the plugin before npx',
+  );
+  // The table of the commands names every one.
+  for (const tool of toolNames()) {
+    assert.match(own, new RegExp(`^\\| \`${tool}\` +\\|`, 'm'), `the table leaves out ${tool}`);
+  }
 });
 
 test('the packaged clone says how to copy a sample of the whole org, each flag of it, and refuses one alone on 2', () => {

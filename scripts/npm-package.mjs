@@ -9,6 +9,11 @@
  *   node scripts/npm-package.mjs redirects [<folder>]            the packages that keep the old
  *                                                                 names (dist/npm-redirects)
  *   node scripts/npm-package.mjs check-redirects [<folder>] [--node <node>]  their checks
+ *   node scripts/npm-package.mjs check-sf [<folder>] [--node <node>] [--sf <sf>]
+ *                                                                 the package as a plugin of a
+ *                                                                 real sf, installed in folders
+ *                                                                 of its own (sf of the PATH
+ *                                                                 by default)
  *
  * The package is assembled in a folder of its own and published from there:
  * `packages/cli/package.json` is a private workspace manifest that carries
@@ -35,12 +40,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { identifiersIn, masked } from './check-confidential.mjs';
@@ -192,10 +198,41 @@ export function manifest(version, tools = toolNames()) {
       ['sandforge', 'bin/sandforge.mjs'],
       ...tools.map((tool) => [`sandforge-${tool}`, `bin/sandforge-${tool}.mjs`]),
     ]),
-    files: ['bin/', 'lib/', 'THIRD-PARTY-NOTICES.md'],
+    files: ['bin/', 'lib/', 'THIRD-PARTY-NOTICES.md', SF_MANIFEST],
     engines: { node: `>=${NODE_FLOOR}` },
+    // The same package is a plugin of the Salesforce CLI: `sf plugins install
+    // sandforge`, then `sf sandforge clone …`. npm reads none of this, and
+    // nothing of it is a dependency: `npx sandforge` runs as it did.
+    oclif: {
+      commands: `./${SF_COMMANDS}`,
+      topicSeparator: ' ',
+      topics: { sandforge: { description: SF_TOPIC } },
+      hooks: { init: `./${SF_HELP_HOOK}` },
+    },
   };
 }
+
+/**
+ * Where the commands of the sf plugin are, from the package's root. oclif
+ * makes a command of every script file under it, by its path:
+ * `sandforge/clone.mjs` is `sandforge:clone`, `sandforge/index.mjs` is
+ * `sandforge`. Nothing else lives there.
+ */
+export const SF_COMMANDS = 'lib/sf';
+
+/** The manifest of the sf plugin's commands, which oclif reads instead of importing each one. */
+export const SF_MANIFEST = 'oclif.manifest.json';
+
+/** The `init` hook that answers `sf sandforge … --help` with the script's own help. */
+export const SF_HELP_HOOK = 'lib/sfHelpHook.mjs';
+
+/** What sf says of the topic and of the root command `sf sandforge`. */
+export const SF_TOPIC =
+  "SandForge's command lines: seed, clone, sync, checkpoints, masking, Frozen Datasets, " +
+  'sandforge.yaml, pipelines, MCP';
+
+/** The hidden command the sfdx-hardis VS Code extension asks each plugin for its menus. */
+export const HARDIS_COMMAND = 'hardis-commands';
 
 /**
  * A command of the package: refuses a Node older than the package's floor
@@ -206,20 +243,161 @@ export function manifest(version, tools = toolNames()) {
  * and the command would end on 0 having done nothing.
  */
 export function binStub(target) {
-  const [major, minor] = NODE_FLOOR.split('.').map(Number);
   return `#!/usr/bin/env node
-const [major, minor] = process.versions.node.split('.').map(Number);
-if (major < ${major} || (major === ${major} && minor < ${minor})) {
-  process.stderr.write(
-    'sandforge needs Node.js ${major}.${minor} or later, and this is ' + process.versions.node + '. Nothing was run.\\n',
-  );
-  process.exit(1);
-}
+${nodeGuard('', ['process.exit(1);'])}
 const { fileURLToPath } = await import('node:url');
 const entry = new URL('../lib/${target}', import.meta.url);
 process.argv[1] = fileURLToPath(entry);
 await import(entry.href);
 `;
+}
+
+/**
+ * The refusal of a Node older than the package's floor, the same sentence on
+ * every way in: `bin/`, and the commands of the sf plugin, which sf starts
+ * without `bin/` (sf 2.140 and older run on Node 18).
+ *
+ * @param indent - What each line opens on.
+ * @param refuse - The lines that end the command once the sentence is said.
+ */
+function nodeGuard(indent, refuse) {
+  const [major, minor] = NODE_FLOOR.split('.').map(Number);
+  return [
+    "const [major, minor] = process.versions.node.split('.').map(Number);",
+    `if (major < ${major} || (major === ${major} && minor < ${minor})) {`,
+    '  process.stderr.write(',
+    `    'sandforge needs Node.js ${major}.${minor} or later, and this is ' + process.versions.node + '. Nothing was run.\\n',`,
+    '  );',
+    ...refuse.map((line) => `  ${line}`),
+    '}',
+  ]
+    .map((line) => `${indent}${line}`)
+    .join('\n');
+}
+
+/**
+ * The commands of the sf plugin, each a class oclif takes for a command
+ * because it has a static `run`, with no `@oclif/core` behind it: the root
+ * `sandforge`, one per script, and the hidden menus of sfdx-hardis.
+ *
+ * @param tools - What each script does, by name: `TOOLS` of the built dispatcher.
+ * @param paragraphs - The first paragraph of each script's `--help`, by name,
+ *   and of `sandforge --help` under `''`.
+ * @returns For each: its id, its file in `lib/sf/sandforge/`, the statics of
+ *   its class, and the call its `run` makes once the Node is checked.
+ */
+export function sfCommands(tools, paragraphs) {
+  const argv = (description) => ({ argv: { name: 'argv', description } });
+  const command = (id, file, statics, call) => ({
+    id,
+    file,
+    statics: {
+      summary: statics.summary,
+      description: statics.description,
+      hidden: statics.hidden ?? false,
+      strict: false,
+      flags: {},
+      args: statics.args,
+    },
+    call,
+  });
+  return [
+    command(
+      'sandforge',
+      'index.mjs',
+      {
+        summary: SF_TOPIC,
+        description: `${paragraphs['']}\n\nIts commands: sf sandforge --help. The whole help of one, its options and its exit codes: sf sandforge <command> --help.`,
+        args: argv('the words npx sandforge takes'),
+      },
+      "const { runTool } = await import('../../sfPlugin.mjs');\nawait runTool('', argv);",
+    ),
+    ...Object.entries(tools).map(([tool, summary]) =>
+      command(
+        `sandforge:${tool}`,
+        `${tool}.mjs`,
+        {
+          summary,
+          description: `${paragraphs[tool]}\n\nThe whole help, its options and its exit codes: sf sandforge ${tool} --help.`,
+          args: argv(`the words npx sandforge ${tool} takes`),
+        },
+        `const { runTool } = await import('../../sfPlugin.mjs');\nawait runTool(${JSON.stringify(tool)}, argv);`,
+      ),
+    ),
+    command(
+      `sandforge:${HARDIS_COMMAND}`,
+      `${HARDIS_COMMAND}.mjs`,
+      {
+        summary: 'the menus of SandForge in the sfdx-hardis VS Code extension',
+        description:
+          'The entries SandForge adds to the menus of the sfdx-hardis VS Code extension, each ' +
+          'reaching no org. With --json, the document the extension reads, alone on stdout.',
+        hidden: true,
+        args: argv('nothing, or --json for the document the extension reads'),
+      },
+      "const { hardisCommands } = await import('../../sfPlugin.mjs');\nprocess.exitCode = hardisCommands(argv);",
+    ),
+  ];
+}
+
+/** The file of a command of the sf plugin: its class, its Node checked before anything is loaded. */
+export function sfCommandStub({ statics, call }) {
+  const fields = Object.entries(statics).map(
+    ([key, value]) => `  static ${key} = ${JSON.stringify(value)};`,
+  );
+  return `export default class SandforgeCommand {
+${fields.join('\n')}
+  static async run(argv) {
+${nodeGuard('    ', ['process.exitCode = 1;', 'return;'])}
+${call
+  .split('\n')
+  .map((line) => `    ${line}`)
+  .join('\n')}
+  }
+}
+`;
+}
+
+/**
+ * A command's entry in `oclif.manifest.json`: what oclif's `cacheCommand`
+ * makes of its class's statics, so that sf lists and finds it without
+ * importing it, and finds the same thing when it does.
+ */
+export function manifestEntry(id, statics, relativePath) {
+  const entry = {
+    aliases: (statics.aliases ?? []).map((alias) => alias.replaceAll(' ', ':')),
+    args: Object.fromEntries(
+      Object.entries(statics.args ?? {}).map(([name, arg]) => [
+        name,
+        { description: arg.description, name },
+      ]),
+    ),
+    description: statics.description,
+    examples: statics.examples ?? statics.example,
+    flags: statics.flags,
+    hasDynamicHelp: false,
+    hidden: statics.hidden,
+    hiddenAliases: statics.hiddenAliases ?? [],
+    id,
+    pluginAlias: 'sandforge',
+    pluginName: 'sandforge',
+    pluginType: 'core',
+    strict: statics.strict,
+    summary: statics.summary,
+    isESM: true,
+    relativePath,
+  };
+  // What oclif leaves undefined is not written.
+  return JSON.parse(JSON.stringify(entry));
+}
+
+/** The first paragraph of a help, its lines joined: sf wraps it to the terminal itself. */
+export function firstParagraph(help) {
+  return help
+    .split(/\n[ \t]*\n/)[0]
+    .split('\n')
+    .map((line) => line.trim())
+    .join(' ');
 }
 
 /**
@@ -409,6 +587,7 @@ const BUILT = new Set([
   'README.md',
   'LICENSE',
   'THIRD-PARTY-NOTICES.md',
+  SF_MANIFEST,
 ]);
 
 /**
@@ -424,6 +603,50 @@ function clearOut(out) {
     );
   }
   rmSync(out, { recursive: true, force: true });
+}
+
+/**
+ * Write the commands of the sf plugin and their manifest into a package whose
+ * scripts and `bin/` are built: each command says what `TOOLS` of the built
+ * dispatcher says of its script, and the first paragraph of its `--help`.
+ */
+async function writeSfCommands(out, version) {
+  const { TOOLS } = await import(pathToFileURL(join(out, 'lib', 'sandforge.mjs')).href);
+  const home = scratchFolder();
+  let paragraphs;
+  try {
+    const helpOf = (words) => {
+      const asked = runBin(out, ['sandforge', ...words, '--help'], {
+        node: process.execPath,
+        env: sealedEnv(home),
+        cwd: home,
+      });
+      if (asked.code !== 0) {
+        throw new Error(
+          `sandforge ${words.join(' ')} --help ended on ${asked.code}: ${asked.stderr}`,
+        );
+      }
+      return firstParagraph(asked.stdout);
+    };
+    paragraphs = Object.fromEntries([
+      ['', helpOf([])],
+      ...Object.keys(TOOLS).map((tool) => [tool, helpOf([tool])]),
+    ]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+  const folder = join(out, SF_COMMANDS, 'sandforge');
+  mkdirSync(folder, { recursive: true });
+  const commands = {};
+  for (const command of sfCommands(TOOLS, paragraphs)) {
+    writeFileSync(join(folder, command.file), sfCommandStub(command));
+    commands[command.id] = manifestEntry(command.id, command.statics, [
+      ...SF_COMMANDS.split('/'),
+      'sandforge',
+      command.file,
+    ]);
+  }
+  writeFileSync(join(out, SF_MANIFEST), `${JSON.stringify({ commands, version })}\n`);
 }
 
 /**
@@ -448,6 +671,10 @@ export async function build(out = DEFAULT_OUT) {
     entryPoints: [
       join(CLI, 'sandforge.ts'),
       ...tools.map((tool) => join(CLI, `sandforge-${tool}.ts`)),
+      // The sf plugin: what its commands run, and its help hook, which every
+      // sf command of whoever installed it loads, alone.
+      join(CLI, 'sfPlugin.ts'),
+      join(CLI, 'sfHelpHook.ts'),
     ],
     outdir: lib,
     entryNames: '[name]',
@@ -509,6 +736,9 @@ export async function build(out = DEFAULT_OUT) {
   copyFileSync(join(PACKAGE, 'README.md'), join(out, 'README.md'));
   copyFileSync(join(root, 'LICENSE'), join(out, 'LICENSE'));
   writeFileSync(join(out, 'THIRD-PARTY-NOTICES.md'), thirdPartyNotices(result.metafile));
+
+  // The commands' help is read from the package as built: its version too.
+  await writeSfCommands(out, version);
 
   const leftOver = scanText(out);
   if (leftOver.length > 0)
@@ -582,8 +812,10 @@ export function runBin(out, args, options = {}) {
  */
 export function talkToMcp(out, messages, options = {}) {
   const node = options.node ?? process.env.SANDFORGE_BIN_NODE ?? process.execPath;
+  // `options.line`: another way in to the same server, `sf sandforge mcp`.
+  const [command, ...args] = options.line ?? [node, join(out, 'bin', 'sandforge.mjs'), 'mcp'];
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(node, [join(out, 'bin', 'sandforge.mjs'), 'mcp'], {
+    const child = spawn(command, args, {
       env: options.env ?? process.env,
       cwd: options.cwd ?? tmpdir(),
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -656,17 +888,7 @@ export function installLocally(out, prefix) {
   const windows = process.platform === 'win32';
   const npm = windows ? 'npm.cmd' : 'npm';
   const options = { encoding: 'utf8', shell: windows };
-  const pack = spawnSync(
-    npm,
-    ['pack', '--json', '--ignore-scripts', '--pack-destination', prefix],
-    {
-      ...options,
-      cwd: out,
-    },
-  );
-  if (pack.status !== 0) throw new Error(`npm pack failed: ${pack.stderr}`);
-  const answer = JSON.parse(pack.stdout);
-  const [packed] = Array.isArray(answer) ? answer : Object.values(answer);
+  const tarball = packInto(out, prefix);
   const target = join(prefix, 'installed');
   mkdirSync(target);
   const install = spawnSync(
@@ -680,7 +902,7 @@ export function installLocally(out, prefix) {
       '--no-package-lock',
       '--prefix',
       target,
-      join(prefix, packed.filename),
+      tarball,
     ],
     { ...options, cwd: target },
   );
@@ -689,6 +911,145 @@ export function installLocally(out, prefix) {
   return windows
     ? join(target, 'node_modules', 'sandforge', 'bin')
     : join(target, 'node_modules', '.bin');
+}
+
+/**
+ * The tarball `npm pack` makes of the built package, in `folder`: what the
+ * registry would serve.
+ *
+ * @returns Its path.
+ */
+function packInto(out, folder) {
+  const windows = process.platform === 'win32';
+  const pack = spawnSync(
+    windows ? 'npm.cmd' : 'npm',
+    ['pack', '--json', '--ignore-scripts', '--pack-destination', folder],
+    { encoding: 'utf8', shell: windows, cwd: out },
+  );
+  if (pack.status !== 0) throw new Error(`npm pack failed: ${pack.stderr}`);
+  const answer = JSON.parse(pack.stdout);
+  const [packed] = Array.isArray(answer) ? answer : Object.values(answer);
+  return join(folder, packed.filename);
+}
+
+/** The `sf` on a PATH, or null when there is none. */
+export function sfOnPath(path = process.env.PATH ?? '') {
+  const names = process.platform === 'win32' ? ['sf.cmd', 'sf.exe'] : ['sf'];
+  for (const folder of path.split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const file = join(folder, name);
+      if (existsSync(file) && statSync(file).isFile()) return file;
+    }
+  }
+  return null;
+}
+
+/**
+ * How a check starts the Salesforce CLI `sf` names: the CLI's own script
+ * under the Node checked when it is found, or `sf` as it is. npm links `sf` to
+ * the script (`bin/run.js`). A shell launcher that names the script is read
+ * for it: run in the check's own home, a launcher that finds its Node by
+ * `$HOME` would look for it there.
+ */
+export function sfEntryOf(sf) {
+  const real = realpathSync(sf);
+  if (/\.[cm]?js$/.test(real)) return { script: true, file: real };
+  const head = readFileSync(real).subarray(0, 4096).toString('utf8');
+  if (/^#!.*\bnode\b/.test(head)) return { script: true, file: real };
+  const named = /((?:\$\{HOME\}|\$HOME|~)?[^\s"'=]*@salesforce\/cli\/bin\/run(?:\.js)?)/.exec(
+    head,
+  )?.[1];
+  if (named !== undefined) {
+    const file = named.replace(/^(?:\$\{HOME\}|\$HOME|~)/, homedir());
+    if (existsSync(file)) return { script: true, file };
+  }
+  return { script: false, file: sf };
+}
+
+/**
+ * What of the Salesforce CLI's own folders on this machine `check-sf` could
+ * change by mistake: the plugins installed, and the list of unsigned plugins
+ * allowed. It never changes any of it.
+ */
+export function userSfFingerprint(home = homedir()) {
+  const read = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null);
+  const names = (folder) => (existsSync(folder) ? readdirSync(folder).sort() : null);
+  const config = join(home, '.config', 'sf');
+  const data = join(home, '.local', 'share', 'sf');
+  return JSON.stringify({
+    config: names(config),
+    allowList: read(join(config, 'unsignedPluginAllowList.json')),
+    data: names(data),
+    plugins: read(join(data, 'package.json')),
+  });
+}
+
+/** A path in single quotes, for a line of `sh`. */
+const shQuoted = (text) => `'${String(text).replaceAll("'", "'\\''")}'`;
+
+/**
+ * A Salesforce CLI of its own for `check-sf`: its home, its data, config and
+ * cache folders in a scratch folder, telemetry, updates and the version
+ * check off, npm offline, and an `sf` on the PATH that knows no org. Its
+ * plugin installs land there, never in the folders of the machine's sf.
+ *
+ * @returns The world: how to run its sf, its environment, the package's
+ *   tarball, and what the machine's sf folders held when it was made.
+ */
+export function sfWorld(out, node, sf) {
+  const windows = process.platform === 'win32';
+  const at = scratchFolder();
+  const home = join(at, 'home');
+  const bin = join(at, 'sf-bin');
+  mkdirSync(home);
+  mkdirSync(bin);
+  const user = userSfFingerprint();
+  const entry = sfEntryOf(sf);
+  const line = entry.script ? [node, entry.file] : [entry.file];
+  writeFileSync(join(bin, 'sf'), `#!/bin/sh\nexec ${line.map(shQuoted).join(' ')} "$@"\n`);
+  chmodSync(join(bin, 'sf'), 0o755);
+  writeFileSync(join(bin, 'sf.cmd'), `@${line.map((part) => `"${part}"`).join(' ')} %*\r\n`);
+  const env = {
+    ...sealedEnv(home),
+    PATH: [bin, dirname(node), ...(windows ? [] : ['/usr/bin', '/bin'])].join(delimiter),
+    XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_DATA_HOME: join(home, '.local', 'share'),
+    XDG_CACHE_HOME: join(home, '.cache'),
+    SF_CONFIG_DIR: join(at, 'sf-config'),
+    SF_DATA_DIR: join(at, 'sf-data'),
+    SF_CACHE_DIR: join(at, 'sf-cache'),
+    SF_DISABLE_TELEMETRY: 'true',
+    SF_AUTOUPDATE_DISABLE: 'true',
+    SF_SKIP_NEW_VERSION_CHECK: 'true',
+    SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+    npm_config_cache: join(at, 'npm-cache'),
+    npm_config_userconfig: join(at, 'npmrc'),
+    npm_config_offline: 'true',
+    npm_config_update_notifier: 'false',
+  };
+  const sfFile = join(bin, windows ? 'sf.cmd' : 'sf');
+  return {
+    at,
+    home,
+    env,
+    sfFile,
+    user,
+    tarball: packInto(out, at),
+    sf: (args) => {
+      const result = spawnSync(sfFile, args, {
+        encoding: 'utf8',
+        env,
+        cwd: home,
+        // stdin closed: a question sf asks is answered by its default, no.
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: windows,
+        timeout: 300_000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+    },
+    dispose: () => rmSync(at, { recursive: true, force: true }),
+  };
 }
 
 /** The client names of `.confidential-names`, as `scripts/check-confidential.mjs` reads them. */
@@ -833,6 +1194,93 @@ function pipelineFixture(home) {
   return file;
 }
 
+/** The files of `lib/sf/sandforge/`: the root, one per script, and the menus of sfdx-hardis. */
+export function sfCommandFiles(tools) {
+  return ['index.mjs', `${HARDIS_COMMAND}.mjs`, ...tools.map((tool) => `${tool}.mjs`)];
+}
+
+/**
+ * Run a module written into `home` under `node`, from `home`.
+ *
+ * @returns Its exit code and what it wrote.
+ */
+function runModule(node, home, name, text, env, execArgv = [], args = []) {
+  const file = join(home, name);
+  writeFileSync(file, text);
+  const result = spawnSync(node, [...execArgv, file, ...args], {
+    encoding: 'utf8',
+    env,
+    cwd: home,
+    timeout: 60_000,
+  });
+  return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** Each class of `lib/sf/sandforge/`, imported as oclif imports it: its statics, the type of its run. */
+const INTROSPECT = `import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const out = process.argv[2];
+const folder = join(out, ${JSON.stringify(SF_COMMANDS)}, 'sandforge');
+const classes = {};
+for (const file of readdirSync(folder).sort()) {
+  const { default: command } = await import(pathToFileURL(join(folder, file)).href);
+  classes[file] = {
+    run: typeof command?.run,
+    statics: command ? Object.fromEntries(Object.keys(command).map((key) => [key, command[key]])) : null,
+  };
+}
+const { TOOLS } = await import(pathToFileURL(join(out, 'lib', 'sandforge.mjs')).href);
+process.stdout.write(JSON.stringify({ classes, tools: TOOLS }));
+`;
+
+/** The classes of the sf plugin and the dispatcher's `TOOLS`, as `node` imports them. */
+function importedCommands(out, node) {
+  const home = scratchFolder();
+  try {
+    const result = runModule(node, home, 'introspect.mjs', INTROSPECT, sealedEnv(home), [], [out]);
+    if (result.code !== 0) {
+      throw new Error(`the commands of the sf plugin do not import: ${result.stderr}`);
+    }
+    return JSON.parse(result.stdout);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+/** What sf does with a command it found: import its file, then `run` with the words after its id. */
+const COMMAND_DRIVER = `import { pathToFileURL } from 'node:url';
+const { default: command } = await import(pathToFileURL(process.argv[2]).href);
+await command.run(JSON.parse(process.argv[3]), {});
+`;
+
+/**
+ * Run a command of the sf plugin as sf runs it, without sf: its class
+ * imported, its `run` called with the words.
+ *
+ * @param tool - The script; `''` for the root command, `sandforge`.
+ */
+function runSfCommand(out, node, home, tool, argv, env, execArgv = []) {
+  const file = join(out, SF_COMMANDS, 'sandforge', tool === '' ? 'index.mjs' : `${tool}.mjs`);
+  return runModule(node, home, 'sf-command.mjs', COMMAND_DRIVER, env, execArgv, [
+    file,
+    JSON.stringify(argv),
+  ]);
+}
+
+/** What the hook's driver prints when the hook left the line to sf. */
+const HOOK_LEFT = 'the hook left the line to sf\n';
+
+/** What sf does with an `init` hook: call it with its configuration as `this`, the id and the words. */
+const HOOK_DRIVER = `import { pathToFileURL } from 'node:url';
+const [hookFile, commandsJson, id, argvJson] = process.argv.slice(2);
+const { default: hook } = await import(pathToFileURL(hookFile).href);
+const commands = JSON.parse(commandsJson);
+const config = { findCommand: (asked) => commands[asked] };
+await hook.call({ config }, { id, argv: JSON.parse(argvJson), config });
+process.stdout.write(${JSON.stringify(HOOK_LEFT)});
+`;
+
 /**
  * The checks a built package passes before it is published, each one a
  * function that throws what it found. `node scripts/npm-package.mjs check`
@@ -861,6 +1309,21 @@ export const CHECKS = [
         if (!existsSync(join(out, file)))
           throw new Error(`the command ${file} is not in the package`);
       }
+      // The sf plugin: its commands, its manifest and its help hook, named
+      // where the package has them, and still no dependency above.
+      assertEqual(
+        published.oclif,
+        {
+          commands: './lib/sf',
+          topicSeparator: ' ',
+          topics: { sandforge: { description: SF_TOPIC } },
+          hooks: { init: './lib/sfHelpHook.mjs' },
+        },
+        'package.json does not make the package the sf plugin it is',
+      );
+      if (!published.files.includes('oclif.manifest.json')) {
+        throw new Error('package.json leaves oclif.manifest.json out of its files');
+      }
     },
   },
   {
@@ -868,17 +1331,26 @@ export const CHECKS = [
     run: ({ out }) => {
       const files = packedFiles(out);
       const allowed =
-        /^(package\.json|README\.md|LICENSE|THIRD-PARTY-NOTICES\.md|bin\/sandforge(-[a-z]+)?\.mjs|lib\/(sandforge(-[a-z]+)?|chunk-[A-Z0-9]+)\.mjs|lib\/catalogue\.en\.json)$/;
-      const strange = files.filter((file) => !allowed.test(file));
+        /^(package\.json|README\.md|LICENSE|THIRD-PARTY-NOTICES\.md|oclif\.manifest\.json|bin\/sandforge(-[a-z]+)?\.mjs|lib\/(sandforge(-[a-z]+)?|chunk-[A-Z0-9]+|sfPlugin|sfHelpHook)\.mjs|lib\/catalogue\.en\.json)$/;
+      // oclif makes a command of every script under lib/sf: those of the
+      // plugin, and nothing else.
+      const commands = sfCommandFiles(toolNames()).map(
+        (file) => `${SF_COMMANDS}/sandforge/${file}`,
+      );
+      const strange = files.filter((file) => !allowed.test(file) && !commands.includes(file));
       if (strange.length > 0) throw new Error(`npm would publish these too: ${strange.join(', ')}`);
       const expected = [
         'package.json',
         'README.md',
         'LICENSE',
         'THIRD-PARTY-NOTICES.md',
+        'oclif.manifest.json',
         'lib/catalogue.en.json',
         'bin/sandforge.mjs',
         'lib/sandforge.mjs',
+        'lib/sfPlugin.mjs',
+        'lib/sfHelpHook.mjs',
+        ...commands,
         ...toolNames().flatMap((tool) => [
           `bin/sandforge-${tool}.mjs`,
           `lib/sandforge-${tool}.mjs`,
@@ -886,6 +1358,307 @@ export const CHECKS = [
       ];
       const missing = expected.filter((file) => !files.includes(file));
       if (missing.length > 0) throw new Error(`npm would leave these out: ${missing.join(', ')}`);
+    },
+  },
+  {
+    name: 'the manifest of the sf plugin is what oclif makes of each command, at the version of the package',
+    run: ({ out, node }) => {
+      const written = readJson(join(out, SF_MANIFEST));
+      const version = readJson(join(out, 'package.json')).version;
+      if (written.version !== version) {
+        // oclif says "Mismatched version" and imports every command instead.
+        throw new Error(`${SF_MANIFEST} is at ${written.version}, the package at ${version}`);
+      }
+      const tools = toolNames();
+      assertEqual(
+        Object.keys(written.commands).sort(),
+        [
+          'sandforge',
+          `sandforge:${HARDIS_COMMAND}`,
+          ...tools.map((tool) => `sandforge:${tool}`),
+        ].sort(),
+        `${SF_MANIFEST} does not name the commands of the plugin`,
+      );
+      // oclif's help renders each text through ejs.
+      if (JSON.stringify(written).includes('<%')) {
+        throw new Error(`${SF_MANIFEST} holds "<%", which oclif's help would run as a template`);
+      }
+      const { classes, tools: summaries } = importedCommands(out, node);
+      for (const [id, entry] of Object.entries(written.commands)) {
+        const file = id === 'sandforge' ? 'index.mjs' : `${id.slice('sandforge:'.length)}.mjs`;
+        const relativePath = [...SF_COMMANDS.split('/'), 'sandforge', file];
+        if (
+          entry.strict !== false ||
+          entry.isESM !== true ||
+          JSON.stringify(entry.flags) !== '{}' ||
+          entry.pluginName !== 'sandforge' ||
+          entry.hidden !== (id === `sandforge:${HARDIS_COMMAND}`)
+        ) {
+          throw new Error(`${id}: ${JSON.stringify(entry)}`);
+        }
+        assertEqual(entry.relativePath, relativePath, `${id}'s file`);
+        if (!existsSync(join(out, ...relativePath))) throw new Error(`${id}: no ${file}`);
+        const tool = id.slice('sandforge:'.length);
+        if (id !== 'sandforge' && tool !== HARDIS_COMMAND && entry.summary !== summaries[tool]) {
+          throw new Error(`${id} says "${entry.summary}", sandforge --help "${summaries[tool]}"`);
+        }
+        const imported = classes[file];
+        if (imported === undefined) throw new Error(`${id}: ${file} was not imported`);
+        assertEqual(
+          entry,
+          manifestEntry(id, imported.statics, relativePath),
+          `${id}'s entry is not what oclif makes of its class`,
+        );
+      }
+      const strays = Object.keys(classes).filter(
+        (file) => !Object.values(written.commands).some((e) => e.relativePath.at(-1) === file),
+      );
+      if (strays.length > 0) throw new Error(`commands with no entry: ${strays.join(', ')}`);
+    },
+  },
+  {
+    name: 'each command of the sf plugin is a class with a static run, not strict, and nothing of the package loads @oclif',
+    run: ({ out, node }) => {
+      const loading = filesOf(join(out, 'lib')).filter((file) =>
+        /@oclif\//.test(readFileSync(join(out, 'lib', file), 'utf8')),
+      );
+      if (loading.length > 0) throw new Error(`these name @oclif: ${loading.join(', ')}`);
+      const { classes } = importedCommands(out, node);
+      assertEqual(
+        Object.keys(classes).sort(),
+        sfCommandFiles(toolNames()).sort(),
+        'the classes of lib/sf/sandforge',
+      );
+      for (const [file, imported] of Object.entries(classes)) {
+        // oclif takes for a command what has a static run, and reads the line
+        // as words of the command, not as an id, once it is not strict.
+        if (imported.run !== 'function' || imported.statics?.strict !== false) {
+          throw new Error(`${file}: run is a ${imported.run}, strict ${imported.statics?.strict}`);
+        }
+      }
+    },
+  },
+  {
+    name: 'a command of the sf plugin runs its script in the process, as sf runs it, with its exit codes',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const env = sealedEnv(home);
+        const rejected = runSfCommand(out, node, home, 'clone', ['--no-such-flag'], env);
+        if (rejected.code !== 2) {
+          throw new Error(
+            `sandforge:clone --no-such-flag ended on ${rejected.code}: ${rejected.stderr}`,
+          );
+        }
+        const listed = runSfCommand(out, node, home, 'seed', ['--list-templates'], env);
+        if (listed.code !== 0 || !/ Minimal Demo$/m.test(listed.stdout)) {
+          throw new Error(
+            `sandforge:seed --list-templates ended on ${listed.code}: ${listed.stdout}${listed.stderr}`,
+          );
+        }
+        const verb = runSfCommand(out, node, home, 'pipeline', ['plan', '--help'], env);
+        if (
+          verb.code !== 0 ||
+          !verb.stdout.startsWith(HELP_HEAD('pipeline')) ||
+          !verb.stdout.includes('plan      connect each org')
+        ) {
+          throw new Error(`sandforge:pipeline plan --help ended on ${verb.code}: ${verb.stderr}`);
+        }
+        const bare = runSfCommand(out, node, home, '', [], env);
+        if (
+          bare.code !== 2 ||
+          !bare.stderr.startsWith('Name the command to run. Nothing was run.')
+        ) {
+          throw new Error(`sandforge alone ended on ${bare.code}: ${bare.stderr}${bare.stdout}`);
+        }
+        const alias = 'NO-SUCH-ALIAS';
+        const unknown = runSfCommand(out, node, home, 'monitor', ['--org', alias], {
+          ...env,
+          PATH: `${unknownAliasSf(home, alias)}${delimiter}${env.PATH}`,
+        });
+        if (unknown.code !== 1 || !unknown.stderr.includes(`sf does not know ${alias}`)) {
+          throw new Error(
+            `sandforge:monitor --org ${alias} ended on ${unknown.code}: ${unknown.stderr}`,
+          );
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    name: 'a command of the sf plugin refuses a Node older than the package before it loads anything of lib/',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const older = join(home, 'older-node.mjs');
+        writeFileSync(
+          older,
+          "Object.defineProperty(process, 'versions', { value: { ...process.versions, node: '20.18.3' } });\n",
+        );
+        // Every module the command's process resolves, written down by a
+        // hook of Node's module loader.
+        const log = join(home, 'loaded.txt');
+        writeFileSync(log, '');
+        writeFileSync(
+          join(home, 'trace-hooks.mjs'),
+          [
+            "import { appendFileSync } from 'node:fs';",
+            'let log;',
+            'export function initialize(data) { log = data.log; }',
+            'export async function resolve(specifier, context, next) {',
+            '  const resolved = await next(specifier, context);',
+            "  appendFileSync(log, resolved.url + '\\n');",
+            '  return resolved;',
+            '}',
+            '',
+          ].join('\n'),
+        );
+        const trace = join(home, 'trace.mjs');
+        writeFileSync(
+          trace,
+          "import { register } from 'node:module';\n" +
+            `register('./trace-hooks.mjs', import.meta.url, { data: { log: ${JSON.stringify(log)} } });\n`,
+        );
+        const result = runSfCommand(out, node, home, 'clone', ['--help'], sealedEnv(home), [
+          '--import',
+          pathToFileURL(trace).href,
+          '--import',
+          pathToFileURL(older).href,
+        ]);
+        if (
+          result.code !== 1 ||
+          !/^sandforge needs Node\.js 20\.19 or later, and this is 20\.18\.3\. Nothing was run\.$/m.test(
+            result.stderr,
+          ) ||
+          result.stdout !== ''
+        ) {
+          throw new Error(
+            `sandforge:clone under Node 20.18.3 ended on ${result.code}: ${result.stderr}${result.stdout}`,
+          );
+        }
+        const lib = `${pathToFileURL(join(out, 'lib')).href}/`;
+        const command = pathToFileURL(join(out, SF_COMMANDS, 'sandforge', 'clone.mjs')).href;
+        const loaded = readFileSync(log, 'utf8').split('\n').filter(Boolean);
+        // The trace saw the command itself, or it saw nothing at all.
+        if (!loaded.includes(command))
+          throw new Error(`the trace missed the command: ${loaded.join(', ')}`);
+        const more = loaded.filter((url) => url.startsWith(lib) && url !== command);
+        if (more.length > 0) throw new Error(`under Node 20.18.3 it loaded ${more.join(', ')}`);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    name: "sf sandforge … --help is the script's own help: the init hook runs bin/, and leaves any other line to sf",
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const written = readJson(join(out, SF_MANIFEST)).commands;
+        const commands = {
+          ...Object.fromEntries(
+            Object.entries(written).map(([id, e]) => [
+              id,
+              { id: e.id, pluginName: e.pluginName, hidden: e.hidden },
+            ]),
+          ),
+          'org:list': { id: 'org:list', pluginName: '@salesforce/plugin-org', hidden: false },
+        };
+        const hook = (id, argv) =>
+          runModule(
+            node,
+            home,
+            'hook.mjs',
+            HOOK_DRIVER,
+            sealedEnv(home),
+            [],
+            [join(out, SF_HELP_HOOK), JSON.stringify(commands), id, JSON.stringify(argv)],
+          );
+        for (const [id, argv, words] of [
+          ['sandforge:clone', ['--help'], ['clone', '--help']],
+          ['sandforge:clone', ['-h'], ['clone', '-h']],
+          ['sandforge:pipeline', ['plan', '--help'], ['pipeline', 'plan', '--help']],
+          ['sandforge', ['--help'], ['--help']],
+        ]) {
+          const said = hook(id, argv);
+          const own = runBin(out, ['sandforge', ...words], {
+            node,
+            env: sealedEnv(home),
+            cwd: home,
+          });
+          if (said.code !== 0 || said.stdout !== own.stdout || own.code !== 0) {
+            throw new Error(
+              `the hook for ${id} ${argv.join(' ')} ended on ${said.code}, and said ` +
+                `${said.stdout === own.stdout ? 'the same' : 'something else'}: ${said.stderr}`,
+            );
+          }
+        }
+        for (const [id, argv] of [
+          ['org:list', ['--help']],
+          ['sandforge:clone', ['--', '--help']],
+          [`sandforge:${HARDIS_COMMAND}`, ['--help']],
+        ]) {
+          const left = hook(id, argv);
+          if (left.code !== 0 || left.stdout !== HOOK_LEFT) {
+            throw new Error(`the hook took ${id} ${argv.join(' ')}: ${left.stdout}${left.stderr}`);
+          }
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    name: 'sf sandforge:hardis-commands --json answers the menus of sfdx-hardis alone on stdout, each entry reaching no org',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const env = sealedEnv(home);
+        const answered = runSfCommand(out, node, home, HARDIS_COMMAND, ['--json'], env);
+        let menus;
+        try {
+          menus = JSON.parse(answered.stdout);
+        } catch {
+          menus = undefined;
+        }
+        const entries = (menus?.result?.customCommands ?? []).flatMap(
+          (menu) => menu.commands ?? [],
+        );
+        if (
+          answered.code !== 0 ||
+          menus?.status !== 0 ||
+          answered.stderr !== '' ||
+          entries.length === 0
+        ) {
+          throw new Error(
+            `hardis-commands --json ended on ${answered.code}: ${answered.stdout}${answered.stderr}`,
+          );
+        }
+        // An sf that notes it was run: no entry may start it.
+        const trap = join(home, 'trap-bin');
+        const ran = join(home, 'sf-ran.txt');
+        mkdirSync(trap);
+        writeFileSync(join(trap, 'sf'), `#!/bin/sh\necho "$@" >> '${ran}'\nexit 1\n`);
+        chmodSync(join(trap, 'sf'), 0o755);
+        writeFileSync(join(trap, 'sf.cmd'), `@echo %* >> "${ran}"\r\n@exit /b 1\r\n`);
+        for (const { command } of entries) {
+          const [sf, plugin, word, ...rest] = command.split(' ');
+          if (sf !== 'sf' || plugin !== 'sandforge') throw new Error(`an entry runs ${command}`);
+          const [tool, words] = word.startsWith('-') ? ['', [word, ...rest]] : [word, rest];
+          const result = runSfCommand(out, node, home, tool, words, {
+            ...env,
+            PATH: `${trap}${delimiter}${env.PATH}`,
+          });
+          // 0, or a refusal before anything: env validate where no sandforge.yaml is.
+          if (result.code !== 0 && result.code !== 2) {
+            throw new Error(`${command} ended on ${result.code}: ${result.stderr}`);
+          }
+        }
+        if (existsSync(ran)) throw new Error(`an entry ran sf ${readFileSync(ran, 'utf8')}`);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
     },
   },
   {
@@ -1468,6 +2241,194 @@ export const REDIRECT_CHECKS = [
   },
 ];
 
+/**
+ * The checks of the package as a plugin of a real Salesforce CLI, run by
+ * `check-sf` in a world of its own (`sfWorld`): installed from its tarball
+ * as `sf plugins install` installs it, then run through sf. The publish
+ * workflow runs them on each Node with a pinned sf, the oldest one on the
+ * Node floor; the test suite where an sf is found.
+ */
+export const SF_CHECKS = [
+  {
+    name: 'sf installs the package from its tarball, allow-listed, without a question, and lists it at its version',
+    run: ({ out, world }) => {
+      // A plugin installed from an archive is allow-listed by its exact URL.
+      const url = `file:${world.tarball}`;
+      const allowed = world.sf(['plugins', 'trust', 'allowlist', 'add', '--name', url]);
+      if (allowed.code !== 0) {
+        throw new Error(
+          `sf plugins trust allowlist add ended on ${allowed.code}: ${allowed.stderr}`,
+        );
+      }
+      const installed = world.sf(['plugins', 'install', url]);
+      const said = `${installed.stdout}${installed.stderr}`;
+      if (installed.code !== 0 || /isn't signed by Salesforce/.test(said)) {
+        throw new Error(`sf plugins install ended on ${installed.code}: ${said}`);
+      }
+      // `--json` would list each plugin whole, every manifest within: the
+      // lines a reader sees name each plugin by its name and version.
+      const listed = world.sf(['plugins']);
+      const version = readJson(join(out, 'package.json')).version;
+      if (
+        listed.code !== 0 ||
+        !new RegExp(`^sandforge ${version.replaceAll('.', '\\.')}\\b`, 'm').test(listed.stdout)
+      ) {
+        throw new Error(
+          `sf plugins does not list sandforge ${version}: ${listed.stdout}${listed.stderr}`,
+        );
+      }
+    },
+  },
+  {
+    name: "sf sandforge … --help is the help of bin/sandforge.mjs, byte for byte, a verb's and -h's included",
+    run: ({ out, node, world }) => {
+      for (const words of [
+        ['--help'],
+        ['clone', '--help'],
+        ['clone', '-h'],
+        ['pipeline', 'plan', '--help'],
+        ['checkpoint', 'replay', '--help'],
+      ]) {
+        const viaSf = world.sf(['sandforge', ...words]);
+        const own = runBin(out, ['sandforge', ...words], { node, env: world.env, cwd: world.home });
+        if (viaSf.code !== 0 || own.code !== 0 || viaSf.stdout !== own.stdout) {
+          throw new Error(
+            `sf sandforge ${words.join(' ')} ended on ${viaSf.code} and said ` +
+              `${viaSf.stdout === own.stdout ? 'the same' : 'something else'}: ${viaSf.stderr}${viaSf.stdout.slice(0, 300)}`,
+          );
+        }
+      }
+    },
+  },
+  {
+    name: 'sf sandforge ends on the codes of the scripts: 2 for a line refused, 1 for an alias sf does not know, 0 otherwise',
+    run: ({ out, world }) => {
+      const version = readJson(join(out, 'package.json')).version;
+      const expect = (words, code, test, what) => {
+        const result = world.sf(['sandforge', ...words]);
+        if (result.code !== code || !test(result)) {
+          throw new Error(
+            `sf sandforge ${words.join(' ')} ended on ${result.code}, not ${code} ${what}: ${result.stderr}${result.stdout}`,
+          );
+        }
+      };
+      const parses = (text) => {
+        try {
+          JSON.parse(text);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      expect(['clone', '--no-such-flag'], 2, () => true, 'on a flag clone does not read');
+      // sf's own flags are words of the script, which reads none of them.
+      expect(
+        ['monitor', '--target-org', 'NO-SUCH-ALIAS'],
+        2,
+        (r) => r.stderr.includes('--target-org'),
+        "on sf's --target-org",
+      );
+      expect([], 2, (r) => r.stderr.includes('Name the command to run'), 'naming no command');
+      expect(
+        ['deploy'],
+        2,
+        (r) => r.stderr.includes('"deploy" is not a command of sandforge'),
+        'on a word that is no command',
+      );
+      expect(['--version'], 0, (r) => r.stdout.trim() === version, `saying ${version}`);
+      expect(
+        ['seed', '--list-templates'],
+        0,
+        (r) => / Minimal Demo$/m.test(r.stdout),
+        'naming the templates',
+      );
+      // The sf of this world knows no org.
+      expect(
+        ['monitor', '--org', 'NO-SUCH-ALIAS'],
+        1,
+        (r) => r.stderr.includes('sf does not know NO-SUCH-ALIAS'),
+        'for an alias sf does not know',
+      );
+      expect(
+        ['checkpoint', 'list', '--org', 'NO-SUCH', '--json'],
+        0,
+        (r) => parses(r.stdout),
+        'with its answer alone on stdout',
+      );
+    },
+  },
+  {
+    name: 'sf sandforge:hardis-commands --json answers the menus of sfdx-hardis alone on stdout',
+    run: ({ world }) => {
+      const answered = world.sf([`sandforge:${HARDIS_COMMAND}`, '--json']);
+      let menus;
+      try {
+        menus = JSON.parse(answered.stdout);
+      } catch {
+        menus = undefined;
+      }
+      const entries = (menus?.result?.customCommands ?? []).flatMap((menu) => menu.commands ?? []);
+      if (answered.code !== 0 || menus?.status !== 0 || entries.length === 0) {
+        throw new Error(
+          `sf sandforge:${HARDIS_COMMAND} --json ended on ${answered.code}: ${answered.stdout}${answered.stderr}`,
+        );
+      }
+    },
+  },
+  {
+    name: 'sf sandforge mcp answers initialize at the version of the package, and ends on 0 once its input closes',
+    run: async ({ out, world }) => {
+      const version = readJson(join(out, 'package.json')).version;
+      const { answers, code, stderr } = await talkToMcp(
+        out,
+        [
+          {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: '2025-06-18',
+              capabilities: {},
+              clientInfo: { name: 'sandforge-sf-check', version },
+            },
+          },
+        ],
+        { line: [world.sfFile, 'sandforge', 'mcp'], env: world.env, cwd: world.home },
+      );
+      const [initialized] = answers;
+      if (initialized?.result?.serverInfo?.version !== version || code !== 0) {
+        throw new Error(
+          `sf sandforge mcp ended on ${code}, answering ${JSON.stringify(initialized)}\n${stderr}`,
+        );
+      }
+    },
+  },
+  {
+    name: "sf help sandforge clone says what clone does, from the plugin's manifest",
+    run: ({ out, world }) => {
+      const summary = readJson(join(out, SF_MANIFEST)).commands['sandforge:clone'].summary;
+      const helped = world.sf(['help', 'sandforge', 'clone']);
+      if (helped.code !== 0 || !helped.stdout.replace(/\s+/g, ' ').includes(summary)) {
+        throw new Error(
+          `sf help sandforge clone ended on ${helped.code}: ${helped.stdout}${helped.stderr}`,
+        );
+      }
+    },
+  },
+  {
+    name: "the machine's own sf is as it was: no plugin installed in its folders, nothing allowed",
+    // A CI runner has no sf of its own to keep.
+    localOnly: true,
+    run: ({ world }) => {
+      if (userSfFingerprint() !== world.user) {
+        throw new Error(
+          `the folders of this machine's sf changed while the plugin was checked: ${userSfFingerprint()}`,
+        );
+      }
+    },
+  },
+];
+
 /** `assert.deepStrictEqual`, with the two values in the message. */
 function assertEqual(actual, expected, message) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -1478,11 +2439,11 @@ function assertEqual(actual, expected, message) {
 }
 
 /** Run every check on a built package, saying each one; the number that failed. */
-async function checkCommand(out, node, checks = CHECKS) {
+async function checkCommand(out, node, checks = CHECKS, context = {}) {
   let failed = 0;
   for (const check of checks) {
     try {
-      await check.run({ out, node });
+      await check.run({ out, node, ...context });
       console.log(`  ✓ ${check.name}`);
     } catch (error) {
       failed += 1;
@@ -1492,13 +2453,47 @@ async function checkCommand(out, node, checks = CHECKS) {
   return failed;
 }
 
+/** Run the checks of the package as an sf plugin with the sf named, or the PATH's. */
+async function checkSfCommand(out, node, sfNamed) {
+  const sf = sfNamed ?? sfOnPath();
+  if (sf === null) {
+    console.error('No sf on the PATH: install @salesforce/cli, or name one with --sf <sf>.');
+    return 1;
+  }
+  const world = sfWorld(out, node, sf);
+  try {
+    const version = world.sf(['--version']);
+    console.log(
+      `Checking ${relative(process.cwd(), out) || '.'} as a plugin of ${version.stdout.trim() || sf} ` +
+        `under Node ${nodeVersionOf(node)}, in ${world.at}:`,
+    );
+    const checks = SF_CHECKS.filter((check) => !check.localOnly || process.env.CI !== 'true');
+    const failed = await checkCommand(out, node, checks, { world });
+    console.log(failed === 0 ? 'Every check passed.' : `${failed} check(s) failed.`);
+    return failed === 0 ? 0 : 1;
+  } finally {
+    world.dispose();
+  }
+}
+
+/** The value of `--<name> <value>` on a line, and the line without it. */
+function optionOf(words, name) {
+  const at = words.indexOf(`--${name}`);
+  if (at === -1) return { value: undefined, rest: words };
+  return {
+    value: words[at + 1],
+    rest: words.filter((_, index) => index !== at && index !== at + 1),
+  };
+}
+
 async function cli(argv) {
-  const [command, ...rest] = argv;
-  const nodeAt = rest.indexOf('--node');
-  const node = nodeAt === -1 ? undefined : rest[nodeAt + 1];
-  const positional =
-    nodeAt === -1 ? rest : rest.filter((_, index) => index !== nodeAt && index !== nodeAt + 1);
+  const [command, ...words] = argv;
+  const { value: node, rest } = optionOf(words, 'node');
+  const { value: sf, rest: positional } = optionOf(rest, 'sf');
   const out = positional[0] ? resolve(positional[0]) : DEFAULT_OUT;
+  if (command === 'check-sf') {
+    return checkSfCommand(out, node ?? process.execPath, sf);
+  }
   if (command === 'build') {
     const built = await build(out);
     console.log(
@@ -1535,7 +2530,7 @@ async function cli(argv) {
     return failed === 0 ? 0 : 1;
   }
   console.error(
-    'usage: node scripts/npm-package.mjs build|check|redirects|check-redirects [<folder>] [--node <node>]',
+    'usage: node scripts/npm-package.mjs build|check|redirects|check-redirects|check-sf [<folder>] [--node <node>] [--sf <sf>]',
   );
   return 2;
 }

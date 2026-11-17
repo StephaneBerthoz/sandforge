@@ -13,6 +13,8 @@
         "src/test/smoke/**/*.smoke.test.ts",
         "cli/sandforge.ts",
         "cli/sandforge-*.ts",
+        "cli/sfPlugin.ts",
+        "cli/sfHelpHook.ts",
         "cli/testing/*.ts"
       ],
       "project": ["src/**/*.ts", "cli/**/*.ts"]
