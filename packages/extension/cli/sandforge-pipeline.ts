@@ -82,6 +82,8 @@ import {
   recordCliRun,
 } from '../src/modules/automation/cliRunHistory.js';
 import type { ApprovalAnswer } from '../src/modules/automation/ApprovalGate.js';
+import { grantRefusalWords } from '../src/modules/automation/RewindGrants.js';
+import { syncRunFileId } from '../src/modules/sync/SyncRunCreations.js';
 import type { ApprovalQuestionText } from '../src/services.js';
 
 const HELP = `sandforge pipeline — run an Automation pipeline exported from VS Code, without the editor.
@@ -602,7 +604,7 @@ export function checkRefusals(
   file: Pick<SandforgePipelineFile, 'pipeline' | 'syncConfigs'>,
   check: Extract<PipelineExportOutcome, { exported: true }>,
   orgs: readonly RunOrg[],
-  answer: { approve: readonly string[]; isTTY: boolean },
+  answer: { approve: readonly string[]; isTTY: boolean; confirmLine?: string },
 ): PlanRefusal[] {
   const refusals: PlanRefusal[] = [];
   const said = new Set<string>();
@@ -625,6 +627,12 @@ export function checkRefusals(
       said.add(step.refusal ?? message);
       continue;
     }
+    const unconfirmed = unconfirmedRewind(file, step, orgs, answer.confirmLine);
+    if (unconfirmed !== undefined) {
+      refusals.push(unconfirmed);
+      said.add(step.refusal ?? unconfirmed.message);
+      continue;
+    }
     if (step.fate === 'refused' && step.refusal !== undefined) {
       refusals.push({ code: 'STEP_REFUSED', step: step.name, message: step.refusal });
       said.add(step.refusal);
@@ -638,6 +646,61 @@ export function checkRefusals(
     refusals.push({ code: 'PIPELINE_REFUSED', message: problem });
   }
   return refusals;
+}
+
+/**
+ * The refusal of a Rewind step the check refused for want of a confirmation,
+ * in the words of a terminal: the two ways it lifts there, `--confirm-rewind`
+ * and `confirm`. The check's own words are the page's — "open it and type
+ * the org's alias" —, which a run from a terminal, a schedule or a CI has no
+ * page to follow. Nothing for any other step, nor for a Rewind step refused
+ * for anything else.
+ *
+ * @param confirmLine - The line that confirms the pipeline's Rewind steps at
+ *   a terminal, with the file, the orgs and the store of this run.
+ */
+export function unconfirmedRewind(
+  file: Pick<SandforgePipelineFile, 'pipeline'>,
+  step: Pick<CheckedStep, 'stepId' | 'name' | 'type' | 'fate' | 'refusal'>,
+  orgs: readonly RunOrg[],
+  confirmLine = `${commandOf('pipeline')} confirm --file <file>`,
+): PlanRefusal | undefined {
+  if (step.type !== 'rewind' || step.fate !== 'refused' || step.refusal === undefined) {
+    return undefined;
+  }
+  const changed = step.refusal === grantRefusalWords(step.name, 'changed');
+  if (!changed && step.refusal !== grantRefusalWords(step.name, 'never')) return undefined;
+  const key = file.pipeline.steps.find((each) => each.id === step.stepId)?.config['orgId'];
+  const alias = orgs.find((org) => org.key === key)?.alias ?? '<alias>';
+  return {
+    code: 'REWIND_NOT_CONFIRMED',
+    step: step.name,
+    message:
+      `Rewind step "${step.name}" has ` +
+      (changed
+        ? 'not been confirmed since it was changed'
+        : 'never been confirmed on this machine') +
+      `: it rewinds ${alias} only once ${alias}'s alias is confirmed for it.`,
+    wayOut:
+      `run it with --confirm-rewind ${alias}; or confirm it once, at a terminal, with ` +
+      `${confirmLine}, typing ${alias}: the runs of that store then rewind it without the flag.`,
+  };
+}
+
+/**
+ * The line that confirms the pipeline's Rewind steps at a terminal, as this
+ * run reaches its orgs and keeps its store: what `confirm` keeps is read by
+ * the runs of the same store alone.
+ */
+export function confirmLineOf(
+  args: Pick<PipelineArgs, 'file' | 'orgs' | 'accepted' | 'store'>,
+): string {
+  const orgs = [...args.orgs].map(([key, alias]) => ` --org ${key}=${alias}`).join('');
+  const accepted = [...args.accepted].map(([name, id]) => ` --accept-org ${name}=${id}`).join('');
+  return (
+    `${commandOf('pipeline')} confirm --file ${args.file}${orgs}${accepted}` +
+    (args.store !== undefined ? ` --store ${args.store}` : '')
+  );
 }
 
 /** Why an Approval step has nobody to answer it on this run, or nothing when it has. */
@@ -740,7 +803,8 @@ export function takeBackOf(
       const target = syncTarget(String(output['configId'] ?? ''));
       if (runId === undefined || target === undefined) return undefined;
       if (Number(output['totalSuccess'] ?? 0) === 0) return undefined;
-      return `${commandOf('sync')} --remove ${runId} --target ${target} --store ${store}`;
+      // By the name of its file: the id it ran under carries colons.
+      return `${commandOf('sync')} --remove ${syncRunFileId(runId)} --target ${target} --store ${store}`;
     }
     case 'anonymize': {
       const snapshot = (output['snapshot'] ?? {}) as { operationId?: unknown };
@@ -762,6 +826,86 @@ export function takeBackOf(
     default:
       return undefined;
   }
+}
+
+/**
+ * The line of each step that takes back what it wrote ({@link takeBackOf}),
+ * the run's steps read together: a Seed or a Sync whose records a later
+ * step of the run wrote over again is taken back with `--include-changed`.
+ * The lines run in the reverse order of the steps, and the later step's line
+ * comes first: a Rewind's undo brings back from the recycle bin what the
+ * rewind deleted — the seed's records among them —, an Anonymize's restore
+ * writes back the values it masked of the objects they wrote. Either dates
+ * their records anew; read as changed since the run, they were kept by the
+ * removal, the org not back as it was before the run.
+ */
+export function takeBacksOf(
+  results: ReadonlyArray<Pick<PipelineStepResult, 'stepType' | 'output' | 'status'>>,
+  aliasOfId: (orgId: string) => string | undefined,
+  store: string,
+  syncTarget: (configId: string) => string | undefined,
+): Array<string | undefined> {
+  const lines = results.map((result) => takeBackOf(result, aliasOfId, store, syncTarget));
+  const orgOf = (result: Pick<PipelineStepResult, 'output'>): string | undefined => {
+    const orgId = result.output?.['orgId'];
+    return typeof orgId === 'string' ? aliasOfId(orgId) : undefined;
+  };
+  /** The objects of a step's output with records counted under `count`. */
+  const objectsOf = (result: Pick<PipelineStepResult, 'output'>, count: string): Set<string> => {
+    const objects = result.output?.['objects'];
+    return new Set(
+      (Array.isArray(objects) ? (objects as Array<Record<string, unknown>>) : [])
+        .filter((object) => Number(object[count] ?? 0) > 0)
+        .map((object) => String(object['objectApiName'])),
+    );
+  };
+  return lines.map((line, index) => {
+    const result = results[index];
+    if (line === undefined || result === undefined) return line;
+    let org: string | undefined;
+    let wrote: Set<string>;
+    if (result.stepType === 'seed') {
+      org = orgOf(result);
+      wrote = objectsOf(result, 'recordsCreated');
+    } else if (result.stepType === 'sync') {
+      org = syncTarget(String(result.output?.['configId'] ?? ''));
+      wrote = objectsOf(result, 'success');
+    } else {
+      return line;
+    }
+    const writtenAgain = results.some((later, at) => {
+      if (at <= index || lines[at] === undefined || orgOf(later) !== org) return false;
+      if (later.stepType === 'rewind') return Number(later.output?.['deleted'] ?? 0) > 0;
+      if (later.stepType !== 'anonymize') return false;
+      return [...objectsOf(later, 'processed')].some((object) => wrote.has(object));
+    });
+    return writtenAgain ? `${line} --include-changed` : line;
+  });
+}
+
+/**
+ * What deletes the snapshot each Anonymize step of the run took, which keeps
+ * on this machine, in clear, the values it masked until the retention takes
+ * it: the backup command, by the snapshot's id and the alias its org is
+ * listed under. Run for real, the snapshot of a hundred contacts stayed with
+ * no command of the product that reached it.
+ */
+export function maskedSnapshotLines(
+  results: ReadonlyArray<Pick<PipelineStepResult, 'stepName' | 'stepType' | 'output'>>,
+  aliasOfId: (orgId: string) => string | undefined,
+): string[] {
+  return results.flatMap((result) => {
+    if (result.stepType !== 'anonymize' || result.output?.['dryRun'] === true) return [];
+    const snapshot = (result.output?.['snapshot'] ?? {}) as { operationId?: unknown };
+    const orgId = result.output?.['orgId'];
+    const alias = typeof orgId === 'string' ? aliasOfId(orgId) : undefined;
+    if (typeof snapshot.operationId !== 'string' || alias === undefined) return [];
+    return [
+      `The snapshot of "${result.stepName}" keeps the values it masked in clear on this machine: ` +
+        `once they are back, or no longer wanted, ${commandOf('backup')} --delete ` +
+        `${snapshot.operationId} --org ${alias} deletes it.`,
+    ];
+  });
 }
 
 /** The exit code of a run, from how it ended. */
@@ -974,10 +1118,23 @@ async function planIn(
     });
     return { file, digestMatches: true, orgs, values: base.values, refusals, notes };
   }
-  refusals.push(
-    ...checkRefusals(file, outcome, orgs, { approve: args.approve, isTTY: deps.isTTY }),
-  );
-  return { file, digestMatches: true, orgs, values: base.values, check: outcome, refusals, notes };
+  const checkedRefusals = checkRefusals(file, outcome, orgs, {
+    approve: args.approve,
+    isTTY: deps.isTTY,
+    confirmLine: confirmLineOf(args),
+  });
+  refusals.push(...checkedRefusals);
+  // A step's refusal in the JSON is the one the run is refused with here.
+  const check = {
+    ...outcome,
+    steps: outcome.steps.map((step) => {
+      const own = checkedRefusals.find(
+        (refusal) => refusal.code === 'REWIND_NOT_CONFIRMED' && refusal.step === step.name,
+      );
+      return own !== undefined ? { ...step, refusal: own.message } : step;
+    }),
+  };
+  return { file, digestMatches: true, orgs, values: base.values, check, refusals, notes };
 }
 
 /** The lines a plan prints: the pipeline, its orgs, its steps, then each refusal. */
@@ -1342,8 +1499,9 @@ async function planOrRun(
       const key = file.syncConfigs[configId]?.targetOrgId;
       return planned.orgs.find((org) => org.key === key)?.alias;
     };
-    for (const result of run.stepResults) {
-      const takeBack = takeBackOf(result, aliasOfId, store, syncTarget);
+    const takeBackLines = takeBacksOf(run.stepResults, aliasOfId, store, syncTarget);
+    for (const [index, result] of run.stepResults.entries()) {
+      const takeBack = takeBackLines[index];
       lines.push({
         name: result.stepName,
         type: result.stepType,
@@ -1373,12 +1531,18 @@ async function planOrRun(
       for (const line of takeBacks) say.line(`  ${line.takeBack}`);
     }
     if (!args.dryRun) {
-      const shared = shareSnapshots(pipelineHost.configStore, pipelineHost.backupDir, before);
+      const shared = shareSnapshots(
+        pipelineHost.configStore,
+        pipelineHost.backupDir,
+        before,
+        aliasOfId,
+      );
       if (shared > 0) {
         say.line(
           `  ${shared} snapshot${shared === 1 ? '' : 's'} listed in ${pipelineHost.backupDir}, where sandforge dataops restores from.`,
         );
       }
+      for (const line of maskedSnapshotLines(run.stepResults, aliasOfId)) say.line(`  ${line}`);
       try {
         recordCliRun(root, file.pipeline.id, historyEntryOf(run, args.triggeredBy));
       } catch (err: unknown) {

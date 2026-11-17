@@ -6272,6 +6272,26 @@ function ranksOf(dataset: FrozenDataset): Map<string, number> {
 }
 
 /**
+ * The records of a dataset that a first load of it links to the ones the
+ * platform writes as it takes others, and never sends: a contact's direct
+ * relation, an email's task, an opportunity's contact role — those
+ * {@link loadPlanOf} counts written by the platform —, read from the dataset
+ * alone, before the target is read. What a gate on the data storage a load
+ * takes leaves out: the platform writes them, not the load.
+ */
+export function writtenByThePlatformOf(dataset: FrozenDataset): Set<string> {
+  const refIndex = buildReferenceIndex(dataset);
+  const rows = new Map(dataset.objects.map((object) => [object.objectApiName, object.records]));
+  const linkedNone = new Set<string>();
+  return new Set([
+    ...rolesThePlatformWritesOf(rows, linkedNone),
+    ...withTheirRecordOf(rows, linkedNone, personContactsOf(dataset, refIndex), (id) =>
+      refIndex.get(id),
+    ),
+  ]);
+}
+
+/**
  * The contact roles of `alignedByObject`, by referenceId, that a load links
  * to the one the platform writes as it takes their opportunity with its
  * contact, as the load picks them once the opportunity is in

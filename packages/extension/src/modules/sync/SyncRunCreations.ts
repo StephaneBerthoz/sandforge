@@ -699,6 +699,15 @@ function fileSegment(runId: string): string {
   return runId.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
+/**
+ * The id the command line names a run by, `sandforge sync --remove <id>`:
+ * the name of its file. A run a pipeline or a schedule started registers as
+ * `sync:pipeline:<uuid>`, which no file is named.
+ */
+export function syncRunFileId(runId: string): string {
+  return fileSegment(runId);
+}
+
 /** A JSON line, or undefined for one that does not parse: a line a closed window cut short. */
 function parseLine(line: string): unknown {
   try {

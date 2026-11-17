@@ -10,6 +10,7 @@ import {
   runExit,
   settingOf,
   takeBackOf,
+  takeBacksOf,
   variablesOf,
   type RunOrg,
 } from './sandforge-pipeline.js';
@@ -290,6 +291,90 @@ describe('takeBackOf', () => {
       of('seed', { orgId: '00D9', runId: 'r1', totalRecordsCreated: 2, dryRun: true }),
     ).toBeUndefined();
     expect(of('compare', { orgId: '00D9' })).toBeUndefined();
+  });
+});
+
+describe('takeBacksOf', () => {
+  const alias = (orgId: string): string | undefined => ({ '00D9': 'UAT', '00D8': 'DEV' })[orgId];
+  const target = (): string | undefined => undefined;
+  const seeded = {
+    stepType: 'seed' as never,
+    status: 'completed' as const,
+    output: {
+      orgId: '00D9',
+      runId: 'r1',
+      totalRecordsCreated: 2,
+      objects: [{ objectApiName: 'Contact', recordsCreated: 2, recordsFailed: 0 }],
+    },
+  };
+  const masked = (objectApiName: string, processed = 2) => ({
+    stepType: 'anonymize' as never,
+    status: 'completed' as const,
+    output: {
+      orgId: '00D9',
+      snapshot: { operationId: 'b1' },
+      objects: [{ objectApiName, total: processed, processed, failed: 0, notMasked: 0 }],
+    },
+  });
+  const rewound = (orgId: string, deleted: number) => ({
+    stepType: 'rewind' as never,
+    status: 'completed' as const,
+    output: { orgId, checkpointId: 'c1', deleted, undoUntil: '2026-12-01' },
+  });
+
+  it("takes a Seed back with what changed since once a later Rewind of its org deleted, whose undo dates the seed's records anew", () => {
+    // Run for real: the undo brought back the two accounts the rewind had
+    // deleted, and the seed's removal then kept both, "changed since the run".
+    const lines = takeBacksOf([seeded, rewound('00D9', 2)], alias, '/store', target);
+
+    expect(lines[0]).toMatch(/sandforge-seed\.ts --remove r1 --target UAT --include-changed$/);
+    expect(lines[1]).toMatch(/sandforge-checkpoint\.ts undo --org UAT --checkpoint c1$/);
+  });
+
+  it("takes a Seed back with what changed since once a later Anonymize masked the seed's objects, whose restore writes them again", () => {
+    // Run for real: the seed's removal kept the hundred contacts the
+    // pipeline's masking had written over, "changed since the run".
+    const lines = takeBacksOf([seeded, masked('Contact')], alias, '/store', target);
+
+    expect(lines[0]).toMatch(/sandforge-seed\.ts --remove r1 --target UAT --include-changed$/);
+    expect(lines[1]).toMatch(/sandforge-dataops\.ts anonymize --org UAT --restore b1$/);
+  });
+
+  it("takes a Sync back with what changed since once a later Anonymize masked what it wrote, by the name of its run's file", () => {
+    const synced = {
+      stepType: 'sync' as never,
+      status: 'completed' as const,
+      output: {
+        configId: 'cfg',
+        operationId: 'sync:pipeline:run-1',
+        totalSuccess: 2,
+        objects: [{ objectApiName: 'Contact', success: 2 }],
+      },
+    };
+    const toUat = (configId: string): string | undefined =>
+      configId === 'cfg' ? 'UAT' : undefined;
+
+    const lines = takeBacksOf([synced, masked('Contact')], alias, '/store', toUat);
+    const alone = takeBacksOf([synced, masked('Lead')], alias, '/store', toUat);
+
+    expect(lines[0]).toMatch(
+      /sandforge-sync\.ts --remove sync_pipeline_run-1 --target UAT --store \/store --include-changed$/,
+    );
+    expect(alone[0]).toMatch(/--store \/store$/);
+  });
+
+  it('leaves the Seed line as it is when the later step came first, wrote another org or other objects, or wrote nothing', () => {
+    for (const results of [
+      [rewound('00D9', 2), seeded],
+      [seeded, rewound('00D8', 2)],
+      [seeded, rewound('00D9', 0)],
+      [masked('Contact'), seeded],
+      [seeded, masked('Lead')],
+      [seeded, masked('Contact', 0)],
+    ]) {
+      const lines = takeBacksOf(results, alias, '/store', target);
+      expect(lines.find((line) => line?.includes('sandforge-seed.ts'))).toMatch(/--target UAT$/);
+    }
   });
 });
 

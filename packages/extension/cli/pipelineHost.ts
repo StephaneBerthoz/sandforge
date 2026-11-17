@@ -405,19 +405,50 @@ const SNAPSHOT_KEY = 'backup:';
  * Sync's removal gives back what a run wrote over, from that list alone. The
  * records themselves are in the folder already.
  *
+ * Each is listed under the alias the run reached its org by, the name the
+ * command lines give an org (`--org <alias>`), its Organization Id kept
+ * beside it: the host registers an org under its Organization Id, and a
+ * snapshot listed so was refused by the restore the run printed — "taken
+ * from org 00D… and cannot be restored into org <alias>", the same org —,
+ * listed under no alias, and deleted by no command.
+ *
  * @param before - The snapshots the host listed before the run: left as they are.
+ * @param aliasOf - The alias of an org, by the id the host registered it under.
  * @returns How many were copied.
  */
 export function shareSnapshots(
   hostStore: ConfigStore,
   backupDir: string,
   before: ReadonlySet<string>,
+  aliasOf: (registeredId: string) => string | undefined = () => undefined,
 ): number {
   const taken = hostStore.getKeysByPrefix(SNAPSHOT_KEY).filter((key) => !before.has(key));
   if (taken.length === 0) return 0;
   const shared = fileConfigStore(join(backupDir, 'snapshots.json'));
-  for (const key of taken) shared.set(key, hostStore.get(key), 'backups');
+  for (const key of taken)
+    shared.set(key, listedUnderAlias(hostStore.get(key), aliasOf), 'backups');
   return taken.length;
+}
+
+/**
+ * A snapshot's metadata with its org named by its alias, its Organization Id
+ * kept: the id the host registered the org under is that Id. Anything else —
+ * an object's records, an org the run reached by no alias — as it is.
+ */
+function listedUnderAlias(
+  value: unknown,
+  aliasOf: (registeredId: string) => string | undefined,
+): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const meta = value as { orgId?: unknown; organizationId?: unknown };
+  if (typeof meta.orgId !== 'string') return value;
+  const alias = aliasOf(meta.orgId);
+  if (alias === undefined) return value;
+  return {
+    ...meta,
+    orgId: alias,
+    organizationId: typeof meta.organizationId === 'string' ? meta.organizationId : meta.orgId,
+  };
 }
 
 /** The snapshots a store lists now: what {@link shareSnapshots} leaves out after a run. */

@@ -79,6 +79,7 @@ export interface WorldPipeline {
   variables?: PipelineVariable[];
   syncConfigs?: Record<string, PipelineFileSyncConfig>;
   seedTemplates?: Record<string, PipelineFileStored>;
+  maskingTemplates?: Record<string, PipelineFileStored>;
   settings?: PipelineFileDraft['settings'];
   id?: string;
   name?: string;
@@ -149,7 +150,7 @@ export class PipelineWorld {
       orgs: pipeline.orgs,
       syncConfigs: pipeline.syncConfigs ?? {},
       seedTemplates: pipeline.seedTemplates ?? {},
-      maskingTemplates: {},
+      maskingTemplates: pipeline.maskingTemplates ?? {},
       settings: pipeline.settings ?? {},
       notes: [],
     });

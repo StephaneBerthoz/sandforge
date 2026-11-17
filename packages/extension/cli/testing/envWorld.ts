@@ -355,6 +355,9 @@ export class EnvWorld {
         defaultedOnCreate: false,
         picklistValues: [],
         updateable: field.createable,
+        // As an org describes its Id: no field-level security is set on it,
+        // which is what a restore by Id reads before it writes.
+        permissionable: field.type !== 'id',
         ...field,
       })),
     };
@@ -400,6 +403,15 @@ export class EnvWorld {
             const { Id: id, ...values } = record;
             this.org.edit(objectApiName, String(id), values);
             return { success: true, id: String(id), errors: [] };
+          }),
+        // What a restore of a masking's snapshot sends: its values written
+        // back by Id over the records the org holds.
+        upsert: async (records: Array<Record<string, unknown>>, field: string) =>
+          records.map((record) => {
+            this.onUpdate?.(objectApiName);
+            const { [field]: id, ...values } = record;
+            this.org.edit(objectApiName, String(id), values);
+            return { success: true, id: String(id), errors: [], created: false };
           }),
       }),
       describe: async (objectApiName: string) => this.describeOf(objectApiName),

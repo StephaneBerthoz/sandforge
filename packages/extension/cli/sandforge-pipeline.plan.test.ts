@@ -314,6 +314,55 @@ describe('sandforge pipeline plan', () => {
   });
 });
 
+describe('sandforge pipeline plan, a Rewind step never confirmed on this machine', () => {
+  it("refuses it with the terminal's ways to confirm it, --confirm-rewind and confirm, never the page's gesture", async () => {
+    // Run for real, the refusal was the page's: "open it and type the org's
+    // alias", which a terminal has no page to do in.
+    const world = new PipelineWorld(dir, [{ alias: 'UAT', organizationId: WORLD_TARGET_ID }]);
+    const file = world.file({
+      orgs: {
+        'reg-uat': {
+          alias: 'UAT',
+          organizationId: WORLD_TARGET_ID,
+          kind: 'sandbox',
+          staging: false,
+        },
+      },
+      steps: [
+        step('s1', 'Back', 'rewind', {
+          orgId: 'reg-uat',
+          checkpointId: 'ck-20261120-020000-abcd',
+          maxRecords: 10,
+        }),
+      ],
+    });
+    const store = join(dir, 'kept');
+
+    for (const verb of ['plan', 'run']) {
+      const refused = await world.run([verb, '--file', file, '--store', store, '--json']);
+
+      expect(refused.code).toBe(2);
+      expect(refusalsOf(refused.stdout)).toEqual([
+        {
+          code: 'REWIND_NOT_CONFIRMED',
+          step: 'Back',
+          message:
+            'Rewind step "Back" has never been confirmed on this machine: it rewinds UAT only ' +
+            "once UAT's alias is confirmed for it.",
+          wayOut:
+            'run it with --confirm-rewind UAT; or confirm it once, at a terminal, with ' +
+            `pnpm exec tsx packages/extension/cli/sandforge-pipeline.ts confirm --file ${file} ` +
+            `--store ${store}, typing UAT: the runs of that store then rewind it without the flag.`,
+        },
+      ]);
+      const answer = JSON.parse(refused.stdout) as { steps: Array<{ refusal?: string }> };
+      expect(answer.steps[0]?.refusal).not.toContain('open it');
+      expect(refused.stderr).not.toContain('open it');
+      expect(refused.stderr).toContain('--confirm-rewind UAT');
+    }
+  });
+});
+
 describe('sandforge pipeline confirm', () => {
   it('says there is nothing to confirm without a Rewind step, and refuses with no terminal to type the alias at', async () => {
     const world = new PipelineWorld(dir, [{ alias: 'UAT', organizationId: WORLD_TARGET_ID }]);

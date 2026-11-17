@@ -488,6 +488,93 @@ describe('frozen:load, the daily API requests its target has left', () => {
     });
   });
 
+  describe('counts only the records the load sends, its preview and its gate alike', () => {
+    /**
+     * The contact under its account, a relation of it to that account, which
+     * the platform writes with the contact, and one to the other account.
+     */
+    function withRelations(): void {
+      const datasetDir = path.join(
+        String((store.get('frozen:config') as FrozenProjectConfig).sasDir),
+        'dataset',
+        'data',
+      );
+      fs.writeFileSync(
+        path.join(datasetDir, 'Contact.json'),
+        JSON.stringify({
+          objectApiName: 'Contact',
+          records: [{ referenceId: 'C1', fields: { LastName: 'C1', AccountId: 'A1' } }],
+        }),
+      );
+      fs.writeFileSync(
+        path.join(datasetDir, 'AccountContactRelation.json'),
+        JSON.stringify({
+          objectApiName: 'AccountContactRelation',
+          records: [
+            { referenceId: 'R1', fields: { AccountId: 'A1', ContactId: 'C1' } },
+            { referenceId: 'R2', fields: { AccountId: 'A2', ContactId: 'C1' } },
+          ],
+        }),
+      );
+    }
+
+    /** The target, no data storage left, and the objects its describe lists. */
+    function targetListing(objects: string[]): void {
+      const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...org.connection,
+        request: async ({ url }: { url: string }) => {
+          if (url === '/sobjects') {
+            return { sobjects: objects.map((name) => ({ name, createable: true })) };
+          }
+          if (url !== '/limits') throw new Error(`not answered: ${url}`);
+          return {
+            DataStorageMB: { Max: 5, Remaining: 0 },
+            DailyApiRequests: { Max: MAX, Remaining: MAX },
+          };
+        },
+      } as never);
+    }
+
+    /** What the preview and the load's gate each said of the storage. */
+    async function storageSaid(): Promise<Array<Record<string, unknown> | undefined>> {
+      loaderPlan.mockResolvedValue(PLAN);
+      await send('frozen:load:preview', {});
+      await load();
+      expect(loaderLoad).not.toHaveBeenCalled();
+      const preview = posted('frozen:load:preview:response')[0]?.payload.plan as
+        { storage?: Record<string, unknown> } | undefined;
+      const gate = posted('frozen:load:error')[0]?.payload['storage'] as
+        Record<string, unknown> | undefined;
+      return [preview?.storage, gate];
+    }
+
+    it('leaves out the relations of a target that has no AccountContactRelation, which none of them reaches', async () => {
+      // Run for real, the estimate counted 3 450 relations the target did not
+      // have: 17.8 MB for the 5 643 records a load would send.
+      withRelations();
+      targetListing(['Account', 'Contact']);
+
+      const [preview, gate] = await storageSaid();
+
+      // Two accounts, the contact, and the task the flow opens under it.
+      for (const said of [preview, gate]) {
+        expect(said).toMatchObject({ estimateMB: (4 * 2048) / (1024 * 1024) });
+      }
+    });
+
+    it('leaves out the relation the platform writes with its contact, and counts the other', async () => {
+      withRelations();
+      targetListing(['Account', 'Contact', 'AccountContactRelation']);
+
+      const [preview, gate] = await storageSaid();
+
+      for (const said of [preview, gate]) {
+        expect(said).toMatchObject({ estimateMB: (5 * 2048) / (1024 * 1024) });
+      }
+    });
+  });
+
   it('lets a pilot through its gate on the storage: one root folder is the way the refusal names', async () => {
     targetWithStorage(0);
 

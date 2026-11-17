@@ -13,6 +13,7 @@ import {
   shareSnapshots,
   snapshotKeys,
 } from './pipelineHost.js';
+import { fileConfigStore } from './fileConfigStore.js';
 import { ConfigStore } from '../src/core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../src/test/InMemoryConfigStoreBackend.js';
 
@@ -254,6 +255,41 @@ describe('shareSnapshots', () => {
         .filter((key) => key.startsWith('backup:'))
         .sort(),
     ).toEqual(['backup:new', 'backup:new:Contact']);
+  });
+
+  it('lists each under the alias the run reached its org by, its Organization Id kept beside it', () => {
+    // Listed under the Id the host registers an org by, the restore the run
+    // printed was refused "taken from org 00D… and cannot be restored into
+    // org UAT": the same org.
+    const hostStore = store();
+    const before = snapshotKeys(hostStore);
+    hostStore.set('backup:masked', { operationId: 'masked', orgId: SANDBOX.organizationId }, 'b');
+    hostStore.set(
+      'backup:kept',
+      { operationId: 'kept', orgId: SANDBOX.organizationId, organizationId: '00D000000000009' },
+      'b',
+    );
+    hostStore.set('backup:elsewhere', { operationId: 'elsewhere', orgId: 'unknown' }, 'b');
+    hostStore.set('backup:masked:Contact', [{ Id: '003', orgId: 'x' }], 'b');
+
+    shareSnapshots(hostStore, dir, before, (id) =>
+      id === SANDBOX.organizationId ? 'UAT' : undefined,
+    );
+
+    const listed = fileConfigStore(join(dir, 'snapshots.json'));
+    const valueOf = (key: string): unknown => listed.get(key);
+    expect(valueOf('backup:masked')).toEqual({
+      operationId: 'masked',
+      orgId: 'UAT',
+      organizationId: SANDBOX.organizationId,
+    });
+    expect(valueOf('backup:kept')).toEqual({
+      operationId: 'kept',
+      orgId: 'UAT',
+      organizationId: '00D000000000009',
+    });
+    expect(valueOf('backup:elsewhere')).toEqual({ operationId: 'elsewhere', orgId: 'unknown' });
+    expect(valueOf('backup:masked:Contact')).toEqual([{ Id: '003', orgId: 'x' }]);
   });
 });
 

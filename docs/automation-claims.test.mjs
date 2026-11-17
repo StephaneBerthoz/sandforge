@@ -86,9 +86,15 @@ function handledStepTypes() {
   assert.ok(viaModules.length > 0, 'registerPipelineSteps was read as registering no handler');
   // Registered only where a run uses them: the run handler calls it, and the
   // extension hands the run handler the module flows.
+  // The runners are built once, then registered and handed to the dry run.
   assert.match(
     automationHandler,
-    /registerPipelineSteps\(stepExecutor, \{\s*\.\.\.this\.stepRunners\b/,
+    /registered = \{\s*\.\.\.this\.stepRunners\b/,
+    'the run handler no longer builds the steps from the module flows — they would be refused again',
+  );
+  assert.match(
+    automationHandler,
+    /registerPipelineSteps\(stepExecutor, registered\)/,
     'the run handler no longer registers the module steps — they would be refused again',
   );
   assert.match(

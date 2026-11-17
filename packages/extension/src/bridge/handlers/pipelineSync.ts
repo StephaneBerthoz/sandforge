@@ -91,7 +91,13 @@ export async function runPipelineSync(
   };
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
-    return await stepRuns.run(mark, () => withGivenAnswer(answer, () => deps.execute(config)));
+    const result = await stepRuns.run(mark, () =>
+      withGivenAnswer(answer, () => deps.execute(config)),
+    );
+    // Named by the id it registered under, the one its file is kept by and
+    // its removal reads: the engine's own, `sync-<ms>`, named a run no file
+    // kept, and the line a pipeline printed to take the run back failed.
+    return operationId !== undefined ? { ...result, operationId } : result;
   } finally {
     stopListening?.();
     signal?.removeEventListener('abort', onAbort);

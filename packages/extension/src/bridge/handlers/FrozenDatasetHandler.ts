@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
+import * as z from 'zod';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -256,6 +257,7 @@ import {
   pilotScopeOf,
   writeDiscoveryToSas,
   writeSelectionToSas,
+  writtenByThePlatformOf,
   type ControlViolation,
   type DiscoveringStep,
   type KeptDiscovery,
@@ -525,6 +527,8 @@ function limitsReadOnce(conn: LimitsTransport): LimitsTransport {
 function loadStorageRefusal(input: {
   dataset: FrozenDataset;
   storage: DataStorage | { unread: string };
+  /** What of the dataset the load sends ({@link LoadSent}); every record when absent. */
+  sent?: LoadSent;
   purged?: LoadRequestsInput['purged'];
   /** What the target's automation that still runs creates under the records. */
   automationBytes?: number;
@@ -534,7 +538,7 @@ function loadStorageRefusal(input: {
 }): { message: string; storage: FrozenLoadStorage } | undefined {
   if ('unread' in input.storage) return undefined;
   const automationBytes = Math.max(0, input.automationBytes ?? 0);
-  const bytes = loadRecordsBytes(input.dataset) + automationBytes;
+  const bytes = loadRecordsBytes(input.dataset, input.sent) + automationBytes;
   const freedBytes = (input.purged ?? [])
     .filter((step) => step.deletes)
     .reduce((sum, step) => sum + countedStorageBytes(step.objectApiName, { rows: step.rows }), 0);
@@ -583,13 +587,41 @@ function loadStorageRefusal(input: {
   };
 }
 
-/** The data storage a dataset's records take, by the documented sizes. */
-function loadRecordsBytes(dataset: FrozenDataset): number {
-  return dataset.objects.reduce(
-    (sum, object) =>
-      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
-    0,
-  );
+/**
+ * What of a dataset a load sends, as far as the target's list of its objects
+ * and the dataset tell before anything else is read: the objects the target
+ * has and takes inserts of, and of their records every one but those the
+ * platform writes as it takes others (`writtenByThePlatformOf`).
+ */
+interface LoadSent {
+  takes(objectApiName: string): boolean;
+  byThePlatform: ReadonlySet<string>;
+}
+
+/** The objects an org lists (`/sobjects`), each with whether it takes inserts. */
+const listedObjectsSchema = z
+  .object({
+    sobjects: z.array(
+      z.object({ name: z.string().min(1), createable: z.boolean().optional() }).loose(),
+    ),
+  })
+  .loose();
+
+/**
+ * The data storage a dataset's records take, by the documented sizes: of
+ * the records the load sends, when `sent` says which. Counted whole, a load
+ * whose 3 450 account-contact relations the target had no object for was
+ * said to take 17.8 MB for the 5 643 records it would send.
+ */
+function loadRecordsBytes(dataset: FrozenDataset, sent?: LoadSent): number {
+  return dataset.objects.reduce((sum, object) => {
+    if (sent !== undefined && !sent.takes(object.objectApiName)) return sum;
+    const rows =
+      sent === undefined
+        ? object.records.length
+        : object.records.filter((record) => !sent.byThePlatform.has(record.referenceId)).length;
+    return sum + countedStorageBytes(object.objectApiName, { rows });
+  }, 0);
 }
 
 /**
@@ -3032,6 +3064,35 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
+   * What of `dataset` a load into the org `conn` reaches sends
+   * ({@link LoadSent}), its preview and its gate alike: the org's list of
+   * its objects, one request, read beside the dataset. Undefined when the
+   * org would not list them: every record is counted then.
+   */
+  private async loadSentOf(
+    conn: LimitsTransport,
+    dataset: FrozenDataset,
+  ): Promise<LoadSent | undefined> {
+    let answer: unknown;
+    try {
+      answer = await conn.request({ method: 'GET', url: '/sobjects' });
+    } catch {
+      return undefined;
+    }
+    const listed = listedObjectsSchema.safeParse(answer);
+    if (!listed.success) return undefined;
+    const takes = new Set(
+      listed.data.sobjects
+        .filter((object) => object.createable !== false)
+        .map((object) => object.name.toLowerCase()),
+    );
+    return {
+      takes: (objectApiName) => takes.has(objectApiName.toLowerCase()),
+      byThePlatform: writtenByThePlatformOf(dataset),
+    };
+  }
+
+  /**
    * The data storage a load's records take against what the target has
    * left, as its gate counts them (`loadStorageRefusal`), and the refusal it
    * would meet past it (`FROZEN_STORAGE_EXCEEDED`), in a replay's words for a
@@ -3042,6 +3103,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private async loadStorageOf(input: {
     conn: LimitsTransport;
     dataset: FrozenDataset;
+    /** What of the dataset the load sends ({@link loadSentOf}); every record when absent. */
+    sent?: LoadSent;
     purged?: LoadRequestsInput['purged'];
     /** What the target's automation that still runs creates under the records ({@link loadAutomationBytes}). */
     automationBytes?: number;
@@ -3054,6 +3117,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     const over = loadStorageRefusal({
       dataset: input.dataset,
       storage: limits,
+      ...(input.sent ? { sent: input.sent } : {}),
       ...(input.purged ? { purged: input.purged } : {}),
       automationBytes,
       target: this.orgNameOf(input.targetOrgId),
@@ -3061,7 +3125,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     });
     const MB = 1024 * 1024;
     const estimateMB =
-      over?.storage.estimateMB ?? (loadRecordsBytes(input.dataset) + automationBytes) / MB;
+      over?.storage.estimateMB ??
+      (loadRecordsBytes(input.dataset, input.sent) + automationBytes) / MB;
     return {
       estimateMB,
       ...(automationBytes > 0 ? { automationMB: automationBytes / MB } : {}),
@@ -4127,11 +4192,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       const limits = await readDataStorage(limitsOnce).catch((err: unknown) => ({
         unread: extractErrorMessage(err),
       }));
+      const sent = parsed.pilot ? undefined : await this.loadSentOf(conn, dataset);
       const overStorage = parsed.pilot
         ? undefined
         : loadStorageRefusal({
             dataset,
             storage: limits,
+            ...(sent ? { sent } : {}),
             ...(purged ? { purged } : {}),
             automationBytes: loadAutomationBytes(read, mute?.plan, dataset, loadWrites),
             target: this.orgNameOf(parsed.targetOrgId),
@@ -4921,6 +4988,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // says it with what does not go across as it was.
       const storage = await this.previewStorageOf({
         conn: limits,
+        org: conn,
         dataset,
         store,
         config,
@@ -4992,6 +5060,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     });
     const storage = await this.previewStorageOf({
       conn: limits,
+      org: input.conn,
       dataset: input.dataset,
       store: input.store,
       config: input.config,
@@ -5018,6 +5087,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   private async previewStorageOf(input: {
     conn: LimitsTransport;
+    /**
+     * The org itself, which lists its objects: `conn` answers each request
+     * with the one `/limits` it read for the storage and the requests.
+     */
+    org: LimitsTransport;
     dataset: FrozenDataset;
     store: SasReferenceIdMappingStore;
     config: FrozenProjectConfig;
@@ -5028,9 +5102,11 @@ export class FrozenDatasetHandler implements DomainHandler {
     replay: boolean;
   }): Promise<FrozenLoadStorageInfo | undefined> {
     if (input.parsed.pilot === true) return undefined;
+    const sent = await this.loadSentOf(input.org, input.dataset);
     return this.loadStorageOf({
       conn: input.conn,
       dataset: input.dataset,
+      ...(sent ? { sent } : {}),
       ...(input.parsed.reload === true
         ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
         : {}),

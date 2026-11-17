@@ -1199,11 +1199,21 @@ export class AutomationHandler implements DomainHandler {
       'delay',
       (delay) => (step, context) => this.untimed(() => delay(step, context), wiring),
     );
+    /**
+     * The runners the steps are registered with, and the dry run handed
+     * them: the confirmation of a Rewind, the pipeline and the trigger are
+     * the run's. Handed the runners as they came, a dry run of a confirmed
+     * Rewind met no confirmation, and every one said it "cannot be dry-run
+     * here", on the page as from the command line.
+     */
+    let registered: PipelineStepRunners | undefined;
     if (this.stepRunners) {
       const { runSync, seed, anonymize, takeCheckpoint, rewind, backup } = this.stepRunners;
+      const { simulateSync, previewSeed, previewMasking, estimateTake, previewRewind } =
+        this.stepRunners;
       const checkpoints = await this.checkpointsOf(pipeline);
       const grants = this.rewindGrants();
-      registerPipelineSteps(stepExecutor, {
+      registered = {
         ...this.stepRunners,
         ...(pipeline?.id ? { pipelineId: pipeline.id } : {}),
         ...(wiring.triggeredBy ? { trigger: wiring.triggeredBy } : {}),
@@ -1239,19 +1249,53 @@ export class AutomationHandler implements DomainHandler {
         ...(rewind
           ? { rewind: (request, signal) => this.untimed(() => rewind(request, signal), wiring) }
           : {}),
+        // What a dry run reads in their place, held the same: a simulation of
+        // a Sync reads every record its run would, and counted against the
+        // budget, a dry run failed where its run would have gone through.
+        ...(simulateSync
+          ? {
+              simulateSync: (config: SyncConfig, signal?: AbortSignal) =>
+                this.untimed(() => simulateSync(config, signal), wiring),
+            }
+          : {}),
+        ...(previewSeed
+          ? {
+              previewSeed: (request, signal) =>
+                this.untimed(() => previewSeed(request, signal), wiring),
+            }
+          : {}),
+        ...(previewMasking
+          ? {
+              previewMasking: (request, signal) =>
+                this.untimed(() => previewMasking(request, signal), wiring),
+            }
+          : {}),
+        ...(estimateTake
+          ? {
+              estimateTake: (request, signal) =>
+                this.untimed(() => estimateTake(request, signal), wiring),
+            }
+          : {}),
+        ...(previewRewind
+          ? {
+              previewRewind: (request, signal) =>
+                this.untimed(() => previewRewind(request, signal), wiring),
+            }
+          : {}),
         ...(this.approvals().canAsk
           ? {
               askApproval: (ask: ApprovalAsk, signal?: AbortSignal) =>
                 this.askApproval(ask, signal, wiring),
             }
           : {}),
-      });
+      };
+      registerPipelineSteps(stepExecutor, registered);
     }
     if (wiring.dryRun) {
       // Checked by the caller before the run is held: a dry run with no way
       // to make it is refused, never run for real in its place.
-      if (!this.dryRunApplier || !this.stepRunners) throw new Error(DRY_RUN_UNAVAILABLE);
-      await this.dryRunApplier(stepExecutor, this.stepRunners);
+      if (!this.dryRunApplier || !registered) throw new Error(DRY_RUN_UNAVAILABLE);
+      await this.dryRunApplier(stepExecutor, registered);
     }
 
     if (!this.deps.services) {

@@ -172,6 +172,30 @@ describe('runPipelineSync', () => {
     expect(ask).not.toHaveBeenCalled();
   });
 
+  it('answers with the id the Sync run registered under, which its file is kept by and its removal reads', async () => {
+    // Its result carried the id the engine makes up, `sync-<ms>`: the line a
+    // pipeline printed to take the run back named a run no file kept.
+    const registry = new BackgroundOperationRegistry();
+    const execute = vi.fn(async () => {
+      await Promise.resolve();
+      const done = Promise.resolve(result({ operationId: 'sync-1795140000000' }));
+      registry.register(
+        'sync_pipeline_run-1',
+        'sync',
+        'Pipeline sync of 1 object(s)',
+        done,
+        new AbortController(),
+      );
+      return done;
+    });
+
+    const ran = await runPipelineSync({ execute, registry }, config(['insert']), {
+      approved: false,
+    });
+
+    expect(ran.operationId).toBe('sync_pipeline_run-1');
+  });
+
   it('cancels the Sync run it started when the step is stopped', async () => {
     const registry = new BackgroundOperationRegistry();
     const step = new AbortController();

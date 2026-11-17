@@ -325,6 +325,105 @@ describe('AutomationHandler: the confirmation of a Rewind step', () => {
     });
   });
 
+  it('dry-runs a confirmed Rewind step through its preview, with the confirmation the run holds it to, and writes nothing', async () => {
+    // The dry run was handed the runners as they came, without the
+    // confirmation the run reads: every dry run of a Rewind, on the page and
+    // from the command line, failed "cannot be dry-run here".
+    const { applyDryRun } = await import('../../modules/automation/pipelineDryRun.js');
+    handler.setDryRunApplier(applyDryRun);
+    const previewRewind = vi.fn(async () => ({
+      checkpointId: CHECKPOINT_ID,
+      toDelete: 2,
+      toGiveBack: 1,
+      toBringBack: 0,
+      toRecreate: 0,
+      estimate: { requests: 4 },
+    }));
+    const runners = (handler as unknown as { stepRunners: PipelineStepRunners }).stepRunners;
+    handler.setStepRunners({
+      ...runners,
+      previewRewind: previewRewind as unknown as PipelineStepRunners['previewRewind'],
+    });
+    await save();
+    await grant('training-dev');
+
+    await send('pipeline:execute', { pipeline: pipeline(), dryRun: true });
+
+    expect(rewind).not.toHaveBeenCalled();
+    expect(previewRewind).toHaveBeenCalledTimes(1);
+    expect((previewRewind.mock.calls[0] as unknown[])[0]).toMatchObject({
+      grant: { checkpointId: CHECKPOINT_ID, organizationId: '00D000000000001' },
+      origin: { pipeline: 'Nightly reset', step: 'Reset', trigger: 'manual' },
+    });
+    const run = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+      .find((m) => m.type === 'pipeline:run:response');
+    expect(run?.payload).toMatchObject({ dryRun: true, status: 'completed' });
+    const [result] = run?.payload['stepResults'] as Array<{ summary?: string }>;
+    expect(result?.summary).toMatch(
+      /^Would rewind training-dev to the checkpoint ck-20261030-020000-abcd: 2 to delete, 1 to give their values back, 0 to bring back from the recycle bin, /,
+    );
+    expect(result?.summary).not.toContain('cannot be dry-run here');
+  });
+
+  it("holds the pipeline's time budget while a dry run's preview runs past it, as its run holds it", async () => {
+    // Counted against the budget, a preview longer than the pipeline's five
+    // minutes failed the dry run of a step whose run would have gone through.
+    vi.mocked(deps.services!.getSandforgeSetting!).mockReturnValue(20 as never);
+    const { applyDryRun } = await import('../../modules/automation/pipelineDryRun.js');
+    handler.setDryRunApplier(applyDryRun);
+    const previewRewind = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      return {
+        checkpointId: CHECKPOINT_ID,
+        toDelete: 0,
+        toGiveBack: 0,
+        toBringBack: 0,
+        toRecreate: 0,
+        estimate: { requests: 1 },
+      };
+    });
+    const runners = (handler as unknown as { stepRunners: PipelineStepRunners }).stepRunners;
+    handler.setStepRunners({
+      ...runners,
+      previewRewind: previewRewind as unknown as PipelineStepRunners['previewRewind'],
+    });
+    await save();
+    await grant('training-dev');
+
+    await send('pipeline:execute', { pipeline: pipeline(), dryRun: true });
+
+    const run = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+      .find((m) => m.type === 'pipeline:run:response');
+    expect(run?.payload).toMatchObject({ dryRun: true, status: 'completed' });
+  });
+
+  it('dry-runs an unconfirmed Rewind step as its run is refused, asking the org nothing', async () => {
+    const { applyDryRun } = await import('../../modules/automation/pipelineDryRun.js');
+    handler.setDryRunApplier(applyDryRun);
+    const previewRewind = vi.fn();
+    const runners = (handler as unknown as { stepRunners: PipelineStepRunners }).stepRunners;
+    handler.setStepRunners({
+      ...runners,
+      previewRewind: previewRewind as unknown as PipelineStepRunners['previewRewind'],
+    });
+    await save();
+
+    await send('pipeline:execute', { pipeline: pipeline(), dryRun: true });
+
+    expect(previewRewind).not.toHaveBeenCalled();
+    const run = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+      .find((m) => m.type === 'pipeline:run:response');
+    expect(run?.payload['status']).toBe('failed');
+    expect(String(run?.payload['error'])).toContain('has never been confirmed');
+    expect(String(run?.payload['error'])).not.toContain('cannot be dry-run here');
+  });
+
   it('runs an edit of a confirmed step only once saved and confirmed again', async () => {
     await save();
     await grant('training-dev');

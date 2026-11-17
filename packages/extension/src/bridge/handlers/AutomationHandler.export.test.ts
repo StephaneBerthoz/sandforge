@@ -501,7 +501,16 @@ describe('AutomationHandler beside the command line', () => {
       });
 
       expect(applier).toHaveBeenCalledTimes(1);
-      expect(applier.mock.calls[0]?.[1]).toBe(flows);
+      // The runners the steps were registered with, the run's confirmation
+      // of a Rewind among them: the given ones alone left a Rewind nothing
+      // to dry-run with.
+      expect(applier.mock.calls[0]?.[1]).toMatchObject({
+        orgName: flows.orgName,
+        compare: flows.compare,
+        readOrgHealth: flows.readOrgHealth,
+        rewindGrant: expect.any(Function),
+        checkpointKept: expect.any(Function),
+      });
       expect(flows.backup).not.toHaveBeenCalled();
       const [response] = posted(deps, 'pipeline:run:response') as Array<
         BaseMessage & {
