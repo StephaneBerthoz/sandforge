@@ -170,5 +170,16 @@ jobs:
               echo "::notice::$NAME $VERSION is already on npm: nothing to publish"
               continue
             fi
+            # A redirect npm does not hold yet (a tool new in this release) has no
+            # trusted publisher: it is published once by hand, then given one.
+            # Any other failure of npm stops the job.
+            if ! held=$(npm view "$NAME" name 2>&1); then
+              if grep -q E404 <<< "$held"; then
+                echo "::warning::$NAME is not on npm yet: publish it once by hand (npm publish dist/npm-redirects/$NAME --access public), then give it this workflow as its trusted publisher"
+                continue
+              fi
+              echo "$held"
+              exit 1
+            fi
             npm publish "$folder" --provenance --access public
           done

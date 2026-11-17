@@ -192,6 +192,18 @@ test('the publish workflow checks the package on its Node floor, and publishes w
     publishes !== -1 && redirected > publishes,
     'the redirects are not published after sandforge',
   );
+  // A redirect whose package npm does not hold yet has no trusted publisher to
+  // publish it by: the job says how to publish it once by hand and goes on,
+  // and any other failure of npm stops it.
+  const loop = workflow.slice(workflow.indexOf('for folder in dist/npm-redirects/'));
+  assert.match(loop, /E404/, 'the redirect loop does not tell a package npm does not hold yet');
+  assert.match(
+    loop,
+    /::warning::/,
+    'the redirect loop does not warn of a package to publish by hand',
+  );
+  assert.match(loop, /npm publish dist\/npm-redirects\/\$NAME --access public/);
+  assert.match(loop, /exit 1/, 'the redirect loop goes on past a failure of npm that is not E404');
 });
 
 test('the guides give the package first and the checkout second, at the Node the package runs on', () => {
