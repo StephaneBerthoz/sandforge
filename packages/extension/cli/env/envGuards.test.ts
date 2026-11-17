@@ -4,8 +4,11 @@ import {
   checkpointActRefusal,
   envTargetOf,
   lockRefusal,
+  myDomainListingWords,
   noStateGuard,
+  refreshedStateWords,
   sameOrganization,
+  sandboxListing,
   stateRefusal,
   stateTargetRefusal,
   storeRefusal,
@@ -34,6 +37,14 @@ const targets = (over: Partial<EnvTargets> = {}): EnvTargets => ({
 
 function target(kind: EnvTarget['kind'], organizationId = ORG): EnvTarget {
   return { alias: 'TGT', organizationId, kind, username: SESSION.username };
+}
+
+/** The host a sandbox of the My Domain acme--uat answers on, with enhanced domains. */
+const SANDBOX_HOST = 'acme--uat.sandbox.my.salesforce.com';
+
+/** A sandbox as the guards typed it, on a host, or on none that is a My Domain's. */
+function sandboxOn(host: string | undefined, organizationId = ORG): EnvTarget {
+  return { ...target('sandbox', organizationId), ...(host !== undefined ? { host } : {}) };
 }
 
 describe('a production org', () => {
@@ -152,6 +163,200 @@ describe('a sandbox', () => {
   });
 });
 
+describe('the host an org answers on', () => {
+  it('is the My Domain host the sf CLI reaches it by, and none for a pod’s host, which many orgs share', () => {
+    expect(
+      envTargetOf(
+        'TGT',
+        { id: ORG, sandbox: true },
+        { ...SESSION, instanceUrl: 'https://Acme--UAT.sandbox.my.salesforce.com' },
+      ),
+    ).toEqual({ target: sandboxOn(SANDBOX_HOST) });
+
+    const onPod = envTargetOf(
+      'TGT',
+      { id: ORG, sandbox: true },
+      { ...SESSION, instanceUrl: 'https://cs42.salesforce.com' },
+    );
+    expect(onPod).toEqual({ target: target('sandbox') });
+    expect('target' in onPod && 'host' in onPod.target).toBe(false);
+  });
+});
+
+describe('a sandbox listed by its My Domain', () => {
+  const byMyDomain = targets({ kinds: ['sandbox'], sandboxes: [{ myDomain: 'acme--uat' }] });
+
+  it('is written to when it answers IsSandbox true, the CLI shows no scratch org, and its host is of that My Domain, whatever its Id', () => {
+    const typed = envTargetOf(
+      'TGT',
+      { id: ORG, sandbox: true },
+      { ...SESSION, instanceUrl: `https://${SANDBOX_HOST}` },
+    );
+    if (!('target' in typed)) throw new Error('refused');
+
+    expect(targetRefusal(byMyDomain, typed.target)).toBeUndefined();
+    expect(targetRefusal(byMyDomain, sandboxOn(SANDBOX_HOST, OTHER))).toBeUndefined();
+    expect(
+      targetRefusal(byMyDomain, sandboxOn('acme--uat.cs42.my.salesforce.com')),
+    ).toBeUndefined();
+    expect(sandboxListing(byMyDomain, typed.target)).toEqual({
+      by: 'myDomain',
+      myDomain: 'acme--uat',
+    });
+  });
+
+  it('never lists a scratch org, by its host when the CLI did not say it is one, by its kind when it did', () => {
+    const scratchHost = 'acme--uat.scratch.my.salesforce.com';
+    const unsaid = targetRefusal(byMyDomain, sandboxOn(scratchHost));
+
+    expect(unsaid).toMatchObject({ code: 'NOT_LISTED', exit: 1 });
+    expect(unsaid?.message).toContain(
+      `Its host, ${scratchHost}, is a scratch org's, which no My Domain lists`,
+    );
+    expect(unsaid?.message).not.toContain('which a refresh keeps');
+    expect(sandboxListing(byMyDomain, sandboxOn(scratchHost))).toBeUndefined();
+
+    const said = envTargetOf(
+      'TGT',
+      { id: ORG, sandbox: true },
+      { ...SESSION, scratch: true, instanceUrl: `https://${SANDBOX_HOST}` },
+    );
+    if (!('target' in said)) throw new Error('refused');
+    expect(targetRefusal(byMyDomain, said.target)?.code).toBe('KIND');
+  });
+
+  it('never lists a Developer Edition org nor a production org, whose IsSandbox read live is false', () => {
+    const onSandboxHost = { ...SESSION, instanceUrl: `https://${SANDBOX_HOST}` };
+    const developer = envTargetOf(
+      'TGT',
+      { id: ORG, sandbox: false, edition: 'Developer Edition' },
+      onSandboxHost,
+    );
+    if (!('target' in developer)) throw new Error('refused');
+
+    expect(targetRefusal(byMyDomain, developer.target)?.code).toBe('KIND');
+    expect(sandboxListing(byMyDomain, developer.target)).toBeUndefined();
+    expect(
+      envTargetOf('TGT', { id: ORG, sandbox: false, edition: 'Enterprise Edition' }, onSandboxHost),
+    ).toMatchObject({ refusal: { code: 'PRODUCTION' } });
+  });
+
+  it('refuses a sandbox of another My Domain, and one the CLI reaches by no My Domain host', () => {
+    const other = targetRefusal(byMyDomain, sandboxOn('acme--qa.sandbox.my.salesforce.com'));
+    expect(other).toMatchObject({ code: 'NOT_LISTED', exit: 1 });
+    expect(other?.message).toContain(
+      `TGT is a sandbox, and its Organization Id ${ORG} is not listed under targets.sandboxes, ` +
+        'nor its My Domain acme--qa',
+    );
+
+    const unhosted = targetRefusal(byMyDomain, sandboxOn(undefined));
+    expect(unhosted).toMatchObject({ code: 'NOT_LISTED', exit: 1 });
+    expect(unhosted?.message).toContain(
+      'The sf CLI reaches it by no My Domain host: no My Domain the file lists can name it.',
+    );
+    expect(unhosted?.message).not.toContain('which a refresh keeps');
+
+    const otherShape = targetRefusal(byMyDomain, sandboxOn('example.my.salesforce.com'));
+    expect(otherShape?.message).toContain(
+      "Its host, example.my.salesforce.com, is no sandbox's: no My Domain the file lists can name it.",
+    );
+  });
+
+  it('says of a sandbox on a host of no sandbox’s shape what it said before, when the file lists Ids alone', () => {
+    expect(
+      targetRefusal(
+        targets({ kinds: ['sandbox'], sandboxes: [OTHER] }),
+        sandboxOn('example.my.salesforce.com'),
+      ),
+    ).toEqual({
+      code: 'NOT_LISTED',
+      message:
+        `TGT is a sandbox, and its Organization Id ${ORG} is not listed under ` +
+        "targets.sandboxes: nothing Salesforce says tells a sandbox that holds a client's " +
+        "records from a developer's, so each one the file writes to is listed, reviewed with " +
+        'the file. A refresh changes the Id: a sandbox listed before its refresh is listed ' +
+        'again. Nothing was read or written. If it is a scratch org, the sf CLI did not say ' +
+        'so: its display names no Dev Hub for it, as when the org was logged in with an auth ' +
+        'URL alone.',
+      exit: 1,
+    });
+  });
+
+  it('names, when it refuses a sandbox, the My Domain that would list it after each refresh', () => {
+    const refused = targetRefusal(
+      targets({ kinds: ['sandbox'], sandboxes: [ORG] }),
+      sandboxOn(SANDBOX_HOST, OTHER),
+    );
+
+    expect(refused?.message).toContain(
+      'A refresh changes the Id: a sandbox listed by it before its refresh is listed again, or ' +
+        'listed by its My Domain, which a refresh keeps: { myDomain: acme--uat }.',
+    );
+    expect(refused?.message).not.toContain('If it is a scratch org');
+  });
+
+  it('is said listed by its Organization Id when the file lists it both ways, and by its My Domain alone otherwise', () => {
+    const both = targets({
+      kinds: ['sandbox'],
+      sandboxes: [{ myDomain: 'acme--uat' }, ORG_15],
+    });
+
+    expect(sandboxListing(both, sandboxOn(SANDBOX_HOST))).toEqual({ by: 'organizationId' });
+    expect(sandboxListing(both, sandboxOn(SANDBOX_HOST, OTHER))).toEqual({
+      by: 'myDomain',
+      myDomain: 'acme--uat',
+    });
+    expect(sandboxListing(both, target('developer'))).toBeUndefined();
+  });
+
+  it('is said in the plan, and so is an Organization Id changed since the last apply', () => {
+    expect(myDomainListingWords(false)).toBe('listed by its My Domain');
+    expect(myDomainListingWords(true)).toBe(
+      'listed by its My Domain; its Organization Id changed since the last apply',
+    );
+  });
+});
+
+describe('an org protected by its My Domain', () => {
+  const protectedUat = (sandboxes: EnvTargets['sandboxes']): EnvTargets =>
+    targets({
+      kinds: ['scratch', 'developer', 'sandbox'],
+      sandboxes,
+      protect: [{ myDomain: 'acme--uat' }],
+    });
+
+  it('refuses the sandbox on that My Domain, whether the file lists it by its Id or by its My Domain', () => {
+    for (const listed of [[ORG], [{ myDomain: 'acme--uat' }]]) {
+      expect(targetRefusal(protectedUat(listed), sandboxOn(SANDBOX_HOST))).toEqual({
+        code: 'PROTECTED',
+        message:
+          `TGT (${ORG}, on ${SANDBOX_HOST}) is listed under targets.protect by its My Domain ` +
+          'acme--uat: the file refuses it whatever else it says. Nothing was read or written.',
+        exit: 1,
+      });
+    }
+  });
+
+  it('lets another sandbox, a scratch org and a Developer Edition org through', () => {
+    const file = protectedUat([{ myDomain: 'acme--qa' }]);
+
+    expect(targetRefusal(file, sandboxOn('acme--qa.sandbox.my.salesforce.com'))).toBeUndefined();
+    expect(targetRefusal(file, target('scratch'))).toBeUndefined();
+    expect(targetRefusal(file, target('developer'))).toBeUndefined();
+  });
+
+  it('refuses a sandbox the CLI reaches by no My Domain host, which it cannot tell from the one protected', () => {
+    const refused = targetRefusal(protectedUat([ORG]), sandboxOn(undefined));
+
+    expect(refused).toMatchObject({ code: 'PROTECTED', exit: 1 });
+    expect(refused?.message).toContain(
+      `TGT (${ORG}) is a sandbox the sf CLI reaches by no My Domain host, and targets.protect ` +
+        'lists acme--uat by its My Domain: whether it is that sandbox cannot be told, and a ' +
+        'protected org is never let through on a guess.',
+    );
+  });
+});
+
 describe('a protected org', () => {
   it('is refused whatever else the file says, the kinds and the sandboxes listed included', () => {
     const file = targets({
@@ -230,6 +435,54 @@ describe('no state of the environment on this machine', () => {
     });
     const none = noStateGuard(target('developer'), 'case-flow', false);
     expect('refusal' in none && none.refusal.message).not.toContain('state recover');
+  });
+
+  const keptBefore = {
+    organizationId: OTHER,
+    serial: 9,
+    updatedAt: '2026-11-14T17:47:50.000Z',
+    host: SANDBOX_HOST,
+    setAside: `/home/dev/.sandforge/env/${OTHER}/case-flow`,
+  };
+
+  it('asks no --accept-no-state of a sandbox refreshed since the last apply, proven by the state kept under its former Id on the same host, and names that state, set aside', () => {
+    const guarded = noStateGuard(sandboxOn(SANDBOX_HOST), 'case-flow', false, false, keptBefore);
+
+    expect(guarded).toEqual({
+      warning:
+        `none for this Organization Id; TGT was refreshed since the last apply, which this ` +
+        `machine kept under ${OTHER} (serial 9, 2026-11-14): the refresh took what it held, and ` +
+        `this apply starts anew. That state is set aside, kept: /home/dev/.sandforge/env/${OTHER}/case-flow`,
+      refreshed: {
+        organizationId: OTHER,
+        serial: 9,
+        updatedAt: '2026-11-14T17:47:50.000Z',
+        setAside: `/home/dev/.sandforge/env/${OTHER}/case-flow`,
+      },
+    });
+    expect(refreshedStateWords('TGT', keptBefore)).toBe('warning' in guarded && guarded.warning);
+    expect(noStateGuard(sandboxOn(SANDBOX_HOST), 'case-flow', true, false, keptBefore)).toEqual(
+      guarded,
+    );
+  });
+
+  it('asks it as before when nothing proves the refresh: the same Id, another host, no host, runs of this Id kept, or another kind of org', () => {
+    const cases: Array<[string, EnvTarget, typeof keptBefore, boolean]> = [
+      ['the same Id', sandboxOn(SANDBOX_HOST, OTHER), keptBefore, false],
+      ['another host', sandboxOn('acme--qa.sandbox.my.salesforce.com'), keptBefore, false],
+      ['no host for the org', sandboxOn(undefined), keptBefore, false],
+      ['runs of this Id kept: its state lost', sandboxOn(SANDBOX_HOST), keptBefore, true],
+      [
+        'a Developer Edition org',
+        { ...target('developer'), host: SANDBOX_HOST },
+        keptBefore,
+        false,
+      ],
+    ];
+    for (const [why, org, kept, runsKept] of cases) {
+      const guarded = noStateGuard(org, 'case-flow', false, runsKept, kept);
+      expect('refusal' in guarded && guarded.refusal.code, why).toBe('NO_STATE');
+    }
   });
 });
 

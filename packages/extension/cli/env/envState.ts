@@ -24,7 +24,11 @@
  * in the home directory: the scripts' own, so a cache that keeps their run
  * files keeps the states too. A state is filed under the Organization Id read
  * live, never the alias: a CI alias reused for a new scratch org gets a new
- * state, and so does a refreshed sandbox, whose Id changed.
+ * state, and so does a refreshed sandbox, whose Id changed. The state keeps
+ * the My Domain host the org answered on, which a refresh keeps: a state of
+ * the environment under another Id on the same sandbox host is the one of
+ * the sandbox before its refresh ({@link EnvStore.refreshedOf}), left where
+ * it is, never deleted.
  *
  * Every write is checked against what it replaces: the serial it was read at
  * and its lineage. A state that moved since — another apply ran, a cache put
@@ -44,6 +48,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import {
   envNameSchema,
   envStateSchema,
+  type EnvPlanRefreshed,
   type EnvResourceKind,
   type EnvResourceState,
   type EnvRun,
@@ -54,6 +59,7 @@ import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore
 import { SasPathGuard, findRepoRoot } from '../../src/modules/frozendataset/SasPathGuard.js';
 import { toolStoreOf } from '../backupStore.js';
 import { commandOf } from '../invocation.js';
+import { refreshedSince, type EnvHostedOrg } from './envTargetHost.js';
 
 /** What a folder of the states is made with: its owner alone lists and reads it. */
 export const ENV_DIR_MODE = 0o700;
@@ -235,6 +241,8 @@ export interface EnvStateOrg {
   kind: EnvTargetKind;
   username: string;
   alias?: string;
+  /** The My Domain host the org answered on; none for one reached on a pod's host. */
+  host?: string;
 }
 
 /**
@@ -260,10 +268,23 @@ export function newEnvState(input: {
       kind: input.org.kind,
       username: input.org.username,
       ...(input.org.alias !== undefined ? { alias: input.org.alias } : {}),
+      ...(input.org.host !== undefined ? { host: input.org.host } : {}),
     },
     file: { digest: input.fileDigest },
     resources: {},
   };
+}
+
+/**
+ * The state with the My Domain host the org answers on now: a state written
+ * before 1.82 has none, and an org whose My Domain changed answers on
+ * another. Kept on its next write, it is what proves a refresh after it.
+ * The state itself when the host is the one it holds, or when the org
+ * answered on no My Domain host: the one it holds is not taken away.
+ */
+export function withOrgHost(state: EnvState, host: string | undefined): EnvState {
+  if (host === undefined || state.org.host === host) return state;
+  return { ...state, org: { ...state.org, host } };
 }
 
 /** The run a step is about to start, before its script is spawned. */
@@ -401,6 +422,15 @@ export interface EnvStateListing {
   /** Why it is not used. */
   damaged?: string;
   expiresAt?: string;
+}
+
+/**
+ * The state of an environment this machine kept of a sandbox before its
+ * refresh: under its former Organization Id, on the same host. `setAside` is
+ * its folder, where it stays: nothing moves or deletes it.
+ */
+export interface EnvStateRefreshed extends EnvPlanRefreshed {
+  host: string;
 }
 
 /** A state the sweep deleted on its date, as it is named. */
@@ -667,6 +697,40 @@ export class EnvStore {
     if (statSync(folder, { throwIfNoEntry: false }) === undefined) return false;
     await rm(folder, { recursive: true, force: true });
     return true;
+  }
+
+  /**
+   * The state of `env` this machine kept of the target before its refresh, or
+   * undefined: the newest kept under another Organization Id with the same
+   * sandbox host, both read live as sandboxes ({@link refreshedSince}). Called
+   * when none is kept under the target's own Id. A state that does not read,
+   * or written before 1.82 with no host, proves nothing and is passed over.
+   * Read alone: the state found stays where it is, as it was.
+   */
+  async refreshedOf(target: EnvHostedOrg, env: string): Promise<EnvStateRefreshed | undefined> {
+    const name = parsedName(env);
+    let found: EnvStateRefreshed | undefined;
+    for (const org of await foldersIn(this.root)) {
+      if (organizationKeyOrNone(org) !== org) continue;
+      let state: EnvState | undefined;
+      try {
+        state = await this.read(org, name);
+      } catch {
+        continue;
+      }
+      if (state?.org.host === undefined || !refreshedSince(state.org, target)) continue;
+      if (found !== undefined && Date.parse(found.updatedAt) >= Date.parse(state.updatedAt)) {
+        continue;
+      }
+      found = {
+        organizationId: state.org.organizationId,
+        serial: state.serial,
+        updatedAt: state.updatedAt,
+        host: state.org.host,
+        setAside: this.folderOf(org, name),
+      };
+    }
+    return found;
   }
 
   /** Every state kept on this machine, damaged ones included, by org then environment. */

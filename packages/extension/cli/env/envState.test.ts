@@ -29,6 +29,7 @@ import {
   runTemplatePathOf,
   stateExpiresAt,
   stepEnded,
+  withOrgHost,
   type EnvStore,
   type EnvStoreOptions,
 } from './envState.js';
@@ -605,5 +606,167 @@ describe('listing and expiry', () => {
     expect(await store.remove(ORG, 'case-flow')).toBe(true);
     expect(await store.remove(ORG, 'case-flow')).toBe(false);
     expect(await store.read(ORG, 'case-flow')).toBeUndefined();
+  });
+});
+
+describe('a state of the same sandbox before its refresh', () => {
+  const SANDBOX_HOST = 'acme--uat.sandbox.my.salesforce.com';
+  const THIRD_ORG = '00Dxx0000009012EAA';
+  /** The sandbox as the guards typed it after its refresh: a new Id, the same host. */
+  const REFRESHED = { organizationId: ORG, kind: 'sandbox' as const, host: SANDBOX_HOST };
+
+  /** A state an apply wrote to a sandbox, on its host, or on none as before 1.82. */
+  function sandboxState(
+    org: string,
+    host: string | undefined,
+    { env = 'case-flow', kind = 'sandbox' }: { env?: string; kind?: EnvState['org']['kind'] } = {},
+  ): EnvState {
+    return newEnvState({
+      env,
+      org: {
+        organizationId: org,
+        kind,
+        username: 'test-user@example.com.uat',
+        alias: 'uat',
+        ...(host !== undefined ? { host } : {}),
+      },
+      fileDigest: 'a'.repeat(64),
+      sandforgeVersion: '1.82.0',
+      now: new Date(NOW),
+    });
+  }
+
+  /** The states of one journal directory, opened at a moment of their own. */
+  function journal(): (now: number) => EnvStore {
+    const { fileFolder, journalDir } = project();
+    return (now) => {
+      const opened = openEnvStore({ journalDir, fileFolder, now: () => now });
+      if (!('store' in opened)) throw new Error(opened.refusal);
+      return opened.store;
+    };
+  }
+
+  it('is told by the host a new state records, which reads back, and which a state of an org on no My Domain host does not have', async () => {
+    const store = storeOf();
+    const hosted = await store.update(sandboxState(OTHER_ORG, SANDBOX_HOST), seeding);
+
+    expect(hosted.org.host).toBe(SANDBOX_HOST);
+    expect(await store.read(OTHER_ORG, 'case-flow')).toEqual(hosted);
+    expect('host' in sandboxState(OTHER_ORG, undefined).org).toBe(false);
+  });
+
+  it('is found under the former Organization Id on the same host, named where it is kept, and left there as it was', async () => {
+    const store = storeOf();
+    await store.update(sandboxState(OTHER_ORG, SANDBOX_HOST), seeding);
+    const file = join(store.folderOf(OTHER_ORG, 'case-flow'), 'state.json');
+    const before = readFileSync(file, 'utf8');
+
+    expect(await store.refreshedOf(REFRESHED, 'case-flow')).toEqual({
+      organizationId: OTHER_ORG,
+      serial: 1,
+      updatedAt: new Date(NOW).toISOString(),
+      host: SANDBOX_HOST,
+      setAside: store.folderOf(OTHER_ORG, 'case-flow'),
+    });
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(readdirSync(store.folderOf(OTHER_ORG, 'case-flow'))).toEqual(['state.json']);
+    expect(await store.read(ORG, 'case-flow')).toBeUndefined();
+  });
+
+  it('is the newest when two refreshes each left one', async () => {
+    const open = journal();
+    await open(NOW - 10 * DAY).update(sandboxState(THIRD_ORG, SANDBOX_HOST), seeding);
+    await open(NOW - DAY).update(sandboxState(OTHER_ORG, SANDBOX_HOST), seeding);
+
+    expect(await open(NOW).refreshedOf(REFRESHED, 'case-flow')).toMatchObject({
+      organizationId: OTHER_ORG,
+      updatedAt: new Date(NOW - DAY).toISOString(),
+    });
+  });
+
+  it('is none for the same Id, another host, another environment, a state kept before 1.82 with no host, one that does not read, or one of a scratch or Developer Edition org', async () => {
+    const cases: Array<[string, (store: EnvStore) => Promise<unknown>]> = [
+      ['the same Id', (store) => store.update(sandboxState(ORG, SANDBOX_HOST), seeding)],
+      [
+        'another host',
+        (store) =>
+          store.update(sandboxState(OTHER_ORG, 'acme--qa.sandbox.my.salesforce.com'), seeding),
+      ],
+      [
+        'another environment',
+        (store) => store.update(sandboxState(OTHER_ORG, SANDBOX_HOST, { env: 'demo' }), (s) => s),
+      ],
+      [
+        'kept before 1.82, with no host',
+        (store) => store.update(sandboxState(OTHER_ORG, undefined), seeding),
+      ],
+      [
+        'one that does not read',
+        async (store) => {
+          const folder = store.folderOf(OTHER_ORG, 'case-flow');
+          mkdirSync(folder, { recursive: true });
+          writeFileSync(join(folder, 'state.json'), '{"version":1,"cut');
+        },
+      ],
+      [
+        'a scratch org’s',
+        (store) =>
+          store.update(sandboxState(OTHER_ORG, SANDBOX_HOST, { kind: 'scratch' }), seeding),
+      ],
+      [
+        'a Developer Edition org’s',
+        (store) =>
+          store.update(sandboxState(OTHER_ORG, SANDBOX_HOST, { kind: 'developer' }), seeding),
+      ],
+    ];
+    for (const [why, keep] of cases) {
+      const store = storeOf();
+      await keep(store);
+      expect(await store.refreshedOf(REFRESHED, 'case-flow'), why).toBeUndefined();
+    }
+  });
+
+  it('is none for an org that is no sandbox, or whose host is no sandbox’s', async () => {
+    const store = storeOf();
+    await store.update(sandboxState(OTHER_ORG, SANDBOX_HOST), seeding);
+    const scratchHost = 'acme--uat.scratch.my.salesforce.com';
+
+    for (const target of [
+      { ...REFRESHED, kind: 'developer' as const },
+      { ...REFRESHED, kind: 'scratch' as const },
+      { organizationId: ORG, kind: 'sandbox' as const, host: scratchHost },
+      { organizationId: ORG, kind: 'sandbox' as const },
+    ]) {
+      expect(await store.refreshedOf(target, 'case-flow')).toBeUndefined();
+    }
+    expect(await storeOf().refreshedOf(REFRESHED, 'case-flow')).toBeUndefined();
+  });
+
+  it('is never deleted: the new state written, then taken back by a destroy, and the sweep, leave it', async () => {
+    const open = journal();
+    const kept = await open(NOW).update(sandboxState(OTHER_ORG, SANDBOX_HOST), seeding);
+    const store = open(NOW + DAY);
+    expect(await store.refreshedOf(REFRESHED, 'case-flow')).toBeDefined();
+
+    await store.update(sandboxState(ORG, SANDBOX_HOST), seeding);
+    expect(await store.remove(ORG, 'case-flow')).toBe(true);
+    expect(await open(NOW + 400 * DAY).sweep()).toEqual([]);
+
+    expect(await store.read(OTHER_ORG, 'case-flow')).toEqual(kept);
+  });
+
+  it('carries the host into a state kept before 1.82 and into one of an org whose My Domain changed, and leaves a state as it is when the org is on no My Domain host', () => {
+    const before = sandboxState(ORG, undefined);
+    const hosted = sandboxState(ORG, SANDBOX_HOST);
+    const renamed = 'acme--uat2.sandbox.my.salesforce.com';
+
+    expect(withOrgHost(before, SANDBOX_HOST)).toEqual({
+      ...before,
+      org: { ...before.org, host: SANDBOX_HOST },
+    });
+    expect(withOrgHost(hosted, renamed).org.host).toBe(renamed);
+    expect(withOrgHost(hosted, SANDBOX_HOST)).toBe(hosted);
+    expect(withOrgHost(before, undefined)).toBe(before);
+    expect(withOrgHost(hosted, undefined)).toBe(hosted);
   });
 });
