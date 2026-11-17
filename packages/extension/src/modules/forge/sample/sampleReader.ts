@@ -440,6 +440,30 @@ const DRAW_REFUSALS: ReadonlySet<string> = new Set([
 /** The code a draw the source cannot count is refused under. */
 const SAMPLE_DRAW_INVALID = 'SAMPLE_DRAW_INVALID' satisfies ForgeRunGateCode;
 
+/** What a draw is refused for: the condition of its roots, its stratum, or either. */
+type DrawRefusedFor = 'where' | 'strata' | 'either';
+
+/**
+ * What the source's refusal of a count of the roots of `read` is for, read
+ * from its words: a semi-join past the most, or a column of its condition it
+ * does not hold, is the condition's; a field it will not group by, or one
+ * its stratum names that it does not hold, the stratum's; either otherwise.
+ * Said both ways out, a condition naming an unknown field drew "Stratify
+ * Account by a field of few values…" beside its own.
+ */
+function refusedFor(read: RootRead, code: string, said: string): DrawRefusedFor {
+  if (read.where === undefined) return 'strata';
+  if (read.stratifiedBy === undefined) return 'where';
+  if (code === 'EXCEEDED_MAX_SEMIJOIN_SUBSELECTS') return 'where';
+  if (/can ?not be grouped/i.test(said)) return 'strata';
+  const column = /No such column '([^']+)'/i.exec(said)?.[1]?.toLowerCase();
+  if (column === undefined) return 'either';
+  const named = (text: string): boolean => text.toLowerCase().split(/\W+/).includes(column);
+  const inWhere = named(read.where);
+  const inStratum = named(read.stratifiedBy);
+  return inWhere === inStratum ? 'either' : inWhere ? 'where' : 'strata';
+}
+
 /** How the roots of one object are read: see `SampleSourceReader.rootShapeOf`. */
 interface RootShape {
   object: string;
@@ -945,6 +969,7 @@ export class SampleSourceReader {
     if (pages > 1 || rows.length >= ROWS_PER_PAGE) {
       throw this.drawRefused(
         read,
+        'strata',
         `${read.objectApiName}.${field} has too many values among the roots of the draw to ` +
           `stratify them: the source counts them in one answer of fewer than ${ROWS_PER_PAGE}, ` +
           `and this one ${pages > 1 ? 'had more after it' : `held ${rows.length}`}.`,
@@ -967,6 +992,7 @@ export class SampleSourceReader {
     if (this.options.countsBy?.(read.objectApiName, field) !== false) return;
     throw this.drawRefused(
       read,
+      'strata',
       `The source's describe says the records of ${read.objectApiName} are not counted by ` +
         `${field}.`,
     );
@@ -978,31 +1004,34 @@ export class SampleSourceReader {
    * roots neither restricted nor stratified, or a failure of another kind.
    */
   private drawRefusalOf(read: RootRead, error: unknown): unknown {
-    const code = extractErrorCode(extractErrorMessage(error));
+    const said = extractErrorMessage(error);
+    const code = extractErrorCode(said);
     if (code === undefined || !DRAW_REFUSALS.has(code)) return error;
     if (!this.restricts(read) && read.stratifiedBy === undefined) return error;
     return this.drawRefused(
       read,
-      `The source refused to count the roots of ${read.objectApiName} in the draw: ` +
-        extractErrorMessage(error),
+      refusedFor(read, code, said),
+      `The source refused to count the roots of ${read.objectApiName} in the draw: ${said}`,
     );
   }
 
   /**
    * A draw refused before a root is read (`SAMPLE_DRAW_INVALID`): `reason`,
-   * what the counts sent, and the ways on the draw's own options give.
+   * what the counts sent, and the ways out of what refused it — the condition
+   * of its roots, its stratum, or either when the source's words name
+   * neither.
    */
-  private drawRefused(read: RootRead, reason: string): ForgeRunGateError {
+  private drawRefused(read: RootRead, about: DrawRefusedFor, reason: string): ForgeRunGateError {
     const object = read.objectApiName;
     const ways: string[] = [];
-    if (read.where !== undefined) {
+    if (read.where !== undefined && about !== 'strata') {
       ways.push(
         `The source reads the condition of its roots (--fit-where ${object}=…) as it is ` +
           'written: its fields are those of the object, and with the filter it holds two ' +
           'semi-joins at most, none in parentheses an OR is part of.',
       );
     }
-    if (read.stratifiedBy !== undefined) {
+    if (read.stratifiedBy !== undefined && about !== 'where') {
       ways.push(
         `Stratify ${object} by a field of few values the source groups by — a picklist, a ` +
           `checkbox, a record type or an owner (--fit-strata ${object}.<Field>) —, or narrow ` +

@@ -102,17 +102,22 @@ export interface SampleRoots {
 }
 
 /**
- * The options of a draw refused before a request is sent, nothing written
+ * The options of a draw refused before it sends a request, nothing written
  * (`SAMPLE_DRAW_INVALID`): each problem in its words, each naming what is
  * valid or the way to write it. A count the source refuses is the reader's
  * to refuse, in the source's words. A gate's stop as any other, its name
  * kept: `isForgeRunGateError` reads it by its name too.
+ *
+ * Read off the describes discovery took, after the reads a run makes first:
+ * said "no request was sent", a refusal followed 163 requests of discovery
+ * and of the target. The draw sent none; the words say whose they were.
  */
 export class SampleDrawInvalid extends ForgeRunGateError {
   constructor(readonly problems: readonly string[]) {
     super(
       'SAMPLE_DRAW_INVALID',
-      `${problems.join(' ')} Nothing was written, and no request was sent.`,
+      `${problems.join(' ')} Nothing was written, and no root was counted or read: the ` +
+        'requests sent before the draw were discovery’s and the target’s.',
       undefined,
       undefined,
       undefined,

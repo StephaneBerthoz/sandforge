@@ -395,20 +395,28 @@ export function noRootsStop(
 
 /**
  * The stop of a query that chooses more records than the run takes, with
- * the ways through: the newest of them, a narrower WHERE, a higher bound,
- * and past the most of all, a sample of the whole org.
+ * the ways through: the first of them in its order — the newest, of a query
+ * that orders them by nothing —, a narrower WHERE, a higher bound, and past
+ * the most of all, a sample of the whole org. What the query has already is
+ * never proposed: run for real, a query that read ORDER BY CreatedDate DESC,
+ * Id DESC was told to add ORDER BY CreatedDate DESC, Id DESC LIMIT 10.
  */
 export function rootsExceededStop(
   objectApiName: string,
   cap: number,
   given: 'query' | 'records',
+  query?: ForgeRootsQuery,
 ): ForgeGateStop {
   const most = FORGE_ROOTS_MAX.toLocaleString('en-US');
+  const ordered = given === 'query' && query?.orderBy !== undefined;
+  const clause = `${ordered ? '' : `ORDER BY ${SOQL_NEWEST_FIRST} `}LIMIT ${cap}`;
   const through =
     given === 'query'
-      ? `Add ORDER BY ${SOQL_NEWEST_FIRST} LIMIT ${cap} to the query to clone the newest, narrow ` +
-        `its WHERE, or raise --max-roots (the sandforge.forge.maxRoots setting) up to ${most}; ` +
-        'past that, copy a sample of the whole org with a filter on its roots.'
+      ? `Give the query ${clause}` +
+        (query?.limit !== undefined ? ` in place of its LIMIT ${query.limit}` : '') +
+        ` to clone the first ${cap} of its order, narrow its WHERE, or raise --max-roots (the ` +
+        `sandforge.forge.maxRoots setting) up to ${most}; past that, copy a sample of the whole ` +
+        'org with a filter on its roots.'
       : `Name ${cap} at most, or raise --max-roots up to ${most}.`;
   return {
     code: 'ROOTS_EXCEEDED',
@@ -417,7 +425,7 @@ export function rootsExceededStop(
       `${objectApiName} records a run clones, and nothing holds ${given === 'query' ? 'it' : 'them'} ` +
       'to that: refused before anything else was read, rather than cut at an order nobody ' +
       `chose. ${through} ${NOTHING_WRITTEN}`,
-    ...rootsOf(objectApiName, { cap }),
+    ...rootsOf(objectApiName, { cap, ...(ordered ? { ordered: true as const } : {}) }),
   };
 }
 

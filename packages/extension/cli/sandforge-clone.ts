@@ -230,6 +230,7 @@ import type {
   ForgeSampleStream,
   ForgeWriteBoundary,
   ForgeWriteGateAnswer,
+  WholeOrgBoundary,
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
@@ -5703,6 +5704,55 @@ export function wholeOrgRefusalWords(message: string, sampled = false): string {
 }
 
 /**
+ * The flags a sample's refusals name, each with the key of a `sandforge.yaml`
+ * forge resource that stands for it: its `fit` mapping, a condition by its
+ * object under `fit.where`, and `maxTotal`. The first match wins: a flag with
+ * its value before the flag alone.
+ */
+const FIT_KEYS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/--fit-where "([A-Za-z0-9_]+)=([^"]*)"/g, 'fit.where.$1: "$2"'],
+  [/--fit-where ([A-Za-z0-9_]+)=…/g, 'fit.where.$1'],
+  [/--fit-strata ([A-Za-z0-9_]+)\.<Field>/g, 'fit.strata: [$1.<Field>]'],
+  [/--fit-draw (uniform|recent|oldest)\b/g, 'fit.draw: $1'],
+  [/--fit-within(?![\w-])/g, 'fit.withinMB'],
+  [/--fit-(window|where|strata|draw|seed)(?![\w-])/g, 'fit.$1'],
+  [/--max-total(?![\w-])/g, 'maxTotal'],
+];
+
+/**
+ * A refusal of a sample as an environment's reader is told it: each flag of
+ * its draw named by the key of the resource's `fit` that stands for it in
+ * the file (`FIT_KEYS`). Relayed by an environment's plan, an empty window
+ * said "Widen the window (--fit-window)" to a reader who gave no flag: the
+ * file said `fit.window`. Any other reader, as it is. Exported so it can be
+ * tested.
+ */
+export function fitKeyWords(message: string): string {
+  if (!relayedByAnEnvironment()) return message;
+  return FIT_KEYS.reduce((text, [pattern, words]) => text.replace(pattern, words), message);
+}
+
+/**
+ * What the gate of a clone of the whole org says of the person accounts a
+ * target without any takes as business accounts
+ * (`WholeOrgBoundary.personAccountsAsBusiness`), or nothing. Run for real,
+ * ten went in so, their contacts on their own: the run's line said it, its
+ * dry run not. Exported so it can be tested.
+ */
+export function personAccountsAsBusinessLine(
+  measures: Pick<WholeOrgBoundary, 'personAccountsAsBusiness'>,
+  source: string,
+  target: string,
+): string | undefined {
+  const count = measures.personAccountsAsBusiness ?? 0;
+  if (count <= 0) return undefined;
+  return (
+    `  person accounts: ${count} of ${source}'s go in as business accounts, ${target} having ` +
+    'none, and their contacts as contacts of their own'
+  );
+}
+
+/**
  * Why a clone of the whole org may not write past `--max-total`: the line's
  * own words, which name no `--max`, a cap no whole org takes. Exported so it
  * can be tested.
@@ -6914,7 +6964,7 @@ export async function rootsChosenFirst(
   ];
   const stop =
     ids.length > cap
-      ? rootsExceededStop(objectApiName, cap, 'query')
+      ? rootsExceededStop(objectApiName, cap, 'query', rootsQuery)
       : ids.length === 0
         ? noRootsStop(objectApiName, rootsQuery, cap)
         : undefined;
@@ -12972,10 +13022,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
    * said a sentence on stderr and left stdout empty.
    */
   const endRefused = (
-    refused: RunRefusal,
-    also: readonly RunRefusal[] = [],
+    asRefused: RunRefusal,
+    asAlso: readonly RunRefusal[] = [],
     exitCode = 1,
   ): never => {
+    // An environment's reader is told the keys of its file, not the draw's flags.
+    const refused = { ...asRefused, message: fitKeyWords(asRefused.message) };
+    const also = asAlso.map((refusal) => ({ ...refusal, message: fitKeyWords(refusal.message) }));
     for (const refusal of [refused, ...also]) process.stderr.write(`${refusedLine(refusal)}\n`);
     if (args.json) {
       process.stdout.write(
@@ -13727,6 +13780,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       }
     }
     for (const line of writePlanLines(plan, storageCheck, args.target)) say(line);
+    const asBusiness = personAccountsAsBusinessLine(measures, args.source, args.target);
+    if (asBusiness !== undefined) say(asBusiness);
     for (const line of wholeOrgGateLines(
       question,
       wholeOrgLeftOutOf(graph).counts,
@@ -13752,7 +13807,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
     const unsaid = (message: string): string =>
-      wholeOrgRefusalWords(message, sampled !== undefined).replace(/ Nothing was written\.$/, '');
+      fitKeyWords(wholeOrgRefusalWords(message, sampled !== undefined)).replace(
+        / Nothing was written\.$/,
+        '',
+      );
     // In the order the run meets them, each under the code a real run refused
     // for it alone is refused with.
     const refusals: Array<RunRefusal & { stop?: ForgeGateStop }> = [
@@ -14213,6 +14271,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         durationSeconds: dry.durationSeconds,
         leftOut: dry.leftOut,
         personalAsIs: dry.personalAsIs,
+        ...(dry.personAccountsAsBusiness !== undefined
+          ? { personAccountsAsBusiness: dry.personAccountsAsBusiness }
+          : {}),
         // As the panel's question names them (`WholeOrgConfirmation`).
         managedPackages: question?.managedPackages ?? [],
         ...(question?.contactPointsBlanked !== undefined

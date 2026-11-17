@@ -245,6 +245,23 @@ describe('the refusals of a run from roots', () => {
     expect(stop.message).toContain('2,000');
   });
 
+  it('give a query that orders its records the LIMIT alone, and one past the most its LIMIT lowered', () => {
+    // Run for real, a query that read ORDER BY CreatedDate DESC, Id DESC
+    // was told to add ORDER BY CreatedDate DESC, Id DESC LIMIT 10.
+    const ordered = rootsExceededStop('Account', 10, 'query', {
+      orderBy: 'CreatedDate DESC, Id DESC',
+    });
+    expect(ordered.message).toContain('Give the query LIMIT 10 to clone the first 10 of its order');
+    expect(ordered.message).not.toContain('ORDER BY');
+    expect(ordered.roots).toEqual({ objectApiName: 'Account', cap: 10, ordered: true });
+
+    const limited = rootsExceededStop('Account', 10, 'query', { limit: 500 });
+    expect(limited.message).toContain(
+      'Give the query ORDER BY CreatedDate DESC, Id DESC LIMIT 10 in place of its LIMIT 500',
+    );
+    expect(limited.roots).toEqual({ objectApiName: 'Account', cap: 10 });
+  });
+
   it('give the count to run when a query chooses none', () => {
     expect(noRootsStop('Case', { where: "Status = 'New'" }, 200).message).toContain(
       `sf data query -q "SELECT COUNT() FROM Case WHERE Status = 'New'"`,

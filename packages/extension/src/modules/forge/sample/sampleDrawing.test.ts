@@ -749,6 +749,90 @@ describe('a sample whose roots are chosen', () => {
     ]);
   });
 
+  /*
+   * Tasks whose lookup may name several objects (`WhatId`), each naming an
+   * account the draw takes: none is a root, which only the read of each row
+   * tells — the count selects every task. Run for real, a draw by a window
+   * said none of 2 552 task roots was in the draw, a draw of the oldest that
+   * all 2 552 were, with none drawn, and the refusal of an empty window that
+   * the source held 2 552 task roots outside it, where it held no task
+   * without a Who or a What.
+   */
+  describe('of an object whose lookup may name several objects', () => {
+    const TASK_COLUMNS = ['Id', 'WhatId', 'CreatedDate', 'IsDeleted'];
+    function orgWithTasks(): SampleSourceOrg {
+      const org = orgOfAccounts();
+      org.columns.set('Task', TASK_COLUMNS);
+      for (let n = 1; n <= 150; n++) {
+        org.add('Task', {
+          Id: fakeId('00T', n),
+          WhatId: fakeId('001', n),
+          CreatedDate: n <= 50 ? madeIn(2025, 500 + n) : madeIn(2026, 500 + n),
+          IsDeleted: false,
+        });
+      }
+      return org;
+    }
+    const withTasks = (): SampleObjectInput[] => [
+      ...objectsOfAccounts(true),
+      {
+        objectApiName: 'Task',
+        rows: 150,
+        keyPrefix: '00T',
+        fields: [{ ...lookup('WhatId', 'Account'), referenceTo: ['Account', 'Note__c'] }],
+      },
+    ];
+    const reportOf = async (draw: 'uniform' | 'oldest') => {
+      const org = orgWithTasks();
+      const input = chosenInput(
+        org,
+        { draw, window: WINDOW_2025 },
+        { objects: withTasks(), order: ['Account', 'Contact', 'Note__c', 'Task'] },
+      );
+      const drawing = await drawSampleOfTheOrg(input);
+      if (drawing.cut.kind !== 'sample') throw new Error('no sample');
+      return sampleReportOf(
+        { ...drawing, cut: drawing.cut },
+        input.options,
+        budgetOf(1_000).budget,
+      );
+    };
+
+    it('counts in the draw the roots a read of the rows found, none of the tasks, by a window spread over the org or of the oldest', async () => {
+      for (const draw of ['uniform', 'oldest'] as const) {
+        const tasks = (await reportOf(draw)).objects.find((o) => o.objectApiName === 'Task');
+        expect(tasks?.rootsInTheDraw).toBe(0);
+        // The source's count selects every task, roots or not: never said as roots.
+        expect(tasks?.rootsInTheSource).toBeUndefined();
+      }
+    });
+
+    it('says of a window no root is made in only at most the tasks the count selected, never as roots', async () => {
+      const org = orgWithTasks();
+
+      const drawn = drawSampleOfTheOrg(
+        chosenInput(
+          org,
+          {
+            window: {
+              field: 'CreatedDate',
+              from: '2020-01-01T00:00:00Z',
+              to: '2021-01-01T00:00:00Z',
+            },
+          },
+          { objects: withTasks(), order: ['Account', 'Contact', 'Note__c', 'Task'] },
+        ),
+      );
+
+      await expect(drawn).rejects.toMatchObject({
+        code: 'SAMPLE_DRAW_EMPTY',
+        message: expect.stringContaining(
+          'The source holds roots outside them: Account 150, Task at most 150.',
+        ),
+      });
+    });
+  });
+
   it('offers a draw spread over the org the oldest and fewer roots, and a restricted draw by date narrower ones, when reading the roots costs too much', async () => {
     const uniform = drawSampleOfTheOrg(
       chosenInput(orgOfAccounts(), {}, { sourceRequestsLeft: 20 }),

@@ -287,7 +287,7 @@ describe('ForgeRunGateNotice, of a sample of the whole org', () => {
     [
       'SAMPLE_DRAW_INVALID' as const,
       'its roots cannot be drawn as asked',
-      'Account.Name is a string field, of too many values to stratify by. Nothing was written, and no request was sent.',
+      'Account.Name is a string field, of too many values to stratify by. Nothing was written, and no root was counted or read: the requests sent before the draw were discovery’s and the target’s.',
     ],
     [
       'SAMPLE_DRAW_EMPTY' as const,

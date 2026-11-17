@@ -3498,6 +3498,68 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
         orgs.inserts.filter((c) => c.object === 'Pricebook2').flatMap(({ rows }) => rows),
       ).toEqual([expect.objectContaining({ Name: 'Partners' })]);
     });
+
+    it('into a target of one currency, counts and sends one price per product of a book, the one in its currency, and says the others', async () => {
+      // A target of GBP alone: no `CurrencyIsoCode`, no `CurrencyType`, and
+      // a book takes one price per product whatever currency it is sent in.
+      const { schema, graph, targetHolds } = catalog();
+      const orgs = wholeOrg(schema, {
+        targetHolds: {
+          Pricebook2: targetHolds['Pricebook2'] ?? [],
+          Organization: [{ Id: '00D000000000001AAA', DefaultCurrencyIsoCode: 'GBP' }],
+        },
+      });
+      const describe = orgs.deps.describeFields;
+      orgs.deps.describeFields = vi.fn(async (org: string, object: string) =>
+        (await describe(org, object)).filter(
+          (f) => !(org === 'tgt' && f.name === 'CurrencyIsoCode'),
+        ),
+      );
+      const insert = orgs.deps.insertRecords;
+      const priced = new Set<string>();
+      orgs.deps.insertRecords = vi.fn(async (org: string, object: string, rows: Row[]) => {
+        if (object !== 'PricebookEntry') return insert(org, object, rows);
+        const answers = await insert(org, object, rows);
+        return rows.map((row, at) => {
+          const key = [row['Pricebook2Id'], row['Product2Id']].join('|');
+          if (priced.has(key)) {
+            return {
+              id: '',
+              success: false,
+              errors: ['DUPLICATE_VALUE: This price definition already exists in this price book'],
+            };
+          }
+          priced.add(key);
+          return answers[at];
+        });
+      });
+      const boundaries: ForgeWriteBoundary[] = [];
+      const events: ForgeProgressEvent[] = [];
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+        stream: { everything: true },
+        beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b),
+      });
+
+      const plan = writePlanOf(boundaries[0]?.objects ?? []);
+      expect(plan.objects.find((o) => o.objectApiName === 'PricebookEntry')?.rows).toBe(4);
+      expect(plan.leftOut?.currencyReplaced).toEqual([
+        { objectApiName: 'PricebookEntry', rows: 2 },
+      ]);
+      const sent = orgs.inserts
+        .filter((c) => c.object === 'PricebookEntry')
+        .flatMap(({ rows }) => rows);
+      // The GBP price of each product and book, and the one price of the
+      // others, whatever their currency.
+      expect(sent.map((row) => row['UnitPrice']).sort()).toEqual([10, 7.9, 7.9, 7.9].sort());
+      expect(sent.every((row) => !('CurrencyIsoCode' in row))).toBe(true);
+      expect(summary.errors.filter((e) => e.stage === 'insert')).toEqual([]);
+      expect(summary.successCount).toBe(plan.totalRows);
+      expect(summary.failedCount).toBe(0);
+      const line = events.find(
+        (e) => e.objectName === 'PricebookEntry' && /^Completed/.test(e.message ?? ''),
+      )?.message;
+      expect(line).toMatch(/2 USD → GBP: price\(s\) in a currency the target does not hold/);
+    });
   });
 
   describe('its emails and tasks', () => {

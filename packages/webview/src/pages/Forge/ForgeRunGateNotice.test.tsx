@@ -462,7 +462,7 @@ describe('ForgeRunGateNotice', () => {
   });
 
   describe('a clone from the records a query chooses, refused for them', () => {
-    it('says a query past the most it clones with the LIMIT that holds it, ungrouped in every language', async () => {
+    it('says a query past the most it clones with the LIMIT that holds it, after the order it lacks, ungrouped in every language', async () => {
       act(() =>
         useForgeRunGateStore.getState().setStop({
           code: 'ROOTS_EXCEEDED',
@@ -471,9 +471,27 @@ describe('ForgeRunGateNotice', () => {
       );
       const { unmount } = render(<ForgeRunGateNotice />);
       expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
-        'The run was refused before it read anything else: its query chooses more Account records than the 2,000 it clones, and nothing was written. Add ORDER BY CreatedDate DESC, Id DESC LIMIT 2000 to the query to clone the newest, or narrow its WHERE.',
+        'The run was refused before it read anything else: its query chooses more Account records than the 2,000 it clones, and nothing was written. Give the query ORDER BY CreatedDate DESC, Id DESC LIMIT 2000 to clone the first 2000 of its order, or narrow its WHERE.',
       );
       unmount();
+      // A query that orders its records is given its LIMIT alone.
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 10, ordered: true },
+        }),
+      );
+      const ordered = render(<ForgeRunGateNotice />);
+      const orderedReason = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
+      expect(orderedReason).toContain('Give the query LIMIT 10 to clone the first 10 of its order');
+      expect(orderedReason).not.toContain('ORDER BY');
+      ordered.unmount();
+      act(() =>
+        useForgeRunGateStore.getState().setStop({
+          code: 'ROOTS_EXCEEDED',
+          roots: { objectApiName: 'Account', cap: 2_000 },
+        }),
+      );
       // A LIMIT grouped as the language groups a figure — 2 000, 2.000 — is
       // no SOQL the query could be given.
       i18n.addResourceBundle('fr', 'translation', fr, true, true);
@@ -481,7 +499,7 @@ describe('ForgeRunGateNotice', () => {
       try {
         render(<ForgeRunGateNotice />);
         const reason = screen.getByTestId('forge-run-gate-reason').textContent ?? '';
-        expect(reason).toContain('LIMIT 2000 à la requête');
+        expect(reason).toContain('LIMIT 2000 pour cloner les 2000 premiers');
         expect(reason).toContain('que les 2');
       } finally {
         await act(() => i18n.changeLanguage('en'));

@@ -1353,6 +1353,47 @@ describe('ForgeExecutor, person accounts', () => {
       );
     });
 
+    it('tells the gate of a clone of the whole org the person accounts a target without any takes as business accounts', async () => {
+      // Run for real, ten person accounts of the source went in as business
+      // accounts, their contacts on their own: the run said it, its dry run
+      // did not.
+      const orgs = orgsWithPersonAccounts(undefined, TABLES);
+      const describe = orgs.deps.describeFields;
+      const countRecords = vi.fn(async (_org: string, soql: string) => {
+        const object = /FROM (\w+)/.exec(soql)?.[1] ?? '';
+        const persons = soql.includes('IsPersonAccount = true');
+        return (TABLES[object] ?? []).filter((row) => !persons || row['IsPersonAccount'] === true)
+          .length;
+      });
+      const withoutPersons = async (org: string, object: string) =>
+        (await describe(org, object)).filter(
+          (f) => !(org === 'tgt' && object === 'Account' && f.name === 'PersonContactId'),
+        );
+      const shown: ForgeWriteBoundary[] = [];
+      const run = (describeFields: typeof describe) =>
+        new ForgeExecutor({ ...orgs.deps, countRecords, describeFields }).execute(
+          TABLES_GRAPH,
+          'src',
+          'tgt',
+          () => undefined,
+          {
+            stream: { pageSize: 1, everything: true },
+            dryRun: true,
+            beforeWrite: async (boundary) => {
+              shown.push(boundary);
+            },
+          },
+        );
+
+      await run(vi.fn(withoutPersons));
+      await run(describe);
+
+      expect(shown[0]?.wholeOrg?.personAccountsAsBusiness).toBe(2);
+      // A target with person accounts writes them as such: nothing to say.
+      expect(shown[1]?.wholeOrg).toBeDefined();
+      expect(shown[1]?.wholeOrg?.personAccountsAsBusiness).toBeUndefined();
+    });
+
     it("counts no person account's contact at its gate, which counts the tables, in a run or a dry run", async () => {
       // The gate of a run read page by page counts the rows of each table: it
       // counted the two contacts the platform writes with their accounts

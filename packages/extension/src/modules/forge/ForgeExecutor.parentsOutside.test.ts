@@ -682,6 +682,57 @@ describe('ForgeExecutor, a record whose required parent belongs to an object out
       ]);
     });
 
+    it('ends a success, an object the target does not have said skipped, when nothing the run read names its records or sits above them', async () => {
+      // Run for real, a clone of three records that wrote all three and
+      // whose target refused none ended partial: two objects discovery
+      // reached, the target had not, and the run held no record of.
+      const notFound = Object.assign(new Error('The requested resource does not exist'), {
+        errorCode: 'NOT_FOUND',
+      });
+      const notInTarget = (holds: string) =>
+        orgs(sourceRows(), {
+          isObjectCreatable: async (_org, object) => {
+            if (object === holds) throw notFound;
+            return true;
+          },
+        });
+      const said: string[] = [];
+      const apart = notInTarget('Billing__c');
+
+      const summary = await new ForgeExecutor(apart.deps).execute(
+        graphOf([...caseGraph().nodes, node('Billing__c', 1)], caseGraph().edges),
+        'src',
+        'tgt',
+        (event) => said.push(event.message),
+        ROOTED_AT_THE_CASE,
+      );
+
+      expect(summary.errors.filter((e) => e.objectApiName === 'Billing__c')).toEqual([]);
+      expect(finishedRunStatus(summary)).toBe('success');
+      expect(said).toContain(
+        'Skipped Billing__c (not in the target org; nothing the run read names its records)',
+      );
+      expect(statementsOf(apart.asked, 'Billing__c')).toEqual([]);
+
+      // One whose records the run holds — the contacts of the case's
+      // customer — is lost with it: the run did part of its job.
+      const held = notInTarget('Contact');
+      const lost = await new ForgeExecutor(held.deps).execute(
+        graphOf(
+          [...caseGraph().nodes, node('Contact', 1)],
+          [...caseGraph().edges, edge('Account', 'Contact')],
+        ),
+        'src',
+        'tgt',
+        () => undefined,
+        ROOTED_AT_THE_CASE,
+      );
+      expect(lost.errors.find((e) => e.objectApiName === 'Contact')).toMatchObject({
+        skipped: true,
+      });
+      expect(finishedRunStatus(lost)).toBe('partial');
+    });
+
     it("writes the rows without the lookup where the target's object does not carry it, as before", async () => {
       const notFound = Object.assign(new Error('The requested resource does not exist'), {
         errorCode: 'NOT_FOUND',

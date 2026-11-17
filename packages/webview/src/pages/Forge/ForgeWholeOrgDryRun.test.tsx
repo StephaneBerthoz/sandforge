@@ -201,6 +201,21 @@ describe('ForgeWholeOrgDryRunResult', () => {
     );
   });
 
+  it('says the person accounts a target without any takes as business accounts, and nothing of a target that has them', () => {
+    // Run for real, ten went in so: the run said it of their contacts, the
+    // dry run nothing.
+    renderDry({ personAccountsAsBusiness: 10 });
+    expect(screen.getByTestId('forge-whole-org-dry-run-as-business').textContent).toBe(
+      '10 person accounts of the source go in as business accounts, the target having none, ' +
+        'and their contacts as contacts of their own',
+    );
+  });
+
+  it('says nothing of person accounts a target takes as they are', () => {
+    renderDry();
+    expect(screen.queryByTestId('forge-whole-org-dry-run-as-business')).toBeNull();
+  });
+
   it('lists what it would write of each object, in jobs and by REST, in a region the keyboard scrolls', () => {
     renderDry();
 

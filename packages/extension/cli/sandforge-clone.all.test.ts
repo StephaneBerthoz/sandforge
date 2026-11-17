@@ -42,6 +42,7 @@ import {
   main,
   parseArgs,
   parseRunSummary,
+  personAccountsAsBusinessLine,
   removalPlan,
   runSummaryOfFile,
   wholeOrgGateLines,
@@ -1471,6 +1472,16 @@ describe('what the gate of a clone of the whole org says of its writes', () => {
         'carrying the same values go by REST instead), 107 record(s) by REST, 1 object(s) by ' +
         'REST alone; about 1 minute(s) one after another',
     );
+  });
+
+  it('says the person accounts a target without any takes as business accounts, as the run says their contacts', () => {
+    // Run for real, ten went in so: the run said their contacts went on
+    // their own, its dry run nothing.
+    expect(personAccountsAsBusinessLine({ personAccountsAsBusiness: 10 }, 'SRC', 'TGT')).toBe(
+      "  person accounts: 10 of SRC's go in as business accounts, TGT having none, and their " +
+        'contacts as contacts of their own',
+    );
+    expect(personAccountsAsBusinessLine({}, 'SRC', 'TGT')).toBeUndefined();
   });
 });
 

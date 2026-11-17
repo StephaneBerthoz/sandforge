@@ -1427,4 +1427,117 @@ describe('a sample of the whole org that draws its price catalog', () => {
       expect(summary.failedCount).toBe(0);
     });
   }, 60_000);
+
+  it('into a target of one currency, sends one price per product and book, the one in the target’s currency, counts at its dry run what it sends, and writes every line', async () => {
+    // A source pricing each product in USD, EUR and GBP, into a target of
+    // one currency, EUR: no `CurrencyIsoCode`, and one price per product of
+    // a book. Run for real, the clone sent 13 prices and the target refused
+    // 7 as `DUPLICATE_VALUE`, which took 2 opportunity lines with them; its
+    // dry run had counted 13.
+    const source = catalogSource();
+    for (let n = 1; n <= LINES; n++) {
+      for (const code of ['EUR', 'GBP']) {
+        const at = code === 'EUR' ? 6_000 : 8_000;
+        source.add('PricebookEntry', price(fakeId('01u', 'S', at + n), STD, n, code));
+        source.add('PricebookEntry', price(fakeId('01u', 'S', at + 1_000 + n), PARTNERS, n, code));
+      }
+      // A line in three names the EUR price, one in three the GBP one.
+      const line = source.rows.get('Line__c')?.find((row) => row['Id'] === fakeId('a0L', 'S', n));
+      if (line && n % 3 > 0) {
+        (line as Row)['Price__c'] = fakeId('01u', 'S', (n % 3 === 1 ? 7_000 : 9_000) + n);
+      }
+    }
+    const eurOf = (n: number, book: string): string =>
+      fakeId('01u', 'S', (book === STD ? 6_000 : 7_000) + n);
+    const catalog = catalogAnswers(
+      [currency('USD', 1, true), currency('EUR', 0.9), currency('GBP', 0.8)],
+      [],
+    );
+    const answers = (org: string, soql: string): Row[] | undefined =>
+      org === 'tgt' && /\bFROM Organization\b/.test(soql)
+        ? [{ DefaultCurrencyIsoCode: 'EUR' }]
+        : catalog(org, soql);
+    /** The target's describes: a price there has no currency. */
+    const oneCurrency = async (org: string, object: string): Promise<FieldInfo[]> =>
+      (FIELDS[object] ?? []).filter(
+        (f) => !(org === 'tgt' && object === 'PricebookEntry' && f.name === 'CurrencyIsoCode'),
+      );
+    /** A target that holds one price per product of a book, whatever it is sent. */
+    const onePerPair =
+      (target: ReturnType<typeof targetOrg>) => async (_org: string, object: string, rows: Row[]) =>
+        rows.map((row) => {
+          const pair = `${String(row['Pricebook2Id'])}|${String(row['Product2Id'])}`;
+          const held = [...(target.held.get(object)?.values() ?? [])].some(
+            (other) => `${String(other['Pricebook2Id'])}|${String(other['Product2Id'])}` === pair,
+          );
+          if (object === 'PricebookEntry' && held) {
+            return {
+              id: '',
+              success: false,
+              errors: ['DUPLICATE_VALUE: This price definition already exists in this price book'],
+            };
+          }
+          return { id: target.create(object, row), success: true, errors: [] };
+        });
+    await withCatalog(async () => {
+      const keepAt = join(plansDir(), 'dry');
+      const dryGate: ForgeWriteBoundary[] = [];
+      const dry = orgs(source, { answers });
+      vi.mocked(dry.deps.describeFields).mockImplementation(oneCurrency);
+      await dry.executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(keepAt, budgetOf(10_000), { dryRun: true, gate: dryGate }),
+      );
+      const plan = await SamplePlan.open(keepAt);
+      // Room enough for the catalog to go whole, every price of it.
+      expect(plan.manifest.sample.whole.map((w) => w.objectApiName)).toContain('PricebookEntry');
+      const gate: ForgeWriteBoundary[] = [];
+      const { executor, deps, target } = orgs(source, { answers });
+      vi.mocked(deps.describeFields).mockImplementation(oneCurrency);
+      vi.mocked(deps.insertRecords).mockImplementation(onePerPair(target));
+
+      const summary = await executor.execute(
+        catalogGraph(),
+        'src',
+        'tgt',
+        () => {},
+        sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan, gate }),
+      );
+
+      const sent = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.filter(([, object]) => object === 'PricebookEntry')
+        .flatMap(([, , rows]) => rows);
+      const pairs = sent.map(
+        (row) => `${String(row['Pricebook2Id'])}|${String(row['Product2Id'])}`,
+      );
+      // One price per product of a book, never a second the target refuses.
+      expect(new Set(pairs).size).toBe(sent.length);
+      expect(sent.every((row) => !('CurrencyIsoCode' in row))).toBe(true);
+      // The one kept is the price in the target's currency.
+      const written = writtenOf(summary, 'PricebookEntry');
+      const lines = (await planIds(plan, 'Line__c')).map((id) => Number(id.slice(4, 15)));
+      expect(lines.length).toBeGreaterThan(0);
+      for (const n of lines) {
+        expect(written).toEqual(expect.arrayContaining([eurOf(n, PARTNERS), eurOf(n, STD)]));
+      }
+      expect(written.every((id) => Math.floor(Number(id.slice(4, 15)) / 2_000) === 3)).toBe(true);
+      // Counted at the dry run as at the run, what is sent.
+      for (const boundary of [dryGate[0], gate[0]]) {
+        const entries = boundary?.objects.find((o) => o.objectApiName === 'PricebookEntry');
+        expect(entries?.counted?.rows).toBe(sent.length);
+        expect(entries?.leftOut?.currencyReplaced).toBeGreaterThan(0);
+      }
+      // Every line written, on a price the target holds.
+      const pricesWritten = new Set(target.held.get('PricebookEntry')?.keys());
+      expect(target.held.get('Line__c')?.size).toBe(lines.length);
+      for (const line of target.held.get('Line__c')?.values() ?? []) {
+        expect(pricesWritten.has(String(line['Price__c']))).toBe(true);
+      }
+      expect(summary.failedCount).toBe(0);
+    });
+  }, 60_000);
 });

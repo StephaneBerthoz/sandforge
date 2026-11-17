@@ -221,11 +221,15 @@ for (const theme of THEMES) {
             wouldInsertCount: 9_400,
           },
           operationId: 'forge-execute-1',
-          wholeOrgDryRun: wholeOrgDryRun(),
+          // Person accounts the target takes as business ones: their row under axe too.
+          wholeOrgDryRun: wholeOrgDryRun({ personAccountsAsBusiness: 10 }),
         },
       });
 
       await expect(page.getByTestId('forge-whole-org-dry-run')).toBeVisible();
+      await expect(page.getByTestId('forge-whole-org-dry-run-as-business')).toContainText(
+        '10 person accounts of the source go in as business accounts',
+      );
       await expect(page.getByTestId('forge-whole-org-dry-run-verdict')).toContainText(
         'The run would be refused, for 2 reasons:',
       );

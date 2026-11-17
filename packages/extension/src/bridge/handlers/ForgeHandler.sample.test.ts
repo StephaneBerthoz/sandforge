@@ -78,7 +78,12 @@ const FIELDS: Record<string, FieldInfo[]> = {
   Account: [
     field('Id'),
     field('Name', { type: 'string' }),
-    field('ParentId', { isReference: true, referenceTo: ['Account'], nillable: true }),
+    field('ParentId', {
+      isReference: true,
+      referenceTo: ['Account'],
+      nillable: true,
+      type: 'reference',
+    }),
     field('CreatedDate', { createable: false, updateable: false, type: 'datetime' }),
   ],
   Contact: [
@@ -742,6 +747,22 @@ describe('forge:execute of a sample of the whole org', () => {
       // The page has no flag to set: it sets the roots under Which roots.
       expect(message).not.toMatch(/--[a-z]/);
       expect(message).toMatch(/Which roots/);
+      expect(rowsWritten()).toBe(0);
+    });
+
+    it('says of a condition the source cannot read beside a stratum the way out of the condition alone, and is not retryable as it is', async () => {
+      // Run for real, the refusal of an unknown field in the condition also
+      // said "Stratify Account by a field of few values…", and retryable: true.
+      await simulate(
+        drawn({ rootWhere: { Account: "Nope__c = 'x'" }, strata: ['Account.ParentId'] }),
+      );
+
+      const error = lastError();
+      expect(error).toMatchObject({ code: 'SAMPLE_DRAW_INVALID', retryable: false });
+      const message = String(error.message);
+      expect(message).toMatch(/Nope__c/);
+      expect(message).toMatch(/The source reads the condition of its roots/);
+      expect(message).not.toMatch(/Stratify Account/);
       expect(rowsWritten()).toBe(0);
     });
 

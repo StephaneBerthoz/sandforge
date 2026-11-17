@@ -18,6 +18,7 @@ import { main as envMain } from './sandforge-env.js';
 import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { runInProcess } from './testing/envWorld.js';
 import { undeletableRefusal } from './undeletableAnswer.js';
+import { commandOf } from './invocation.js';
 
 import {
   ERROR,
@@ -2638,6 +2639,56 @@ describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
     expect(textOf(dry)).not.toContain('run_remove with');
     await d.close();
   });
+
+  it('gives the terminal line that sets a field only the target requires, a value no parameter of this tool gives, as its dry run names it', async () => {
+    // Run for real, a dry run said every account would be refused for a
+    // field only the target requires, and the call had no way to give it.
+    const targetGaps = {
+      gaps: [
+        {
+          kind: 'required_field_missing',
+          severity: 'blocking',
+          objectApiName: 'Account',
+          field: 'Region__c',
+          detail: { type: 'string', reason: 'notInSource' },
+        },
+        {
+          kind: 'required_field_missing',
+          severity: 'blocking',
+          objectApiName: 'Contact',
+          field: 'Code__c',
+          answeredBy: 'default "C-1"',
+        },
+        { kind: 'validation_rule', severity: 'warning', objectApiName: 'Contact', field: 'Email' },
+      ],
+    };
+    const { run } = scripts(() => ({ stdout: JSON.stringify({ dryRun: true, targetGaps }) }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('clone_records', {
+      ...clone,
+      object: 'Account',
+      limit: 3,
+      dryRun: true,
+    });
+    await c.close();
+
+    const text = textOf(result);
+    expect(text).toContain(
+      'Account.Region__c is a field SB requires that the clone does not write: a real run sees ' +
+        'every record of Account refused, and no parameter of this tool gives it a value.',
+    );
+    expect(text).toContain(
+      '{"defaultValues":[{"object":"Account","field":"Region__c","value":"…"}]}',
+    );
+    expect(text).toContain(
+      `${commandOf('clone')} --query 'SELECT Id FROM Account LIMIT 3' --max-roots 3 --source ` +
+        'SRC --target SB --dry-run --config <file.json>',
+    );
+    // A field a decision answers needs nothing.
+    expect(text).not.toContain('Contact.Code__c');
+  });
 });
 
 describe('sandforge-mcp: the draw of a sample of the whole org', () => {
@@ -3072,6 +3123,52 @@ describe('sandforge-mcp: a checkpoint replayed into another org', () => {
     );
     expect(textOf(refused)).not.toContain('maxRecords: 412');
     await c.close();
+  });
+
+  it('gives the terminal line that declares the required fields a replay leaves empty, and names the parameters of the objects a refusal of its storage names', async () => {
+    // Run for real, the replay said "Declare them all, then load again", and
+    // no parameter of this tool declares one.
+    const said =
+      '! replay:load:preview:error: the checkpoint leaves 2 required field(s) empty that the ' +
+      'configuration does not cover. Nothing was written. Declare them all, then load again — ' +
+      'records are never silently excluded:\n' +
+      '- requiredFieldDefaults["Account.Region__c"]: a string for this required field [LOAD_CONFIG]\n' +
+      '- requiredLookupPlaceholders["Contact.Desk__c"]: a placeholder (name + ' +
+      'recordTypeDeveloperName) for this required lookup to Desk__c [LOAD_CONFIG]\n' +
+      'a replay would be refused (FROZEN_STORAGE_EXCEEDED): the checkpoint’s records take about ' +
+      '13 MB of data storage, and SB has 5 MB left of 5 MB. To replay part of it, name the ' +
+      'objects to replay (--objects A,B) or leave some out (--exclude-object X); or free data ' +
+      'storage in SB. Nothing was written.\n';
+    const { run } = scripts(() => ({ code: 1, stderr: said }));
+    const c = client(run);
+    await c.initialized();
+
+    const refused = await c.call('checkpoint_replay', {
+      checkpoint: CHECKPOINT,
+      target: 'SB',
+      dryRun: true,
+      objects: ['Account', 'Contact'],
+      muteAutomation: true,
+    });
+    await c.close();
+
+    const text = textOf(refused);
+    expect(text).toContain("--objects, named above, is this tool's objects, by API name.");
+    expect(text).toContain(
+      "--exclude-object, named above, is this tool's excludedObjects, by API name.",
+    );
+    expect(text).toContain(
+      'LOAD_CONFIG, named above, is no parameter of this tool: the values of the required fields ' +
+        'it names are the person’s to declare',
+    );
+    expect(text).toContain(
+      '{"requiredFieldDefaults":{"Account.Region__c":"…"},' +
+        '"requiredLookupPlaceholders":{"Contact.Desk__c":{"name":"…"}}}',
+    );
+    expect(text).toContain(
+      `${commandOf('checkpoint')} replay --checkpoint ${CHECKPOINT} --target SB --dry-run ` +
+        '--objects Account,Contact --mute-automation --replay-config <file.json>',
+    );
   });
 
   it('refuses the removal of a replay this server still runs into its target, naming its run, and previews it all the same', async () => {

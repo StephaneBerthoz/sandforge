@@ -966,6 +966,12 @@ export interface ForgeWholeOrgDryRun {
   /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
   wouldBeRefused: ForgeWholeOrgRefusal[];
   /**
+   * Of the accounts it writes, the source's person accounts the target, which
+   * has none, takes as business accounts, their contacts going in as
+   * contacts of their own. Absent when none is.
+   */
+  personAccountsAsBusiness?: number;
+  /**
    * Of a sample (`ForgeConfig.sample`), what it drew and how, said before the
    * rest: the counts above are then the plan's. Absent when every record is
    * copied.

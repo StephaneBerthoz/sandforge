@@ -20,6 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { loadOrg, makeConn } from './sfSession.js';
 import {
   cliRunSetup,
+  fitKeyWords,
   main,
   parseArgs,
   sampleJson,
@@ -34,6 +35,7 @@ import {
 import { forgeRunFingerprint } from '../src/modules/forge/runFingerprint.js';
 import { SamplePlan } from '../src/modules/forge/sample/samplePlanStore.js';
 import { SampleSourceOrg } from '../src/test/sampleSourceOrg.js';
+import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 
 /*
  * The roots a sample of the whole org draws, chosen on the command line:
@@ -1153,6 +1155,58 @@ describe('sandforge-clone --depth all --fit share choosing its roots, run whole'
       ),
     ).toEqual([]);
   });
+
+  it('names each flag of the draw by the key of an environment’s file, to its reader alone', () => {
+    const said =
+      'Stratify Account by a field of few values (--fit-strata Account.<Field>) —, or narrow ' +
+      'its roots first (--fit-where Account=…). Filter the roots of Account instead: ' +
+      '--fit-where "Account=Id IN (SELECT AccountId FROM Case WHERE …)". Draw the most recent ' +
+      'records (--fit-draw recent) or the oldest (--fit-draw oldest), draw among fewer roots ' +
+      '(--fit-window, --fit-where), let it take more (--fit-within), or raise --max-total.';
+    expect(fitKeyWords(said)).toBe(said);
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env apply');
+    try {
+      expect(fitKeyWords(said)).toBe(
+        'Stratify Account by a field of few values (fit.strata: [Account.<Field>]) —, or narrow ' +
+          'its roots first (fit.where.Account). Filter the roots of Account instead: ' +
+          'fit.where.Account: "Id IN (SELECT AccountId FROM Case WHERE …)". Draw the most recent ' +
+          'records (fit.draw: recent) or the oldest (fit.draw: oldest), draw among fewer roots ' +
+          '(fit.window, fit.where), let it take more (fit.withinMB), or raise maxTotal.',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    ['an empty window', ['--fit-window', 'created:2020-01-01..2020-12-31'], 'fit.window', 1],
+    [
+      'a condition the source refuses',
+      ['--fit-where', 'Account=Nope__c = 1'],
+      'fit.where.Account',
+      2,
+    ],
+    ['a text field to stratify by', ['--fit-strata', 'Account.Name'], 'Account.Name', 2],
+  ])(
+    'names to an environment the key of its file for %s, never a flag of the draw',
+    async (_label, flags, key, exit) => {
+      // Relayed by an environment's plan, an empty window said "Widen the
+      // window (--fit-window)" to a reader whose file says fit.window.
+      vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env plan');
+      try {
+        withFakeOrgs();
+
+        expect(await run(sampled(...flags, '--dry-run', '--json'))).toBe(exit);
+
+        const answer = JSON.parse(stdout.join('')) as RefusedJson;
+        expect(answer.refused.message).toContain(key);
+        expect(answer.refused.message).not.toMatch(/--fit-/);
+        expect(stderr.join('')).not.toMatch(/refused \(SAMPLE_DRAW_[A-Z]+\):.*--fit-/);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it.each([
     [

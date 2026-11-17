@@ -251,6 +251,12 @@ export interface ForgeRunGateStop {
     total?: number;
     plan?: RootsGatePlanRefusal;
     fits?: number;
+    /**
+     * Of a query that chooses more than the run takes (`ROOTS_EXCEEDED`),
+     * that it orders its records: the way through is its LIMIT alone, never
+     * an ORDER BY it has.
+     */
+    ordered?: true;
   };
   /**
    * For a sample of the whole org stopped at its gate, what the page names of
@@ -383,6 +389,7 @@ const stopSchema = z.object({
       cap: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
       total: z.number().int().nonnegative().optional(),
       fits: z.number().int().min(1).max(FORGE_ROOTS_MAX).optional(),
+      ordered: z.literal(true).optional(),
       plan: z
         .enum([
           'gone',

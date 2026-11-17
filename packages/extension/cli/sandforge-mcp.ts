@@ -1105,6 +1105,40 @@ function replayWriteHint(args: ReplayArgs, answer: unknown): string[] {
   ];
 }
 
+/** A key of a load's configuration a refusal for want of it names: `requiredFieldDefaults["Account.Region__c"]`. */
+const LOAD_CONFIG_GAP = /\b(requiredFieldDefaults|requiredLookupPlaceholders)\["([^"\]\n]+)"\]/g;
+
+/**
+ * What `LOAD_CONFIG`, named by a replay's lines, is to `checkpoint_replay`:
+ * no parameter of it. The values of the required fields the replay leaves
+ * empty are the person's to declare, in the file `--replay-config` reads, on
+ * a terminal: the file the keys named make, and the dry run of the replay
+ * this call asked with it. Run for real, the replay said "Declare them all,
+ * then load again" to an agent that had no way to. Nothing when its lines do
+ * not name it. Exported so it can be tested.
+ */
+export function replayConfigWords(args: ReplayArgs, said: string): string | undefined {
+  if (!names(said, 'LOAD_CONFIG')) return undefined;
+  const declared: Record<string, Record<string, unknown>> = {};
+  for (const [, key = '', field = ''] of said.matchAll(LOAD_CONFIG_GAP)) {
+    const part = (declared[key] ??= {});
+    part[field] = key === 'requiredFieldDefaults' ? '…' : { name: '…' };
+  }
+  const line = checkpointReplayLine({
+    ...args,
+    dryRun: true,
+    verify: undefined,
+    maxRecords: undefined,
+  }).filter((word) => word !== '--json');
+  return (
+    'LOAD_CONFIG, named above, is no parameter of this tool: the values of the required fields ' +
+    'it names are the person’s to declare' +
+    (Object.keys(declared).length > 0 ? `, in a file such as ${JSON.stringify(declared)}` : '') +
+    ', and the replay goes from a terminal, its dry run first: ' +
+    `${commandOf('checkpoint')} ${line.map(shellWord).join(' ')} --replay-config <file.json>`
+  );
+}
+
 /**
  * What a list of checkpoints says of the ones that no longer rewind their
  * org and replay into another (`replayWith`): the dry run of their replay.
@@ -1264,6 +1298,45 @@ export function cloneRecordsLine(args: CloneRecordsArgs): string[] {
     ...(args.muteAutomation === true ? ['--mute-automation'] : []),
     ...checkpointFirstLine(args.checkpointFirst),
     '--json',
+  ];
+}
+
+/**
+ * What a dry run of `clone_records` says of a field only the target
+ * requires, which the clone does not write and no decision of its gives a
+ * value (`targetGaps`, `required_field_missing` with no `answeredBy`): every
+ * record of its object refused by a real run, and no parameter of this tool
+ * that gives one. A Forge configuration's `defaultValues` gives it, read by
+ * `--config` on a terminal: the file, and the dry run this call asked with
+ * it. Run for real, a dry run of accounts said so, and the call could clone
+ * leads only. Exported so it can be tested.
+ */
+export function requiredFieldWords(args: CloneRecordsArgs, answer: unknown): string[] {
+  const gaps = objectOf(objectOf(answer).targetGaps).gaps;
+  if (!Array.isArray(gaps)) return [];
+  const unanswered = gaps.map(objectOf).flatMap((gap) => {
+    const object = stringOf(gap.objectApiName);
+    const field = stringOf(gap.field);
+    return gap.kind === 'required_field_missing' &&
+      gap.answeredBy === undefined &&
+      object !== undefined &&
+      field !== undefined
+      ? [{ object, field }]
+      : [];
+  });
+  if (unanswered.length === 0) return [];
+  const line = cloneRecordsLine({ ...args, dryRun: true }).filter((word) => word !== '--json');
+  const defaultValues = unanswered.map(({ object, field }) => ({ object, field, value: '…' }));
+  return [
+    ...unanswered.map(
+      ({ object, field }) =>
+        `${object}.${field} is a field ${args.target} requires that the clone does not write: ` +
+        `a real run sees every record of ${object} refused, and no parameter of this tool ` +
+        'gives it a value.',
+    ),
+    `The person using you gives ${unanswered.length === 1 ? 'it' : 'them'} in a Forge ` +
+      `configuration file, ${JSON.stringify({ defaultValues })}, and clones from a terminal, its ` +
+      `dry run first: ${commandOf('clone')} ${line.map(shellWord).join(' ')} --config <file.json>`,
   ];
 }
 
@@ -2476,8 +2549,10 @@ export const TOOLS: readonly ServedTool[] = [
         '(ROOTS_QUERY_REFUSED), records of two objects —: change the parameter it names, then ' +
         'dryRun: true again; nothing was read or written',
     },
-    after: (args, answer) =>
-      args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)],
+    after: (args, answer) => [
+      ...requiredFieldWords(args, answer),
+      ...(args.dryRun ? [] : [...removalHint('forge', answer), ...rewindHint(answer)]),
+    ],
     run: (args) => ({ script: 'sandforge-clone', args: cloneRecordsLine(args) }),
   }),
   tool({
@@ -3403,6 +3478,11 @@ export const TOOLS: readonly ServedTool[] = [
         `(${commandOf('checkpoint')} replay … --no-real-data). mask: true replays it masked.`,
     },
     after: (args, answer) => (args.dryRun === true ? replayWriteHint(args, answer) : []),
+    // Whatever its code: a configuration a replay lacks is a refusal, exit 1.
+    settle: async (args, _prepared, { ran, parts }) => {
+      const words = replayConfigWords(args, `${ran.stderr}\n${ran.stdout}`);
+      return words === undefined ? parts : { ...parts, added: [...parts.added, words] };
+    },
     run: (args) => ({ script: 'sandforge-checkpoint', args: checkpointReplayLine(args) }),
   }),
   tool({

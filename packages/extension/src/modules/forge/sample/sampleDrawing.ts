@@ -256,9 +256,11 @@ export interface SampleDrawing {
   /**
    * Per object whose roots a window or a filter restricts, those in the draw
    * and those of the source (`WholeOrgSampleObject.rootsInTheDraw`,
-   * `rootsInTheSource`); the second unknown of an object not counted.
+   * `rootsInTheSource`), each when it is known: the second not of an object
+   * not counted, and neither where a count selected rows only their read
+   * tells roots of (`RootCount.exact`) and no read went through them.
    */
-  rootsCounted: ReadonlyMap<string, { inTheDraw: number; inTheSource?: number }>;
+  rootsCounted: ReadonlyMap<string, { inTheDraw?: number; inTheSource?: number }>;
   /** The objects the window, the filters on the roots or the strata left no root to draw. */
   noRootInTheDraw: ReadonlySet<string>;
   /**
@@ -561,9 +563,17 @@ function drawEmptyOf(
     ...(roots.window ? [windowWordsOf(roots.window)] : []),
     ...roots.where.map(({ objectApiName, where }) => `${objectApiName} where ${where}`),
   ];
+  // A count a lookup of several objects tests on the rows read selects rows
+  // that may not be roots: said as the most it may hold. Said as roots, an
+  // empty window told of 2 552 task roots outside it, where the source held
+  // none.
   const outside = counts
     .filter((count) => (count.inTheSource?.rows ?? 0) > 0)
-    .map((count) => `${count.objectApiName} ${count.inTheSource?.rows ?? 0}`);
+    .map(
+      (count) =>
+        `${count.objectApiName} ${count.inTheSource?.exact === false ? 'at most ' : ''}` +
+        `${count.inTheSource?.rows ?? 0}`,
+    );
   const ways = [
     ...(roots.window ? ['widen the window (--fit-window)'] : []),
     ...(roots.where.length > 0 ? ['loosen the filters on the roots (--fit-where)'] : []),
@@ -766,6 +776,8 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
   let rootsByIds: string[] = [];
   /** Per object, the roots a scan spread over the org handed on: every root of it in the draw. */
   const scanned = new Map<string, number>();
+  /** Per object read by date, the roots its read handed on, in the order read. */
+  const positions = new Map<string, number>();
   if (options.draw === 'uniform') {
     await reader.drawUniform(reads, (objectApiName, ids, value) => {
       scanned.set(objectApiName, (scanned.get(objectApiName) ?? 0) + ids.length);
@@ -778,7 +790,6 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     });
   } else {
     const rowsOf = new Map(counts.map((count) => [count.objectApiName, count.rows]));
-    const positions = new Map<string, number>();
     const drawn = await reader.drawByDate(
       counts.map((count, index) => ({ ...reads[index], take: takeOf(count) })),
       options.draw,
@@ -872,8 +883,12 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
 
   // Of each object whose roots the window or a filter chose, those in the
   // draw — every one a scan handed on, or as the count said — and those of
-  // the source; none, of an object the window could not date.
-  const rootsCounted = new Map<string, { inTheDraw: number; inTheSource?: number }>();
+  // the source; none, of an object the window could not date. A count that
+  // selected rows only their read tells roots of (`RootCount.exact`) is no
+  // count of roots: those in the draw are the ones a read through every row
+  // of it handed on — a scan, or a read by date that ended short of its take
+  // —, and those of the source, which nothing read through, are not said.
+  const rootsCounted = new Map<string, { inTheDraw?: number; inTheSource?: number }>();
   const noRootInTheDraw = new Set<string>();
   for (const objectApiName of rooted) {
     const chosen = roots.objects.get(objectApiName);
@@ -884,18 +899,29 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
       continue;
     }
     const count = counts.find((entry) => entry.objectApiName === objectApiName);
+    const readThrough = (counted: RootCount): number | undefined => {
+      const given = positions.get(objectApiName) ?? 0;
+      return !stratified.has(objectApiName) && given < Math.min(counted.rows, most)
+        ? given
+        : undefined;
+    };
     const inTheDraw =
       chosen.notWindowed || !count
         ? 0
         : options.draw === 'uniform'
           ? (scanned.get(objectApiName) ?? 0)
-          : count.rows;
-    const inTheSource = count?.inTheSource?.rows;
+          : count.exact && count.timedOut !== true
+            ? count.rows
+            : readThrough(count);
+    const inTheSource = count?.inTheSource?.exact === true ? count.inTheSource.rows : undefined;
     rootsCounted.set(objectApiName, {
-      inTheDraw,
+      ...(inTheDraw !== undefined ? { inTheDraw } : {}),
       ...(inTheSource !== undefined ? { inTheSource } : {}),
     });
-    if (inTheDraw === 0 && (chosen.notWindowed || (inTheSource ?? 0) > 0)) {
+    if (
+      inTheDraw === 0 &&
+      (chosen.notWindowed || (inTheSource ?? count?.inTheSource?.rows ?? 0) > 0)
+    ) {
       noRootInTheDraw.add(objectApiName);
     }
   }
@@ -993,7 +1019,7 @@ export function sampleReportOf(
       return {
         ...object,
         ...(counted.inTheSource !== undefined ? { rootsInTheSource: counted.inTheSource } : {}),
-        rootsInTheDraw: counted.inTheDraw,
+        ...(counted.inTheDraw !== undefined ? { rootsInTheDraw: counted.inTheDraw } : {}),
       };
     }),
     whole: links.whole,

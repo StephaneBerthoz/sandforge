@@ -467,6 +467,10 @@ describe('a clone from the records a query chooses, from the Forge panel', () =>
 
       expect(lastError()).toMatchObject({ code: 'ROOTS_EXCEEDED' });
       expect(org.inserted.size).toBe(0);
+      // The page sets the most in its setting: no flag of the command line.
+      const message = String(lastError().message);
+      expect(message).toContain('raise the sandforge.forge.maxRoots setting up to 2,000');
+      expect(message).not.toMatch(/--[a-z]/);
     });
 
     it('holds the read of what the roots reach to a tenth of the requests the source has left', async () => {

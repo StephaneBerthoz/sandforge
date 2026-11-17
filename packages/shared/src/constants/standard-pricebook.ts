@@ -121,6 +121,15 @@ export interface PricebookEntryKey {
    * with a selling model and without one keeps both prices.
    */
   sellingModel?: boolean;
+  /**
+   * Set when the target holds one currency: it has no `CurrencyIsoCode`, and
+   * a book of it takes one price per product whatever currency the source
+   * priced it in. The currency is then no part of the key, and of a
+   * product's prices in a book the one kept is a live one before a retired
+   * one, and, of those, the one in `code` — the target's currency, when the
+   * run could read it — before the first met.
+   */
+  oneCurrency?: { readonly code?: string };
 }
 
 /**
@@ -128,6 +137,17 @@ export interface PricebookEntryKey {
  * included. Absent from an org with one currency.
  */
 export const PRICEBOOK_ENTRY_CURRENCY_FIELD = 'CurrencyIsoCode';
+
+/** What {@link keptPricebookEntries} keeps, and what each entry it leaves out stands for. */
+export interface KeptPricebookEntries<T> {
+  readonly kept: T[];
+  /**
+   * Of a target of one currency (`PricebookEntryKey.oneCurrency`), each entry
+   * left out with the one kept for its book and product: a line that names
+   * it is written with that one. Empty otherwise.
+   */
+  readonly standsFor: ReadonlyArray<{ readonly left: T; readonly kept: T }>;
+}
 
 /**
  * Keep one entry per (book, product), preferring the active one — per (book,
@@ -157,8 +177,33 @@ export function dedupePricebookEntries<T extends Record<string, unknown>>(
   records: readonly T[],
   key: PricebookEntryKey = {},
 ): T[] {
+  return keptPricebookEntries(records, key).kept;
+}
+
+/**
+ * {@link dedupePricebookEntries}, with what each entry left out stands for in
+ * a target of one currency.
+ *
+ * A source with several currencies prices a product once per currency, and a
+ * target with one has no currency to tell those prices apart: written one by
+ * one, a book took the first and refused the others as `DUPLICATE_VALUE`, and
+ * the opportunity lines that named a refused one were held back for want of
+ * their price. Of a product's prices in a book the target then takes one, the
+ * one in its own currency, and a line naming another is written with it.
+ */
+export function keptPricebookEntries<T extends Record<string, unknown>>(
+  records: readonly T[],
+  key: PricebookEntryKey = {},
+): KeptPricebookEntries<T> {
+  const one = key.oneCurrency;
+  /** How much a price is worth keeping over another of its pair: higher wins, the first met on a tie. */
+  const worth = (record: T): number =>
+    (record['IsActive'] === true ? 2 : 0) +
+    (one?.code !== undefined && record[PRICEBOOK_ENTRY_CURRENCY_FIELD] === one.code ? 1 : 0);
   const byPair = new Map<string, number>();
   const kept: T[] = [];
+  /** Of a target of one currency, the entries of each pair, by where its kept one sits. */
+  const pairs = new Map<number, T[]>();
   for (const record of records) {
     const book = record[PRICEBOOK_ENTRY_BOOK_FIELD];
     const product = record[PRICEBOOK_ENTRY_PRODUCT_FIELD];
@@ -169,18 +214,23 @@ export function dedupePricebookEntries<T extends Record<string, unknown>>(
     const sellingModel = key.sellingModel
       ? `|${String(record[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`
       : '';
-    const currency = `|${String(record[PRICEBOOK_ENTRY_CURRENCY_FIELD] ?? '')}`;
+    const currency = one ? '' : `|${String(record[PRICEBOOK_ENTRY_CURRENCY_FIELD] ?? '')}`;
     const pair = `${book}|${product}${sellingModel}${currency}`;
     const seenAt = byPair.get(pair);
     if (seenAt === undefined) {
       byPair.set(pair, kept.length);
+      if (one) pairs.set(kept.length, [record]);
       kept.push(record);
       continue;
     }
+    pairs.get(seenAt)?.push(record);
     // A live price says more about the product than a retired one.
-    if (record['IsActive'] === true && kept[seenAt]['IsActive'] !== true) {
-      kept[seenAt] = record;
-    }
+    if (worth(record) > worth(kept[seenAt])) kept[seenAt] = record;
   }
-  return kept;
+  const standsFor: Array<{ left: T; kept: T }> = [];
+  for (const [at, all] of pairs) {
+    const chosen = kept[at];
+    for (const left of all) if (left !== chosen) standsFor.push({ left, kept: chosen });
+  }
+  return { kept, standsFor };
 }

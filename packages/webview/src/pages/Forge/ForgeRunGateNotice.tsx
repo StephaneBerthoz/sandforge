@@ -248,6 +248,10 @@ export function gateStopSentence(
       object: stop.roots?.objectApiName ?? '',
       cap: (stop.roots?.cap ?? FORGE_ROOTS_DEFAULT).toLocaleString(locale),
       limit: String(stop.roots?.cap ?? FORGE_ROOTS_DEFAULT),
+      // The LIMIT it lacks, after the ORDER BY of the newest when it has none.
+      clause:
+        `${stop.roots?.ordered === true ? '' : 'ORDER BY CreatedDate DESC, Id DESC '}` +
+        `LIMIT ${String(stop.roots?.cap ?? FORGE_ROOTS_DEFAULT)}`,
       // Of one refused for its storage, how many of those records fit.
       fits: String(stop.roots?.fits ?? 0),
     },

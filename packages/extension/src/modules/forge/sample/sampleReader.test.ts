@@ -870,6 +870,10 @@ describe('the strata of a draw', () => {
       "in the draw: MALFORMED_QUERY: field 'Description' can not be grouped in a query call.",
     );
     await expect(grouped).rejects.toThrow('Stratify Account by a field of few values');
+    // Beside a condition, the way out of what refused it alone: the stratum.
+    const withCondition = readerOf(org).countRoots([{ ...read, where: "Name = 'A1'" }]);
+    await expect(withCondition).rejects.toThrow('Stratify Account by a field of few values');
+    await expect(withCondition).rejects.not.toThrow('The source reads the condition of its roots');
 
     const sent = org.sent.length;
     const described = readerOf(org, {}, { countsBy: (_object, field) => field !== 'Description' });

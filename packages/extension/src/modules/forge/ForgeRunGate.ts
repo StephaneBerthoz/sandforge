@@ -1236,6 +1236,13 @@ export interface WholeOrgMeasures {
    * the run would write part of them. Absent when none is.
    */
   readWholeOver?: ReadonlyArray<{ objectApiName: string; rows: number; bound: number }>;
+  /**
+   * Of the accounts it writes, the source's person accounts a target with
+   * none takes as business accounts, their contacts sent as contacts of
+   * their own: the run's line says it once it writes them, its gate before.
+   * Absent when none is.
+   */
+  personAccountsAsBusiness?: number;
 }
 
 /** Files whose links to their records one query reads, as a clone of the whole org asks for them. */
@@ -1947,6 +1954,12 @@ export interface WholeOrgDryRun {
   /** Every refusal the run would meet, in the order it meets them; none when it would go through. */
   wouldBeRefused: ForgeGateStop[];
   /**
+   * Of the accounts it writes, the source's person accounts the target, which
+   * has none, takes as business accounts, their contacts going in as
+   * contacts of their own. Absent when none is.
+   */
+  personAccountsAsBusiness?: number;
+  /**
    * Of a sample of the whole org, what its plan drew and how
    * (`WholeOrgSample`), said before the rest: the counts above are the
    * plan's. Absent when every record is copied.
@@ -2103,6 +2116,9 @@ export async function wholeOrgDryRunOf(input: {
     },
     personalAsIs: personalFieldsAsIsOf(input.graph.nodes, written, input.anonymizePII),
     wouldBeRefused,
+    ...(input.measures.personAccountsAsBusiness
+      ? { personAccountsAsBusiness: input.measures.personAccountsAsBusiness }
+      : {}),
     ...(input.sample ? { sample: input.sample } : {}),
   };
 }

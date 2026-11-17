@@ -856,6 +856,20 @@ const PAGE_DRAW_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   ],
 ];
 
+/**
+ * The ways out of a query that chooses more records than a run takes
+ * (`ROOTS_EXCEEDED`), as the page sets them: the most a run takes is its
+ * setting, which the command line's --max-roots stands for. Told "raise
+ * --max-roots (the sandforge.forge.maxRoots setting)", the page had no flag.
+ */
+const PAGE_ROOTS_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
+  [
+    /raise --max-roots \(the sandforge\.forge\.maxRoots setting\)/g,
+    'raise the sandforge.forge.maxRoots setting',
+  ],
+  [/raise --max-roots/g, 'raise the sandforge.forge.maxRoots setting'],
+];
+
 /** The codes of a draw refused, whose words the page shows as they are written. */
 const DRAW_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SAMPLE_DRAW_INVALID',
@@ -868,6 +882,15 @@ const DRAW_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * any other as it is.
  */
 function drawRefusalForThePage(refusal: ForgeRunGateError): ForgeRunGateError {
+  if (refusal.code === 'ROOTS_EXCEEDED') {
+    return new ForgeRunGateError(
+      refusal.code,
+      PAGE_ROOTS_WORDS.reduce(
+        (text, [pattern, words]) => text.replace(pattern, words),
+        refusal.message,
+      ),
+    );
+  }
   if (!DRAW_REFUSAL_CODES.has(refusal.code)) return refusal;
   const message = PAGE_DRAW_WORDS.reduce(
     (text, [pattern, words]) => text.replace(pattern, words),
@@ -4184,7 +4207,8 @@ export class ForgeHandler implements DomainHandler {
       const said = gate && isForgeRunGateError(gate) ? drawRefusalForThePage(gate) : error;
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, said, {
         code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
-        retryable: true,
+        // A draw refused for its own options is refused again as it is.
+        retryable: !(gate && isForgeRunGateError(gate) && DRAW_REFUSAL_CODES.has(gate.code)),
         ...(stoppedRun
           ? {
               extraPayload: {

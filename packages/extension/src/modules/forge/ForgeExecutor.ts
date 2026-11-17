@@ -259,7 +259,9 @@ import {
   isRequiredLookup,
   isSettableField,
   splitStandardPricebookEntries,
-  dedupePricebookEntries,
+  keptPricebookEntries,
+  type KeptPricebookEntries,
+  type PricebookEntryKey,
 } from '@sandforge/shared';
 import {
   CycleFkPass,
@@ -2703,6 +2705,17 @@ interface ExecutionState {
    */
   readsEverythingFirst: boolean;
   /**
+   * Of a clone from records, the objects the target does not have whose
+   * turn came: whether the run holds records of them is the scope's to say
+   * once every row is read (`reportNotInTargetOfTheScope`).
+   */
+  notInTargetPutOff?: ForgeGraphNode[];
+  /**
+   * Whether the target holds one currency, and which when it could be read
+   * (`pricesKeyOf`): asked once, the first time the run keeps its prices.
+   */
+  oneCurrency?: Promise<PricebookEntryKey['oneCurrency']>;
+  /**
    * The prices the gate counted that the write may read as it writes the
    * prices (`pricesTheGateCounts`), by `priceInCurrency` key: the write
    * reads none besides. Absent when the gate counted none, or there was no
@@ -3432,6 +3445,14 @@ function samplesOfParentsNotWritten(
  * source's when it reads them first (`pricesReplacedAtTheGate`).
  */
 const CURRENCIES_READ_MOST = 3;
+
+/**
+ * The currency of an org of one currency, as its `Organization` holds it: what
+ * a price of a source with several goes as in it (`pricesKeyOf`). An org whose
+ * answer names none, or that refuses the field, leaves the first live price
+ * of each product and book kept.
+ */
+export const ONE_CURRENCY_SOQL = 'SELECT DefaultCurrencyIsoCode FROM Organization LIMIT 1';
 
 /**
  * The most rows the gate of a clone of the whole org reads by id to count out
@@ -6338,7 +6359,13 @@ export class ForgeExecutor {
       }
 
       if (state.notInTarget.has(node.objectApiName)) {
-        this.reportNotInTarget(node, state);
+        // Of a clone from records, said once the scope says whether the run
+        // holds records of it: see `reportNotInTargetOfTheScope`.
+        if (state.scopeCache && node.objectApiName !== config.rootObjectApiName) {
+          (state.notInTargetPutOff ??= []).push(node);
+        } else {
+          this.reportNotInTarget(node, state);
+        }
         await this.endTurn(node.objectApiName, state);
         continue;
       }
@@ -6458,6 +6485,7 @@ export class ForgeExecutor {
       state,
       lastOfTheCatalog < 0 ? [] : deferred.slice(lastOfTheCatalog + 1),
     );
+    await this.reportNotInTargetOfTheScope(state);
     // The catalog's rows are read again no more: a clone of the whole org
     // lets them go with the rest.
     for (const objectApiName of [...state.preread.keys()]) {
@@ -7225,7 +7253,9 @@ export class ForgeExecutor {
       );
       from = 'query';
       readBefore = chosen?.readAt;
-      if (ids.length > cap) throw ForgeRunGateError.of(rootsExceededStop(objectApiName, cap, from));
+      if (ids.length > cap) {
+        throw ForgeRunGateError.of(rootsExceededStop(objectApiName, cap, from, asked.query));
+      }
     } else {
       throw new Error(
         `Internal error: the roots of ${objectApiName} were asked with neither a query nor ids.`,
@@ -8455,7 +8485,20 @@ export class ForgeExecutor {
     const input = await this.priceCurrencyInput(state, prices, fields);
     const sent =
       pages + (currenciesUnread && state.currencies !== undefined ? CURRENCIES_READ_MOST : 0);
-    if (!input) return sent;
+    if (!input) {
+      // A target of one currency takes one price per product of a book: the
+      // others stand for it (`keptPrices`), counted out as the write leaves
+      // them out. Its currency read here is one request more.
+      const unread = state.oneCurrency === undefined;
+      const key = await this.pricesKeyOf(state);
+      if (!key.oneCurrency) return sent;
+      const left = Math.min(entry.counted.rows, keptPricebookEntries(prices, key).standsFor.length);
+      if (left > 0) {
+        entry.counted = { ...entry.counted, rows: entry.counted.rows - left };
+        entry.leftOut = { ...entry.leftOut, currencyReplaced: left };
+      }
+      return sent + (unread ? 1 : 0);
+    }
     const replaced = Math.min(entry.counted.rows, settlePriceCurrencies(input, []).standsFor.size);
     if (replaced === 0) return sent;
     entry.counted = { ...entry.counted, rows: entry.counted.rows - replaced };
@@ -8541,6 +8584,11 @@ export class ForgeExecutor {
     const blanked = config.keepContactPoints
       ? 0
       : await this.phoneNumbersPastTheFiction(state, written);
+    // Run for real, ten person accounts went in as business accounts in a
+    // target without any: the run said it, its dry run did not.
+    const persons = objects.find((o) => o.objectApiName === ACCOUNT)?.counted?.personAccounts ?? 0;
+    const asBusiness =
+      persons > 0 && (await this.personAccountsInTarget(state)) === false ? persons : 0;
     return {
       writes,
       ...(restOnly ? { restOnly } : {}),
@@ -8552,6 +8600,7 @@ export class ForgeExecutor {
       ...(held && held.requests > 0 ? { heldReads: held.requests } : {}),
       ...(over.length > 0 ? { readWholeOver: over } : {}),
       ...(blanked > 0 ? { contactPointsBlanked: blanked } : {}),
+      ...(asBusiness > 0 ? { personAccountsAsBusiness: asBusiness } : {}),
     };
   }
 
@@ -13391,7 +13440,7 @@ export class ForgeExecutor {
         // when the run keeps them, and per currency in an org with several —
         // and the target enforces that on insert whatever `IsActive` says.
         // The source can still hold two.
-        const deduped = dedupePricebookEntries(records, { sellingModel: state.sellingModels });
+        const deduped = await this.keptPrices(state, records);
         if (deduped.length !== records.length) {
           records.length = 0;
           records.push(...deduped);
@@ -15434,6 +15483,52 @@ export class ForgeExecutor {
   }
 
   /**
+   * Of a clone from records, each object the target does not have, said once
+   * every row is read: skipped whole (`reportNotInTarget`) when the run holds
+   * records of it — rows read name them, or sit under or above them, as the
+   * scope reads any object —, and skipped as out of its scope otherwise, as
+   * an object nothing read reaches is. Said skipped whole whatever the scope
+   * held, a clone of three records that wrote all three and whose target
+   * refused none ended partial: two objects discovery reached, the target
+   * had not, and the run held no record of. A describe of it that fails
+   * leaves it skipped whole: whether the run held records of it is unknown.
+   */
+  private async reportNotInTargetOfTheScope(state: ExecutionState): Promise<void> {
+    for (const node of state.notInTargetPutOff?.splice(0) ?? []) {
+      const fieldInfos = await this.deps
+        .describeFields(state.sourceOrgId, node.objectApiName)
+        .catch((): undefined => undefined);
+      const query =
+        fieldInfos &&
+        buildNodeQuery({
+          node,
+          edges: state.graph.edges,
+          fieldInfos,
+          scopedBuilder: state.scopedBuilder,
+          scopeCache: state.scopeCache,
+          rootObjectApiName: state.config.rootObjectApiName,
+          rootRecordId: state.config.rootRecordId,
+          rootRecordIds: state.roots?.ids,
+          readObjects: state.readObjects,
+          catalog: CATALOG_OBJECTS,
+        });
+      if (query?.kind !== 'skip' || query.reason !== UNSCOPED_NO_PARENT_REASON) {
+        this.reportNotInTarget(node, state);
+        continue;
+      }
+      state.skippedCount++;
+      state.onProgress({
+        objectName: node.objectApiName,
+        status: 'skipped',
+        progress: 100,
+        message:
+          `Skipped ${node.objectApiName} (not in the target org; nothing the run read names ` +
+          'its records)',
+      });
+    }
+  }
+
+  /**
    * Say, once, that a node the target does not have was skipped whole: no
    * record of it can be written there. Not read, so how many records the
    * clone holds of it is not known, and the error counts none — as an object
@@ -15557,7 +15652,7 @@ export class ForgeExecutor {
           if (!state.readsEverythingFirst) {
             await this.pricesInTheCurrencyWritten(node, state, rows, fields);
           }
-          return dedupePricebookEntries(rows, { sellingModel: state.sellingModels });
+          return this.keptPrices(state, rows);
         }
         return rows;
       };
@@ -15868,7 +15963,7 @@ export class ForgeExecutor {
       const before = state.preread.get(objectApiName);
       const earlier = before?.records ?? [];
       const records = isPricebookEntry(objectApiName)
-        ? dedupePricebookEntries([...earlier, ...fresh], { sellingModel: state.sellingModels })
+        ? await this.keptPrices(state, [...earlier, ...fresh])
         : [...earlier, ...fresh];
       const added = records.length - earlier.length;
       const createableSet =
@@ -15923,6 +16018,90 @@ export class ForgeExecutor {
     // written without is read too.
     await this.readWhatTheyCannotBeWrittenWithout(state, objectApiName, fields, fresh);
     return fresh;
+  }
+
+  /**
+   * Of the prices `rows`, the ones a book of the target takes: one per
+   * product — and selling model when the run keeps them, and currency in a
+   * target of several (`keptPricebookEntries`). Of a target of one currency,
+   * a price left out stands for the one kept of its product and book: a line
+   * naming it is written with that one, and the object's line says it.
+   */
+  private async keptPrices(
+    state: ExecutionState,
+    rows: readonly Record<string, unknown>[],
+  ): Promise<Record<string, unknown>[]> {
+    const { kept, standsFor } = keptPricebookEntries(rows, await this.pricesKeyOf(state));
+    this.pricesStandFor(state, standsFor);
+    return kept;
+  }
+
+  /**
+   * How the prices a book of the target takes are told apart
+   * (`PricebookEntryKey`): by their selling model when the run keeps them,
+   * and by their currency unless the target holds one, which its describe
+   * of a price says by having no `CurrencyIsoCode` where the source's has
+   * one. Its currency is then read once (`ONE_CURRENCY_SOQL`); a describe
+   * that fails keeps the key as it was.
+   *
+   * Run from a source of USD, EUR and GBP into an org of one, the clone sent
+   * 13 prices; the target took one per product of each book, refused the 7
+   * others as `DUPLICATE_VALUE`, and held back the 2 opportunity lines that
+   * named one of those, all of which its dry run had counted written.
+   */
+  private async pricesKeyOf(state: ExecutionState): Promise<PricebookEntryKey> {
+    state.oneCurrency ??= (async () => {
+      const fieldsIn = (orgId: string): Promise<readonly FieldInfo[]> =>
+        this.deps.describeFields(orgId, PRICEBOOK_ENTRY_OBJECT).catch((): FieldInfo[] => []);
+      const [inSource, inTarget] = await Promise.all([
+        fieldsIn(state.sourceOrgId),
+        fieldsIn(state.targetOrgId),
+      ]);
+      const priced = (fields: readonly FieldInfo[]): boolean =>
+        fields.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD);
+      if (inTarget.length === 0 || !priced(inSource) || priced(inTarget)) return undefined;
+      try {
+        const [row] = await this.deps.queryRecords(state.targetOrgId, ONE_CURRENCY_SOQL);
+        const code = row?.['DefaultCurrencyIsoCode'];
+        return typeof code === 'string' && /^[A-Z]{3}$/.test(code) ? { code } : {};
+      } catch {
+        return {};
+      }
+    })();
+    const oneCurrency = await state.oneCurrency;
+    return { sellingModel: state.sellingModels, ...(oneCurrency ? { oneCurrency } : {}) };
+  }
+
+  /**
+   * Point each price left out at the one kept of its product and book
+   * (`keptPrices`), in the id map — a line naming it is written with the kept
+   * one — and say it on the object's line, a price in another currency than
+   * the kept one as replaced by the source's own price in the currency
+   * written. A price that stood for one now left out stands for the one kept:
+   * the id map follows one alias, not a chain of them.
+   */
+  private pricesStandFor(
+    state: ExecutionState,
+    standsFor: KeptPricebookEntries<Record<string, unknown>>['standsFor'],
+  ): void {
+    for (const { left, kept } of standsFor) {
+      const leftId = left['Id'];
+      const keptId = kept['Id'];
+      if (typeof leftId !== 'string' || typeof keptId !== 'string' || leftId === keptId) continue;
+      if (state.prices.standsFor.get(leftId) === keptId) continue;
+      state.remapper.alias(leftId, keptId);
+      state.prices.standsFor.set(leftId, keptId);
+      for (const [earlier, stood] of state.prices.standsFor) {
+        if (stood !== leftId) continue;
+        state.remapper.alias(earlier, keptId);
+        state.prices.standsFor.set(earlier, keptId);
+      }
+      const from = left[PRICEBOOK_ENTRY_CURRENCY_FIELD];
+      const to = kept[PRICEBOOK_ENTRY_CURRENCY_FIELD];
+      if (typeof from === 'string' && typeof to === 'string' && from !== to) {
+        state.pricesSwappedSaid.push({ from, to, how: 'replaced', forLines: false });
+      }
+    }
   }
 
   /**
@@ -18059,7 +18238,7 @@ export class ForgeExecutor {
         fieldInfos,
         this.currenciesTheirLinesWant(state, read.records),
       );
-      const deduped = dedupePricebookEntries(read.records, { sellingModel: state.sellingModels });
+      const deduped = await this.keptPrices(state, read.records);
       if (deduped.length !== read.records.length) {
         read.records.length = 0;
         read.records.push(...deduped);

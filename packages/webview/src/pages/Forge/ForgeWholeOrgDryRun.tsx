@@ -244,6 +244,20 @@ export const ForgeWholeOrgDryRunResult: React.FC<ForgeWholeOrgDryRunResultProps>
       'forgeRun.wholeOrgDryRun.outsideFilterRows',
       'forgeRun.wholeOrgDryRun.outsideFilter',
     ),
+    // The source's person accounts a target without any takes as business
+    // accounts: the run says it of their contacts, its dry run of both.
+    ...(dry.personAccountsAsBusiness
+      ? [
+          {
+            id: 'as-business',
+            label: t('forgeRun.wholeOrgDryRun.asBusiness'),
+            value: t('forgeRun.wholeOrgDryRun.asBusinessRows', {
+              count: dry.personAccountsAsBusiness,
+              formatted: n(dry.personAccountsAsBusiness),
+            }),
+          },
+        ]
+      : []),
     {
       id: 'personal',
       label: t('forgeRun.wholeOrgDryRun.personalAsIs'),

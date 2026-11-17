@@ -456,7 +456,7 @@ for (const theme of THEMES) {
         correlationId: run,
         payload: {
           message:
-            'Account.Description is a textarea field, of too many values to stratify by. Its roots are stratified by a field of few values — a picklist, a checkbox, the record type (RecordTypeId) or the owner (OwnerId): of Account, RecordTypeId, OwnerId, Type. Nothing was written, and no request was sent.',
+            'Account.Description is a textarea field, of too many values to stratify by. Its roots are stratified by a field of few values — a picklist, a checkbox, the record type (RecordTypeId) or the owner (OwnerId): of Account, RecordTypeId, OwnerId, Type. Nothing was written, and no root was counted or read: the requests sent before the draw were discovery’s and the target’s.',
           code: 'SAMPLE_DRAW_INVALID',
           retryable: true,
           gate: { code: 'SAMPLE_DRAW_INVALID', sample: { requests: 0 } },

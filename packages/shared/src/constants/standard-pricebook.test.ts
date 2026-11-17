@@ -7,6 +7,7 @@ import {
   seedsStandardPricebook,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
+  keptPricebookEntries,
 } from './standard-pricebook.js';
 
 describe('seedsStandardPricebook', () => {
@@ -156,6 +157,42 @@ describe('dedupePricebookEntries', () => {
         prices[1],
       ]);
       expect(kept.map((r) => r.Id)).toEqual(['e', 'b']);
+    });
+  });
+
+  describe('into a target of one currency', () => {
+    // A source pricing a product in USD, EUR and GBP into a target of one
+    // currency: the target holds no currency to tell them apart, and refused
+    // all but the first of each book as `DUPLICATE_VALUE`.
+    const prices = [
+      { Id: 'u', Pricebook2Id: book, Product2Id: '01t1', CurrencyIsoCode: 'USD', IsActive: true },
+      { Id: 'e', Pricebook2Id: book, Product2Id: '01t1', CurrencyIsoCode: 'EUR', IsActive: true },
+      { Id: 'g', Pricebook2Id: book, Product2Id: '01t1', CurrencyIsoCode: 'GBP', IsActive: true },
+      { Id: 'x', Pricebook2Id: '01sX', Product2Id: '01t1', CurrencyIsoCode: 'GBP', IsActive: true },
+    ];
+
+    it('keeps one price per product of a book, the one in the target’s currency, and says what the others stand for', () => {
+      const { kept, standsFor } = keptPricebookEntries(prices, { oneCurrency: { code: 'EUR' } });
+      expect(kept.map((r) => r.Id)).toEqual(['e', 'x']);
+      expect(standsFor.map(({ left, kept: on }) => `${left.Id}>${on.Id}`)).toEqual(['u>e', 'g>e']);
+      expect(dedupePricebookEntries(prices, { oneCurrency: { code: 'EUR' } })).toEqual(kept);
+    });
+
+    it('keeps a live price before a retired one in the target’s currency, and the first met when the currency is unknown', () => {
+      const retired = [{ ...prices[1], IsActive: false }, prices[0], prices[2]];
+      expect(
+        keptPricebookEntries(retired, { oneCurrency: { code: 'EUR' } }).kept.map((r) => r.Id),
+      ).toEqual(['u']);
+      expect(keptPricebookEntries(prices, { oneCurrency: {} }).kept.map((r) => r.Id)).toEqual([
+        'u',
+        'x',
+      ]);
+    });
+
+    it('says nothing stands for another in a target with several currencies', () => {
+      const { kept, standsFor } = keptPricebookEntries(prices);
+      expect(kept).toHaveLength(4);
+      expect(standsFor).toEqual([]);
     });
   });
 

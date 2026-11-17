@@ -260,7 +260,7 @@ describe('sampleRootsOf: the filter on the roots', () => {
       'Every record of OpportunityLineItem comes under the Opportunity it cannot be written without (OpportunityId): it has no root, and takes no filter on its roots. Filter the roots of Opportunity instead: --fit-where "Opportunity=Id IN (SELECT OpportunityId FROM OpportunityLineItem WHERE …)".',
     ]);
     expect((refused as SampleDrawInvalid).message).toMatch(
-      / Nothing was written, and no request was sent\.$/,
+      / Nothing was written, and no root was counted or read: the requests sent before the draw were discovery’s and the target’s\.$/,
     );
   });
 
