@@ -61,6 +61,27 @@ describe('duplicateSetsOfRemoval', () => {
     expect(object).toMatchObject({ planned: 1, deleted: 1, refused: 0 });
   });
 
+  it('leaves to the removal the sets it read and took itself, by either length of their ids, asking nothing of them', async () => {
+    // Live, a pipeline's Sync step's removal deleted the set of its two leads
+    // with them, and this pass, finding it without items, sent it again:
+    // "1 deleted of 1" then "1 already gone of 1" for the one set.
+    const OTHER = fakeId('0GK', 2);
+    let held = [{ DuplicateRecordSetId: SET }, { DuplicateRecordSetId: OTHER }];
+    const { org, asked, destroy } = orgHolding(() => held);
+
+    const sets = await duplicateSetsOfRemoval(org, [{ objectApiName: 'Contact', ids: [CONTACT] }]);
+    held = [];
+
+    expect(await sets.take([SET.slice(0, 15), OTHER])).toEqual({});
+    expect(asked).toHaveLength(1);
+    expect(destroy).not.toHaveBeenCalled();
+
+    // One the removal did not read is still taken once its items are gone.
+    const { object } = await sets.take([SET]);
+    expect(destroy).toHaveBeenCalledWith('DuplicateRecordSet', [OTHER]);
+    expect(object).toMatchObject({ planned: 1, deleted: 1, alreadyGone: 0 });
+  });
+
   it('keeps a set that still holds an item, and says nothing of it', async () => {
     const { org, destroy } = orgHolding(() => [{ DuplicateRecordSetId: SET }]);
 

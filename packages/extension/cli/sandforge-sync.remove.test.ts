@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeTargetAutomation, MutedAutomation } from '@sandforge/shared';
-import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
 
 vi.mock('../src/logger.js', () => ({
@@ -872,6 +872,100 @@ describe('sandforge-sync --remove', () => {
           expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, deleted: 1 }),
         ]),
       },
+    });
+  });
+
+  describe('of a run whose file keeps the user it wrote as, a duplicate rule of the target having made a set of its records', () => {
+    // Run for real on a scratch org whose Lead rule alerts, a pipeline's Sync
+    // step upserted two leads the rule reported alike: the removal took the
+    // set with the leads, then said it again, "1 already gone of 1", from the
+    // pass that takes the sets its deletes left empty.
+    const SET = fakeId('0GK', 1);
+
+    beforeEach(() => {
+      writeFileSync(
+        file,
+        JSON.stringify(
+          summary({
+            result: { status: 'success', objectResults: [], runUserId: MEMORY_ORG_USER },
+          }),
+        ),
+      );
+      org = new MemoryRemovalOrg({
+        Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+        Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+        DuplicateRecordSet: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      });
+      const at = new Date(Date.now() - 10 * 60_000).toISOString();
+      org.add('Account', { Id: A1 }, at);
+      org.add('Account', { Id: A2 }, at);
+      org.add('Contact', { Id: C1, AccountId: A1 }, at);
+      // Made by the org's Automated Process as the run saved its contact,
+      // restamped by the run's user as the contact went in.
+      org.add('DuplicateRecordSet', { Id: SET, LastModifiedById: MEMORY_ORG_USER }, at);
+      org.add(
+        'DuplicateRecordItem',
+        { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: SET },
+        at,
+      );
+      vi.mocked(removalOrg).mockReturnValue(org);
+    });
+
+    it('counts the set once, deleted with its mention of the duplicate rules, and nothing already gone, in its JSON', async () => {
+      await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+      expect(org.all('DuplicateRecordSet')).toEqual([]);
+      const { result } = JSON.parse(stdout) as {
+        result: { status: string; planned: number; objects: Array<Record<string, unknown>> };
+      };
+      expect(result.status).toBe('success');
+      expect(result.planned).toBe(3);
+      expect(result.objects.filter((o) => o.objectApiName === 'DuplicateRecordSet')).toEqual([
+        expect.objectContaining({
+          planned: 1,
+          deleted: 1,
+          alreadyGone: 0,
+          platformCopies: 1,
+        }),
+      ]);
+      expect(org.deletes.filter((d) => d.objectApiName === 'DuplicateRecordSet')).toHaveLength(1);
+    });
+
+    it('says the set on one line, without a line of it already gone', async () => {
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      const sets = stdout.split('\n').filter((line) => line.includes('DuplicateRecordSet'));
+      expect(sets).toEqual([
+        "  DuplicateRecordSet: 1 deleted of 1 (1 the target's duplicate rules made of the run's records)",
+      ]);
+      expect(stdout).toContain('removal: SUCCESS');
+    });
+
+    it('keeps the set it says kept, changed since the run, once its items are gone, and says it once', async () => {
+      // Someone worked on the set after the run: the removal keeps it, as it
+      // keeps any record changed since, and the pass that takes the sets the
+      // deletes left empty no longer deletes it behind that line.
+      org.edit('DuplicateRecordSet', SET, {}, fakeId('005', 9));
+      stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT', '--json'))).rejects.toThrow(
+        'exit 3',
+      );
+
+      expect(org.all('Contact')).toEqual([]);
+      expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SET]);
+      const { result } = JSON.parse(stdout) as {
+        result: { objects: Array<Record<string, unknown>> };
+      };
+      expect(result.objects.filter((o) => o.objectApiName === 'DuplicateRecordSet')).toEqual([
+        expect.objectContaining({ planned: 1, deleted: 0, keptChanged: 1, platformCopies: 1 }),
+      ]);
     });
   });
 

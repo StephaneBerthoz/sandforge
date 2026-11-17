@@ -1245,6 +1245,7 @@ export class SyncRemovalHandler implements DomainHandler {
         result: removed,
         notes,
         earlierStamped,
+        duplicateSets: setsTaken,
       } = await removeSyncRun({
         run,
         org,
@@ -1286,7 +1287,7 @@ export class SyncRemovalHandler implements DomainHandler {
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
       // Stopped, it makes no call to the org it can do without.
-      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take();
+      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take(setsTaken);
       for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
         this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
       }

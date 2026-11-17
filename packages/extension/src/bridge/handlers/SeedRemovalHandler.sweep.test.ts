@@ -642,6 +642,53 @@ describe('a sweep asked with the removal of a Seed run', () => {
         ).toMatchObject({ deleted: 1 });
       });
 
+      it('counts once each set the removal took itself, the run’s file keeping its user, and audits it once', async () => {
+        // Live, a seed's removal said "DuplicateRecordSet: 11 deleted of 11
+        // (11 the target's duplicate rules made of the run's records)", then
+        // "DuplicateRecordSet: 11 already gone of 11".
+        tied.shape('DuplicateRecordSet', {
+          children: [
+            {
+              childSObject: 'DuplicateRecordItem',
+              field: 'DuplicateRecordSetId',
+              cascadeDelete: true,
+            },
+          ],
+        });
+        await keep(
+          'op-seed-user',
+          [
+            ['Account', [ACCOUNT]],
+            ['Contact', [CONTACT]],
+          ],
+          USER,
+        );
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-seed-user' }));
+
+        expect(errors()).toEqual([]);
+        expect(tied.ids('Contact')).toEqual([OTHER_CONTACT]);
+        // The run's set goes; the shared one stays, its other contact's report in it.
+        expect(tied.ids('DuplicateRecordSet')).toEqual([SHARED]);
+        expect(
+          answer()?.objects.filter((object) => object.objectApiName === 'DuplicateRecordSet'),
+        ).toEqual([
+          expect.objectContaining({
+            planned: 2,
+            deleted: 1,
+            keptDependents: 1,
+            alreadyGone: 0,
+            platformCopies: 2,
+          }),
+        ]);
+        expect(
+          new AuditTrailStore(store)
+            .list()
+            .entries.flatMap((entry) => entry.objects ?? [])
+            .filter((object) => object.objectApiName === 'DuplicateRecordSet'),
+        ).toHaveLength(1);
+      });
+
       it('touches no set while a record the set names stays, kept as changed since the run', async () => {
         const contact = tied.row('Contact', CONTACT);
         if (contact) contact.LastModifiedDate = LONG_AFTER;

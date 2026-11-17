@@ -3816,7 +3816,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   // Stopped, it makes no call to the org it can do without.
-  const emptied = outcome.result.status === 'cancelled' ? {} : await duplicateSets.take();
+  const emptied =
+    outcome.result.status === 'cancelled' ? {} : await duplicateSets.take(outcome.duplicateSets);
   for (const note of [...outcome.notes, ...(emptied.note ? [emptied.note] : [])]) {
     process.stderr.write(`${note}\n`);
   }

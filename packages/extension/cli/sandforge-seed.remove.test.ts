@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { ForgeSweepListing, ForgeTargetAutomation } from '@sandforge/shared';
-import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { REFUSED_UNTIED_LOOSE, refusedUntiedSweep } from '../src/test/refusedUntiedSweep.js';
 
 vi.mock('../src/logger.js', () => ({
@@ -373,6 +373,74 @@ describe('sandforge-seed --remove', () => {
         ]),
       },
     });
+  });
+
+  it('counts once the duplicate record set the removal took itself, the run’s user known, in its answer and its lines', async () => {
+    // Live, a seed's removal said "DuplicateRecordSet: 11 deleted of 11 (11
+    // the target's duplicate rules made of the run's records)", then, after
+    // the accounts, "DuplicateRecordSet: 11 already gone of 11".
+    const SET = fakeId('0GK', 1);
+    const withTheRunsSet = (): MemoryRemovalOrg => {
+      const made = new MemoryRemovalOrg({
+        Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: false }],
+        Contact: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+        DuplicateRecordSet: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      });
+      const at = new Date(Date.now() - 10 * 60_000).toISOString();
+      made.add('Account', { Id: A1 }, at);
+      made.add('Account', { Id: A2 }, at);
+      made.add('Contact', { Id: C1, AccountId: A1 }, at);
+      made.add('Contact', { Id: C2, AccountId: A2 }, at);
+      made.add('DuplicateRecordSet', { Id: SET, LastModifiedById: MEMORY_ORG_USER }, at);
+      made.add(
+        'DuplicateRecordItem',
+        { Id: fakeId('0GL', 1), RecordId: C1, DuplicateRecordSetId: SET },
+        at,
+      );
+      return made;
+    };
+    const kept = summary();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...kept,
+        result: { ...(kept.result as Record<string, unknown>), runUserId: MEMORY_ORG_USER },
+      }),
+    );
+    writeFileSync(join(dir, 'seed.pristine.json'), readFileSync(file));
+    org = withTheRunsSet();
+    vi.mocked(removalOrg).mockReturnValue(org);
+
+    await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+    expect(org.all('DuplicateRecordSet')).toEqual([]);
+    const { result } = JSON.parse(stdout) as {
+      result: { status: string; planned: number; objects: Array<Record<string, unknown>> };
+    };
+    expect(result.status).toBe('success');
+    expect(result.planned).toBe(4);
+    expect(result.objects.filter((o) => o.objectApiName === 'DuplicateRecordSet')).toEqual([
+      expect.objectContaining({ planned: 1, deleted: 1, alreadyGone: 0, platformCopies: 1 }),
+    ]);
+
+    // The same run removed anew, its lines read.
+    rmSync(join(dir, 'seed.removals.json'), { force: true });
+    writeFileSync(file, readFileSync(join(dir, 'seed.pristine.json')));
+    org = withTheRunsSet();
+    vi.mocked(removalOrg).mockReturnValue(org);
+    stdout = '';
+
+    await main(argv('--remove', file, '--target', 'TGT'));
+
+    expect(stdout.split('\n').filter((line) => line.includes('DuplicateRecordSet'))).toEqual([
+      "  DuplicateRecordSet: 1 deleted of 1 (1 the target's duplicate rules made of the run's records)",
+    ]);
   });
 
   it('keeps a record changed since the run unless told to include it, and exits 3', async () => {

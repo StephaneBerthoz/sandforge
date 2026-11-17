@@ -112,11 +112,19 @@ interface EmptyDuplicateSets {
  * items that name the run's records, before they go: a set dated in the run's
  * window could be anyone's, and a set that still holds an item names a record
  * that stays. Nothing of a run that reads none is asked of the org again.
+ *
+ * A removal that knows the run's user reads the run's sets itself and takes
+ * them with its records (`RunRemovalOptions.runUserId`, `duplicateSetsOf`):
+ * those it names (`taken`) are its own, counted on its line, whatever became
+ * of them. Taken again here, a set the removal had deleted was said twice,
+ * "1 deleted of 1" then "1 already gone of 1", as a pipeline's Sync step's
+ * removal said it for real; and one it kept, changed since the run, would go
+ * once its items had.
  */
 export async function duplicateSetsOfRemoval(
   org: RemovalOrg,
   created: Created,
-): Promise<{ take: () => Promise<EmptyDuplicateSets> }> {
+): Promise<{ take: (taken?: readonly string[]) => Promise<EmptyDuplicateSets> }> {
   const unread = (err: unknown): EmptyDuplicateSets => ({
     note:
       'What the duplicate rules of the target reported of the run could not be read ' +
@@ -139,11 +147,13 @@ export async function duplicateSetsOfRemoval(
     return { take: async () => unread(err) };
   }
   return {
-    take: async () => {
-      if (sets.size === 0) return {};
+    take: async (taken = []) => {
+      const byTheRemoval = new Set(taken.map((id) => id.slice(0, 15)));
+      const left = [...sets].filter((set) => !byTheRemoval.has(set.slice(0, 15)));
+      if (left.length === 0) return {};
       const held = new Set<string>();
       try {
-        for (const list of idLists([...sets])) {
+        for (const list of idLists(left)) {
           const { records } = await org.query(
             `SELECT DuplicateRecordSetId FROM DuplicateRecordItem WHERE DuplicateRecordSetId IN (${list})`,
           );
@@ -154,7 +164,7 @@ export async function duplicateSetsOfRemoval(
       } catch (err: unknown) {
         return unread(err);
       }
-      const empty = [...sets].filter((set) => !held.has(set));
+      const empty = left.filter((set) => !held.has(set));
       if (empty.length === 0) return {};
       const object: ForgeUndoObjectResult = {
         objectApiName: 'DuplicateRecordSet',

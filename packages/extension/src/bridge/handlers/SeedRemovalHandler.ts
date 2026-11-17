@@ -1003,7 +1003,11 @@ export class SeedRemovalHandler implements DomainHandler {
       const org = removalOrg(conn, 'seed:remove');
       // Read before the first delete: the items that name them go with the records.
       const duplicateSets = await duplicateSetsOfRemoval(org, run.created);
-      const { result: removed, notes } = await removeSyncRun({
+      const {
+        result: removed,
+        notes,
+        duplicateSets: setsTaken,
+      } = await removeSyncRun({
         run,
         org,
         includeChanged,
@@ -1033,7 +1037,7 @@ export class SeedRemovalHandler implements DomainHandler {
       // What the sweep did, in all its parts, recorded beside the removal.
       const swept = await sweeping?.settle();
       // Stopped, it makes no call to the org it can do without.
-      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take();
+      const emptied = removed.status === 'cancelled' ? {} : await duplicateSets.take(setsTaken);
       for (const note of [...notes, ...(emptied.note ? [emptied.note] : [])]) {
         this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
       }

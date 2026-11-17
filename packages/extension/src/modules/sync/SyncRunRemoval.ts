@@ -200,6 +200,12 @@ export interface SyncRunRemovalOutcome {
   /** The earlier runs it stamped records of, and how many each. Absent when none. */
   earlierStamped?: Array<{ runId: string; records: number }>;
   /**
+   * The duplicate record sets of the run's records it read and set out to
+   * take, by id (`RunRemovalOutcome.duplicateSets`): counted in `result`, and
+   * not the after-pass's to take again (`duplicateSetsOfRemoval`). Absent when none.
+   */
+  duplicateSets?: string[];
+  /**
    * Set when it stopped before its first write, asked about objects whose
    * records the user may not delete (`onUndeletable`): nothing was removed.
    */
@@ -575,6 +581,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     notes,
     ...(linksForgotten ? { linksForgotten } : {}),
     ...(earlierStamped.length > 0 ? { earlierStamped } : {}),
+    ...(outcome.duplicateSets ? { duplicateSets: outcome.duplicateSets } : {}),
   };
 }
 

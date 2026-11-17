@@ -848,6 +848,55 @@ describe('a sweep asked with the removal of a Sync run', () => {
       });
     });
 
+    it('counts once the duplicate record set the removal took itself, the run’s file keeping its user', async () => {
+      // Live, a pipeline's Sync step's removal said the set of its two leads
+      // twice: "1 deleted of 1 (1 the target's duplicate rules made of the
+      // run's records)", then "1 already gone of 1".
+      const THE_RUNS = id('0GK', 1);
+      await keep(
+        'run-cases-user',
+        [
+          ['Account', [ACCOUNT]],
+          ['Contact', [CONTACT]],
+          ['Case', [CASE]],
+        ],
+        { runUserId: USER },
+      );
+      tied.shape('Contact', {
+        references: { AccountId: ['Account'] },
+        children: [{ childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true }],
+      });
+      tied.shape('DuplicateRecordSet', {
+        children: [
+          {
+            childSObject: 'DuplicateRecordItem',
+            field: 'DuplicateRecordSetId',
+            cascadeDelete: true,
+          },
+        ],
+      });
+      tied.shape('DuplicateRecordItem', {
+        references: { RecordId: ['Contact'], DuplicateRecordSetId: ['DuplicateRecordSet'] },
+      });
+      tied.add('DuplicateRecordSet', rec(THE_RUNS, 'The run’s set', USER, JUST_AFTER));
+      tied.add('DuplicateRecordItem', {
+        ...rec(id('0GL', 1), 'Item 1', USER, JUST_AFTER),
+        RecordId: CONTACT,
+        DuplicateRecordSetId: THE_RUNS,
+      });
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-cases-user' }));
+
+      expect(errors()).toEqual([]);
+      expect(tied.ids('DuplicateRecordSet')).toEqual([]);
+      expect(answer()?.status).toBe('success');
+      expect(
+        answer()?.objects.filter((object) => object.objectApiName === 'DuplicateRecordSet'),
+      ).toEqual([
+        expect.objectContaining({ planned: 1, deleted: 1, alreadyGone: 0, platformCopies: 1 }),
+      ]);
+    });
+
     it('takes what is tied to nothing when asked, and not while another run of this machine wrote in the window', async () => {
       await handler.handle(
         buildMsg('sync:remove', { runId: 'run-cases', sweep: true, sweepUntied: true }),

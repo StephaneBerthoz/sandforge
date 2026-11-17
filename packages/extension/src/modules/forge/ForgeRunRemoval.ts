@@ -1006,6 +1006,14 @@ export interface RunRemovalOutcome {
    * `objects` is empty and `left` gives back every record it was handed.
    */
   preview?: RunRemovalPreview;
+  /**
+   * The duplicate record sets the target's duplicate rules made of the run's
+   * records that the removal read and set out to take with them
+   * (`duplicateSetsOf`), by id, whatever became of each: counted on its own
+   * line. A caller's pass that takes the sets the deletes left empty
+   * (`duplicateSetsOfRemoval`) leaves these to it. Absent when it read none.
+   */
+  duplicateSets?: string[];
 }
 
 /** What a removal that took none of the run's records hands on: a sweep alone. */
@@ -1575,6 +1583,8 @@ export async function removeRunRecords(
   // with the copies and taken as they are: left, they stayed empty. Read only
   // when the run's user is known, the last modifier of the sets its records
   // went in, and never by a rewind, whose plan reads what it deletes.
+  /** The ids of the sets it reads so and takes, said with its outcome. */
+  const duplicateSets: string[] = [];
   if (options.runUserId && options.alongAccepted !== true) {
     const sets = await duplicateSetsOf(session, {
       has: (key) => records.has(key),
@@ -1588,6 +1598,7 @@ export async function removeRunRecords(
       (await deletable(session, DUPLICATE_SET_OBJECT))
     ) {
       copies.push({ objectApiName: DUPLICATE_SET_OBJECT, copies: sets });
+      for (const set of sets) duplicateSets.push(set.id);
     }
   }
   if (copies.length > 0) {
@@ -1831,6 +1842,7 @@ export async function removeRunRecords(
       stamps,
       ...(span ? { span } : {}),
       ...(otherPartStamps.length > 0 ? { otherPartStamps } : {}),
+      ...(duplicateSets.length > 0 ? { duplicateSets } : {}),
     };
   };
   // Stopped during the sweep: none of the run's records goes, and what the
