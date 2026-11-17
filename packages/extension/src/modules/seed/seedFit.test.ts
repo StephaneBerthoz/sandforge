@@ -21,6 +21,7 @@ import {
   seedAuditFitOf,
   seedCountsAt,
   seedFitProposalOf,
+  seedLeavesEmptyOf,
   seedRoomOf,
   seedWritesOf,
   seedWritesOfObjects,
@@ -175,6 +176,149 @@ const AUTOMATION: ForgeTargetAutomation = {
   ],
   requests: 1,
 };
+
+describe('seedLeavesEmptyOf and seedRoomOf, a start condition the records may not meet', () => {
+  /** Contacts and a flow that opens a task under each one created under an account, beside `others`. */
+  function contacts(...others: ForgeTargetFlow[]): ForgeTargetAutomation {
+    return {
+      objectsRead: ['Contact'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Follow_Up',
+              label: 'Follow Up',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              requiresFilled: ['AccountId'],
+              permissions: [],
+              creates: ['Task'],
+            },
+            ...others,
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+  }
+  const contact = (over: Partial<SeedObjectConfig> = {}): SeedObjectConfig => ({
+    objectApiName: 'Contact',
+    recordCount: 10,
+    fieldRules: [],
+    excludedFields: [],
+    insertOrder: 0,
+    batchSize: 200,
+    ...over,
+  });
+  const unset = async () => ({
+    empty: new Set(['AccountId']),
+    filled: new Set(['OwnerId']),
+  });
+
+  it('tells, field by field, whether the seed leaves it empty on every record, some, or none', async () => {
+    const read = contacts();
+    const leaves = async (object: SeedObjectConfig, relations?: SeedRelation[]) =>
+      (
+        await seedLeavesEmptyOf(
+          { objects: [object], ...(relations ? { relations } : {}) },
+          read,
+          unset,
+        )
+      )('Contact', 'AccountId');
+
+    expect(await leaves(contact())).toBe('every');
+    expect(
+      await leaves(
+        contact({
+          fieldRules: [
+            { fieldApiName: 'AccountId', ruleType: 'static', config: { staticValue: 'x' } },
+          ],
+        }),
+      ),
+    ).toBe('none');
+    expect(
+      await leaves(contact({ recordCount: 1 }), [
+        {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          parents: { kind: 'existing', limit: 5 },
+          distribution: { mode: 'perParent', count: 1 },
+        },
+      ]),
+    ).toBe('none');
+    // Rows, some of which give the account.
+    expect(
+      await leaves(
+        contact({
+          recordCount: 2,
+          rows: [
+            { key: 'a', values: { LastName: 'A', AccountId: 'x' } },
+            { key: 'b', values: { LastName: 'B' } },
+          ],
+        }),
+      ),
+    ).toBe('some');
+    // A describe that could not be read tells nothing.
+    expect(
+      (
+        await seedLeavesEmptyOf({ objects: [contact()] }, read, () =>
+          Promise.reject(new Error('INVALID_TYPE')),
+        )
+      )('Contact', 'AccountId'),
+    ).toBe('some');
+    // The owner, which the org fills itself; a field it may give a default.
+    const leavesOf = await seedLeavesEmptyOf({ objects: [contact()] }, read, unset);
+    expect(leavesOf('Contact', 'OwnerId')).toBe('none');
+    expect(leavesOf('Contact', 'Department')).toBe('some');
+  });
+
+  it('keeps no room for a flow none of the records starts, and names it; counts one something else may fill first at most', async () => {
+    const seed = { objects: [contact()] };
+    const writes = seedWritesOf(seed);
+    const none = seedRoomOf(
+      contacts(),
+      undefined,
+      writes,
+      await seedLeavesEmptyOf(seed, contacts(), unset),
+    );
+
+    expect(none.room.perRecord).toEqual([]);
+    expect(none.room.starts).toEqual([
+      { objectApiName: 'Contact', name: 'Follow Up', fields: ['AccountId'], why: 'leftEmpty' },
+    ]);
+    // What runs before the flows after the save may fill it: a flow before it.
+    const before: ForgeTargetFlow = {
+      apiName: 'Defaults',
+      label: 'Defaults',
+      timing: 'beforeSave',
+      startsOn: 'create',
+      condition: 'read',
+      permissions: [],
+    };
+    const read = contacts(before);
+    const some = seedRoomOf(read, undefined, writes, await seedLeavesEmptyOf(seed, read, unset));
+
+    expect(some.room.perRecord).toEqual([
+      expect.objectContaining({ objectApiName: 'Contact', act: 'insert', bytes: 2 * KB }),
+    ]);
+    expect(some.room.atMost).toEqual(some.room.perRecord);
+    expect(some.room.starts).toEqual([
+      {
+        objectApiName: 'Contact',
+        name: 'Follow Up',
+        fields: ['AccountId'],
+        why: 'automationMayFill',
+      },
+    ]);
+    // Told nothing of what the seed leaves empty, every flow is counted as it starts.
+    expect(seedRoomOf(contacts(), undefined, writes).room).not.toHaveProperty('starts');
+    expect(seedRoomOf(contacts(), undefined, writes).room.perRecord).toHaveLength(1);
+  });
+});
 
 describe('seedCountsAt', () => {
   it('keeps the share of a root, at least one, and no more children than the parents kept hold', () => {

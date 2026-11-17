@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -135,6 +135,38 @@ describe('sandforge pipeline run --dry-run', () => {
     expect(existsSync(join(dir, 'journal', 'pipelines', 'pipe-nightly', 'history.json'))).toBe(
       false,
     );
+  });
+
+  it('leaves nothing on this machine: no store of the pipeline, no folder of it', async () => {
+    // Run for real, a dry run wrote ~/.sandforge/pipelines/<id>/store/
+    // configStore.json: the pipeline, the Seed template, the org of the
+    // registry and the alerts, kept after a run that writes nothing.
+    const world = new PipelineWorld(dir, [{ alias: 'UAT', organizationId: WORLD_TARGET_ID }]);
+    const file = world.file({
+      orgs: {
+        'reg-uat': {
+          alias: 'UAT',
+          organizationId: WORLD_TARGET_ID,
+          kind: 'sandbox',
+          staging: false,
+        },
+      },
+      steps: [step('s1', 'Fill', 'seed', { orgId: 'reg-uat', templateId: ACCOUNTS_TEMPLATE.id })],
+      seedTemplates: { [ACCOUNTS_TEMPLATE.id]: ACCOUNTS_TEMPLATE },
+    });
+    const pipelines = join(dir, 'journal', 'pipelines');
+    const before = existsSync(pipelines) ? readdirSync(pipelines) : [];
+
+    const dry = await world.run(['run', '--file', file, '--dry-run', '--json']);
+
+    expect(dry.code).toBe(0);
+    expect(world.env.records('Account')).toHaveLength(0);
+    expect(existsSync(join(pipelines, 'pipe-nightly', 'store', 'configStore.json'))).toBe(false);
+    expect(existsSync(pipelines) ? readdirSync(pipelines) : []).toEqual(before);
+
+    // A run keeps its store, where the next one reads its watermarks.
+    expect((await world.run(['run', '--file', file, '--json'])).code).toBe(0);
+    expect(existsSync(join(pipelines, 'pipe-nightly', 'store', 'configStore.json'))).toBe(true);
   });
 
   it("refuses the dry run of a Seed whose records do not fit the org's data storage, in the words its run is refused with", async () => {

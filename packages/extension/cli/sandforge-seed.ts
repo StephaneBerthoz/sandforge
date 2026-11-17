@@ -150,6 +150,7 @@ import {
   seedStorageGate,
   seedStorageWords,
   watchedBy,
+  type SeedStorageCheck,
   type SeedWritePath,
 } from '../src/modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../src/modules/seed/seedDuplicateRules.js';
@@ -158,6 +159,7 @@ import {
   SEED_FIT_STORAGE_UNREAD,
   fitSeedTemplate,
   fittedTemplate,
+  seedLeavesEmptyOf,
   seedRoomOf,
   seedWritesOf,
   type SeedFit,
@@ -176,7 +178,6 @@ import {
   removalStepsAutomationRefusal,
   takeCheckpointFirst,
   type EmailLimit,
-  type StorageCheck,
 } from '../src/modules/forge/ForgeRunGate.js';
 import {
   NO_APEX_IN_PRODUCTION,
@@ -1709,7 +1710,7 @@ export function seedWritePathOf(count: number, bulkThreshold: number, watched?: 
 }
 
 /** What the run says of the data storage its records take, against what the target has left. */
-export function storageLine(check: StorageCheck, target: string): string {
+export function storageLine(check: SeedStorageCheck, target: string): string {
   return seedStorageWords(check, target);
 }
 
@@ -2216,8 +2217,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
   }
   // What still runs of it once the mute's plan holds, nothing assigned, and
-  // the room what it creates takes under the records: what a fit keeps.
-  const room = seedRoomOf(read, mute?.plan, writes);
+  // the room what it creates takes under the records: what a fit keeps and
+  // the gate counts. A flow whose start condition requires a field the seed
+  // leaves empty on every record starts for none of them, read from the
+  // describes the gate reads anyway.
+  const leavesEmpty = await seedLeavesEmptyOf(
+    template,
+    read,
+    describedFieldsOf(describeBeforeGate).unset,
+  );
+  const room = seedRoomOf(read, mute?.plan, writes, leavesEmpty);
   const fitWords = {
     ...(room.unread !== undefined ? { roomUnread: room.unread } : {}),
     muted: (mute?.plan?.assign.length ?? 0) > 0,

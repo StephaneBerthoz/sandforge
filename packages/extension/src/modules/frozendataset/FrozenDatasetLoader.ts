@@ -3492,75 +3492,9 @@ export class FrozenDatasetLoader {
     return decision;
   }
 
-  /**
-   * Pilot scope: descendants of the root folder + the reference records it
-   * needs, the catalog its prices need included.
-   */
+  /** Pilot scope, from the root object the configuration names: see {@link pilotScopeOf}. */
   private filterPilotScope(dataset: FrozenDataset, rootReferenceId?: string): FrozenDataset {
-    const rootObject = this.config.rootObjectApiName;
-    if (!rootObject) {
-      throw new LoadConfigError(
-        'Pilot mode requires config.rootObjectApiName (the business-folder root object).',
-      );
-    }
-    const rootRecords = dataset.objects.find((o) => o.objectApiName === rootObject)?.records ?? [];
-    const root = rootReferenceId ?? rootRecords[0]?.referenceId;
-    if (!root || !rootRecords.some((r) => r.referenceId === root)) {
-      throw new LoadConfigError(
-        `Pilot root ${rootReferenceId ?? '<first>'} not found in ${rootObject} records ` +
-          `(${rootRecords.length} in dataset). Provide pilot.rootReferenceId of an existing root record.`,
-      );
-    }
-    const refIndex = buildReferenceIndex(dataset);
-    // Descendants: records whose fields point at a reached referenceId.
-    const reached = new Set<string>([root]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const objectData of dataset.objects) {
-        for (const record of objectData.records) {
-          if (reached.has(record.referenceId)) {
-            continue;
-          }
-          if (Object.values(record.fields).some((v) => typeof v === 'string' && reached.has(v))) {
-            reached.add(record.referenceId);
-            grew = true;
-          }
-        }
-      }
-    }
-    // Ancestors: reference records the reached records point at (shared referential).
-    const reachAncestors = (ancestorQueue: string[]): void => {
-      while (ancestorQueue.length > 0) {
-        const current = ancestorQueue.pop() as string;
-        const record = findRecord(dataset, current);
-        if (!record) {
-          continue;
-        }
-        for (const value of Object.values(record.fields)) {
-          if (typeof value === 'string' && refIndex.has(value) && !reached.has(value)) {
-            reached.add(value);
-            ancestorQueue.push(value);
-          }
-        }
-      }
-    };
-    reachAncestors([...reached]);
-    // What the folder's prices need and none of its records points at: a
-    // line names its custom price, never the standard one the platform wants
-    // first, nor the option that lets its product be sold under its model.
-    // Rehearsed against a real target, a pilot sent its four prices with
-    // neither, which the platform refuses. They come with what they point
-    // at: the standard book, their models.
-    const needed = catalogThePricesNeed(dataset, reached).filter((id) => !reached.has(id));
-    for (const id of needed) reached.add(id);
-    reachAncestors(needed);
-    return {
-      ...dataset,
-      objects: dataset.objects
-        .map((o) => ({ ...o, records: o.records.filter((r) => reached.has(r.referenceId)) }))
-        .filter((o) => o.records.length > 0),
-    };
+    return pilotScopeOf(dataset, this.config.rootObjectApiName, rootReferenceId);
   }
 
   /**
@@ -7010,4 +6944,85 @@ function tupleKey(values: unknown[]): string {
 /** True when the DML errors match the configured native duplicate markers. */
 function isDuplicateRejection(errors: string[], patterns: readonly string[]): boolean {
   return errors.some((e) => patterns.some((p) => e.toLowerCase().includes(p.toLowerCase())));
+}
+
+/**
+ * What a pilot loads of a dataset: the root folder — the root record named,
+ * the first of its object otherwise — and its descendants, with the reference
+ * records they need, the catalog its prices need included. What its gates
+ * count — the emails of what still runs, the API requests — is what it
+ * writes: counted on the whole dataset, a pilot of 150 contacts was refused
+ * for the 10,350 emails of its 3,450.
+ *
+ * @param rootObject - The business folder's root object, as the configuration names it.
+ * @throws {LoadConfigError} When no root object is named, or the root is not in the dataset.
+ */
+export function pilotScopeOf(
+  dataset: FrozenDataset,
+  rootObject: string | undefined,
+  rootReferenceId?: string,
+): FrozenDataset {
+  if (!rootObject) {
+    throw new LoadConfigError(
+      'Pilot mode requires config.rootObjectApiName (the business-folder root object).',
+    );
+  }
+  const rootRecords = dataset.objects.find((o) => o.objectApiName === rootObject)?.records ?? [];
+  const root = rootReferenceId ?? rootRecords[0]?.referenceId;
+  if (!root || !rootRecords.some((r) => r.referenceId === root)) {
+    throw new LoadConfigError(
+      `Pilot root ${rootReferenceId ?? '<first>'} not found in ${rootObject} records ` +
+        `(${rootRecords.length} in dataset). Provide pilot.rootReferenceId of an existing root record.`,
+    );
+  }
+  const refIndex = buildReferenceIndex(dataset);
+  // Descendants: records whose fields point at a reached referenceId.
+  const reached = new Set<string>([root]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const objectData of dataset.objects) {
+      for (const record of objectData.records) {
+        if (reached.has(record.referenceId)) {
+          continue;
+        }
+        if (Object.values(record.fields).some((v) => typeof v === 'string' && reached.has(v))) {
+          reached.add(record.referenceId);
+          grew = true;
+        }
+      }
+    }
+  }
+  // Ancestors: reference records the reached records point at (shared referential).
+  const reachAncestors = (ancestorQueue: string[]): void => {
+    while (ancestorQueue.length > 0) {
+      const current = ancestorQueue.pop() as string;
+      const record = findRecord(dataset, current);
+      if (!record) {
+        continue;
+      }
+      for (const value of Object.values(record.fields)) {
+        if (typeof value === 'string' && refIndex.has(value) && !reached.has(value)) {
+          reached.add(value);
+          ancestorQueue.push(value);
+        }
+      }
+    }
+  };
+  reachAncestors([...reached]);
+  // What the folder's prices need and none of its records points at: a
+  // line names its custom price, never the standard one the platform wants
+  // first, nor the option that lets its product be sold under its model.
+  // Rehearsed against a real target, a pilot sent its four prices with
+  // neither, which the platform refuses. They come with what they point
+  // at: the standard book, their models.
+  const needed = catalogThePricesNeed(dataset, reached).filter((id) => !reached.has(id));
+  for (const id of needed) reached.add(id);
+  reachAncestors(needed);
+  return {
+    ...dataset,
+    objects: dataset.objects
+      .map((o) => ({ ...o, records: o.records.filter((r) => reached.has(r.referenceId)) }))
+      .filter((o) => o.records.length > 0),
+  };
 }

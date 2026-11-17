@@ -130,6 +130,7 @@ import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   seedAuditFitOf,
   seedFitProposalOf,
+  seedLeavesEmptyOf,
   seedRoomOf,
   seedWritesOf,
   seedWritesOfObjects,
@@ -1802,9 +1803,26 @@ export class SeedOpsHandler implements DomainHandler {
     if (mute) payload.mute = mute;
     const auditFit = seedAuditFitOf(asked.fit, plannedRecords);
     if (auditFit) payload.fit = auditFit;
+    // The describes the gate reads of the objects the seed writes, read once
+    // and counted with its requests: the slices it prices its inserts in, and
+    // which of its records leave a field empty.
+    const { describedFieldsOf, requiredForAccountKinds } =
+      await import('../../modules/seed/describedFields.js');
+    let slicesRead = 0;
+    const gateFields = describedFieldsOf(async (objectApiName) => {
+      slicesRead++;
+      return conn.describe(objectApiName);
+    });
     // What still runs of it once the mute's plan holds, nothing assigned, and
-    // the room what it creates takes under the records: what a fit keeps.
-    const stillRunning = seedRoomOf(read, mute?.plan, writes);
+    // the room what it creates takes under the records: what a fit keeps and
+    // the gate counts. A flow whose start condition requires a field the seed
+    // leaves empty on every record starts for none of them.
+    const stillRunning = seedRoomOf(
+      read,
+      mute?.plan,
+      writes,
+      await seedLeavesEmptyOf(kinds.template, read, gateFields.unset),
+    );
     // Whether the org delivers the emails of what still runs, read once the
     // plan says what does and only when something may send one, before the
     // gates count its requests; asked below, with the seed's one question. A
@@ -1882,13 +1900,6 @@ export class SeedOpsHandler implements DomainHandler {
     // Read from describes of the gate's own, counted with the run's: the run
     // reads its own once its lease is taken, which may open fields.
     const partition = seedPartitionOf(readGrappeConfig(this.deps.services), kinds.template);
-    const { describedFieldsOf, requiredForAccountKinds } =
-      await import('../../modules/seed/describedFields.js');
-    let slicesRead = 0;
-    const gateFields = describedFieldsOf(async (objectApiName) => {
-      slicesRead++;
-      return conn.describe(objectApiName);
-    });
     const slices = await seedRunSlicesOf(
       taken,
       {

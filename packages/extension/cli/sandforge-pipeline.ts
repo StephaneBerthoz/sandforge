@@ -29,7 +29,7 @@
  *     --triggered-by schedule --approve "Go?" --fail-on-partial
  */
 
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -132,7 +132,8 @@ Options (run):
                             Seed meets its gates — the data storage and the API requests its
                             org has left — and says what it would seed; Compare and Pre-check
                             run, and the Conditions read what they found; no Delay waits, no
-                            Approval is asked; nothing is kept in the history nor the audit
+                            Approval is asked; nothing is kept in the history, the audit or
+                            the store
   --timeout <ms>            the run's time budget, sandforge.pipeline.timeout, from 30000 to
                             3600000 (default: the file's, or 300000); an Approval's wait, a
                             Delay and the steps that write have their own
@@ -1044,7 +1045,7 @@ function orgsJson(orgs: readonly RunOrg[]): Array<Record<string, unknown>> {
   }));
 }
 
-/** A copy of the store a plan reads, so that it keeps nothing of its own: removed after. */
+/** A copy of the store a plan or a dry run reads, so that it keeps nothing of its own: removed after. */
 function planStoreOf(store: string): string {
   const copy = mkdtempSync(join(tmpdir(), 'sandforge-pipeline-plan-'));
   const kept = join(store, 'configStore.json');
@@ -1186,6 +1187,10 @@ async function planOrRun(
   // is read until it ends: two runs of one store would write over each
   // other's watermarks.
   let lock: PipelineRunLock | undefined;
+  // The pipeline's folder, which a dry run leaves as it found it: its lock
+  // made it, and nothing of the dry run is kept there.
+  const folder = pipelineFolderOf(root, file.pipeline.id);
+  const folderBefore = existsSync(folder);
   if (running) {
     const taken = acquirePipelineRunLock(root, file.pipeline.id, {
       pipelineName: file.pipeline.name,
@@ -1226,7 +1231,11 @@ async function planOrRun(
       });
     }
   });
-  const hostStore = running ? store : planStoreOf(store);
+  // A plan, and a dry run, read a copy of the store and keep nothing of
+  // their own: run for real, a dry run left the pipeline, its templates, the
+  // org of its registry and its alerts in the store's file, for a run that
+  // wrote nothing.
+  const hostStore = running && !args.dryRun ? store : planStoreOf(store);
   const lines: StepLine[] = [];
   /** The steps said as they ended. */
   const told = new Set<string>();
@@ -1400,6 +1409,17 @@ async function planOrRun(
     lock?.release();
     pipelineHost?.dispose();
     if (hostStore !== store) rmSync(hostStore, { recursive: true, force: true });
+    if (args.dryRun && !folderBefore) removeIfEmpty(folder);
+  }
+}
+
+/** Remove a folder that holds nothing, once a dry run has let go of what it took there. */
+function removeIfEmpty(folder: string): void {
+  try {
+    // Refused for a folder that holds anything: another run's, kept.
+    rmdirSync(folder);
+  } catch {
+    // Gone already, or holding what is not the dry run's.
   }
 }
 

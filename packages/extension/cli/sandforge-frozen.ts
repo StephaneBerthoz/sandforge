@@ -1355,13 +1355,19 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
 
 /**
  * The data storage a load's records would take against what the target has
- * left, as its gate measures them and a replay's dry run says them, and what
- * a reload's purge frees first. Exported so it can be tested.
+ * left, as its gate measures them and a replay's dry run says them: of it,
+ * what the target's automation creates under them, as a clone's and a seed's
+ * line say it; and what a reload's purge frees first. Exported so it can be
+ * tested.
  */
 export function loadStorageLine(storage: FrozenLoadStorageInfo, target: string): string {
   return (
-    `  data storage: about ${formatMB(storage.estimateMB)} MB of the ` +
-    `${formatMB(storage.remainingMB)} MB ${target} has left of ${formatMB(storage.maxMB)} MB` +
+    `  data storage: about ${formatMB(storage.estimateMB)} MB` +
+    (storage.automationMB !== undefined && storage.automationMB > 0
+      ? `, about ${formatMB(storage.automationMB)} MB of it for what the target's automation ` +
+        'creates under them,'
+      : '') +
+    ` of the ${formatMB(storage.remainingMB)} MB ${target} has left of ${formatMB(storage.maxMB)} MB` +
     (storage.freedMB !== undefined
       ? `, and the reload's purge frees about ${formatMB(storage.freedMB)} MB first`
       : '')

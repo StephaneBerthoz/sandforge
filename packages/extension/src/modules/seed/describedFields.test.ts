@@ -111,6 +111,31 @@ describe('describedFieldsOf', () => {
     ]);
   });
 
+  it('reads the lookups a record created without them keeps empty, and the fields the org requires or fills itself', async () => {
+    const fields = describedFieldsOf(async () => ({
+      fields: [
+        { name: 'LastName', type: 'string', nillable: false },
+        { name: 'AccountId', type: 'reference', nillable: true, referenceTo: ['Account'] },
+        // The owner: the org fills it with the user who writes.
+        {
+          name: 'OwnerId',
+          type: 'reference',
+          nillable: false,
+          defaultedOnCreate: true,
+          referenceTo: ['User'],
+        },
+        { name: 'DoNotCall', type: 'boolean', nillable: false, defaultedOnCreate: true },
+        // A text field may take a default value of its own: neither.
+        { name: 'Department', type: 'string', nillable: true },
+      ],
+    }));
+
+    const unset = await fields.unset('Contact');
+
+    expect([...unset.empty]).toEqual(['AccountId']);
+    expect([...unset.filled]).toEqual(['LastName', 'OwnerId', 'DoNotCall']);
+  });
+
   it('describes each object once for the run', async () => {
     const describe = vi.fn(async (_objectApiName: string) => ACCOUNT);
     const fields = describedFieldsOf(describe);

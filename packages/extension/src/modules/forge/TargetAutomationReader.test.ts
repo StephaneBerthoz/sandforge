@@ -36,6 +36,7 @@ import {
   conditionSoql,
   customObjectIdsSoql,
   decisionChecks,
+  fieldsRequiredFilled,
   messagesOf,
   objectsTheRunWrites,
   pathsOf,
@@ -180,6 +181,75 @@ describe('objectsTheRunWrites', () => {
       'ProductCategory',
       'ProductCatalog',
     ]);
+  });
+});
+
+describe('fieldsRequiredFilled', () => {
+  const withFormula = (filterFormula: string) => ({ filterFormula, filters: [] });
+
+  it('reads a field of the record the start formula requires not blank', () => {
+    // The trap org's contact flow, which opens a task under a contact created
+    // under an account: a seed of contacts alone writes them with none.
+    expect(fieldsRequiredFilled(withFormula('NOT(ISBLANK({!$Record.AccountId}))'))).toEqual([
+      'AccountId',
+    ]);
+    expect(fieldsRequiredFilled(withFormula('NOT( ISNULL( $Record.Parent__c ) )'))).toEqual([
+      'Parent__c',
+    ]);
+  });
+
+  it('reads each field among the terms the formula requires together, beside what it tests of the user', () => {
+    expect(
+      fieldsRequiredFilled(
+        withFormula(
+          "AND(NOT(ISBLANK({!$Record.AccountId})), NOT({!$Permission.Skip}), {!$Record.LeadSource} = 'Web', NOT(ISBLANK({!$Record.Email})))",
+        ),
+      ),
+    ).toEqual(['AccountId', 'Email']);
+  });
+
+  it('reads none where a field filled is one alternative among others, tested blank, or of a parent', () => {
+    for (const formula of [
+      'OR(NOT(ISBLANK({!$Record.AccountId})), NOT(ISBLANK({!$Record.Email})))',
+      'ISBLANK({!$Record.AccountId})',
+      'NOT(ISBLANK({!$Record.Account.Name}))',
+      "NOT(ISBLANK('{!$Record.AccountId}'))",
+    ]) {
+      expect(fieldsRequiredFilled(withFormula(formula)), formula).toEqual([]);
+    }
+  });
+
+  it('reads a filter "is null: false" the filters require together, and none of filters any of which will do', () => {
+    const isNotNull = (field: string) => ({
+      field,
+      operator: 'IsNull',
+      value: { booleanValue: false },
+    });
+    const equals = { field: 'LeadSource', operator: 'EqualTo', value: { stringValue: 'Web' } };
+    expect(
+      fieldsRequiredFilled({ filterLogic: 'and', filters: [isNotNull('AccountId'), equals] }),
+    ).toEqual(['AccountId']);
+    expect(fieldsRequiredFilled({ filters: [isNotNull('AccountId')] })).toEqual(['AccountId']);
+    expect(
+      fieldsRequiredFilled({ filterLogic: '1 AND 2', filters: [equals, isNotNull('Email')] }),
+    ).toEqual(['Email']);
+    expect(
+      fieldsRequiredFilled({ filterLogic: 'or', filters: [isNotNull('AccountId'), equals] }),
+    ).toEqual([]);
+    expect(
+      fieldsRequiredFilled({ filterLogic: '1 OR 2', filters: [isNotNull('AccountId'), equals] }),
+    ).toEqual([]);
+    expect(
+      fieldsRequiredFilled({
+        filterLogic: 'and',
+        filters: [{ field: 'AccountId', operator: 'IsNull', value: { booleanValue: true } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reads none of a start that tests nothing of the record', () => {
+    expect(fieldsRequiredFilled({ filterFormula: null, filters: [] })).toEqual([]);
+    expect(fieldsRequiredFilled(undefined)).toEqual([]);
   });
 });
 
@@ -1165,6 +1235,30 @@ describe('TargetAutomationReader', () => {
     });
     // The Lead flow's condition was never asked: Lead is not written.
     expect(target.asked).not.toContain(conditionSoql('301000000000004AAA'));
+  });
+
+  it("keeps the fields a flow's start requires filled, read from its condition", async () => {
+    const target = fakeTarget({
+      flows: [
+        flowRow(
+          'Contact',
+          'Contact_Follow_Up_Task',
+          'RecordAfterSave',
+          'Create',
+          '301000000000001AAA',
+        ),
+      ],
+      starts: {
+        '301000000000001AAA': {
+          filterFormula: 'NOT(ISBLANK({!$Record.AccountId}))',
+          filters: [],
+        },
+      },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+    expect(automation.objects[0]?.flows[0]?.requiresFilled).toEqual(['AccountId']);
   });
 
   it('matches an object the org spells in another case', async () => {

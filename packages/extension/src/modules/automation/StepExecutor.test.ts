@@ -671,16 +671,24 @@ describe('StepExecutor', () => {
       return waiting;
     }
 
-    it('says how long it really waited, and that the machine may have slept, past the margin', async () => {
-      // The Delay of 7 500 s that held 7 830.8 s on a host that slept.
+    it('says how long it held by the wall clock past the margin, and names a clock or a sleep without saying the machine slept', async () => {
+      // The Delay of 7 500 s that held 7 830.8 s. A second one held 7 811.3 s
+      // on a virtual machine that never slept: its timers ran on a clock 4.6 %
+      // slower than the wall's, and "the machine may have slept" gave a cause
+      // that was not one.
       const result = await delayWhileAsleep(7500, 330_800);
 
       expect(result.status).toBe('completed');
       expect(result.summary).toBe(
-        'Waited 7830.8 s, 330.8 s more than the 7500 s asked: the machine may have slept ' +
-          'meanwhile, and a wait counts only the time it is awake.',
+        'Waited 7830.8 s by the wall clock, 330.8 s more than the 7500 s asked: the ' +
+          "machine's clock or a sleep may account for it.",
       );
       expect(result.output).toEqual({ delayed: 7_500_000, heldMs: 7_830_800 });
+      expect(waitedWords(7_500_000, 7_811_254)).toBe(
+        'Waited 7811.3 s by the wall clock, 311.3 s more than the 7500 s asked: the ' +
+          "machine's clock or a sleep may account for it.",
+      );
+      expect(result.summary).not.toContain('slept');
     });
 
     it('says the time it held within the margin, and nothing of a sleep', async () => {
@@ -691,7 +699,9 @@ describe('StepExecutor', () => {
 
     it('keeps a margin of 5 s on a short wait', async () => {
       expect(waitedWords(2000, 6900)).toBe('Waited 6.9 s.');
-      expect(waitedWords(2000, 7100)).toMatch(/^Waited 7\.1 s, 5\.1 s more than the 2 s asked:/);
+      expect(waitedWords(2000, 7100)).toMatch(
+        /^Waited 7\.1 s by the wall clock, 5\.1 s more than the 2 s asked:/,
+      );
       // A clock set back during the wait: the timer held what it was asked.
       expect(waitedWords(2000, 1500)).toBe('Waited 2 s.');
     });

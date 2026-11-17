@@ -1722,7 +1722,7 @@ describe('sandforge-clone --remove', () => {
         'it found 4 record(s) and would delete 4 of them, children first; per object, all it found:',
       );
       expect(printed).toContain(
-        'with --sweep-untied, it would delete too what is tied to nothing of the run: Event: 2',
+        'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Event: 2',
       );
       expect(printed).not.toContain('(--sweep-untied takes them)');
     });

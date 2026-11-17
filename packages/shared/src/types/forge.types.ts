@@ -3327,6 +3327,14 @@ export interface ForgeTargetFlow {
    * each; `unreadable` when the org refused it.
    */
   condition: 'read' | 'notRead' | 'unreadable';
+  /**
+   * The fields of the record its start condition requires filled, each a term
+   * the condition requires with the others — `NOT(ISBLANK({!$Record.AccountId}))`,
+   * a filter "is null: false" its filters require together: a record saved
+   * with one of them empty does not start it. Absent when it requires none,
+   * or its condition was not read.
+   */
+  requiresFilled?: string[];
   /** The custom permissions its start condition names; empty when none, or not read. */
   permissions: ForgeFlowPermission[];
   /**

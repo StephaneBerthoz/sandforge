@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CRM_STARTER, DATA_STORAGE_NOT_TOLD, SALES_CLOUD_STARTER } from '@sandforge/shared';
-import type { SeedTemplate } from '@sandforge/shared';
+import type { ForgeTargetAutomation, SeedTemplate } from '@sandforge/shared';
 import {
   cloneRequestsEstimate,
   importRequestsEstimate,
@@ -12,7 +12,9 @@ import {
   seedWritesEstimate,
   seedStorageBytes,
   seedStorageGate,
+  seedStorageWords,
 } from './seedStorage';
+import { seedLeavesEmptyOf, seedRoomOf, seedWritesOf } from './seedFit.js';
 import { seedInsert, type SeedInsertConnection } from './seedInsert';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
@@ -266,6 +268,122 @@ describe('seedStorageGate', () => {
         "the target's automation creates under them, and my-dev-org has 5 MB left of 5 MB: " +
         'leave objects out, lower the records per object, or free data storage in my-dev-org. ' +
         'Nothing was written.',
+    );
+  });
+});
+
+describe("seedStorageGate, a flow whose start condition the seed's records do not meet", () => {
+  /**
+   * The trap org's contacts: a flow after the save, no bypass, that opens a
+   * task under each contact created under an account, beside what else the
+   * test says runs there.
+   */
+  function contactFlow(
+    others: Partial<ForgeTargetAutomation['objects'][number]> = {},
+  ): ForgeTargetAutomation {
+    return {
+      objectsRead: ['Contact'],
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Trap_Contact_Follow_Up_Task',
+              label: 'Trap Contact Follow Up Task',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              requiresFilled: ['AccountId'],
+              permissions: [],
+              creates: ['Task'],
+            },
+          ],
+          triggers: [],
+          ...others,
+        },
+      ],
+      unread: [],
+    } as unknown as ForgeTargetAutomation;
+  }
+  /** What a record created without a value of a field holds there: AccountId empty, LastName filled. */
+  const unset = async () => ({
+    empty: new Set(['AccountId', 'ReportsToId']),
+    filled: new Set(['LastName', 'OwnerId']),
+  });
+
+  async function gateOf(
+    read: ForgeTargetAutomation,
+    seed: Pick<SeedTemplate, 'objects' | 'relations'>,
+  ) {
+    const writes = seedWritesOf(seed);
+    const { room } = seedRoomOf(
+      read,
+      undefined,
+      writes,
+      await seedLeavesEmptyOf(seed, read, unset),
+    );
+    return seedStorageGate(limits(5, 5), seed, [], 'TRAP', undefined, {}, {}, room);
+  }
+
+  it('counts nothing a flow would create under contacts seeded with no account, and lets through a seed that fits', async () => {
+    // Run for real: 1,400 contacts alone, refused at 5.47 MB "about 2.74 MB
+    // of it for what the target's automation creates under them". Three of
+    // them seeded made no task: the flow starts on a contact under an account.
+    const seed = objects(['Contact', 1_400]);
+
+    const gate = await gateOf(contactFlow(), seed);
+
+    expect(gate.refusal).toBeUndefined();
+    expect(gate.check).toMatchObject({ verdict: 'fits', estimateMB: (2_800 * KB) / MB });
+    expect(gate.check).not.toHaveProperty('automationMB');
+    expect(seedStorageWords(gate.check, 'TRAP')).toBe(
+      'data storage: about 2.74 MB to write, TRAP has 5 MB left of 5 MB; nothing counted for ' +
+        'Trap Contact Follow Up Task on Contact: it starts only on a record whose AccountId is ' +
+        'filled, which the seed leaves empty',
+    );
+  });
+
+  it('counts it, and refuses past what is left, when the seed gives the contacts an account', async () => {
+    const seed: Pick<SeedTemplate, 'objects' | 'relations'> = {
+      ...objects(['Account', 100], ['Contact', 1_400]),
+      relations: [
+        {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          parents: { kind: 'generated' },
+          distribution: { mode: 'perParent', count: 14 },
+        },
+      ],
+    };
+
+    const gate = await gateOf(contactFlow(), seed);
+
+    expect(gate.refusedFor).toBe('storage');
+    expect(gate.check).toMatchObject({ verdict: 'exceeds', automationMB: (2_800 * KB) / MB });
+  });
+
+  it('counts it at most, and refuses nothing for it, when a trigger on the contacts may fill the account first', async () => {
+    const seed = objects(['Contact', 1_400]);
+
+    const gate = await gateOf(
+      contactFlow({ triggers: [{ name: 'ContactTrigger', events: ['beforeInsert'] }] }),
+      seed,
+    );
+
+    expect(gate.refusal).toBeUndefined();
+    expect(gate.check).toMatchObject({
+      verdict: 'near',
+      estimateMB: (5_600 * KB) / MB,
+      automationMB: (2_800 * KB) / MB,
+      automationAtMostMB: (2_800 * KB) / MB,
+    });
+    expect(seedStorageWords(gate.check, 'TRAP')).toBe(
+      "data storage: about 5.47 MB to write, about 2.74 MB of it for what the target's " +
+        'automation creates under them (2.74 MB of it at most: Trap Contact Follow Up Task on ' +
+        'Contact starts only on a record whose AccountId is filled, which the seed leaves empty ' +
+        "and the target's automation may fill first), TRAP has 5 MB left of 5 MB: close to what " +
+        'it has left',
     );
   });
 });

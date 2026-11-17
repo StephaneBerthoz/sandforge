@@ -55,6 +55,7 @@ import {
   type SeedRelationCountedDistribution,
   type SeedTemplate,
   type StillRunning,
+  type StillRunningEntry,
 } from '@sandforge/shared';
 import {
   automationRoomOf,
@@ -63,10 +64,17 @@ import {
   storageFitBudgetOf,
   type AutomationRoom,
   type FitBudget,
+  type RoomPerRecord,
 } from '../forge/fitBudget.js';
 import { formatMBPast } from '../forge/ForgeRunGate.js';
+import type { SeedUnsetFields } from './describedFields.js';
 import { ARTICLE_VERSION_OBJECT } from './seedKnowledge.js';
-import { seedRequestsEstimate, seedStorageBytes, type SeedWritePath } from './seedStorage.js';
+import {
+  seedRequestsEstimate,
+  seedStorageBytes,
+  type SeedFlowStart,
+  type SeedWritePath,
+} from './seedStorage.js';
 
 /** The template a fit reads: its objects and their relations. */
 type FitTemplate = Pick<SeedTemplate, 'objects' | 'relations'>;
@@ -116,7 +124,23 @@ export interface SeedFit {
 export interface SeedAutomationRoom extends AutomationRoom {
   /** Why no room is kept: the target's automation was not read. */
   unread?: string;
+  /**
+   * Of `perRecord`, what the flows create whose start condition the seed's
+   * records may not meet: counted, at most, and never refused for
+   * (`seedStorageGate`).
+   */
+  atMost?: RoomPerRecord[];
+  /**
+   * The flows that create records under the seed's, whose start condition
+   * requires fields of them filled the seed leaves, or may leave, empty: left
+   * out of `perRecord` when none of its records starts them, in `atMost`
+   * otherwise.
+   */
+  starts?: SeedFlowStart[];
 }
+
+/** Of the records a seed writes of an object, those it leaves a field empty on: every one, some, or none. */
+export type SeedLeavesEmpty = (objectApiName: string, field: string) => 'every' | 'some' | 'none';
 
 /** What still runs of the target's automation as a seed writes, and the room it takes under the records. */
 export interface SeedRoom {
@@ -165,21 +189,139 @@ export function seedWritesOfObjects(written: readonly string[], publishes = fals
 /**
  * What still runs of the target's automation as the seed writes, once its
  * mute's plan holds — nothing assigned — and the room the records it creates
- * take under the seed's: the one computation the fit counts its room from.
- * A read that failed keeps no room, and says why.
+ * take under the seed's: the one computation the fit and the gate count
+ * their room from. A read that failed keeps no room, and says why.
+ *
+ * A flow whose start condition requires a field filled (`requiresFilled`)
+ * that the seed leaves empty on every
+ * record it writes, and that nothing else running on them may fill first,
+ * starts for none of them: no room is kept for it, and it is named. Run for
+ * real, a flow that opens a task under each contact created under an account
+ * was counted under contacts seeded with no account: 2.73 MB of tasks that
+ * never came, and a seed that fitted was refused. One the seed may leave the
+ * field empty on, or that something else may fill, is counted at most.
  *
  * @param plan - The sets the mute is to hold; absent for a seed that does not mute.
+ * @param leavesEmpty - Which of its records the seed leaves a field empty on
+ *   ({@link seedLeavesEmptyOf}); absent, every flow is counted as it starts.
  */
 export function seedRoomOf(
   read: ForgeTargetAutomation | { unread: string },
   plan: Pick<MutePlan, 'assign'> | undefined,
   writes: SeedWrites,
+  leavesEmpty?: SeedLeavesEmpty,
 ): SeedRoom {
   if (typeof read.unread === 'string') {
     return { room: { perRecord: [], notCounted: [], unread: read.unread }, unread: read.unread };
   }
   const running = stillRunningOf(read as ForgeTargetAutomation, plan, writes);
-  return { running, room: automationRoomOf(running, writes) };
+  if (!leavesEmpty) return { running, room: automationRoomOf(running, writes) };
+  const starts: SeedFlowStart[] = [];
+  const startsForNone = new Set<StillRunningEntry>();
+  const atMostEntries: StillRunningEntry[] = [];
+  for (const entry of running.firing) {
+    const flow = entry.flow;
+    const required = flow?.requiresFilled ?? [];
+    if (entry.write !== 'insert' || flow?.condition !== 'read' || !flow.creates?.length) continue;
+    const every = required.filter((field) => leavesEmpty(entry.objectApiName, field) === 'every');
+    const some = required.filter((field) => leavesEmpty(entry.objectApiName, field) === 'some');
+    const named = { objectApiName: entry.objectApiName, name: entry.name };
+    if (every.length > 0 && !othersMayFill(running.firing, entry)) {
+      startsForNone.add(entry);
+      starts.push({ ...named, fields: every, why: 'leftEmpty' });
+    } else if (every.length > 0 || some.length > 0) {
+      atMostEntries.push(entry);
+      starts.push({
+        ...named,
+        fields: every.length > 0 ? every : some,
+        why: every.length > 0 ? 'automationMayFill' : 'mayBeLeftEmpty',
+      });
+    }
+  }
+  const room = automationRoomOf(
+    { firing: running.firing.filter((entry) => !startsForNone.has(entry)) },
+    writes,
+  );
+  const atMost = automationRoomOf({ firing: atMostEntries }, writes).perRecord;
+  return {
+    running,
+    room: {
+      ...room,
+      ...(atMost.length > 0 ? { atMost } : {}),
+      ...(starts.length > 0 ? { starts } : {}),
+    },
+  };
+}
+
+/**
+ * Whether something else that still runs as the seed inserts records of the
+ * flow's object may fill a field of them before the flow is started: an Apex
+ * trigger, whose code is not read; a flow before the save; a process or a
+ * workflow rule, which run before the flows after it and may update the
+ * record.
+ */
+function othersMayFill(firing: readonly StillRunningEntry[], flow: StillRunningEntry): boolean {
+  return firing.some(
+    (entry) =>
+      entry !== flow &&
+      entry.objectApiName === flow.objectApiName &&
+      entry.write === 'insert' &&
+      (entry.kind === 'trigger' ||
+        entry.kind === 'process' ||
+        entry.kind === 'workflowRule' ||
+        entry.flow?.timing === 'beforeSave'),
+  );
+}
+
+/**
+ * Which of the records a seed writes leave a field empty, for what the start
+ * conditions of the target's flows require filled: none, for a field a rule,
+ * the object's relation or every row of it gives, or one the org requires or
+ * fills itself; every one, for a lookup none of them gives that the org leaves
+ * empty; some — at most —, for one some rows give, one the org may give a
+ * default of its own, or one of an object whose describe could not be read.
+ * Only the objects a flow requires a field of are described.
+ *
+ * @param unset - What a record created with no value of a field holds there,
+ *   from the object's describe (`DescribedFields.unset`).
+ */
+export async function seedLeavesEmptyOf(
+  template: FitTemplate,
+  read: ForgeTargetAutomation | { unread: string },
+  unset: (objectApiName: string) => Promise<SeedUnsetFields>,
+): Promise<SeedLeavesEmpty> {
+  const required = new Set(
+    'objects' in read
+      ? read.objects
+          .filter((object) => object.flows.some((flow) => (flow.requiresFilled ?? []).length > 0))
+          .map((object) => object.objectApiName)
+      : [],
+  );
+  const described = new Map<string, SeedUnsetFields | undefined>();
+  for (const object of template.objects) {
+    if (object.recordCount <= 0 || !required.has(object.objectApiName)) continue;
+    described.set(object.objectApiName, await unset(object.objectApiName).catch(() => undefined));
+  }
+  return (objectApiName, field) => {
+    const object = template.objects.find((o) => o.objectApiName === objectApiName);
+    if (!object) return 'none';
+    const same = (name: string): boolean => name.toLowerCase() === field.toLowerCase();
+    if (object.fieldRules.some((rule) => same(rule.fieldApiName))) return 'none';
+    const relation = relationFor(objectApiName, template.relations);
+    if (relation && same(relation.lookupField)) return 'none';
+    const rows = object.rows ?? [];
+    const given = rows.filter((row) =>
+      Object.entries(row.values).some(
+        ([name, value]) => same(name) && value !== null && value !== '',
+      ),
+    ).length;
+    if (rows.length > 0 && given === rows.length) return 'none';
+    const fields = described.get(objectApiName);
+    if (!fields) return 'some';
+    if ([...fields.filled].some(same)) return 'none';
+    if (given > 0) return 'some';
+    return [...fields.empty].some(same) ? 'every' : 'some';
+  };
 }
 
 /** Why an object's count is kept as the template gives it, if it is. */

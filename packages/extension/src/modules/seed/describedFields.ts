@@ -67,6 +67,20 @@ export interface DescribedFields {
   keyPrefix(objectApiName: string): Promise<string | undefined>;
   /** The most characters each field that holds text takes, by field: what a row's text is cut to. */
   lengths(objectApiName: string): Promise<ReadonlyMap<string, number>>;
+  /**
+   * What a record created with no value of a field holds there: `empty`, the
+   * lookups the org leaves empty — nillable, given nothing on create, a
+   * lookup taking no default value of its own —; `filled`, the fields the
+   * org refuses a record without or fills itself. A field the org may give a
+   * default value of its own is in neither.
+   */
+  unset(objectApiName: string): Promise<SeedUnsetFields>;
+}
+
+/** What a record created with no value of a field holds there ({@link DescribedFields.unset}). */
+export interface SeedUnsetFields {
+  empty: ReadonlySet<string>;
+  filled: ReadonlySet<string>;
 }
 
 /** A field's active picklist values. */
@@ -130,6 +144,23 @@ export function describedFieldsOf(
           typeof f.length === 'number' && f.length > 0 ? [[f.name, f.length] as const] : [],
         ),
       );
+    },
+    async unset(objectApiName) {
+      const { fields } = await describeOnce(objectApiName);
+      const lookup = (f: SeedDescribeField): boolean =>
+        f.type === 'reference' || (f.referenceTo ?? []).length > 0;
+      return {
+        empty: new Set(
+          fields
+            .filter((f) => lookup(f) && f.nillable === true && f.defaultedOnCreate !== true)
+            .map((f) => f.name),
+        ),
+        filled: new Set(
+          fields
+            .filter((f) => f.nillable === false || f.defaultedOnCreate === true)
+            .map((f) => f.name),
+        ),
+      };
     },
     async required(objectApiName) {
       const { fields } = await describeOnce(objectApiName);

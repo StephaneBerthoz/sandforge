@@ -1053,6 +1053,33 @@ describe('messageLines', () => {
     ]);
   });
 
+  it("says in a load's dry run the data storage with what the target's automation creates under its records, as a clone's and a seed's say it", () => {
+    // Run for real: "data storage: about 17.8 MB of the 5 MB the target has
+    // left of 5 MB", its records alone, beside a flow that opens a task under
+    // each contact the load inserts.
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+          storage: { estimateMB: 1.17578125, automationMB: 0.5859375, remainingMB: 1, maxMB: 5 },
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      "  data storage: about 1.18 MB, about 0.59 MB of it for what the target's automation " +
+        'creates under them, of the 1 MB the target has left of 5 MB',
+    );
+  });
+
   it("says how each record gets a default of its own, what the purge keeps, and the target's validation rules", () => {
     const lines = messageLines({
       type: 'frozen:load:preview:response',
@@ -1437,6 +1464,45 @@ describe('messageLines', () => {
     expect(lines).toContain('  Task: 3 — 3 made for the run (Call, …)');
   });
 
+  it('counts once, in what it would delete, what --sweep-late takes in a list read before a removal', () => {
+    // Run for real on the trap org, a replay's --sweep-list --sweep-late said
+    // "it found 1 record(s) and would delete 1 of them", then "with
+    // --sweep-late, it would delete too what was made late:
+    // DuplicateRecordItem: 1": the one item, read as two.
+    const lines = messageLines(
+      {
+        type: 'frozen:remove:sweep:response',
+        payload: {
+          loadedAt: '2026-11-15T04:59:00.000Z',
+          listing: {
+            window: { from: '2026-11-15T04:58:59Z', to: '2026-11-15T05:01:01Z' },
+            looked: ['Account', 'DuplicateRecordItem'],
+            found: [
+              {
+                objectApiName: 'DuplicateRecordItem',
+                count: 1,
+                names: [],
+                classes: { made: 0, madeOver: 0, late: 1, untied: 0 },
+              },
+            ],
+            late: [{ objectApiName: 'DuplicateRecordItem', count: 1 }],
+            unread: [],
+            handWork: [],
+          },
+        },
+      },
+      { sweepLate: true },
+    );
+
+    expect(lines).toContain(
+      'it found 1 record(s) and would delete 1 of them, children first; per object, all it found:',
+    );
+    expect(lines).toContain(
+      'of what it would delete, made late, which --sweep-late takes: DuplicateRecordItem: 1',
+    );
+    expect(lines.join('\n')).not.toContain('delete too');
+  });
+
   it('lists for a removal asked what is tied to nothing what --sweep-untied would take, and names it no more as kept', () => {
     // Run for real on the trap org, the line refused (exit 2): the list could
     // not show what a removal with --sweep-untied would take.
@@ -1469,7 +1535,7 @@ describe('messageLines', () => {
       'it found 30 record(s) and would delete 30 of them, children first; per object, all it found:',
     );
     expect(lines).toContain(
-      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+      'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Task: 30',
     );
     expect(lines.join('\n')).not.toContain('(--sweep-untied takes them)');
   });
@@ -1626,7 +1692,7 @@ describe('messageLines', () => {
     );
 
     expect(lines).toContain(
-      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+      'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Task: 30',
     );
     expect(lines.at(-1)).toBe(
       "a record made by hand as the run's user anywhere in the run's window with " +

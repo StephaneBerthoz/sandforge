@@ -399,13 +399,20 @@ describe('frozen:load, the daily API requests its target has left', () => {
       code: 'FROZEN_STORAGE_EXCEEDED',
       orgId: 'org-2',
       written: 0,
-      storage: { estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 0, maxMB: 5 },
+      // Its three records, and the task the contact flow opens under the contact.
+      storage: {
+        estimateMB: (4 * 2048) / (1024 * 1024),
+        automationMB: 2048 / (1024 * 1024),
+        remainingMB: 0,
+        maxMB: 5,
+      },
     });
     expect(String(error?.payload.message)).toBe(
       "The load was refused before it wrote anything: the dataset's records take about 0.01 MB " +
-        'of data storage, and DEV has 0 MB left of 5 MB. Load a pilot first, one root folder of ' +
-        'it; or extract a smaller dataset, with a lower budget in the configuration, a new ' +
-        'selection and a new extraction; or free data storage in DEV. Nothing was written.',
+        "of data storage, about 0.01 MB of it for what the target's automation creates under " +
+        'them, and DEV has 0 MB left of 5 MB. Load a pilot first, one root folder of it; or ' +
+        'extract a smaller dataset, with a lower budget in the configuration, a new selection ' +
+        'and a new extraction; or free data storage in DEV. Nothing was written.',
     );
     expect(loads()).toEqual([
       expect.objectContaining({
@@ -413,6 +420,72 @@ describe('frozen:load, the daily API requests its target has left', () => {
         details: expect.objectContaining({ code: 'FROZEN_STORAGE_EXCEEDED' }),
       }),
     ]);
+  });
+
+  it("counts with a load's records what the target's automation creates under them, its preview and its gate alike, as a clone and a seed count it", async () => {
+    // Run for real, a load's dry run said "data storage: about 17.8 MB of the
+    // 5 MB the target has left", its records alone, beside a flow that
+    // creates a task under each contact it inserts.
+    const datasetDir = path.join(
+      String((store.get('frozen:config') as FrozenProjectConfig).sasDir),
+      'dataset',
+      'data',
+    );
+    const contacts = Array.from({ length: 300 }, (_, i) => `C${i + 1}`);
+    fs.writeFileSync(
+      path.join(datasetDir, 'Contact.json'),
+      JSON.stringify({
+        objectApiName: 'Contact',
+        records: contacts.map((referenceId) => ({
+          referenceId,
+          fields: { LastName: referenceId },
+        })),
+      }),
+    );
+    loaderPlan.mockResolvedValue(PLAN);
+    // 302 records take about 0.59 MB of the 1 MB left; the 300 tasks the flow
+    // opens, 0.59 MB more.
+    targetWithStorage(1);
+
+    await send('frozen:load:preview', {});
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: Record<string, unknown> } | undefined;
+    const message =
+      "The load was refused before it wrote anything: the dataset's records take about 1.18 MB " +
+      "of data storage, about 0.59 MB of it for what the target's automation creates under " +
+      'them, and DEV has 1 MB left of 5 MB. Load a pilot first, one root folder of it; or ' +
+      'extract a smaller dataset, with a lower budget in the configuration, a new selection and ' +
+      'a new extraction; or free data storage in DEV. Nothing was written.';
+    expect(plan?.storage).toEqual({
+      estimateMB: (602 * 2048) / (1024 * 1024),
+      automationMB: (300 * 2048) / (1024 * 1024),
+      remainingMB: 1,
+      maxMB: 5,
+      refusal: { code: 'FROZEN_STORAGE_EXCEEDED', message },
+    });
+
+    await load();
+
+    expect(loaderLoad).not.toHaveBeenCalled();
+    const [error] = posted('frozen:load:error');
+    expect(error?.payload).toMatchObject({
+      code: 'FROZEN_STORAGE_EXCEEDED',
+      storage: { estimateMB: (602 * 2048) / (1024 * 1024), remainingMB: 1, maxMB: 5 },
+    });
+    expect(String(error?.payload.message)).toBe(message);
+
+    // Muted, the flow creates nothing, and the records alone fit.
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    await send('frozen:load:preview', { muteAutomation: true });
+
+    const muted = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: Record<string, unknown> } | undefined;
+    expect(muted?.storage).toEqual({
+      estimateMB: (302 * 2048) / (1024 * 1024),
+      remainingMB: 1,
+      maxMB: 5,
+    });
   });
 
   it('lets a pilot through its gate on the storage: one root folder is the way the refusal names', async () => {
@@ -533,14 +606,16 @@ describe('frozen:load, the daily API requests its target has left', () => {
     const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
       { storage?: Record<string, unknown> } | undefined;
     expect(plan?.storage).toEqual({
-      estimateMB: (3 * 2048) / (1024 * 1024),
+      estimateMB: (4 * 2048) / (1024 * 1024),
+      automationMB: 2048 / (1024 * 1024),
       remainingMB: 0,
       maxMB: 5,
       refusal: {
         code: 'FROZEN_STORAGE_EXCEEDED',
         message:
           "The load was refused before it wrote anything: the dataset's records take about " +
-          '0.01 MB of data storage, and DEV has 0 MB left of 5 MB. Load a pilot first, one root ' +
+          "0.01 MB of data storage, about 0.01 MB of it for what the target's automation " +
+          'creates under them, and DEV has 0 MB left of 5 MB. Load a pilot first, one root ' +
           'folder of it; or extract a smaller dataset, with a lower budget in the configuration, ' +
           'a new selection and a new extraction; or free data storage in DEV. Nothing was ' +
           'written.',
@@ -560,7 +635,12 @@ describe('frozen:load, the daily API requests its target has left', () => {
     const [whole, pilot] = posted('frozen:load:preview:response').map(
       (m) => (m.payload.plan as { storage?: Record<string, unknown> }).storage,
     );
-    expect(whole).toEqual({ estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 5, maxMB: 5 });
+    expect(whole).toEqual({
+      estimateMB: (4 * 2048) / (1024 * 1024),
+      automationMB: 2048 / (1024 * 1024),
+      remainingMB: 5,
+      maxMB: 5,
+    });
     expect(pilot).toBeUndefined();
   });
 
@@ -580,7 +660,12 @@ describe('frozen:load, the daily API requests its target has left', () => {
       code: 'FROZEN_STORAGE_EXCEEDED',
       message: expect.stringMatching(/^The load was refused before it wrote anything/) as string,
       orgId: 'org-2',
-      storage: { estimateMB: (3 * 2048) / (1024 * 1024), remainingMB: 0, maxMB: 5 },
+      storage: {
+        estimateMB: (4 * 2048) / (1024 * 1024),
+        automationMB: 2048 / (1024 * 1024),
+        remainingMB: 0,
+        maxMB: 5,
+      },
     });
   });
 

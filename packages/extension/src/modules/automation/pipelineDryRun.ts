@@ -20,8 +20,8 @@ import {
 import { pipelineSeedAsked } from '../../bridge/handlers/seedPipeline.js';
 import type { PipelineSeedPreview } from '../../bridge/handlers/seedPipeline.js';
 import { dataOpsBackupPayloadSchema } from '../../bridge/validatePayload.js';
-import type { ApiBudgetCheck, StorageCheck } from '../forge/ForgeRunGate.js';
-import { seedStorageWords } from '../seed/seedStorage.js';
+import type { ApiBudgetCheck } from '../forge/ForgeRunGate.js';
+import { seedStorageWords, type SeedStorageCheck } from '../seed/seedStorage.js';
 import { grantRefusalWords } from './RewindGrants.js';
 import {
   StepCancelledError,
@@ -331,7 +331,7 @@ function dryAnswer(context: StepContext): { approved: boolean } {
 }
 
 /** The data storage a seed takes against what its org has left, as `sandforge seed` says it. */
-function storageWords(check: StorageCheck, org: string): string {
+function storageWords(check: SeedStorageCheck, org: string): string {
   return seedStorageWords(check, org);
 }
 

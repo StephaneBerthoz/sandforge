@@ -1021,11 +1021,14 @@ export interface FrozenLoadPlanInfo {
 /**
  * The data storage a load's records take against what the target has left,
  * as its gate measures them before the first write: the dataset's records at
- * the documented sizes, and on a reload what its purge frees first. With the
- * refusal a load would meet past it (`FROZEN_STORAGE_EXCEEDED`).
+ * the documented sizes, what the target's automation that still runs creates
+ * under them, and on a reload what its purge frees first. With the refusal a
+ * load would meet past it (`FROZEN_STORAGE_EXCEEDED`).
  */
 export interface FrozenLoadStorageInfo {
   estimateMB: number;
+  /** Of `estimateMB`, what the target's automation that still runs creates under the records; absent when none. */
+  automationMB?: number;
   remainingMB: number;
   maxMB: number;
   /** MB a reload's purge frees first, counted with what is left; absent for a first load. */

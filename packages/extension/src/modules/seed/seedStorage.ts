@@ -15,7 +15,7 @@ import type {
   RunCheckpointEstimate,
   SeedTemplate,
 } from '@sandforge/shared';
-import { seedsStandardPricebook } from '@sandforge/shared';
+import { BYTES_PER_MB, seedsStandardPricebook } from '@sandforge/shared';
 import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
@@ -38,6 +38,7 @@ import {
   roomBytesOf,
   type AutomationRoom,
   type FitBudget,
+  type RoomPerRecord,
 } from '../forge/fitBudget.js';
 import { SEED_SLICE_LEAST, seedRunSliceOf, seedSliceOf } from './SeedOrchestrator.js';
 import { PARENT_IDS_PER_QUERY } from './existingParents.js';
@@ -462,9 +463,38 @@ export function seedStorageBytes(
   );
 }
 
+/**
+ * A flow of the target that creates records under a seed's, whose start
+ * condition requires fields of them filled: the fields the seed leaves empty,
+ * and so what of it is counted — nothing when the seed leaves them empty on
+ * every record and nothing else that runs may fill them (`leftEmpty`); at
+ * most what it creates when something else may fill them first
+ * (`automationMayFill`), or the seed may leave them empty on some records
+ * only, or the org give them a default (`mayBeLeftEmpty`).
+ */
+export interface SeedFlowStart {
+  objectApiName: string;
+  /** The flow's label. */
+  name: string;
+  fields: string[];
+  why: 'leftEmpty' | 'automationMayFill' | 'mayBeLeftEmpty';
+}
+
+/**
+ * What a seed's records take against what its target has left: with, of what
+ * the target's automation creates under them, the part a flow creates whose
+ * start condition the records may not meet (`automationAtMostMB`), which the
+ * gate never refuses for, and the flows whose start condition the seed's
+ * records do not, or may not, meet.
+ */
+export type SeedStorageCheck = StorageCheck & {
+  automationAtMostMB?: number;
+  automationStarts?: SeedFlowStart[];
+};
+
 /** What the seed takes against what the target has left, and why it cannot run when it cannot. */
 export interface SeedStorageGate {
-  check: StorageCheck;
+  check: SeedStorageCheck;
   /**
    * Its calls against the daily API requests the target has left, read from
    * the same `/limits`, or on their own when the storage could not be read:
@@ -492,19 +522,54 @@ export interface SeedStorageGate {
  * and of it, what the target's automation that still runs creates under them,
  * which the gate counts with them.
  */
-export function seedStorageWords(check: StorageCheck, target: string): string {
+export function seedStorageWords(check: SeedStorageCheck, target: string): string {
+  const starts = check.automationStarts ?? [];
+  const mayNotStart = starts.filter((start) => start.why !== 'leftEmpty');
+  const atMost =
+    check.automationAtMostMB !== undefined && check.automationAtMostMB > 0 && mayNotStart.length > 0
+      ? ` (${formatMB(check.automationAtMostMB)} MB of it at most: ` +
+        `${mayNotStart.map((start) => `${flowOf(start)} ${startWords(start)}`).join('; ')})`
+      : '';
   const taken =
     `data storage: about ${formatMB(check.estimateMB)} MB to write` +
     (check.automationMB !== undefined && check.automationMB > 0
       ? `, about ${formatMB(check.automationMB)} MB of it for what the target's automation ` +
-        'creates under them'
+        `creates under them${atMost}`
       : '');
+  const startsForNone = starts
+    .filter((start) => start.why === 'leftEmpty')
+    .map((start) => `; nothing counted for ${flowOf(start)}: it ${startWords(start)}`)
+    .join('');
   if (check.verdict === 'unread') {
-    return `${taken}; what ${target} has left could not be read (${check.unread})`;
+    return `${taken}; what ${target} has left could not be read (${check.unread})${startsForNone}`;
   }
   return (
     `${taken}, ${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
-    (check.verdict === 'near' ? ': close to what it has left' : '')
+    (check.verdict === 'near' ? ': close to what it has left' : '') +
+    startsForNone
+  );
+}
+
+/** A flow of the target, as the line names it: "Follow Up on Contact". */
+function flowOf(start: SeedFlowStart): string {
+  return `${start.name} on ${start.objectApiName}`;
+}
+
+/**
+ * Why a flow's start condition a seed's records may not meet, in a clause:
+ * "starts only on a record whose AccountId is filled, which the seed leaves
+ * empty".
+ */
+function startWords(start: SeedFlowStart): string {
+  const why =
+    start.why === 'leftEmpty'
+      ? 'which the seed leaves empty'
+      : start.why === 'automationMayFill'
+        ? "which the seed leaves empty and the target's automation may fill first"
+        : 'which the seed may leave empty';
+  return (
+    `starts only on a record whose ${start.fields.join(' and ')} ` +
+    `${start.fields.length === 1 ? 'is' : 'are'} filled, ${why}`
   );
 }
 
@@ -540,7 +605,11 @@ export const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
  *   one record of each object, the mute's plan holding (`seedRoomOf`):
  *   counted with the records, as the seed's fit and a clone's gate count
  *   it. Weighed alone, 1,500 accounts went through into an org with 5 MB
- *   left whose flow opens a task under each: 5.86 MB in all.
+ *   left whose flow opens a task under each: 5.86 MB in all. What a flow
+ *   creates whose start condition the records may not meet (`atMost`) is
+ *   counted and said, and refuses nothing: past what the target has left
+ *   with it alone, the seed is let through, close to what it has left. A
+ *   flow none of them starts was left out of the room before.
  */
 export async function seedStorageGate(
   transport: LimitsTransport,
@@ -550,7 +619,10 @@ export async function seedStorageGate(
   checkpoint?: RunCheckpointEstimate,
   beside: Pick<RunRequestParts, 'deliverability' | 'mute'> = {},
   path: SeedWritePath = {},
-  room: Pick<AutomationRoom, 'perRecord'> = { perRecord: [] },
+  room: Pick<AutomationRoom, 'perRecord'> & {
+    atMost?: RoomPerRecord[];
+    starts?: SeedFlowStart[];
+  } = { perRecord: [] },
 ): Promise<SeedStorageGate> {
   const plan = { storageBytes: seedStorageBytes(template, personObjects) };
   let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
@@ -561,8 +633,23 @@ export async function seedStorageGate(
   }
   // Under each record as many times as the run writes it so, as a fit counts it.
   const counts = new Map(template.objects.map((o) => [o.objectApiName, o.recordCount]));
-  const roomBytes = roomBytesOf(room, (objectApiName) => counts.get(objectApiName) ?? 0);
-  const check = storageCheckOf(plan, storage, roomBytes);
+  const kept = (objectApiName: string): number => counts.get(objectApiName) ?? 0;
+  const roomBytes = roomBytesOf(room, kept);
+  const atMostBytes = room.atMost ? roomBytesOf({ perRecord: room.atMost }, kept) : 0;
+  const counted = storageCheckOf(plan, storage, roomBytes);
+  // Refused only for what the records and the flows that start for them
+  // take: past what is left with the rest alone, the seed is close to it.
+  const held: StorageCheck =
+    counted.verdict === 'exceeds' &&
+    atMostBytes > 0 &&
+    storageCheckOf(plan, storage, roomBytes - atMostBytes).verdict !== 'exceeds'
+      ? { ...counted, verdict: 'near' }
+      : counted;
+  const check: SeedStorageCheck = {
+    ...held,
+    ...(atMostBytes > 0 ? { automationAtMostMB: atMostBytes / BYTES_PER_MB } : {}),
+    ...(room.starts && room.starts.length > 0 ? { automationStarts: room.starts } : {}),
+  };
   // The daily requests on their own when the storage could not be read, as
   // Sync reads them: a Standard User's `/limits` list them and not the
   // storage, and the seed took both for unread, refused past neither.

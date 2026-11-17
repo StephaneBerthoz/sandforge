@@ -297,6 +297,90 @@ describe('a Frozen load, what still runs as it writes, and the emails it sends',
     ]);
   });
 
+  it("counts a pilot's emails on what the pilot writes, its load and its preview alike", async () => {
+    // Run for real, a pilot of 150 contacts said "about 10350 workflow emails
+    // (3 per Contact)", the 3,450 contacts of the whole dataset, and was
+    // refused under FROZEN_EMAILS_EXCEEDED for emails it would never send.
+    const datasetDir = path.join(sasDir, 'dataset', 'data');
+    const records = (objectApiName: string, rows: Array<[string, string?]>) =>
+      JSON.stringify({
+        objectApiName,
+        records: rows.map(([referenceId, accountId]) => ({
+          referenceId,
+          fields: { LastName: referenceId, ...(accountId ? { AccountId: accountId } : {}) },
+        })),
+      });
+    fs.writeFileSync(path.join(datasetDir, 'Account.json'), records('Account', [['A1'], ['A2']]));
+    fs.writeFileSync(
+      path.join(datasetDir, 'Contact.json'),
+      records('Contact', [
+        ['C1', 'A1'],
+        ['C2', 'A1'],
+        ['C3', 'A2'],
+        ['C4', 'A2'],
+        ['C5', 'A2'],
+      ]),
+    );
+    store.set(
+      'frozen:config',
+      { rootObject: 'Account', axes: [], edgeCases: [], sasDir },
+      'frozen',
+    );
+    remaining = 5;
+
+    // The whole dataset: five contacts, two emails each.
+    await load({ acceptEmails: true });
+    expect(errorOf()?.code).toBe('FROZEN_EMAILS_EXCEEDED');
+    expect(errorOf()?.message).toContain('about 10 single emails, 5 of 15 left today');
+    expect(loaderLoad).not.toHaveBeenCalled();
+
+    // The pilot of the first account: its two contacts.
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    await load({ acceptEmails: true, pilot: true });
+    expect(errorOf()).toBeUndefined();
+    expect(loaderLoad).toHaveBeenCalledTimes(1);
+    const report = posted<BaseMessage & { payload: { report: FrozenLoadReportInfo } }>(
+      'frozen:load:response',
+    )[0]?.payload.report;
+    // Two contacts, two emails each: against the single emails, and the
+    // workflow emails a Developer Edition counts them against too.
+    expect(
+      report?.emails?.counted?.map(({ limit, emails, verdict }) => [limit, emails, verdict]),
+    ).toEqual([
+      ['SingleEmail', 4, 'fits'],
+      ['DailyWorkflowEmails', 4, 'fits'],
+    ]);
+
+    // Its preview counts the same, and would not refuse it.
+    loaderPlan.mockResolvedValue({
+      orgId: TARGET_ORG,
+      mode: { pilot: true, reload: false },
+      plannedAt: '2026-11-04T09:00:00.000Z',
+      perObject: [],
+      excludedObjects: [],
+      removals: [],
+      placeholders: [],
+      requiredDefaults: [],
+      recordTypeIssues: 0,
+      personContacts: 0,
+      earlierLoads: 0,
+    });
+    vi.mocked(deps.broker.postToWebview).mockClear();
+    await handler.handle(
+      buildMsg('frozen:load:preview', { targetOrgId: TARGET_ORG, pilot: true, acceptEmails: true }),
+    );
+    const plan = posted<BaseMessage & { payload: { plan: FrozenLoadPlanInfo } }>(
+      'frozen:load:preview:response',
+    )[0]?.payload.plan;
+    expect(
+      plan?.emails?.counted?.map(({ limit, emails, verdict }) => [limit, emails, verdict]),
+    ).toEqual([
+      ['SingleEmail', 4, 'fits'],
+      ['DailyWorkflowEmails', 4, 'fits'],
+    ]);
+    expect(plan?.emails).not.toHaveProperty('refused');
+  });
+
   it('names the mute in its refusal for the emails only to a reader who can ask it', async () => {
     // Relayed by sandforge env, which mutes nothing, the refusal said
     // "--mute-automation keeps quiet …", a flag the environment does not take.

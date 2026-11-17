@@ -8250,7 +8250,8 @@ function goingOfClass(
  * and, to whoever reads the list before a sweep, what it cannot tell from the
  * automation's (`handWorkTakenLines`). A list read before a sweep asked to
  * take what came late or is tied to nothing (`--sweep-list --sweep-late`)
- * says what each would take.
+ * says what each would take, of what it already counted it would delete:
+ * said as "it would delete too", the one late item of a replay read as two.
  *
  * @param before - Whether the list is read before a sweep, not as one begins.
  */
@@ -8270,7 +8271,7 @@ function sweepClassLines(
   } else if (before && take.sweepLate === true) {
     const going = goingOfClass(listing, 'late', late, take);
     lines.push(
-      `with --sweep-late, it would delete too what was made late: ` +
+      `of what it would delete, made late, which --sweep-late takes: ` +
         (going.length > 0 ? countsOfObjects(going) : late.length > 0 ? 'none' : 'none found'),
     );
   }
@@ -8289,7 +8290,7 @@ function sweepClassLines(
     } else if (before) {
       const going = goingOfClass(listing, 'untied', untied.objects, take);
       lines.push(
-        `with --sweep-untied, it would delete too what is tied to nothing of the run: ` +
+        `of what it would delete, tied to nothing of the run, which --sweep-untied takes: ` +
           (going.length > 0 ? countsOfObjects(going) : 'none'),
       );
     }
@@ -8298,7 +8299,8 @@ function sweepClassLines(
       untied?.refusal !== undefined
         ? `with --sweep-untied, it would delete nothing tied to nothing of the run: ` +
             `--sweep-untied is refused: ${untied.refusal}`
-        : 'with --sweep-untied, it would delete too what is tied to nothing of the run: none found',
+        : 'of what it would delete, tied to nothing of the run, which --sweep-untied takes: ' +
+            'none found',
     );
   }
   if (listing.notLooked && listing.notLooked.length > 0) {

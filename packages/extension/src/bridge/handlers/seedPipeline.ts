@@ -9,7 +9,8 @@ import type {
 import { PREBUILT_SEED_TEMPLATES, pipelineWriteVerdict } from '@sandforge/shared';
 
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
-import type { ApiBudgetCheck, StorageCheck } from '../../modules/forge/ForgeRunGate.js';
+import type { ApiBudgetCheck } from '../../modules/forge/ForgeRunGate.js';
+import type { SeedStorageCheck } from '../../modules/seed/seedStorage.js';
 import { seedTemplatePayloadSchema } from '../validatePayload.js';
 
 /**
@@ -81,8 +82,11 @@ export interface PipelineSeedPreview {
   /** The records the run would create, of the objects the org takes. */
   records: number;
   objects: number;
-  /** The data storage those records take, against what the org has left. */
-  storage: StorageCheck;
+  /**
+   * The data storage those records take, against what the org has left, and
+   * what the flows whose start condition they may not meet create under them.
+   */
+  storage: SeedStorageCheck;
   /** The daily API requests the run makes, against what the org has left. */
   apiRequests: ApiBudgetCheck;
   /** What the org runs as the records are created, in the command line's words. */

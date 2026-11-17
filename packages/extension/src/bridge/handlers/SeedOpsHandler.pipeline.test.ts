@@ -779,6 +779,77 @@ describe('SeedOpsHandler.seedForPipeline', () => {
       },
     );
 
+    it('passes a seed of contacts alone whose flow starts only on a contact under an account, its tasks counted nowhere', async () => {
+      // Run for real on the trap org: 1,400 contacts, refused at 5.47 MB for
+      // a task under each that the flow, starting on contacts under an
+      // account, never opened.
+      read.mockImplementation(async (_orgId, objects) => ({
+        ...automationOf(objects),
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Trap_Contact_Follow_Up_Task',
+                label: 'Trap Contact Follow Up Task',
+                timing: 'afterSave',
+                startsOn: 'create',
+                condition: 'read',
+                requiresFilled: ['AccountId'],
+                permissions: [],
+                creates: ['Task'],
+              },
+            ],
+            triggers: [],
+            workflowRules: [],
+          },
+        ],
+      }));
+      const connection = await getJsforceConnection('org-dev', {} as never, {} as never);
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        ...(connection as object),
+        describe: vi.fn(async () => ({
+          fields: [
+            { name: 'LastName', type: 'string', createable: true, nillable: false },
+            {
+              name: 'AccountId',
+              type: 'reference',
+              createable: true,
+              nillable: true,
+              defaultedOnCreate: false,
+              referenceTo: ['Account'],
+            },
+          ],
+        })),
+      } as never);
+      saved({
+        ...accounts(0),
+        id: 'tpl-contacts',
+        name: 'Contacts',
+        objects: [
+          {
+            objectApiName: 'Contact',
+            recordCount: 1_400,
+            batchSize: 200,
+            insertOrder: 0,
+            excludedFields: [],
+            fieldRules: [
+              { fieldApiName: 'LastName', ruleType: 'faker', config: { fakerMethod: 'lastName' } },
+            ],
+          },
+        ],
+      });
+
+      const gates = await preview({ templateId: 'tpl-contacts', answer: { approved: true } });
+
+      expect(gates.storage).toMatchObject({
+        verdict: 'fits',
+        automationStarts: [{ name: 'Trap Contact Follow Up Task', why: 'leftEmpty' }],
+      });
+      expect(gates.storage).not.toHaveProperty('automationMB');
+      expect(rowsWritten()).toBe(0);
+    });
+
     it('passes a seed whose org will not say its storage once an Approval before it approved', async () => {
       limits = { DailyApiRequests: { Max: 15_000, Remaining: 15_000 } };
 

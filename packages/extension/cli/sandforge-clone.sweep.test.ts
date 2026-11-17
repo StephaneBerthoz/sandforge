@@ -665,9 +665,11 @@ describe('sweepListingLines', () => {
     expect(lines).toContain(
       'it found 5 record(s) and would delete 5 of them, children first; per object, all it found:',
     );
-    expect(lines).toContain('with --sweep-late, it would delete too what was made late: Task: 1');
     expect(lines).toContain(
-      'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 1',
+      'of what it would delete, made late, which --sweep-late takes: Task: 1',
+    );
+    expect(lines).toContain(
+      'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Task: 1',
     );
     expect(lines.join('\n')).not.toContain('kept, ');
     expect(lines.at(-1)).toContain('check the names before a --sweep');
@@ -921,14 +923,14 @@ describe('sweepListingLines', () => {
       );
     });
 
-    it('counts it out of what --sweep-untied would delete too, in a list read before a sweep', () => {
+    it('counts it out of what --sweep-untied takes of what it would delete, in a list read before a sweep', () => {
       expect(sweepListingLines(CHANGED, 'TGT', { sweepUntied: true }, true)).toContain(
-        'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 29',
+        'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Task: 29',
       );
       expect(
         sweepListingLines(CHANGED, 'TGT', { sweepUntied: true, includeChanged: true }, true),
       ).toContain(
-        'with --sweep-untied, it would delete too what is tied to nothing of the run: Task: 30',
+        'of what it would delete, tied to nothing of the run, which --sweep-untied takes: Task: 30',
       );
     });
   });

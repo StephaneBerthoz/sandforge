@@ -123,6 +123,7 @@ import {
   type DataStorage,
   type LimitsTransport,
 } from '../../modules/forge/ForgeRunGate.js';
+import { automationRoomOf, roomBytesOf } from '../../modules/forge/fitBudget.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
   NO_APEX_IN_PRODUCTION,
@@ -252,6 +253,7 @@ import {
   whyNotReused,
   withFieldsCleared,
   withSchemaDefaults,
+  pilotScopeOf,
   writeDiscoveryToSas,
   writeSelectionToSas,
   type ControlViolation,
@@ -462,6 +464,8 @@ const FROZEN_STORAGE_EXCEEDED = 'FROZEN_STORAGE_EXCEEDED';
 /** What a load's gate on the data storage measured, for the panel to say it. */
 interface FrozenLoadStorage {
   estimateMB: number;
+  /** Of `estimateMB`, what the target's automation that still runs creates under the records; absent when none. */
+  automationMB?: number;
   remainingMB: number;
   maxMB: number;
   /** MB a reload's purge frees first, counted with what is left; absent for a first load. */
@@ -494,25 +498,25 @@ function megabytesWords(mb: number): string {
 /**
  * The refusal of a load whose records take more data storage than the
  * target has left, or nothing: the dataset's records at most, by the
- * documented sizes, against what is left and, on a reload, what its purge
- * deletes first. A target that would not say holds nothing back, nor does a
- * pilot, which loads one root folder of the dataset and is the way out the
- * refusal names.
+ * documented sizes, with what the target's automation that still runs
+ * creates under them ({@link loadAutomationBytes}), against what is left
+ * and, on a reload, what its purge deletes first. A target that would not
+ * say holds nothing back, nor does a pilot, which loads one root folder of
+ * the dataset and is the way out the refusal names.
  */
 function loadStorageRefusal(input: {
   dataset: FrozenDataset;
   storage: DataStorage | { unread: string };
   purged?: LoadRequestsInput['purged'];
+  /** What the target's automation that still runs creates under the records. */
+  automationBytes?: number;
   target: string;
   /** Said of a replay of a checkpoint, whose way out is fewer objects: it has no pilot. */
   replay?: boolean;
 }): { message: string; storage: FrozenLoadStorage } | undefined {
   if ('unread' in input.storage) return undefined;
-  const bytes = input.dataset.objects.reduce(
-    (sum, object) =>
-      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
-    0,
-  );
+  const automationBytes = Math.max(0, input.automationBytes ?? 0);
+  const bytes = loadRecordsBytes(input.dataset) + automationBytes;
   const freedBytes = (input.purged ?? [])
     .filter((step) => step.deletes)
     .reduce((sum, step) => sum + countedStorageBytes(step.objectApiName, { rows: step.rows }), 0);
@@ -521,6 +525,7 @@ function loadStorageRefusal(input: {
   if (bytes <= remainingMB * MB + freedBytes) return undefined;
   const storage: FrozenLoadStorage = {
     estimateMB: bytes / MB,
+    ...(automationBytes > 0 ? { automationMB: automationBytes / MB } : {}),
     remainingMB,
     maxMB,
     ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
@@ -529,13 +534,20 @@ function loadStorageRefusal(input: {
     freedBytes > 0
       ? `, and the reload's purge frees about ${megabytesWords(storage.freedMB ?? 0)} MB first`
       : '';
+  // As a clone's and a seed's refusal say it: the part their records do not take themselves.
+  const automation =
+    storage.automationMB !== undefined
+      ? `, about ${megabytesWords(storage.automationMB)} MB of it for what the target's ` +
+        'automation creates under them'
+      : '';
   if (input.replay === true) {
     return {
       storage,
       message:
         `The replay was refused before it wrote anything: the checkpoint's records take about ` +
-        `${megabytesWords(storage.estimateMB)} MB of data storage, and ${input.target} has ` +
-        `${remainingMB} MB left of ${maxMB} MB${freed}. To replay part of it, ` +
+        `${megabytesWords(storage.estimateMB)} MB of data storage${automation}, and ` +
+        `${input.target} has ${remainingMB} MB left of ${maxMB} MB${freed}. To replay part of ` +
+        'it, ' +
         `${COMMAND_LINE_REPLAY_WORDS.fewerObjects}; or free data storage in ${input.target}. ` +
         'Nothing was written.',
     };
@@ -544,12 +556,47 @@ function loadStorageRefusal(input: {
     storage,
     message:
       `The load was refused before it wrote anything: the dataset's records take about ` +
-      `${megabytesWords(storage.estimateMB)} MB of data storage, and ${input.target} has ` +
-      `${remainingMB} MB left of ${maxMB} MB${freed}. Load a pilot first, one root folder of ` +
+      `${megabytesWords(storage.estimateMB)} MB of data storage${automation}, and ` +
+      `${input.target} has ${remainingMB} MB left of ${maxMB} MB${freed}. Load a pilot first, ` +
+      'one root folder of ' +
       'it; or extract a smaller dataset, with a lower budget in the configuration, a new ' +
       `selection and a new extraction; or free data storage in ${input.target}. Nothing was ` +
       'written.',
   };
+}
+
+/** The data storage a dataset's records take, by the documented sizes. */
+function loadRecordsBytes(dataset: FrozenDataset): number {
+  return dataset.objects.reduce(
+    (sum, object) =>
+      sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
+    0,
+  );
+}
+
+/**
+ * What the target's automation that still runs, the mute's plan holding,
+ * creates under the records a load inserts and updates: one record of each
+ * object its flows create, under each record, every write it makes of an
+ * object counted (`automationRoomOf`), as a clone's gate and a seed's count
+ * it. Nothing when the automation could not be read: its refusal is said
+ * apart. A load's dry run said 17.8 MB, its records alone, beside a flow
+ * that opens a task under each contact it inserts.
+ *
+ * @param writes - The writes the load makes of each object.
+ */
+function loadAutomationBytes(
+  read: ForgeTargetAutomation | { unread: string },
+  plan: Pick<MutePlan, 'assign'> | undefined,
+  dataset: FrozenDataset,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+): number {
+  if (!('objects' in read)) return 0;
+  const room = automationRoomOf(stillRunningOf(read, plan, writes), writes);
+  const rows = new Map(
+    dataset.objects.map((object) => [object.objectApiName, object.records.length]),
+  );
+  return roomBytesOf(room, (objectApiName) => rows.get(objectApiName) ?? 0);
 }
 
 /**
@@ -571,10 +618,30 @@ interface RefusedBeside {
 function storageFiguresOf(storage: FrozenLoadStorageInfo): FrozenLoadStorage {
   return {
     estimateMB: storage.estimateMB,
+    ...(storage.automationMB !== undefined ? { automationMB: storage.automationMB } : {}),
     remainingMB: storage.remainingMB,
     maxMB: storage.maxMB,
     ...(storage.freedMB !== undefined ? { freedMB: storage.freedMB } : {}),
   };
+}
+
+/**
+ * What a load writes of its dataset, as its gates on the emails and the API
+ * requests count it: a pilot's root folder alone (`pilotScopeOf`), the whole
+ * dataset otherwise — or when the folder cannot be told, the pilot itself then
+ * refused for it before its first write.
+ */
+function writtenOf(
+  dataset: FrozenDataset,
+  config: Pick<FrozenProjectConfig, 'rootObject'>,
+  pilot: boolean | undefined,
+): FrozenDataset {
+  if (pilot !== true) return dataset;
+  try {
+    return pilotScopeOf(dataset, config.rootObject);
+  } catch {
+    return dataset;
+  }
 }
 
 /** A response's part that says a replay, when there is one to say. */
@@ -2492,8 +2559,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       read: input.read,
       ...(input.plan ? { plan: input.plan } : {}),
       writes: input.writes,
-      // At most, as Production Guard counts a load: a pilot's or a reload's
-      // records found again in the target are among them.
+      // At most, as Production Guard counts a load: a reload's records found
+      // again in the target are among them. A pilot's are its root folder's.
       inserts: input.dataset.objects
         .map((object) => ({ objectApiName: object.objectApiName, rows: object.records.length }))
         .filter((object) => object.rows > 0),
@@ -2511,7 +2578,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * The gate of a load on the API requests it takes of its target, as Seed's,
    * Sync's and the clone's: its own ({@link loadRequestsEstimate}) — the
-   * dataset's records at most, as its gate on the emails counts them, and on
+   * records it writes at most, a pilot's root folder's, as its gate on the
+   * emails counts them, and on
    * a reload what its purge takes —, the checkpoint taken first, the lease of
    * the mute it holds while it writes and the read of the deliverability,
    * against the daily requests the target has left, read as the user it
@@ -2957,28 +3025,28 @@ export class FrozenDatasetHandler implements DomainHandler {
     conn: LimitsTransport;
     dataset: FrozenDataset;
     purged?: LoadRequestsInput['purged'];
+    /** What the target's automation that still runs creates under the records ({@link loadAutomationBytes}). */
+    automationBytes?: number;
     targetOrgId: string;
     replay?: boolean;
   }): Promise<FrozenLoadStorageInfo | undefined> {
     const limits = await readDataStorage(input.conn).catch(() => undefined);
     if (limits === undefined) return undefined;
+    const automationBytes = Math.max(0, input.automationBytes ?? 0);
     const over = loadStorageRefusal({
       dataset: input.dataset,
       storage: limits,
       ...(input.purged ? { purged: input.purged } : {}),
+      automationBytes,
       target: this.orgNameOf(input.targetOrgId),
       ...(input.replay === true ? { replay: true } : {}),
     });
     const MB = 1024 * 1024;
     const estimateMB =
-      over?.storage.estimateMB ??
-      input.dataset.objects.reduce(
-        (sum, object) =>
-          sum + countedStorageBytes(object.objectApiName, { rows: object.records.length }),
-        0,
-      ) / MB;
+      over?.storage.estimateMB ?? (loadRecordsBytes(input.dataset) + automationBytes) / MB;
     return {
       estimateMB,
+      ...(automationBytes > 0 ? { automationMB: automationBytes / MB } : {}),
       remainingMB: limits.remainingMB,
       maxMB: limits.maxMB,
       ...(over?.storage.freedMB !== undefined ? { freedMB: over.storage.freedMB } : {}),
@@ -3984,6 +4052,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       // target has left today, or delivered without the accord, the load is
       // refused, nothing written, as a seed or a sync is.
       const accepted = parsed.acceptEmails === true;
+      // What it writes: a pilot, its root folder alone, which its guards
+      // have just selected.
+      const pilotWritten = writtenOf(dataset, config, parsed.pilot);
       const emails = await this.loadEmailsFor({
         conn,
         orgId: parsed.targetOrgId,
@@ -3991,7 +4062,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         read,
         ...(mute?.plan ? { plan: mute.plan } : {}),
         writes: loadWrites,
-        dataset,
+        dataset: pilotWritten,
         accepted,
         mayMute: parsed.muteAutomation !== true && this.muteOffered,
       });
@@ -4044,6 +4115,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             dataset,
             storage: limits,
             ...(purged ? { purged } : {}),
+            automationBytes: loadAutomationBytes(read, mute?.plan, dataset, loadWrites),
             target: this.orgNameOf(parsed.targetOrgId),
             ...(replay ? { replay: true } : {}),
           });
@@ -4052,7 +4124,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
       apiJudged = await this.loadApiCheck({
         conn: limitsOnce,
-        dataset,
+        dataset: pilotWritten,
         ...(purged ? { purged } : {}),
         read,
         ...(scoped ? { checkpoint: scoped.estimate } : {}),
@@ -4812,7 +4884,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // So are the API requests it would take of the target, counted as its
       // gate counts them, the checkpoint said above among them.
       const store = source.mappingStore(guard);
-      const { emails, automation, apiRequests } = await this.previewWhatRuns({
+      const { emails, automation, apiRequests, automationBytes } = await this.previewWhatRuns({
         conn,
         orgId: parsed.targetOrgId,
         dataset,
@@ -4822,15 +4894,17 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(checkpoint ? { checkpoint } : {}),
         ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
       });
-      // The data storage its records take, with the refusal its load would
-      // meet, as the load's gate measures it: none of a pilot, which the gate
-      // lets through. A replay says it with what does not go across as it was.
+      // The data storage its records take, and what still runs creates under
+      // them, with the refusal its load would meet, as the load's gate
+      // measures it: none of a pilot, which the gate lets through. A replay
+      // says it with what does not go across as it was.
       const storage = await this.previewStorageOf({
         conn,
         dataset,
         store,
         config,
         parsed,
+        ...(automationBytes !== undefined ? { automationBytes } : {}),
         targetOrgId: parsed.targetOrgId,
         replay: replay !== undefined,
       });
@@ -4889,7 +4963,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     replay?: ReplayLoad;
   }): Promise<RefusedBeside[]> {
     const { replay, ...asked } = input;
-    const { emails, automation, apiRequests } = await this.previewWhatRuns({
+    const { emails, automation, apiRequests, automationBytes } = await this.previewWhatRuns({
       ...asked,
       ...(replay?.converted ? { replayReads: replay.converted.target.requests } : {}),
     });
@@ -4899,6 +4973,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       store: input.store,
       config: input.config,
       parsed: input.parsed,
+      ...(automationBytes !== undefined ? { automationBytes } : {}),
       targetOrgId: input.orgId,
       replay: replay !== undefined,
     });
@@ -4924,6 +4999,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     store: SasReferenceIdMappingStore;
     config: FrozenProjectConfig;
     parsed: { reload?: boolean; pilot?: boolean };
+    /** What the target's automation that still runs creates under the records, as the preview read it. */
+    automationBytes?: number;
     targetOrgId: string;
     replay: boolean;
   }): Promise<FrozenLoadStorageInfo | undefined> {
@@ -4934,6 +5011,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       ...(input.parsed.reload === true
         ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
         : {}),
+      ...(input.automationBytes !== undefined ? { automationBytes: input.automationBytes } : {}),
       targetOrgId: input.targetOrgId,
       replay: input.replay,
     });
@@ -4968,6 +5046,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     emails?: FrozenLoadEmailsInfo;
     automation?: FrozenLoadAutomationInfo;
     apiRequests?: FrozenLoadApiRequests;
+    /** What still runs creates under the records, for the storage the preview says. */
+    automationBytes?: number;
   }> {
     const { parsed } = input;
     try {
@@ -5001,6 +5081,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         target: this.orgNameOf(input.orgId),
         mayMute: parsed.muteAutomation !== true && this.muteOffered,
       });
+      // What the load writes, a pilot its root folder alone, as its gates count it.
+      const written = writtenOf(input.dataset, input.config, parsed.pilot);
       const emails = await this.loadEmailsFor({
         conn: input.conn,
         orgId: input.orgId,
@@ -5008,7 +5090,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         read,
         ...(mute?.plan ? { plan: mute.plan } : {}),
         writes,
-        dataset: input.dataset,
+        dataset: written,
         accepted: parsed.acceptEmails === true,
         mayMute: parsed.muteAutomation !== true && this.muteOffered,
       }).catch((err: unknown) => {
@@ -5017,7 +5099,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       const apiRequests = await this.loadApiCheck({
         conn: input.conn,
-        dataset: input.dataset,
+        dataset: written,
         ...(purge ? { purged: await this.purgedOf(input.store, input.config) } : {}),
         read,
         ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
@@ -5036,6 +5118,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(emails && saysSomething(emails.info) ? { emails: emails.info } : {}),
         ...(automation ? { automation } : {}),
         ...(apiRequests ? { apiRequests } : {}),
+        automationBytes: loadAutomationBytes(read, mute?.plan, input.dataset, writes),
       };
     } catch (err: unknown) {
       logger.warn(

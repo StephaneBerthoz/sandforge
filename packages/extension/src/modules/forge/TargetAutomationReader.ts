@@ -982,6 +982,70 @@ export function switchesNamed(formula: unknown): ForgeFlowSwitch[] {
     .map((test) => ({ ...test, where: 'start' as const, bypass: true }));
 }
 
+/**
+ * The fields of the record a flow's start requires filled: in its formula,
+ * `NOT(ISBLANK(…))` or `NOT(ISNULL(…))` of a field of `$Record` among the
+ * terms it requires together; in its filters, "is null: false" when the
+ * filters are required together. A record saved with one of them empty
+ * does not start the flow: run for real, a flow that opens a task under each
+ * contact created under an account was counted under contacts seeded with no
+ * account, and a seed that fitted was refused for the tasks.
+ */
+export function fieldsRequiredFilled(start: unknown): string[] {
+  const formula = field(start, 'filterFormula');
+  if (typeof formula === 'string' && formula.trim() !== '') {
+    return [
+      ...new Set(
+        conjuncts(formula).flatMap((term) => {
+          const filled = filledBy(term);
+          return filled ? [filled] : [];
+        }),
+      ),
+    ];
+  }
+  const filters = listOf(field(start, 'filters'));
+  if (filters.length === 0 || !requiredTogether(text(field(start, 'filterLogic')), filters.length))
+    return [];
+  return [
+    ...new Set(
+      filters
+        .filter(
+          (filter) =>
+            text(filter.operator) === 'IsNull' && field(filter.value, 'booleanValue') === false,
+        )
+        .map((filter) => text(filter.field))
+        .filter((name) => RECORD_FIELD_NAME.test(name)),
+    ),
+  ];
+}
+
+/** A field of the record, one level, no parent's: `AccountId`, `Parent__c`. */
+const RECORD_FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/** A field of `$Record` as a formula names it, merge field braces or not; the field captured. */
+const RECORD_FIELD = /^(?:\{!\s*)?\$Record\.([A-Za-z][A-Za-z0-9_]*)\s*\}?$/i;
+
+/** The field a term requires filled — `NOT(ISBLANK(<field>))`, `NOT(ISNULL(<field>))` — if it is one. */
+function filledBy(term: string): string | undefined {
+  const negated = callOf(term, 'NOT');
+  if (negated === undefined) return undefined;
+  const inner = unwrapped(negated);
+  const tested = callOf(inner, 'ISBLANK') ?? callOf(inner, 'ISNULL');
+  return tested === undefined ? undefined : RECORD_FIELD.exec(tested.trim())?.[1];
+}
+
+/**
+ * Whether a start's filters are all required: its logic `and`, one filter
+ * alone, or a logic of its own that joins every one of them with AND.
+ */
+function requiredTogether(logic: string, count: number): boolean {
+  const said = logic.trim().toLowerCase();
+  if (said === 'and' || (count === 1 && said !== 'or')) return true;
+  if (!/^\d+(\s+and\s+\d+)*$/.test(said)) return false;
+  const named = new Set(said.split(/\s+and\s+/).map(Number));
+  return Array.from({ length: count }, (_, i) => i + 1).every((n) => named.has(n));
+}
+
 /** The kinds of global a condition tests of the user who writes or of the org's settings. */
 type GlobalKind = 'Permission' | 'Setup' | 'User' | 'Profile' | 'CustomMetadata';
 
@@ -1509,6 +1573,8 @@ function readFlowMetadata(flow: ForgeTargetFlow, metadata: unknown): void {
   const decisions = decisionChecks(metadata);
   flow.permissions = [...permissionsNamed(start), ...decisions.permissions];
   flow.switches = [...switchesNamed(field(start, 'filterFormula')), ...decisions.switches];
+  const requiresFilled = fieldsRequiredFilled(start);
+  if (requiresFilled.length > 0) flow.requiresFilled = requiresFilled;
   // The asynchronous path the definition view said is among the start's paths.
   flow.paths = pathsOf(metadata);
   flow.messages = messagesOf(metadata);

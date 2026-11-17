@@ -132,6 +132,38 @@ function creating(objects: readonly string[]): ForgeTargetAutomation {
 }
 
 /**
+ * The trap org's contacts: a flow after the save, which no mute reaches, that
+ * opens a task under each contact created under an account.
+ */
+function contactsUnderAnAccount(objects: readonly string[]): ForgeTargetAutomation {
+  return {
+    objectsRead: [...objects],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Trap_Contact_Follow_Up_Task',
+            label: 'Trap Contact Follow Up Task',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            requiresFilled: ['AccountId'],
+            permissions: [],
+            creates: ['Task'],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 1,
+  };
+}
+
+/**
  * A sandbox of `maxMB` of data storage, all of it left, that takes every
  * record it is sent through REST and puts each step down in `steps`.
  */
@@ -449,6 +481,52 @@ describe('a seed fitted from the command line', () => {
       /^refused \(SEED_STORAGE_EXCEEDED\): The records to write take about 5\.86 MB/,
     );
     expect(steps.some((step) => step.startsWith('write '))).toBe(false);
+  });
+
+  it('counts nothing for a flow that starts only on contacts under an account, of a seed of contacts alone, and lets it through', async () => {
+    // Run for real on the trap org: Contact:1400, refused at 5.47 MB "about
+    // 2.74 MB of it for what the target's automation creates under them";
+    // three contacts seeded alone, and the flow opened no task.
+    automationOf = contactsUnderAnAccount;
+    fakeOrg();
+
+    await main([
+      'node',
+      'sandforge-seed.ts',
+      '--target',
+      'TGT',
+      '--object',
+      'Contact:1400',
+      '--locale',
+      'en_US',
+      '--seed',
+      '7',
+      '--dry-run',
+      '--json',
+    ]);
+
+    const answer = JSON.parse(stdout.join('')) as {
+      storage: Record<string, unknown>;
+      wouldBeRefusedCodes?: string[];
+    };
+    expect(answer.storage).toMatchObject({
+      verdict: 'fits',
+      automationStarts: [
+        {
+          objectApiName: 'Contact',
+          name: 'Trap Contact Follow Up Task',
+          fields: ['AccountId'],
+          why: 'leftEmpty',
+        },
+      ],
+    });
+    expect(answer.storage).not.toHaveProperty('automationMB');
+    expect(answer.wouldBeRefusedCodes ?? []).not.toContain('SEED_STORAGE_EXCEEDED');
+    expect(stderr.join('')).toContain(
+      'data storage: about 2.74 MB to write, TGT has 5 MB left of 5 MB; nothing counted for ' +
+        'Trap Contact Follow Up Task on Contact: it starts only on a record whose AccountId is ' +
+        'filled, which the seed leaves empty\n',
+    );
   });
 
   /** A dry run, `--json`, of 2,000 accounts and 2,000 articles the org has no object for. */
