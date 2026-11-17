@@ -5,6 +5,47 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.81.0] - 2026-11-17
+
+Forge clones the records a query chooses, a checkpoint replays into another org, a pipeline runs with VS Code closed, and DataOps masks in slices.
+
+### Added
+
+- **Forge**: the SOQL tab clones each record a query chooses with what it reaches, a record they share written once, up to 2,000 records.
+- **Forge**: Simulate keeps the records a query chose for the run; Results export them with their copies (CSV), and Retry writes them again.
+- **Forge**: Review draws a sample's roots the oldest first, and under Which roots in a date window, under a condition or by strata.
+- **Checkpoints**: Replay in another org… sets a checkpoint's records up in another org with new Ids, after a simulation; real data goes masked.
+- **Checkpoints**: a refreshed sandbox's or an expired scratch org's checkpoints are kept, exported and replayed; the Home tile offers it.
+- **DataOps**: Apply masks an object past one backup in slices, each backed up just before it is masked, then resumed or restored by slice.
+- **DataOps**: Backup takes an object past one backup in slices, and Restore lists each set of slices on one row.
+- **Automation**: Export… writes a pipeline with a cron, Task Scheduler or GitHub Actions launcher that runs it with VS Code closed.
+- **Automation**: Dry run takes a pipeline along its route writing nothing; History marks the runs the command line made.
+- **Environments**: a forge resource of `sandforge.yaml` takes `records` and the new draws of `fit`; a mask resource takes `slices`.
+- **Command line and MCP**: `sandforge pipeline`, `checkpoint replay`, clone `--query`, `--fit-window|where|strata`, backup `--where`, `--slices`; MCP `clone_org`, `clone_records`, `checkpoint_replay`, `pipeline_plan`.
+
+### Changed
+
+- **Checkpoints**: 1.80 refuses a checkpoint file exported from 1.81 (format 2), and reads one taken before a replay as damaged: update teammates first.
+- **Forge**: a query on the SOQL tab, in a template or in a past run clones the records it chooses with what each reaches, not whole tables: simulate it first.
+- **MCP**: a call still running after 45 seconds answers with its run's handle, which `run_status` follows and `run_stop` stops.
+
+### Fixed
+
+- **Every module**: an export no longer fails when its Save dialog stays open past 30 seconds; it waits 15 minutes.
+- **Forge**: a removal or a resume of a run that another window, a terminal or the MCP server still writes is refused, naming that run.
+- **Forge**: a whole-org clone into a one-currency org keeps its opportunity lines; a task naming a record it holds back is written, that lookup empty.
+- **Forge**: Verify, a removal and a whole-org dry run count the posts, account relations and person-account contacts the platform writes with a run's records, over each part of a resumed run.
+- **Forge**: a removal takes the duplicate record set a run's record made with one record the target held, which it left behind.
+- **Forge**: a clone of records ends a success, not partial, when the target lacks an object that nothing the run read names.
+- **Seed, Frozen Dataset, Forge**: the data storage gate counts what the target's automation creates under the records, as a whole-org clone did.
+- **Frozen Dataset**: thousands of contacts load and reload without `ERROR_HTTP_431` or `REPLACE_LEAVES_RECORDS`; a pilot and a load weigh only what they send.
+- **Sync**: a simulation counts refused the records that carry the key of another record of the same call, as the run refuses them (`DUPLICATE_VALUE`).
+- **Automation**: a pipeline never runs twice at once, a Pre-check reads again past an expired session, and a Delay says how long it really waited.
+- **Automation**: the command line removes a pipeline's Seed or Sync run by the target's alias, where it refused it as another org's.
+- **DataOps**: a masking past what a snapshot holds is refused before Production Guard asks anything, and names the way in slices.
+- **MCP**: a seed, a clone or an apply stopped part way says the call that takes it back; removing a run still under way is refused.
+- **Environments**: a whole-org clone's refusal names the keys of `sandforge.yaml` to change, not the clone's flags.
+
 ## [1.80.0] - 2026-11-17
 
 Every refusal names a way through that exists, Sync reads past 500 records per object, and rows refused for a record lock go again.
