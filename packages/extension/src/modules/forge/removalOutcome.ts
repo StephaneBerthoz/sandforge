@@ -186,6 +186,22 @@ function sumOf(a: number | undefined, b: number | undefined): number | undefined
 }
 
 /**
+ * What the deletes of two removals took along, as one: their counts summed —
+ * a record one of them took along is gone before the other reads what hangs
+ * from its records — and their objects once each. Absent when both are.
+ */
+function bothAlong(
+  a: ForgeUndoObjectResult['cameAlong'],
+  b: ForgeUndoObjectResult['cameAlong'],
+): ForgeUndoObjectResult['cameAlong'] {
+  if (!a && !b) return undefined;
+  return {
+    count: (a?.count ?? 0) + (b?.count ?? 0),
+    objects: bothOf(a?.objects ?? [], b?.objects ?? []),
+  };
+}
+
+/**
  * The results of removals of several parts of a run made one after the
  * other, object by object, as one removal says them: an object two of them
  * took records of is counted once, with both counts, in the order the
@@ -220,6 +236,12 @@ export function mergedUndoObjects(
             names: bothOf(was.filesLeft?.names ?? [], object.filesLeft?.names ?? [], REASONS_KEPT),
           }
         : undefined;
+    // What each part's deletes took along. Left out of the merge, the
+    // removal of a run cut and taken up said nothing came along with its
+    // contacts, which both parts took records of, where the removal of a run
+    // never cut said 3472 account relations.
+    const tookAlong = bothAlong(was.tookAlong, object.tookAlong);
+    const cameAlong = bothAlong(was.cameAlong, object.cameAlong);
     merged.set(object.objectApiName, {
       objectApiName: object.objectApiName,
       planned: was.planned + object.planned,
@@ -234,6 +256,8 @@ export function mergedUndoObjects(
       unchecked: bothOf(was.unchecked, object.unchecked),
       reasons: bothOf(was.reasons, object.reasons, REASONS_KEPT),
       ...(files ? { filesLeft: files } : {}),
+      ...(tookAlong ? { tookAlong } : {}),
+      ...(cameAlong ? { cameAlong } : {}),
     });
   }
   return [...merged.values()];

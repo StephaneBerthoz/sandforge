@@ -2802,6 +2802,13 @@ interface ExecutionState {
   /** See `ExecutionSummary.writtenByThePlatform`: per object, the rows. */
   readonly writtenByThePlatform: Map<string, number>;
   /**
+   * Of the contacts `writtenByThePlatform` counts, those the platform wrote
+   * with a person account of a sample whose plan did not draw the contact
+   * (`contactWithItsAccount`), no line of Contact having said them yet: the
+   * line that ends Contact says them (`outsideTheSampleSaid`).
+   */
+  personContactsOutsideTheSample: number;
+  /**
    * The contact each opportunity this run wrote, or would, was sent with, in
    * the target's ids, by the opportunity's source id: the platform writes a
    * contact role of it with the opportunity. See `linkTheRolesThePlatformWrote`.
@@ -4031,6 +4038,38 @@ function ownSentNote(count: number): string {
 }
 
 /**
+ * What a line says of the contacts the platform wrote with their person
+ * account: those of the object's rows it linked to the one the platform
+ * wrote, and those of the person accounts of a sample whose contact its plan
+ * did not draw (`contactWithItsAccount`), said apart — the run's count of
+ * them (`ExecutionSummary.writtenByThePlatform`). A sample that copied 70
+ * person accounts whole and drew 10 of their contacts ended Contact on "10
+ * written by the platform with their person account", its gate, its JSON and
+ * its verification saying 70.
+ */
+function withTheirAccountNote(linked: number, outsideTheSample = 0): string {
+  const all = linked + outsideTheSample;
+  if (all <= 0) return '';
+  const outside =
+    outsideTheSample > 0
+      ? ` (${outsideTheSample} of them outside the sample, with an account the run wrote)`
+      : '';
+  return `, ${all} written by the platform with their person account${outside}`;
+}
+
+/**
+ * Of the line that ends `objectApiName`, the contacts the platform wrote with
+ * a person account of the sample whose contact its plan did not draw, that no
+ * line said yet: Contact's line says them, once.
+ */
+function outsideTheSampleSaid(state: ExecutionState, objectApiName: string): number {
+  if (objectApiName !== CONTACT) return 0;
+  const outside = state.personContactsOutsideTheSample;
+  state.personContactsOutsideTheSample = 0;
+  return outside;
+}
+
+/**
  * Count, among the rows linked, `rows` of `objectApiName` the platform wrote
  * itself with a record the run created: see `ExecutionSummary.writtenByThePlatform`.
  */
@@ -4091,19 +4130,21 @@ const PAGED_SAMPLES_KEPT = 3;
  * What the line that ends an object read page by page counts, as the line of
  * a write counts a node read whole: written, updated, linked, the rows the run
  * retried wrote, then the failures with the rows held back among them.
+ *
+ * @param outsideTheSample - Of Contact's line, the contacts the platform
+ *   wrote with a person account of the sample whose contact the plan did not
+ *   draw (`outsideTheSampleSaid`).
  */
 function pagedCounts(
   config: ForgeStageConfig,
   carry: PageCarry,
   held: readonly HeldBackReason[],
+  outsideTheSample = 0,
 ): string {
   const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
   const updated = carry.updated > 0 ? `, ${carry.updated} updated through their external id` : '';
   const linked = linkedNote(carry.linked, carry.linkedToCreated);
-  const withTheirAccount =
-    carry.withTheirAccount > 0
-      ? `, ${carry.withTheirAccount} written by the platform with their person account`
-      : '';
+  const withTheirAccount = withTheirAccountNote(carry.withTheirAccount, outsideTheSample);
   const withTheirEmail =
     carry.withTheirEmail > 0
       ? `, ${carry.withTheirEmail} written by the platform with their email`
@@ -5849,6 +5890,7 @@ export class ForgeExecutor {
       withTheirRecord: new Set<string>(),
       startedAt,
       writtenByThePlatform: new Map<string, number>(),
+      personContactsOutsideTheSample: 0,
       contactSentWith: new Map<string, string>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
       emailsAfterTheirTask: [],
@@ -10559,7 +10601,7 @@ export class ForgeExecutor {
       progress: 100,
       message:
         `${end.label ?? `${config.dryRun ? 'Simulated' : 'Completed'} ${object}`}: ` +
-        `${pagedCounts(config, carry, held)}${end.note ?? ''}` +
+        `${pagedCounts(config, carry, held, outsideTheSampleSaid(state, object))}${end.note ?? ''}` +
         `${ownNote}${flagsNotKept}${picklists}${withoutFields}${sentSmaller}` +
         `${leftToThePlatformNote(state, object)}${readById}`,
     });
@@ -10599,7 +10641,8 @@ export class ForgeExecutor {
       status: failedNode ? 'error' : 'stopped',
       progress: 100,
       message:
-        `${stopped}: ${pagedCounts(state.config, carry, held)}, ${notSent} not sent` +
+        `${stopped}: ${pagedCounts(state.config, carry, held, outsideTheSampleSaid(state, object))}, ` +
+        `${notSent} not sent` +
         `${ownSentNote(carry.sentOnTheirOwn)}${flagsNotKeptOfCarry(carry)}` +
         `${picklistChangesNote(carry.picklists.list())}` +
         `${currencyReplacementsNote(carry.currencies.list())}` +
@@ -15441,7 +15484,8 @@ export class ForgeExecutor {
    * whose plan draws contacts, one outside the plan. Run for real, a sample
    * copied 70 person accounts whole and drew 10 of their contacts: its run
    * and its dry run said 10 contacts written by the platform, the target
-   * held 70.
+   * held 70. Counted 70 since, its line of Contact still said the 10 its turn
+   * linked: the line that ends Contact says the others too.
    */
   private contactWithItsAccount(state: ExecutionState, contact: string): void {
     keepWithTheirRecord(state, contact);
@@ -15452,6 +15496,7 @@ export class ForgeExecutor {
     if (linkedByItsTurn) return;
     state.linkedCount++;
     countWrittenByThePlatform(state, CONTACT, 1);
+    if (sample?.drawn.has(CONTACT)) state.personContactsOutsideTheSample++;
   }
 
   /**
@@ -19645,10 +19690,10 @@ export class ForgeExecutor {
       const held = heldBeforeTheWrite(waiting === 0);
       const writtenWithTheirEmail =
         withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
-      const writtenWithTheirAccount =
-        withTheirAccount.linked > 0
-          ? `, ${withTheirAccount.linked} written by the platform with their person account`
-          : '';
+      const writtenWithTheirAccount = withTheirAccountNote(
+        withTheirAccount.linked,
+        outsideTheSampleSaid(state, node.objectApiName),
+      );
       const writtenWithTheirOpportunity =
         teamLinkedNote(team.owners, team.linked - team.owners) +
         rolesWithTheirOpportunityNote(

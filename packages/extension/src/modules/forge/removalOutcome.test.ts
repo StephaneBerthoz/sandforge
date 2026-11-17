@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ForgeUndoObjectResult } from '@sandforge/shared';
 
 import {
+  mergedUndoObjects,
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
@@ -367,5 +368,34 @@ describe('removalMark', () => {
         ),
       ).toBeUndefined();
     });
+  });
+});
+
+describe('mergedUndoObjects', () => {
+  it('keeps what the deletes of each part took along, summed, for an object two parts took records of', () => {
+    // Run for real, a clone cut and taken up was removed part by part: each
+    // part's contacts took their account relations along, and the removal of
+    // the run said none of them, where the removal of a run never cut said
+    // "came along: 3472 AccountContactRelation" under Contact.
+    const resumed = object({
+      planned: 1872,
+      deleted: 1872,
+      cameAlong: { count: 1872, objects: ['AccountContactRelation'] },
+    });
+    const cut = object({
+      planned: 1600,
+      deleted: 1600,
+      cameAlong: { count: 1600, objects: ['AccountContactRelation', 'OpportunityContactRole'] },
+      tookAlong: { count: 2, objects: ['Task'] },
+    });
+
+    expect(mergedUndoObjects([resumed], [cut])).toEqual([
+      object({
+        planned: 3472,
+        deleted: 3472,
+        cameAlong: { count: 3472, objects: ['AccountContactRelation', 'OpportunityContactRole'] },
+        tookAlong: { count: 2, objects: ['Task'] },
+      }),
+    ]);
   });
 });

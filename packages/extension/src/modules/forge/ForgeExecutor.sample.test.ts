@@ -16,6 +16,7 @@ import type {
   ExecutionSummary,
   FieldInfo,
   ForgeExecutorDeps,
+  ForgeProgressEvent,
   ForgeWriteBoundary,
 } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
@@ -885,11 +886,12 @@ describe('a clone of the whole org that copies a sample of it', () => {
     ]);
   }, 60_000);
 
-  it('counts one contact the platform writes for every person account it writes whole, those of contacts its plan does not draw too, at its dry run and its run, and keeps each in its journal', async () => {
+  it('counts one contact the platform writes for every person account it writes whole, those of contacts its plan does not draw too, at its dry run and its run, says each on the line that ends Contact, and keeps each in its journal', async () => {
     // Run for real, a sample copied 70 person accounts whole and drew 10 of
     // their contacts: its dry run and its run said 10 contacts written by the
     // platform, the target held 70, and its verification counted 60 created
-    // besides the run's.
+    // besides the run's. Counted 70 since, the run's line of Contact still
+    // said 10: the 60 others were on no line.
     const PERSONS = 12;
     const BUSINESS = 8;
     const PER_BUSINESS = 40;
@@ -984,11 +986,12 @@ describe('a clone of the whole org that copies a sample of it', () => {
     const graph = graphOf(PERSONS + BUSINESS, PERSONS + BUSINESS * PER_BUSINESS);
     const keepAt = join(plansDir(), 'dry');
     const dryGate: ForgeWriteBoundary[] = [];
-    await personOrgs().executor.execute(
+    const dryLines: ForgeProgressEvent[] = [];
+    const dry = await personOrgs().executor.execute(
       graph,
       'src',
       'tgt',
-      () => {},
+      (event) => dryLines.push(event),
       sampleRun(keepAt, budgetOf(300), { dryRun: true, gate: dryGate }),
     );
     const plan = await SamplePlan.open(keepAt);
@@ -1002,11 +1005,12 @@ describe('a clone of the whole org that copies a sample of it', () => {
     const gate: ForgeWriteBoundary[] = [];
     const store = ForgeRunStore.open(memoryRunFile());
     const run = personOrgs();
+    const lines: ForgeProgressEvent[] = [];
     const summary = await run.executor.execute(
       graph,
       'src',
       'tgt',
-      () => {},
+      (event) => lines.push(event),
       sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan, gate, store }),
     );
     store.close();
@@ -1018,10 +1022,21 @@ describe('a clone of the whole org that copies a sample of it', () => {
       expect(contacts?.leftOut?.byThePlatform).toBe(PERSONS);
       expect(contacts?.counted?.rows).toBe(drawn.size - personsDrawn.length);
     }
-    expect(summary.writtenByThePlatform).toContainEqual({
-      objectApiName: 'Contact',
-      rows: PERSONS,
-    });
+    for (const [ran, said] of [
+      [dry, dryLines],
+      [summary, lines],
+    ] as const) {
+      expect(ran.writtenByThePlatform).toContainEqual({ objectApiName: 'Contact', rows: PERSONS });
+      // The line that ends Contact says them all, as the run counts them: the
+      // contacts of its rows it linked, and those of the person accounts
+      // whose contact the plan did not draw, said apart.
+      const ofContact = said.filter((e) => e.objectName === 'Contact' && e.status === 'done');
+      expect(ofContact).toHaveLength(1);
+      expect(ofContact[0]?.message).toContain(
+        `, ${PERSONS} written by the platform with their person account ` +
+          `(${PERSONS - personsDrawn.length} of them outside the sample, with an account the run wrote), `,
+      );
+    }
     // Each kept with its object and marked written with its account: what a
     // verification and a removal read back from the journal.
     expect(summary.withTheirRecordSourceIds?.filter((id) => id.startsWith('003'))).toHaveLength(

@@ -426,6 +426,34 @@ describe('a removal asked for a preview of thousands of records, with what hangs
     expect(org.deletes).toEqual([]);
   });
 
+  it('names each record that came along once, under the first object whose delete takes it, as the removal then names it', async () => {
+    // The purge preview of a replay's --again said the 3 468 relations the
+    // platform wrote with the replay's contacts under Contact, and again
+    // under Account: 6 939 records taken along for 3 470. The removal that
+    // followed said them once, under Contact, whose delete took them.
+    const { org, plan } = volume(3);
+    /** What each object's deletes take along that came with the run, by object. */
+    const said = (
+      objects: ReadonlyArray<Pick<RemovalPreviewObject, 'objectApiName' | 'cameAlong'>>,
+    ) =>
+      Object.fromEntries(
+        objects.flatMap((o) => (o.cameAlong ? [[o.objectApiName, o.cameAlong]] : [])),
+      );
+
+    const preview = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+    const removal = await removeRunRecords(org, plan, { ...SPAN, includeChanged: false });
+
+    expect(said(preview.preview?.objects ?? [])).toEqual({
+      Contact: { count: 6, objects: ['AccountContactRelation'] },
+    });
+    expect(said(removal.objects)).toEqual(said(preview.preview?.objects ?? []));
+  });
+
   it('still keeps an account whose own read of what hangs from it fills the limit, rather than guess', async () => {
     const { org, plan } = volume(2_000);
 

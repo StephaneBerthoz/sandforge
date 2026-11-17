@@ -2101,6 +2101,11 @@ async function previewOf(
 ): Promise<RunRemovalPreview | undefined> {
   const objects: RemovalPreviewObject[] = [];
   const modifiers = new Set<string>();
+  /**
+   * The keys of what came along, named under an object before: the delete of
+   * that object takes it, and the removal never reads it under a later one.
+   */
+  const namedAlong = new Set<string>();
   for (const { objectApiName, count } of order) {
     const copies = reading.copiesOf(objectApiName);
     const object: RemovalPreviewObject = {
@@ -2188,6 +2193,12 @@ async function previewOf(
       for (const id of sent) {
         if (verdict.held.has(recordKey(id))) continue;
         for (const [taken, under] of verdict.cameAlong.get(recordKey(id)) ?? []) {
+          // Nothing is deleted yet, so what hangs from two of the run's
+          // records reads under both: a replay's purge said the relations the
+          // platform wrote with its contacts under Contact, and again under
+          // Account, 6 939 taken along for 3 470.
+          if (namedAlong.has(taken)) continue;
+          namedAlong.add(taken);
           came.set(taken, under);
         }
       }
