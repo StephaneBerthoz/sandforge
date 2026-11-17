@@ -139,6 +139,39 @@ test('each old name says the command that runs now, in the words a reader types,
   }
 });
 
+test('sandforge users is the sixteenth command: an alias of its own, an sf command made from TOOLS, and a redirect', () => {
+  // 1.82.0 adds users to the fifteen of 1.81.0: every list below is made
+  // from the scripts of cli/ and the dispatcher's TOOLS, none written by hand.
+  const tools = toolNames();
+  assert.equal(tools.length, 16, `the commands: ${tools.join(', ')}`);
+  assert.ok(tools.includes('users'), 'positive control: 1.82.0 has sandforge users');
+
+  const published = JSON.parse(readFileSync(join(built.out, 'package.json'), 'utf8'));
+  assert.deepEqual(
+    Object.keys(published.bin).sort(),
+    ['sandforge', ...tools.map((tool) => `sandforge-${tool}`)].sort(),
+  );
+  assert.equal(published.bin['sandforge-users'], 'bin/sandforge-users.mjs');
+
+  const commands = Object.keys(
+    JSON.parse(readFileSync(join(built.out, 'oclif.manifest.json'), 'utf8')).commands,
+  );
+  const ofTools = commands.filter((id) => id !== 'sandforge' && id !== 'sandforge:hardis-commands');
+  assert.equal(ofTools.length, 16);
+  assert.deepEqual(ofTools.sort(), tools.map((tool) => `sandforge:${tool}`).sort());
+
+  const redirect = redirects.packages.find((each) => each.tool === 'users');
+  assert.ok(redirect, 'no redirect keeps sandforge-users');
+  const kept = JSON.parse(readFileSync(join(redirect.folder, 'package.json'), 'utf8'));
+  assert.equal(kept.name, 'sandforge-users');
+  assert.deepEqual(kept.bin, { 'sandforge-users': 'bin.mjs' });
+  assert.equal(
+    redirectMessage('users'),
+    'sandforge-users is now `npx sandforge users`. Nothing was run.\n',
+  );
+  assert.equal(redirects.packages.length, 16);
+});
+
 test('the redirects move with the version of the package, which bump-version.sh moves', () => {
   for (const { folder: at } of redirects.packages) {
     assert.equal(

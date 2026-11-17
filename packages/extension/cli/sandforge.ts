@@ -38,6 +38,7 @@ export const TOOLS = {
   pipeline: 'plan and run an Automation pipeline exported from VS Code',
   seed: 'fill an org from a seed template',
   sync: 'run a Sync between two orgs',
+  users: 'set up the users of a sandbox after its refresh, and take them back',
 } as const;
 
 /** A script `sandforge` runs, by the name it takes on the line. */
@@ -87,8 +88,8 @@ export function helpText(): string {
     ([name, summary]) => `  ${name.padEnd(width)}  ${summary}`,
   );
   return `sandforge — SandForge's command lines, without the editor: Seed, Forge's clone, Sync,
-Checkpoints, DataOps, Frozen Dataset, the emptying of a sandbox, sandforge.yaml environments,
-Automation pipelines, and the MCP server.
+Checkpoints, DataOps, Frozen Dataset, the emptying of a sandbox, the users of a sandbox,
+sandforge.yaml environments, Automation pipelines, and the MCP server.
 
 Usage:
   sandforge <command> [options]

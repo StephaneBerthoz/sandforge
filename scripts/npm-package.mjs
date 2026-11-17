@@ -2063,6 +2063,61 @@ export const CHECKS = [
     },
   },
   {
+    name: 'users answers --help with its verbs and what it asks the line to accept, and refuses, on 2, a config the contract refuses, before any org',
+    run: ({ out, node }) => {
+      const home = scratchFolder();
+      try {
+        const env = sealedEnv(home);
+        const asked = runBin(out, ['sandforge', 'users', 'apply', '--help'], {
+          node,
+          env,
+          cwd: home,
+        });
+        if (asked.code !== 0 || !asked.stdout.startsWith(HELP_HEAD('users'))) {
+          throw new Error(
+            `sandforge users apply --help ended on ${asked.code}: ${asked.stderr || asked.stdout.slice(0, 200)}`,
+          );
+        }
+        for (const said of [
+          'npx sandforge users plan --org <alias> --config <file.json>',
+          'npx sandforge users remove --org <alias> --run <n>',
+          '--accept-user-emails',
+          '--accept-emails',
+          '--accept-automation',
+          '--replaces <n>',
+        ]) {
+          if (!asked.stdout.includes(said)) {
+            throw new Error(`sandforge users --help does not say "${said}"`);
+          }
+        }
+        // The contract is in the bundle: a key that would reset a password is
+        // refused where the config wrote it, and no org is reached — the
+        // PATH holds no sf.
+        const config = join(home, 'testers.json');
+        writeFileSync(
+          config,
+          JSON.stringify({ users: [{ username: 'jane.qa@example.com', login: 'reset' }] }),
+        );
+        const refused = runBin(
+          out,
+          ['sandforge', 'users', 'plan', '--org', 'uat', '--config', config],
+          { node, env, cwd: home },
+        );
+        if (
+          refused.code !== 2 ||
+          !refused.stderr.includes('users[0]: "login" is not a key of a user') ||
+          !refused.stderr.includes('Nothing was run.')
+        ) {
+          throw new Error(
+            `sandforge users plan with a login key ended on ${refused.code}: ${refused.stderr}`,
+          );
+        }
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     name: 'the MCP server lists the tools of a clone from a query, a replay and a pipeline, and plans a pipeline through the packaged script',
     run: async ({ out, node }) => {
       const home = scratchFolder();

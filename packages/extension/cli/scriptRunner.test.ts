@@ -158,6 +158,7 @@ describe('the scripts a runner starts', () => {
     'sandforge-empty': true,
     'sandforge-env': true,
     'sandforge-pipeline': true,
+    'sandforge-users': true,
   };
 
   it('starts each of them from its own file in this folder', () => {

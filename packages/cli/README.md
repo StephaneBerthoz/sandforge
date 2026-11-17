@@ -48,6 +48,7 @@ The tools, the `confirm` rule a write needs, and what each answer carries: [Sand
 | `pipeline`   | plan and run an Automation pipeline exported from VS Code                   |
 | `seed`       | fill an org from a seed template                                            |
 | `sync`       | run a Sync between two orgs                                                 |
+| `users`      | set up the users of a sandbox after its refresh, and take them back         |
 
 `sandforge <command> --help` gives its options and its exit codes. Every command refuses a flag it does not read with exit code `2`, before any org is reached; every command that writes to an org refuses a production one before it writes anything. What each one does, its flags, the exit codes and the pipelines that run them: [Command line & CI](https://github.com/StephaneBerthoz/sandforge/blob/master/ci-examples/README.md).
 
