@@ -7,6 +7,7 @@ import { SEED_RELATION_LIMITS } from '../utils/seed-relations.js';
 import {
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
+  checkpointNameSchema,
   checkpointOrganizationIdSchema,
 } from './checkpoint.schema.js';
 import {
@@ -24,6 +25,14 @@ import {
 import { FORGE_ROOTS_MAX } from '../utils/forge-run-gate.js';
 import { soqlOrderBySchema } from '../utils/soqlRoot.js';
 import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
+import {
+  USERS_MAX,
+  usernamesTwice,
+  usersListSchema,
+  usersPlanUserSchema,
+  usersSettingsShape,
+  usersUsernameSchema,
+} from './users.schema.js';
 
 /**
  * Zod schemas of an environment as code: the file that describes the data an
@@ -54,10 +63,11 @@ import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js'
  * {@link secretKeysIn} and {@link envRefsIn} find each one, so a refusal can
  * say where the thing goes instead.
  *
- * Version 1 holds the `seed`, `forge`, `frozen` and `mask` kinds of
- * resource, and the `masking:` sets of DataOps rules a mask resource names.
- * `targets` and `checkpoint` are read and checked; what they ask is applied
- * by the guards and the checkpoint steps.
+ * Version 1 holds the `seed`, `forge`, `frozen`, `mask`, `users` and
+ * `replay` kinds of resource, and the `masking:` sets of DataOps rules a mask
+ * resource names. `targets`, `checkpoint` and `audits` are read and checked;
+ * what they ask is applied by the guards, the checkpoint steps and the
+ * audits.
  */
 
 // ─── Names and values ───────────────────────────────────────────────────────
@@ -164,15 +174,22 @@ const countSchema = z.number().int().nonnegative();
  * keys it does, so the refusal says what was meant.
  *
  * @param what - The object as the refusal names it: `a seed resource`.
+ * @param why - For a key the object refuses that a reader may well write,
+ *   why it is refused and what to do instead, said after the keys it takes.
  */
-function strictObject<T extends z.core.$ZodLooseShape>(what: string, shape: T) {
+function strictObject<T extends z.core.$ZodLooseShape>(
+  what: string,
+  shape: T,
+  why: Readonly<Record<string, string>> = {},
+) {
   const keys = Object.keys(shape).join(', ');
   return z.strictObject(shape, {
     error: (issue) => {
       if (issue.code === 'unrecognized_keys') {
         const named = issue.keys.map((key) => `"${key}"`).join(', ');
         const verb = issue.keys.length === 1 ? 'is not a key' : 'are not keys';
-        return `${named} ${verb} of ${what}, which takes ${keys}`;
+        const reason = issue.keys.map((key) => why[key]).find((said) => said !== undefined);
+        return `${named} ${verb} of ${what}, which takes ${keys}${reason === undefined ? '' : `: ${reason}`}`;
       }
       if (issue.code === 'invalid_type') {
         return issue.input === undefined
@@ -194,24 +211,30 @@ export const envRefSchema = strictObject('a variable', {
 });
 
 /**
- * Where `{ env: NAME }` may stand, as a refusal names it. Version 1 has two
- * places: the alias of an org role, and the path of a frozen resource's
- * dataset, which a pipeline downloads where its runner says.
+ * Where `{ env: NAME }` may stand, as a refusal names it. Version 1 has three
+ * places: the alias of an org role, the path of a frozen resource's dataset,
+ * and the checkpoint file a replay resource opens, which a pipeline downloads
+ * where its runner says. The variable that holds a checkpoint file's key is
+ * named by `keyEnv`, as a name: the key is read from it, never written.
  */
 export const ENV_REF_PLACES: readonly string[] = [
   'orgs.<role>.alias',
   'resources.<frozen>.dataset.path',
+  'resources.<replay>.checkpoint.file',
 ];
 
 /**
  * Whether `path` is a place {@link ENV_REF_PLACES} names. A dataset's path
- * stands in a frozen resource alone: no other kind takes a `dataset`, which
+ * stands in a frozen resource alone, and a checkpoint's file in a replay
+ * resource alone: no other kind takes a `dataset` or a `checkpoint`, which
  * its strict schema refuses.
  */
 export function isEnvRefPlace(path: ReadonlyArray<string | number>): boolean {
   if (path.length === 3 && path[0] === 'orgs' && path[2] === 'alias') return true;
+  if (path.length !== 4 || path[0] !== 'resources') return false;
   return (
-    path.length === 4 && path[0] === 'resources' && path[2] === 'dataset' && path[3] === 'path'
+    (path[2] === 'dataset' && path[3] === 'path') ||
+    (path[2] === 'checkpoint' && path[3] === 'file')
   );
 }
 
@@ -234,12 +257,77 @@ const aliasValueSchema = z.union(
 /** The kinds of org an environment may be applied to: never a production org. */
 export const envTargetKindSchema = z.enum(['scratch', 'developer', 'sandbox']);
 
+/** A sandbox's My Domain: production's, two dashes, the sandbox's name, as `acme--uat`. */
+const SANDBOX_MY_DOMAIN = /^[a-z0-9-]+--[a-z0-9]+$/;
+
+/**
+ * Why a My Domain given is not a sandbox's, with the one to give: a whole
+ * host gives its first label, production's own gives itself with `--uat`.
+ */
+function myDomainRefusal(given: string): string {
+  const name = given.split('.')[0]?.toLowerCase() ?? '';
+  if (given.includes('.')) {
+    const example = name.includes('--') ? name : `${name}--uat`;
+    return (
+      `${given} is a host: give the sandbox's My Domain alone, the part before ` +
+      `.sandbox.my.salesforce.com, as ${example}`
+    );
+  }
+  if (/^[a-z0-9-]+$/.test(given) && !given.includes('--')) {
+    return `${given} is production's My Domain: a sandbox's is ${given}--<its name>, as ${given}--uat`;
+  }
+  return (
+    "A sandbox's My Domain is lower-case letters, digits and dashes, then -- and the sandbox's " +
+    'name, as acme--uat'
+  );
+}
+
+/**
+ * A sandbox by its My Domain, which a refresh keeps where it changes the
+ * Organization Id: `{ myDomain: acme--uat }`, the name alone, never a host
+ * and never production's.
+ */
+const myDomainEntrySchema = strictObject('a My Domain', {
+  myDomain: z
+    .string()
+    .max(80)
+    .regex(SANDBOX_MY_DOMAIN, { error: (issue) => myDomainRefusal(String(issue.input)) }),
+});
+
+/**
+ * An org of `targets`: its Organization Id, or a sandbox's My Domain. A My
+ * Domain written where an Id goes is told how to be written.
+ */
+const targetOrgSchema = z.union(
+  [
+    z.string().regex(/^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/, {
+      error: (issue) => {
+        const given = String(issue.input);
+        const example = SANDBOX_MY_DOMAIN.test(given) ? given : 'acme--uat';
+        return (
+          `${given} is no Organization Id: list an org by its Id (00D…, 15 or 18 characters), ` +
+          `or a sandbox by its My Domain, as { myDomain: ${example} }`
+        );
+      },
+    }),
+    myDomainEntrySchema,
+  ],
+  {
+    error:
+      'An org is listed by its Organization Id (00D…), or a sandbox by its My Domain, as ' +
+      '{ myDomain: acme--uat }',
+  },
+);
+
 const targetsSchema = strictObject('targets', {
   kinds: z.array(envTargetKindSchema).min(1).max(3).default(['scratch', 'developer']),
-  /** Organization Ids of the sandboxes an apply may write to. */
-  sandboxes: z.array(checkpointOrganizationIdSchema).max(50).default([]),
-  /** Organization Ids refused whatever else says. */
-  protect: z.array(checkpointOrganizationIdSchema).max(50).default([]),
+  /**
+   * The sandboxes an apply may write to, by Organization Id or by My Domain:
+   * a refresh changes the Id, and keeps the My Domain.
+   */
+  sandboxes: z.array(targetOrgSchema).max(50).default([]),
+  /** Orgs refused whatever else says, by Organization Id or by a sandbox's My Domain. */
+  protect: z.array(targetOrgSchema).max(50).default([]),
 }).superRefine((targets, ctx) => {
   if (new Set(targets.kinds).size !== targets.kinds.length) {
     ctx.addIssue({ code: 'custom', path: ['kinds'], message: 'A kind of org is listed twice' });
@@ -836,19 +924,24 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
 // ─── The file: the frozen kind ───────────────────────────────────────────────
 
 /**
- * A path on the machine that runs the command, from its root: a dataset sits
- * outside the project's repository, where a pipeline downloads it, so it is
- * never named from the file's folder.
+ * A path on the machine that runs the command, from its root: a dataset, or
+ * a checkpoint file, sits outside the project's repository, where a pipeline
+ * downloads it, so it is never named from the file's folder.
+ *
+ * @param error - What the refusal says, naming the thing and the way.
  */
-const absolutePathSchema = z
-  .string()
-  .min(1)
-  .max(4_096)
-  .refine((path) => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path), {
-    error:
-      'A dataset is named by its path from the root, as /data/claims, or by { env: NAME }: it ' +
-      'lives outside the repository',
-  });
+function absolutePathOf(error: string) {
+  return z
+    .string()
+    .min(1)
+    .max(4_096)
+    .refine((path) => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path), { error });
+}
+
+const absolutePathSchema = absolutePathOf(
+  'A dataset is named by its path from the root, as /data/claims, or by { env: NAME }: it ' +
+    'lives outside the repository',
+);
 
 /** A dataset's version, as its manifest stamps it. */
 const datasetVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, {
@@ -979,16 +1072,225 @@ export const envMaskResourceSchema = strictObject('a mask resource', {
   }
 });
 
+// ─── The file: the users kind ────────────────────────────────────────────────
+
+/**
+ * What a users resource answers a key that would reset a password: the
+ * product resets none, and the owner of a restored address resets their own.
+ */
+const NO_PASSWORD_RESET =
+  'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +
+  'one with Forgot your password?';
+
+/** One user of a users resource: who, by username, and what it is set up with. */
+const usersUserFileSchema = strictObject(
+  'a user of a users resource',
+  { username: usersUsernameSchema, ...usersSettingsShape },
+  { login: NO_PASSWORD_RESET },
+);
+
+/**
+ * The users of a sandbox handed back to its testers — an address the copy
+ * put under `.invalid` restored, a user activated, frozen or unfrozen, a
+ * profile, permission sets, groups of them, groups and queues — set up by
+ * `sandforge users`, before every other resource of the file and taken back
+ * after them all. It takes no `dependsOn`, and none names it: a replay keeps
+ * a record's owner only where that user is active, so the users come first
+ * whatever the file says.
+ */
+export const envUsersResourceSchema = strictObject(
+  'a users resource',
+  {
+    kind: z.literal('users'),
+    accept: commonResourceShape.accept,
+    /** What every user is set up with unless it says otherwise, its key replacing theirs. */
+    defaults: strictObject('the defaults of a users resource', usersSettingsShape, {
+      login: NO_PASSWORD_RESET,
+    }).optional(),
+    users: usersListSchema(usersUserFileSchema),
+  },
+  { dependsOn: 'a users resource is applied first, before every other, and depends on none' },
+);
+
+// ─── The file: the replay kind ───────────────────────────────────────────────
+
+/** The checkpoint id `checkpoint list` gives: `ck-20261114-174750-5e38`. */
+const replayCheckpointIdSchema = z.string().regex(/^ck-\d{8}-\d{6}-[a-z0-9]{4}$/, {
+  error: (issue) =>
+    `${String(issue.input)} is no checkpoint id (ck-YYYYMMDD-HHMMSS-xxxx, as sandforge ` +
+    `checkpoint list gives it): a checkpoint is named so with name: ${String(issue.input)}`,
+});
+
+/** A checkpoint's name, as `checkpoint take --name` gave it: one line, not read as a flag. */
+const replayCheckpointNameSchema = checkpointNameSchema.refine((name) => !name.startsWith('-'), {
+  error: 'A checkpoint name does not start with -, which a command line reads as a flag',
+});
+
+/** A checkpoint file's path from the root, or the variable that holds it. */
+const replayCheckpointFileSchema = z.union(
+  [
+    absolutePathOf(
+      'A checkpoint file is named by its path from the root, as /runner/work/uat.sfcheckpoint, ' +
+        'or by { env: NAME }: it holds records, and lives outside the repository',
+    ),
+    envRefSchema,
+  ],
+  { error: 'A checkpoint file is named by its path from the root, or by { env: NAME }' },
+);
+
+/**
+ * The letters of a checkpoint file's key, as `checkpoint export` prints it
+ * without its dashes: 52 of base32. A name of that shape is the key written
+ * where its variable's name goes.
+ */
+const ARCHIVE_KEY_LETTERS = /^[A-Z2-7]{52}$/;
+
+/**
+ * The name of the variable that holds a checkpoint file's key: a name, never
+ * `{ env }` and never the key, which the file does not hold.
+ */
+const keyEnvSchema = z
+  .string({
+    error: (issue) =>
+      issue.input !== null && typeof issue.input === 'object'
+        ? 'keyEnv is the name of the variable that holds the key, as keyEnv: ' +
+          'UAT_CHECKPOINT_KEY, not { env: … }'
+        : undefined,
+  })
+  .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, {
+    error:
+      'A variable is named in upper-case letters, digits and underscores, as UAT_CHECKPOINT_KEY',
+  })
+  .refine((name) => !ARCHIVE_KEY_LETTERS.test(name), {
+    error:
+      'this is shaped like the key itself: keyEnv names the variable that holds it, and the ' +
+      'file holds no secret',
+  });
+
+/**
+ * The checkpoint a replay resource replays, by one of three forms: its `id`,
+ * kept on this machine; its `name`, the newest of that name taken of this
+ * sandbox before its refresh, or of the org role `from` names; or a `file`
+ * exported with `sandforge checkpoint export`, opened with the key of the
+ * variable `keyEnv` names.
+ */
+const replayCheckpointRefSchema = strictObject('a checkpoint', {
+  id: replayCheckpointIdSchema.optional(),
+  name: replayCheckpointNameSchema.optional(),
+  file: replayCheckpointFileSchema.optional(),
+  keyEnv: keyEnvSchema.optional(),
+}).superRefine((checkpoint, ctx) => {
+  const byFile = checkpoint.file !== undefined || checkpoint.keyEnv !== undefined;
+  const forms = [checkpoint.id !== undefined, checkpoint.name !== undefined, byFile];
+  if (forms.filter(Boolean).length !== 1) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'give id, name, or file with keyEnv: one of them',
+    });
+    return;
+  }
+  if (checkpoint.file !== undefined && checkpoint.keyEnv === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['keyEnv'],
+      message:
+        'a checkpoint file is read with the key the variable keyEnv names: give keyEnv, as ' +
+        'keyEnv: UAT_CHECKPOINT_KEY',
+    });
+  }
+  if (checkpoint.keyEnv !== undefined && checkpoint.file === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['keyEnv'],
+      message: 'keyEnv goes with file, the checkpoint file it opens',
+    });
+  }
+});
+
+/** Objects of a replay, by API name, each once. */
+function replayObjectsSchema() {
+  return z
+    .array(apiNameSchema)
+    .min(1)
+    .max(500)
+    .superRefine((objects, ctx) => {
+      const seen = new Set<string>();
+      objects.forEach((object, index) => {
+        const key = object.toLowerCase();
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index],
+            message: `${object} is listed twice: an object is listed once`,
+          });
+        }
+        seen.add(key);
+      });
+    });
+}
+
+/**
+ * A checkpoint replayed into the org by `sandforge checkpoint replay` — the
+ * records a sandbox held before its refresh, or those of another org's
+ * checkpoint —, its choices each under its flag's name, and taken back by
+ * the replay's own removal.
+ */
+export const envReplayResourceSchema = strictObject('a replay resource', {
+  kind: z.literal('replay'),
+  ...commonResourceShape,
+  checkpoint: replayCheckpointRefSchema,
+  /** With `checkpoint.name`: the org role the checkpoint of that name was taken of. */
+  from: envNameSchema.optional(),
+  /** `--objects`: the objects replayed, the checkpoint's others left out. */
+  objects: replayObjectsSchema().optional(),
+  /** `--exclude-object`: the objects left out. */
+  excludeObjects: replayObjectsSchema().optional(),
+  /** `--owners`: each record keeps its owner where that user is active, or goes to the user connected. */
+  owners: z
+    .enum(['same', 'me'], {
+      error:
+        'owners is same, each record keeping its owner where that user is active, or me, the ' +
+        'user connected',
+    })
+    .optional(),
+  /** `--custom-settings`: the custom settings' records too. */
+  customSettings: z.boolean().optional(),
+  /** `--mask`: the personal fields masked as they are written. */
+  mask: z.boolean().optional(),
+  /** `--keep-contact-points`: emails and phone numbers written as the checkpoint holds them. */
+  keepContactPoints: z.boolean().optional(),
+  /** `--max-records`: the most records it may create. */
+  maxRecords: z.number().int().positive().max(ENV_CHECKPOINT_MAX_TOTAL).optional(),
+}).superRefine((resource, ctx) => {
+  if (resource.from !== undefined && resource.checkpoint.name === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['from'],
+      message:
+        'from goes with checkpoint: { name }: it names the org role the checkpoint of that name ' +
+        'was taken of',
+    });
+  }
+});
+
 /** Kinds that come with a later version of the file. */
 const LATER_KINDS: readonly string[] = [];
 
 /** The kinds this version applies, as a refusal names them. */
-const KINDS_APPLIED = 'seed, forge, frozen and mask resources';
+const KINDS_APPLIED = 'seed, forge, frozen, mask, users and replay resources';
 
 /** A resource of the file, told apart by its `kind`. */
 export const envResourceSchema = z.discriminatedUnion(
   'kind',
-  [envSeedResourceSchema, envForgeResourceSchema, envFrozenResourceSchema, envMaskResourceSchema],
+  [
+    envSeedResourceSchema,
+    envForgeResourceSchema,
+    envFrozenResourceSchema,
+    envMaskResourceSchema,
+    envUsersResourceSchema,
+    envReplayResourceSchema,
+  ],
   {
     error: (issue) => {
       const input = issue.input;
@@ -1004,6 +1306,128 @@ export const envResourceSchema = z.discriminatedUnion(
     },
   },
 );
+
+// ─── The file: the audits ────────────────────────────────────────────────────
+
+/** A host name, as a URL holds it between its scheme and its path. */
+const HOST_NAME =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+
+/** A host name, which an answer names a URL's or an org's host by. */
+const hostSchema = z.string().max(253).regex(HOST_NAME, { error: 'Not a host name' });
+
+/** The most production hosts, and the most fields, a file names to the endpoints audit. */
+const AUDIT_MOST_NAMES = 50;
+
+/**
+ * Names each once, whatever their case: the second time one is given is
+ * refused where it stands. The bound is checked here rather than by `max`,
+ * whose refusal inside `endpoints`, `true` or a mapping, zod reports as
+ * neither shape matching instead of naming the list.
+ */
+function onceEach(
+  names: readonly string[],
+  ctx: z.core.$RefinementCtx,
+  what: string,
+  bound: string,
+): void {
+  if (names.length > AUDIT_MOST_NAMES) {
+    ctx.addIssue({ code: 'custom', path: [], message: bound });
+    return;
+  }
+  const seen = new Set<string>();
+  names.forEach((name, index) => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [index],
+        message: `${name} is listed twice: ${what} is listed once`,
+      });
+    }
+    seen.add(key);
+  });
+}
+
+/** A production host, as the file names one: the host alone, which a URL given is told down to. */
+const productionHostSchema = z
+  .string()
+  .max(253)
+  .regex(HOST_NAME, {
+    error: (issue) => {
+      const given = String(issue.input);
+      const host = /^[a-z][a-z0-9+.-]*:\/\/([^/?#:@\s]+)/i.exec(given)?.[1] ?? 'erp.acme.com';
+      return (
+        `${given} is no host name: write the host alone, without https:// nor a path, as ` +
+        host.toLowerCase()
+      );
+    },
+  });
+
+/**
+ * A field that holds a URL, of a Custom Metadata Type or a Custom Setting,
+ * named with it: a custom field of an object whose API name ends in `__mdt`,
+ * or in `__c` for a Custom Setting, which only the org tells from another
+ * custom object.
+ */
+const endpointFieldSchema = z
+  .string()
+  .max(161)
+  .regex(/^[A-Za-z][A-Za-z0-9_]*__(?:mdt|c)\.[A-Za-z][A-Za-z0-9_]*__c$/, {
+    error: (issue) =>
+      `${String(issue.input)} is no field of a Custom Metadata Type (__mdt) or a Custom ` +
+      'Setting named with it: write Object.Field, as Integration_Setting__mdt.Endpoint__c',
+  });
+
+/**
+ * What the endpoints audit reads beside what SandForge deduces of the
+ * production the sandbox was copied from: its other hosts, and the fields
+ * that hold a URL.
+ */
+const auditEndpointsSchema = strictObject('endpoints', {
+  /** Production's hosts beside those deduced from the sandbox's: the ERP, the middleware. */
+  productionHosts: z
+    .array(productionHostSchema)
+    .superRefine((hosts, ctx) =>
+      onceEach(
+        hosts,
+        ctx,
+        'a host',
+        `${AUDIT_MOST_NAMES} hosts at most: SandForge deduces production’s own from the sandbox`,
+      ),
+    )
+    .optional(),
+  /** Fields of Custom Metadata Types or Custom Settings that hold a URL, as `Object.Field`. */
+  fields: z
+    .array(endpointFieldSchema)
+    .superRefine((fields, ctx) =>
+      onceEach(
+        fields,
+        ctx,
+        'a field',
+        `${AUDIT_MOST_NAMES} fields at most: the audit reads each object they are of, a request each`,
+      ),
+    )
+    .optional(),
+});
+
+/**
+ * The audits an apply reads once it wrote, and `env audit` reads at any
+ * time: the scheduled jobs, the endpoints that still name production, and the
+ * handoff note an apply writes. Each reads and writes nothing in the org.
+ */
+const auditsSchema = strictObject('audits', {
+  /** The scheduled jobs, against the inventory `env audit --save` kept before the refresh. */
+  schedules: z.boolean().optional(),
+  /** The Named Credentials, Remote Sites and fields that still name production: `true`, or what to read beside. */
+  endpoints: z
+    .union([z.boolean(), auditEndpointsSchema], {
+      error: 'endpoints is true, or a mapping of productionHosts and fields',
+    })
+    .optional(),
+  /** A note of what the apply did and what is left to do, written once it ends. */
+  handoff: z.boolean().optional(),
+});
 
 /** The most resources one file holds, and the most org roles. */
 export const ENV_MAX_RESOURCES = 100;
@@ -1032,6 +1456,8 @@ export const envFileSchema = strictObject('the file', {
     error: (issue) =>
       issue.input === undefined ? 'The file names no resources: write resources:' : undefined,
   }),
+  /** The audits read once applied, and by `env audit`. */
+  audits: auditsSchema.optional(),
 }).superRefine((file, ctx) => {
   if (Object.keys(file.resources).length > ENV_MAX_RESOURCES) {
     ctx.addIssue({
@@ -1047,20 +1473,65 @@ export const envFileSchema = strictObject('the file', {
       message: `A file names ${ENV_MAX_ORG_ROLES} org roles at most`,
     });
   }
-  // The org a forge resource clones from is named by a role the file
-  // declares, its alias given there or on the line: never by an alias of its
-  // own, which a pipeline could not point at another org.
+  // The org a forge resource clones from, and the org a replay's checkpoint
+  // was taken of, are named by a role the file declares, its alias given
+  // there or on the line: never by an alias of their own, which a pipeline
+  // could not point at another org.
   const roles = Object.keys(file.orgs);
   for (const [name, resource] of Object.entries(file.resources)) {
-    if (resource.kind !== 'forge' || roles.includes(resource.source)) continue;
+    const named =
+      resource.kind === 'forge'
+        ? { key: 'source', role: resource.source }
+        : resource.kind === 'replay' && resource.from !== undefined
+          ? { key: 'from', role: resource.from }
+          : undefined;
+    if (named === undefined || roles.includes(named.role)) continue;
     ctx.addIssue({
       code: 'custom',
-      path: ['resources', name, 'source'],
+      path: ['resources', name, named.key],
       message:
-        `"${resource.source}" is no org role of the file: declare it under orgs, as ` +
-        `orgs: { ${resource.source}: { alias: { env: … } } }` +
+        `"${named.role}" is no org role of the file: declare it under orgs, as ` +
+        `orgs: { ${named.role}: { alias: { env: … } } }` +
         (roles.length > 0 ? ` (its roles are ${roles.join(', ')})` : ''),
     });
+  }
+  // A users resource is applied before every other and taken back after them
+  // all, whatever the file says: a dependsOn naming one would say an order
+  // that is not kept, and a relation drawing from one draws from no record.
+  const users = Object.entries(file.resources).filter(([, resource]) => resource.kind === 'users');
+  const usersNames = new Set(users.map(([name]) => name));
+  for (const [name, resource] of Object.entries(file.resources)) {
+    if (resource.kind === 'users') continue;
+    for (const other of resource.dependsOn ?? []) {
+      if (!usersNames.has(other)) continue;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['resources', name, 'dependsOn'],
+        message: `${other} is a users resource, applied first whatever the file says: take it out of dependsOn`,
+      });
+    }
+    if (resource.kind !== 'seed') continue;
+    (resource.relations ?? []).forEach((relation, index) => {
+      const from = relation.parents.from?.split('.')[0];
+      if (from === undefined || !usersNames.has(from)) return;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['resources', name, 'relations', index, 'parents', 'from'],
+        message: `${from} is a users resource: it creates no record to draw parents from`,
+      });
+    });
+  }
+  // A user is named once in the file, all its users resources together: two
+  // entries would each set the same user up their own way, and a removal of
+  // one would undo what the other did.
+  for (const { path, message } of usernamesTwice(
+    users.map(([name, resource]) => ({
+      at: `resources.${name}.users`,
+      path: ['resources', name, 'users'],
+      users: resource.kind === 'users' ? resource.users : [],
+    })),
+  )) {
+    ctx.addIssue({ code: 'custom', path, message });
   }
   // A mask resource names its rules by a set the file declares, as a forge
   // resource names its source by a role.
@@ -1156,14 +1627,19 @@ export function envRefsIn(document: unknown): Array<{ path: EnvDocumentPath; nam
 
 // ─── The state ───────────────────────────────────────────────────────────────
 
-export const envResourceKindSchema = z.enum(['seed', 'forge', 'frozen', 'mask']);
+export const envResourceKindSchema = z.enum(['seed', 'forge', 'frozen', 'mask', 'users', 'replay']);
 
-/** The script that applies, refreshes and destroys each kind of resource. */
+/**
+ * The script that applies, refreshes and destroys each kind of resource: a
+ * replay's is the checkpoint script, which replays and takes a replay back.
+ */
 export const envScriptSchema = z.enum([
   'sandforge-seed',
   'sandforge-clone',
   'sandforge-frozen',
   'sandforge-dataops',
+  'sandforge-users',
+  'sandforge-checkpoint',
 ]);
 
 export const envResourceStatusSchema = z.enum([
@@ -1274,6 +1750,13 @@ export const envStateSchema = z.strictObject({
     kind: envTargetKindSchema,
     username: z.string().min(1).max(255),
     alias: z.string().min(1).max(255).optional(),
+    /**
+     * The host the org answered on, its My Domain's: a refresh keeps it and
+     * changes the Organization Id, so a state of another Id under the same
+     * host proves the org refreshed. A state written before 1.82 has none,
+     * and proves nothing.
+     */
+    host: hostSchema.optional(),
   }),
   /** The resolved, canonical file it was last applied from. */
   file: z.strictObject({ digest: sha256Schema }),
@@ -1321,6 +1804,12 @@ const envActionGatesSchema = z.strictObject({
   apiRequests: countSchema.optional(),
   storageBytes: countSchema.optional(),
   emails: z.array(z.strictObject({ limit: envEmailLimitSchema, emails: countSchema })).optional(),
+  /**
+   * The emails Salesforce sends to people as a users resource is applied —
+   * the link of each address asked back —, which no daily limit counts and
+   * only the line accepts.
+   */
+  emailsToPeople: countSchema.optional(),
 });
 
 /**
@@ -1358,6 +1847,8 @@ export const envActionSchema = z.strictObject({
   refusalCodes: envRefusalCodesSchema.optional(),
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
   notes: z.array(z.string().min(1).max(2_000)).max(20).optional(),
+  /** A users resource's: each user, its address as read, and what applying would change. */
+  users: z.array(usersPlanUserSchema).max(USERS_MAX).optional(),
 });
 
 /** A checkpoint of the environment's lifecycle: taken before the first write, or once applied. */
@@ -1429,6 +1920,25 @@ const envPlanGatesSchema = z.strictObject({
       left: z.number().int().optional(),
     }),
   ),
+  /**
+   * The emails Salesforce would send to people, all users resources
+   * together, and whether the line accepted them (`--accept-user-emails`).
+   * Absent from a plan made before 1.82.
+   */
+  emailsToPeople: z.strictObject({ count: countSchema, accepted: z.boolean() }).optional(),
+});
+
+/**
+ * The state of this environment this machine kept under another Organization
+ * Id of the same host: the org was refreshed since, and the apply starts
+ * anew. That state is set aside, kept, never deleted.
+ */
+const envPlanRefreshedSchema = z.strictObject({
+  organizationId: checkpointOrganizationIdSchema,
+  serial: countSchema,
+  updatedAt: instantSchema,
+  /** Where it is kept, set aside. */
+  setAside: z.string().min(1).max(4_096),
 });
 
 export const envPlanSchema = z.strictObject({
@@ -1437,8 +1947,15 @@ export const envPlanSchema = z.strictObject({
     organizationId: checkpointOrganizationIdSchema,
     kind: envTargetKindSchema,
     alias: z.string().min(1).max(255).optional(),
+    /** The host the org answers on, its My Domain's. */
+    host: hostSchema.optional(),
   }),
-  state: z.strictObject({ found: z.boolean(), serial: countSchema.optional() }),
+  state: z.strictObject({
+    found: z.boolean(),
+    serial: countSchema.optional(),
+    /** With no state for this Id: the state of the same org before its refresh. */
+    refreshed: envPlanRefreshedSchema.optional(),
+  }),
   /** In the order apply runs them. */
   actions: z.array(envActionSchema).max(ENV_MAX_RESOURCES * 2),
   totals: z.strictObject({
@@ -1511,6 +2028,122 @@ export const envCheckpointStepResultSchema = z.strictObject({
   answer: z.unknown().optional(),
 });
 
+// ─── What the audits read ────────────────────────────────────────────────────
+
+/** Why an audit did not read: never taken for one that found nothing. */
+const auditUnreadSchema = z.string().min(1).max(2_000);
+
+/**
+ * A URL as an audit names it: its scheme, its host and its path, and nothing
+ * else. A URL's query may carry a key, and its authority a user and a
+ * password: neither is ever printed, kept or answered.
+ */
+const auditUrlSchema = z
+  .string()
+  .max(2_048)
+  .regex(/^[a-z][a-z0-9+.-]*:\/\/[^\s/?#@]+(?:\/[^\s?#]*)?$/, {
+    error: 'A URL is named by its scheme, its host and its path alone: no query, no credentials',
+  });
+
+/**
+ * Whether the org delivers email, as the reservation probe reads it: open,
+ * All email; closed, System email only or No access, which no API tells
+ * apart.
+ */
+const auditDeliverabilitySchema = z.strictObject({
+  read: z.enum(['open', 'closed']).optional(),
+  unread: auditUnreadSchema.optional(),
+});
+
+/** A scheduled job as the audit names it: never by its owner's address. */
+const auditJobSchema = z.strictObject({
+  /**
+   * `gone`, in the inventory before and not now; `frozen` or `inactive`, run
+   * as a user who can no longer; `new`, not in the inventory before.
+   */
+  status: z.enum(['gone', 'frozen', 'inactive', 'new']),
+  /** `CronJobDetail.Name`. */
+  name: z.string().min(1).max(255),
+  /** Its type, as Setup names it: Scheduled Apex, Batch Job… */
+  type: z.string().min(1).max(80),
+  cronExpression: z.string().min(1).max(255).optional(),
+  /** The username of the user it runs as. */
+  owner: z.string().min(1).max(255).optional(),
+  nextFireTime: instantSchema.optional(),
+});
+
+/** The scheduled jobs, against the inventory kept before the refresh when there is one. */
+const auditSchedulesSchema = z.strictObject({
+  /** The jobs the org holds now. */
+  now: countSchema,
+  /**
+   * The inventory compared against: the newest `env audit --save` kept of the
+   * same host, and whether it is of another Organization Id — the sandbox
+   * before its refresh.
+   */
+  against: z
+    .strictObject({
+      savedAt: instantSchema,
+      organizationId: checkpointOrganizationIdSchema,
+      refreshed: z.boolean(),
+    })
+    .optional(),
+  /** Those gone, run as a user who can no longer, or new; the others are `kept`. */
+  jobs: z.array(auditJobSchema).max(10_000),
+  kept: countSchema,
+  /** Where `--save` kept the inventory read now. */
+  saved: z.string().min(1).max(4_096).optional(),
+  unread: auditUnreadSchema.optional(),
+});
+
+/** A place that still names production, and why that host is production's. */
+const auditEndpointSchema = z.strictObject({
+  source: z.enum(['namedCredential', 'remoteSite', 'field']),
+  /** The Named Credential's or the Remote Site's name; a field's as `Object.Record.Field`. */
+  name: z.string().min(1).max(400),
+  url: auditUrlSchema,
+  host: hostSchema,
+  /**
+   * `listed`, among the file's productionHosts; `myDomain`, `lightning` and
+   * `site`, production's own, deduced from the sandbox's host; `login`,
+   * login.salesforce.com.
+   */
+  why: z.enum(['listed', 'myDomain', 'lightning', 'site', 'login']),
+});
+
+/** The endpoints that still name production. */
+const auditEndpointsReadSchema = z.strictObject({
+  /** The hosts compared against: those deduced, login.salesforce.com, and the file's. */
+  productionHosts: z.array(hostSchema).max(AUDIT_MOST_NAMES + 10),
+  found: z.array(auditEndpointSchema).max(10_000),
+  /** Why no host was deduced: the org's host is not a sandbox's. */
+  notDeduced: z.string().min(1).max(2_000).optional(),
+  unread: auditUnreadSchema.optional(),
+});
+
+/**
+ * What `env audit --json` answers, and an apply that read the audits once it
+ * wrote: the org's deliverability, its scheduled jobs and the endpoints that
+ * still name production. Each was read, and nothing written; one that could
+ * not be read says why, and never changes how the apply ended.
+ */
+export const envAuditResultSchema = z.strictObject({
+  org: z.strictObject({
+    organizationId: checkpointOrganizationIdSchema,
+    kind: envTargetKindSchema,
+    alias: z.string().min(1).max(255).optional(),
+    host: hostSchema.optional(),
+  }),
+  /** When it was read, on the org's clock. */
+  at: instantSchema,
+  apiRequests: countSchema,
+  deliverability: auditDeliverabilitySchema.optional(),
+  schedules: auditSchedulesSchema.optional(),
+  endpoints: auditEndpointsReadSchema.optional(),
+  /** What `--fail-on-findings` exits 3 on: jobs gone or stuck, endpoints that name production, an open deliverability. */
+  findings: countSchema,
+});
+
 /** What `apply` and `destroy` answer with `--json`. */
 export const envRunResultSchema = z.strictObject({
   plan: envPlanSchema,
@@ -1529,6 +2162,10 @@ export const envRunResultSchema = z.strictObject({
   refusalCodes: envRefusalCodesSchema.optional(),
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
   state: z.strictObject({ serial: countSchema }),
+  /** The audits the file asks, read once the apply wrote. */
+  audits: envAuditResultSchema.optional(),
+  /** The handoff note the apply wrote. */
+  handoff: z.strictObject({ path: z.string().min(1).max(4_096) }).optional(),
 });
 
 /** Whether the checkpoint script offers to undo a rewind, until when and the line that does, or why not. */
@@ -1718,6 +2355,8 @@ const envSavedPlanLineSchema = z.strictObject({
   // Absent from a plan saved before the emails were asked: none accepted.
   acceptEmails: z.boolean().optional(),
   acceptNoState: z.boolean(),
+  // Absent from a plan saved before 1.82: no email to a person accepted.
+  acceptUserEmails: z.boolean().optional(),
 });
 
 /**
@@ -1759,6 +2398,18 @@ const envOutputResourceSchema = z.strictObject({
   masked: z.record(apiNameSchema, countSchema).optional(),
   /** A mask resource's: the snapshot its last run took first. */
   snapshotId: z.string().min(1).max(200).optional(),
+  /** A users resource's: the users its last run set up, by username and id alone. */
+  users: z
+    .array(
+      z.strictObject({
+        username: usersUsernameSchema,
+        userId: z.string().regex(/^005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/, {
+          error: 'Not a User Id',
+        }),
+      }),
+    )
+    .max(USERS_MAX)
+    .optional(),
   /** Why it names no record. */
   why: z.string().min(1).max(4_000).optional(),
 });

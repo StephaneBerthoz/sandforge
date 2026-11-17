@@ -4,6 +4,7 @@ import type * as z from 'zod';
 import type {
   EnvAction,
   EnvActionKind,
+  EnvAuditResult,
   EnvCheckpointStep,
   EnvCheckpointStepResult,
   EnvFile,
@@ -18,6 +19,7 @@ import type {
   EnvResourceState,
   EnvResourceStatus,
   EnvRefusalAnswer,
+  EnvReplayResource,
   EnvRewindResult,
   EnvRun,
   EnvRunResult,
@@ -30,11 +32,13 @@ import type {
   EnvStepPhase,
   EnvStepResult,
   EnvTargetKind,
+  EnvUsersResource,
   EnvValidation,
 } from './env.types.js';
 import {
   envActionKindSchema,
   envActionSchema,
+  envAuditResultSchema,
   envCheckpointStepResultSchema,
   envCheckpointStepSchema,
   envFileSchema,
@@ -45,6 +49,7 @@ import {
   envPlanSchema,
   envRecoverResultSchema,
   envRefusalAnswerSchema,
+  envReplayResourceSchema,
   envRewindResultSchema,
   envResourceKindSchema,
   envResourceSchema,
@@ -61,6 +66,7 @@ import {
   envStepPhaseSchema,
   envStepResultSchema,
   envTargetKindSchema,
+  envUsersResourceSchema,
   envValidationSchema,
 } from '../schemas/env.schema.js';
 
@@ -79,6 +85,8 @@ describe('the file and its schema', () => {
     expectTypeOf<z.infer<typeof envForgeResourceSchema>>().toEqualTypeOf<EnvForgeResource>();
     expectTypeOf<z.infer<typeof envFrozenResourceSchema>>().toEqualTypeOf<EnvFrozenResource>();
     expectTypeOf<z.infer<typeof envMaskResourceSchema>>().toEqualTypeOf<EnvMaskResource>();
+    expectTypeOf<z.infer<typeof envUsersResourceSchema>>().toEqualTypeOf<EnvUsersResource>();
+    expectTypeOf<z.infer<typeof envReplayResourceSchema>>().toEqualTypeOf<EnvReplayResource>();
     expectTypeOf<EnvFile['version']>().toEqualTypeOf<1>();
     expectTypeOf<EnvFile['targets']['kinds']>().toEqualTypeOf<EnvTargetKind[]>();
   });
@@ -100,6 +108,14 @@ describe('the state and its schema', () => {
   it('reads the closed lists the types declare, value for value', () => {
     expectTypeOf<z.infer<typeof envResourceKindSchema>>().toEqualTypeOf<EnvResourceKind>();
     expectTypeOf<z.infer<typeof envScriptSchema>>().toEqualTypeOf<EnvScript>();
+    expect(envResourceKindSchema.options).toEqual([
+      'seed',
+      'forge',
+      'frozen',
+      'mask',
+      'users',
+      'replay',
+    ]);
     expectTypeOf<z.infer<typeof envResourceStatusSchema>>().toEqualTypeOf<EnvResourceStatus>();
     expect(envResourceStatusSchema.options).toEqual([
       'applying',
@@ -155,6 +171,10 @@ describe('what the other verbs answer, and their schemas', () => {
     expectTypeOf<z.infer<typeof envSavedPlanSchema>>().toEqualTypeOf<EnvSavedPlan>();
     expectTypeOf<z.infer<typeof envOutputSchema>>().toEqualTypeOf<EnvOutput>();
     expectTypeOf<EnvSavedPlan['savedPlan']>().toEqualTypeOf<1>();
+  });
+
+  it('reads exactly the shape env audit answers', () => {
+    expectTypeOf<z.infer<typeof envAuditResultSchema>>().toEqualTypeOf<EnvAuditResult>();
   });
 
   it('reads exactly the shape state recover answers, and the mark it leaves on a resource', () => {

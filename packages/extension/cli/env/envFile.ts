@@ -193,7 +193,8 @@ export function checkEnvFile(
       .map(({ path }) =>
         refusalAt(
           path,
-          `{ env } stands in ${ENV_REF_PLACES.join(' and ')} alone: write this value in the ` +
+          `{ env } stands in ${ENV_REF_PLACES.slice(0, -1).join(', ')} and ` +
+            `${ENV_REF_PLACES.at(-1) ?? ''} alone: write this value in the ` +
             'file. A variable inside a query or a field value would let a CI variable into what ' +
             'is written.',
         ),
@@ -309,7 +310,8 @@ function drawnFrom(
 export function dependenciesOf(name: string, resource: EnvFile['resources'][string]): string[] {
   return [
     ...new Set([
-      ...(resource.dependsOn ?? []),
+      // A users resource depends on none: it is applied first.
+      ...(resource.kind === 'users' ? [] : (resource.dependsOn ?? [])),
       ...drawnFrom(name, resource).map(({ from }) => from),
     ]),
   ];
@@ -344,7 +346,9 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
         deps.push(from);
       }
     }
-    (resource.dependsOn ?? []).forEach((dependency, index) => {
+    // A users resource depends on none: it is applied first.
+    const listed = resource.kind === 'users' ? [] : (resource.dependsOn ?? []);
+    listed.forEach((dependency, index) => {
       const path = ['resources', name, 'dependsOn', index];
       if (dependency === name) {
         refusals.push(

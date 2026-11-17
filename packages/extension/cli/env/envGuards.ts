@@ -203,7 +203,13 @@ const KIND_WORDS: Readonly<Record<EnvTargetKind, string>> = {
  */
 export function targetRefusal(targets: EnvTargets, target: EnvTarget): EnvRefusal | undefined {
   const id = target.organizationId;
-  if (targets.protect.some((protectedId) => sameOrganization(protectedId, id))) {
+  // An org protected by its My Domain is told apart by its host, which an Id
+  // alone does not say: every org is refused then, never let through.
+  if (
+    targets.protect.some(
+      (protectedOrg) => typeof protectedOrg !== 'string' || sameOrganization(protectedOrg, id),
+    )
+  ) {
     return {
       code: 'PROTECTED',
       message:
@@ -228,9 +234,11 @@ export function targetRefusal(targets: EnvTargets, target: EnvTarget): EnvRefusa
       exit: 1,
     };
   }
+  // A sandbox listed by its My Domain is told by its host, which an Id alone
+  // does not say: it lists none here, never one it cannot tell.
   if (
     target.kind === 'sandbox' &&
-    !targets.sandboxes.some((listed) => sameOrganization(listed, id))
+    !targets.sandboxes.some((listed) => typeof listed === 'string' && sameOrganization(listed, id))
   ) {
     return {
       code: 'NOT_LISTED',

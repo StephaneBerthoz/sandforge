@@ -43,26 +43,56 @@
           "maxItems": 50,
           "type": "array",
           "items": {
-            "type": "string",
-            "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$",
-            "markdownDescription": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh.",
-            "description": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh."
+            "anyOf": [
+              { "type": "string", "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" },
+              {
+                "type": "object",
+                "properties": {
+                  "myDomain": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "pattern": "^[a-z0-9-]+--[a-z0-9]+$",
+                    "markdownDescription": "A sandbox by its My Domain, as `acme--uat`: production’s, two dashes, the sandbox’s name, the part of its host before `.sandbox.my.salesforce.com`. A refresh keeps it, where it changes the Organization Id. Neither a whole host nor production’s My Domain alone: both are refused, with the name to give. A scratch org, a Developer Edition org or a production org is never taken for it. Not yet proven on a refreshed sandbox.",
+                    "description": "A sandbox by its My Domain, as `acme--uat`: production’s, two dashes, the sandbox’s name, the part of its host before `.sandbox.my.salesforce.com`. A refresh keeps it, where it changes the Organization Id. Neither a whole host nor production’s My Domain alone: both are refused, with the name to give. A scratch org, a Developer Edition org or a production org is never taken for it. Not yet proven on a refreshed sandbox."
+                  }
+                },
+                "required": ["myDomain"],
+                "additionalProperties": false
+              }
+            ],
+            "markdownDescription": "The sandboxes an apply may write to, with `sandbox` among the `kinds`, each by its Organization Id (`00D…`, 15 or 18 characters) or by its My Domain, as `{ myDomain: acme--uat }`; 50 at most, none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id and keeps the My Domain: a sandbox listed by its Id is listed again after each refresh, one listed by its My Domain is not.",
+            "description": "The sandboxes an apply may write to, with `sandbox` among the `kinds`, each by its Organization Id (`00D…`, 15 or 18 characters) or by its My Domain, as `{ myDomain: acme--uat }`; 50 at most, none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id and keeps the My Domain: a sandbox listed by its Id is listed again after each refresh, one listed by its My Domain is not."
           },
-          "markdownDescription": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh.",
-          "description": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh."
+          "markdownDescription": "The sandboxes an apply may write to, with `sandbox` among the `kinds`, each by its Organization Id (`00D…`, 15 or 18 characters) or by its My Domain, as `{ myDomain: acme--uat }`; 50 at most, none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id and keeps the My Domain: a sandbox listed by its Id is listed again after each refresh, one listed by its My Domain is not.",
+          "description": "The sandboxes an apply may write to, with `sandbox` among the `kinds`, each by its Organization Id (`00D…`, 15 or 18 characters) or by its My Domain, as `{ myDomain: acme--uat }`; 50 at most, none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id and keeps the My Domain: a sandbox listed by its Id is listed again after each refresh, one listed by its My Domain is not."
         },
         "protect": {
           "default": [],
           "maxItems": 50,
           "type": "array",
           "items": {
-            "type": "string",
-            "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$",
-            "markdownDescription": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default.",
-            "description": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default."
+            "anyOf": [
+              { "type": "string", "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" },
+              {
+                "type": "object",
+                "properties": {
+                  "myDomain": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "pattern": "^[a-z0-9-]+--[a-z0-9]+$",
+                    "markdownDescription": "A sandbox by its My Domain, as `acme--uat`: production’s, two dashes, the sandbox’s name, the part of its host before `.sandbox.my.salesforce.com`. A refresh keeps it, where it changes the Organization Id. Neither a whole host nor production’s My Domain alone: both are refused, with the name to give. A scratch org, a Developer Edition org or a production org is never taken for it. Not yet proven on a refreshed sandbox.",
+                    "description": "A sandbox by its My Domain, as `acme--uat`: production’s, two dashes, the sandbox’s name, the part of its host before `.sandbox.my.salesforce.com`. A refresh keeps it, where it changes the Organization Id. Neither a whole host nor production’s My Domain alone: both are refused, with the name to give. A scratch org, a Developer Edition org or a production org is never taken for it. Not yet proven on a refreshed sandbox."
+                  }
+                },
+                "required": ["myDomain"],
+                "additionalProperties": false
+              }
+            ],
+            "markdownDescription": "Orgs the file refuses whatever else it says, as a shared sandbox nobody may fill: each by its Organization Id (`00D…`, 15 or 18 characters), or a sandbox by its My Domain, as `{ myDomain: acme--full }`, which wins over `sandboxes`. 50 at most; none by default.",
+            "description": "Orgs the file refuses whatever else it says, as a shared sandbox nobody may fill: each by its Organization Id (`00D…`, 15 or 18 characters), or a sandbox by its My Domain, as `{ myDomain: acme--full }`, which wins over `sandboxes`. 50 at most; none by default."
           },
-          "markdownDescription": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default.",
-          "description": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default."
+          "markdownDescription": "Orgs the file refuses whatever else it says, as a shared sandbox nobody may fill: each by its Organization Id (`00D…`, 15 or 18 characters), or a sandbox by its My Domain, as `{ myDomain: acme--full }`, which wins over `sandboxes`. 50 at most; none by default.",
+          "description": "Orgs the file refuses whatever else it says, as a shared sandbox nobody may fill: each by its Organization Id (`00D…`, 15 or 18 characters), or a sandbox by its My Domain, as `{ myDomain: acme--full }`, which wins over `sandboxes`. 50 at most; none by default."
         }
       },
       "additionalProperties": false,
@@ -259,8 +289,8 @@
               "kind": {
                 "type": "string",
                 "const": "seed",
-                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
-                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
               },
               "dependsOn": {
                 "maxItems": 50,
@@ -694,8 +724,8 @@
               "kind": {
                 "type": "string",
                 "const": "forge",
-                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
-                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
               },
               "dependsOn": {
                 "maxItems": 50,
@@ -1066,8 +1096,8 @@
               "kind": {
                 "type": "string",
                 "const": "frozen",
-                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
-                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
               },
               "dependsOn": {
                 "maxItems": 50,
@@ -1154,8 +1184,8 @@
               "kind": {
                 "type": "string",
                 "const": "mask",
-                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
-                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
               },
               "dependsOn": {
                 "maxItems": 50,
@@ -1240,13 +1270,400 @@
             "additionalProperties": false,
             "markdownDescription": "A mask resource: records the org already holds, a sandbox copied from production, masked by `sandforge dataops` with DataOps rules, after a snapshot of the values it writes over, kept on this machine. It creates no record, and `destroy` never unmasks: it deletes the snapshots. Putting the values back is `sandforge dataops anonymize --restore`, before a destroy.",
             "description": "A mask resource: records the org already holds, a sandbox copied from production, masked by `sandforge dataops` with DataOps rules, after a snapshot of the values it writes over, kept on this machine. It creates no record, and `destroy` never unmasks: it deletes the snapshots. Putting the values back is `sandforge dataops anonymize --restore`, before a destroy."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "users",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
+              "accept": {
+                "type": "object",
+                "properties": {
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` lets the users be written although the org runs flows or Apex triggers on `User` or `UserLogin` as they are, as `--accept-automation` would. Without it, `false` by default, such a write is refused before anything is written. The emails Salesforce sends to people are never accepted here: only the line accepts them, with `--accept-user-emails`.",
+                    "description": "`true` lets the users be written although the org runs flows or Apex triggers on `User` or `UserLogin` as they are, as `--accept-automation` would. Without it, `false` by default, such a write is refused before anything is written. The emails Salesforce sends to people are never accepted here: only the line accepts them, with `--accept-user-emails`."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default.",
+                "description": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default."
+              },
+              "defaults": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "enum": ["restore", "keep"],
+                    "markdownDescription": "What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it is clicked; `keep`, the default, leaves it. That link is an email to a person, which only the line accepts, with `--accept-user-emails`. SandForge resets no password: once the address is restored, its owner asks Salesforce for one with Forgot your password?",
+                    "description": "What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it is clicked; `keep`, the default, leaves it. That link is an email to a person, which only the line accepts, with `--accept-user-emails`. SandForge resets no password: once the address is restored, its owner asks Salesforce for one with Forgot your password?"
+                  },
+                  "active": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` activates the user, within the licenses the org has free; `false` deactivates it. Without it, left as it is.",
+                    "description": "`true` activates the user, within the licenses the org has free; `false` deactivates it. Without it, left as it is."
+                  },
+                  "frozen": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` freezes the user, which then cannot log in; `false` unfreezes it. Without it, left as it is. A user whose scheduled jobs still call production is best kept frozen.",
+                    "description": "`true` freezes the user, which then cannot log in; `false` unfreezes it. Without it, left as it is. A user whose scheduled jobs still call production is best kept frozen."
+                  },
+                  "profile": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "markdownDescription": "The profile the user is given, by its name as Setup > Profiles names it, exactly: a standard profile in the org’s language. A name the org does not have is refused, with the names it has. Without it, left as it is.",
+                    "description": "The profile the user is given, by its name as Setup > Profiles names it, exactly: a standard profile in the org’s language. A name the org does not have is refused, with the names it has. Without it, left as it is."
+                  },
+                  "permissionSets": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name.",
+                      "description": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name."
+                    },
+                    "markdownDescription": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name.",
+                    "description": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name."
+                  },
+                  "permissionSetGroups": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken.",
+                      "description": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken."
+                    },
+                    "markdownDescription": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken.",
+                    "description": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken."
+                  },
+                  "groups": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays.",
+                      "description": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays."
+                    },
+                    "markdownDescription": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays.",
+                    "description": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "What every user of the resource is set up with unless it says otherwise: the keys a user takes, but `username`. A user’s own key replaces the defaults’ whole, a list included: nothing is merged unsaid.",
+                "description": "What every user of the resource is set up with unless it says otherwise: the keys a user takes, but `username`. A user’s own key replaces the defaults’ whole, a list included: nothing is merged unsaid."
+              },
+              "users": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string",
+                      "maxLength": 80,
+                      "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                      "markdownDescription": "The user, by production’s username, as `<user>@<company>.com`, or the sandbox’s whole, as `<user>@<company>.com.<sandbox>`, 80 characters at most. Read as given, then as given followed by `.` and the sandbox’s name; exactly one user must answer, or the plan refuses it with the users found.",
+                      "description": "The user, by production’s username, as `<user>@<company>.com`, or the sandbox’s whole, as `<user>@<company>.com.<sandbox>`, 80 characters at most. Read as given, then as given followed by `.` and the sandbox’s name; exactly one user must answer, or the plan refuses it with the users found."
+                    },
+                    "email": {
+                      "type": "string",
+                      "enum": ["restore", "keep"],
+                      "markdownDescription": "What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it is clicked; `keep`, the default, leaves it. That link is an email to a person, which only the line accepts, with `--accept-user-emails`. SandForge resets no password: once the address is restored, its owner asks Salesforce for one with Forgot your password?",
+                      "description": "What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it is clicked; `keep`, the default, leaves it. That link is an email to a person, which only the line accepts, with `--accept-user-emails`. SandForge resets no password: once the address is restored, its owner asks Salesforce for one with Forgot your password?"
+                    },
+                    "active": {
+                      "type": "boolean",
+                      "markdownDescription": "`true` activates the user, within the licenses the org has free; `false` deactivates it. Without it, left as it is.",
+                      "description": "`true` activates the user, within the licenses the org has free; `false` deactivates it. Without it, left as it is."
+                    },
+                    "frozen": {
+                      "type": "boolean",
+                      "markdownDescription": "`true` freezes the user, which then cannot log in; `false` unfreezes it. Without it, left as it is. A user whose scheduled jobs still call production is best kept frozen.",
+                      "description": "`true` freezes the user, which then cannot log in; `false` unfreezes it. Without it, left as it is. A user whose scheduled jobs still call production is best kept frozen."
+                    },
+                    "profile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255,
+                      "markdownDescription": "The profile the user is given, by its name as Setup > Profiles names it, exactly: a standard profile in the org’s language. A name the org does not have is refused, with the names it has. Without it, left as it is.",
+                      "description": "The profile the user is given, by its name as Setup > Profiles names it, exactly: a standard profile in the org’s language. A name the org does not have is refused, with the names it has. Without it, left as it is."
+                    },
+                    "permissionSets": {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                        "markdownDescription": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name.",
+                        "description": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name."
+                      },
+                      "markdownDescription": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name.",
+                      "description": "Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each once, 50 at most. Added, never taken: one the user has already stays, and none is removed that the file does not name."
+                    },
+                    "permissionSetGroups": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                        "markdownDescription": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken.",
+                        "description": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken."
+                      },
+                      "markdownDescription": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken.",
+                      "description": "Permission set groups the user is given, by API name, each once, 20 at most. Added, never taken."
+                    },
+                    "groups": {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                        "markdownDescription": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays.",
+                        "description": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays."
+                      },
+                      "markdownDescription": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays.",
+                      "description": "Public groups and queues the user joins, by API name (DeveloperName), each once, 50 at most. Joined, never left: a membership the user had stays."
+                    }
+                  },
+                  "required": ["username"],
+                  "additionalProperties": false,
+                  "markdownDescription": "The users it sets up, 1 to 200, each by its `username` and the keys it changes; a key left out leaves the user as it is. A user is named once in the file, all its users resources together.",
+                  "description": "The users it sets up, 1 to 200, each by its `username` and the keys it changes; a key left out leaves the user as it is. A user is named once in the file, all its users resources together."
+                },
+                "markdownDescription": "The users it sets up, 1 to 200, each by its `username` and the keys it changes; a key left out leaves the user as it is. A user is named once in the file, all its users resources together.",
+                "description": "The users it sets up, 1 to 200, each by its `username` and the keys it changes; a key left out leaves the user as it is. A user is named once in the file, all its users resources together."
+              }
+            },
+            "required": ["kind", "users"],
+            "additionalProperties": false,
+            "markdownDescription": "A users resource: the org’s users handed back to its testers by `sandforge users` — an address the copy put under `.invalid` restored, a user activated, frozen or unfrozen, a profile, permission sets, groups and queues —, applied before every other resource and taken back after them all. Accesses are added, never taken. A `destroy` takes back what it added and puts each user back as it was, but for an address asked back; a user is never deleted. Its usernames are people’s: keep the file in the project’s private repository.",
+            "description": "A users resource: the org’s users handed back to its testers by `sandforge users` — an address the copy put under `.invalid` restored, a user activated, frozen or unfrozen, a profile, permission sets, groups and queues —, applied before every other resource and taken back after them all. Accesses are added, never taken. A `destroy` takes back what it added and puts each user back as it was, but for an address asked back; a user is never deleted. Its usernames are people’s: keep the file in the project’s private repository."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "replay",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules; `users`, the org’s users set up for its testers, before every other resource; `replay`, a checkpoint’s records replayed. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
+              "dependsOn": {
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                  "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+                },
+                "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+              },
+              "accept": {
+                "type": "object",
+                "properties": {
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing. The replay that writes the resource is given it too.",
+                    "description": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing. The replay that writes the resource is given it too."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default.",
+                "description": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default."
+              },
+              "checkpoint": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^ck-\\d{8}-\\d{6}-[a-z0-9]{4}$",
+                    "markdownDescription": "A checkpoint kept on this machine, by the id `sandforge checkpoint list` gives, as `ck-20261114-174750-5e38`.",
+                    "description": "A checkpoint kept on this machine, by the id `sandforge checkpoint list` gives, as `ck-20261114-174750-5e38`."
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "markdownDescription": "The newest checkpoint of that name, as `checkpoint take --name` gave it: one taken of this sandbox before its refresh, by the same username or the same My Domain, or of the org role `from` names. None of that name on this machine refuses the plan, with the line that takes one before the next refresh.",
+                    "description": "The newest checkpoint of that name, as `checkpoint take --name` gave it: one taken of this sandbox before its refresh, by the same username or the same My Domain, or of the org role `from` names. None of that name on this machine refuses the plan, with the line that takes one before the next refresh."
+                  },
+                  "file": {
+                    "anyOf": [
+                      { "type": "string", "minLength": 1, "maxLength": 4096 },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "env": {
+                            "type": "string",
+                            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                            "markdownDescription": "The name of the variable that holds the checkpoint file’s path, in upper-case letters, digits and underscores, as `UAT_CHECKPOINT_FILE`. The file holds no secret: never a password or a token.",
+                            "description": "The name of the variable that holds the checkpoint file’s path, in upper-case letters, digits and underscores, as `UAT_CHECKPOINT_FILE`. The file holds no secret: never a password or a token."
+                          }
+                        },
+                        "required": ["env"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "markdownDescription": "A checkpoint file `sandforge checkpoint export` wrote, by its path from the root, or `{ env: NAME }`, the variable that holds it, where the pipeline downloaded it. It holds records, and lives outside the repository. Opened with the key of the variable `keyEnv` names.",
+                    "description": "A checkpoint file `sandforge checkpoint export` wrote, by its path from the root, or `{ env: NAME }`, the variable that holds it, where the pipeline downloaded it. It holds records, and lives outside the repository. Opened with the key of the variable `keyEnv` names."
+                  },
+                  "keyEnv": {
+                    "type": "string",
+                    "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                    "markdownDescription": "With `file`: the name of the variable that holds the file’s key, in upper-case letters, digits and underscores, as `UAT_CHECKPOINT_KEY`; the name itself, not `{ env: NAME }`. The key lives in a secret of the pipeline, never in the file: a key written here is refused.",
+                    "description": "With `file`: the name of the variable that holds the file’s key, in upper-case letters, digits and underscores, as `UAT_CHECKPOINT_KEY`; the name itself, not `{ env: NAME }`. The key lives in a secret of the pipeline, never in the file: a key written here is refused."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "The checkpoint it replays, by one of three forms: `id`, a checkpoint kept on this machine; `name`, the newest of that name taken of this sandbox before its refresh, or of the org role `from` names; or `file` with `keyEnv`, a file `sandforge checkpoint export` wrote and the variable that holds its key. The file never holds the key.",
+                "description": "The checkpoint it replays, by one of three forms: `id`, a checkpoint kept on this machine; `name`, the newest of that name taken of this sandbox before its refresh, or of the org role `from` names; or `file` with `keyEnv`, a file `sandforge checkpoint export` wrote and the variable that holds its key. The file never holds the key."
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "markdownDescription": "With `checkpoint.name`: the org role the checkpoint of that name was taken of, a key of the file’s `orgs`. Without it, a checkpoint of the org being filled, before its refresh.",
+                "description": "With `checkpoint.name`: the org role the checkpoint of that name was taken of, a key of the file’s `orgs`. Without it, a checkpoint of the org being filled, before its refresh."
+              },
+              "objects": {
+                "minItems": 1,
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                  "markdownDescription": "The objects it replays, by API name, each once, 1 to 500, as `--objects`: the checkpoint’s others are left out. Every object of the checkpoint without it.",
+                  "description": "The objects it replays, by API name, each once, 1 to 500, as `--objects`: the checkpoint’s others are left out. Every object of the checkpoint without it."
+                },
+                "markdownDescription": "The objects it replays, by API name, each once, 1 to 500, as `--objects`: the checkpoint’s others are left out. Every object of the checkpoint without it.",
+                "description": "The objects it replays, by API name, each once, 1 to 500, as `--objects`: the checkpoint’s others are left out. Every object of the checkpoint without it."
+              },
+              "excludeObjects": {
+                "minItems": 1,
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                  "markdownDescription": "Objects the replay leaves out, by API name, each once, 1 to 500, as `--exclude-object`. None by default.",
+                  "description": "Objects the replay leaves out, by API name, each once, 1 to 500, as `--exclude-object`. None by default."
+                },
+                "markdownDescription": "Objects the replay leaves out, by API name, each once, 1 to 500, as `--exclude-object`. None by default.",
+                "description": "Objects the replay leaves out, by API name, each once, 1 to 500, as `--exclude-object`. None by default."
+              },
+              "owners": {
+                "type": "string",
+                "enum": ["same", "me"],
+                "markdownDescription": "Who owns the records replayed, as `--owners`: `same`, the default, each its owner where that user is active in the org, which is why the `users` resources run first; `me`, the user connected.",
+                "description": "Who owns the records replayed, as `--owners`: `same`, the default, each its owner where that user is active in the org, which is why the `users` resources run first; `me`, the user connected."
+              },
+              "customSettings": {
+                "type": "boolean",
+                "markdownDescription": "`true` replays the custom settings’ records the checkpoint holds too, as `--custom-settings`. `false` by default.",
+                "description": "`true` replays the custom settings’ records the checkpoint holds too, as `--custom-settings`. `false` by default."
+              },
+              "mask": {
+                "type": "boolean",
+                "markdownDescription": "`true` masks the personal fields as they are written, as `--mask`. `false` by default.",
+                "description": "`true` masks the personal fields as they are written, as `--mask`. `false` by default."
+              },
+              "keepContactPoints": {
+                "type": "boolean",
+                "markdownDescription": "`true`: emails and phone numbers are written as the checkpoint holds them, as `--keep-contact-points`. Without it, `false` by default, they are neutralized.",
+                "description": "`true`: emails and phone numbers are written as the checkpoint holds them, as `--keep-contact-points`. Without it, `false` by default, they are neutralized."
+              },
+              "maxRecords": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000000,
+                "markdownDescription": "The most records it may create, 1 to 1,000,000, as `--max-records`: a replay past it is refused before it writes. Its dry run’s count by default.",
+                "description": "The most records it may create, 1 to 1,000,000, as `--max-records`: a replay past it is refused before it writes. Its dry run’s count by default."
+              }
+            },
+            "required": ["kind", "checkpoint"],
+            "additionalProperties": false,
+            "markdownDescription": "A replay resource: a checkpoint’s records replayed into the org by `sandforge checkpoint replay` — what a sandbox held before its refresh, or a checkpoint of another org —, its choices each under its flag’s name, and taken back by the replay’s own removal. The replay’s own guards hold: a checkpoint of real data is refused or masked as the command line has it.",
+            "description": "A replay resource: a checkpoint’s records replayed into the org by `sandforge checkpoint replay` — what a sandbox held before its refresh, or a checkpoint of another org —, its choices each under its flag’s name, and taken back by the replay’s own removal. The replay’s own guards hold: a checkpoint of real data is refused or masked as the command line has it."
           }
         ],
-        "markdownDescription": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen` or `mask`, says what it is and which keys it takes.",
-        "description": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen` or `mask`, says what it is and which keys it takes."
+        "markdownDescription": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen`, `mask`, `users` or `replay`, says what it is and which keys it takes.",
+        "description": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen`, `mask`, `users` or `replay`, says what it is and which keys it takes."
       },
-      "markdownDescription": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen` or `mask`, and the keys that kind takes. Applied in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most.",
-      "description": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen` or `mask`, and the keys that kind takes. Applied in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most."
+      "markdownDescription": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen`, `mask`, `users` or `replay`, and the keys that kind takes. The `users` resources first, then the others in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most.",
+      "description": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen`, `mask`, `users` or `replay`, and the keys that kind takes. The `users` resources first, then the others in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most."
+    },
+    "audits": {
+      "type": "object",
+      "properties": {
+        "schedules": {
+          "type": "boolean",
+          "markdownDescription": "`true` reads the scheduled jobs, against the inventory `env audit --save` kept before the refresh: those gone, those run as a user frozen or inactive, those new. Not yet proven on a refreshed sandbox.",
+          "description": "`true` reads the scheduled jobs, against the inventory `env audit --save` kept before the refresh: those gone, those run as a user frozen or inactive, those new. Not yet proven on a refreshed sandbox."
+        },
+        "endpoints": {
+          "anyOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "properties": {
+                "productionHosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
+                    "markdownDescription": "Production’s hosts beside those deduced from the sandbox, as `erp.acme.com`: the host alone, without its scheme or a path, each once, 50 at most.",
+                    "description": "Production’s hosts beside those deduced from the sandbox, as `erp.acme.com`: the host alone, without its scheme or a path, each once, 50 at most."
+                  },
+                  "markdownDescription": "Production’s hosts beside those deduced from the sandbox, as `erp.acme.com`: the host alone, without its scheme or a path, each once, 50 at most.",
+                  "description": "Production’s hosts beside those deduced from the sandbox, as `erp.acme.com`: the host alone, without its scheme or a path, each once, 50 at most."
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 161,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*__(?:mdt|c)\\.[A-Za-z][A-Za-z0-9_]*__c$",
+                    "markdownDescription": "Fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it, as `Integration_Setting__mdt.Endpoint__c`, each once, 50 at most: each record’s value is compared with production’s hosts.",
+                    "description": "Fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it, as `Integration_Setting__mdt.Endpoint__c`, each once, 50 at most: each record’s value is compared with production’s hosts."
+                  },
+                  "markdownDescription": "Fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it, as `Integration_Setting__mdt.Endpoint__c`, each once, 50 at most: each record’s value is compared with production’s hosts.",
+                  "description": "Fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it, as `Integration_Setting__mdt.Endpoint__c`, each once, 50 at most: each record’s value is compared with production’s hosts."
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "markdownDescription": "`true`, or a mapping: the Named Credentials, Remote Sites and fields that still name production, each by its scheme, host and path, never its query. Production’s hosts are deduced from the sandbox’s My Domain, with `login.salesforce.com`; a mapping names more hosts and the fields to read.",
+          "description": "`true`, or a mapping: the Named Credentials, Remote Sites and fields that still name production, each by its scheme, host and path, never its query. Production’s hosts are deduced from the sandbox’s My Domain, with `login.salesforce.com`; a mapping names more hosts and the fields to read."
+        },
+        "handoff": {
+          "type": "boolean",
+          "markdownDescription": "`true` writes a note once the apply ends: what was done to each user, the data masked, replayed and seeded, what is left to do in the order to do it, and what SandForge does not touch. Kept on this machine, outside the repository, unless `--handoff` names where. It holds usernames, never a record’s value.",
+          "description": "`true` writes a note once the apply ends: what was done to each user, the data masked, replayed and seeded, what is left to do in the order to do it, and what SandForge does not touch. Kept on this machine, outside the repository, unless `--handoff` names where. It holds usernames, never a record’s value."
+        }
+      },
+      "additionalProperties": false,
+      "markdownDescription": "What an apply reads once it wrote, and `sandforge env audit` reads at any time, writing nothing: the scheduled jobs, the endpoints that still name production, and the handoff note an apply writes. An audit not read says why, and never changes how the apply ended. None unless asked.",
+      "description": "What an apply reads once it wrote, and `sandforge env audit` reads at any time, writing nothing: the scheduled jobs, the endpoints that still name production, and the handoff note an apply writes. An audit not read says why, and never changes how the apply ended. None unless asked."
     }
   },
   "required": ["version", "name", "resources"],

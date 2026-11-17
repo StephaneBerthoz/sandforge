@@ -320,7 +320,8 @@ describe('checking the file', () => {
 
     expect(refusedWith(where)).toEqual([
       'resources.contacts.relations[0].parents.existing.where: { env } stands in ' +
-        'orgs.<role>.alias and resources.<frozen>.dataset.path alone: write this value in the ' +
+        'orgs.<role>.alias, resources.<frozen>.dataset.path and ' +
+        'resources.<replay>.checkpoint.file alone: write this value in the ' +
         'file. A variable inside a query or a field value would let a CI variable into what is ' +
         'written.',
     ]);
@@ -331,7 +332,7 @@ describe('checking the file', () => {
       expect.stringMatching(/^resources\.accounts: "dry_run" is not a key of a seed resource/),
     ]);
     expect(refusedWith(fileWith(['resources', 'masked'], { kind: 'scramble' }))).toEqual([
-      'resources.masked.kind: "scramble" is not a kind of resource: this SandForge applies seed, forge, frozen and mask resources',
+      'resources.masked.kind: "scramble" is not a kind of resource: this SandForge applies seed, forge, frozen, mask, users and replay resources',
     ]);
     expect(
       refusedWith(fileWith(['resources', 'api-token'], { kind: 'seed', template: 'x' })),

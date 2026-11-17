@@ -19,11 +19,12 @@ import type {
   EnvSeedRun,
 } from '@sandforge/shared';
 import type { EnvFileResource } from './envFile.js';
-import type {
-  EnvDryRunCount,
-  EnvFileRefusal,
-  EnvRemovalObject,
-  EnvSweepAsk,
+import {
+  refusalAt,
+  type EnvDryRunCount,
+  type EnvFileRefusal,
+  type EnvRemovalObject,
+  type EnvSweepAsk,
 } from './kinds/common.js';
 import {
   FORGE_DEFAULT_MAX_TOTAL,
@@ -191,6 +192,18 @@ export function convertResource(
       if ('refusals' in converted) return converted;
       return { run: { kind: 'mask', ...converted.run }, warnings: converted.warnings };
     }
+    case 'users':
+    case 'replay':
+      // The file reads these kinds and no module here converts them: a
+      // resource of one is refused rather than run as nothing.
+      return {
+        refusals: [
+          refusalAt(
+            ['resources', name, 'kind'],
+            `a ${resource.kind} resource is read, and not applied by this SandForge: take it out of the file to apply the rest`,
+          ),
+        ],
+      };
   }
 }
 

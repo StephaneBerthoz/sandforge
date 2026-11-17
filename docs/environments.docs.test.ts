@@ -774,6 +774,44 @@ describe('docs/environments.md', () => {
         mask({ rules: { template: 'tpl-gdpr-standard', misspelt: 1 } }),
       ],
     );
+    const user = { username: 'tester@acme.example' };
+    const users = (resource: Record<string, unknown>) => ({
+      version: 1,
+      name: 'e',
+      resources: { r: { kind: 'users', users: [user], ...resource } },
+    });
+    const replay = (resource: Record<string, unknown>, top: Record<string, unknown> = {}) => ({
+      version: 1,
+      name: 'e',
+      resources: { r: { kind: 'replay', checkpoint: { name: 'before' }, ...resource } },
+      ...top,
+    });
+    places.push(
+      [
+        '`targets.sandboxes[]`, `targets.protect[]`',
+        'a My Domain',
+        file({}, { targets: { protect: [{ myDomain: 'acme--uat', misspelt: 1 }] } }),
+      ],
+      ['`resources.<name>`, `kind: users`', 'a users resource', users({ misspelt: 1 })],
+      [
+        '`resources.<name>.defaults`',
+        'the defaults of a users resource',
+        users({ defaults: { misspelt: 1 } }),
+      ],
+      [
+        '`resources.<name>.users[]`',
+        'a user of a users resource',
+        users({ users: [{ ...user, misspelt: 1 }] }),
+      ],
+      ['`resources.<name>`, `kind: replay`', 'a replay resource', replay({ misspelt: 1 })],
+      [
+        '`resources.<name>.checkpoint`',
+        'a checkpoint',
+        replay({ checkpoint: { name: 'before', misspelt: 1 } }),
+      ],
+      ['`audits`', 'audits', replay({}, { audits: { misspelt: 1 } })],
+      ['`audits.endpoints`', 'endpoints', replay({}, { audits: { endpoints: { misspelt: 1 } } })],
+    );
     const table = rows(section(DOC, '### Every key'));
     for (const [where, what, doc] of places) {
       const row = table.find(([cell]) => cell === where);
@@ -820,10 +858,10 @@ describe('docs/environments.md', () => {
     expect(FILE).toContain('const MAX_ALIASES = 100;');
     expect(rules).toContain('more than 100 aliases');
     expect(SCHEMA).toContain(
-      "export const ENV_REF_PLACES: readonly string[] = [\n  'orgs.<role>.alias',\n  'resources.<frozen>.dataset.path',\n];",
+      "export const ENV_REF_PLACES: readonly string[] = [\n  'orgs.<role>.alias',\n  'resources.<frozen>.dataset.path',\n  'resources.<replay>.checkpoint.file',\n];",
     );
     expect(rules).toContain(
-      "and that is the alias of an org role and the path of a frozen resource's dataset alone",
+      "and that is the alias of an org role, the path of a frozen resource's dataset and the checkpoint file of a replay resource alone",
     );
     const secrets = [...SCHEMA.matchAll(/\{ name: '([A-Za-z]+)', words:/g)].map((m) => m[1]);
     const said = /A key shaped like a secret -- (.+?) --/.exec(rules)?.[1] ?? '';
@@ -1318,8 +1356,12 @@ describe('docs/environments.md', () => {
     const later = section(DOC, '## Not yet');
     // Every kind of version 1 is applied: none waits for a later SandForge.
     expect(SCHEMA).toContain('const LATER_KINDS: readonly string[] = [];');
-    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed, forge, frozen and mask resources';");
-    expect(later).toContain('This version applies seed, forge, frozen and mask resources');
+    expect(SCHEMA).toContain(
+      "const KINDS_APPLIED = 'seed, forge, frozen, mask, users and replay resources';",
+    );
+    expect(later).toContain(
+      'This version applies seed, forge, frozen, mask, users and replay resources',
+    );
     expect(later).not.toContain('Masking');
     // A plan kept and applied, and what an apply created: no longer not yet.
     expect(commandsRead()).toContain('output');

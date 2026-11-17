@@ -259,7 +259,8 @@ describe('what a hover says of each key', () => {
         (child) => 'const' in child,
       ),
     );
-    expect(told).toHaveLength(7);
+    // Six kinds of resource and three modes of a distribution.
+    expect(told).toHaveLength(9);
     for (const { at, node } of told)
       expect(node['markdownDescription'], at).toEqual(expect.any(String));
     const typed = shapes.filter((shape) => !told.includes(shape));
@@ -512,6 +513,65 @@ describe('a sandforge.yaml, checked as the editor checks it', () => {
     // Negative control: a keyword no reading here gives a meaning to.
     const withExamples = { ...shipped, examples: [first] };
     expect(holdsTo(withExamples, first)).toEqual(['$: unread keyword examples']);
+  });
+
+  it('checks a sandbox handed back to its testers: users, a replay, a My Domain and the audits', () => {
+    const refreshed = {
+      version: 1,
+      name: 'uat-after-refresh',
+      targets: { kinds: ['sandbox'], sandboxes: [{ myDomain: 'acme--uat' }] },
+      resources: {
+        testers: {
+          kind: 'users',
+          defaults: { email: 'restore', frozen: false },
+          users: [
+            { username: 'jane.qa@acme.example', permissionSets: ['QA_Tools'] },
+            { username: 'erp.integration@acme.example', email: 'keep', frozen: true },
+          ],
+        },
+        'test-data': {
+          kind: 'replay',
+          checkpoint: { file: { env: 'UAT_CHECKPOINT_FILE' }, keyEnv: 'UAT_CHECKPOINT_KEY' },
+          owners: 'same',
+        },
+      },
+      audits: {
+        schedules: true,
+        endpoints: { fields: ['Integration_Setting__mdt.Endpoint__c'] },
+        handoff: true,
+      },
+    };
+    expect(holdsTo(shipped, refreshed)).toEqual([]);
+    expect(envFileSchema.safeParse(refreshed).success).toBe(true);
+
+    const refused = [
+      withValue(refreshed, ['targets', 'sandboxes', 0, 'myDomain'], 'acme'),
+      withValue(
+        refreshed,
+        ['targets', 'sandboxes', 0, 'myDomain'],
+        'acme--uat.sandbox.my.salesforce.com',
+      ),
+      withValue(refreshed, ['resources', 'testers', 'users', 0, 'login'], 'reset-email'),
+      withValue(refreshed, ['resources', 'testers', 'users', 1, 'email'], 'reset'),
+      withValue(refreshed, ['resources', 'testers', 'dependsOn'], ['test-data']),
+      withValue(refreshed, ['resources', 'test-data', 'checkpoint', 'keyEnv'], { env: 'KEY' }),
+      withValue(refreshed, ['audits', 'endpoints', 'fields'], ['Account.Website']),
+    ];
+    for (const document of refused) {
+      expect(holdsTo(shipped, document)).not.toEqual([]);
+      expect(envFileSchema.safeParse(document).success).toBe(false);
+    }
+  });
+
+  it('says on a My Domain and the scheduled jobs that no refreshed sandbox has proven them yet', () => {
+    const texts = hoveredNodes(envFileJsonSchema());
+    const said = (path: string) =>
+      String(texts.find((node) => node.path === path)?.node['markdownDescription']);
+    expect(said('targets.sandboxes[]{object}.myDomain')).toContain(
+      'Not yet proven on a refreshed sandbox',
+    );
+    expect(said('audits.schedules')).toContain('Not yet proven on a refreshed sandbox');
+    expect(said('resources.<name>{users}.users[].email')).toContain('--accept-user-emails');
   });
 
   it('leaves to validate what the zod schema checks in code, beyond the shape', () => {

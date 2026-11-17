@@ -87,6 +87,7 @@ export * from './schemas/quickSync.schema.js';
 export * from './schemas/ai/index.js';
 export * from './schemas/checkpoint.schema.js';
 export * from './schemas/env.schema.js';
+export * from './schemas/users.schema.js';
 export * from './schemas/scenario.schema.js';
 export * from './schemas/agentTestSpec.schema.js';
 

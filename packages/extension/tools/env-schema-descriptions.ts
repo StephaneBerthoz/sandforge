@@ -73,8 +73,10 @@ export const ENV_SCHEMA_RECORD_KEYS: Readonly<Record<string, string>> = {
 const KIND =
   'What the resource is, and the script that applies it: `seed`, records Seed generates; ' +
   '`forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, ' +
-  'records the org already holds, masked with DataOps rules. The keys a resource takes follow ' +
-  'from it. A kind this SandForge does not apply is refused, with the kinds it does.';
+  'records the org already holds, masked with DataOps rules; `users`, the org’s users set up ' +
+  'for its testers, before every other resource; `replay`, a checkpoint’s records replayed. ' +
+  'The keys a resource takes follow from it. A kind this SandForge does not apply is refused, ' +
+  'with the kinds it does.';
 
 const DEPENDS_ON =
   'Resources of this file applied before this one, and destroyed after it, by their names, ' +
@@ -99,6 +101,44 @@ const ACCEPT_AUTOMATION_UNASKED = (refusal: string): string =>
 const ENV_VARIABLE = (holds: string, example: string): string =>
   `The name of the variable that holds ${holds}, in upper-case letters, digits and ` +
   `underscores, as \`${example}\`. The file holds no secret: never a password or a token.`;
+
+/** A sandbox's My Domain, as `targets` names one. */
+const MY_DOMAIN =
+  'A sandbox by its My Domain, as `acme--uat`: production’s, two dashes, the sandbox’s name, ' +
+  'the part of its host before `.sandbox.my.salesforce.com`. A refresh keeps it, where it ' +
+  'changes the Organization Id. Neither a whole host nor production’s My Domain alone: both ' +
+  'are refused, with the name to give. A scratch org, a Developer Edition org or a ' +
+  'production org is never taken for it. Not yet proven on a refreshed sandbox.';
+
+/** What a key of a user, or of the defaults, says: the user's own key wins over the defaults'. */
+const USER_SETTINGS = {
+  email:
+    'What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, ' +
+    'and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it ' +
+    'is clicked; `keep`, the default, leaves it. That link is an email to a person, which only ' +
+    'the line accepts, with `--accept-user-emails`. SandForge resets no password: once the ' +
+    'address is restored, its owner asks Salesforce for one with Forgot your password?',
+  active:
+    '`true` activates the user, within the licenses the org has free; `false` deactivates it. ' +
+    'Without it, left as it is.',
+  frozen:
+    '`true` freezes the user, which then cannot log in; `false` unfreezes it. Without it, left ' +
+    'as it is. A user whose scheduled jobs still call production is best kept frozen.',
+  profile:
+    'The profile the user is given, by its name as Setup > Profiles names it, exactly: a ' +
+    'standard profile in the org’s language. A name the org does not have is refused, with ' +
+    'the names it has. Without it, left as it is.',
+  permissionSets:
+    'Permission sets the user is given, by API name (Setup > Permission Sets > API Name), each ' +
+    'once, {maxItems} at most. Added, never taken: one the user has already stays, and none is ' +
+    'removed that the file does not name.',
+  permissionSetGroups:
+    'Permission set groups the user is given, by API name, each once, {maxItems} at most. ' +
+    'Added, never taken.',
+  groups:
+    'Public groups and queues the user joins, by API name (DeveloperName), each once, ' +
+    '{maxItems} at most. Joined, never left: a membership the user had stays.',
+} as const;
 
 /** A condition held as the clone holds its `--where`. */
 const CONDITION_RULES =
@@ -135,14 +175,19 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'a sandbox does: only the sf CLI tells them apart, by the Dev Hub `sf org display` names ' +
     'for it, so one logged in with an auth URL alone is taken for a sandbox.',
   'targets.sandboxes':
-    'The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write ' +
-    'to, with `sandbox` among the `kinds`, {maxItems} at most; none by default. Nothing ' +
-    'Salesforce says tells a sandbox holding a client’s records from a developer’s, so each ' +
-    'one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed ' +
-    'again after each refresh.',
+    'The sandboxes an apply may write to, with `sandbox` among the `kinds`, each by its ' +
+    'Organization Id (`00D…`, 15 or 18 characters) or by its My Domain, as ' +
+    '`{ myDomain: acme--uat }`; {maxItems} at most, none by default. Nothing Salesforce says ' +
+    'tells a sandbox holding a client’s records from a developer’s, so each one is listed and ' +
+    'reviewed with the file. A refresh changes the Id and keeps the My Domain: a sandbox listed ' +
+    'by its Id is listed again after each refresh, one listed by its My Domain is not.',
+  'targets.sandboxes[]{object}.myDomain': MY_DOMAIN,
   'targets.protect':
-    'Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, ' +
-    'as a shared sandbox nobody may fill. {maxItems} at most; none by default.',
+    'Orgs the file refuses whatever else it says, as a shared sandbox nobody may fill: each by ' +
+    'its Organization Id (`00D…`, 15 or 18 characters), or a sandbox by its My Domain, as ' +
+    '`{ myDomain: acme--full }`, which wins over `sandboxes`. {maxItems} at most; none by ' +
+    'default.',
+  'targets.protect[]{object}.myDomain': MY_DOMAIN,
   orgs:
     'The orgs the resources read from, by a role of your choosing: a forge resource names one ' +
     'as its `source`. A role is lower-case letters, digits and dashes, and none is shaped ' +
@@ -225,12 +270,13 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     '`first` keeps a postal code’s region.',
   resources:
     'What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, ' +
-    '`frozen` or `mask`, and the keys that kind takes. Applied in the order `dependsOn` and ' +
-    '`from` give, and destroyed the other way. A name is lower-case letters, digits and ' +
-    `dashes, and none is shaped like a secret; ${ENV_MAX_RESOURCES} resources at most.`,
+    '`frozen`, `mask`, `users` or `replay`, and the keys that kind takes. The `users` ' +
+    'resources first, then the others in the order `dependsOn` and `from` give, and ' +
+    'destroyed the other way. A name is lower-case letters, digits and dashes, and none is ' +
+    `shaped like a secret; ${ENV_MAX_RESOURCES} resources at most.`,
   'resources.<name>':
-    'A resource of the environment: its `kind`, `seed`, `forge`, `frozen` or `mask`, says ' +
-    'what it is and which keys it takes.',
+    'A resource of the environment: its `kind`, `seed`, `forge`, `frozen`, `mask`, `users` ' +
+    'or `replay`, says what it is and which keys it takes.',
 
   // The seed kind
   'resources.<name>{seed}':
@@ -653,4 +699,140 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'It stops between two slices before the next would send more, the resource left ' +
     'partial; the set stays open in the resource’s store, and the next apply is refused ' +
     'until `sandforge dataops anonymize --resume` or `--abandon`, with that store, ends it.',
+
+  // The users kind
+  'resources.<name>{users}':
+    'A users resource: the org’s users handed back to its testers by `sandforge users` — an ' +
+    'address the copy put under `.invalid` restored, a user activated, frozen or unfrozen, a ' +
+    'profile, permission sets, groups and queues —, applied before every other resource and ' +
+    'taken back after them all. Accesses are added, never taken. A `destroy` takes back what ' +
+    'it added and puts each user back as it was, but for an address asked back; a user is ' +
+    'never deleted. Its usernames are people’s: keep the file in the project’s private ' +
+    'repository.',
+  'resources.<name>{users}.kind': KIND,
+  'resources.<name>{users}.accept': ACCEPT,
+  'resources.<name>{users}.accept.automation':
+    '`true` lets the users be written although the org runs flows or Apex triggers on `User` ' +
+    'or `UserLogin` as they are, as `--accept-automation` would. Without it, `false` by ' +
+    'default, such a write is refused before anything is written. The emails Salesforce sends ' +
+    'to people are never accepted here: only the line accepts them, with ' +
+    '`--accept-user-emails`.',
+  'resources.<name>{users}.defaults':
+    'What every user of the resource is set up with unless it says otherwise: the keys a user ' +
+    'takes, but `username`. A user’s own key replaces the defaults’ whole, a list included: ' +
+    'nothing is merged unsaid.',
+  'resources.<name>{users}.defaults.email': USER_SETTINGS.email,
+  'resources.<name>{users}.defaults.active': USER_SETTINGS.active,
+  'resources.<name>{users}.defaults.frozen': USER_SETTINGS.frozen,
+  'resources.<name>{users}.defaults.profile': USER_SETTINGS.profile,
+  'resources.<name>{users}.defaults.permissionSets': USER_SETTINGS.permissionSets,
+  'resources.<name>{users}.defaults.permissionSetGroups': USER_SETTINGS.permissionSetGroups,
+  'resources.<name>{users}.defaults.groups': USER_SETTINGS.groups,
+  'resources.<name>{users}.users':
+    'The users it sets up, {minItems} to {maxItems}, each by its `username` and the keys it ' +
+    'changes; a key left out leaves the user as it is. A user is named once in the file, all ' +
+    'its users resources together.',
+  'resources.<name>{users}.users[].username':
+    'The user, by production’s username, as `<user>@<company>.com`, or the sandbox’s whole, ' +
+    'as `<user>@<company>.com.<sandbox>`, {maxLength} characters at most. Read as given, then ' +
+    'as given followed by `.` and the sandbox’s name; exactly one user must answer, or the plan ' +
+    'refuses it with the users found.',
+  'resources.<name>{users}.users[].email': USER_SETTINGS.email,
+  'resources.<name>{users}.users[].active': USER_SETTINGS.active,
+  'resources.<name>{users}.users[].frozen': USER_SETTINGS.frozen,
+  'resources.<name>{users}.users[].profile': USER_SETTINGS.profile,
+  'resources.<name>{users}.users[].permissionSets': USER_SETTINGS.permissionSets,
+  'resources.<name>{users}.users[].permissionSetGroups': USER_SETTINGS.permissionSetGroups,
+  'resources.<name>{users}.users[].groups': USER_SETTINGS.groups,
+
+  // The replay kind
+  'resources.<name>{replay}':
+    'A replay resource: a checkpoint’s records replayed into the org by `sandforge checkpoint ' +
+    'replay` — what a sandbox held before its refresh, or a checkpoint of another org —, its ' +
+    'choices each under its flag’s name, and taken back by the replay’s own removal. The ' +
+    'replay’s own guards hold: a checkpoint of real data is refused or masked as the command ' +
+    'line has it.',
+  'resources.<name>{replay}.kind': KIND,
+  'resources.<name>{replay}.dependsOn': DEPENDS_ON,
+  'resources.<name>{replay}.accept': ACCEPT,
+  'resources.<name>{replay}.accept.automation': `${ACCEPT_AUTOMATION_REMOVAL} The replay that writes the resource is given it too.`,
+  'resources.<name>{replay}.checkpoint':
+    'The checkpoint it replays, by one of three forms: `id`, a checkpoint kept on this ' +
+    'machine; `name`, the newest of that name taken of this sandbox before its refresh, or of ' +
+    'the org role `from` names; or `file` with `keyEnv`, a file `sandforge checkpoint export` ' +
+    'wrote and the variable that holds its key. The file never holds the key.',
+  'resources.<name>{replay}.checkpoint.id':
+    'A checkpoint kept on this machine, by the id `sandforge checkpoint list` gives, as ' +
+    '`ck-20261114-174750-5e38`.',
+  'resources.<name>{replay}.checkpoint.name':
+    'The newest checkpoint of that name, as `checkpoint take --name` gave it: one taken of this ' +
+    'sandbox before its refresh, by the same username or the same My Domain, or of the org ' +
+    'role `from` names. None of that name on this machine refuses the plan, with the line that ' +
+    'takes one before the next refresh.',
+  'resources.<name>{replay}.checkpoint.file':
+    'A checkpoint file `sandforge checkpoint export` wrote, by its path from the root, or ' +
+    '`{ env: NAME }`, the variable that holds it, where the pipeline downloaded it. It holds ' +
+    'records, and lives outside the repository. Opened with the key of the variable `keyEnv` ' +
+    'names.',
+  'resources.<name>{replay}.checkpoint.file{object}.env': ENV_VARIABLE(
+    'the checkpoint file’s path',
+    'UAT_CHECKPOINT_FILE',
+  ),
+  'resources.<name>{replay}.checkpoint.keyEnv':
+    'With `file`: the name of the variable that holds the file’s key, in upper-case letters, ' +
+    'digits and underscores, as `UAT_CHECKPOINT_KEY`; the name itself, not `{ env: NAME }`. ' +
+    'The key lives in a secret of the pipeline, never in the file: a key written here is ' +
+    'refused.',
+  'resources.<name>{replay}.from':
+    'With `checkpoint.name`: the org role the checkpoint of that name was taken of, a key of ' +
+    'the file’s `orgs`. Without it, a checkpoint of the org being filled, before its refresh.',
+  'resources.<name>{replay}.objects':
+    'The objects it replays, by API name, each once, {minItems} to {maxItems}, as `--objects`: ' +
+    'the checkpoint’s others are left out. Every object of the checkpoint without it.',
+  'resources.<name>{replay}.excludeObjects':
+    'Objects the replay leaves out, by API name, each once, {minItems} to {maxItems}, as ' +
+    '`--exclude-object`. None by default.',
+  'resources.<name>{replay}.owners':
+    'Who owns the records replayed, as `--owners`: `same`, the default, each its owner where ' +
+    'that user is active in the org, which is why the `users` resources run first; `me`, the ' +
+    'user connected.',
+  'resources.<name>{replay}.customSettings':
+    '`true` replays the custom settings’ records the checkpoint holds too, as ' +
+    '`--custom-settings`. `false` by default.',
+  'resources.<name>{replay}.mask':
+    '`true` masks the personal fields as they are written, as `--mask`. `false` by default.',
+  'resources.<name>{replay}.keepContactPoints':
+    '`true`: emails and phone numbers are written as the checkpoint holds them, as ' +
+    '`--keep-contact-points`. Without it, `false` by default, they are neutralized.',
+  'resources.<name>{replay}.maxRecords':
+    'The most records it may create, 1 to {maximum}, as `--max-records`: a replay past it is ' +
+    'refused before it writes. Its dry run’s count by default.',
+
+  // The audits
+  audits:
+    'What an apply reads once it wrote, and `sandforge env audit` reads at any time, writing ' +
+    'nothing: the scheduled jobs, the endpoints that still name production, and the handoff ' +
+    'note an apply writes. An audit not read says why, and never changes how the apply ended. ' +
+    'None unless asked.',
+  'audits.schedules':
+    '`true` reads the scheduled jobs, against the inventory `env audit --save` kept before the ' +
+    'refresh: those gone, those run as a user frozen or inactive, those new. Not yet proven ' +
+    'on a refreshed sandbox.',
+  'audits.endpoints':
+    '`true`, or a mapping: the Named Credentials, Remote Sites and fields that still name ' +
+    'production, each by its scheme, host and path, never its query. Production’s hosts are ' +
+    'deduced from the sandbox’s My Domain, with `login.salesforce.com`; a mapping names more ' +
+    'hosts and the fields to read.',
+  'audits.endpoints{object}.productionHosts':
+    'Production’s hosts beside those deduced from the sandbox, as `erp.acme.com`: the host ' +
+    'alone, without its scheme or a path, each once, 50 at most.',
+  'audits.endpoints{object}.fields':
+    'Fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it, as ' +
+    '`Integration_Setting__mdt.Endpoint__c`, each once, 50 at most: each record’s value is ' +
+    'compared with production’s hosts.',
+  'audits.handoff':
+    '`true` writes a note once the apply ends: what was done to each user, the data masked, ' +
+    'replayed and seeded, what is left to do in the order to do it, and what SandForge does ' +
+    'not touch. Kept on this machine, outside the repository, unless `--handoff` names where. ' +
+    'It holds usernames, never a record’s value.',
 };

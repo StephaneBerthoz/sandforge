@@ -3,7 +3,9 @@ import * as z from 'zod';
 
 import {
   ENV_MAX_RESOURCES,
+  ENV_REF_PLACES,
   RECOVERED_FINGERPRINT,
+  envAuditResultSchema,
   envFileSchema,
   envOutputSchema,
   envPlanSchema,
@@ -101,7 +103,7 @@ describe('the file', () => {
 
   it('refuses a key no object of it names, and says which keys it takes', () => {
     expect(refusalsOf(exampleWith(['dry_run'], true))).toEqual([
-      ': "dry_run" is not a key of the file, which takes version, name, description, targets, orgs, checkpoint, masking, resources',
+      ': "dry_run" is not a key of the file, which takes version, name, description, targets, orgs, checkpoint, masking, resources, audits',
     ]);
     expect(refusalsOf(exampleWith(['resources', 'accounts', 'count'], 3))).toEqual([
       expect.stringContaining('"count" is not a key of a seed resource, which takes kind,'),
@@ -145,9 +147,9 @@ describe('the file', () => {
     ]);
   });
 
-  it('applies seed, forge, frozen and mask resources, and names them when a kind is none of them', () => {
+  it('applies seed, forge, frozen, mask, users and replay resources, and names them when a kind is none of them', () => {
     expect(refusalsOf(exampleWith(['resources', 'x'], { kind: 'clone' }))).toEqual([
-      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed, forge, frozen and mask resources',
+      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed, forge, frozen, mask, users and replay resources',
     ]);
     expect(
       refusalsOf(exampleWith(['resources', 'x'], { template: 'prebuilt-minimal-demo' })),
@@ -994,6 +996,439 @@ describe('values from the environment', () => {
 });
 
 /**
+ * The uat sandbox, refreshed from production, handed back to its testers: its
+ * testers set up first, its contacts masked, the records it held before its
+ * refresh replayed, demo cases seeded, then the audits and the handoff note.
+ */
+function refreshedUat(): Record<string, unknown> {
+  return {
+    version: 1,
+    name: 'uat-after-refresh',
+    targets: { kinds: ['sandbox'], sandboxes: [{ myDomain: 'acme--uat' }] },
+    orgs: { prod: { alias: { env: 'SF_PROD_ALIAS' } } },
+    checkpoint: { after: 'uat-baseline' },
+    masking: {
+      'contact-points': {
+        rules: [
+          { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+          { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+        ],
+      },
+    },
+    resources: {
+      testers: {
+        kind: 'users',
+        defaults: { email: 'restore', frozen: false },
+        users: [
+          {
+            username: 'jane.qa@acme.example',
+            permissionSets: ['QA_Tools'],
+            groups: ['QA_Team'],
+          },
+          {
+            username: 'paul.qa@acme.example',
+            active: true,
+            profile: 'QA Tester',
+            permissionSetGroups: ['Support_Bundle'],
+          },
+          { username: 'erp.integration@acme.example', email: 'keep', frozen: true },
+        ],
+      },
+      customers: { kind: 'mask', rules: 'contact-points', object: 'Contact' },
+      'test-data': {
+        kind: 'replay',
+        dependsOn: ['customers'],
+        checkpoint: { name: 'uat-before-refresh' },
+        owners: 'same',
+      },
+      'demo-cases': {
+        kind: 'seed',
+        dependsOn: ['test-data'],
+        template: 'prebuilt-service-cloud-starter',
+      },
+    },
+    audits: {
+      schedules: true,
+      endpoints: {
+        productionHosts: ['erp.acme.example'],
+        fields: ['Integration_Setting__mdt.Endpoint__c'],
+      },
+      handoff: true,
+    },
+  };
+}
+
+/** The refreshed uat file with one change at `path`. */
+function refreshedWith(path: Array<string | number>, value: unknown): Record<string, unknown> {
+  const document = refreshedUat();
+  let node: Record<string | number, unknown> = document;
+  for (const key of path.slice(0, -1)) node = node[key] as Record<string | number, unknown>;
+  const last = path[path.length - 1] as string | number;
+  if (value === undefined) delete node[last];
+  else node[last] = value;
+  return document;
+}
+
+describe('the file of a sandbox refreshed, handed back', () => {
+  it('reads it whole: users, a masking, a replay, a seed, the audits', () => {
+    expect(refusalsOf(refreshedUat())).toEqual([]);
+  });
+});
+
+describe('a users resource', () => {
+  const testers = ['resources', 'testers'];
+
+  it('takes kind, accept, defaults and users, and nothing else: no dependsOn, it is applied first', () => {
+    expect(refusalsOf(refreshedWith([...testers, 'accept'], { automation: true }))).toEqual([]);
+    expect(refusalsOf(refreshedWith([...testers, 'dependsOn'], ['customers']))).toEqual([
+      'resources.testers: "dependsOn" is not a key of a users resource, which takes kind, accept, defaults, users: a users resource is applied first, before every other, and depends on none',
+    ]);
+    expect(refusalsOf(refreshedWith([...testers, 'profiles'], ['QA Tester']))).toEqual([
+      expect.stringContaining('"profiles" is not a key of a users resource'),
+    ]);
+  });
+
+  it('refuses a resource that depends on a users resource, which runs first whatever the file says', () => {
+    expect(
+      refusalsOf(refreshedWith(['resources', 'test-data', 'dependsOn'], ['customers', 'testers'])),
+    ).toEqual([
+      'resources.test-data.dependsOn: testers is a users resource, applied first whatever the file says: take it out of dependsOn',
+    ]);
+  });
+
+  it('refuses a relation drawing its parents from a users resource, which creates no record', () => {
+    const drawing = refreshedWith(['resources', 'cases'], {
+      kind: 'seed',
+      objects: [{ object: 'Case', count: 3 }],
+      relations: [
+        {
+          lookup: 'Case.OwnerId',
+          parents: { object: 'User', from: 'testers' },
+          distribution: { mode: 'perParent', count: 1 },
+        },
+      ],
+    });
+    expect(refusalsOf(drawing)).toEqual([
+      'resources.cases.relations.0.parents.from: testers is a users resource: it creates no record to draw parents from',
+    ]);
+  });
+
+  it('takes each user’s keys, a password reset among none of them', () => {
+    const jane = [...testers, 'users', 0];
+    expect(refusalsOf(refreshedWith([...jane, 'login'], 'reset-email'))).toEqual([
+      'resources.testers.users.0: "login" is not a key of a user of a users resource, which takes username, email, active, frozen, profile, permissionSets, permissionSetGroups, groups: SandForge resets no password; once the address is restored, its owner asks Salesforce for one with Forgot your password?',
+    ]);
+    const reset = refreshedWith([...jane, 'resetPassword'], true);
+    expect(refusalsOf(reset)).toEqual([
+      expect.stringContaining('"resetPassword" is not a key of a user of a users resource'),
+    ]);
+    expect(secretKeysIn(reset)).toEqual([
+      {
+        path: ['resources', 'testers', 'users', 0, 'resetPassword'],
+        key: 'resetPassword',
+        secret: 'password',
+      },
+    ]);
+    expect(
+      secretKeysIn(refreshedWith([...testers, 'defaults', 'password'], 'Welcome1')),
+    ).toHaveLength(1);
+    expect(secretKeyOf('keyEnv')).toBeUndefined();
+  });
+
+  it('takes restore or keep for email, and booleans for active and frozen', () => {
+    const jane = [...testers, 'users', 0];
+    expect(refusalsOf(refreshedWith([...jane, 'email'], 'reset'))).toEqual([
+      'resources.testers.users.0.email: email is restore, which takes off the .invalid the copy added, or keep, the address as it is',
+    ]);
+    expect(refusalsOf(refreshedWith([...jane, 'email'], 'jane.qa@acme.example'))).toHaveLength(1);
+    expect(refusalsOf(refreshedWith([...jane, 'active'], 'yes'))).toEqual([
+      expect.stringMatching(/^resources\.testers\.users\.0\.active: /),
+    ]);
+    expect(refusalsOf(refreshedWith([...testers, 'defaults', 'frozen'], 1))).toEqual([
+      expect.stringMatching(/^resources\.testers\.defaults\.frozen: /),
+    ]);
+    expect(
+      refusalsOf(refreshedWith([...testers, 'defaults', 'username'], 'x@acme.example')),
+    ).toEqual([
+      expect.stringContaining('"username" is not a key of the defaults of a users resource'),
+    ]);
+  });
+
+  it('holds 1 to 200 users, 50 permission sets, 20 groups of them and 50 groups each', () => {
+    const users = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ username: `tester${i}@acme.example` }));
+    const names = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, i) => `${prefix}_${i}`);
+    expect(refusalsOf(refreshedWith([...testers, 'users'], users(200)))).toEqual([]);
+    expect(refusalsOf(refreshedWith([...testers, 'users'], users(201)))).toEqual([
+      'resources.testers.users: 201 users: a users resource holds 200 at most: split it in two',
+    ]);
+    expect(refusalsOf(refreshedWith([...testers, 'users'], []))).toEqual([
+      'resources.testers.users: A users resource lists one user at least: username, then what to set up',
+    ]);
+    const jane = [...testers, 'users', 0];
+    expect(refusalsOf(refreshedWith([...jane, 'permissionSets'], names(50, 'PS')))).toEqual([]);
+    expect(refusalsOf(refreshedWith([...jane, 'permissionSets'], names(51, 'PS')))).toEqual([
+      'resources.testers.users.0.permissionSets: A user is given 50 permission sets at most in one entry',
+    ]);
+    expect(refusalsOf(refreshedWith([...jane, 'permissionSetGroups'], names(21, 'G')))).toEqual([
+      'resources.testers.users.0.permissionSetGroups: A user is given 20 permission set groups at most in one entry',
+    ]);
+    expect(refusalsOf(refreshedWith([...jane, 'groups'], names(51, 'Q')))).toEqual([
+      'resources.testers.users.0.groups: A user joins 50 groups and queues at most in one entry',
+    ]);
+    expect(refusalsOf(refreshedWith([...jane, 'groups'], ['QA_Team', 'QA_Team']))).toEqual([
+      'resources.testers.users.0.groups.1: QA_Team is listed twice: name a group once',
+    ]);
+    expect(refusalsOf(refreshedWith([...jane, 'permissionSets'], ['QA Tools']))).toEqual([
+      'resources.testers.users.0.permissionSets.0: A permission set is named by its API name, as QA_Tools (Setup > Permission Sets > API Name)',
+    ]);
+  });
+
+  it('names each user once in the file, all its users resources together', () => {
+    const admins = refreshedWith(['resources', 'admins'], {
+      kind: 'users',
+      users: [{ username: 'Paul.QA@acme.example', permissionSets: ['Admin_Tools'] }],
+    });
+    expect(refusalsOf(admins)).toEqual([
+      'resources.admins.users.0.username: Paul.QA@acme.example is listed twice (also resources.testers.users[1]): one entry per user',
+    ]);
+    expect(
+      refusalsOf(
+        refreshedWith([...testers, 'users', 2], {
+          username: 'jane.qa@acme.example',
+          frozen: true,
+        }),
+      ),
+    ).toEqual([
+      'resources.testers.users.2.username: jane.qa@acme.example is listed twice (also resources.testers.users[0]): one entry per user',
+    ]);
+  });
+
+  it('takes a username shaped as Salesforce holds one, production’s or the sandbox’s', () => {
+    const jane = [...testers, 'users', 0, 'username'];
+    expect(refusalsOf(refreshedWith(jane, 'jane.qa@acme.example.uat'))).toEqual([]);
+    for (const username of ['jane.qa', 'jane qa@acme.example', `${'j'.repeat(70)}@acme.example`]) {
+      expect(refusalsOf(refreshedWith(jane, username)), username).toEqual([
+        expect.stringMatching(/^resources\.testers\.users\.0\.username: .* is not a username/),
+      ]);
+    }
+  });
+});
+
+describe('a sandbox listed by its My Domain', () => {
+  it('lists a sandbox or protects an org by its My Domain, beside Organization Ids', () => {
+    const listed = refreshedWith(['targets'], {
+      kinds: ['sandbox'],
+      sandboxes: ['00Dxx0000001234AAA', { myDomain: 'acme--uat' }],
+      protect: [{ myDomain: 'acme--full' }, '00Dxx0000005678AAA'],
+    });
+    expect(refusalsOf(listed)).toEqual([]);
+    expect(envFileSchema.parse(listed).targets.sandboxes[1]).toEqual({ myDomain: 'acme--uat' });
+  });
+
+  it('refuses production’s My Domain and a whole host, each with the name to give', () => {
+    expect(refusalsOf(refreshedWith(['targets', 'sandboxes', 0, 'myDomain'], 'acme'))).toEqual([
+      "targets.sandboxes.0.myDomain: acme is production's My Domain: a sandbox's is acme--<its name>, as acme--uat",
+    ]);
+    expect(
+      refusalsOf(
+        refreshedWith(
+          ['targets', 'sandboxes', 0, 'myDomain'],
+          'acme--uat.sandbox.my.salesforce.com',
+        ),
+      ),
+    ).toEqual([
+      "targets.sandboxes.0.myDomain: acme--uat.sandbox.my.salesforce.com is a host: give the sandbox's My Domain alone, the part before .sandbox.my.salesforce.com, as acme--uat",
+    ]);
+    expect(refusalsOf(refreshedWith(['targets', 'protect'], [{ myDomain: 'Acme--UAT' }]))).toEqual([
+      expect.stringContaining(
+        "targets.protect.0.myDomain: A sandbox's My Domain is lower-case letters, digits and dashes",
+      ),
+    ]);
+    expect(
+      refusalsOf(refreshedWith(['targets', 'sandboxes', 0], { myDomain: 'acme--uat', id: 'x' })),
+    ).toEqual([expect.stringContaining('"id" is not a key of a My Domain, which takes myDomain')]);
+  });
+
+  it('says how to write a My Domain given where an Organization Id goes', () => {
+    expect(refusalsOf(refreshedWith(['targets', 'sandboxes', 0], 'acme--uat'))).toEqual([
+      'targets.sandboxes.0: acme--uat is no Organization Id: list an org by its Id (00D…, 15 or 18 characters), or a sandbox by its My Domain, as { myDomain: acme--uat }',
+    ]);
+  });
+});
+
+describe('a replay resource', () => {
+  const replay = ['resources', 'test-data'];
+
+  it('replays a checkpoint by its id, by its name, or by a file and the variable holding its key', () => {
+    for (const checkpoint of [
+      { id: 'ck-20261114-174750-5e38' },
+      { name: 'uat-before-refresh' },
+      { file: '/runner/work/uat-before-refresh.sfcheckpoint', keyEnv: 'UAT_CHECKPOINT_KEY' },
+      { file: { env: 'UAT_CHECKPOINT_FILE' }, keyEnv: 'UAT_CHECKPOINT_KEY' },
+    ]) {
+      expect(
+        refusalsOf(refreshedWith([...replay, 'checkpoint'], checkpoint)),
+        JSON.stringify(checkpoint),
+      ).toEqual([]);
+    }
+  });
+
+  it('takes one form of checkpoint, its key named by a variable and never written', () => {
+    const one = 'resources.test-data.checkpoint: give id, name, or file with keyEnv: one of them';
+    expect(refusalsOf(refreshedWith([...replay, 'checkpoint'], {}))).toEqual([one]);
+    expect(
+      refusalsOf(
+        refreshedWith([...replay, 'checkpoint'], { id: 'ck-20261114-174750-5e38', name: 'x' }),
+      ),
+    ).toEqual([one]);
+    expect(
+      refusalsOf(refreshedWith([...replay, 'checkpoint'], { file: '/runner/x.sfcheckpoint' })),
+    ).toEqual([
+      'resources.test-data.checkpoint.keyEnv: a checkpoint file is read with the key the variable keyEnv names: give keyEnv, as keyEnv: UAT_CHECKPOINT_KEY',
+    ]);
+    expect(refusalsOf(refreshedWith([...replay, 'checkpoint'], { keyEnv: 'KEY' }))).toEqual([
+      'resources.test-data.checkpoint.keyEnv: keyEnv goes with file, the checkpoint file it opens',
+    ]);
+    const withKey = (keyEnv: unknown) =>
+      refreshedWith([...replay, 'checkpoint'], { file: '/runner/x.sfcheckpoint', keyEnv });
+    expect(refusalsOf(withKey({ env: 'UAT_CHECKPOINT_KEY' }))).toEqual([
+      'resources.test-data.checkpoint.keyEnv: keyEnv is the name of the variable that holds the key, as keyEnv: UAT_CHECKPOINT_KEY, not { env: … }',
+    ]);
+    expect(refusalsOf(withKey('uat_key'))).toEqual([
+      'resources.test-data.checkpoint.keyEnv: A variable is named in upper-case letters, digits and underscores, as UAT_CHECKPOINT_KEY',
+    ]);
+    expect(refusalsOf(withKey('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST'))).toEqual([
+      'resources.test-data.checkpoint.keyEnv: this is shaped like the key itself: keyEnv names the variable that holds it, and the file holds no secret',
+    ]);
+    expect(
+      refusalsOf(refreshedWith([...replay, 'checkpoint'], { id: 'uat-before-refresh' })),
+    ).toEqual([
+      expect.stringMatching(/^resources\.test-data\.checkpoint\.id: .*name: uat-before-refresh/),
+    ]);
+  });
+
+  it('names a checkpoint file from the root or by a variable: it holds records, outside the repository', () => {
+    expect(
+      refusalsOf(
+        refreshedWith([...replay, 'checkpoint'], {
+          file: 'exports/uat.sfcheckpoint',
+          keyEnv: 'UAT_CHECKPOINT_KEY',
+        }),
+      ),
+    ).toEqual([
+      'resources.test-data.checkpoint.file: A checkpoint file is named by its path from the root, as /runner/work/uat.sfcheckpoint, or by { env: NAME }: it holds records, and lives outside the repository',
+    ]);
+    expect(isEnvRefPlace(['resources', 'test-data', 'checkpoint', 'file'])).toBe(true);
+    expect(isEnvRefPlace(['resources', 'test-data', 'checkpoint', 'keyEnv'])).toBe(false);
+    expect(isEnvRefPlace(['resources', 'test-data', 'checkpoint', 'name'])).toBe(false);
+    expect(ENV_REF_PLACES).toContain('resources.<replay>.checkpoint.file');
+  });
+
+  it('takes the org role a named checkpoint was taken of with from, and nowhere else', () => {
+    expect(
+      refusalsOf(
+        refreshedWith(replay, {
+          kind: 'replay',
+          checkpoint: { name: 'pr-before' },
+          from: 'prod',
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      refusalsOf(
+        refreshedWith(replay, {
+          kind: 'replay',
+          checkpoint: { id: 'ck-20261114-174750-5e38' },
+          from: 'prod',
+        }),
+      ),
+    ).toEqual([
+      'resources.test-data.from: from goes with checkpoint: { name }: it names the org role the checkpoint of that name was taken of',
+    ]);
+    expect(
+      refusalsOf(refreshedWith(replay, { kind: 'replay', checkpoint: { name: 'x' }, from: 'uat' })),
+    ).toEqual([
+      'resources.test-data.from: "uat" is no org role of the file: declare it under orgs, as orgs: { uat: { alias: { env: … } } } (its roles are prod)',
+    ]);
+  });
+
+  it('takes the choices of sandforge checkpoint replay, each under its flag’s name', () => {
+    const choices = {
+      kind: 'replay',
+      checkpoint: { name: 'uat-before-refresh' },
+      objects: ['Account', 'Contact', 'Case'],
+      excludeObjects: ['Task'],
+      owners: 'me',
+      customSettings: true,
+      mask: true,
+      keepContactPoints: false,
+      maxRecords: 5_000,
+      accept: { automation: true },
+    };
+    expect(refusalsOf(refreshedWith(replay, choices))).toEqual([]);
+    expect(refusalsOf(refreshedWith(replay, { ...choices, owners: 'them' }))).toEqual([
+      'resources.test-data.owners: owners is same, each record keeping its owner where that user is active, or me, the user connected',
+    ]);
+    expect(refusalsOf(refreshedWith(replay, { ...choices, maxRecords: 0 }))).toEqual([
+      expect.stringMatching(/^resources\.test-data\.maxRecords: /),
+    ]);
+    expect(refusalsOf(refreshedWith(replay, { ...choices, objects: ['Case', 'Case'] }))).toEqual([
+      'resources.test-data.objects.1: Case is listed twice: an object is listed once',
+    ]);
+    for (const key of ['link', 'ownerMap', 'noRealData', 'again', 'acceptEmails']) {
+      expect(refusalsOf(refreshedWith(replay, { ...choices, [key]: true })), key).toEqual([
+        expect.stringContaining(`"${key}" is not a key of a replay resource`),
+      ]);
+    }
+  });
+});
+
+describe('the audits a file asks', () => {
+  const endpoints = ['audits', 'endpoints'];
+
+  it('takes the scheduled jobs, the endpoints and the handoff note, each asked by itself', () => {
+    expect(refusalsOf(refreshedWith(endpoints, true))).toEqual([]);
+    expect(refusalsOf(refreshedWith(['audits'], { handoff: true }))).toEqual([]);
+    expect(refusalsOf(refreshedWith(['audits', 'jobs'], true))).toEqual([
+      'audits: "jobs" is not a key of audits, which takes schedules, endpoints, handoff',
+    ]);
+    expect(refusalsOf(refreshedWith(['audits', 'handoff'], 'yes'))).toEqual([
+      expect.stringMatching(/^audits\.handoff: /),
+    ]);
+  });
+
+  it('takes production’s hosts as names alone, each once, 50 at most', () => {
+    const hosts = [...endpoints, 'productionHosts'];
+    expect(refusalsOf(refreshedWith(hosts, ['https://erp.acme.example/api']))).toEqual([
+      'audits.endpoints.productionHosts.0: https://erp.acme.example/api is no host name: write the host alone, without https:// nor a path, as erp.acme.example',
+    ]);
+    expect(refusalsOf(refreshedWith(hosts, ['erp.acme.example', 'erp.acme.example']))).toEqual([
+      'audits.endpoints.productionHosts.1: erp.acme.example is listed twice: a host is listed once',
+    ]);
+    const many = Array.from({ length: 51 }, (_, i) => `host${i}.acme.example`);
+    expect(refusalsOf(refreshedWith(hosts, many))).toEqual([
+      'audits.endpoints.productionHosts: 50 hosts at most: SandForge deduces production’s own from the sandbox',
+    ]);
+  });
+
+  it('takes the fields that hold a URL, of a Custom Metadata Type or a Custom Setting, named with it', () => {
+    const fields = [...endpoints, 'fields'];
+    expect(
+      refusalsOf(
+        refreshedWith(fields, ['acme__Integration__mdt.acme__Url__c', 'ERP_Settings__c.Url__c']),
+      ),
+    ).toEqual([]);
+    for (const field of ['Account.Website', 'Integration_Setting__mdt', 'Endpoint__c']) {
+      expect(refusalsOf(refreshedWith(fields, [field])), field).toEqual([
+        `audits.endpoints.fields.0: ${field} is no field of a Custom Metadata Type (__mdt) or a Custom Setting named with it: write Object.Field, as Integration_Setting__mdt.Endpoint__c`,
+      ]);
+    }
+  });
+});
+
+/**
  * Whether `value` holds to `schema`, for the keywords `z.toJSONSchema` writes:
  * the editor checks a file with the generated schema, so the file the schema
  * describes is checked here the way an editor would. A keyword it does not
@@ -1117,6 +1552,32 @@ describe('the JSON Schema of the file', () => {
       ),
     ).toEqual([]);
     expect(holdsTo(jsonSchema, exampleWith(['resources', 'claims'], frozen()))).toEqual([]);
+    expect(holdsTo(jsonSchema, refreshedUat())).toEqual([]);
+    expect(
+      holdsTo(
+        jsonSchema,
+        refreshedWith(['resources', 'test-data', 'checkpoint'], {
+          file: { env: 'UAT_CHECKPOINT_FILE' },
+          keyEnv: 'UAT_CHECKPOINT_KEY',
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('refuses by its shape a My Domain that is no sandbox’s, a user’s key it does not take and an email it does not know', () => {
+    const refused = [
+      refreshedWith(['targets', 'sandboxes', 0, 'myDomain'], 'acme'),
+      refreshedWith(['resources', 'testers', 'users', 0, 'login'], 'reset-email'),
+      refreshedWith(['resources', 'testers', 'users', 0, 'email'], 'reset'),
+      refreshedWith(['resources', 'testers', 'dependsOn'], ['customers']),
+      refreshedWith(['resources', 'test-data', 'owners'], 'them'),
+      refreshedWith(['audits', 'endpoints', 'fields'], ['Account.Website']),
+    ];
+
+    for (const document of refused) {
+      expect(holdsTo(jsonSchema, document)).not.toEqual([]);
+      expect(envFileSchema.safeParse(document).success).toBe(false);
+    }
   });
 
   it('refuses what the zod schema refuses, by the same shape', () => {
@@ -1233,6 +1694,39 @@ describe('the state', () => {
     expect(envStateSchema.safeParse(record).success).toBe(false);
   });
 
+  it('reads a users resource run by sandforge users and a replay by sandforge checkpoint, and the host the org answered on', () => {
+    const record = state();
+    (record['org'] as Record<string, unknown>)['host'] = 'acme--uat.sandbox.my.salesforce.com';
+    const resources = record['resources'] as Record<string, unknown>;
+    const run = (script: string) => ({
+      n: 1,
+      script,
+      summary: 'runs/x/1.summary.json',
+      startedAt: '2026-11-20T08:14:00.000Z',
+      exitCode: 0,
+      objects: [],
+    });
+    resources['testers'] = {
+      kind: 'users',
+      fingerprint: 'c'.repeat(64),
+      dependsOn: [],
+      status: 'applied',
+      runs: [run('sandforge-users')],
+    };
+    resources['test-data'] = {
+      kind: 'replay',
+      fingerprint: 'd'.repeat(64),
+      dependsOn: [],
+      status: 'applied',
+      runs: [run('sandforge-checkpoint')],
+    };
+    expect(envStateSchema.safeParse(record).success).toBe(true);
+    // A host is a name, never a URL with its path.
+    (record['org'] as Record<string, unknown>)['host'] =
+      'https://acme--uat.sandbox.my.salesforce.com/';
+    expect(envStateSchema.safeParse(record).success).toBe(false);
+  });
+
   it('refuses a lineage that is no uuid, and a state of a production org', () => {
     expect(envStateSchema.safeParse({ ...state(), lineage: 'abc' }).success).toBe(false);
     const record = state();
@@ -1272,6 +1766,61 @@ describe('the plan and the steps', () => {
     expect(envPlanSchema.safeParse(plan).success).toBe(true);
     const unknown = { ...plan, actions: [{ ...plan.actions[0], action: 'update' }] };
     expect(envPlanSchema.safeParse(unknown).success).toBe(false);
+  });
+
+  it('reads a users action: what changes for each user, and the emails Salesforce sends to people', () => {
+    const users = {
+      ...plan,
+      org: { ...plan.org, kind: 'sandbox', host: 'acme--uat.sandbox.my.salesforce.com' },
+      state: {
+        found: false,
+        refreshed: {
+          organizationId: '00Dxx0000001gPLEAY',
+          serial: 9,
+          updatedAt: '2026-11-14T17:47:50.000Z',
+          setAside: '/home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-after-refresh',
+        },
+      },
+      actions: [
+        {
+          resource: 'testers',
+          kind: 'users',
+          action: 'create',
+          why: 'not applied to this org yet',
+          objects: [{ object: 'User', wouldCreate: 3 }],
+          users: [
+            {
+              username: 'jane.qa@acme.example.uat',
+              given: 'jane.qa@acme.example',
+              userId: '005000000000001AAA',
+              address: 'invalid',
+              changes: [
+                { what: 'email', to: 'awaiting' },
+                { what: 'frozen', from: true, to: false },
+                { what: 'permissionSet', name: 'QA_Tools', to: 'added' },
+                { what: 'group', name: 'QA_Team', type: 'Regular', to: 'added' },
+              ],
+              emailsToPeople: 1,
+            },
+          ],
+          gates: { emailsToPeople: 1 },
+        },
+      ],
+      gates: { ...plan.gates, emailsToPeople: { count: 1, accepted: false } },
+    };
+
+    expect(envPlanSchema.safeParse(users).success).toBe(true);
+    // A plan made before 1.82 says nothing of people's emails, and still reads.
+    expect(envPlanSchema.safeParse(plan).success).toBe(true);
+    const address = structuredClone(users);
+    (address.actions[0]!.users[0] as Record<string, unknown>)['email'] = 'jane.qa@acme.example';
+    expect(envPlanSchema.safeParse(address).success).toBe(false);
+    expect(
+      envPlanSchema.safeParse({
+        ...users,
+        gates: { ...users.gates, emailsToPeople: { count: 1 } },
+      }).success,
+    ).toBe(false);
   });
 
   it('reads a count given as the most a run writes, and only as true', () => {
@@ -1460,6 +2009,24 @@ describe('the plan and the steps', () => {
     expect(envRunResultSchema.safeParse({ ...result, steps: [unranked] }).success).toBe(false);
   });
 
+  it('reads the handoff note an apply wrote and the audits it read, as env audit answers them', () => {
+    const result = {
+      plan,
+      steps: [],
+      status: 'success',
+      state: { serial: 12 },
+      audits: audited(),
+      handoff: {
+        path: '/home/dev/.sandforge/env/00Dxx0000002AbCEAU/uat-after-refresh/handoff-2026-11-20T08-14-51Z.md',
+      },
+    };
+    expect(envRunResultSchema.safeParse(result).success).toBe(true);
+    expect(
+      envRunResultSchema.safeParse({ ...result, handoff: { path: '', text: '# Environment' } })
+        .success,
+    ).toBe(false);
+  });
+
   it('reads a step refused before it wrote, in its script’s words, and no empty refusal', () => {
     const refused = {
       resource: 'cloned',
@@ -1521,6 +2088,17 @@ describe('a saved plan', () => {
     ).toBe(false);
   });
 
+  it('reads whether its line accepted the emails Salesforce sends to people, and a plan saved before 1.82 as accepting none', () => {
+    const accepting = { ...saved, line: { ...saved.line, acceptUserEmails: true } };
+
+    expect(envSavedPlanSchema.parse(accepting).line.acceptUserEmails).toBe(true);
+    expect(envSavedPlanSchema.parse(saved).line).not.toHaveProperty('acceptUserEmails');
+    expect(
+      envSavedPlanSchema.safeParse({ ...saved, line: { ...saved.line, acceptUserEmails: 1 } })
+        .success,
+    ).toBe(false);
+  });
+
   it('refuses a key it does not name, a state found with no lineage, and a version it does not know', () => {
     expect(envSavedPlanSchema.safeParse({ ...saved, accessToken: 'x' }).success).toBe(false);
     expect(
@@ -1560,6 +2138,38 @@ describe('what output answers', () => {
 
   it('reads each resource by its name, the ids of what it created by object', () => {
     expect(envOutputSchema.parse(output).resources['accounts']?.records['Account']).toHaveLength(2);
+  });
+
+  it('names the users a users resource set up, by username and id alone', () => {
+    const withUsers = (users: unknown) => ({
+      ...output,
+      resources: {
+        testers: {
+          kind: 'users',
+          status: 'applied',
+          run: 1,
+          records: {},
+          users,
+          why: 'a users resource creates no record',
+        },
+      },
+    });
+    expect(
+      envOutputSchema.safeParse(
+        withUsers([{ username: 'jane.qa@acme.example.uat', userId: '005000000000001AAA' }]),
+      ).success,
+    ).toBe(true);
+    expect(
+      envOutputSchema.safeParse(
+        withUsers([
+          {
+            username: 'jane.qa@acme.example.uat',
+            userId: '005000000000001AAA',
+            email: 'jane.qa@acme.example',
+          },
+        ]),
+      ).success,
+    ).toBe(false);
   });
 
   it('refuses an id that is no record’s, and a value beside the ids', () => {
@@ -1661,5 +2271,122 @@ describe('what the other verbs answer', () => {
         expired: [],
       }).success,
     ).toBe(true);
+  });
+});
+
+/** What env audit answers of the uat sandbox after its refresh. */
+function audited(): Record<string, unknown> {
+  return {
+    org: {
+      organizationId: '00Dxx0000002AbCEAU',
+      kind: 'sandbox',
+      alias: 'uat',
+      host: 'acme--uat.sandbox.my.salesforce.com',
+    },
+    at: '2026-11-20T08:14:49.000Z',
+    apiRequests: 8,
+    deliverability: { read: 'closed' },
+    schedules: {
+      now: 6,
+      against: {
+        savedAt: '2026-11-18T18:00:00.000Z',
+        organizationId: '00Dxx0000001gPLEAY',
+        refreshed: true,
+      },
+      jobs: [
+        {
+          status: 'gone',
+          name: 'Nightly ERP sync',
+          type: 'Scheduled Apex',
+          cronExpression: '0 0 2 * * ?',
+        },
+        {
+          status: 'frozen',
+          name: 'Weekly digest',
+          type: 'Scheduled Apex',
+          owner: 'ops.batch@acme.example.uat',
+          nextFireTime: '2026-11-21T06:00:00.000Z',
+        },
+        { status: 'new', name: 'Data cleanup', type: 'Batch Job' },
+      ],
+      kept: 3,
+    },
+    endpoints: {
+      productionHosts: [
+        'acme.my.salesforce.com',
+        'acme.lightning.force.com',
+        'acme.my.site.com',
+        'login.salesforce.com',
+        'erp.acme.example',
+      ],
+      found: [
+        {
+          source: 'namedCredential',
+          name: 'ERP_API',
+          url: 'https://erp.acme.example/api',
+          host: 'erp.acme.example',
+          why: 'listed',
+        },
+        {
+          source: 'remoteSite',
+          name: 'SF_Prod',
+          url: 'https://acme.my.salesforce.com/',
+          host: 'acme.my.salesforce.com',
+          why: 'myDomain',
+        },
+        {
+          source: 'field',
+          name: 'Integration_Setting__mdt.Default.Endpoint__c',
+          url: 'https://login.salesforce.com/services/oauth2/token',
+          host: 'login.salesforce.com',
+          why: 'login',
+        },
+      ],
+    },
+    findings: 5,
+  };
+}
+
+describe('what env audit answers', () => {
+  it('reads the deliverability, the scheduled jobs against the inventory before the refresh, and the endpoints that name production', () => {
+    expect(envAuditResultSchema.safeParse(audited()).success).toBe(true);
+    const unread = {
+      ...audited(),
+      deliverability: { unread: 'the org refused the anonymous Apex that reads it' },
+      schedules: { now: 0, jobs: [], kept: 0, unread: 'CronTrigger is not readable by this user' },
+    };
+    expect(envAuditResultSchema.safeParse(unread).success).toBe(true);
+  });
+
+  it('never holds a URL’s query, fragment or the credentials it may carry', () => {
+    const withUrl = (url: string) => {
+      const answer = audited();
+      const endpoints = answer['endpoints'] as { found: Array<Record<string, unknown>> };
+      endpoints.found[0]!['url'] = url;
+      return answer;
+    };
+    expect(envAuditResultSchema.safeParse(withUrl('https://erp.acme.example/api/v2')).success).toBe(
+      true,
+    );
+    for (const url of [
+      'https://erp.acme.example/api/v2?key=abc123',
+      'https://erp.acme.example/api#token',
+      'https://user:pass@erp.acme.example/api',
+    ]) {
+      expect(envAuditResultSchema.safeParse(withUrl(url)).success, url).toBe(false);
+    }
+  });
+
+  it('never names a job by its owner’s address, nor a status it does not know', () => {
+    const job = (over: Record<string, unknown>) => {
+      const answer = audited();
+      const schedules = answer['schedules'] as { jobs: Array<Record<string, unknown>> };
+      schedules.jobs[0] = { ...schedules.jobs[0], ...over };
+      return answer;
+    };
+    expect(envAuditResultSchema.safeParse(job({ status: 'late' })).success).toBe(false);
+    expect(envAuditResultSchema.safeParse(job({ ownerEmail: 'ops@acme.example' })).success).toBe(
+      false,
+    );
   });
 });

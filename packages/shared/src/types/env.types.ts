@@ -20,6 +20,7 @@ import type {
   SavedTemplateRuleConfig,
 } from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
+import type { UsersEmailChoice, UsersPlanUser } from '../schemas/users.schema.js';
 import type { ForgeSampleDraw, ForgeTraversalDepth } from './forge.types.js';
 import type { FieldRule, FieldRuleConfig, SeedRelation, SeedTemplate } from './seed.types.js';
 
@@ -33,18 +34,27 @@ export interface EnvRef {
 /** The kinds of org an environment may be applied to: never a production org. */
 export type EnvTargetKind = 'scratch' | 'developer' | 'sandbox';
 
+/**
+ * A sandbox by its My Domain, `acme--uat`: production's, two dashes, the
+ * sandbox's name. A refresh keeps it, where it changes the Organization Id.
+ */
+export interface EnvMyDomain {
+  myDomain: string;
+}
+
 /** Which orgs an apply may write to. */
 export interface EnvTargets {
   /** Scratch orgs and Developer Edition orgs unless the file says otherwise. */
   kinds: EnvTargetKind[];
   /**
-   * Organization Ids of the sandboxes an apply may write to: nothing
-   * Salesforce says tells a full copy from a developer sandbox, so each one
-   * is listed, and a refresh, which changes the Id, takes it off the list.
+   * The sandboxes an apply may write to, by Organization Id or by My Domain:
+   * nothing Salesforce says tells a full copy from a developer sandbox, so
+   * each one is listed. A refresh changes the Id, which takes a sandbox
+   * listed by it off the list, and keeps the My Domain.
    */
-  sandboxes: string[];
-  /** Organization Ids refused whatever else says. */
-  protect: string[];
+  sandboxes: Array<string | EnvMyDomain>;
+  /** Organization Ids, or sandboxes' My Domains, refused whatever else says. */
+  protect: Array<string | EnvMyDomain>;
 }
 
 /** An org a resource names by its role: an alias, or the variable holding one. */
@@ -311,8 +321,108 @@ export interface EnvMaskResource {
   maxRequests?: number;
 }
 
-/** A resource of the file. Version 1 holds the `seed`, `forge`, `frozen` and `mask` kinds. */
-export type EnvResource = EnvSeedResource | EnvForgeResource | EnvFrozenResource | EnvMaskResource;
+/**
+ * What a user is set up with, all but who it is: a users resource's
+ * `defaults`, and each of its users beside its username. Absent, a key
+ * leaves the user as it is; a user's key replaces the defaults' whole.
+ */
+export interface EnvUserSettings {
+  /** `restore` takes off the `.invalid` the copy added: its owner confirms it by a link. */
+  email?: UsersEmailChoice;
+  active?: boolean;
+  frozen?: boolean;
+  /** `Profile.Name`, exact, in the org's language for a standard profile. */
+  profile?: string;
+  /** `PermissionSet.Name`, its API name. */
+  permissionSets?: string[];
+  /** `PermissionSetGroup.DeveloperName`. */
+  permissionSetGroups?: string[];
+  /** `Group.DeveloperName` of a public group or a queue. */
+  groups?: string[];
+}
+
+/** One user of a users resource: production's username, or the sandbox's whole. */
+export interface EnvUser extends EnvUserSettings {
+  username: string;
+}
+
+/**
+ * The users of a sandbox handed back to its testers, set up by `sandforge
+ * users` before every other resource and taken back after them all: it takes
+ * no `dependsOn`, and none names it.
+ */
+export interface EnvUsersResource {
+  kind: 'users';
+  accept?: EnvAccept;
+  defaults?: EnvUserSettings;
+  users: EnvUser[];
+}
+
+/**
+ * The checkpoint a replay resource replays, by one form: its `id`; its
+ * `name`, the newest of that name of this sandbox before its refresh, or of
+ * the org role `from` names; or a `file` with `keyEnv`, the name of the
+ * variable that holds its key.
+ */
+export interface EnvReplayCheckpoint {
+  id?: string;
+  name?: string;
+  /** From the root, or the variable that holds it. */
+  file?: string | EnvRef;
+  /** The name of the variable that holds the file's key: never the key. */
+  keyEnv?: string;
+}
+
+/**
+ * A checkpoint replayed by `sandforge checkpoint replay`, its choices each
+ * under its flag's name, and taken back by the replay's own removal.
+ */
+export interface EnvReplayResource {
+  kind: 'replay';
+  dependsOn?: string[];
+  accept?: EnvAccept;
+  checkpoint: EnvReplayCheckpoint;
+  /** With `checkpoint.name`: the org role the checkpoint of that name was taken of. */
+  from?: string;
+  /** `--objects`. */
+  objects?: string[];
+  /** `--exclude-object`. */
+  excludeObjects?: string[];
+  /** `--owners`. */
+  owners?: 'same' | 'me';
+  /** `--custom-settings`. */
+  customSettings?: boolean;
+  /** `--mask`. */
+  mask?: boolean;
+  /** `--keep-contact-points`. */
+  keepContactPoints?: boolean;
+  /** `--max-records`. */
+  maxRecords?: number;
+}
+
+/** A resource of the file. Version 1 holds the `seed`, `forge`, `frozen`, `mask`, `users` and `replay` kinds. */
+export type EnvResource =
+  | EnvSeedResource
+  | EnvForgeResource
+  | EnvFrozenResource
+  | EnvMaskResource
+  | EnvUsersResource
+  | EnvReplayResource;
+
+/** What the endpoints audit reads beside what SandForge deduces of production. */
+export interface EnvAuditEndpoints {
+  /** Production's hosts beside its own: the ERP, the middleware, each a name alone. */
+  productionHosts?: string[];
+  /** Fields of Custom Metadata Types or Custom Settings that hold a URL, as `Object.Field`. */
+  fields?: string[];
+}
+
+/** The audits an apply reads once it wrote, and `env audit` reads: nothing written. */
+export interface EnvAudits {
+  schedules?: boolean;
+  endpoints?: boolean | EnvAuditEndpoints;
+  handoff?: boolean;
+}
 
 /** `sandforge.yaml`, version 1, as read: defaults in place, variables as written. */
 export interface EnvFile {
@@ -325,6 +435,8 @@ export interface EnvFile {
   /** Named sets of DataOps rules, which mask resources name. */
   masking: Record<string, EnvMaskingSet>;
   resources: Record<string, EnvResource>;
+  /** The audits read once applied, and by `env audit`. */
+  audits?: EnvAudits;
 }
 
 /**
@@ -436,11 +548,16 @@ export interface EnvForgeRun {
 
 // ─── The state (state.json, version 1) ──────────────────────────────────────
 
-export type EnvResourceKind = 'seed' | 'forge' | 'frozen' | 'mask';
+export type EnvResourceKind = 'seed' | 'forge' | 'frozen' | 'mask' | 'users' | 'replay';
 
-/** The script that applies, refreshes and destroys each kind of resource. */
+/** The script that applies, refreshes and destroys each kind of resource: a replay's, the checkpoint script. */
 export type EnvScript =
-  'sandforge-seed' | 'sandforge-clone' | 'sandforge-frozen' | 'sandforge-dataops';
+  | 'sandforge-seed'
+  | 'sandforge-clone'
+  | 'sandforge-frozen'
+  | 'sandforge-dataops'
+  | 'sandforge-users'
+  | 'sandforge-checkpoint';
 
 /**
  * Where a resource stands. `applying` and `destroying` are written before the
@@ -514,7 +631,18 @@ export interface EnvState {
   sandforgeVersion: string;
   /** When the state was last written, by this machine's clock. */
   updatedAt: string;
-  org: { organizationId: string; kind: EnvTargetKind; username: string; alias?: string };
+  org: {
+    organizationId: string;
+    kind: EnvTargetKind;
+    username: string;
+    alias?: string;
+    /**
+     * The host the org answered on, its My Domain's: a refresh keeps it, so a
+     * state of another Id under the same host proves the org refreshed. None
+     * in a state written before 1.82, which proves nothing.
+     */
+    host?: string;
+  };
   /** The resolved, canonical file it was last applied from. */
   file: { digest: string };
   /** Checkpoint ids in the shared store. */
@@ -559,6 +687,11 @@ export interface EnvActionGates {
   apiRequests?: number;
   storageBytes?: number;
   emails?: Array<{ limit: EnvEmailLimit; emails: number }>;
+  /**
+   * The emails Salesforce sends to people as a users resource is applied —
+   * the link of each address asked back —, which only the line accepts.
+   */
+  emailsToPeople?: number;
 }
 
 /**
@@ -592,6 +725,8 @@ export interface EnvAction {
   refusalCodes?: string[];
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
   notes?: string[];
+  /** A users resource's: each user, its address as read, and what applying would change. */
+  users?: UsersPlanUser[];
 }
 
 /** A checkpoint of the environment's lifecycle: taken before the first write, or once applied. */
@@ -650,13 +785,32 @@ export interface EnvPlanGates {
   };
   storage: { bytes: number; left?: number; unread?: string };
   emails: Array<{ limit: EnvEmailLimit; emails: number; left?: number }>;
+  /**
+   * The emails Salesforce would send to people, all users resources
+   * together, and whether the line accepted them. None in a plan made
+   * before 1.82.
+   */
+  emailsToPeople?: { count: number; accepted: boolean };
+}
+
+/**
+ * The state of this environment this machine kept under another
+ * Organization Id of the same host: the org was refreshed since, and the
+ * apply starts anew, that state set aside, kept.
+ */
+export interface EnvPlanRefreshed {
+  organizationId: string;
+  serial: number;
+  updatedAt: string;
+  /** Where it is kept, set aside. */
+  setAside: string;
 }
 
 /** What applying the file to an org would do; writes nothing, to the org or the state. */
 export interface EnvPlan {
   env: string;
-  org: { organizationId: string; kind: EnvTargetKind; alias?: string };
-  state: { found: boolean; serial?: number };
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string; host?: string };
+  state: { found: boolean; serial?: number; refreshed?: EnvPlanRefreshed };
   /** In the order apply runs them. */
   actions: EnvAction[];
   totals: {
@@ -758,6 +912,69 @@ export interface EnvRunResult {
   refusalCodes?: string[];
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
   state: { serial: number };
+  /** The audits the file asks, read once the apply wrote. */
+  audits?: EnvAuditResult;
+  /** The handoff note the apply wrote. */
+  handoff?: { path: string };
+}
+
+/** A scheduled job, as an audit names it: never by its owner's address. */
+export interface EnvAuditJob {
+  /** In the inventory before and not now; run as a user who can no longer; not in the inventory before. */
+  status: 'gone' | 'frozen' | 'inactive' | 'new';
+  /** `CronJobDetail.Name`. */
+  name: string;
+  /** As Setup names it: Scheduled Apex, Batch Job… */
+  type: string;
+  cronExpression?: string;
+  /** The username of the user it runs as. */
+  owner?: string;
+  nextFireTime?: string;
+}
+
+/** A place that still names production, and why that host is production's. */
+export interface EnvAuditEndpoint {
+  source: 'namedCredential' | 'remoteSite' | 'field';
+  /** The Named Credential's or the Remote Site's name; a field's as `Object.Record.Field`. */
+  name: string;
+  /** Its scheme, host and path alone: never its query, nor credentials. */
+  url: string;
+  host: string;
+  why: 'listed' | 'myDomain' | 'lightning' | 'site' | 'login';
+}
+
+/**
+ * What `env audit --json` answers, and an apply that read the audits once it
+ * wrote. Each audit was read, and nothing written; one not read says why.
+ */
+export interface EnvAuditResult {
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string; host?: string };
+  /** When it was read, on the org's clock. */
+  at: string;
+  apiRequests: number;
+  /** Open, All email; closed, System email only or No access, which no API tells apart. */
+  deliverability?: { read?: 'open' | 'closed'; unread?: string };
+  schedules?: {
+    /** The jobs the org holds now. */
+    now: number;
+    /** The inventory compared against, and whether it is of the sandbox before its refresh. */
+    against?: { savedAt: string; organizationId: string; refreshed: boolean };
+    jobs: EnvAuditJob[];
+    kept: number;
+    /** Where `--save` kept the inventory read now. */
+    saved?: string;
+    unread?: string;
+  };
+  endpoints?: {
+    /** The hosts compared against: those deduced, login.salesforce.com, and the file's. */
+    productionHosts: string[];
+    found: EnvAuditEndpoint[];
+    /** Why no host was deduced: the org's host is not a sandbox's. */
+    notDeduced?: string;
+    unread?: string;
+  };
+  /** What `--fail-on-findings` exits 3 on. */
+  findings: number;
 }
 
 /**
@@ -914,6 +1131,12 @@ export interface EnvSavedPlanLine {
    */
   acceptEmails?: boolean;
   acceptNoState: boolean;
+  /**
+   * `--accept-user-emails`: the emails Salesforce sends to people as a users
+   * resource is applied. Absent from a plan saved before 1.82, which accepts
+   * none.
+   */
+  acceptUserEmails?: boolean;
 }
 
 /**
@@ -957,6 +1180,8 @@ export interface EnvOutputResource {
   masked?: Record<string, number>;
   /** A mask resource's: the snapshot its last run took first. */
   snapshotId?: string;
+  /** A users resource's: the users its last run set up, by username and id alone. */
+  users?: Array<{ username: string; userId: string }>;
   /** Why it names no record. */
   why?: string;
 }
