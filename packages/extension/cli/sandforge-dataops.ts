@@ -47,7 +47,11 @@ import { confirm } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { fileConfigStore } from './fileConfigStore.js';
-import { BACKUP_CAP_MAX, DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
+import {
+  BACKUP_CAP_MAX,
+  BACKUP_CAP_MIN,
+  DataOpsHandler,
+} from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { BackupSetStore } from '../src/modules/dataops/slices/backupSet.js';
@@ -170,7 +174,7 @@ Options:
                          sandforge.backup.maxRecordsPerObject sets it; a run with
                          more writes nothing, and a dry run says so — past it,
                          --slices masks in slices of this size (default: 50000;
-                         100 to 1000000)
+                         100 to 1000000, any other refused, exit 2)
 ${dataOpsAutomationHelp('written over', '--dry-run')}  --yes                  do not ask before writing. Without it, a command with no
                          terminal to answer the question — a CI step — stops
                          there, exit 2, and writes nothing. It answers no to a
@@ -370,6 +374,20 @@ export function parseArgs(argv: string[]): CliArgs {
   const maxRecords = get('--max-records');
   if (maxRecords !== undefined && !/^[1-9]\d*$/.test(maxRecords)) {
     refuseLine(`Not a number of records: "${maxRecords}"`);
+  }
+  // A cap the snapshot cannot hold is refused, never read as its bound: run
+  // on the trap org, --max-records 50 was taken, and its dry run said "more
+  // than the 100 a snapshot holds of one object".
+  if (
+    maxRecords !== undefined &&
+    (Number(maxRecords) < BACKUP_CAP_MIN || Number(maxRecords) > BACKUP_CAP_MAX)
+  ) {
+    refuseLine(
+      `--max-records takes ${BACKUP_CAP_MIN} to ${BACKUP_CAP_MAX} records, not ${maxRecords}: a ` +
+        `snapshot holds at least ${BACKUP_CAP_MIN} records of one object and at most ` +
+        `${BACKUP_CAP_MAX}; past that, --slices masks the object in slices of --max-records ` +
+        'records, each backed up just before it is masked, or narrow the run with --where.',
+    );
   }
   const maxRequests = get('--max-requests');
   if (

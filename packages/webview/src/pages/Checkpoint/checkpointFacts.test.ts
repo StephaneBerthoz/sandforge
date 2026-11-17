@@ -5,8 +5,10 @@ import type { CheckpointLeftOutCode } from '@sandforge/shared';
 import {
   CHECKPOINT_NAME_MAX,
   heldPerObject,
+  holdingLimit,
   isCheckpointName,
   leftOutForAccess,
+  limitHoldingOf,
   objectsWithRecords,
   recordsHeld,
   refusedBeforeScope,
@@ -176,5 +178,56 @@ describe('checkpointFacts', () => {
     // A line break would split the line the command line lists it on.
     expect(isCheckpointName('Before\nUAT')).toBe(false);
     expect(isCheckpointName('Before\u0085UAT')).toBe(false);
+  });
+});
+
+describe('the Records at most that holds an object left out for its size', () => {
+  it('is the least limit the take, raised to it, is not refused at, as the command line names it', () => {
+    // An org of 3,542 contacts and 7,360 account relations, 12 accounts kept:
+    // set to 3,542, the take keeps the contacts and the accounts, 3,554.
+    expect(holdingLimit([12, 3_542, 7_360], 3_542)).toBe(3_554);
+    // Set to 7,360, it keeps all three, 10,914, and is refused at 7,360.
+    expect(holdingLimit([12, 3_542, 7_360], 7_360)).toBe(10_914);
+    // Past a million, no limit holds what it would keep.
+    expect(holdingLimit([600_000, 700_000], 700_000)).toBeGreaterThan(1_000_000);
+  });
+
+  it('says whether a higher limit holds it too, and when none does', () => {
+    const answer = {
+      objects: [{ records: 12 }],
+      leftOut: [
+        { code: 'pastTheLimit' as const, records: 3_542 },
+        { code: 'pastTheLimit' as const, records: 7_360 },
+        { code: 'chatter' as const },
+      ],
+    } as unknown as Parameters<typeof limitHoldingOf>[0];
+
+    expect(limitHoldingOf(answer, { code: 'pastTheLimit', records: 3_542 })).toEqual({
+      limit: 3_554,
+      orMore: false,
+    });
+    expect(limitHoldingOf(answer, { code: 'pastTheLimit', records: 7_360 })).toEqual({
+      limit: 10_914,
+      orMore: true,
+    });
+    expect(limitHoldingOf(answer, { code: 'chatter' })).toBeUndefined();
+    expect(
+      limitHoldingOf(
+        { objects: [], leftOut: [] },
+        { code: 'pastTheLimit', records: 600_000 + 700_000 },
+      ),
+    ).toBeUndefined();
+    expect(
+      limitHoldingOf(
+        {
+          objects: [],
+          leftOut: [
+            { code: 'pastTheLimit', records: 600_000 },
+            { code: 'pastTheLimit', records: 700_000 },
+          ],
+        } as unknown as Parameters<typeof limitHoldingOf>[0],
+        { code: 'pastTheLimit', records: 700_000 },
+      ),
+    ).toBe('none');
   });
 });

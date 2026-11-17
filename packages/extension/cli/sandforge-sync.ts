@@ -354,7 +354,8 @@ Options:
                          of its gate under "alsoRefused", on a line of its own.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the target refused others, or read an object up to
-                         --max-records-per-object         (default: off)
+                         --max-records-per-object, a dry run's read
+                         included                         (default: off)
   --mute-automation      mute the target's automation for the run through
                          its own bypass: assign the user the run writes as,
                          for the run alone, the permission sets holding the
@@ -556,10 +557,10 @@ stopped on an error (its file keeps what it created); 2 a bad command line,
 or a summary or a file --remove cannot take a run back from; 3 the removal
 left records of the run in the target, or its sweep was refused or did not
 take all it was asked to (a --sweep-untied refused included), or the run was
-partial — records refused, or an object read up to --max-records-per-object —
-and --fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a
-SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps what it
-created.
+partial — records refused, or an object read up to --max-records-per-object,
+a dry run's read among them — and --fail-on-partial was given; 130 a Ctrl-C
+stopped the run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a
+SIGHUP: its file keeps what it created.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -2731,6 +2732,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const elapsed = Date.now() - t0;
     // An object the bound cut short, which a real run would copy in part.
     sayReadCuts();
+    // Read as the run reads, to the same bound, the dry run copies part of
+    // what the run would: under --fail-on-partial it ends on 3 as the run
+    // does. It ended on 0, and a pipeline that gated its run on the dry run
+    // went on to copy part of the object.
+    endWith(runExitCode(statusWithReadCuts('success', [...readCuts.values()]), args.failOnPartial));
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...readCutJson(), ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
@@ -2792,7 +2798,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       mutedAutomation = await muting?.release();
     });
     if (mutedAutomation) result = { ...result, mutedAutomation };
-    ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
+    // Partial when the bound cut a read, in its file as in its summary and
+    // its exit code: the file ended on success for a run that copied part.
+    ending = {
+      status: statusWithReadCuts(result.status, [...readCuts.values()]),
+      ...(result.cancelled ? { cancelled: true } : {}),
+    };
     await settleCheckpoint();
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
@@ -2883,7 +2894,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           dryRun: args.dryRun,
           startedAt,
           finishedAt: new Date().toISOString(),
-          result,
+          // How it ended, partial when the bound cut a read, as its status
+          // line and its exit code say: "success" under --json hid the cut
+          // from a pipeline that read the summary.
+          result: { ...result, status: ended },
           // Each object whose read the bound stopped short: copied in part.
           ...readCutJson(),
           // The checkpoint it took of what it writes before its first write

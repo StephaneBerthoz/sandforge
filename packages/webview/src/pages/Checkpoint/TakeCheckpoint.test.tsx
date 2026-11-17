@@ -257,6 +257,32 @@ describe('TakeCheckpoint', () => {
     expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
   });
 
+  it('offers no higher Records at most where none, up to a million, holds the take', () => {
+    // At a million, the page still said "raise it, up to 1,000,000".
+    renderTake();
+    answerScope();
+    fireEvent.change(screen.getByTestId('checkpoint-take-limit'), {
+      target: { value: '1000000' },
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    answerScope({
+      refusal: {
+        code: 'TOO_MANY_RECORDS',
+        message:
+          'The objects this checkpoint would keep hold 2424 records in DEV-SB, past its limit of ' +
+          '1000000: pick fewer objects. No record was read.',
+        holdingLimit: 1_200_000,
+      },
+    });
+    expect(screen.getByTestId('checkpoint-refusal').textContent).toBe(
+      'The objects this checkpoint would keep hold 2,424 records, past Records at most ' +
+        '(1,000,000), and no limit up to 1,000,000 holds them: pick fewer objects. No record was ' +
+        'read.',
+    );
+  });
+
   it('takes under the limit typed', () => {
     renderTake();
     fireEvent.change(screen.getByTestId('checkpoint-take-limit'), {
@@ -293,13 +319,53 @@ describe('TakeCheckpoint', () => {
     const rows = within(screen.getByTestId('checkpoint-left-out'))
       .getAllByRole('listitem')
       .map((row) => row.textContent);
+    // The limit that holds it with the rest the take keeps, 2,424 records:
+    // "600,000 or more" was refused for the 602,424 of them all.
     expect(rows).toEqual([
       "Account — Account has 600,000 records, past the checkpoint's limit of 500,000 for one " +
         'object: left out of the checkpoint, as part of it would be taken for all of it. Records ' +
-        'at most set to 600,000 or more holds it.',
+        'at most set to 602,424 or more holds it.',
       'Task — Task has 2,000,000 records, more than any checkpoint holds of one object ' +
         '(1,000,000): left out of the checkpoint, and a rewind to it does not touch Task. Data ' +
         'Export, in Setup, or a Bulk API query keeps a copy of it.',
+    ]);
+  });
+
+  it('names the limit that holds an object with the rest, as the command line does, and says when none does', () => {
+    // Run on an org of 3,542 contacts and their 7,360 account relations, the
+    // page said "Records at most set to 3,542 or more holds it" of Contact:
+    // raised so, the take kept the relations too and was refused for all of
+    // them, where the command line now names the limit that holds them.
+    renderTake();
+    answerScope({
+      leftOut: [
+        {
+          objectApiName: 'Contact',
+          code: 'pastTheLimit',
+          records: 600_000,
+          limit: 500_000,
+          reason: 'Contact has 600000 records, past the limit.',
+        },
+        {
+          objectApiName: 'AccountContactRelation',
+          code: 'pastTheLimit',
+          records: 700_000,
+          limit: 500_000,
+          reason: 'AccountContactRelation has 700000 records, past the limit.',
+        },
+      ],
+    });
+    const rows = within(screen.getByTestId('checkpoint-left-out'))
+      .getAllByRole('listitem')
+      .map((row) => row.textContent);
+    expect(rows).toEqual([
+      "Contact — Contact has 600,000 records, past the checkpoint's limit of 500,000 for one " +
+        'object: left out of the checkpoint, as part of it would be taken for all of it. Records ' +
+        'at most set to 602,424 holds it.',
+      'AccountContactRelation — AccountContactRelation has 700,000 records, past the ' +
+        "checkpoint's limit of 500,000 for one object: left out of the checkpoint, as part of it " +
+        'would be taken for all of it. With it, every object no larger is kept too, more than ' +
+        '1,000,000 records in all, past any Records at most: pick fewer objects.',
     ]);
   });
 
@@ -875,7 +941,8 @@ describe('TakeCheckpoint — View All and Modify All per object', () => {
       );
       expect(items[2]).toContain(`Case a ${formatNumber(600_000)} enregistrements`);
       expect(items[2]).toContain(`la limite de ${formatNumber(500_000)}`);
-      expect(items[2]).toContain(`Enregistrements au plus à ${formatNumber(600_000)} ou plus`);
+      // The limit that holds the cases with the 2,424 records the take keeps.
+      expect(items[2]).toContain(`Enregistrements au plus à ${formatNumber(602_424)} ou plus`);
     } finally {
       await act(() => i18n.changeLanguage('en'));
     }

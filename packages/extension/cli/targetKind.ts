@@ -89,7 +89,7 @@ export function untypedTargetRefusal(
       `${alias} refused the session sf gave for it (${why}), and ${refuses}. ` +
       `"sf org display --target-org ${alias}" says what sf holds for it; "sf org login web ` +
       `--alias ${alias}" signs in again (in a CI job, "sf org login jwt" or "sf org login ` +
-      `sfdxurl"); then run the command again. ${nothing}`
+      `sfdx-url"); then run the command again. ${nothing}`
     );
   }
   if (isNetworkError(err)) {

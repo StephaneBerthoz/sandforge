@@ -50,6 +50,7 @@ import { SfdxBridge } from '../src/core/connection/SfdxBridge.js';
 import { CompareOrchestrator } from '../src/modules/compare/CompareOrchestrator.js';
 import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
 import { SeedOrchestrator } from '../src/modules/seed/SeedOrchestrator.js';
+import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
 import { LiveOperationTracker } from '../src/modules/monitor/LiveOperationTracker.js';
 import type { Services } from '../src/services.js';
 
@@ -270,6 +271,7 @@ function headlessServices(
     | 'compareOrchestrator'
     | 'automationOrchestrator'
     | 'seedOrchestrator'
+    | 'syncOrchestrator'
     | 'getSandforgeSetting'
     | 'isAIEnabled'
     | 'configStore'
@@ -279,6 +281,9 @@ function headlessServices(
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),
     automationOrchestrator: (deps) => new PipelineOrchestrator(deps),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
+    // Every Sync run and simulation builds its engine with it: without it, a
+    // Sync of the panel hosted here failed before it read anything.
+    syncOrchestrator: (deps) => new SyncOrchestrator(deps),
     getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
     isAIEnabled: () => false,
     configStore,

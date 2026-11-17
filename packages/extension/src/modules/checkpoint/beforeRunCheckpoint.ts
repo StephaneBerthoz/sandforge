@@ -356,6 +356,17 @@ const FILES_WORDS: Readonly<Record<string, { code: 'files' | 'attachments'; reas
 const HELD_UNASKED = 'Held as every checkpoint of picked objects holds it.';
 
 /**
+ * Why the take holds an object the platform writes with one the run writes
+ * (`HELD_WITH_PICKED`), where "held as every checkpoint holds it" said nothing
+ * of what a rewind does with it.
+ */
+const HELD_WITH_WORDS: Readonly<Record<string, string>> = {
+  [keyOf('AccountContactRelation')]:
+    'Account contact relations, which the platform writes with each contact: a rewind deletes ' +
+    'those made since with their contacts, and keeps no contact for them.',
+};
+
+/**
  * A file's versions and its links: held with the file, never as objects of
  * their own. A run that writes files writes their versions, and the file is
  * what the checkpoint holds of them.
@@ -410,7 +421,10 @@ function heldOfScope(
       .filter((name) => !picked.has(keyOf(name)))
       .map((name): RunCheckpointObjectNote => ({
         objectApiName: name,
-        ...(FILES_WORDS[keyOf(name)] ?? { code: 'heldUnasked', reason: HELD_UNASKED }),
+        ...(FILES_WORDS[keyOf(name)] ?? {
+          code: 'heldUnasked',
+          reason: HELD_WITH_WORDS[keyOf(name)] ?? HELD_UNASKED,
+        }),
       })),
   ];
   // With the code the take gave each object it left out, and what it names:

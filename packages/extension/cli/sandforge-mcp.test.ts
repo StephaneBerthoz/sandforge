@@ -2037,7 +2037,11 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
       isError: false,
       structuredContent: { exitCode: 0, answer: [], replays: [] },
     });
-    expect(textOf(list.result as unknown as CallResult)).toContain('No checkpoint is kept in');
+    // Asked of DEV, over a store that keeps none: of DEV, where another may be kept.
+    expect(textOf(list.result as unknown as CallResult)).toContain(
+      'No checkpoint of DEV is kept in',
+    );
+    expect(textOf(list.result as unknown as CallResult)).toContain('One kept in another folder');
     expect(textOf(list.result as unknown as CallResult)).toContain(
       'No replay into DEV is kept on this machine.',
     );
@@ -2045,7 +2049,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
     expect(stderr).toContain('sandforge mcp: 24 tools on stdio');
-    expect(stderr).toContain('No checkpoint is kept in');
+    expect(stderr).toContain('No checkpoint of DEV is kept in');
   }, 60_000);
 });
 

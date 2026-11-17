@@ -160,6 +160,12 @@ export interface SampleBudgetTerms {
   bytesLimit: 'storage' | 'within';
   /** The bytes of the target's room, the bounds asked left out (`SampleLinksInput.roomBytes`). */
   roomBytes: number;
+  /**
+   * The bytes the target's storage leaves the sample, the MB asked aside: a
+   * need past them is held by the storage (`bytesLimitOf`). Absent when the
+   * target would not say.
+   */
+  storageBytes?: number;
   /** What the target's automation that still runs creates under each record of an object the run inserts, in bytes. */
   automationBytes?: (objectApiName: string) => number;
   /** The bounds on requests at the records the run writes per object: see `SampleBounds.requests`. */
@@ -867,6 +873,7 @@ export async function drawSampleOfTheOrg(input: SampleDrawingInput): Promise<Sam
     bounds: {
       bytes: budget.budget.bytes,
       bytesLimit: budget.bytesLimit,
+      ...(budget.storageBytes !== undefined ? { storageBytes: budget.storageBytes } : {}),
       ...(maxTotal !== undefined ? { maxTotal } : {}),
       ...(budget.requests ? { requests: budget.requests } : {}),
     },

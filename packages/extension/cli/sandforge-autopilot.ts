@@ -721,7 +721,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     plan.waves.forEach((wave, index) => {
       log(`  wave ${index + 1}: ${wave.objects.join(', ')}`);
     });
-    for (const line of scopeLines(scan.scope)) log(line);
+    for (const line of scopeLines(scan.scope, args)) log(line);
     for (const line of anonymizationLines(plan)) log(line);
   };
   sayThePlan();
@@ -1412,8 +1412,13 @@ export function autopilotFitJson(fit: AutopilotPlanFit): Record<string, unknown>
  * What the plan copies of each object and what it leaves out: the selected
  * objects whole, the others by the records the selection references, and
  * each lookup left empty with why. Exported so it can be tested.
+ *
+ * @param orgs - The run's orgs, which the clone of a sample it names is of.
  */
-export function scopeLines(scope: AutopilotPlanScope): string[] {
+export function scopeLines(
+  scope: AutopilotPlanScope,
+  orgs: { source: string; target: string },
+): string[] {
   // A selected table larger than a run copies of one is copied from its
   // first records by Id: said before the run on a line of its own, with what
   // the source holds, and not among those copied whole, as Step 4 lists them.
@@ -1429,12 +1434,17 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
   } else if (whole.length > 0 || scope.selected.length === 0) {
     lines.push(`  copied whole, as selected: ${whole.join(', ') || '(none)'}`);
   }
+  // The clone of a sample, a line that runs as printed, as Sync's: without
+  // its orgs it ended on "Missing --source <alias>; --target <alias>".
+  const sample =
+    `${commandOf('clone')} --depth all --source ${orgs.source} --target ${orgs.target} ` +
+    '--fit share --dry-run';
   for (const cut of scope.cutShort ?? []) {
     const of = cut.total !== undefined ? ` of ${cut.total}` : '';
     lines.push(
       `  ${cut.objectApiName}: ${cut.copied}${of} record(s) copied, the first by Id -- ` +
         '--max-records-per-object copies more, up to 1000000; a sample of the whole org that ' +
-        `fits the target: ${commandOf('clone')} --depth all --fit share`,
+        `fits the target: ${sample}`,
     );
   }
   if (scope.parents.length > 0) {

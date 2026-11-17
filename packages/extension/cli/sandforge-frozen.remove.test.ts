@@ -27,11 +27,13 @@ import { SasReferenceIdMappingStore } from '../src/modules/frozendataset/SasRefe
 import { otherRunsInSweep } from '../src/bridge/handlers/removalSweep.js';
 import { indexLoad } from '../src/modules/frozendataset/otherSasLoads.js';
 import {
+  DATASET_WORDS,
   commandLineOtherRuns,
   failsTheStep,
   frozenStepExit,
   main,
   messageLines,
+  notSweptLines,
   parseArgs,
   removalAsked,
 } from './sandforge-frozen.js';
@@ -394,6 +396,79 @@ describe('what a sweep of a load is asked, and what the removal says', () => {
       "1 record(s) of the run kept for records created under them as its user after the run's last write, within a minute of them, by the target's automation or by hand (Task): --sweep takes them first (--sweep-list shows them); a record made by hand as the run's user under the run's records within a minute of them reads as the automation's, and one changed by hand before the run's last write as unchanged: check the names before a --sweep",
     );
     expect(lines.join('\n')).not.toContain('during the run');
+  });
+});
+
+describe('what a removal without --sweep says it left of what the automation made', () => {
+  const listing = {
+    looked: ['Task', 'Event'],
+    unread: [],
+    handWork: [],
+  };
+
+  it('names, per class, what takes them, and what no sweep takes', () => {
+    expect(
+      notSweptLines({
+        ...listing,
+        found: [
+          {
+            objectApiName: 'Task',
+            count: 5,
+            names: [],
+            classes: { made: 2, madeOver: 1, late: 1, untied: 1 },
+          },
+          { objectApiName: 'Event', count: 300, names: [], overBound: true },
+        ],
+        untied: {
+          objects: [{ objectApiName: 'Task', count: 1 }],
+          refusal: 'another run of this machine wrote to the target in its window',
+        },
+      }),
+    ).toEqual([
+      "not swept: 305 or more record(s) the load's user created in its window stay, what the " +
+        "target's automation made for the load likely: Task: 5, Event: 300",
+      '  remove --sweep takes the 3 tied to the load',
+      '  remove --sweep --sweep-late takes the 1 made late',
+      '  the 1 tied to nothing of the load now stay: --sweep-untied is refused (another run of ' +
+        'this machine wrote to the target in its window)',
+      '  no sweep takes those of Event, past its bound',
+      "  remove --sweep-list names them first: a record made by hand as that user in the load's " +
+        "window reads as the automation's, so check the names before a sweep",
+    ]);
+  });
+
+  it('says it of a replay in a replay’s words, with the replay’s own --remove', () => {
+    // A replay's removal runs the same step: "remove --sweep" is no option of
+    // `sandforge checkpoint replay`, and its records are a replay's, not a load's.
+    const replay = { ...DATASET_WORDS, run: 'replay', remove: '--remove' };
+    expect(
+      notSweptLines(
+        {
+          ...listing,
+          found: [
+            {
+              objectApiName: 'Task',
+              count: 3,
+              names: [],
+              classes: { made: 2, madeOver: 0, late: 1, untied: 0 },
+            },
+          ],
+        },
+        replay,
+      ),
+    ).toEqual([
+      "not swept: 3 record(s) the replay's user created in its window stay, what the target's " +
+        'automation made for the replay likely: Task: 3',
+      '  --remove --sweep takes the 2 tied to the replay',
+      '  --remove --sweep --sweep-late takes the 1 made late',
+      "  --remove --sweep-list names them first: a record made by hand as that user in the replay's " +
+        "window reads as the automation's, so check the names before a sweep",
+    ]);
+  });
+
+  it('says nothing of a sweep that would find nothing, or was not read', () => {
+    expect(notSweptLines({ ...listing, found: [] })).toEqual([]);
+    expect(notSweptLines(undefined)).toEqual([]);
   });
 });
 

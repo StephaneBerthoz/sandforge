@@ -1961,9 +1961,13 @@ export class SyncOpsHandler implements DomainHandler {
           // A delta configuration keeps the object's watermark where it was:
           // what the bound left unread is read by the next run.
           read?.onBoundReached?.();
+          // The bound that stopped it: the setting's records, or, short of
+          // them, the pages a cursor of small pages ran into. Both were said,
+          // "1000 records … / 500 pages", of a read the pages never reached.
           const bound =
-            `${readCap} records (sandforge.sync.maxRecordsPerObject) / ` +
-            `${Math.max(FORGE_QUERY_MAX_PAGES, Math.ceil(readCap / 200))} pages`;
+            records.length >= readCap
+              ? `${readCap} records (sandforge.sync.maxRecordsPerObject)`
+              : `${Math.max(FORGE_QUERY_MAX_PAGES, Math.ceil(readCap / 200))} pages`;
           // The same closure reads both orgs, and a short read means
           // different things on each: on the source it means part of the
           // object is not copied, on the target it means conflict detection
@@ -2605,7 +2609,7 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private async executeSync(
     msg: InboundRequest,
-    config: import('@sandforge/shared').SyncConfig,
+    asked: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
     triggeredBy: SyncHistoryEntry['triggeredBy'],
@@ -2613,6 +2617,13 @@ export class SyncOpsHandler implements DomainHandler {
     muteAutomation = false,
     checkpointFirst?: RunCheckpointRequest,
   ): Promise<SyncExecutionResult> {
+    // A configuration sent with no id, which the bridge takes — the page
+    // always gives one, a host may not — is named after its run. Its file was
+    // written with no configId, which the store reads no line of, and its
+    // removal answered "nothing to remove" with every record it wrote in the target.
+    const config: import('@sandforge/shared').SyncConfig = asked.id
+      ? asked
+      : { ...asked, id: operationId };
     const robustnessConfig = robustnessConfigOf(this.deps);
     /** What the run muted of the target's automation, once it ended. */
     let mutedAutomation: import('@sandforge/shared').MutedAutomation | undefined;
@@ -2893,8 +2904,21 @@ export class SyncOpsHandler implements DomainHandler {
       // Its checkpoint kept once it wrote, deleted when it wrote nothing: a
       // run stopped before its first write, or with no row to write.
       const kept = await this.settleRunCheckpoint(checkpoint, wrote, operationId);
+      // The objects whose read of the source the bound cut: the run copied
+      // part of each, and is partial, as the command line says it. It ended
+      // on success — its file, the page, the history and Live Operations —
+      // with a toast that closed itself the only word of the cut. A failure
+      // stays one; the cut is named beside it.
+      const cut = [...readers.cutAtReadCap];
       const result: SyncExecutionResult = {
         ...ran,
+        ...(cut.length > 0
+          ? {
+              status: ran.status === 'success' ? 'partial' : ran.status,
+              readCap: readers.readCap,
+              cutAtReadCap: cut,
+            }
+          : {}),
         ...(mutedAutomation ? { mutedAutomation } : {}),
         ...(kept ? { checkpoint: kept } : {}),
       };

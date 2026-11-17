@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total com sucesso",
     "totalFailed": "Total com falha",
     "totalSkipped": "Total ignorados",
+    "readCut": "A leitura da org de origem parou em {{cap}} registros, o limite: esta execução copiou uma parte deste objeto. Para copiar o restante, aumente sandforge.sync.maxRecordsPerObject (50.000 no máximo), ou leia-o em fatias com um filtro em CreatedDate, um intervalo por execução. Para copiar em vez disso uma amostra da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino.",
+    "readCutAtMost": "A leitura da org de origem parou em {{cap}} registros, o máximo que uma execução mantém de um objeto: esta execução copiou uma parte dele. Para copiar o restante, leia-o em fatias com um filtro em CreatedDate, um intervalo por execução. Para copiar em vez disso uma amostra da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino.",
     "savedConfigs": {
       "title": "Configurações salvas",
       "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação. Uma que exclui abre na aba Sync, que diz o que cada um de seus objetos faz: Executar a sincronização a executa lá.",
@@ -3601,6 +3603,18 @@
       "npm1790Desc": "Os scripts de linha de comando e o servidor MCP vêm no pacote npm sandforge, para Node.js 20.19 ou mais recente, sem cópia do repositório: npx -y sandforge mcp inicia o servidor para um agente de IA.",
       "removal1790": "As remoções levam os conjuntos de duplicados que ficavam",
       "removal1790Desc": "No Forge, remover uma execução leva o conjunto de registros duplicados que o Salesforce preenche um segundo depois que ela termina e, com os registros alterados desde a execução, o que uma remoção anterior manteve.",
+      "sync1800": "Sync lê mais de 500 registros por objeto",
+      "sync1800Desc": "O Sync não para mais em 500 registros de um objeto de uma org de produção ou de uma Developer Edition: toda org é lida até a configuração sandforge.sync.maxRecordsPerObject, 50.000 no máximo. Revisar indica até onde cada objeto é lido, e uma execução que copiou um objeto em parte o indica, com como ler o resto.",
+      "locks1800": "Linhas recusadas por um bloqueio são reenviadas",
+      "locks1800Desc": "No Sync, Seed, Autopilot e Dataset congelado, as linhas que o destino recusa porque não conseguiu bloquear um registro de que sua gravação precisava são enviadas de novo sozinhas, até três vezes, com uma espera mais longa a cada vez, como as do Forge. Os resultados do Sync e do Autopilot indicam quantas foram reenviadas e quantas foram gravadas.",
+      "storage1800": "Seed e Dataset congelado verificam o armazenamento restante",
+      "storage1800Desc": "Uma clonagem do Seed, uma importação CSV e uma carga de Dataset congelado são recusadas antes de gravar qualquer coisa quando seus registros ocupam mais armazenamento de dados do que resta no destino, e indicam o que cabe: um filtro mais estreito, menos linhas, um piloto ou uma amostra do Forge com a profundidade ALL.",
+      "checkpoint1800": "Escolher quantos registros um ponto de verificação guarda",
+      "checkpoint1800Desc": "Em Pontos de verificação, Registros no máximo define quantos registros um ponto de verificação pode guardar no total, até um milhão. A lista também avisa três dias antes de uma scratch org expirar, depois do que seus pontos de verificação só poderão ser excluídos, e indica um Dataset congelado para guardar seus dados para outra org.",
+      "marketplace1800": "Modelos do Marketplace que são executados",
+      "marketplace1800Desc": "Em Automação → Marketplace, cada modelo é executado depois de instalado: os que tinham etapas que nunca eram executadas são reescritos com etapas que são, ou removidos, e Emergency Rollback passa a ser Protected Write, um ponto de verificação antes de um Sync. As etapas Atraso e Backup não contam mais para sandforge.pipeline.timeout.",
+      "refusals1800": "Cada recusa diz o que fazer em seguida",
+      "refusals1800Desc": "Quando uma execução é recusada no Forge, Sync, Seed, DataOps, Pontos de verificação, Automação, Comparação ou Monitor, a mensagem nomeia sua causa e uma saída que você pode tomar onde a lê: uma configuração, um botão da página ou um comando a digitar. As mensagens que remetiam a uma opção que não existe desapareceram.",
       "newMark1411": "Um novo logotipo",
       "newMark1411Desc": "O SandForge tem um novo logotipo: o fogo da forja saindo de uma sandbox. Ele aparece no ícone do Marketplace, na barra de atividades e no painel lateral.",
       "safety1420": "Um clone verifica antes de gravar",
@@ -6328,6 +6342,11 @@
         "exceeds": "Solicitações de API: cerca de {{estimate}}, mais do que as {{remaining}} que restam a {{org}} de suas {{max}} diárias: a carga seria recusada.",
         "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje a {{org}} não pôde ser lido ({{reason}})."
       },
+      "storage": {
+        "fits": "Armazenamento de dados: cerca de {{estimate}} MB, dos {{remaining}} MB que restam a {{org}} de seus {{max}} MB.",
+        "exceeds": "Armazenamento de dados: cerca de {{estimate}} MB, mais do que os {{remaining}} MB que restam a {{org}} de seus {{max}} MB: a carga seria recusada.",
+        "freed": "A limpeza da recarga libera antes cerca de {{freed}} MB."
+      },
       "automation": {
         "title": "O que {{org}} executa quando a carga insere seus registros e os atualiza:",
         "onInsert": "{{object}} — {{what}}, ao inserir seus registros",
@@ -8147,7 +8166,10 @@
       "limitHint": "Acima deste número de registros no total, a criação é recusada antes de ler qualquer um: {{standard}} se não for alterado, {{most}} no máximo.",
       "limitRule": "Um número inteiro de registros, de 1 a {{most}}.",
       "tooManyRecords": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}): escolha menos objetos, ou aumente-o, até {{most}}. Nenhum registro foi lido.",
-      "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado."
+      "tooManyRecordsPastMost": "Os objetos que este ponto de verificação guardaria contêm {{records}} registros, acima de Registros no máximo ({{limit}}), e nenhum limite de até {{most}} os comporta: escolha menos objetos. Nenhum registro foi lido.",
+      "limitHolds": "Com Registros no máximo em {{records}} ou mais, ele é guardado.",
+      "limitHoldsAt": "Com Registros no máximo em {{records}}, ele é guardado.",
+      "limitHoldsNone": "Com ele, todo objeto que não seja maior também seria guardado, mais de {{most}} registros no total, acima de qualquer Registros no máximo: escolha menos objetos."
     },
     "preview": {
       "title": "Retroceder {{org}} para “{{name}}” ({{date}})",

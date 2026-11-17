@@ -596,8 +596,10 @@ describe('frozen:load, the daily API requests its target has left', () => {
     earlierLoads: 0,
   };
 
-  it('says in its preview the data storage a load would take and the refusal it would meet past it, as a replay says its own', async () => {
-    // A replay's dry run measured it; a load's did not, and was refused by its run.
+  it('says in its preview the data storage a load would take and the refusal it would meet past it, in the load’s words', async () => {
+    // Run on the trap org, a dry run of a dataset of 17.8 MB into the 5 MB a
+    // Developer Edition has said nothing of the storage and ended 0; the load
+    // itself was refused for it.
     loaderPlan.mockResolvedValue(PLAN);
     const org = targetWithStorage(0);
 
@@ -689,5 +691,30 @@ describe('frozen:load, the daily API requests its target has left', () => {
         max: MAX,
       }) as unknown,
     });
+  });
+
+  it('reads the limits once for its storage and its API requests, as the load does', async () => {
+    loaderPlan.mockResolvedValue(PLAN);
+    let reads = 0;
+    const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      ...org.connection,
+      request: async ({ url }: { url: string }) => {
+        if (url !== '/limits') throw new Error(`not answered: ${url}`);
+        reads++;
+        return {
+          DataStorageMB: { Max: 5, Remaining: 0 },
+          DailyApiRequests: { Max: MAX, Remaining: MAX },
+        };
+      },
+    } as never);
+
+    await send('frozen:load:preview', {});
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: { refusal?: unknown }; apiRequests?: { verdict: string } } | undefined;
+    expect(plan?.storage?.refusal).toBeDefined();
+    expect(plan?.apiRequests?.verdict).toBe('fits');
+    expect(reads).toBe(1);
   });
 });

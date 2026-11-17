@@ -19,6 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { commandOf } from './invocation.js';
 
 /** Every script of this folder, by the name `sandforge` takes, with what it does. */
 export const TOOLS = {
@@ -65,10 +66,11 @@ export function dispatchOf(args: readonly string[]): Dispatch {
   if (first === '--help' || first === '-h' || first === 'help') return { kind: 'help' };
   if (first === '--version' || first === '-v') return { kind: 'version' };
   if (isTool(first)) return { kind: 'run', tool: first, args: rest };
-  // `sandforge sandforge-seed …`, from a message that names the script.
+  // `sandforge sandforge-seed …`, from a message that names the script: the
+  // line to type instead, as a line runs it where this one runs.
   const named = first.replace(/^sandforge-/, '');
   if (named !== first && isTool(named)) {
-    return { kind: 'refused', reason: `"${first}" is named ${named} here: sandforge ${named} ….` };
+    return { kind: 'refused', reason: `"${first}" is named ${named} here: ${commandOf(named)} ….` };
   }
   return {
     kind: 'refused',

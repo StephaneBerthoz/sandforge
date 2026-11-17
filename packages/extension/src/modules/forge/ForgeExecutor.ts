@@ -7620,7 +7620,15 @@ export class ForgeExecutor {
           ...(sizedInMB
             ? {
                 needMB: roundedMB(cut.storageBytes, 'up'),
-                budgetMB: roundedMB(terms.budget.bytes, 'down'),
+                // What the sample may take of the bound that held it: of the
+                // storage, past which more MB asked gives nothing, what the
+                // storage leaves it.
+                budgetMB: roundedMB(
+                  cut.limitedBy === 'storage' && terms.storageBytes !== undefined
+                    ? terms.storageBytes
+                    : terms.budget.bytes,
+                  'down',
+                ),
               }
             : {}),
           heaviest: cut.heaviest.map((o) => o.objectApiName),

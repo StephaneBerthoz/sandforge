@@ -93,6 +93,8 @@ describe('sampleBudgetTermsOf', () => {
     expect(terms?.budget).toMatchObject({ bytes: 3 * MB, withinMB: 3, limitedBy: 'within' });
     expect(terms?.bytesLimit).toBe('within');
     expect(terms?.roomBytes).toBe(Math.floor(0.8 * 149.5 * MB));
+    // What the storage leaves the sample, the MB asked aside: past it, it holds a need.
+    expect(terms?.storageBytes).toBe(Math.floor(0.8 * 149.5 * MB));
   });
 
   it('holds it to the MB asked alone when the target would not say its storage, and to nothing without them', () => {
@@ -103,6 +105,7 @@ describe('sampleBudgetTermsOf', () => {
       bytesLimit: 'within',
       roomBytes: 2 * MB,
     });
+    expect(sampleBudgetTermsOf({ storage: unread, withinMB: 2 })?.storageBytes).toBeUndefined();
     expect(sampleBudgetTermsOf({ storage: unread })).toBeUndefined();
   });
 

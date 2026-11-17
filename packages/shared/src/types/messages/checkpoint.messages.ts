@@ -571,5 +571,7 @@ export interface CheckpointErrorResponse extends BaseMessage {
      * automation. Absent when there is one.
      */
     alsoRefused?: CheckpointRefusal[];
+    /** Of a take past its limit, the least limit it is not refused at (`CheckpointRefusal.holdingLimit`). */
+    holdingLimit?: number;
   };
 }

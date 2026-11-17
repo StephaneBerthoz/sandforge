@@ -9,6 +9,7 @@ import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { SyncRunControls } from '../SyncRunControls';
 import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
 import { SyncPricebookLine } from '../SyncPricebookLine';
+import { SyncReadCutLine, readCutOf } from '../SyncReadCutLine';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
@@ -156,11 +157,17 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
               subtitle={`${t(`syncParts.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
             />
             {(obj.errors.length > 0 ||
+              readCutOf(result, obj.objectApiName) !== undefined ||
               obj.standardPricebookMatched ||
               hasWrittenLines(obj) ||
               (obj.currenciesReplaced?.length ?? 0) > 0 ||
               (obj.pricesSettled?.length ?? 0) > 0) && (
               <CardBody>
+                {/* Read up to the bound, as the Sync tab says it: the run copied part of it. */}
+                <SyncReadCutLine
+                  cap={readCutOf(result, obj.objectApiName)}
+                  testId={`quick-sync-result-read-cut-${obj.objectApiName}`}
+                />
                 {/* No refusal: said beside the object's line, as the Sync tab says it. */}
                 {obj.standardPricebookMatched && (
                   <SyncPricebookLine testId={`quick-sync-result-pricebook-${obj.objectApiName}`} />

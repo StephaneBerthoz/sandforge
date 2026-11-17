@@ -381,6 +381,32 @@ describe('scopeCandidates', () => {
     expect(everything.addedToPicked).toEqual([]);
   });
 
+  it('holds the account contact relations beside the contacts picked, which the platform writes with each contact, unless left out by name or the org has none', () => {
+    // A checkpoint of Account and Contact taken before a run left out the
+    // relation the platform writes with each contact: a rewind kept every
+    // contact and account of the run, "unless --accept-outside".
+    const org = [...ORG, data('AccountContactRelation')];
+    const contacts = scopeCandidates(org, { mode: 'picked', objects: ['Account', 'contact'] });
+    const accounts = scopeCandidates(org, { mode: 'picked', objects: ['Account'] });
+    const excluded = scopeCandidates(org, {
+      mode: 'picked',
+      objects: ['Contact'],
+      excluded: ['accountcontactrelation'],
+    });
+    const none = scopeCandidates(ORG, { mode: 'picked', objects: ['Contact'] });
+
+    expect(contacts.candidates).toContain('AccountContactRelation');
+    // The files' word is theirs alone: what is added for the files.
+    expect(contacts.addedToPicked).toEqual(['ContentDocument', 'Attachment']);
+    expect(accounts.candidates).not.toContain('AccountContactRelation');
+    expect(excluded.candidates).not.toContain('AccountContactRelation');
+    expect(excluded.leftOut).toContainEqual({
+      objectApiName: 'AccountContactRelation',
+      reason: 'excludedByUser',
+    });
+    expect(none.candidates).not.toContain('AccountContactRelation');
+  });
+
   it('leaves out what its owner excludes, whatever the case of the name', () => {
     const scope = scopeCandidates(ORG, { mode: 'everything', excluded: ['case', 'FeedItem'] });
 

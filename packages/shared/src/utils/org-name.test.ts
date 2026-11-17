@@ -79,4 +79,21 @@ describe('isOwnAlias', () => {
     expect(isOwnAlias('someone@example.com', 'someone@example.com')).toBe(false);
     expect(isOwnAlias('other@example.org', 'someone@example.com')).toBe(false);
   });
+
+  it('takes as a username a domain with a dot past its first character and before its last', () => {
+    expect(isOwnAlias('admin@acme.sandbox.dev', undefined)).toBe(false);
+    expect(isOwnAlias('admin@.acme.com', undefined)).toBe(false);
+    expect(isOwnAlias('admin@acme', undefined)).toBe(true);
+    expect(isOwnAlias('admin@.acme', undefined)).toBe(true);
+    expect(isOwnAlias('admin@acme.', undefined)).toBe(true);
+  });
+
+  it('reads a long alias shaped almost as a username at once', () => {
+    const alias = `!@!.${'!.'.repeat(50_000)}@`;
+
+    const started = performance.now();
+    const own = isOwnAlias(alias, undefined);
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(own).toBe(true);
+  });
 });

@@ -60,6 +60,7 @@ import { SyncReviewObjects } from './SyncReviewObjects';
 import { SyncAlreadyCopiedLine } from './SyncWriteCheck';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncPricebookLine } from './SyncPricebookLine';
+import { SyncReadCutLine, readCutOf } from './SyncReadCutLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './syncRemovalParts';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
@@ -1302,6 +1303,7 @@ export const SyncPage: React.FC = () => {
                           subtitle={`${t(`syncParts.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
                         />
                         {(obj.errors.length > 0 ||
+                          readCutOf(result, obj.objectApiName) !== undefined ||
                           obj.delta ||
                           obj.files ||
                           (obj.alreadyCopied ?? 0) > 0 ||
@@ -1311,6 +1313,12 @@ export const SyncPage: React.FC = () => {
                           (obj.currenciesReplaced?.length ?? 0) > 0 ||
                           (obj.pricesSettled?.length ?? 0) > 0) && (
                           <CardBody>
+                            {/* Read up to the bound: the run copied part of
+                              the object, which is why it is partial. */}
+                            <SyncReadCutLine
+                              cap={readCutOf(result, obj.objectApiName)}
+                              testId={`sync-result-read-cut-${obj.objectApiName}`}
+                            />
                             {/* No refusal: said beside the object's other lines. */}
                             {obj.standardPricebookMatched && (
                               <SyncPricebookLine

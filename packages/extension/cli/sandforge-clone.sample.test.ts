@@ -445,7 +445,7 @@ interface DryRunJson {
 /** The JSON of a refusal before the first write. */
 interface RefusedJson {
   dryRun: boolean;
-  refused: { code: string; message: string };
+  refused: { code: string; message: string; sample?: Record<string, unknown> };
 }
 
 let stdout: string[];
@@ -1743,8 +1743,31 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(answer.refused.message).toContain('No sample of the whole org fits');
     expect(answer.refused.message).toContain('the heaviest are');
     expect(answer.refused.message).toContain('--fit-floor 0');
+    expect(answer.refused.message).toContain('or let it take more (--fit-within)');
+    // What held it, and the MB it needs and may take, as the page reads them.
+    expect(answer.refused.sample).toMatchObject({ limitedBy: 'within', budgetMB: 0 });
+    expect(answer.refused.sample?.['needMB']).toBeGreaterThan(0);
     expect(orgs.target.creates).toEqual([]);
     expect(dryRunPlans()).toEqual([]);
+  });
+
+  it('names the storage, never --fit-within, when the sample needs more than the storage leaves too: exit 1', async () => {
+    // Asked to take 1 MB of a trap org whose storage left 3.6, a sample of
+    // the whole org that needed 14 MB was refused with "or let it take more
+    // (--fit-within)", and its JSON said no limit at all.
+    withFakeOrgs({ target: { limits: { ...LIMITS, DataStorageMB: { Max: 5, Remaining: 0 } } } });
+
+    expect(await run(argv('--fit', 'share', '--fit-within', '0.001', '--dry-run', '--json'))).toBe(
+      1,
+    );
+
+    const answer = JSON.parse(stdout.join('')) as RefusedJson;
+    expect(answer.refused.code).toBe('SAMPLE_CANNOT_FIT');
+    expect(answer.refused.message).toContain('past the data storage the target has left');
+    expect(answer.refused.message).toContain('or free data storage in the target');
+    expect(answer.refused.message).not.toContain('--fit-within');
+    expect(answer.refused.sample).toMatchObject({ limitedBy: 'storage', budgetMB: 0 });
+    expect(stderr.join('')).not.toContain('let it take more');
   });
 
   it('draws the newest by their creation date with --fit-draw recent, not by the order of their ids', async () => {

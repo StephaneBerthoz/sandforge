@@ -180,8 +180,8 @@ stages:
               trap 'rm -rf "$auth_dir"' EXIT
               printf '%s' "$SFDX_AUTH_URL_SOURCE" > "$auth_dir/source.txt"
               printf '%s' "$SFDX_AUTH_URL_TARGET" > "$auth_dir/target.txt"
-              sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
-              sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
+              sf org login sfdx-url --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
+              sf org login sfdx-url --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
             env:
               # Secret variables reach a script only through an explicit mapping.
               SFDX_AUTH_URL_SOURCE: $(SFDX_AUTH_URL_SOURCE)

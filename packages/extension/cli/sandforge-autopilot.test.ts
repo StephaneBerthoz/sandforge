@@ -11,7 +11,8 @@ import {
   personAccountLines,
   scopeLines,
 } from './sandforge-autopilot';
-import { apiRequestsLine } from './sandforge-clone';
+import { apiRequestsLine, parseArgs as parseCloneArgs } from './sandforge-clone';
+import { commandOf } from './invocation';
 
 describe('sandforge-autopilot — what it asks of the target', () => {
   it('reads every page of the answer, not the first alone', async () => {
@@ -603,16 +604,22 @@ describe('sandforge-autopilot — the run summary', () => {
 });
 
 describe('sandforge-autopilot — the plan', () => {
+  /** The orgs of the run the plan is of. */
+  const ORGS = { source: 'SRC', target: 'TGT' };
+
   it('says the currencies the target does not hold active, the one their records go in and the objects whose amounts are converted', () => {
-    const lines = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Opportunity'],
-      parents: [],
-      leftEmpty: [],
-      standardNeeded: [],
-      currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account', 'Opportunity'] },
-    });
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Opportunity'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account', 'Opportunity'] },
+      },
+      ORGS,
+    );
 
     expect(lines).toContain(
       '  currencies the target does not hold active: GBP — a record in one is written in USD, ' +
@@ -623,22 +630,26 @@ describe('sandforge-autopilot — the plan', () => {
   /** What a cut line says of the way to more records. */
   const MORE =
     '--max-records-per-object copies more, up to 1000000; a sample of the whole org that fits ' +
-    'the target: pnpm exec tsx packages/extension/cli/sandforge-clone.ts --depth all --fit share';
+    'the target: pnpm exec tsx packages/extension/cli/sandforge-clone.ts --depth all ' +
+    '--source SRC --target TGT --fit share --dry-run';
 
   it('says a selected table larger than one read takes is copied from its first records by Id, of how many', () => {
     // Said in the log alone, the plan showed 50 000 beside a count of millions.
-    const lines = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Account', 'Case'],
-      parents: [],
-      leftEmpty: [],
-      standardNeeded: [],
-      cutShort: [
-        { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
-        { objectApiName: 'Case', copied: 50_000 },
-      ],
-    });
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Account', 'Case'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        cutShort: [
+          { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+          { objectApiName: 'Case', copied: 50_000 },
+        ],
+      },
+      ORGS,
+    );
 
     // "A run copies no more" named no way to more: the bound is a flag now,
     // and Forge copies a sample of the whole org that fits.
@@ -651,47 +662,96 @@ describe('sandforge-autopilot — the plan', () => {
   it('lists a selected table cut to its first records by Id on its cut line alone, never among those copied whole', () => {
     // Step 4 leaves a cut table out of the tables copied whole; the command
     // line listed it there as well as on its cut line.
-    const lines = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Account', 'Contact'],
-      parents: [],
-      leftEmpty: [],
-      standardNeeded: [],
-      cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
-    });
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Account', 'Contact'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
+      },
+      ORGS,
+    );
 
     expect(lines).toContain('  copied whole, as selected: Contact');
     expect(lines.filter((line) => line.includes('Account'))).toEqual([
       '  Account: 50000 of 2000000 record(s) copied, the first by Id -- ' + MORE,
     ]);
 
-    const allCut = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Account'],
-      parents: [],
-      leftEmpty: [],
-      standardNeeded: [],
-      cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
-    });
+    const allCut = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Account'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
+      },
+      ORGS,
+    );
     expect(allCut.some((line) => line.includes('copied whole'))).toBe(false);
+  });
+
+  it('gives the sample of the whole org as a clone line that names both orgs, which the clone takes as printed', () => {
+    // Printed without --source and --target, the line run as it was ended on
+    // "Missing --source <alias>; --target <alias>", exit 2.
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Contact'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        cutShort: [{ objectApiName: 'Contact', copied: 1_000, total: 3_542 }],
+      },
+      ORGS,
+    );
+    const [line] = lines.filter((each) => each.startsWith('  Contact: '));
+    const command = line.slice(line.indexOf(commandOf('clone')) + commandOf('clone').length);
+    const said: string[] = [];
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}: ${said.join('')}`);
+    }) as never);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      said.push(String(chunk));
+      return true;
+    });
+    try {
+      const args = parseCloneArgs(
+        ['node', 'sandforge-clone.ts', ...command.trim().split(/\s+/)],
+        {},
+      );
+      expect(args).toMatchObject({ source: 'SRC', target: 'TGT', depth: 'all', dryRun: true });
+    } finally {
+      exit.mockRestore();
+      stderr.mockRestore();
+    }
   });
 
   it('says which standard parents were followed by default, and through which lookups', () => {
     // Left out with standard objects off, the account of every opportunity
     // stayed empty; it is followed now, and the plan says so.
-    const lines = scopeLines({
-      maxDepth: 5,
-      maxObjects: 50,
-      selected: ['Opportunity', 'Contact'],
-      parents: [{ objectApiName: 'Account', records: 20 }],
-      leftEmpty: [],
-      standardNeeded: [],
-      followedByDefault: [
-        { objectApiName: 'Account', referencedBy: ['Opportunity.AccountId', 'Contact.AccountId'] },
-      ],
-    });
+    const lines = scopeLines(
+      {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Opportunity', 'Contact'],
+        parents: [{ objectApiName: 'Account', records: 20 }],
+        leftEmpty: [],
+        standardNeeded: [],
+        followedByDefault: [
+          {
+            objectApiName: 'Account',
+            referencedBy: ['Opportunity.AccountId', 'Contact.AccountId'],
+          },
+        ],
+      },
+      ORGS,
+    );
 
     expect(lines).toContain(
       '  Account followed by default though standard objects are off: ' +

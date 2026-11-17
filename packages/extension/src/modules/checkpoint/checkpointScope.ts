@@ -154,6 +154,18 @@ export const ATTACHMENT_OBJECT = 'Attachment';
 export const HELD_WHEN_PICKED: readonly string[] = [FILE_OBJECT, ATTACHMENT_OBJECT];
 
 /**
+ * The objects picked objects hold with one of the objects they are named
+ * beside, unless left out by name, as the platform writes their records with
+ * its: in an org with Contacts to Multiple Accounts, a relation with each
+ * contact. Taken before a run that wrote contacts, a checkpoint without them
+ * left every contact and account of the run to a rewind's "kept, unless
+ * --accept-outside": the relations made since, outside it, hung from them.
+ */
+export const HELD_WITH_PICKED: Readonly<Record<string, readonly string[]>> = {
+  AccountContactRelation: ['Contact'],
+};
+
+/**
  * Chatter's records that hold what people post. Their names end in no suffix
  * the copy's rule reads — a feed item's ends in `item` — and a post comes
  * back from the recycle bin only with what it was posted on.
@@ -432,6 +444,18 @@ export function scopeCandidates(
       }
       asked.push(object);
       addedToPicked.push(object.name);
+    }
+    for (const [name, beside] of Object.entries(HELD_WITH_PICKED)) {
+      const key = name.toLowerCase();
+      const object = byLowerName.get(key);
+      if (seen.has(key) || object === undefined) continue;
+      if (!beside.some((picked) => seen.has(picked.toLowerCase()))) continue;
+      seen.add(key);
+      if (excluded.has(key)) {
+        leftOut.push({ objectApiName: object.name, reason: 'excludedByUser' });
+        continue;
+      }
+      asked.push(object);
     }
     for (const key of settings.held) {
       const object = byLowerName.get(key);

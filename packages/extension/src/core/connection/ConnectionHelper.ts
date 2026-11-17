@@ -183,7 +183,7 @@ export function sessionRenewalWords(
   return renewer === 'panel'
     ? 'Reconnect it on the Organizations page (Try Reconnect on its card).'
     : `Sign in to it again with "sf org login web --alias ${alias}" (in a CI job, ` +
-        '"sf org login jwt" or "sf org login sfdxurl"), then run the command again, with its ' +
+        '"sf org login jwt" or "sf org login sfdx-url"), then run the command again, with its ' +
         '--resume if it stopped a run part way.';
 }
 

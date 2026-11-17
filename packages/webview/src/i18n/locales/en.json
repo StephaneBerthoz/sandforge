@@ -1876,6 +1876,8 @@
     "totalSuccess": "Total success",
     "totalFailed": "Total failed",
     "totalSkipped": "Total skipped",
+    "readCut": "The read of the source org stopped at {{cap}} records, the bound: this run copied part of this object. To copy the rest, raise sandforge.sync.maxRecordsPerObject (50,000 at most), or read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
+    "readCutAtMost": "The read of the source org stopped at {{cap}} records, the most a run holds of an object: this run copied part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
     "savedConfigs": {
       "title": "Saved configurations",
       "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written. One that deletes opens on the Sync tab instead, which says what each of its objects does: Run the sync runs it there.",
@@ -3601,6 +3603,18 @@
       "npm1790Desc": "The command-line scripts and the MCP server come as the sandforge npm package, for Node.js 20.19 or later, with no copy of the repository: npx -y sandforge mcp starts the server for an AI agent.",
       "removal1790": "Removals take the duplicate record sets left behind",
       "removal1790Desc": "In Forge, removing a run takes the duplicate record set Salesforce fills a second after the run ends, and, with the records changed since the run, one an earlier removal kept.",
+      "sync1800": "Sync reads past 500 records per object",
+      "sync1800Desc": "Sync no longer stops at 500 records of an object from a production org or a Developer Edition: every org is read up to the sandforge.sync.maxRecordsPerObject setting, 50,000 at most. Review says the bound each object is read to, and a run that copied an object in part says so, with how to read the rest.",
+      "locks1800": "Rows refused for a record lock go again",
+      "locks1800Desc": "In Sync, Seed, Autopilot and Frozen Dataset, the rows the target refuses because it could not lock a record their write needed go again on their own, up to three times, waiting longer each time, as Forge's do. The Sync and Autopilot results say how many went again and how many were written.",
+      "storage1800": "Seed and Frozen Dataset check the storage left",
+      "storage1800Desc": "A Seed clone, a CSV import and a Frozen Dataset load are refused before they write anything when their records take more data storage than the target has left, and say what fits: a narrower filter, fewer rows, a pilot, or a sample from Forge with Depth ALL.",
+      "checkpoint1800": "Choose how many records a checkpoint holds",
+      "checkpoint1800Desc": "On the Checkpoints page, Records at most sets how many records a checkpoint may hold in all, up to a million. The list also warns three days before a scratch org expires, after which its checkpoints can only be deleted, and names a Frozen Dataset to keep its data for another org.",
+      "marketplace1800": "Marketplace templates that run",
+      "marketplace1800Desc": "In Automation → Marketplace, every template runs once installed: those with steps that never ran are rewritten with steps that do, or removed, and Emergency Rollback becomes Protected Write, a checkpoint before a Sync. Delay and Backup steps no longer count toward sandforge.pipeline.timeout.",
+      "refusals1800": "Every refusal says what to do next",
+      "refusals1800Desc": "When a run is refused in Forge, Sync, Seed, DataOps, Checkpoints, Automation, Compare Org or Monitor, the message names its cause and a way through you can take where you read it: a setting, a button on the page, or a command to type. Messages that pointed to an option that does not exist are gone.",
       "newMark1411": "A new mark",
       "newMark1411Desc": "SandForge has a new mark: the forge's fire rising out of a sandbox. It is on the Marketplace icon, the activity bar and the side panel.",
       "safety1420": "A clone checks before it writes",
@@ -6328,6 +6342,11 @@
         "exceeds": "API requests: about {{estimate}}, more than the {{remaining}} {{org}} has left of its {{max}} a day: the load would be refused.",
         "unread": "API requests: about {{estimate}}. What {{org}} has left today could not be read ({{reason}})."
       },
+      "storage": {
+        "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB {{org}} has left of its {{max}} MB.",
+        "exceeds": "Data storage: about {{estimate}} MB, more than the {{remaining}} MB {{org}} has left of its {{max}} MB: the load would be refused.",
+        "freed": "The reload's purge frees about {{freed}} MB of it first."
+      },
       "automation": {
         "title": "What {{org}} runs as the load inserts its records and updates them:",
         "onInsert": "{{object}} — {{what}}, as its records are inserted",
@@ -8147,7 +8166,10 @@
       "limitHint": "Past this many records in all, the take is refused before it reads any: {{standard}} unless changed, {{most}} at most.",
       "limitRule": "A whole number of records, from 1 to {{most}}.",
       "tooManyRecords": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}): pick fewer objects, or raise it, up to {{most}}. No record was read.",
-      "limitHolds": "Records at most set to {{records}} or more holds it."
+      "tooManyRecordsPastMost": "The objects this checkpoint would keep hold {{records}} records, past Records at most ({{limit}}), and no limit up to {{most}} holds them: pick fewer objects. No record was read.",
+      "limitHolds": "Records at most set to {{records}} or more holds it.",
+      "limitHoldsAt": "Records at most set to {{records}} holds it.",
+      "limitHoldsNone": "With it, every object no larger is kept too, more than {{most}} records in all, past any Records at most: pick fewer objects."
     },
     "preview": {
       "title": "Rewind {{org}} to “{{name}}” ({{date}})",

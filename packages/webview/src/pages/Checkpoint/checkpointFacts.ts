@@ -121,6 +121,61 @@ export function heldPerObject(answer: Pick<ScopeFacts, 'objects' | 'leftOut'>): 
 }
 
 /**
+ * The least Records at most, `from` or more, a take of a scope whose objects
+ * hold `records` is not refused at, as the command line's `--max-total` names
+ * it (`holdingLimit` in the extension's take): raised to it, the take keeps
+ * every object of as many records or fewer, up to
+ * {@link CHECKPOINT_OBJECT_ROWS_MAX}, and their records together are within
+ * it. Each limit tried keeps more objects than the one before, so it is tried
+ * again with their records until they fit; past
+ * {@link CHECKPOINT_OBJECT_ROWS_MAX}, no limit holds them.
+ */
+export function holdingLimit(records: readonly number[], from: number): number {
+  let limit = from;
+  for (;;) {
+    const held = records
+      .filter((count) => count <= Math.min(limit, CHECKPOINT_OBJECT_ROWS_MAX))
+      .reduce((total, count) => total + count, 0);
+    if (held <= limit) return limit;
+    limit = held;
+  }
+}
+
+/**
+ * The Records at most that holds an object a scope left out past its limit,
+ * with the rest the take keeps (`limit`), and whether any higher limit holds
+ * it too (`orMore`: every object a limit can hold is then kept); `none` when
+ * no limit up to {@link CHECKPOINT_OBJECT_ROWS_MAX} holds them. Undefined for
+ * an object left out otherwise. "Records at most set to 3,542 or more holds
+ * it" was said of the contacts of an org, by their own count: raised so, the
+ * take kept their account relations too and was refused for all of them.
+ */
+export function limitHoldingOf(
+  answer: Pick<ScopeFacts, 'objects' | 'leftOut'>,
+  object: Pick<CheckpointLeftOutObject, 'code' | 'records'>,
+): { limit: number; orMore: boolean } | 'none' | undefined {
+  if (
+    object.code !== 'pastTheLimit' ||
+    object.records === undefined ||
+    object.records > CHECKPOINT_OBJECT_ROWS_MAX
+  ) {
+    return undefined;
+  }
+  const scoped = [
+    ...answer.objects.map((kept) => kept.records),
+    ...answer.leftOut.flatMap(({ code, records }) =>
+      code === 'pastTheLimit' && records !== undefined ? [records] : [],
+    ),
+  ];
+  const limit = holdingLimit(scoped, object.records);
+  if (limit > CHECKPOINT_OBJECT_ROWS_MAX) return 'none';
+  const whole = scoped
+    .filter((records) => records <= CHECKPOINT_OBJECT_ROWS_MAX)
+    .reduce((total, records) => total + records, 0);
+  return { limit, orMore: limit === whole };
+}
+
+/**
  * Whether a checkpoint was taken by a user without View All Data and Modify
  * All Data, each of its objects held with View All and Modify All on it, or
  * on what it hangs from: the file says it of its user.

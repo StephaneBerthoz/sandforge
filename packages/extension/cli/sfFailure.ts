@@ -103,7 +103,7 @@ export function sfDisplayFailure(
       alias,
       `sf does not know ${alias}: "sf org list" names the orgs it knows; ` +
         `"sf org login web --alias ${alias}" adds it (in a CI job, "sf org login jwt" or ` +
-        '"sf org login sfdxurl").',
+        '"sf org login sfdx-url").',
     );
   }
   const stderrLine =

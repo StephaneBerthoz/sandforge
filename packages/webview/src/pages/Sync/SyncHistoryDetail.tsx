@@ -8,6 +8,7 @@ import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncPricebookLine } from './SyncPricebookLine';
+import { SyncReadCutLine, readCutOf } from './SyncReadCutLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './syncRemovalParts';
 import { SyncAlreadyCopiedLine } from './SyncWriteCheck';
@@ -203,6 +204,15 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
                   </span>
                 )}
               </div>
+              {/* Read up to the bound: the run copied part of the object. */}
+              {readCutOf(result, obj.objectApiName) !== undefined && (
+                <div className="mt-1">
+                  <SyncReadCutLine
+                    cap={readCutOf(result, obj.objectApiName)}
+                    testId={`history-read-cut-${obj.objectApiName}`}
+                  />
+                </div>
+              )}
               {/* The standard price book matched: no refusal either. */}
               {obj.standardPricebookMatched && (
                 <div className="mt-1">

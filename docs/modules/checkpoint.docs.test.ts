@@ -98,12 +98,13 @@ function prose(text: string): string {
   return text.replace(/```[\s\S]*?```/g, '');
 }
 
-/** The script's HELP as `--help` prints it: its two interpolated defaults resolved. */
+/** The script's HELP as `--help` prints it: its interpolated defaults and bound resolved. */
 function helpAsPrinted(): string {
   const help = /const HELP = `([\s\S]*?)`;/.exec(CLI)?.[1];
   if (!help) throw new Error('sandforge-checkpoint.ts has no HELP text: re-point this test');
   const printed = help
     .replaceAll('${DEFAULT_MAX_TOTAL}', String(constant(TAKE, 'DEFAULT_MAX_TOTAL')))
+    .replaceAll('${OBJECT_ROWS_MAX}', String(constant(TAKE, 'OBJECT_ROWS_MAX')))
     .replaceAll('${DEFAULT_KEEP_DAYS}', String(constant(STORE, 'DEFAULT_KEEP_DAYS')));
   if (printed.includes('${')) {
     throw new Error('HELP interpolates a value this test does not resolve: add it above');
@@ -442,10 +443,12 @@ describe('docs/modules/checkpoint.md', () => {
     );
     expect(DOC).not.toContain('sooner if the recycle bin fills');
     expect(DOC).toContain("A preview's reads are kept a day.");
+    // A million at most on every surface, the command line's among them.
     expect(DOC).toContain(
       "more records than the take's limit (500,000 unless **Records at most** or the command " +
-        "line's `--max-total` names another, a million at most on the page)",
+        "line's `--max-total` names another, a million at most)",
     );
+    expect(CLI).toContain('${OBJECT_ROWS_MAX} at most');
     // Past a million records of one object, no limit holds it: said so.
     expect(DOC).toContain('one past a million records is held by no checkpoint');
   });

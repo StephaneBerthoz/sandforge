@@ -1631,11 +1631,19 @@ const OBJECTS_MATCH_MODE = {
 
 export const checkpointListPayloadSchema = z.object({ orgId: orgIdSchema.optional() }).optional();
 /**
- * The records a take holds at most, all objects together, when the request
- * names a limit: the command line's `--max-total`, which the page does not
- * send.
+ * The most a take's limit may be: a million records, the most any checkpoint
+ * holds of one object (`OBJECT_ROWS_MAX`), as the page's Records at most, the
+ * MCP server's `maxTotal` and `checkpoint.maxTotal` of sandforge.yaml hold it.
+ * The command line took more, and ran past it.
  */
-const checkpointMaxTotalSchema = z.number().int().min(1);
+const CHECKPOINT_MAX_TOTAL_MOST = 1_000_000;
+
+/**
+ * The records a take holds at most, all objects together, when the request
+ * names a limit: the command line's `--max-total`, or the page's Records at
+ * most.
+ */
+const checkpointMaxTotalSchema = z.number().int().min(1).max(CHECKPOINT_MAX_TOTAL_MOST);
 
 export const checkpointScopePayloadSchema = z
   .object({

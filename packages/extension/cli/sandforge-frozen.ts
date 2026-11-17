@@ -103,7 +103,7 @@ import {
   tookAlongLines,
   type SweepClassArgs,
 } from './sandforge-clone.js';
-import { relayTakes } from './relayWords.js';
+import { relayTakes, relayedBy } from './relayWords.js';
 import type { OtherModuleRuns } from '../src/bridge/handlers/removalSweep.js';
 import { PRODUCTION_GUARD_MISSING } from '../src/bridge/handlers/HandlerTypes.js';
 import { recordTypeGivenOfObjectsLines } from './sandforge-sync.js';
@@ -337,17 +337,20 @@ ${checkpointFirstHelp({
                          every record of the load; one that left records of its own
                          keeps its own status. Once the load's records went already,
                          the sweep runs alone, the way to take what such a sweep
-                         left (off otherwise). It sweeps too, each in its own
-                         window, every other load recorded whose records went — a
-                         load a reload replaced, kept for what its sweep left —,
-                         and lets it go once that sweep took all it found. With
-                         load --reload: the sweep of each load the reload
-                         replaces, as its removal sweeps it, around the purge;
-                         what the target runs as it deletes is named once it has
-                         read what it takes, before the first delete, and
-                         answered as the purge's; with --dry-run, it lists what
-                         it would take. One refused, or that did not take all it
-                         was asked to, exits 3
+                         left (off otherwise: a removal that took the load's
+                         records then reads what a sweep would take now, read
+                         only, and names what stays and the option that takes
+                         it, "notSwept" with --json). It sweeps too, each in its
+                         own window, every other load recorded whose records
+                         went — a load a reload replaced, kept for what its
+                         sweep left —, and lets it go once that sweep took all
+                         it found. With load --reload: the sweep of each load
+                         the reload replaces, as its removal sweeps it, around
+                         the purge; what the target runs as it deletes is named
+                         once it has read what it takes, before the first
+                         delete, and answered as the purge's; with --dry-run, it
+                         lists what it would take. One refused, or that did not
+                         take all it was asked to, exits 3
   --sweep-late           with --sweep: take too what it lists as made late; with
                          --sweep-list, say what it would take
   --sweep-untied         with --sweep: take too what it lists as tied to nothing of
@@ -1391,6 +1394,74 @@ export function loadApiRequestsLine(api: FrozenLoadApiRequests, target: string):
         },
     target,
   );
+}
+
+/** Whether a removal took records of the load: the org deleted some, or found them gone. */
+export function removalTookRecords(posted: readonly Posted[]): boolean {
+  const result = posted.filter((m) => m.type === 'frozen:remove:response').at(-1)?.payload
+    ?.result as FrozenRemovalResult | undefined;
+  return (result?.objects ?? []).some((object) => object.deleted + object.alreadyGone > 0);
+}
+
+/**
+ * The removal that sweeps, or lists, what `option` names, as its reader gives
+ * it: this command's `remove` (a replay's `--remove`), or the option as the
+ * command relaying it takes it.
+ */
+function sweepTakenBy(option: string, words: FrozenWords): string {
+  if (relayedBy() !== undefined) return sweepOptionWords(option);
+  const remove = words.remove.replace(/`/g, '');
+  return option === '--sweep' || option === '--sweep-list'
+    ? `${remove} ${option}`
+    : `${remove} --sweep ${option}`;
+}
+
+/**
+ * What a removal without --sweep left of what the target's automation made
+ * for the load, read as --sweep-list reads it once the load's records went:
+ * what the load's user created in its window that no removal took, per
+ * object, and per class what takes it. Nothing when it found none. Exported
+ * so it can be tested.
+ */
+export function notSweptLines(
+  listing: ForgeSweepListing | undefined,
+  words: FrozenWords = DATASET_WORDS,
+): string[] {
+  if (!listing || listing.found.length === 0) return [];
+  const all = listing.found.reduce((sum, object) => sum + object.count, 0);
+  const atLeast = listing.found.some((object) => object.overBound) ? ' or more' : '';
+  const sum = (
+    pick: (classes: NonNullable<ForgeSweepListing['found'][number]['classes']>) => number,
+  ) =>
+    listing.found.reduce((total, object) => total + (object.classes ? pick(object.classes) : 0), 0);
+  const tied = sum((classes) => classes.made + classes.madeOver);
+  const late = sum((classes) => classes.late);
+  const untied = sum((classes) => classes.untied);
+  const over = listing.found.filter((object) => object.overBound).map((o) => o.objectApiName);
+  const ways = [
+    ...(tied > 0
+      ? [`${sweepTakenBy('--sweep', words)} takes the ${tied} tied to the ${words.run}`]
+      : []),
+    ...(late > 0 ? [`${sweepTakenBy('--sweep-late', words)} takes the ${late} made late`] : []),
+    ...(untied > 0
+      ? [
+          listing.untied?.refusal !== undefined
+            ? `the ${untied} tied to nothing of the ${words.run} now stay: --sweep-untied is refused ` +
+              `(${listing.untied.refusal})`
+            : `${sweepTakenBy('--sweep-untied', words)} takes the ${untied} tied to nothing of the ` +
+              `${words.run} now`,
+        ]
+      : []),
+    ...(over.length > 0 ? [`no sweep takes those of ${over.join(', ')}, past its bound`] : []),
+  ];
+  return [
+    `not swept: ${all}${atLeast} record(s) the ${words.run}'s user created in its window stay, ` +
+      `what the target's automation made for the ${words.run} likely: ` +
+      listing.found.map((object) => `${object.objectApiName}: ${object.count}`).join(', '),
+    ...ways.map((way) => `  ${way}`),
+    `  ${sweepTakenBy('--sweep-list', words)} names them first: a record made by hand as that user ` +
+      `in the ${words.run}'s window reads as the automation's, so check the names before a sweep`,
+  ];
 }
 
 /**
@@ -2701,6 +2772,11 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
   /** The checkpoint the load took first, or of a dry run, what a real load's would hold and cost. */
   let checkpointAnswer: FrozenAnswerContext['checkpoint'];
   /**
+   * Of a removal without --sweep, what a sweep would take once the load's
+   * records went, read as --sweep-list reads it, when it found any.
+   */
+  let notSwept: ForgeSweepListing | undefined;
+  /**
    * What a step prints on stdout with --json: what the panel would have
    * received, and beside it what an environment reads of the step.
    */
@@ -2724,14 +2800,18 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
       ...(checkpointAnswer ? { checkpoint: checkpointAnswer } : {}),
     });
     const shown = replay
-      ? replay.answer(answer, {
-          exit,
-          ...(ended ? { ended } : {}),
-          ...(stepRefused ? { refused: stepRefused } : {}),
-          ...(targetOrgId ? { targetOrgId } : {}),
-        })
+      ? {
+          ...replay.answer(answer, {
+            exit,
+            ...(ended ? { ended } : {}),
+            ...(stepRefused ? { refused: stepRefused } : {}),
+            ...(targetOrgId ? { targetOrgId } : {}),
+          }),
+          ...(notSwept ? { notSwept } : {}),
+        }
       : {
           ...answer,
+          ...(notSwept ? { notSwept } : {}),
           ...(stepRefused ? { refused: stepRefused } : {}),
           ...(ended ? { ended } : {}),
         };
@@ -3101,6 +3181,30 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
   }
 
   /**
+   * What a sweep of the load would take now, read once a removal without one
+   * took its records, as --sweep-list reads it; nothing it found, or a
+   * listing refused or failed, says nothing more. Read only and quietly: its
+   * messages stay out of the step's own, and its failure fails no removal.
+   */
+  async function sweepAfterRemoval(loadedAt: string): Promise<ForgeSweepListing | undefined> {
+    const before = posted.length;
+    const failedBefore = failed;
+    quiet = true;
+    try {
+      await send('frozen:remove:sweep', { targetOrgId, loadedAt, ...sourceOf('removal') });
+    } finally {
+      quiet = false;
+    }
+    const answered = posted.splice(before);
+    failed = failedBefore;
+    const listing = answered.find((m) => m.type === 'frozen:remove:sweep:response')?.payload
+      ?.listing as ForgeSweepListing | undefined;
+    return listing && listing.refusal === undefined && listing.found.length > 0
+      ? listing
+      : undefined;
+  }
+
+  /**
    * The step itself: the configuration saved, then the step's own request;
    * `ended` when it stopped short of its request, having said why.
    */
@@ -3467,6 +3571,15 @@ export async function runFrozen(args: CliArgs, replay?: FrozenReplayRun): Promis
         if (refusedFirst) {
           stepRefused = refusedFirst;
           removalRefusals.push(refusedFirst);
+        }
+        // Without --sweep, what the target's automation made for the load
+        // stays: read as --sweep-list reads it once the load's records went,
+        // and named with what takes it. Run on the trap org, a removal said
+        // SUCCESS and left, unnamed, the six tasks a flow had opened on the
+        // load's contacts as it wrote them.
+        if (!args.sweep && !stepRefused && removalTookRecords(posted)) {
+          notSwept = await sweepAfterRemoval(records.loadedAt);
+          for (const line of notSweptLines(notSwept, words)) log(line);
         }
         break;
       }
