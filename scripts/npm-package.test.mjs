@@ -98,9 +98,13 @@ test('each old name says the command that runs now, in the words a reader types,
       1,
       `sandforge-${tool}'s README is more than a line`,
     );
+    // The addresses it links, each read whole, its sentence's full stop left out.
+    const addresses = [...readme.matchAll(/https:\/\/[^\s)]+/g)].map(([address]) =>
+      address.replace(/\.$/, ''),
+    );
     assert.ok(
       readme.includes(`npx sandforge ${tool}`) &&
-        readme.includes('https://github.com/StephaneBerthoz/sandforge'),
+        addresses.some((address) => address === 'https://github.com/StephaneBerthoz/sandforge'),
       `sandforge-${tool}'s README names neither the package's command nor the repository`,
     );
   }

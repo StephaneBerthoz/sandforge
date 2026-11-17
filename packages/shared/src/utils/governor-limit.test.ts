@@ -150,6 +150,18 @@ describe('automationOf', () => {
         'System.LimitException: Too many SOQL queries: 101\nTrigger.Contact_Trigger: line 5, column 1',
       ),
     ).toEqual({ automation: 'Contact_Trigger' });
+    expect(
+      automationOf('System.LimitException: Too many\nTrigger.acme.Ledger: line 12, column 1'),
+    ).toEqual({ automation: 'acme.Ledger' });
+  });
+
+  it('reads a long run of dotted words naming no stack line at once', () => {
+    const text = `System.LimitException: Too many Trigger.${'Trigger..'.repeat(50_000)}`;
+
+    const started = performance.now();
+    const automation = automationOf(text);
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(automation).toBeUndefined();
   });
 
   it('never takes a status code, or the words before the exception, for a trigger', () => {

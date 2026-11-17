@@ -108,8 +108,12 @@ const TRIGGER_EXECUTION =
 const TRIGGER_BEFORE_EXCEPTION =
   /^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+:\s*)?(?![A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+:)([A-Za-z]\w*(?:\.\w+)?): System\.LimitException/;
 
-/** "Trigger.Acme_Trigger: line 12, column 1": the line of the stack that names the trigger. */
-const TRIGGER_LINE = /Trigger\.([\w.]+?): line \d+/;
+/**
+ * "Trigger.Acme_Trigger: line 12, column 1": the line of the stack that names
+ * the trigger, with its namespace when it has one. The name holds one dot at
+ * most, so a long run of dotted words is read once, not once per "Trigger.".
+ */
+const TRIGGER_LINE = /Trigger\.(\w+(?:\.\w+)?): line \d+/;
 
 /**
  * The trigger a refusal's text names, and the event it ran on when it says;

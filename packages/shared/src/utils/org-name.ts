@@ -28,8 +28,12 @@ export interface NamedOrg {
   organizationId?: string | undefined;
 }
 
-/** A Salesforce username is shaped as an email address. */
-const USERNAME_SHAPED = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * A Salesforce username is shaped as an email address: a domain with a dot
+ * past its first character and before its last. The dot read is the first
+ * such one, so a long alias that is not a username is read once.
+ */
+const USERNAME_SHAPED = /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/;
 
 /** Whether `alias` is an alias of its own: neither the username, nor shaped as one. */
 export function isOwnAlias(alias: string | undefined, username: string | undefined): boolean {
