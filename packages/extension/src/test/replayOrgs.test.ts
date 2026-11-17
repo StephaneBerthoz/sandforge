@@ -196,4 +196,25 @@ describe('the other org', () => {
     });
     expect(await refusedWith('Hier__c', { SetupOwnerId: TARGET_ORG_ID })).toBe('DUPLICATE_VALUE');
   });
+
+  it('writes the direct relation of a contact inserted with an account, in the same save, when told', async () => {
+    const org = new ReplayTargetOrg({ directRelations: true });
+    const writer = org.writer();
+    const [account] = await writer.insert('x', 'Account', [{ Name: 'Acme' }]);
+    const [contact, alone] = await writer.insert('x', 'Contact', [
+      { LastName: 'One', AccountId: account?.id },
+      { LastName: 'Two' },
+    ]);
+
+    const relations = org.org.all('AccountContactRelation');
+    expect(relations).toHaveLength(1);
+    expect(relations[0]).toMatchObject({
+      AccountId: account?.id,
+      ContactId: contact?.id,
+      IsDirect: true,
+      CreatedDate: org.org.all('Contact').find((row) => row.Id === contact?.id)?.CreatedDate,
+    });
+    expect(alone?.success).toBe(true);
+    expect(new ReplayTargetOrg().org.all('AccountContactRelation')).toEqual([]);
+  });
 });

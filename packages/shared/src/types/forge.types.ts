@@ -2483,17 +2483,20 @@ export interface ForgeVerificationObject {
    * role —, which the run links to and which go with their record, read back
    * in the target: the run's as much as those it wrote, created by its user
    * in its window. Each goes with its record, judged among the run's own: one
-   * not read back lowers nothing. Absent when none was read back.
+   * not read back lowers nothing. Of feed items, the records' creations the
+   * platform posted in the run's window as its user, past those the run
+   * wrote, are counted here too. Absent when none was read back.
    */
   withTheirRecord?: number;
   /**
    * Records of the object the user the run wrote as created in the run's
-   * window past those of the run read back, and those the platform wrote with
-   * them (`withTheirRecord`): the target's automation, another session
-   * writing as that user — or a call sent twice. A run taken up from its
-   * journal wrote again the call it had under way when it was killed, and
-   * every record the run wrote was there. Absent when none, or when the run's
-   * window or user is not known.
+   * window past those of the run read back that the target dated in it, and
+   * those the platform wrote with them (`withTheirRecord`), each told by its
+   * id rather than by a difference of counts: the target's automation,
+   * another session writing as that user — or a call sent twice. A run
+   * taken up from its journal wrote again the call it had under way when it
+   * was killed, and every record the run wrote was there. Absent when none,
+   * or when the run's window or user is not known.
    */
   moreInTheWindow?: number;
 }

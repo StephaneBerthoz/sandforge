@@ -65,7 +65,7 @@ const QUERY_PATH = '/services/data/v66.0/query?q=';
  * Characters `soql` takes on the wire: percent-encoded as jsforce writes it,
  * and its quotes as `%27`, as node-fetch rewrites the URL (WHATWG) after it.
  */
-function wireLength(soql: string): number {
+export function wireLength(soql: string): number {
   return QUERY_PATH.length + encodeURIComponent(soql).replace(/'/g, '%27').length;
 }
 

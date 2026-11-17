@@ -791,6 +791,39 @@ describe("a run's journal", () => {
       });
     });
 
+    it('by its system stamp, a record whose creation date the run copied from its source', async () => {
+      // The feed items a clone wrote last kept their source's dates: its
+      // window ended before it began, and the sweep of the run, cut short and
+      // taken up, removed by its journal, was refused for want of one.
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await takenUp(journal);
+      const rows: Record<string, Record<string, string>> = {
+        [NEW_ACCOUNT_A]: { CreatedDate: '2026-10-13T10:00:02.000+0000' },
+        [NEW_CONTACT_A]: { CreatedDate: '2026-10-13T10:00:09.000+0000' },
+        [LATER_CONTACT]: {
+          CreatedDate: '2026-08-12T14:00:00.000+0000',
+          SystemModstamp: '2026-10-13T11:00:03.000+0000',
+        },
+      };
+      const target = {
+        query: async <T>(soql: string) => {
+          const [, field = '', id = ''] =
+            /^SELECT (\w+) FROM \w+ WHERE Id = '(\w+)'$/.exec(soql) ?? [];
+          const at = rows[id]?.[field];
+          return {
+            totalSize: at ? 1 : 0,
+            done: true,
+            records: (at ? [{ [field]: at }] : []) as T[],
+          };
+        },
+      };
+
+      expect(await journal.writtenBetween('run-3', target as never)).toEqual({
+        first: '2026-10-13T10:00:02.000Z',
+        last: '2026-10-13T11:00:03.000Z',
+      });
+    });
+
     it('of a part, from the first record that part created once the earlier part was removed', async () => {
       const journal = new ForgeRunJournal(memoryDisk().deps);
       await takenUp(journal);

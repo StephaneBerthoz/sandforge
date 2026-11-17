@@ -7,6 +7,7 @@ import { writeCountingContract, type CountingContract } from './CountingContract
 import { buildFrozenManifest, parseManifest, serializeManifest } from './manifest.js';
 import { PostLoadVerifier, type PostLoadVerifyOptions } from './PostLoadVerifier.js';
 import type { FrozenDataset } from './types.js';
+import { MOST_WIRE_CHARS, wireLength } from '../../test/sampleSourceOrg.js';
 
 const repoRoot = findRepoRoot(process.cwd());
 const guard = new SasPathGuard(repoRoot);
@@ -501,6 +502,80 @@ describe('PostLoadVerifier — presence by key', () => {
       '00D-target',
       "SELECT ExternalId__c k FROM Account WHERE ExternalId__c IN ('ACC-1')",
     );
+  });
+});
+
+describe('PostLoadVerifier — a load of thousands of records', () => {
+  it('reads the person accounts and the keys of 1 500 records in statements the target takes', async () => {
+    // A statement naming every one of them made a URL past what an org holds,
+    // refused with a 431, and the verification of a replay of a whole org
+    // failed for want of a read.
+    const size = 1_500;
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, {
+      Account: { fromFiles: size, exclusionReasons: {}, excluded: 0, added: 0, expected: size },
+    });
+    const ref = (object: string, n: number): string => `${object}-${String(n).padStart(6, '0')}`;
+    const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+    const numbers = Array.from({ length: size }, (_, n) => n + 1);
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: numbers.map((n) => ({
+            referenceId: ref('Account', n),
+            fields: { ExternalId__c: `ACCOUNT-KEY-${String(n).padStart(6, '0')}` },
+          })),
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: numbers.map((n) => ({
+        accountReferenceId: ref('Account', n),
+        contactReferenceId: ref('Contact', n),
+      })),
+    };
+    const mapping = new Map(
+      numbers.flatMap((n) => [
+        [ref('Account', n), id('001', n)],
+        [ref('Contact', n), id('003', n)],
+      ]),
+    );
+    const asked: string[] = [];
+    const query = vi.fn(async (_org: string, soql: string) => {
+      asked.push(soql);
+      if (wireLength(soql) > MOST_WIRE_CHARS) {
+        throw Object.assign(new Error('Request Header Fields Too Large'), {
+          name: 'ERROR_HTTP_431',
+          errorCode: 'ERROR_HTTP_431',
+        });
+      }
+      const named = [...soql.matchAll(/'([^']+)'/g)].map(([, value]) => value);
+      // A count is bounded to the records the load wrote, the ids it names.
+      if (soql.includes('COUNT()')) return [{ cnt: named.length }];
+      if (soql.includes('PersonContactId FROM Account')) {
+        return named.map((account) => ({
+          Id: account,
+          PersonContactId: `003${account.slice(3)}`,
+        }));
+      }
+      if (soql.includes('ExternalId__c k FROM Account')) return named.map((k) => ({ k }));
+      return [];
+    });
+    const { deps, options } = makeOptions(contractPath, query, {
+      dataset,
+      mapping,
+      presenceKeys: { Account: 'ExternalId__c' },
+    });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.checks.find((c) => c.name === 'personcontact')?.detail).toBe(
+      `All ${size} person account(s) hold the contact the load linked`,
+    );
+    expect(verdict.checks.find((c) => c.name === 'presence')?.passed).toBe(true);
+    expect(asked.filter((soql) => wireLength(soql) > MOST_WIRE_CHARS)).toEqual([]);
   });
 });
 

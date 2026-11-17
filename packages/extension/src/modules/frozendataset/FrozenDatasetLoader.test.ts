@@ -25,6 +25,7 @@ import { TargetRecordTypeIdResolver } from './TargetRecordTypeIdResolver.js';
 import { loadCreatedRecords, loadRecordsInfo, loadToRemove } from './loadRecords.js';
 import { standardPriceIds } from '../../core/common/platformRecords.js';
 import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import { MOST_WIRE_CHARS, wireLength } from '../../test/sampleSourceOrg.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import type { FrozenDataset } from './types.js';
 import type {
@@ -1611,6 +1612,103 @@ describe('FrozenDatasetLoader — records the platform owns', () => {
     expect(recorded && loadCreatedRecords(recorded).flatMap(({ ids }) => ids)).not.toContain(
       RELATION,
     );
+  });
+});
+
+describe('FrozenDatasetLoader — a load of thousands of contacts', () => {
+  /** An id of `prefix` the target gives a record, numbered, in its 18 characters. */
+  const targetId = (prefix: string, n: number): string =>
+    `${prefix}${String(n).padStart(12, '0')}AAA`;
+
+  it('links the direct relation of each of 3 500 contacts, the target refusing a URL past what it holds', async () => {
+    // A replay of a checkpoint of 3 468 contacts read the relations the
+    // platform wrote with them in one statement, every contact in its URL:
+    // the org answered 431, and the load stopped after 3 900 records.
+    const accounts = 35;
+    const contacts = 3_500;
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: Array.from({ length: accounts }, (_, i) => ({
+            referenceId: `Account-${String(i + 1).padStart(6, '0')}`,
+            fields: { Name: `Account ${i + 1}` },
+          })),
+        },
+        {
+          objectApiName: 'Contact',
+          records: Array.from({ length: contacts }, (_, i) => ({
+            referenceId: `Contact-${String(i + 1).padStart(6, '0')}`,
+            fields: {
+              LastName: `Contact ${i + 1}`,
+              AccountId: `Account-${String((i % accounts) + 1).padStart(6, '0')}`,
+            },
+          })),
+        },
+        {
+          objectApiName: 'AccountContactRelation',
+          records: Array.from({ length: contacts }, (_, i) => ({
+            referenceId: `AccountContactRelation-${String(i + 1).padStart(6, '0')}`,
+            fields: {
+              AccountId: `Account-${String((i % accounts) + 1).padStart(6, '0')}`,
+              ContactId: `Contact-${String(i + 1).padStart(6, '0')}`,
+            },
+          })),
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+    // The target: ids of the shape it gives, the account each contact went in
+    // with, and the direct relation the platform wrote with each contact.
+    const prefixes: Record<string, string> = { Account: '001', Contact: '003' };
+    const accountOf = new Map<string, string>();
+    let made = 0;
+    const calls: DmlCall[] = [];
+    const writer = makeWriter(calls);
+    writer.insert = vi.fn(
+      async (_org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+        calls.push({ op: 'insert', objectApiName, payload: records });
+        return records.map((record) => {
+          const id = targetId(prefixes[objectApiName] ?? 'a0X', ++made);
+          if (objectApiName === 'Contact') accountOf.set(id, String(record.AccountId));
+          return { id, success: true, errors: [] };
+        });
+      },
+    );
+    const asked: string[] = [];
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: async (_org, soql) => {
+        asked.push(soql);
+        if (wireLength(soql) > MOST_WIRE_CHARS) {
+          throw Object.assign(new Error('Request Header Fields Too Large'), {
+            name: 'ERROR_HTTP_431',
+            errorCode: 'ERROR_HTTP_431',
+          });
+        }
+        if (!soql.includes('FROM AccountContactRelation WHERE IsDirect = true AND ContactId IN')) {
+          return [];
+        }
+        const ids = [...soql.matchAll(/'(003\w+)'/g)].map(([, id]) => id);
+        return ids.map((id, n) => ({
+          Id: targetId('07k', n + 1),
+          AccountId: accountOf.get(id),
+          ContactId: id,
+        }));
+      },
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(report.status).toBe('completed');
+    expect(
+      report.perObject.find((o) => o.objectApiName === 'AccountContactRelation'),
+    ).toMatchObject({ fromFiles: contacts, inserted: 0, reused: contacts, failed: [] });
+    expect(calls.map((c) => c.objectApiName)).not.toContain('AccountContactRelation');
+    expect(asked.filter((soql) => wireLength(soql) > MOST_WIRE_CHARS)).toEqual([]);
   });
 });
 

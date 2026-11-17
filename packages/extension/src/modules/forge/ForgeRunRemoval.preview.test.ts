@@ -363,3 +363,82 @@ describe('a removal asked for a preview, with what hangs from the records', () =
     expect(byObject(outcome.preview?.objects ?? []).Account).not.toHaveProperty('keptDependents');
   });
 });
+
+describe('a removal asked for a preview of thousands of records, with what hangs from them', () => {
+  /**
+   * Two accounts of the run with `perAccount` contacts of the run under each,
+   * and the relation the platform wrote with each contact as the run wrote:
+   * the preview reads them before anything goes, so the accounts' read finds
+   * every one of them under the two.
+   */
+  function volume(perAccount: number): { org: MemoryRemovalOrg; plan: ForgeRunObjectRecords[] } {
+    const org = new MemoryRemovalOrg({
+      Account: [
+        { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+        { childSObject: 'AccountContactRelation', field: 'AccountId', cascadeDelete: true },
+      ],
+      Contact: [
+        { childSObject: 'AccountContactRelation', field: 'ContactId', cascadeDelete: true },
+      ],
+    });
+    const at = minutesAgo(10);
+    const accounts = ACCOUNTS.slice(0, 2);
+    for (const id of accounts) org.add('Account', { Id: id }, at);
+    const contacts: string[] = [];
+    accounts.forEach((account, a) => {
+      for (let n = 0; n < perAccount; n++) {
+        const contact = fakeId('003', 1_000 + a * perAccount + n);
+        contacts.push(contact);
+        org.add('Contact', { Id: contact, AccountId: account }, at);
+        org.add(
+          'AccountContactRelation',
+          { Id: fakeId('07k', 1_000 + a * perAccount + n), AccountId: account, ContactId: contact },
+          at,
+        );
+      }
+    });
+    return {
+      org,
+      plan: [
+        { objectApiName: 'Contact', ids: contacts },
+        { objectApiName: 'Account', ids: accounts },
+      ],
+    };
+  }
+
+  it('lets the accounts go when the read of what hangs from them fills its limit with the run’s own contacts and what came with them', async () => {
+    // The purge preview of a replay's --again read the 3 536 contacts and
+    // relations under its 113 accounts in one read of 2 000 at most, kept
+    // every account as what it could not tell, and refused the replay.
+    const { org, plan } = volume(1_100);
+
+    const outcome = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+
+    const objects = byObject(outcome.preview?.objects ?? []);
+    expect(objects.Account).toMatchObject({ planned: 2, toDelete: 2 });
+    expect(objects.Account).not.toHaveProperty('keptDependents');
+    expect(objects.Contact).toMatchObject({ planned: 2_200, toDelete: 2_200 });
+    expect(org.deletes).toEqual([]);
+  });
+
+  it('still keeps an account whose own read of what hangs from it fills the limit, rather than guess', async () => {
+    const { org, plan } = volume(2_000);
+
+    const outcome = await removeRunRecords(org, plan, {
+      ...SPAN,
+      includeChanged: false,
+      previewOnly: true,
+      previewHeld: true,
+    });
+
+    expect(byObject(outcome.preview?.objects ?? []).Account).toMatchObject({
+      toDelete: 0,
+      keptDependents: 2,
+    });
+  });
+});

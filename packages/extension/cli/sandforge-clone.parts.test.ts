@@ -1226,3 +1226,255 @@ describe('sandforge-clone --remove of a run cut and taken up: its parts, removed
     expect(left()).toMatchObject({ OpportunityContactRole: 1, Opportunity: 1, Contact: 1 });
   });
 });
+
+/*
+ * A clone of three accounts' contacts, cases, tasks and feed items, cut by
+ * Ctrl-C as it wrote and taken up, removed whole by its journal on a scratch
+ * org: "removal: PARTIAL", 50 cases and their account kept "for records that
+ * stay (FeedItem)" — the creation the platform posted under each case of the
+ * cut part's last call, a second after it — and "sweep: REFUSED — The target
+ * did not date this run's writes": the feed items the resume wrote last kept
+ * their source's dates, and dated the run's end before its start. Only
+ * --include-changed took them.
+ */
+describe('sandforge-clone --remove of the journal of a run cut as it wrote cases and taken up', () => {
+  const ACCOUNT = { source: SRC('001', 1), target: TGT('001', 1) };
+  const CASES = [1, 2].map((n) => ({ source: SRC('500', n), target: TGT('500', n) }));
+  /** A case's feed item of the source, which the resume copied under the first case. */
+  const FEED = { source: SRC('0D5', 1), target: TGT('0D5', 1) };
+  /** The creations the platform posted of the two cases, as the run's user. */
+  const POSTS = [TGT('0D5', 101), TGT('0D5', 102)];
+  /** When the source's feed item was made: its copy keeps it. */
+  const SOURCE_DATE = '2026-08-12T14:00:00.000Z';
+
+  const CHILDREN: Record<string, MemoryChild[]> = {
+    Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }],
+    Case: [{ childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true }],
+  };
+
+  class CutOrg extends MemoryRemovalOrg {
+    constructor(now: () => number) {
+      super(CHILDREN, { now });
+      this.missingFields.set('FeedItem', new Set(['LastModifiedById']));
+    }
+
+    /** Described as the target describes them, as far as a removal and its sweep read them. */
+    override async describe(objectApiName: string): Promise<unknown> {
+      const described = (await super.describe(objectApiName)) as Record<string, unknown>;
+      const field = (name: string, type: string, more: Record<string, unknown> = {}) => ({
+        name,
+        label: name,
+        type,
+        ...more,
+      });
+      const lookups = Object.entries(CHILDREN).flatMap(([parent, children]) =>
+        children
+          .filter((child) => child.childSObject === objectApiName)
+          .map((child) => field(child.field, 'reference', { referenceTo: [parent] })),
+      );
+      return {
+        ...described,
+        deletable: true,
+        fields: [
+          field('Id', 'id'),
+          field('Name', 'string', { nameField: true }),
+          field('CreatedById', 'reference', { referenceTo: ['User'] }),
+          field('CreatedDate', 'datetime'),
+          ...(objectApiName === 'FeedItem'
+            ? [field('Type', 'picklist')]
+            : [field('LastModifiedById', 'reference', { referenceTo: ['User'] })]),
+          field('LastModifiedDate', 'datetime'),
+          field('SystemModstamp', 'datetime'),
+          ...lookups,
+        ],
+      };
+    }
+  }
+
+  let dir: string;
+  let journal: string;
+  let org: CutOrg;
+  let clock: number;
+  let stdout: string[];
+  const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+  /** The org's dates of a record, which the removal of a run dated by its journal reads. */
+  const DATED = /^SELECT (CreatedDate|LastModifiedDate|SystemModstamp) FROM \w+ WHERE Id = '\w+'$/;
+  const targetConn = {
+    query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+      if (soql.includes(' FROM Organization ')) return page([{ Id: TARGET_ORG, IsSandbox: true }]);
+      return DATED.test(soql) ? org.query(soql, options) : page([]);
+    }),
+    queryMore: vi.fn(async () => page([])),
+    identity: vi.fn(async () => ({ user_id: MEMORY_ORG_USER })),
+    tooling: { query: vi.fn(async () => page([])), queryMore: vi.fn(async () => page([])) },
+    version: '66.0',
+    request: vi.fn(async (request: { method: string; url: string; body?: string }) =>
+      request.url.includes('/tooling/')
+        ? { compositeResponse: [] }
+        : await org.request({ ...request, method: request.method as 'GET' | 'POST' }),
+    ),
+  } as unknown as Connection;
+
+  /** Move the clocks of this machine and of the org to `time`. */
+  function setClock(time: string): void {
+    clock = Date.parse(time);
+    vi.setSystemTime(clock);
+  }
+
+  /** The lines of the journal for a record a part created, sent at `sentAt`. */
+  function created(
+    call: string,
+    object: string,
+    ids: { source: string; target: string },
+    sentAt: string,
+  ) {
+    return [
+      ['x', call, object, sentAt, ['Name'], [[ids.source, 'fingerprint']], []],
+      ['c', ids.source, ids.target, object],
+      ['a', call],
+    ];
+  }
+
+  /**
+   * The run as the gate played it: the cut part wrote the account and its
+   * two cases, the second in its last call, each case with the creation the
+   * platform posted of it — the second's a second after that call; a single
+   * interrupt stopped it. The resume, two minutes later, wrote the cases'
+   * feed item of the source, which kept its source's dates.
+   */
+  function theRun(): void {
+    setClock(at('10:00:01'));
+    org.add('Account', { Id: ACCOUNT.target, Name: 'A', ...byTheRun(at('10:00:01')) });
+    CASES.forEach(({ target }, n) => {
+      const madeAt = at(`10:00:0${n + 2}`);
+      org.add('Case', { Id: target, AccountId: ACCOUNT.target, ...byTheRun(madeAt) });
+      const postedAt = at(`10:00:0${n === 0 ? 2 : 4}`);
+      org.add('FeedItem', {
+        Id: POSTS[n],
+        ParentId: target,
+        Type: 'CreateRecordEvent',
+        CreatedById: MEMORY_ORG_USER,
+        CreatedDate: postedAt,
+        LastModifiedDate: postedAt,
+        SystemModstamp: postedAt,
+      });
+    });
+    setClock(at('10:02:01'));
+    org.add('FeedItem', {
+      Id: FEED.target,
+      ParentId: CASES[0].target,
+      Type: 'CreateRecordEvent',
+      CreatedById: MEMORY_ORG_USER,
+      CreatedDate: SOURCE_DATE,
+      LastModifiedDate: SOURCE_DATE,
+      SystemModstamp: at('10:02:01'),
+    });
+
+    const lines: unknown[] = [
+      {
+        run: {
+          journalId: 'sandforge-clone-cut',
+          targetOrgId: TARGET_ORG,
+          startedAt: at('10:00:00'),
+        },
+      },
+      { part: { n: 0, startedAt: at('10:00:00') } },
+      ...created('0.1', 'Account', ACCOUNT, at('10:00:01')),
+      ...created('0.2', 'Case', CASES[0], at('10:00:02')),
+      ...created('0.3', 'Case', CASES[1], at('10:00:03')),
+      { end: { status: 'cancelled', forgeId: 'sandforge-clone-cut#0', at: at('10:00:05') } },
+      { part: { n: 1, startedAt: at('10:01:59') } },
+      ...created('1.1', 'FeedItem', FEED, at('10:02:01')),
+      { end: { status: 'success', forgeId: 'sandforge-clone-cut#1', at: at('10:02:03') } },
+    ];
+    mkdirSync(join(dir, 'journal', 'forge-runs'), { recursive: true });
+    writeFileSync(journal, lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf8');
+    writeFileSync(
+      journal.replace(/\.ndjson$/, '.end.json'),
+      `${JSON.stringify(lines.at(-1))}\n`,
+      'utf8',
+    );
+  }
+
+  /** Remove the journal at `time`, and say what its JSON says. */
+  async function remove(time: string, ...more: string[]) {
+    setClock(time);
+    stdout = [];
+    const exit = await run(['--remove', journal, '--target', 'TGT', '--json', ...more]);
+    const answer = JSON.parse(stdout.join('')) as {
+      result: {
+        status: string;
+        objects: ForgeUndoObjectResult[];
+        sweep?: { status: string; refusal?: string };
+      };
+    };
+    return { exit, result: answer.result };
+  }
+
+  /** What is left in the target of the run and of what the org posted of it. */
+  function left(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const object of ['Account', 'Case', 'FeedItem']) {
+      const count = org.all(object).length;
+      if (count > 0) counts[object] = count;
+    }
+    return counts;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-cut-'));
+    journal = join(dir, 'journal', 'forge-runs', 'sandforge-clone-cut.ndjson');
+    clock = Date.parse(at('10:00:00'));
+    org = new CutOrg(() => clock);
+    stdout = [];
+    vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      throw new ExitCalled(typeof code === 'number' ? code : undefined);
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+      alias,
+      username: '',
+      instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+      accessToken: 'token',
+    }));
+    vi.mocked(makeConn).mockReturnValue(targetConn);
+    vi.mocked(removalOrg).mockReturnValue(org as unknown as RemovalOrg);
+    vi.stubEnv('SANDFORGE_JOURNAL_DIR', join(dir, 'journal'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('takes every case of the cut part with the creation the platform posted under it a second after its last call, without --include-changed', async () => {
+    theRun();
+
+    const whole = await remove(at('10:05:00'));
+
+    expect(whole.exit).toBeUndefined();
+    expect(whole.result.status).toBe('success');
+    expect(left()).toEqual({});
+  });
+
+  it('sweeps the run in the window its journal dates, the feed item it wrote last dated by its system stamp, and takes it all', async () => {
+    theRun();
+
+    const whole = await remove(at('10:05:00'), '--sweep');
+
+    expect(whole.result.sweep?.refusal).toBeUndefined();
+    expect(whole.result.sweep?.status).not.toBe('refused');
+    expect(whole.exit).toBeUndefined();
+    expect(left()).toEqual({});
+  });
+});

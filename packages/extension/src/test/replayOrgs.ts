@@ -417,6 +417,11 @@ export interface ReplayTargetOptions {
   notCreateable?: string[];
   /** Per object, the child relationships its describe lists, which a delete follows: none unless given. */
   children?: Record<string, MemoryChild[]>;
+  /**
+   * Whether it writes, as an org does, the direct relation of each contact
+   * inserted with an account, in the same save: none unless told.
+   */
+  directRelations?: boolean;
 }
 
 /** A record type of the other org, as its describe gives it to the user who replays. */
@@ -451,10 +456,15 @@ export class ReplayTargetOrg {
   private readonly recordTypeInfos = new Map<string, TargetRecordTypeSpec[]>();
   readonly personAccounts: boolean;
   readonly currencies: readonly string[] | undefined;
+  /** See {@link ReplayTargetOptions.directRelations}. */
+  private readonly directRelations: boolean;
+  /** Direct relations it wrote, to number their ids. */
+  private relationsMade = 0;
 
   constructor(options: ReplayTargetOptions = {}) {
     this.org = new MemoryRestoreOrg(options.children ?? {});
     this.organizationId = options.organizationId ?? TARGET_ORG_ID;
+    this.directRelations = options.directRelations ?? false;
     this.personAccounts = options.personAccounts ?? true;
     this.currencies = options.currencies;
     this.fields =
@@ -627,6 +637,22 @@ export class ReplayTargetOrg {
     return {
       insert: async (_orgId, objectApiName, records, onAnswered) => {
         const answered = outcomes(await this.org.create(objectApiName, records));
+        if (this.directRelations && objectApiName === 'Contact') {
+          answered.forEach((outcome, index) => {
+            const account = records[index]?.AccountId;
+            if (!outcome.success || outcome.id === undefined || typeof account !== 'string') return;
+            this.org.add('AccountContactRelation', {
+              // Numbered apart from the checkpoint's own relations, which the
+              // org holds under no such id.
+              Id: idOf('07k', 900_000_000 + ++this.relationsMade),
+              AccountId: account,
+              ContactId: outcome.id,
+              IsDirect: true,
+              CreatedById: MEMORY_ORG_USER,
+              LastModifiedById: MEMORY_ORG_USER,
+            });
+          });
+        }
         onAnswered?.(0, answered);
         return answered;
       },

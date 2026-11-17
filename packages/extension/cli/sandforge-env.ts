@@ -120,7 +120,12 @@ import {
 import { createdByResource, drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
 import { refusalOfDryRun } from './runRefused.js';
-import { forgeRootsPlanFileOf, readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
+import {
+  forgeRecordsQueryOf,
+  forgeRootsPlanFileOf,
+  readForgeSource,
+  type EnvSourceRead,
+} from './env/kinds/forge.js';
 import { sweepRootPlans } from '../src/modules/forge/roots/rootPlanStore.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
 import { maskStoreOf } from './env/kinds/mask.js';
@@ -1613,9 +1618,14 @@ function validatedLine(run: EnvKindRun): string {
       : 'the whole org'
     : run.tables !== undefined
       ? `tables ${run.tables.map((table) => where(table.object, table.where)).join(', ')}`
-      : run.record?.id !== undefined
-        ? `record ${run.record.id}`
-        : `the one record of ${where(run.record?.object ?? '', run.record?.where)}`;
+      : run.records !== undefined
+        ? // The records its query chooses, read at each plan: said as the one
+          // record of a record resource, it named no object at all.
+          `the ${run.records.object} records ${forgeRecordsQueryOf(run.records)} chooses, ` +
+          'with what each reaches'
+        : run.record?.id !== undefined
+          ? `record ${run.record.id}`
+          : `the one record of ${where(run.record?.object ?? '', run.record?.where)}`;
   return `cloned from the ${run.source} org: ${what}`;
 }
 

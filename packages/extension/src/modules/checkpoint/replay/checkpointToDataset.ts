@@ -333,7 +333,7 @@ export async function surveyCheckpoint(source: ReplaySource): Promise<ReplaySurv
     profiles,
     notHeld,
     currencies,
-    standardPricebook: standardPricebookOf(source, prices),
+    standardPricebook: standardPricebookOf(source, prices, heldBy),
     fileLinks,
     filesLeft,
   };
@@ -345,10 +345,21 @@ export async function surveyCheckpoint(source: ReplaySource): Promise<ReplaySurv
  * prices — a custom price needs a standard one first
  * (`STANDARD_PRICE_NOT_DEFINED`), so the standard book is among those that
  * do. None or several such books tell nothing, and the prices are refused.
+ *
+ * Only the products the checkpoint holds are counted: a price of a product
+ * it does not hold is refused for it, whatever book it is in. Counted too,
+ * the 34 prices of a sample catalogue a checkpoint held neither the products
+ * nor the book of left no book pricing them all: the standard book of a
+ * checkpoint taken before 1.81 was not told, its 10 prices and 4 line items
+ * were refused, and the replay wrote it into the other org as a second,
+ * ordinary book under the standard one's name.
+ *
+ * @param heldBy - The object of each record the checkpoint holds, by key.
  */
 function standardPricebookOf(
   source: ReplaySource,
-  prices: readonly SurveyedPrice[],
+  surveyed: readonly SurveyedPrice[],
+  heldBy: ReadonlyMap<string, string>,
 ): ReplaySurvey['standardPricebook'] {
   const catalog = source.checkpoint.objects.some(
     (object) =>
@@ -357,6 +368,7 @@ function standardPricebookOf(
   if (annexHas(source.annex, 'standardPricebook') && source.annex.standardPricebookId) {
     return { id: eighteen(source.annex.standardPricebookId), how: 'annex' };
   }
+  const prices = surveyed.filter((price) => heldBy.has(price.product));
   if (prices.length === 0 || !catalog) return { how: 'none' };
   const pairs = new Set(prices.map((price) => `${price.product}|${price.currency}`));
   const byBook = new Map<string, Set<string>>();

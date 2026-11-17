@@ -34,8 +34,11 @@ import {
   TARGET_ORG_ID,
   fabricateCheckpoint,
   idOf,
+  type FabricatedObject,
   type ReplayTargetOptions,
 } from '../../test/replayOrgs.js';
+import { orgError } from '../../test/memoryRemovalOrg.js';
+import { MOST_WIRE_CHARS, wireLength } from '../../test/sampleSourceOrg.js';
 import type {
   BeforeRunAsk,
   BeforeRunCheckpoints,
@@ -160,8 +163,13 @@ function connectionOf(world: Pick<World, 'target' | 'asked' | 'described'>) {
     },
     request: async (request: { method: string; url: string }) =>
       /\/limits\/?$/.test(request.url) ? LIMITS : org.request(request),
-    query: (soql: string, options?: { scanAll?: boolean }) => {
+    query: async (soql: string, options?: { scanAll?: boolean }) => {
       world.asked.push(soql);
+      // jsforce sends the statement in the URL, and the org refuses one past
+      // what it holds, with the code jsforce builds from the status.
+      if (wireLength(soql) > MOST_WIRE_CHARS) {
+        throw orgError('ERROR_HTTP_431', 'Request Header Fields Too Large');
+      }
       return org.query(soql, options);
     },
     queryMore: (url: string) => org.queryMore(url),
@@ -205,6 +213,8 @@ async function worldOf(
     staging?: boolean;
     /** A checkpoint SandForge 1.80 took of a sandbox: no annex, no data storage. */
     before181?: boolean;
+    /** The checkpoint's records: {@link accountsAndContacts} unless given. */
+    objects?: FabricatedObject[];
   } = {},
 ): Promise<World> {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-frozen-replay-'));
@@ -215,7 +225,7 @@ async function worldOf(
   });
   if (!('store' in opened)) throw new Error(`The store cannot be opened: ${opened.refusal.reason}`);
   await fabricateCheckpoint(opened.store, {
-    objects: accountsAndContacts(),
+    objects: options.objects ?? accountsAndContacts(),
     ...(options.before181 ? { org: { dataStorageMaxMB: undefined } } : {}),
     annex: options.before181
       ? undefined
@@ -626,6 +636,93 @@ describe('frozen:load of a checkpoint replayed', () => {
     expect(removed('frozen:remove:error').map((error) => error.payload.message)).toEqual([]);
     expect(held(world)).toEqual({ accounts: 2, contacts: 0 });
   });
+});
+
+describe('a replay of thousands of contacts with their accounts', () => {
+  /**
+   * `accounts` accounts and `perAccount` contacts under each, as a
+   * checkpoint of an org holds them: with the direct relation of each contact
+   * to its account, unless told.
+   */
+  function volume(accounts: number, perAccount: number, relations = true): FabricatedObject[] {
+    const accountIds = Array.from({ length: accounts }, (_, n) => idOf('001', n + 1));
+    const contacts = accountIds.flatMap((account, a) =>
+      Array.from({ length: perAccount }, (_, c) => ({
+        Id: idOf('003', a * perAccount + c + 1),
+        LastName: `SFENV volume ${a * perAccount + c + 1}`,
+        AccountId: account,
+      })),
+    );
+    return [
+      {
+        objectApiName: 'Account',
+        rows: accountIds.map((Id, n) => ({ Id, Name: `SFENV volume ${n + 1}` })),
+      },
+      { objectApiName: 'Contact', rows: contacts },
+      ...(relations
+        ? [
+            {
+              objectApiName: 'AccountContactRelation',
+              rows: contacts.map((contact, n) => ({
+                Id: idOf('07k', n + 1),
+                AccountId: contact.AccountId,
+                ContactId: contact.Id,
+                IsDirect: true,
+              })),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  it('links the direct relation the other org wrote with each of 3 500 contacts, the org refusing a URL past what it holds', async () => {
+    // The replay of a checkpoint of 3 468 contacts read the relations the org
+    // wrote with them in one statement: refused with a 431, it stopped after
+    // creating 3 900 records.
+    const world = await worldOf({ objects: volume(35, 100), target: { directRelations: true } });
+
+    const answers = await send(world, 'frozen:load', { replay: replayOf() });
+
+    expect(answers('frozen:load:error').map((error) => error.payload.message)).toEqual([]);
+    const report = answers('frozen:load:response')[0].payload.report as FrozenLoadReportInfo;
+    expect(report.status).toBe('completed');
+    expect(
+      report.perObject.find((o) => o.objectApiName === 'AccountContactRelation'),
+    ).toMatchObject({ fromFiles: 3_500, inserted: 0, reused: 3_500 });
+    expect(held(world)).toEqual({ accounts: 35, contacts: 3_500 });
+    expect(world.target.org.all('AccountContactRelation')).toHaveLength(3_500);
+    expect(world.asked.filter((soql) => wireLength(soql) > MOST_WIRE_CHARS)).toEqual([]);
+  }, 60_000);
+
+  it('replays again over a replay that left the contact-account relations out, its purge taking those the org wrote with the contacts', async () => {
+    // Replayed without its relations, 113 accounts and 3 536 contacts: its
+    // --again was refused, "113 kept for records that stay under them
+    // (AccountContactRelation, Contact)", while its removal took them all.
+    const world = await worldOf({
+      objects: volume(2, 1_100),
+      target: {
+        directRelations: true,
+        children: {
+          Account: [
+            { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+            { childSObject: 'AccountContactRelation', field: 'AccountId', cascadeDelete: true },
+          ],
+          Contact: [
+            { childSObject: 'AccountContactRelation', field: 'ContactId', cascadeDelete: true },
+          ],
+        },
+      },
+    });
+    const without = replayOf({ excluded: ['AccountContactRelation'] });
+    const first = await send(world, 'frozen:load', { replay: without });
+    expect(first('frozen:load:error').map((error) => error.payload.message)).toEqual([]);
+    expect(world.target.org.all('AccountContactRelation')).toHaveLength(2_200);
+
+    const again = await send(world, 'frozen:load:preview', { replay: without, reload: true });
+
+    expect(again('frozen:load:preview:error').map((error) => error.payload.code)).toEqual([]);
+    expect(again('frozen:load:preview:response')).toHaveLength(1);
+  }, 60_000);
 });
 
 describe('frozen:verify and frozen:remove of a checkpoint replayed', () => {

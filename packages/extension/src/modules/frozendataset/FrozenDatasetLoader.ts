@@ -116,6 +116,7 @@ import {
   STATUS_LIFECYCLES,
   TASK,
   contactRolesOf,
+  directAccountContactRelations,
   draftStartOf,
   emailOnACase,
   emailWriteEdges,
@@ -5324,19 +5325,18 @@ export class FrozenDatasetLoader {
       );
     });
     if (direct.length === 0) return;
-    const contactIds = [...new Set(direct.map((r) => mapping.get(r.fields.ContactId as string)))];
-    const rows = await this.deps.orgAccess.query(
-      orgId,
-      'SELECT Id, AccountId, ContactId FROM AccountContactRelation WHERE IsDirect = true ' +
-        `AND ContactId IN (${contactIds.map((id) => `'${sanitizeSoqlValue(String(id))}'`).join(', ')})`,
+    // Read as a Forge run reads them, two hundred contacts a statement: named
+    // in one, the 3 468 contacts a replay had just inserted made a URL the
+    // org refused with a 431, and the load stopped after 3 900 records.
+    const found = await directAccountContactRelations(
+      (soql) => this.deps.orgAccess.query(orgId, soql),
+      direct.map((relation) => ({
+        AccountId: mapping.get(relation.fields.AccountId as string),
+        ContactId: mapping.get(relation.fields.ContactId as string),
+      })),
     );
-    const byPair = new Map(
-      rows.map((row) => [`${String(row.AccountId)}|${String(row.ContactId)}`, row.Id]),
-    );
-    for (const relation of direct) {
-      const accountId = mapping.get(relation.fields.AccountId as string);
-      const contactId = mapping.get(relation.fields.ContactId as string);
-      const id = byPair.get(`${String(accountId)}|${String(contactId)}`);
+    for (const [index, relation] of direct.entries()) {
+      const id = found.get(index);
       if (typeof id === 'string') {
         mapping.set(relation.referenceId, id);
         reused.add(relation.referenceId);

@@ -979,6 +979,38 @@ describe('a checkpoint taken before 1.81, without an annex', () => {
     expect(conversion.dataset.standardPricebook).toBe(ref('Pricebook2', STD));
   });
 
+  it('tells the standard price book beside prices of a book and products it does not hold, and writes no book for it', async () => {
+    // A checkpoint of 1.80 held, beside its catalogue, 34 prices of a sample
+    // catalogue whose book and products it did not hold: no book priced them
+    // all, the standard one was not told, and the replay wrote it into the
+    // other org as a second, ordinary book of the same name.
+    const spec = before181();
+    const entries = spec.objects.find((object) => object.objectApiName === 'PricebookEntry');
+    for (const n of [1, 2, 3]) {
+      entries?.rows.push({
+        Id: idOf('01u', 40 + n),
+        Pricebook2Id: idOf('01s', 40),
+        Product2Id: idOf('01t', 40 + n),
+        UnitPrice: n,
+        IsActive: true,
+        CurrencyIsoCode: 'USD',
+      });
+    }
+
+    const { conversion } = await converted(spec);
+    const { dataset, summary } = conversion;
+
+    expect(summary.standardPricebook).toBe('deduced');
+    expect(dataset.standardPricebook).toBe(ref('Pricebook2', STD));
+    expect(recordOf(dataset, 'PricebookEntry', E1)?.fields.Pricebook2Id).toBe(
+      ref('Pricebook2', STD),
+    );
+    // The orphans alone are refused, and no book is made for the standard one.
+    expect(recordOf(dataset, 'PricebookEntry', idOf('01u', 41))).toBeUndefined();
+    const created = dataset.objects.reduce((sum, object) => sum + object.records.length, 0);
+    expect(summary.records.toCreate).toBe(created - 1);
+  });
+
   it('refuses the prices when two books price every product, and the line items under them', async () => {
     const spec = before181();
     const entries = spec.objects.find((object) => object.objectApiName === 'PricebookEntry');

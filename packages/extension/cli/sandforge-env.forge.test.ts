@@ -1015,6 +1015,43 @@ describe('a forge resource of records, the records a query chooses', () => {
     });
   const plansDir = (): string => join(journalDir, 'forge-roots');
 
+  it('says on validate the records its query chooses, their object, condition, order and limit, never the one record of a record resource', async () => {
+    // Validated on a scratch org, a resource of records read "people: cloned
+    // from the c2 org: the one record of " — the phrase of one record, its
+    // object empty.
+    writeFileSync(
+      fileOf,
+      JSON.stringify(
+        file({
+          resources: {
+            people: {
+              kind: 'forge',
+              source: 'uat',
+              records: {
+                object: 'Account',
+                where: 'IsPersonAccount = true',
+                orderBy: 'Id',
+                limit: 5,
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    const { code } = await run(['validate']);
+
+    expect(code).toBe(0);
+    const said = stdout.join('');
+    expect(said).toContain(
+      '  people: cloned from the uat org: the Account records ' +
+        'SELECT Id FROM Account WHERE (IsPersonAccount = true) ORDER BY Id LIMIT 5 chooses, ' +
+        'with what each reaches',
+    );
+    expect(said).not.toContain('the one record of');
+    expect(world.calls).toEqual([]);
+  });
+
   it('clones the records its query chooses with what each reaches, its run writing those its dry run chose', async () => {
     writeFileSync(fileOf, JSON.stringify(recordsFile(`Name = '${MARK}'`)));
 

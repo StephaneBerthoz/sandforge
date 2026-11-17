@@ -56,6 +56,25 @@ export const NATURAL_KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * A record's creation, as the platform posts it to a feed the target tracks:
+ * a feed item of type `CreateRecordEvent` on the record created (`ParentId`)
+ * or on the record it was created under, created as the user who created the
+ * record, in the same second or the next — the cases a Bulk API job wrote
+ * had theirs a second later, lot after lot. Beside the source's own, which a
+ * clone copies as any feed item, the platform wrote one under each case and
+ * each task of a case a clone wrote to a scratch org: 225 for 150 cases,
+ * which a verification counted as written past the run, and which a removal
+ * of the last call of a run cut short read, one second past it, as added
+ * under its cases since.
+ */
+export const RECORD_CREATED_POST = {
+  objectApiName: 'FeedItem',
+  field: 'Type',
+  value: 'CreateRecordEvent',
+  parent: 'ParentId',
+} as const;
+
+/**
  * Rows of an object the platform writes itself: those whose field holds a
  * value, or every row of the object.
  */

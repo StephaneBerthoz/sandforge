@@ -18,6 +18,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { limitSplitting, type LimitSplitting } from '../../core/common/governorLimit.js';
 import {
   LOCKED_PAST_DRAFT,
+  RECORD_CREATED_POST,
   STATUS_LIFECYCLES,
   standardPriceIds,
   statusCategories,
@@ -321,6 +322,12 @@ interface PlatformAdded {
  *   with it, the file's dates saying whether it changed since: read by its
  *   own, a file made while a checkpoint was taken was held by its first
  *   version, dated before the checkpoint's end, and a rewind kept it.
+ * - `FeedItem` of a record's creation (`RECORD_CREATED_POST`), posted on a
+ *   record of the run as the run wrote it or what goes under it, in the same
+ *   second or the next. Of a clone cut short and taken up, the 50 cases of
+ *   the cut part's last call had theirs a second after it: read as added
+ *   since, they held the cases and their account, and the removal of the
+ *   whole run took them only with `--include-changed`.
  *
  * The same clone had the platform write QuoteHistory, Pricebook2History and
  * ContentDocumentHistory rows, which this check never reads (the org gives
@@ -346,6 +353,12 @@ const PLATFORM_ADDED: Readonly<Record<string, PlatformAdded>> = {
   ContentVersion: {
     ends: ['ContentDocumentId'],
     cameWithRun: (row, runRecords) => isRunRecord(row.ContentDocumentId, runRecords),
+  },
+  [RECORD_CREATED_POST.objectApiName]: {
+    ends: [RECORD_CREATED_POST.parent, RECORD_CREATED_POST.field],
+    cameWithRun: (row, runRecords) =>
+      row[RECORD_CREATED_POST.field] === RECORD_CREATED_POST.value &&
+      isRunRecord(row[RECORD_CREATED_POST.parent], runRecords),
   },
 };
 
@@ -3284,6 +3297,26 @@ interface GoingAlong {
   came: boolean;
 }
 
+/** What one read of a relationship found under some records: see `DependentsCheck.holdingIn`. */
+interface DependentsHolding {
+  holding: Set<string>;
+  automation: AutomationHolder[];
+  along: Array<{ parent: string; key: string }>;
+  goes: GoingAlong[];
+  unchecked: boolean;
+}
+
+/** What the reads of the two halves of a chunk found, as one read of it would say it. */
+function holdingOfBoth(first: DependentsHolding, second: DependentsHolding): DependentsHolding {
+  return {
+    holding: new Set([...first.holding, ...second.holding]),
+    automation: [...first.automation, ...second.automation],
+    along: [...first.along, ...second.along],
+    goes: [...first.goes, ...second.goes],
+    unchecked: first.unchecked || second.unchecked,
+  };
+}
+
 /** A file attached to a record: its document's key, and its title or its id. */
 interface AttachedFile {
   key: string;
@@ -3724,13 +3757,7 @@ class DependentsCheck {
   private async holdingIn(
     relationship: DependentRelationship,
     chunk: readonly string[],
-  ): Promise<{
-    holding: Set<string>;
-    automation: AutomationHolder[];
-    along: Array<{ parent: string; key: string }>;
-    goes: GoingAlong[];
-    unchecked: boolean;
-  }> {
+  ): Promise<DependentsHolding> {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
@@ -3761,9 +3788,20 @@ class DependentsCheck {
         }
         continue;
       }
-      // A read that filled its limit may hold more than it read: every
-      // record of the chunk is kept rather than guessed about.
+      // A read that filled its limit may hold more than it read: each half
+      // of the chunk is read on its own, and a single record whose read
+      // still fills it is kept rather than guessed about. Kept whole, the
+      // 113 accounts of a replay were each held by the 3 536 contacts and
+      // relations under them, its own records, which a preview reads before
+      // anything goes, and its --again was refused.
       if (answer.records.length >= DEPENDENTS_READ_LIMIT) {
+        if (chunk.length > 1) {
+          const half = Math.ceil(chunk.length / 2);
+          return holdingOfBoth(
+            await this.holdingIn(relationship, chunk.slice(0, half)),
+            await this.holdingIn(relationship, chunk.slice(half)),
+          );
+        }
         return {
           holding: new Set(chunk.map(recordKey)),
           automation: [],

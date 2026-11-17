@@ -1271,3 +1271,174 @@ describe('RunVerifier — what the run left empty, and what the platform wrote w
     expect(lookupsLeftEmptyByTheRun(false)).toEqual({});
   });
 });
+
+/*
+ * A clone of 150 contacts with their cases, their tasks and the cases' feed
+ * items, verified on a scratch org: every record was there, and the
+ * verification said `partial` — "75 more FeedItem record(s) were created …
+ * during the run by the run's user than the run wrote". The target posted a
+ * record's creation under each case and each task of a case as the run wrote
+ * them, 225 in the run's window; the 150 feed items the run copied kept their
+ * source's dates, out of it, and were subtracted from it all the same.
+ */
+describe('RunVerifier — what the platform posted of the records the run created', () => {
+  const RUN_START = '2026-10-01T09:50:00.000Z';
+  const DURING = '2026-10-01T09:55:00.000+0000';
+  /** When the source's records were created: a feed item the run copies keeps it. */
+  const SOURCE_DATE = '2026-08-12T14:00:00.000+0000';
+  const stamps = (by: string, at: string) => ({
+    CreatedById: by,
+    CreatedDate: at,
+    LastModifiedDate: BEFORE_END,
+    LastModifiedById: by,
+    SystemModstamp: BEFORE_END,
+  });
+  const AUDIT = [
+    { name: 'Id', type: 'id' },
+    { name: 'CreatedById', type: 'reference', referenceTo: ['User'] },
+    { name: 'CreatedDate', type: 'datetime' },
+  ];
+  const ref = (name: string, referenceTo: string[]) => ({
+    name,
+    type: 'reference',
+    createable: true,
+    updateable: true,
+    referenceTo,
+  });
+  const FIELDS = {
+    Case: [...AUDIT, { name: 'Subject', type: 'string', createable: true, updateable: true }],
+    Task: [...AUDIT, ref('WhatId', ['Case'])],
+    FeedItem: [...AUDIT, ref('ParentId', ['Case']), { name: 'Type', type: 'picklist' }],
+  };
+  type Name = keyof typeof FIELDS;
+  type Table = Map<string, Record<string, unknown>>;
+  const table = (...rows: Array<Record<string, unknown>>): Table =>
+    new Map(rows.map((row) => [String(row.Id), row]));
+
+  const CASES = [1, 2].map((n) => ({ s: sid('500', n), t: tid('500', n) }));
+  const TASK = { s: sid('00T', 1), t: tid('00T', 1) };
+  /** The cases' feed items of the source, which the run copies. */
+  const FEEDS = [1, 2].map((n) => ({ s: sid('0D5', n), t: tid('0D5', n) }));
+
+  /**
+   * An org of `rows`, which also counts the records a user created between
+   * two dates, those of a type alone when a count names one.
+   */
+  function org(rows: Record<Name, Table>) {
+    const faked = fakeOrg(
+      Object.fromEntries(
+        (Object.keys(FIELDS) as Name[]).map((name) => [
+          name,
+          { fields: FIELDS[name], rows: rows[name] },
+        ]),
+      ),
+    );
+    const answered = faked.query;
+    faked.query = vi.fn(async (soql: string) => {
+      const count =
+        /^SELECT COUNT\(\) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+)(?: AND (\w+) = '(\w+)')?$/.exec(
+          soql,
+        );
+      if (!count) return answered(soql);
+      const [, object, user, from, to, field, value] = count;
+      const created = [...(rows[object as Name]?.values() ?? [])].filter(
+        (row) =>
+          row.CreatedById === user &&
+          Date.parse(String(row.CreatedDate)) >= Date.parse(from) &&
+          Date.parse(String(row.CreatedDate)) <= Date.parse(to) &&
+          (field === undefined || row[field] === value),
+      );
+      return { totalSize: created.length, records: [] };
+    });
+    return faked;
+  }
+
+  /**
+   * The source, and the target as the run left it: two cases and a task
+   * under the first, written as the run's user during the run; the cases'
+   * feed items, copied with `copiedAt`; and the creations the target posted
+   * of each case and of the task, as the run's user, as it wrote them.
+   */
+  function cloneOfCases(copiedAt = SOURCE_DATE, more: Array<Record<string, unknown>> = []) {
+    const run = stamps(RUN_USER, DURING);
+    const source = org({
+      Case: table(...CASES.map(({ s }) => ({ Id: s, Subject: 'Help' }))),
+      Task: table({ Id: TASK.s, WhatId: CASES[0].s }),
+      FeedItem: table(
+        ...FEEDS.map(({ s }, n) => ({ Id: s, ParentId: CASES[n].s, Type: 'CreateRecordEvent' })),
+      ),
+    });
+    const posts = [
+      ...CASES.map(({ t }, n) => ({
+        Id: tid('0D5', 100 + n),
+        ParentId: t,
+        Type: 'CreateRecordEvent',
+        ...run,
+      })),
+      { Id: tid('0D5', 110), ParentId: CASES[0].t, Type: 'CreateRecordEvent', ...run },
+    ];
+    const rows: Record<Name, Table> = {
+      Case: table(...CASES.map(({ t }) => ({ Id: t, Subject: 'Help', ...run }))),
+      Task: table({ Id: TASK.t, WhatId: CASES[0].t, ...run }),
+      FeedItem: table(
+        ...FEEDS.map(({ t }, n) => ({
+          Id: t,
+          ParentId: CASES[n].t,
+          Type: 'CreateRecordEvent',
+          ...stamps(RUN_USER, copiedAt),
+        })),
+        ...posts,
+        ...more,
+      ),
+    };
+    const toVerify: RunToVerify = {
+      records: [
+        { objectApiName: 'FeedItem', ids: FEEDS.map(({ t }) => t) },
+        { objectApiName: 'Task', ids: [TASK.t] },
+        { objectApiName: 'Case', ids: CASES.map(({ t }) => t) },
+      ],
+      remapTable: Object.fromEntries([...CASES, TASK, ...FEEDS].map(({ s, t }) => [s, t])),
+      runStartedAt: new Date(RUN_START),
+      runEndedAt: new Date(RUN_END),
+    };
+    return { source, rows, run: toVerify };
+  }
+
+  it('is verified, and says the records’ creations the target posted as written by the platform with their record', async () => {
+    const { source, rows, run } = cloneOfCases();
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(verification.verdict).toBe('verified');
+    const feed = objectOf(verification, 'FeedItem');
+    expect(feed).toMatchObject({ expected: 2, present: 2, withTheirRecord: 3 });
+    expect(feed.moreInTheWindow).toBeUndefined();
+  });
+
+  it('counts the feed items the run wrote in its window once, whether the target dated them in it or not', async () => {
+    // Where the target lets no one set a feed item's date, the run's copies
+    // are dated in its window, of the same type as the platform's posts.
+    const { source, rows, run } = cloneOfCases(DURING);
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(verification.verdict).toBe('verified');
+    expect(objectOf(verification, 'FeedItem')).toMatchObject({ present: 2, withTheirRecord: 3 });
+    expect(objectOf(verification, 'FeedItem').moreInTheWindow).toBeUndefined();
+  });
+
+  it('still counts a feed item of another type the run’s user posted in the run’s window', async () => {
+    const { source, rows, run } = cloneOfCases(SOURCE_DATE, [
+      { Id: tid('0D5', 120), ParentId: CASES[1].t, Type: 'TextPost', ...stamps(RUN_USER, DURING) },
+    ]);
+
+    const verification = await new RunVerifier({ target: org(rows), source }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'FeedItem')).toMatchObject({
+      present: 2,
+      withTheirRecord: 3,
+      moreInTheWindow: 1,
+    });
+    expect(verification.verdict).toBe('partial');
+  });
+});

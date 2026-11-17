@@ -19,6 +19,7 @@
  */
 
 import * as fs from 'node:fs';
+import { personContactsOfAccounts } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { readCountingContract, type CountingContract } from './CountingContract.js';
@@ -295,25 +296,18 @@ export class PostLoadVerifier {
     const accountIds = resolvable.map(
       (link) => options.mapping?.get(link.accountReferenceId) as string,
     );
-    const soql =
-      'SELECT Id, PersonContactId FROM Account WHERE Id IN (' +
-      accountIds.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ') +
-      ')';
-    const rows = await this.deps.orgAccess.query(options.orgId, soql);
-    const personContactByAccount = new Map(
-      rows.map((r) => [
-        String(r.Id),
-        r.PersonContactId === null || r.PersonContactId === undefined
-          ? null
-          : String(r.PersonContactId),
-      ]),
+    // Two hundred accounts a statement, as the load reads them: named in one,
+    // the accounts of a replay of thousands made a URL the org refuses.
+    const personContactByAccount = await personContactsOfAccounts(
+      (soql) => this.deps.orgAccess.query(options.orgId, soql),
+      accountIds,
     );
     const unrestored: string[] = [];
     let checked = 0;
     for (const link of resolvable) {
       const accountId = options.mapping.get(link.accountReferenceId) as string;
       const contactOfTheAccount = personContactByAccount.get(accountId);
-      if (contactOfTheAccount === null || contactOfTheAccount === undefined) continue;
+      if (contactOfTheAccount === undefined) continue;
       checked++;
       if (options.mapping.get(link.contactReferenceId) !== contactOfTheAccount) {
         unrestored.push(link.accountReferenceId);
@@ -373,11 +367,19 @@ export class PostLoadVerifier {
         presence[objectApiName] = [];
         continue;
       }
-      const soql =
-        `SELECT ${assertSoqlIdentifier(keyField)} k FROM ${assertSoqlIdentifier(objectApiName)} ` +
-        `WHERE ${assertSoqlIdentifier(keyField)} IN (${keys.map((k) => `'${sanitizeSoqlValue(k)}'`).join(', ')})`;
-      const rows = await this.deps.orgAccess.query(options.orgId, soql);
-      const found = new Set(rows.map((r) => String(r.k)));
+      const found = new Set<string>();
+      for (let i = 0; i < keys.length; i += ID_CHUNK) {
+        const list = keys
+          .slice(i, i + ID_CHUNK)
+          .map((k) => `'${sanitizeSoqlValue(k)}'`)
+          .join(', ');
+        const rows = await this.deps.orgAccess.query(
+          options.orgId,
+          `SELECT ${assertSoqlIdentifier(keyField)} k FROM ${assertSoqlIdentifier(objectApiName)} ` +
+            `WHERE ${assertSoqlIdentifier(keyField)} IN (${list})`,
+        );
+        for (const row of rows) found.add(String(row.k));
+      }
       presence[objectApiName] = keys.filter((k) => !found.has(k));
     }
     return presence;

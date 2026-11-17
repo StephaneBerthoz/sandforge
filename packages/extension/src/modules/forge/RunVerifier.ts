@@ -43,6 +43,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import { idLists, orgSession, readRecordsById } from '../dataops/RecordRemoval.js';
+import { RECORD_CREATED_POST } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { CLOCK_LEEWAY_MS } from './ForgeRunRemoval.js';
 import { OPPORTUNITY_OBJECT, SYNCED_QUOTE_FIELD } from './stages/SyncedQuoteLines.js';
@@ -266,15 +267,27 @@ interface ObjectReading {
   createdInTheWindow?: number;
   /** Records the platform wrote with the run's, read back: see `ForgeVerificationObject.withTheirRecord`. */
   withTheirRecord: number;
+  /** Of the run's records read back, those the window `createdInTheWindow` counts holds. */
+  ofTheRunInTheWindow?: number;
+  /**
+   * Records' creations the platform posted in the run's window as its user,
+   * past those the run wrote itself ({@link RECORD_CREATED_POST}).
+   */
+  postedWithTheirRecord?: number;
 }
 
 /**
  * The columns a reading of the run's records asks for, tried in turn: when
  * each was last modified and by whom; or, for an object that keeps no
- * `LastModifiedDate`, its system stamp alone; or nothing past the id.
+ * `LastModifiedDate`, its system stamp alone; or nothing past the id. Each
+ * first with who created the record and when (`created`), which tells the
+ * run's records the target dated in the run's window from those it did not —
+ * a feed item the run copied keeps its source's date —, then without.
  */
-const DATE_COLUMNS: readonly { modified?: string; by?: string }[] = [
+const DATE_COLUMNS: readonly { modified?: string; by?: string; created?: true }[] = [
+  { modified: 'LastModifiedDate', by: 'LastModifiedById', created: true },
   { modified: 'LastModifiedDate', by: 'LastModifiedById' },
+  { modified: 'SystemModstamp', created: true },
   { modified: 'SystemModstamp' },
   {},
 ];
@@ -303,6 +316,32 @@ function recordKey(id: string): string {
 /** The key prefix of a record's id, which every record of its object shares. */
 function prefixOf(id: string): string {
   return id.slice(0, 3);
+}
+
+/** An instant as a SOQL date-time literal, to the second, as the org compares its dates. */
+function soqlSecond(epoch: number): string {
+  return new Date(epoch).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Whether the target dated `row` as created by `user` within `window`, as a
+ * count of it compares the dates: to the second. Undefined when the row says
+ * neither who created it nor when.
+ */
+function createdInTheWindow(
+  row: Record<string, unknown>,
+  user: string,
+  window: { from: number; to: number },
+): boolean | undefined {
+  const by = row[CREATED_BY];
+  const at = epochOf(row[CREATED_DATE]);
+  if (typeof by !== 'string' || !Number.isFinite(at)) return undefined;
+  const second = (epoch: number): number => Math.floor(epoch / 1_000) * 1_000;
+  return (
+    recordKey(by) === recordKey(user) &&
+    second(at) >= second(window.from) &&
+    second(at) <= second(window.to)
+  );
 }
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
@@ -683,12 +722,13 @@ export class RunVerifier {
     objectApiName: string,
     user: string,
     window: { from: number; to: number },
+    only?: { field: string; value: string },
   ): Promise<number | undefined> {
-    const date = (epoch: number): string => new Date(epoch).toISOString().replace(/\.\d{3}Z$/, 'Z');
     try {
       const answer = await this.deps.target.query(
         `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${CREATED_BY} = '${user}' ` +
-          `AND ${CREATED_DATE} >= ${date(window.from)} AND ${CREATED_DATE} <= ${date(window.to)}`,
+          `AND ${CREATED_DATE} >= ${soqlSecond(window.from)} AND ${CREATED_DATE} <= ${soqlSecond(window.to)}` +
+          (only ? ` AND ${assertSoqlIdentifier(only.field)} = '${only.value}'` : ''),
       );
       return answer.totalSize;
     } catch {
@@ -818,9 +858,18 @@ export class RunVerifier {
     let rows: Array<Record<string, unknown>> | undefined;
     let columns: (typeof DATE_COLUMNS)[number] = {};
     let error: string | undefined;
+    // A record's creation the platform posts is told by its type among the
+    // run's own records too: one the run copied is the run's.
+    const posted = name === RECORD_CREATED_POST.objectApiName ? RECORD_CREATED_POST : undefined;
     for (const candidate of DATE_COLUMNS) {
       try {
-        const names = [candidate.modified, candidate.by].filter((c): c is string => !!c);
+        const names = [
+          candidate.modified,
+          candidate.by,
+          ...(candidate.created
+            ? [CREATED_DATE, CREATED_BY, ...(posted ? [posted.field] : [])]
+            : []),
+        ].filter((c): c is string => !!c);
         rows = await readRecordsById(this.deps.target, name, names, object.ids);
         columns = candidate;
         break;
@@ -854,8 +903,32 @@ export class RunVerifier {
     reading.present = read.size + archived;
     reading.withTheirRecord = await this.withTheirRecordThere(object, explaining);
     if (user !== undefined && explaining.counted) {
-      const counted = await this.countInTheWindow(name, user, explaining.counted);
-      if (counted !== undefined) reading.createdInTheWindow = counted;
+      const window = explaining.counted;
+      const counted = await this.countInTheWindow(name, user, window);
+      if (counted !== undefined) {
+        reading.createdInTheWindow = counted;
+        // The run's own records the window holds, told by id: those the
+        // target dated elsewhere, or as created by another user, are not in
+        // its count. Counted as present, the 150 feed items a clone copied
+        // with their source's dates stood for 150 of the 225 the platform
+        // posted, and the other 75 read as written past the run. A record
+        // whose row says neither is taken to be in it, as before.
+        let own = archived;
+        let ownPosts = 0;
+        for (const row of read.values()) {
+          if (createdInTheWindow(row, user, window) === false) continue;
+          own++;
+          if (posted && row[posted.field] === posted.value) ownPosts++;
+        }
+        reading.ofTheRunInTheWindow = own;
+        // What the platform posted of the records created in the window, the
+        // run's among them: written with its record, as the user created it.
+        if (posted) {
+          const posts = await this.countInTheWindow(name, user, window, posted);
+          if (posts !== undefined && posts > ownPosts)
+            reading.postedWithTheirRecord = posts - ownPosts;
+        }
+      }
     }
 
     // Changed since the run: modified after its last stamp, both by the org's
@@ -1013,8 +1086,11 @@ function rootsInTheTarget(
 function objectResult(reading: ObjectReading): ForgeVerificationObject {
   const leftByTheRun = reading.explained.filter((l) => l.cause === 'run').length;
   // What the platform wrote with the run's records is the run's, as created
-  // by its user in its window as the records it wrote.
-  const ofTheRun = reading.present + reading.withTheirRecord;
+  // by its user in its window as the records it wrote, and so are the
+  // records' creations it posted: each counted by what the window holds.
+  const posted = reading.postedWithTheirRecord ?? 0;
+  const withTheirRecord = reading.withTheirRecord + posted;
+  const ofTheRun = (reading.ofTheRunInTheWindow ?? reading.present) + withTheirRecord;
   return {
     objectApiName: reading.objectApiName,
     expected: reading.expected,
@@ -1042,7 +1118,7 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
     ...(reading.recycleBinUnread !== undefined
       ? { recycleBinUnread: reading.recycleBinUnread }
       : {}),
-    ...(reading.withTheirRecord > 0 ? { withTheirRecord: reading.withTheirRecord } : {}),
+    ...(withTheirRecord > 0 ? { withTheirRecord } : {}),
     ...(reading.createdInTheWindow !== undefined && reading.createdInTheWindow > ofTheRun
       ? { moreInTheWindow: reading.createdInTheWindow - ofTheRun }
       : {}),

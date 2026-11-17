@@ -721,7 +721,7 @@ export class ForgeRunJournal {
     if (!first || !lastCreated) return undefined;
     const dateOf = async (
       { objectApiName, id }: { objectApiName: string; id: string },
-      field: 'CreatedDate' | 'LastModifiedDate',
+      field: 'CreatedDate' | 'LastModifiedDate' | 'SystemModstamp',
     ): Promise<number | undefined> => {
       try {
         const answer = await target.query<Record<string, unknown>>(
@@ -734,6 +734,8 @@ export class ForgeRunJournal {
         return undefined;
       }
     };
+    const bound =
+      lastAt === undefined ? Number.NaN : Date.parse(lastAt) + JOURNAL_LAST_WRITE_SLACK_MS;
     const from =
       (await dateOf(first, 'CreatedDate')) ??
       (firstInPart && firstInPart.id !== first.id
@@ -742,15 +744,29 @@ export class ForgeRunJournal {
     const ends: number[] = [];
     const inPart = lastCreatedInPart?.id !== lastCreated.id ? lastCreatedInPart : undefined;
     for (const last of [lastCreated, inPart]) {
-      const at = last ? await dateOf(last, 'CreatedDate') : undefined;
+      let at = last ? await dateOf(last, 'CreatedDate') : undefined;
+      // Created, by its date, before the run's first record, a record keeps
+      // the date the run copied from its source, the target letting the
+      // run's user set it: it is dated by its system stamp, which no one
+      // sets, as the run dates such an object itself
+      // (`ForgeExecutor.readWrittenBetween`). The feed items a clone wrote
+      // last kept their source's dates: its window ended before it began,
+      // and the sweep of a run cut short and taken up, removed by its
+      // journal, was refused for want of one. A stamp that cannot be read,
+      // or past the journal's end, dates nothing.
+      if (last && at !== undefined && from !== undefined && at < from) {
+        const stamp = await dateOf(last, 'SystemModstamp');
+        at =
+          stamp !== undefined && stamp >= from && (!Number.isFinite(bound) || stamp <= bound)
+            ? stamp
+            : undefined;
+      }
       if (at !== undefined) ends.push(at);
     }
     let to = ends.length > 0 ? Math.max(...ends) : undefined;
     if (from === undefined || to === undefined || to < from) return undefined;
     if (lastUpdated) {
       const updated = await dateOf(lastUpdated, 'LastModifiedDate');
-      const bound =
-        lastAt === undefined ? Number.NaN : Date.parse(lastAt) + JOURNAL_LAST_WRITE_SLACK_MS;
       if (updated !== undefined && updated > to && (!Number.isFinite(bound) || updated <= bound)) {
         to = updated;
       }
