@@ -267,7 +267,7 @@ import {
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
 import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
-import { describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
+import { describeCurrencyReplaced, orgCurrencyOf } from '../src/core/common/recordCurrencies.js';
 import { splitAllowanceAnswerOf } from '../src/core/common/governorLimit.js';
 import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
 import {
@@ -6105,9 +6105,9 @@ function sampleLimitWords(
     // those, never to copy the whole org, which the draw never weighed.
     // Strata alone keep every root in the draw, and never hold it.
     case 'draw':
-      return (
+      return fitKeyWords(
         'limited by the draw: every root --fit-window and --fit-where leave is in the ' +
-        'sample; widen them to take more'
+          'sample; widen them to take more',
       );
   }
 }
@@ -6639,16 +6639,18 @@ export function sampleReadsLine(
       : `the ${draw === 'recent' ? 'newest' : 'oldest'} by creation date, those it may keep`;
   const restricted = options.window !== undefined || filtered.size > 0;
   const byValue = draw !== 'uniform' && (options.strata ?? []).length > 0;
-  return (
+  // Relayed by an environment, said by the keys of its file (`fitKeyWords`):
+  // its plan named "--fit-window and --fit-where" to a reader who gave no flag.
+  return fitKeyWords(
     `sample: drawing it reads at most about ${requests} request(s) of ${source} for the ` +
-    `roots, by discovery's counts (${how}` +
-    (restricted
-      ? "; of the roots --fit-window and --fit-where leave, fewer than discovery's counts, " +
-        'each object they hold counted again without them'
-      : '') +
-    ')' +
-    (byValue ? ', and a statement per value of each stratum, said once they are counted' : '') +
-    '; the records they reach and name are read on top, and said once drawn'
+      `roots, by discovery's counts (${how}` +
+      (restricted
+        ? "; of the roots --fit-window and --fit-where leave, fewer than discovery's counts, " +
+          'each object they hold counted again without them'
+        : '') +
+      ')' +
+      (byValue ? ', and a statement per value of each stratum, said once they are counted' : '') +
+      '; the records they reach and name are read on top, and said once drawn',
   );
 }
 
@@ -13349,6 +13351,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
       return (await c.identity()).user_id;
+    },
+    // The currency of an org of one currency, which its Organization does
+    // not hold: the API says it of an org that holds no other.
+    orgCurrency: async (orgId) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return orgCurrencyOf(await c.soap.getUserInfo());
     },
   };
 

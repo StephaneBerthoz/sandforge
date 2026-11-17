@@ -290,6 +290,25 @@ export async function readOrgCurrencies(
   };
 }
 
+/**
+ * The currency of an org of one currency, as the API's `getUserInfo` answers
+ * it: `orgDefaultCurrencyIsoCode`, which it says only of an org that does not
+ * hold several (`organizationMultiCurrency` false). Nothing for an org of
+ * several, or an answer that names no ISO code.
+ *
+ * Its `Organization` does not hold it: asked `SELECT DefaultCurrencyIsoCode
+ * FROM Organization`, an org of one currency answered live `INVALID_FIELD:
+ * No such column 'DefaultCurrencyIsoCode' on entity 'Organization'`.
+ */
+export function orgCurrencyOf(info: {
+  readonly organizationMultiCurrency?: boolean | null;
+  readonly orgDefaultCurrencyIsoCode?: string | null;
+}): string | undefined {
+  if (info.organizationMultiCurrency === true) return undefined;
+  const code = info.orgDefaultCurrencyIsoCode;
+  return typeof code === 'string' && /^[A-Z]{3}$/.test(code) ? code : undefined;
+}
+
 /** The Tooling API queries both orgs' currency settings are read through. */
 export interface RunCurrencySettings {
   readonly source?: SoqlQuery;

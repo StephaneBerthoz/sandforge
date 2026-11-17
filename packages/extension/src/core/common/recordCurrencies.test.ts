@@ -13,6 +13,7 @@ import {
   describeCurrencyReplaced,
   followParentCurrency,
   orgCurrenciesOf,
+  orgCurrencyOf,
   parentCurrencyChange,
   readOrgCurrencies,
   readRunCurrencies,
@@ -56,6 +57,22 @@ describe('orgCurrenciesOf', () => {
 
   it('answers nothing for no rows', () => {
     expect(orgCurrenciesOf([])).toBeUndefined();
+  });
+});
+
+describe('orgCurrencyOf', () => {
+  it("reads an org of one currency's own from the API's user info, and nothing of an org of several", () => {
+    expect(
+      orgCurrencyOf({ organizationMultiCurrency: false, orgDefaultCurrencyIsoCode: 'USD' }),
+    ).toBe('USD');
+    // An org of several says none of its own there, whatever the field holds.
+    expect(
+      orgCurrencyOf({ organizationMultiCurrency: true, orgDefaultCurrencyIsoCode: 'USD' }),
+    ).toBeUndefined();
+    expect(
+      orgCurrencyOf({ organizationMultiCurrency: false, orgDefaultCurrencyIsoCode: null }),
+    ).toBeUndefined();
+    expect(orgCurrencyOf({ orgDefaultCurrencyIsoCode: 'usd' })).toBeUndefined();
   });
 });
 

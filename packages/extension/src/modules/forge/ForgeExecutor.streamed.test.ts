@@ -44,6 +44,7 @@ type Row = Record<string, unknown>;
 
 const KEY_PREFIX: Record<string, string> = {
   Account: '001',
+  AccountContactRelation: '07k',
   Contact: '003',
   Contract: '800',
   Event: '00U',
@@ -3251,6 +3252,70 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       expect(run.summary.skippedCount).toBe(0);
     });
 
+    it('writes empty, said at its gate as in its run, a lookup its rows may leave empty that names a record it holds back, and never sends the source’s id', async () => {
+      // Run for real, 162 tasks naming an opportunity of a record type closed
+      // to the user went with the source's id in their WhatId and were refused,
+      // INVALID_CROSS_REFERENCE_KEY, where the dry run had counted them
+      // written.
+      const { schema, graph } = orphans();
+      const open = recordType(1, true);
+      const closed = recordType(2, false);
+      schema['Region__c'] = {
+        fields: [text('Name'), lookup('RecordTypeId', 'RecordType', true)],
+        rows: [
+          { Id: region(1), Name: 'North', RecordTypeId: open.recordTypeId },
+          { Id: region(2), Name: 'South', RecordTypeId: closed.recordTypeId },
+        ],
+      };
+      schema['Policy__c'].rows = [];
+      schema['Invoice__c'].rows = [];
+      schema['Task'] = {
+        fields: [
+          text('Name'),
+          { ...lookup('WhatId', 'Region__c', true), referenceTo: ['Region__c', 'Policy__c'] },
+        ],
+        rows: [
+          { Id: sourceId('Task', 1), Name: 'T1', WhatId: region(1) },
+          { Id: sourceId('Task', 2), Name: 'T2', WhatId: region(2) },
+          { Id: sourceId('Task', 3), Name: 'T3', WhatId: region(2) },
+        ],
+      };
+      graph.nodes.push(node('Task', 3));
+      graph.edges.push(edge('Region__c', 'Task', false));
+
+      const run = await cloneTold(schema, graph, { recordTypes: { Region__c: [open, closed] } });
+
+      const plan = writePlanOf(run.boundaries[0]?.objects ?? []);
+      expect(plan.objects.find((o) => o.objectApiName === 'Task')?.rows).toBe(3);
+      expect(plan.leftEmpty).toEqual([{ objectApiName: 'Task', field: 'WhatId', rows: 2 }]);
+      const sent = run.inserts.filter((c) => c.object === 'Task').flatMap(({ rows }) => rows);
+      expect(sent.map((row) => row['Name'])).toEqual(['T1', 'T2', 'T3']);
+      expect(sent.filter((row) => 'WhatId' in row).map((row) => row['Name'])).toEqual(['T1']);
+      expect(JSON.stringify(sent)).not.toContain(region(2));
+      // The run writes what its gate counted; the region alone is held back.
+      expect(run.summary.successCount).toBe(plan.totalRows);
+      expect(run.summary.failedCount).toBe(1);
+      expect(run.summary.errors.filter((e) => e.objectApiName === '__pass2__')).toEqual([]);
+      expect(run.events.filter((e) => e.objectName === 'Task').at(-1)?.message).toContain(
+        'written without WhatId on 2: the record it names is held back by the run',
+      );
+      expect(run.summary.errors).toContainEqual({
+        objectApiName: 'Task',
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'WhatId → Region__c (2 records)',
+            messages: [
+              'Written without WhatId: the record it names is one the run holds back or leaves ' +
+                'aside, never written.',
+            ],
+          },
+        ],
+      });
+    });
+
     it('holds back the rows of a record type the target has none of, with what hangs from them, in its gate as in its run, and writes the rest', async () => {
       // Live, an opportunity of a record type only the source had was counted
       // by the dry run, sent with the source's id and refused, INVALID_CROSS_
@@ -3357,6 +3422,110 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
         }),
       );
     });
+  });
+
+  it('counts out of its gate, said written by the platform, the relations it writes with each contact, and prices no write of them', async () => {
+    // Run for real on a whole org, its dry run counted 3473 relations to
+    // write, and a Bulk API job for them; the run linked 3472, which the
+    // platform wrote with their contacts, and wrote one.
+    const account = (n: number): string => sourceId('Account', n);
+    const contact = (n: number): string => sourceId('Contact', n);
+    const relation = (n: number): string =>
+      canonicalRecordId(`07kS${String(n).padStart(11, '0')}`) ?? '';
+    const CONTACTS = 6;
+    const schema: Schema = {
+      Account: {
+        fields: [text('Name')],
+        rows: [
+          { Id: account(1), Name: 'Acme' },
+          { Id: account(2), Name: 'Globex' },
+        ],
+      },
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', true)],
+        rows: Array.from({ length: CONTACTS }, (_, n) => ({
+          Id: contact(n + 1),
+          LastName: `C${n + 1}`,
+          AccountId: account(1),
+        })),
+      },
+      AccountContactRelation: {
+        fields: [
+          lookup('AccountId', 'Account', false),
+          lookup('ContactId', 'Contact', false),
+          { ...text('IsDirect', 'boolean'), createable: false },
+        ],
+        rows: [
+          ...Array.from({ length: CONTACTS }, (_, n) => ({
+            Id: relation(n + 1),
+            AccountId: account(1),
+            ContactId: contact(n + 1),
+            IsDirect: true,
+          })),
+          // One contact related to a second account too: the one relation the run writes.
+          { Id: relation(99), AccountId: account(2), ContactId: contact(1), IsDirect: false },
+        ],
+      },
+    };
+    const graph = graphOf(
+      [node('Account', 2), node('Contact', CONTACTS), node('AccountContactRelation', CONTACTS + 1)],
+      [
+        edge('Account', 'Contact', false),
+        edge('Account', 'AccountContactRelation', true),
+        edge('Contact', 'AccountContactRelation', true),
+      ],
+    );
+    const orgs = wholeOrg(schema, { cursorPage: 50 });
+    // The platform writes a contact's relation to its account as it takes it.
+    const insert = orgs.deps.insertRecords;
+    orgs.deps.insertRecords = vi.fn(async (org: string, object: string, rows: Row[]) => {
+      const answers = await insert(org, object, rows);
+      if (object === 'Contact') {
+        const relations = orgs.target.get('AccountContactRelation') ?? new Map<string, Row>();
+        answers.forEach((answer, at) => {
+          const accountId = rows[at]?.['AccountId'];
+          if (!answer.success || typeof accountId !== 'string') return;
+          relations.set(
+            canonicalRecordId(`07kP${String(relations.size + 1).padStart(11, '0')}`) ?? '',
+            {
+              AccountId: accountId,
+              ContactId: answer.id,
+              IsDirect: true,
+            },
+          );
+        });
+        orgs.target.set('AccountContactRelation', relations);
+      }
+      return answers;
+    });
+    const boundaries: ForgeWriteBoundary[] = [];
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+      stream: { everything: true },
+      beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b),
+    });
+
+    const plan = writePlanOf(boundaries[0]?.objects ?? []);
+    expect(plan.objects.find((o) => o.objectApiName === 'AccountContactRelation')?.rows).toBe(1);
+    expect(plan.leftOut?.byThePlatform).toEqual([
+      { objectApiName: 'AccountContactRelation', rows: CONTACTS },
+    ]);
+    expect(leftOutLines(plan.leftOut)).toContain(
+      `  not counted: AccountContactRelation, ${CONTACTS} record(s) written by the platform with ` +
+        'their contact, which the run links to and does not send',
+    );
+    // Its writes are priced on the one relation it sends.
+    expect(
+      boundaries[0]?.wholeOrg?.writes.find((w) => w.objectApiName === 'AccountContactRelation'),
+    ).toMatchObject({ rows: 1, jobs: 0 });
+    expect(orgs.counts.map(({ soql }) => soql).filter((soql) => /IsDirect/.test(soql))).toEqual([
+      'SELECT COUNT() FROM AccountContactRelation WHERE IsDirect = true',
+    ]);
+    // The run sends what its gate counted, and links the rest.
+    expect(
+      orgs.inserts.filter((c) => c.object === 'AccountContactRelation').flatMap((c) => c.rows),
+    ).toHaveLength(1);
+    expect(summary.successCount + summary.failedCount).toBe(plan.totalRows);
+    expect(summary.failedCount).toBe(0);
   });
 
   describe('what its gate counts of the price catalog', () => {
@@ -3499,16 +3668,38 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       ).toEqual([expect.objectContaining({ Name: 'Partners' })]);
     });
 
-    it('into a target of one currency, counts and sends one price per product of a book, the one in its currency, and says the others', async () => {
-      // A target of GBP alone: no `CurrencyIsoCode`, no `CurrencyType`, and
-      // a book takes one price per product whatever currency it is sent in.
-      const { schema, graph, targetHolds } = catalog();
+    /**
+     * A target of GBP alone: no `CurrencyIsoCode`, no `CurrencyType`, and a
+     * book takes one price per product whatever currency it is sent in. Its
+     * `Organization` has no `DefaultCurrencyIsoCode`, as an org of one
+     * currency answered when asked for it live: its currency is the API's to
+     * say (`orgCurrency`), when the target is asked.
+     */
+    function intoOneCurrency(
+      schema: Schema,
+      targetHolds: Record<string, Row[]>,
+      currency: string | undefined,
+    ) {
       const orgs = wholeOrg(schema, {
-        targetHolds: {
-          Pricebook2: targetHolds['Pricebook2'] ?? [],
-          Organization: [{ Id: '00D000000000001AAA', DefaultCurrencyIsoCode: 'GBP' }],
-        },
+        targetHolds: { Pricebook2: targetHolds['Pricebook2'] ?? [] },
       });
+      const query = orgs.deps.queryRecords;
+      orgs.deps.queryRecords = vi.fn(async (org: string, soql: string) => {
+        if (org === 'tgt' && /\bDefaultCurrencyIsoCode\b/.test(soql)) {
+          throw new Error(
+            "INVALID_FIELD: No such column 'DefaultCurrencyIsoCode' on entity 'Organization'.",
+          );
+        }
+        return query(org, soql);
+      });
+      if (currency !== undefined)
+        orgs.deps.orgCurrency = async (org) => (org === 'tgt' ? currency : undefined);
+      return orgs;
+    }
+
+    it('into a target of one currency, counts and sends one price per product of a book, the one in its currency, and says the others', async () => {
+      const { schema, graph, targetHolds } = catalog();
+      const orgs = intoOneCurrency(schema, targetHolds, 'GBP');
       const describe = orgs.deps.describeFields;
       orgs.deps.describeFields = vi.fn(async (org: string, object: string) =>
         (await describe(org, object)).filter(
@@ -3559,6 +3750,41 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
         (e) => e.objectName === 'PricebookEntry' && /^Completed/.test(e.message ?? ''),
       )?.message;
       expect(line).toMatch(/2 USD → GBP: price\(s\) in a currency the target does not hold/);
+      // The one price of a product the source has in USD alone goes in GBP at
+      // its amount as read, and the line says so: run for real, a price the
+      // source held in EUR alone went in at 35 into an org of USD, unsaid.
+      expect(line).toContain(
+        '1 USD → GBP: no price in the currency written in the source for the same product and ' +
+          'price book, written in it at its amount as read, not converted',
+      );
+    });
+
+    it('into a target of one currency that will not say which, keeps the first live price of each product and book, and says the currencies it wrote as read', async () => {
+      const { schema, graph, targetHolds } = catalog();
+      const orgs = intoOneCurrency(schema, targetHolds, undefined);
+      const describe = orgs.deps.describeFields;
+      orgs.deps.describeFields = vi.fn(async (org: string, object: string) =>
+        (await describe(org, object)).filter(
+          (f) => !(org === 'tgt' && f.name === 'CurrencyIsoCode'),
+        ),
+      );
+      const events: ForgeProgressEvent[] = [];
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+        stream: { everything: true },
+      });
+
+      const sent = orgs.inserts
+        .filter((c) => c.object === 'PricebookEntry')
+        .flatMap(({ rows }) => rows);
+      expect(sent.map((row) => row['UnitPrice'])).toEqual([10, 10, 10, 7.9]);
+      expect(summary.failedCount).toBe(0);
+      const line = events.find(
+        (e) => e.objectName === 'PricebookEntry' && /^Completed/.test(e.message ?? ''),
+      )?.message;
+      expect(line).toContain(
+        "prices written in the target's one currency, which it did not say: 3 USD, 1 GBP, at " +
+          'their amount as read, not converted',
+      );
     });
   });
 

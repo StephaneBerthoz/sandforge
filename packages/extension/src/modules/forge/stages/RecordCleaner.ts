@@ -102,6 +102,13 @@ export interface CleanedRecord {
    */
   lookupsOutsideTheSample?: string[];
   /**
+   * Of a clone of the whole org, the lookups the payload goes without because
+   * they name a record the run holds back or leaves aside
+   * (`CleanNodeRecordsInput.heldByTheRun`): written empty, and owed to no
+   * second pass, the run writing no such record. Absent, there were none.
+   */
+  lookupsHeldBack?: string[];
+  /**
    * The owner the payload goes without because the target holds that user
    * inactive and the user the run writes as may not give a record an inactive
    * owner (`CleanNodeRecordsInput.inactiveOwners`), as the row named it: the
@@ -370,6 +377,18 @@ export interface CleanNodeRecordsInput {
    * set out to write. Absent, every lookup goes as the run's rules say.
    */
   outsideTheSample?: (field: FieldInfo, value: string) => boolean;
+  /**
+   * Of a clone of the whole org, whether a lookup's value names a record the
+   * run holds back — a record type closed to its user, or one the target
+   * lacks; a record it cannot be written without, held back itself — or
+   * leaves aside: one it never writes. The row goes without it, whatever
+   * `referenceFallback` says, and no second pass owes it. Carried as read
+   * (`'keep'`), run for real, 162 tasks naming an opportunity of a closed
+   * record type went with the source's id and were refused, where the dry
+   * run had counted them written. Absent, every lookup goes as the run's
+   * rules say.
+   */
+  heldByTheRun?: (value: string) => boolean;
 }
 
 /** No currency field known. */
@@ -412,6 +431,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     parentCurrencies,
     pricedIn,
     outsideTheSample,
+    heldByTheRun,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   /** The lookups by name: a text field that holds an id is never taken for one. */
@@ -488,6 +508,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedAsRead: string[] = [];
     /** The lookups at a record outside the sample, by the name the target has. */
     const lookupsOutsideTheSample: string[] = [];
+    /** The lookups at a record the run holds back or leaves aside, by the name the target has. */
+    const lookupsHeldBack: string[] = [];
     const resolved = resolvedLookups?.get(r);
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
@@ -518,6 +540,21 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       ) {
         nullifiedAsRead.push(field.name);
         lookupsOutsideTheSample.push(fieldRename[field.name] ?? field.name);
+        continue;
+      }
+      // A record the run holds back or leaves aside, never written: the
+      // lookup goes empty, said, and nothing is owed it. A lookup the row may
+      // not leave empty held the row back before it came here.
+      if (
+        heldByTheRun &&
+        field.name !== 'RecordTypeId' &&
+        typeof named === 'string' &&
+        named !== '' &&
+        !remapper.get(named) &&
+        heldByTheRun(named)
+      ) {
+        nullifiedAsRead.push(field.name);
+        lookupsHeldBack.push(fieldRename[field.name] ?? field.name);
         continue;
       }
       if (
@@ -761,6 +798,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       ...(lookupsNotCarried.length > 0 ? { lookupsNotCarried } : {}),
       ...(lookupsOutsideTheRun.length > 0 ? { lookupsOutsideTheRun } : {}),
       ...(lookupsOutsideTheSample.length > 0 ? { lookupsOutsideTheSample } : {}),
+      ...(lookupsHeldBack.length > 0 ? { lookupsHeldBack } : {}),
       ...(ownerInactive !== undefined ? { ownerInactive } : {}),
     };
   });

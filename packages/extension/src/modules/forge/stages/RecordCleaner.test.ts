@@ -331,6 +331,44 @@ describe('cleanNodeRecords', () => {
     expect(left.lookupsOutsideTheSample).toEqual(['AccountId', 'WhatId']);
   });
 
+  it('writes empty, owes no second pass and never carries the source id of, a lookup at a record a clone of the whole org holds back, a lookup that names several objects too', () => {
+    // Run for real, tasks naming an opportunity of a record type closed to
+    // the user went with the source's id, carried as read, and were refused.
+    const fieldInfos: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'WhatId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Opportunity', 'Case'],
+      },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('006WRITTEN', '006TARGET');
+    const held = new Set(['006HELD']);
+    const [written, heldBack] = cleanNodeRecords(
+      makeInput({
+        records: [
+          { Id: '00TA', WhatId: '006WRITTEN' },
+          { Id: '00TB', WhatId: '006HELD', RecordTypeId: '012X' },
+        ],
+        fieldInfos,
+        remapper,
+        referenceFallback: 'keep',
+        writtenObjects: new Set(['Opportunity', 'Case']),
+        creatableFields: new Set(['Name', 'WhatId', 'RecordTypeId']),
+        heldByTheRun: (value) => held.has(value),
+      }),
+    );
+
+    expect(written.cleaned).toEqual({ WhatId: '006TARGET' });
+    expect(written.lookupsHeldBack).toBeUndefined();
+    expect(heldBack.cleaned).toEqual({ RecordTypeId: '012X' });
+    expect(heldBack.nullifiedFks).toEqual([]);
+    expect(heldBack.lookupsHeldBack).toEqual(['WhatId']);
+  });
+
   it('never nullifies RecordTypeId and never remaps it through the generic remapper', () => {
     const remapper = new IdRemapper();
     remapper.add('012SOURCE', '012ACCIDENTAL');

@@ -976,6 +976,23 @@ describe('what a sample says of the roots it chose', () => {
     );
   });
 
+  it('names the window and the conditions of the roots by the keys of an environment’s file, relayed by one', () => {
+    // Relayed by an environment's plan, the line said "of the roots
+    // --fit-window and --fit-where leave" to a reader who gave no flag: its
+    // file said fit.window, as the refusal under it did.
+    const graph = {
+      nodes: [{ objectApiName: 'Account', recordCount: 4_500, included: true }],
+    } as unknown as Parameters<typeof sampleReadsLine>[0];
+    vi.stubEnv(RELAYED_BY_VARIABLE, 'sandforge env plan');
+    try {
+      const line = sampleReadsLine(graph, { window: { field: 'CreatedDate', lastDays: 2 } }, 'SRC');
+      expect(line).toContain("of the roots fit.window and fit.where leave, fewer than discovery's");
+      expect(line).not.toContain('--fit-');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('exits 2 for a draw the source cannot take, a line to give otherwise, and 1 for a draw left no root', () => {
     expect(sampleRefusalExit('SAMPLE_DRAW_INVALID')).toBe(2);
     expect(sampleRefusalExit('SAMPLE_DRAW_EMPTY')).toBe(1);

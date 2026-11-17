@@ -1309,18 +1309,27 @@ export function cloneRecordsLine(args: CloneRecordsArgs): string[] {
  * that gives one. A Forge configuration's `defaultValues` gives it, read by
  * `--config` on a terminal: the file, and the dry run this call asked with
  * it. Run for real, a dry run of accounts said so, and the call could clone
- * leads only. Exported so it can be tested.
+ * leads only.
+ *
+ * Of the objects the clone writes alone (`objectsTheCloneWrites`): the gaps
+ * are read of every object of the graph, those it reaches and writes nothing
+ * of too. Run for real, a clone of three leads said a field of Account, an
+ * object it wrote no record of, would have every account refused, and sent
+ * the person to a terminal for a clone that went through. Exported so it can
+ * be tested.
  */
 export function requiredFieldWords(args: CloneRecordsArgs, answer: unknown): string[] {
   const gaps = objectOf(objectOf(answer).targetGaps).gaps;
   if (!Array.isArray(gaps)) return [];
+  const written = objectsTheCloneWrites(answer);
   const unanswered = gaps.map(objectOf).flatMap((gap) => {
     const object = stringOf(gap.objectApiName);
     const field = stringOf(gap.field);
     return gap.kind === 'required_field_missing' &&
       gap.answeredBy === undefined &&
       object !== undefined &&
-      field !== undefined
+      field !== undefined &&
+      written.has(object)
       ? [{ object, field }]
       : [];
   });
@@ -1338,6 +1347,25 @@ export function requiredFieldWords(args: CloneRecordsArgs, answer: unknown): str
       `configuration file, ${JSON.stringify({ defaultValues })}, and clones from a terminal, its ` +
       `dry run first: ${commandOf('clone')} ${line.map(shellWord).join(' ')} --config <file.json>`,
   ];
+}
+
+/**
+ * The objects a clone's answer says it writes records of: of a dry run, those
+ * its write plan holds rows of (`writePlan.objects`); of a run, those it read
+ * rows of to clone (`result.readByObject`). None when it says neither.
+ */
+function objectsTheCloneWrites(answer: unknown): Set<string> {
+  const said = objectOf(answer);
+  const planned = objectOf(said.writePlan).objects;
+  const listed = Array.isArray(planned)
+    ? planned.map(objectOf).filter((o) => (numberOf(o.rows) ?? 0) > 0)
+    : (() => {
+        const read = objectOf(said.result).readByObject;
+        return Array.isArray(read)
+          ? read.map(objectOf).filter((o) => (numberOf(o.read) ?? 0) > 0)
+          : [];
+      })();
+  return new Set(listed.flatMap((o) => stringOf(o.objectApiName) ?? []));
 }
 
 /** What `--query`, named by the clone's lines, is to `clone_records`. */
@@ -2006,6 +2034,12 @@ interface VerificationSaid {
   linksBroken?: number;
   /** The objects it could not read back, or whose lookups it could not check. */
   unchecked?: number;
+  /**
+   * The records the run's user created in the target during the run, past
+   * those the run wrote and the platform wrote with them: what made it
+   * PARTIAL with every record read back. Absent when none.
+   */
+  moreInTheWindow?: number;
   /** Of a verification that was not VERIFIED, the objects it found short, the first fifty. */
   objects?: Array<Record<string, unknown>>;
 }
@@ -2049,6 +2083,11 @@ async function verifyTheRun(
   const verdict = stringOf(result.verdict);
   const objects = Array.isArray(result.objects) ? result.objects.map(objectOf) : [];
   const sum = (key: string) => objects.reduce((total, o) => total + (numberOf(o[key]) ?? 0), 0);
+  // Every record read back, a verification is PARTIAL too for records the
+  // run's user created during the run past what the run and the platform
+  // wrote: run for real after a resume, said "could not all be checked" with
+  // no object, its cause was 1400 relations counted more.
+  const more = sum('moreInTheWindow');
   return {
     said: {
       exitCode: ran.code,
@@ -2063,6 +2102,7 @@ async function verifyTheRun(
             unchecked: objects.filter(
               (o) => stringOf(o.error) !== undefined || stringOf(o.linksUnchecked) !== undefined,
             ).length,
+            ...(more > 0 ? { moreInTheWindow: more } : {}),
           }
         : {}),
       ...(verdict !== undefined && verdict !== 'verified'
@@ -2072,6 +2112,7 @@ async function verifyTheRun(
                 (o) =>
                   (numberOf(o.present) ?? 0) < (numberOf(o.expected) ?? 0) ||
                   (numberOf(o.linksBroken) ?? 0) > 0 ||
+                  (numberOf(o.moreInTheWindow) ?? 0) > 0 ||
                   stringOf(o.error) !== undefined ||
                   stringOf(o.linksUnchecked) !== undefined,
               )
@@ -2083,6 +2124,12 @@ async function verifyTheRun(
                 deleted: o.deleted,
                 notVisible: o.notVisible,
                 linksBroken: o.linksBroken,
+                ...(numberOf(o.withTheirRecord) !== undefined
+                  ? { withTheirRecord: o.withTheirRecord }
+                  : {}),
+                ...((numberOf(o.moreInTheWindow) ?? 0) > 0
+                  ? { moreInTheWindow: o.moreInTheWindow }
+                  : {}),
                 ...(stringOf(o.error) !== undefined ? { error: o.error } : {}),
                 ...(stringOf(o.linksUnchecked) !== undefined
                   ? { linksUnchecked: o.linksUnchecked }
@@ -2107,10 +2154,15 @@ function verificationWords(said: VerificationSaid, target: string): string {
         (said.linksBroken ? `; ${said.linksBroken} lookups not where the run set them` : '') +
         (said.unchecked ? `; ${said.unchecked} objects not read or checked whole` : '')
       : '';
+  const more = (said.objects ?? []).filter((o) => (numberOf(o.moreInTheWindow) ?? 0) > 0);
   const short =
     (said.present ?? 0) < (said.expected ?? 0) || (said.linksBroken ?? 0) > 0
       ? `${target} does not hold all of it as it was written`
-      : `what it wrote could not all be checked`;
+      : more.length > 0
+        ? `${target} holds ${said.moreInTheWindow ?? 0} records more of ` +
+          `${more.map((o) => stringOf(o.objectApiName) ?? '').join(', ')}, created during the ` +
+          'run by the user it wrote as, than the run wrote and the platform wrote with its records'
+        : `what it wrote could not all be checked`;
   switch (said.status) {
     case 'VERIFIED':
       return `Verification: VERIFIED — ${counts}, every lookup checked where the run set it.`;

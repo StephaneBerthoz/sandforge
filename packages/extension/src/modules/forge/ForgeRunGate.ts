@@ -256,6 +256,12 @@ export interface WritePlan {
    * rows above: see `ForgeWriteBoundary.objects`. Absent when nothing is.
    */
   leftOut?: WritePlanLeftOut;
+  /**
+   * Of a clone of the whole org, per object, the lookups its rows go without,
+   * the record each names held back or left aside by the run: the rows are
+   * written, counted in above. Absent when none.
+   */
+  leftEmpty?: Array<{ objectApiName: string; field: string; rows: number }>;
 }
 
 /** What a run will not write of what it read or counted. */
@@ -401,8 +407,12 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const outsideFilter = rowsOf('outsideFilter');
   const linkedToTarget = rowsOf('linkedToTarget');
   const currencyReplaced = rowsOf('currencyReplaced');
+  const leftEmpty = objects.flatMap(({ objectApiName, leftEmpty: empty = [] }) =>
+    empty.filter(({ rows }) => rows > 0).map(({ field, rows }) => ({ objectApiName, field, rows })),
+  );
   return {
     objects: measured,
+    ...(leftEmpty.length > 0 ? { leftEmpty } : {}),
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
     ...(writtenBefore > 0 ||
@@ -3912,6 +3922,12 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
     );
   }
   lines.push(...leftOutLines(plan.leftOut));
+  for (const { objectApiName, field, rows } of plan.leftEmpty ?? []) {
+    lines.push(
+      `  written empty: ${objectApiName}.${field} on ${rows} record(s), the record it names held ` +
+        'back by the run, never written',
+    );
+  }
   if (check.verdict === 'unread') {
     lines.push(
       `  the data storage ${target} has left could not be read (${check.unread}): ` +

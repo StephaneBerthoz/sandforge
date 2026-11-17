@@ -1104,12 +1104,16 @@ export class BatchWriter {
       // The direct relation the platform wrote with a contact the run created
       // goes when the contact goes: "to remove a direct relationship between a
       // contact and an account, change the contact's primary account or
-      // delete the contact".
+      // delete the contact". A contact an earlier part of the run created is
+      // the run's as well: run for real, stopped half way through its
+      // contacts and taken up, a clone linked the relations of the first
+      // part's 1400 as records the target held, which its verification
+      // counted as more than the run wrote and its removal said stayed.
       const contact = source?.['ContactId'];
       if (
         node.objectApiName === ACCOUNT_CONTACT_RELATION &&
         typeof contact === 'string' &&
-        remapper.isCreated(contact)
+        remapper.wasCreated(contact)
       ) {
         tally.withTheirRecord = [...(tally.withTheirRecord ?? []), oldId];
       }

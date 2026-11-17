@@ -707,6 +707,70 @@ describe('clone_org', () => {
     await c.close();
   });
 
+  it('names the object and the records more than the run wrote when that is what made its verification PARTIAL', async () => {
+    // Run for real after a resume, every record read back, and the answer
+    // said "what it wrote could not all be checked" with no object: the
+    // verification had counted 1400 relations more than the run said wrote.
+    const { run } = cloneScript((args) =>
+      args[0] === '--verify'
+        ? {
+            code: 3,
+            stdout: JSON.stringify({
+              result: {
+                verdict: 'partial',
+                objects: [
+                  {
+                    objectApiName: 'AccountContactRelation',
+                    expected: 1,
+                    present: 1,
+                    deleted: 0,
+                    notVisible: 0,
+                    linksBroken: 0,
+                    withTheirRecord: 2072,
+                    moreInTheWindow: 1400,
+                  },
+                  {
+                    objectApiName: 'Contact',
+                    expected: 2,
+                    present: 2,
+                    deleted: 0,
+                    notVisible: 0,
+                    linksBroken: 0,
+                  },
+                ],
+              },
+            }),
+          }
+        : {},
+    );
+    const c = client(run);
+    const { id } = await planned(c);
+
+    const result = await c.call('clone_org', { plan: id, confirm: 'TGT' });
+
+    expect(result.structuredContent.verification).toMatchObject({
+      status: 'PARTIAL',
+      moreInTheWindow: 1400,
+      objects: [
+        {
+          objectApiName: 'AccountContactRelation',
+          expected: 1,
+          present: 1,
+          withTheirRecord: 2072,
+          moreInTheWindow: 1400,
+        },
+      ],
+    });
+    expect(textOf(result).split('\n')[0]).toBe(
+      'Verification: PARTIAL — the clone ended, and TGT holds 1400 records more of ' +
+        'AccountContactRelation, created during the run by the user it wrote as, than the run ' +
+        'wrote and the platform wrote with its records: 3 of the 3 records the run created ' +
+        'read back from TGT. verification.objects names the objects, each with what it found.',
+    );
+    expect(textOf(result)).not.toContain('could not all be checked');
+    await c.close();
+  });
+
   it('says a VERIFIED run after its own lines, and verifies nothing of a run refused', async () => {
     const { ran, run } = cloneScript();
     const c = client(run);

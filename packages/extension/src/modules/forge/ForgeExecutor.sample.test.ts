@@ -267,6 +267,8 @@ function orgs(
     target?: ReturnType<typeof targetOrg>;
     /** What an org answers a statement with before anything else; undefined to go on. */
     answers?: (org: string, soql: string) => Row[] | undefined;
+    /** The target's one currency, as the API says it; none for a target of several. */
+    targetCurrency?: string;
   } = {},
 ) {
   const target = options.target ?? targetOrg();
@@ -318,6 +320,7 @@ function orgs(
         }),
     ),
     duplicateRuleObjects: async () => new Set<string>(),
+    orgCurrency: async (org: string) => (org === 'tgt' ? options.targetCurrency : undefined),
   } satisfies ForgeExecutorDeps;
   const executor = new ForgeExecutor(deps);
   holder.executor = executor;
@@ -852,6 +855,153 @@ describe('a clone of the whole org that copies a sample of it', () => {
     expect(summary.sample?.leftEmpty).toEqual([
       { objectApiName: 'Account', field: 'ParentId', rows: naming.length },
     ]);
+  }, 60_000);
+
+  it('counts one contact the platform writes for every person account it writes whole, those of contacts its plan does not draw too, at its dry run and its run, and keeps each in its journal', async () => {
+    // Run for real, a sample copied 70 person accounts whole and drew 10 of
+    // their contacts: its dry run and its run said 10 contacts written by the
+    // platform, the target held 70, and its verification counted 60 created
+    // besides the run's.
+    const PERSONS = 12;
+    const BUSINESS = 8;
+    const PER_BUSINESS = 40;
+    const person = (n: number): string => fakeId('001', 'S', n);
+    const personContact = (n: number): string => fakeId('003', 'S', n);
+    const personFields: Record<string, FieldInfo[]> = {
+      Account: [
+        ...FIELDS.Account,
+        field('IsPersonAccount', { type: 'boolean', createable: false, updateable: false }),
+        field('PersonContactId', {
+          isReference: true,
+          referenceTo: ['Contact'],
+          createable: false,
+          updateable: false,
+          nillable: true,
+        }),
+      ],
+      Contact: [
+        ...FIELDS.Contact,
+        field('IsPersonAccount', { type: 'boolean', createable: false, updateable: false }),
+      ],
+    };
+    const source = new SampleSourceOrg();
+    source.columns.set('Account', [
+      'Id',
+      'Name',
+      'ParentId',
+      'IsPersonAccount',
+      'PersonContactId',
+      'CreatedDate',
+      'IsDeleted',
+    ]);
+    source.columns.set('Contact', [
+      'Id',
+      'LastName',
+      'AccountId',
+      'IsPersonAccount',
+      'CreatedDate',
+      'IsDeleted',
+    ]);
+    for (let n = 1; n <= PERSONS; n++) {
+      source.add('Account', {
+        Id: person(n),
+        Name: `P${n}`,
+        IsPersonAccount: true,
+        PersonContactId: personContact(n),
+        IsDeleted: false,
+      });
+      source.add('Contact', {
+        Id: personContact(n),
+        LastName: `P${n}`,
+        AccountId: person(n),
+        IsPersonAccount: true,
+        IsDeleted: false,
+      });
+    }
+    let contact = PERSONS;
+    for (let n = PERSONS + 1; n <= PERSONS + BUSINESS; n++) {
+      source.add('Account', { Id: fakeId('001', 'S', n), Name: `B${n}`, IsDeleted: false });
+      for (let c = 0; c < PER_BUSINESS; c++) {
+        contact++;
+        source.add('Contact', {
+          Id: fakeId('003', 'S', contact),
+          LastName: `C${contact}`,
+          AccountId: fakeId('001', 'S', n),
+          IsPersonAccount: false,
+          IsDeleted: false,
+        });
+      }
+    }
+    /**
+     * A target with person accounts: it writes a contact with every person
+     * account it takes, which the run asks for by the accounts it wrote as
+     * persons.
+     */
+    const personOrgs = () => {
+      const base = orgs(source, {
+        answers: (org, soql) => {
+          const asked = /^SELECT Id, PersonContactId FROM Account WHERE Id IN \((.*)\)$/.exec(soql);
+          if (org !== 'tgt' || !asked) return undefined;
+          return [...asked[1].matchAll(/'(\w+)'/g)].map(([, id]) => ({
+            Id: id,
+            PersonContactId: `003T${id.slice(4)}`,
+          }));
+        },
+      });
+      vi.mocked(base.deps.describeFields).mockImplementation(
+        async (_org: string, object: string) => personFields[object] ?? [],
+      );
+      return base;
+    };
+    const graph = graphOf(PERSONS + BUSINESS, PERSONS + BUSINESS * PER_BUSINESS);
+    const keepAt = join(plansDir(), 'dry');
+    const dryGate: ForgeWriteBoundary[] = [];
+    await personOrgs().executor.execute(
+      graph,
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(keepAt, budgetOf(300), { dryRun: true, gate: dryGate }),
+    );
+    const plan = await SamplePlan.open(keepAt);
+    expect(plan.manifest.sample.whole.map((w) => w.objectApiName)).toContain('Account');
+    const drawn = new Set(await planIds(plan, 'Contact'));
+    const personsDrawn = [...Array(PERSONS).keys()].filter((n) => drawn.has(personContact(n + 1)));
+    // Some of the persons' contacts in the plan, some not.
+    expect(personsDrawn.length).toBeGreaterThan(0);
+    expect(personsDrawn.length).toBeLessThan(PERSONS);
+
+    const gate: ForgeWriteBoundary[] = [];
+    const store = ForgeRunStore.open(memoryRunFile());
+    const run = personOrgs();
+    const summary = await run.executor.execute(
+      graph,
+      'src',
+      'tgt',
+      () => {},
+      sampleRun(join(plansDir(), 'unused'), budgetOf(1), { plan, gate, store }),
+    );
+    store.close();
+
+    // A contact of the platform's for every person account written, at the
+    // dry run as at the run's gate, none of them counted among what is sent.
+    for (const boundary of [dryGate[0], gate[0]]) {
+      const contacts = boundary?.objects.find((o) => o.objectApiName === 'Contact');
+      expect(contacts?.leftOut?.byThePlatform).toBe(PERSONS);
+      expect(contacts?.counted?.rows).toBe(drawn.size - personsDrawn.length);
+    }
+    expect(summary.writtenByThePlatform).toContainEqual({
+      objectApiName: 'Contact',
+      rows: PERSONS,
+    });
+    // Each kept with its object and marked written with its account: what a
+    // verification and a removal read back from the journal.
+    expect(summary.withTheirRecordSourceIds?.filter((id) => id.startsWith('003'))).toHaveLength(
+      PERSONS,
+    );
+    const countsOfContact = store.countsByObject().find((c) => c.objectApiName === 'Contact');
+    expect(countsOfContact?.linked).toBe(PERSONS);
+    expect(summary.failedCount).toBe(0);
   }, 60_000);
 });
 
@@ -1453,10 +1603,18 @@ describe('a sample of the whole org that draws its price catalog', () => {
       [currency('USD', 1, true), currency('EUR', 0.9), currency('GBP', 0.8)],
       [],
     );
-    const answers = (org: string, soql: string): Row[] | undefined =>
-      org === 'tgt' && /\bFROM Organization\b/.test(soql)
-        ? [{ DefaultCurrencyIsoCode: 'EUR' }]
-        : catalog(org, soql);
+    // An org of one currency has no `Organization.DefaultCurrencyIsoCode`,
+    // as one answered when asked for it live: the API says its currency
+    // (`orgCurrency`).
+    const answers = (org: string, soql: string): Row[] | undefined => {
+      if (org === 'tgt' && /\bDefaultCurrencyIsoCode\b/.test(soql)) {
+        throw new Error(
+          "INVALID_FIELD: No such column 'DefaultCurrencyIsoCode' on entity 'Organization'.",
+        );
+      }
+      return catalog(org, soql);
+    };
+
     /** The target's describes: a price there has no currency. */
     const oneCurrency = async (org: string, object: string): Promise<FieldInfo[]> =>
       (FIELDS[object] ?? []).filter(
@@ -1482,7 +1640,7 @@ describe('a sample of the whole org that draws its price catalog', () => {
     await withCatalog(async () => {
       const keepAt = join(plansDir(), 'dry');
       const dryGate: ForgeWriteBoundary[] = [];
-      const dry = orgs(source, { answers });
+      const dry = orgs(source, { answers, targetCurrency: 'EUR' });
       vi.mocked(dry.deps.describeFields).mockImplementation(oneCurrency);
       await dry.executor.execute(
         catalogGraph(),
@@ -1495,7 +1653,7 @@ describe('a sample of the whole org that draws its price catalog', () => {
       // Room enough for the catalog to go whole, every price of it.
       expect(plan.manifest.sample.whole.map((w) => w.objectApiName)).toContain('PricebookEntry');
       const gate: ForgeWriteBoundary[] = [];
-      const { executor, deps, target } = orgs(source, { answers });
+      const { executor, deps, target } = orgs(source, { answers, targetCurrency: 'EUR' });
       vi.mocked(deps.describeFields).mockImplementation(oneCurrency);
       vi.mocked(deps.insertRecords).mockImplementation(onePerPair(target));
 

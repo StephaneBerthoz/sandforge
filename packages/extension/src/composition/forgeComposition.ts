@@ -30,6 +30,7 @@ import {
   type RecordTypeAvailability,
 } from '../core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../core/metadata/recordTypePicklists.js';
+import { orgCurrencyOf } from '../core/common/recordCurrencies.js';
 import { controllersOf, fieldBoundsOf, type FieldBounds } from '../modules/forge/describeBounds.js';
 
 /**
@@ -695,6 +696,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           runningUser: async (orgId) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             return (await conn.identity()).user_id;
+          },
+          // The currency of an org of one currency, which its Organization
+          // does not hold: the API says it of an org that holds no other.
+          orgCurrency: async (orgId) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return orgCurrencyOf(await conn.soap.getUserInfo());
           },
           // A write sent as a Bulk API job, on the run's own job limiter; each
           // call it sends the org — opened, sent, closed, each read of its

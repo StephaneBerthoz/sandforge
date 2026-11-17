@@ -11,6 +11,7 @@ import {
 } from './BatchWriter.js';
 import type { ForgeBatchStrategy, ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import { IdRemapper } from '../IdRemapper.js';
+import { ForgeRunStore, memoryRunFile } from '../ForgeRunStore.js';
 import { logger } from '../../../logger.js';
 import { toSaveOutcome } from '../../../core/common/existingRecordMatch.js';
 import { flagsNotKeptNote } from '../../../core/common/platformRecords.js';
@@ -1209,6 +1210,50 @@ describe('BatchWriter — relations the platform creates', () => {
 
     expect(result.linkedExistingCount).toBe(2);
     expect(result.withTheirRecord).toEqual(['07kSRC1']);
+  });
+
+  it('says the direct relations of the contacts an earlier part of the run created go with them too, as those of this part', async () => {
+    // Run for real, a clone stopped half way through its contacts and taken
+    // up: the relations of the first part's 1400 contacts were linked as
+    // records the target held, its verification said 1400 more than the run
+    // wrote, and its removal said they stayed, where they went with their
+    // contacts.
+    const file = memoryRunFile();
+    const first = ForgeRunStore.open(file);
+    first.beginPart(new Date('2026-11-17T12:00:00Z'));
+    new IdRemapper(first).add('003SRC1', '003T1', 'Contact');
+    first.close();
+    const store = ForgeRunStore.open(memoryRunFile(file.text()));
+    store.beginPart(new Date('2026-11-17T12:05:00Z'));
+    const remapper = new IdRemapper(store);
+    remapper.add('003SRC2', '003T2', 'Contact');
+    remapper.addExisting('003SRC3', '003T3', 'Contact');
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '07kDIRECT1', AccountId: '001T', ContactId: '003T1' },
+      { Id: '07kDIRECT2', AccountId: '001T', ContactId: '003T2' },
+      { Id: '07kDIRECT3', AccountId: '001T', ContactId: '003T3' },
+    ]);
+    const payloads = [1, 2, 3].map((n) => ({ AccountId: '001T', ContactId: `003T${n}` }));
+    const input = makeInput([], {
+      node: makeNode('AccountContactRelation', 3),
+      records: payloads,
+      cleanedRecords: payloads.map((cleaned, i) => ({
+        source: { Id: `07kSRC${i + 1}`, ContactId: `003SRC${i + 1}` },
+        cleaned,
+        nullifiedFks: [],
+      })),
+      remapper,
+    });
+
+    const result = await new BatchWriter({
+      insertRecords: vi.fn<InsertImpl>(),
+      queryRecords,
+    }).writeNode(input);
+    store.close();
+
+    expect(result.linkedExistingCount).toBe(3);
+    // The first part's contact and this part's: not the contact the target held.
+    expect(result.withTheirRecord).toEqual(['07kSRC1', '07kSRC2']);
   });
 
   it('makes no insert call when every relation is one the platform made', async () => {

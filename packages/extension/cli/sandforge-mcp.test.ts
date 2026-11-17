@@ -31,6 +31,7 @@ import {
   exitWords,
   planLines,
   planSummaryOf,
+  requiredFieldWords,
   serve,
   toolRunner,
   type CommandRun,
@@ -2662,7 +2663,17 @@ describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
         { kind: 'validation_rule', severity: 'warning', objectApiName: 'Contact', field: 'Email' },
       ],
     };
-    const { run } = scripts(() => ({ stdout: JSON.stringify({ dryRun: true, targetGaps }) }));
+    const writePlan = {
+      objects: [
+        { objectApiName: 'Account', rows: 3, storageBytes: 6144 },
+        { objectApiName: 'Contact', rows: 6, storageBytes: 12288 },
+      ],
+      totalRows: 9,
+      storageBytes: 18432,
+    };
+    const { run } = scripts(() => ({
+      stdout: JSON.stringify({ dryRun: true, targetGaps, writePlan }),
+    }));
     const c = client(run);
     await c.initialized();
 
@@ -2688,6 +2699,47 @@ describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
     );
     // A field a decision answers needs nothing.
     expect(text).not.toContain('Contact.Code__c');
+  });
+
+  it('says nothing of a field only the target requires on an object the clone writes no record of, dry run or run', () => {
+    // Run for real, a clone of three leads ended on the line of a field of
+    // Account, which the graph reached and the clone wrote nothing of, and
+    // sent the person to a terminal for a clone that went through.
+    const targetGaps = {
+      gaps: [
+        {
+          kind: 'required_field_missing',
+          severity: 'blocking',
+          objectApiName: 'Account',
+          field: 'Region__c',
+        },
+      ],
+    };
+    const leads = { ...clone, object: 'Lead', limit: 3, dryRun: true };
+    const dryRun = {
+      dryRun: true,
+      targetGaps,
+      writePlan: {
+        objects: [{ objectApiName: 'Lead', rows: 3, storageBytes: 6144 }],
+        totalRows: 3,
+        storageBytes: 6144,
+      },
+    };
+    const run = {
+      dryRun: false,
+      targetGaps,
+      result: { status: 'success', readByObject: [{ objectApiName: 'Lead', read: 3 }] },
+    };
+
+    expect(requiredFieldWords(leads, dryRun)).toEqual([]);
+    expect(requiredFieldWords({ ...leads, dryRun: false }, run)).toEqual([]);
+    // An account the run read to clone is one it writes: the lines are said.
+    const accounts = { ...run, result: { readByObject: [{ objectApiName: 'Account', read: 3 }] } };
+    expect(requiredFieldWords({ ...leads, object: 'Account', dryRun: false }, accounts)).toEqual([
+      'Account.Region__c is a field SB requires that the clone does not write: a real run sees ' +
+        'every record of Account refused, and no parameter of this tool gives it a value.',
+      expect.stringContaining('--config <file.json>'),
+    ]);
   });
 });
 

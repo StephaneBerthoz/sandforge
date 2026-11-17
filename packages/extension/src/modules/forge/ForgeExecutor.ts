@@ -200,6 +200,7 @@ import {
 } from './stages/BatchWriter.js';
 import {
   ACCOUNT,
+  ACCOUNT_CONTACT_RELATION,
   CONTACT,
   CONTACT_FIELD,
   EMAIL_MESSAGE,
@@ -1007,6 +1008,12 @@ export interface ForgeWriteBoundary {
      * tell them, and said. See {@link ForgeMayBeByThePlatform}.
      */
     mayBeByThePlatform?: ForgeMayBeByThePlatform;
+    /**
+     * Of a clone of the whole org, the lookups of the rows written empty,
+     * the record each names held back or left aside by the run, and their
+     * rows: counted in, the rows being written, and said. Absent when none.
+     */
+    leftEmpty?: readonly ForgeLookupLeftEmpty[];
   }>;
   /**
    * The objects whose rows stop at the cap on each object with more left in
@@ -1279,6 +1286,12 @@ export interface ForgeRowsLeftOut {
   currencyReplaced?: number;
 }
 
+/** A lookup a run writes empty, and the rows it writes so: see `ForgeWriteBoundary` objects' `leftEmpty`. */
+export interface ForgeLookupLeftEmpty {
+  readonly field: string;
+  readonly rows: number;
+}
+
 /** Dependencies for ForgeExecutor, injected at construction time. */
 export interface ForgeExecutorDeps {
   /**
@@ -1440,6 +1453,14 @@ export interface ForgeExecutorDeps {
    * row inserted.
    */
   runningUser?: (orgId: string) => Promise<string | undefined>;
+  /**
+   * The currency of an org of one currency, as the API's `getUserInfo` says
+   * it (`orgDefaultCurrencyIsoCode`, said only where the org does not hold
+   * several); undefined when it holds several or will not say. What a price
+   * of a source with several goes as in it (`pricesKeyOf`). Optional:
+   * without it, the first live price of each product and book is kept.
+   */
+  orgCurrency?: (orgId: string) => Promise<string | undefined>;
   /**
    * Send records of one object to an org as one Bulk API 2.0 job and answer
    * each (`forgeBulkWrite`), through the run's own job limiter
@@ -2138,6 +2159,11 @@ interface PageCarry {
    */
   readonly lookupsOutsideTheRun: Map<string, number>;
   /**
+   * Per lookup, the rows sent without it, the record it names held back or
+   * left aside by the run: see `lookupsHeldBackNote`.
+   */
+  readonly lookupsHeldBack: Map<string, number>;
+  /**
    * The rows sent with the user the run writes as for owner, the target
    * holding the one they named inactive: see `ownersInactiveNote`.
    */
@@ -2188,6 +2214,7 @@ function emptyPageCarry(): PageCarry {
     currencies: new CurrencyReplacementTally(),
     lookupsNotCarried: new Map(),
     lookupsOutsideTheRun: new Map(),
+    lookupsHeldBack: new Map(),
     ownersInactive: 0,
   };
 }
@@ -2466,6 +2493,12 @@ interface ExecutionState {
    */
   readonly lookupsOutsideTheRun: Map<string, Map<string, LookupOutsideTheRun>>;
   /**
+   * Of a clone of the whole org, per object, per lookup, the rows written
+   * without it, the record it names held back or left aside by the run: said
+   * once, at the end. See `lookupsHeldBackReports`.
+   */
+  readonly lookupsHeldBack: Map<string, Map<string, LookupOutsideTheRun>>;
+  /**
    * Objects no node of the graph holds whose records rows read cannot be
    * written without, read by id once every node has been read: the node each
    * is written as, in a turn of its own ahead of the rows that need it. See
@@ -2684,6 +2717,13 @@ interface ExecutionState {
    * than its lines want — as the object's line says it (`pricesSwappedNote`).
    */
   readonly pricesSwappedSaid: PriceCurrencySaid[];
+  /**
+   * Of a target of one currency, the prices kept for each product and book
+   * (`keptPrices`), by id: the currency each was read in, and the target's
+   * when the run could read it. A price read in another goes in at its
+   * amount as read: see `pricesKeptAsReadWords`.
+   */
+  readonly pricesKeptAsRead: Map<string, { from: string; to?: string | undefined }>;
   /**
    * The prices the run settled the currency of (`pricesInTheCurrencyWritten`):
    * a price left out, by its source id, and the one written in its place; a
@@ -3445,14 +3485,6 @@ function samplesOfParentsNotWritten(
  * source's when it reads them first (`pricesReplacedAtTheGate`).
  */
 const CURRENCIES_READ_MOST = 3;
-
-/**
- * The currency of an org of one currency, as its `Organization` holds it: what
- * a price of a source with several goes as in it (`pricesKeyOf`). An org whose
- * answer names none, or that refuses the field, leaves the first live price
- * of each product and book kept.
- */
-export const ONE_CURRENCY_SOQL = 'SELECT DefaultCurrencyIsoCode FROM Organization LIMIT 1';
 
 /**
  * The most rows the gate of a clone of the whole org reads by id to count out
@@ -4399,6 +4431,53 @@ function lookupsOutsideTheRunReports(state: ExecutionState): ExecutionObjectErro
 }
 
 /**
+ * What an object's line says of the rows a clone of the whole org sends
+ * without a lookup at a record it holds back or leaves aside — `, written
+ * without WhatId on 162: the record it names is held back by the run` —, or
+ * nothing when no row went so.
+ */
+function lookupsHeldBackNote(rows: ReadonlyMap<string, number>): string {
+  if (rows.size === 0) return '';
+  const fields = [...rows].map(([field, count]) => `${field} on ${count}`).join(', ');
+  return `, written without ${fields}: the record it names is held back by the run`;
+}
+
+/** Count into `rows`, per lookup, the cleaned rows that go without it: see `lookupsHeldBackNote`. */
+function countLookupsHeldBack(
+  rows: Map<string, number>,
+  cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsHeldBack'>>,
+): Map<string, number> {
+  for (const { lookupsHeldBack = [] } of cleaned) {
+    for (const field of lookupsHeldBack) rows.set(field, (rows.get(field) ?? 0) + 1);
+  }
+  return rows;
+}
+
+/**
+ * The rows a clone of the whole org wrote without a lookup at a record it
+ * held back or left aside, said once per object among the run's reports:
+ * counted neither failed nor attempted, the row being written, and the same
+ * the gate counted (`ForgeWriteBoundary` objects' `leftEmpty`).
+ */
+function lookupsHeldBackReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...state.lookupsHeldBack].map(([objectApiName, lookups]): ExecutionObjectError => ({
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: [...lookups]
+      .sort(([, a], [, b]) => b.rows - a.rows)
+      .map(([field, { parent, rows }]) => ({
+        recordSummary: `${field} → ${parent} (${rows} record${rows === 1 ? '' : 's'})`,
+        messages: [
+          `Written without ${field}: the record it names is one the run holds back or leaves ` +
+            'aside, never written.',
+        ],
+      })),
+  }));
+}
+
+/**
  * The rows of an object written with the user the run writes as for owner,
  * the target holding the owner they named inactive, and those owners as the
  * rows named them: see `inactiveOwnersReports`.
@@ -4786,8 +4865,49 @@ const CONTROL_CHARACTER = /[\u0000-\u001f]/;
  * line, which prints the line an object ends on.
  */
 function pricesSwappedNote(state: ExecutionState, objectApiName: string): string {
-  if (!isPricebookEntry(objectApiName) || state.pricesSwappedSaid.length === 0) return '';
-  return `, ${describePriceCurrencies(state.pricesSwappedSaid).join('; ')}`;
+  if (!isPricebookEntry(objectApiName)) return '';
+  const words = [
+    ...describePriceCurrencies(state.pricesSwappedSaid),
+    ...pricesKeptAsReadWords(state),
+  ];
+  return words.length === 0 ? '' : `, ${words.join('; ')}`;
+}
+
+/**
+ * What the prices' line says of the prices a target of one currency takes at
+ * their amount as read (`pricesKeptAsRead`), those left out for another of
+ * their product and book aside: those read in another currency than the
+ * target's, by currency — or, the target's unread, every currency the prices
+ * written were read in, once they are more than one, one at least being
+ * another. Run for real, a price the source held in EUR alone went in at 35
+ * into an org of USD, and the line named none.
+ */
+function pricesKeptAsReadWords(state: ExecutionState): string[] {
+  const kept = [...state.pricesKeptAsRead]
+    .filter(([id]) => !state.prices.standsFor.has(id))
+    .map(([, read]) => read);
+  if (kept.length === 0) return [];
+  const counted = (pairs: readonly string[]): string => {
+    const counts = new Map<string, number>();
+    for (const pair of pairs) counts.set(pair, (counts.get(pair) ?? 0) + 1);
+    return [...counts].map(([pair, count]) => `${count} ${pair}`).join(', ');
+  };
+  const known = kept.filter(
+    (read): read is { from: string; to: string } => read.to !== undefined && read.from !== read.to,
+  );
+  if (known.length > 0) {
+    return [
+      `${counted(known.map(({ from, to }) => `${from} → ${to}`))}: no price in the currency ` +
+        'written in the source for the same product and price book, written in it at its ' +
+        'amount as read, not converted',
+    ];
+  }
+  const unread = kept.filter((read) => read.to === undefined).map(({ from }) => from);
+  if (new Set(unread).size < 2) return [];
+  return [
+    `prices written in the target's one currency, which it did not say: ${counted(unread)}, at ` +
+      'their amount as read, not converted',
+  ];
 }
 
 /** The master record type's id, 15 or 18 characters: the same in every org, and in no mapping. */
@@ -5652,6 +5772,7 @@ export class ForgeExecutor {
       ),
       ownersInactive: new Map<string, OwnersInactive>(),
       lookupsOutsideTheRun: new Map<string, Map<string, LookupOutsideTheRun>>(),
+      lookupsHeldBack: new Map<string, Map<string, LookupOutsideTheRun>>(),
       parentsOutside: new Map<string, ForgeGraphNode>(),
       readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
       idsRead: store
@@ -5714,6 +5835,7 @@ export class ForgeExecutor {
       recordTypesGiven: new Map<string, RecordTypeTally>(),
       recordTypesUnderTheLease: new Map<string, RecordTypeAvailability[]>(),
       pricesSwappedSaid: [],
+      pricesKeptAsRead: new Map(),
       prices: {
         standsFor: new Map<string, string>(),
         convertedInto: new Map<string, string>(),
@@ -7877,6 +7999,35 @@ export class ForgeExecutor {
   }
 
   /**
+   * Of a sample whose plan draws contacts, the contacts the platform writes
+   * with the person accounts the run writes beyond those of its plan, said
+   * among what it writes with the run's records (`leftOut.byThePlatform`),
+   * counted in no row the run sends: the platform writes one with every
+   * person account, whichever of their contacts the plan drew
+   * (`contactWithItsAccount`). Run for real, a sample copied 70 person
+   * accounts whole and drew 10 of their contacts: its dry run said 10
+   * contacts written by the platform, the target held 70 after its run, and
+   * its verification counted 60 created besides.
+   */
+  private async personContactsBeyondThePlan(
+    state: ExecutionState,
+    objects: ReadonlyArray<{
+      readonly objectApiName: string;
+      readonly counted: ForgeCountedObject;
+      leftOut?: ForgeRowsLeftOut;
+    }>,
+  ): Promise<void> {
+    if (!state.sample?.drawn.has(CONTACT)) return;
+    const contacts = objects.find((o) => o.objectApiName === CONTACT);
+    const persons = objects.find((o) => o.objectApiName === ACCOUNT)?.counted.personAccounts ?? 0;
+    if (!contacts || persons <= 0) return;
+    if ((await this.personAccountsInTarget(state)) !== true) return;
+    const inPlan = contacts.leftOut?.byThePlatform ?? 0;
+    if (persons <= inPlan) return;
+    contacts.leftOut = { ...contacts.leftOut, byThePlatform: persons };
+  }
+
+  /**
    * How the run reads an object of its sample's plan, decided once and kept,
    * the gate pricing what the run then does: by the plan's ids, or by its
    * table's cursor, its rows kept to the plan's, whichever sends fewer
@@ -8124,6 +8275,7 @@ export class ForgeExecutor {
       counted: ForgeCountedObject;
       leftOut?: ForgeRowsLeftOut;
       mayBeByThePlatform?: ForgeMayBeByThePlatform;
+      leftEmpty?: ForgeLookupLeftEmpty[];
     }> = [];
     /** The objects whose count is past the cap on each object: the gate says so. */
     const pastTheCap: string[] = [];
@@ -8195,6 +8347,7 @@ export class ForgeExecutor {
       roles.mayBeByThePlatform =
         told !== undefined ? { rows: mayBe, before: true } : { rows: mayBe };
     }
+    await this.personContactsBeyondThePlan(state, objects);
     if (this.isAborted) {
       throw new ForgeAbortedError(
         'Forge execution was aborted by user request. Remaining objects were not processed.',
@@ -8202,6 +8355,7 @@ export class ForgeExecutor {
     }
     const held = everything ? await this.heldAtTheGate(state, runOrder, objects) : undefined;
     if (held) held.requests += await this.pricesReplacedAtTheGate(state, objects);
+    if (held) held.requests += await this.directRelationsAtTheGate(state, objects, readInPart);
     const measured = everything
       ? await this.measureTheWholeOrg(state, objects, readWhole, written, held)
       : undefined;
@@ -8276,6 +8430,7 @@ export class ForgeExecutor {
       objectApiName: string;
       counted: ForgeCountedObject;
       leftOut?: ForgeRowsLeftOut;
+      leftEmpty?: ForgeLookupLeftEmpty[];
     }>,
   ): Promise<HeldAtTheGateReads> {
     const { config } = state;
@@ -8293,6 +8448,8 @@ export class ForgeExecutor {
     /** Per object, how many of them are of a record type the target has none of. */
     const ofLacking = new Map<string, number>();
     let left = HELD_AT_THE_GATE_MOST;
+    /** Per object, the lookups written empty for a record told, and their rows. */
+    const leftEmpty = new Map<string, ForgeLookupLeftEmpty[]>();
     const tell = (object: string, id: string, why: 'held' | ParentNotWritten): void => {
       const ids = told.get(object) ?? new Map<string, 'held' | ParentNotWritten>();
       if (ids.has(id) || left <= 0) return;
@@ -8384,6 +8541,41 @@ export class ForgeExecutor {
           }
         }
       }
+      // The lookups its rows may leave empty that name a record told held
+      // back or left aside: written empty (`heldByTheRun`), the rows written
+      // all the same. Counted, its dry run says what its run does: run for
+      // real, 162 tasks naming an opportunity of a closed record type were
+      // counted written, and went with the source's id.
+      for (const f of fields) {
+        if (
+          !f.isReference ||
+          f.name === 'RecordTypeId' ||
+          !f.createable ||
+          (config.fieldExclusions[object] ?? []).includes(f.name) ||
+          ((f.referenceTo ?? []).length === 1 && isRequiredLookup(object, f.name, f.nillable))
+        ) {
+          continue;
+        }
+        const named = new Set<string>();
+        for (const parent of f.referenceTo ?? []) {
+          const above = parent === object ? undefined : told.get(parent);
+          if (!above || above.size === 0) continue;
+          for (const list of idLists([...above.keys()])) {
+            const ids = await idsUnder(object, `${assertSoqlIdentifier(f.name)} IN (${list})`);
+            for (const id of ids ?? []) named.add(id);
+          }
+        }
+        // A row held back or left aside itself is not written at all.
+        for (const id of told.get(object)?.keys() ?? []) named.delete(id);
+        if (named.size === 0) continue;
+        const empty = leftEmpty.get(object) ?? [];
+        empty.push({ field: f.name, rows: named.size });
+        leftEmpty.set(object, empty);
+      }
+    }
+    for (const entry of objects) {
+      const empty = leftEmpty.get(entry.objectApiName);
+      if (empty) entry.leftEmpty = empty;
     }
     for (const entry of objects) {
       const ids = told.get(entry.objectApiName);
@@ -8497,13 +8689,79 @@ export class ForgeExecutor {
         entry.counted = { ...entry.counted, rows: entry.counted.rows - left };
         entry.leftOut = { ...entry.leftOut, currencyReplaced: left };
       }
-      return sent + (unread ? 1 : 0);
+      return sent + (unread && this.deps.orgCurrency ? 1 : 0);
     }
     const replaced = Math.min(entry.counted.rows, settlePriceCurrencies(input, []).standsFor.size);
     if (replaced === 0) return sent;
     entry.counted = { ...entry.counted, rows: entry.counted.rows - replaced };
     entry.leftOut = { ...entry.leftOut, currencyReplaced: replaced };
     return sent;
+  }
+
+  /**
+   * Of a clone of the whole org that writes the contacts, the relations
+   * between a contact and its account the platform writes with each contact
+   * the run creates with an account (`IsDirect`), counted out of what its gate
+   * is shown and said apart (`leftOut.byThePlatform`): the write finds each
+   * and links to it, and sends none (`directAccountContactRelations`). The
+   * rows the gate held back or left aside already, which may be such
+   * relations, are taken off them, said too few rather than too many. A count
+   * the source refuses counts nothing out, as before.
+   *
+   * Run for real on a whole org, its dry run counted 3473 relations to write
+   * and a Bulk API job for them; the run linked 3472 and wrote one, by REST.
+   * A sample's plan counts them already (`countToWriteOfThePlan`).
+   *
+   * @returns The requests it sent: one count, or none.
+   */
+  private async directRelationsAtTheGate(
+    state: ExecutionState,
+    objects: Array<{
+      objectApiName: string;
+      counted: ForgeCountedObject;
+      leftOut?: ForgeRowsLeftOut;
+    }>,
+    readInPart: ReadonlySet<string>,
+  ): Promise<number> {
+    if (state.sample?.drawn.has(ACCOUNT_CONTACT_RELATION)) return 0;
+    const relations = objects.find((o) => o.objectApiName === ACCOUNT_CONTACT_RELATION);
+    if (!relations || relations.counted.rows <= 0) return 0;
+    if (!objects.some((o) => o.objectApiName === CONTACT)) return 0;
+    if (readInPart.has(CONTACT) || readInPart.has(ACCOUNT_CONTACT_RELATION)) return 0;
+    const countRecords = this.deps.countRecords;
+    if (!countRecords) return 0;
+    const resumed = state.config.stream?.resumeAfter.get(ACCOUNT_CONTACT_RELATION);
+    const filter = this.filterOf(state, ACCOUNT_CONTACT_RELATION);
+    const terms = [
+      ...(filter ? [`(${filter})`] : []),
+      ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
+      'IsDirect = true',
+    ];
+    let direct: number;
+    try {
+      direct = await countRecords(
+        state.sourceOrgId,
+        `SELECT COUNT() FROM ${ACCOUNT_CONTACT_RELATION} WHERE ${terms.join(' AND ')}`,
+      );
+    } catch (err) {
+      logger.warn(
+        `[forge] the relations the platform writes with the contacts could not be counted at the gate: ${extractErrorMessage(err)}`,
+      );
+      return 1;
+    }
+    const leftOut = relations.leftOut;
+    const heldAlready =
+      (leftOut?.writtenBefore ?? 0) +
+      (leftOut?.withoutParent ?? 0) +
+      (leftOut?.noParentInSource ?? 0);
+    const taken = Math.max(0, Math.min(direct - heldAlready, relations.counted.rows));
+    if (taken === 0) return 1;
+    relations.counted = { ...relations.counted, rows: relations.counted.rows - taken };
+    relations.leftOut = {
+      ...leftOut,
+      byThePlatform: (leftOut?.byThePlatform ?? 0) + taken,
+    };
+    return 1;
   }
 
   /**
@@ -9225,6 +9483,53 @@ export class ForgeExecutor {
       lookups.set(field, entry);
     }
     state.lookupsOutsideTheRun.set(objectApiName, lookups);
+  }
+
+  /**
+   * Count, for the run's reports, the cleaned rows of `objectApiName` written
+   * without a lookup at a record the run holds back or leaves aside, per
+   * lookup with the object it names: the one it can name, or, of one that
+   * can name several, the one the key prefix of the first id it named is of.
+   * See `lookupsHeldBackReports`.
+   */
+  private async noteLookupsHeldBack(
+    state: ExecutionState,
+    objectApiName: string,
+    fieldInfos: readonly FieldInfo[],
+    cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsHeldBack' | 'source'>>,
+  ): Promise<void> {
+    const rows = countLookupsHeldBack(new Map(), cleaned);
+    if (rows.size === 0) return;
+    const lookups =
+      state.lookupsHeldBack.get(objectApiName) ?? new Map<string, LookupOutsideTheRun>();
+    for (const [field, count] of rows) {
+      const entry = lookups.get(field) ?? {
+        parent: await this.parentNamed(state, fieldInfos, field, cleaned),
+        rows: 0,
+      };
+      entry.rows += count;
+      lookups.set(field, entry);
+    }
+    state.lookupsHeldBack.set(objectApiName, lookups);
+  }
+
+  /** The object a lookup of `cleaned` held back names: see `noteLookupsHeldBack`. */
+  private async parentNamed(
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+    field: string,
+    cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsHeldBack' | 'source'>>,
+  ): Promise<string> {
+    const targets = fieldInfos.find((info) => info.name === field)?.referenceTo ?? [];
+    if (targets.length === 1) return targets[0];
+    const named = cleaned.find((row) => row.lookupsHeldBack?.includes(field))?.source[field];
+    const written = targets.filter((target) => state.writtenObjects.has(target));
+    if (typeof named === 'string' && written.length > 0) {
+      const objectOf = await this.sourceKeyPrefixes(state, new Set(written));
+      const object = objectOf.get(named.slice(0, 3));
+      if (object) return object;
+    }
+    return targets[0] ?? field;
   }
 
   /**
@@ -10220,6 +10525,7 @@ export class ForgeExecutor {
       lookupsNotCarriedNote(carry.lookupsNotCarried) +
       ownersInactiveNote(carry.ownersInactive) +
       lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun) +
+      lookupsHeldBackNote(carry.lookupsHeldBack) +
       pricesSwappedNote(state, object);
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
     // Its rows sent in smaller calls after a limit of the target's automation.
@@ -10291,7 +10597,8 @@ export class ForgeExecutor {
         `${currencyReplacementsNote(carry.currencies.list())}` +
         `${lookupsNotCarriedNote(carry.lookupsNotCarried)}` +
         `${ownersInactiveNote(carry.ownersInactive)}` +
-        `${lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun)}${pricesSwappedNote(state, object)}` +
+        `${lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun)}` +
+        `${lookupsHeldBackNote(carry.lookupsHeldBack)}${pricesSwappedNote(state, object)}` +
         `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
     });
   }
@@ -11536,6 +11843,7 @@ export class ForgeExecutor {
         ...heldForExclusionsReports(state),
         ...leftToThePlatformReports(state),
         ...lookupsOutsideTheRunReports(state),
+        ...lookupsHeldBackReports(state),
         ...inactiveOwnersReports(state),
         ...smallerCallsReports(state),
       ],
@@ -15072,8 +15380,8 @@ export class ForgeExecutor {
       // one, which goes on its own (`noteContactsOfBusinessAccounts`).
       for (const [, { contact, account }] of contactOf) {
         if (state.contactsOnTheirOwn.has(contact)) continue;
-        state.remapper.addExisting(contact, simulated.idFor(null));
-        if (state.remapper.isCreated(account)) keepWithTheirRecord(state, contact);
+        state.remapper.addExisting(contact, simulated.idFor(null), CONTACT);
+        if (state.remapper.isCreated(account)) this.contactWithItsAccount(state, contact);
       }
       return;
     }
@@ -15106,11 +15414,36 @@ export class ForgeExecutor {
         state.contactsOnTheirOwn.add(contact);
         continue;
       }
-      state.remapper.addExisting(contact, target);
+      // Mapped under its object: a journal reads back no mapping without one.
+      // Run for real, the contacts of 60 person accounts a sample copied
+      // whole and did not draw were mapped so, and its verification counted
+      // them as 60 created besides the run's.
+      state.remapper.addExisting(contact, target, CONTACT);
       // Written by the platform with an account this run created, it goes
       // when that account goes: no removal keeps it, or deletes it on its own.
-      if (state.remapper.isCreated(account)) keepWithTheirRecord(state, contact);
+      if (state.remapper.isCreated(account)) this.contactWithItsAccount(state, contact);
     }
+  }
+
+  /**
+   * Mark the contact `contact` the platform wrote with a person account the
+   * run created as written with its record, and count it among what the
+   * platform wrote with the run's records, linked, where no turn of Contact
+   * will (`linkPersonContacts`): its object outside the run, or, of a sample
+   * whose plan draws contacts, one outside the plan. Run for real, a sample
+   * copied 70 person accounts whole and drew 10 of their contacts: its run
+   * and its dry run said 10 contacts written by the platform, the target
+   * held 70.
+   */
+  private contactWithItsAccount(state: ExecutionState, contact: string): void {
+    keepWithTheirRecord(state, contact);
+    const sample = state.sample;
+    const linkedByItsTurn = sample?.drawn.has(CONTACT)
+      ? this.inThePlan(sample, CONTACT, contact)
+      : state.writtenObjects.has(CONTACT);
+    if (linkedByItsTurn) return;
+    state.linkedCount++;
+    countWrittenByThePlatform(state, CONTACT, 1);
   }
 
   /**
@@ -16031,8 +16364,20 @@ export class ForgeExecutor {
     state: ExecutionState,
     rows: readonly Record<string, unknown>[],
   ): Promise<Record<string, unknown>[]> {
-    const { kept, standsFor } = keptPricebookEntries(rows, await this.pricesKeyOf(state));
+    const key = await this.pricesKeyOf(state);
+    const { kept, standsFor } = keptPricebookEntries(rows, key);
     this.pricesStandFor(state, standsFor);
+    if (key.oneCurrency) {
+      // Of a target of one currency, the currency each price kept was read
+      // in: one read in another than the target's goes in at its amount.
+      for (const row of kept) {
+        const id = row['Id'];
+        const from = row[PRICEBOOK_ENTRY_CURRENCY_FIELD];
+        if (typeof id === 'string' && typeof from === 'string' && from !== '') {
+          state.pricesKeptAsRead.set(id, { from, to: key.oneCurrency.code });
+        }
+      }
+    }
     return kept;
   }
 
@@ -16041,13 +16386,18 @@ export class ForgeExecutor {
    * (`PricebookEntryKey`): by their selling model when the run keeps them,
    * and by their currency unless the target holds one, which its describe
    * of a price says by having no `CurrencyIsoCode` where the source's has
-   * one. Its currency is then read once (`ONE_CURRENCY_SOQL`); a describe
-   * that fails keeps the key as it was.
+   * one. Its currency is then asked once, of the API (`orgCurrency`); a
+   * describe that fails keeps the key as it was.
    *
    * Run from a source of USD, EUR and GBP into an org of one, the clone sent
    * 13 prices; the target took one per product of each book, refused the 7
    * others as `DUPLICATE_VALUE`, and held back the 2 opportunity lines that
    * named one of those, all of which its dry run had counted written.
+   *
+   * Asked of its `Organization` (`DefaultCurrencyIsoCode`), an org of one
+   * currency answered live that it had no such column: the price kept was
+   * then always the first live one, and a price the source held in EUR alone
+   * went into an org of USD at its amount, unsaid.
    */
   private async pricesKeyOf(state: ExecutionState): Promise<PricebookEntryKey> {
     state.oneCurrency ??= (async () => {
@@ -16061,10 +16411,12 @@ export class ForgeExecutor {
         fields.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD);
       if (inTarget.length === 0 || !priced(inSource) || priced(inTarget)) return undefined;
       try {
-        const [row] = await this.deps.queryRecords(state.targetOrgId, ONE_CURRENCY_SOQL);
-        const code = row?.['DefaultCurrencyIsoCode'];
+        const code = await this.deps.orgCurrency?.(state.targetOrgId);
         return typeof code === 'string' && /^[A-Z]{3}$/.test(code) ? { code } : {};
-      } catch {
+      } catch (err) {
+        logger.warn(
+          `[forge] the target's one currency could not be read: ${extractErrorMessage(err)}`,
+        );
         return {};
       }
     })();
@@ -18844,12 +19196,18 @@ export class ForgeExecutor {
         ...(team.lookups.size > 0 ? { resolvedLookups: team.lookups } : {}),
         ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),
         ...(inactiveOwners ? { inactiveOwners } : {}),
+        // Of a clone of the whole org, a record the run holds back or leaves
+        // aside is never written: a lookup at it goes empty. Of a sample, it
+        // is outside the sample, as its plan says (`leftEmpty`).
         ...(state.sample
           ? {
               outsideTheSample: (field: FieldInfo, value: string) =>
-                this.outsideTheSample(state, field.referenceTo ?? [], value),
+                this.outsideTheSample(state, field.referenceTo ?? [], value) ||
+                state.heldInTheOrg.has(value),
             }
-          : {}),
+          : config.stream?.everything === true
+            ? { heldByTheRun: (value: string) => state.heldInTheOrg.has(value) }
+            : {}),
         excludedFields,
         fieldRename,
         creatableFields: effectiveCreatableSet,
@@ -18900,15 +19258,18 @@ export class ForgeExecutor {
         lookupsNotCarriedNote(countLookupsNotCarried(new Map(), cleanedRecords)) +
         ownersInactiveNote(countOwnersInactive(cleanedRecords)) +
         lookupsOutsideTheRunNote(countLookupsOutsideTheRun(new Map(), cleanedRecords)) +
+        lookupsHeldBackNote(countLookupsHeldBack(new Map(), cleanedRecords)) +
         (page ? '' : pricesSwappedNote(state, node.objectApiName));
       // Said on the line that ends an object read page by page, for all its pages.
       if (page) {
         countLookupsNotCarried(page.lookupsNotCarried, cleanedRecords);
         countLookupsOutsideTheRun(page.lookupsOutsideTheRun, cleanedRecords);
+        countLookupsHeldBack(page.lookupsHeldBack, cleanedRecords);
         page.ownersInactive += countOwnersInactive(cleanedRecords);
       }
       // And among the run's reports, once per object.
       this.noteLookupsOutsideTheRun(state, node.objectApiName, fieldInfos, cleanedRecords);
+      await this.noteLookupsHeldBack(state, node.objectApiName, fieldInfos, cleanedRecords);
       for (const cleaned of cleanedRecords) {
         for (const field of cleaned.lookupsOutsideTheSample ?? []) {
           this.noteLeftOutsideTheSample(state, node.objectApiName, field);
