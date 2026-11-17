@@ -489,7 +489,7 @@ test.describe('Checkpoint’s Records at most', () => {
     const leftOut = page.getByTestId('checkpoint-left-out');
     await leftOut.locator('summary').click();
     await expect(leftOut.getByRole('listitem')).toHaveText([
-      "Task — Task has 750,000 records, past the checkpoint's limit of 500,000 for one object: left out of the checkpoint, as part of it would be taken for all of it. Records at most set to 750,000 or more holds it.",
+      "Task — Task has 750,000 records, past the checkpoint's limit of 500,000 for one object: left out of the checkpoint, as part of it would be taken for all of it. Records at most set to 752,424 or more holds it.",
       'EventLog__c — EventLog__c has 3,200,000 records, more than any checkpoint holds of one object (1,000,000): left out of the checkpoint, and a rewind to it does not touch EventLog__c. Data Export, in Setup, or a Bulk API query keeps a copy of it.',
     ]);
   });
