@@ -23,8 +23,11 @@ vi.mock('./pages/DataOps/DataOpsPage', () => ({
 vi.mock('./pages/Automation/AutomationPage', () => ({
   AutomationPage: () => <div data-testid="page-automation">Automation</div>,
 }));
-vi.mock('./pages/Reports/ReportsPage', () => ({
-  ReportsPage: () => <div data-testid="page-reports">Reports</div>,
+// The router loads the reports route through ReportsContainer: mocking the
+// page alone left the container and its dependencies to load for real, past a
+// CI runner's wait.
+vi.mock('./pages/Reports/ReportsContainer', () => ({
+  ReportsContainer: () => <div data-testid="page-reports">Reports</div>,
 }));
 vi.mock('./pages/Settings/SettingsPage', () => ({
   SettingsPage: () => <div data-testid="page-settings">Settings</div>,
