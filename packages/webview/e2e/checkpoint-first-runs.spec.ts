@@ -496,7 +496,7 @@ test('Quick Sync offers it beside Go and sends it with the run', async ({ page }
   expect((run.payload as { checkpointFirst?: unknown }).checkpointFirst).toEqual({});
 });
 
-test('the wizard says what Confirm does on its last step, and nothing beside a refusal', async ({
+test('the wizard says what Start seeding does on its last step, and nothing beside a refusal', async ({
   page,
 }) => {
   const bridge = new MockBridge();
@@ -521,7 +521,7 @@ test('the wizard says what Confirm does on its last step, and nothing beside a r
   await bridge.seedOrgs(MOCK_ORGS);
   await page.getByTestId('mode-card-generate').click();
   await expect(page.getByTestId('seed-results-waiting')).toHaveText(
-    'Nothing has been written yet: Confirm starts the seed.',
+    'Nothing has been written yet: Start seeding starts the seed.',
   );
   await expect(page.getByText('No data available')).toHaveCount(0);
 });
