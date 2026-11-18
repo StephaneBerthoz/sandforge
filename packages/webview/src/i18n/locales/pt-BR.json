@@ -3229,7 +3229,8 @@
       "checkpoint_export": "Exportação de um ponto de verificação",
       "checkpoint_import": "Importação de um ponto de verificação",
       "checkpoint_take": "Criação de um ponto de verificação",
-      "checkpoint_replay": "Reprodução de um ponto de verificação"
+      "checkpoint_replay": "Reprodução de um ponto de verificação",
+      "users_apply": "Configuração de usuários"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",

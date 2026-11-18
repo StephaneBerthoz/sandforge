@@ -208,6 +208,8 @@
   "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.": "SandForge escribe y lee un archivo de punto de control en el disco de la máquina donde se ejecuta: elija una carpeta de ese disco.",
   "SandForge checkpoint": "Punto de control de SandForge",
   "Export the checkpoint, encrypted": "Exportar el punto de control, cifrado",
+  "Export the testers list as users.json": "Exportar la lista de probadores como users.json",
+  "Import the testers list from a users.json": "Importar la lista de probadores desde un users.json",
   "Export": "Exportar",
   "Import a checkpoint file": "Importar un archivo de punto de control",
   "Import": "Importar",

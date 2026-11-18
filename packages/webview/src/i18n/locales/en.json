@@ -3229,7 +3229,8 @@
       "checkpoint_export": "Checkpoint export",
       "checkpoint_import": "Checkpoint import",
       "checkpoint_take": "Checkpoint take",
-      "checkpoint_replay": "Checkpoint replay"
+      "checkpoint_replay": "Checkpoint replay",
+      "users_apply": "Users setup"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",

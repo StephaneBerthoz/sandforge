@@ -3229,7 +3229,8 @@
       "checkpoint_export": "Export eines Prüfpunkts",
       "checkpoint_import": "Import eines Prüfpunkts",
       "checkpoint_take": "Erstellung eines Prüfpunkts",
-      "checkpoint_replay": "Wiedergabe eines Prüfpunkts"
+      "checkpoint_replay": "Wiedergabe eines Prüfpunkts",
+      "users_apply": "Benutzereinrichtung"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",

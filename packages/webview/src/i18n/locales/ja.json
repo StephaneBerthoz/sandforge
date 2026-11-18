@@ -3043,7 +3043,8 @@
       "checkpoint_export": "チェックポイントのエクスポート",
       "checkpoint_import": "チェックポイントのインポート",
       "checkpoint_take": "チェックポイントの取得",
-      "checkpoint_replay": "チェックポイントの再生"
+      "checkpoint_replay": "チェックポイントの再生",
+      "users_apply": "ユーザーの設定"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",

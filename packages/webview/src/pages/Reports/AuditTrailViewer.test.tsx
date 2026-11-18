@@ -712,6 +712,7 @@ const EVERY_ACTION: Readonly<Record<AuditAction, true>> = {
   checkpoint_export: true,
   checkpoint_import: true,
   checkpoint_replay: true,
+  users_apply: true,
 };
 
 describe('audit action labels', () => {

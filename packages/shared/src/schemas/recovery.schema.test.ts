@@ -291,6 +291,24 @@ describe('what the page asks of the users', () => {
       }),
     ).toEqual([]);
   });
+
+  it('lists a user by its username alone, the person not named, and says how many there are in all', () => {
+    expect(
+      refusalsOf(recoveryUsersListSchema, {
+        orgId: 'entry-uat',
+        users: [
+          {
+            username: 'jane.qa@acme.example.uat',
+            userId: '005xx0000012AbC',
+            address: 'restored',
+            active: true,
+            frozen: false,
+          },
+        ],
+        total: 240,
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe('what the page asks of the audits', () => {

@@ -208,6 +208,8 @@
   "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.": "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.",
   "SandForge checkpoint": "SandForge checkpoint",
   "Export the checkpoint, encrypted": "Export the checkpoint, encrypted",
+  "Export the testers list as users.json": "Export the testers list as users.json",
+  "Import the testers list from a users.json": "Import the testers list from a users.json",
   "Export": "Export",
   "Import a checkpoint file": "Import a checkpoint file",
   "Import": "Import",

@@ -3229,7 +3229,8 @@
       "checkpoint_export": "Export d'un point de contrôle",
       "checkpoint_import": "Import d'un point de contrôle",
       "checkpoint_take": "Prise d'un point de contrôle",
-      "checkpoint_replay": "Rejeu d'un point de contrôle"
+      "checkpoint_replay": "Rejeu d'un point de contrôle",
+      "users_apply": "Configuration des utilisateurs"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",

@@ -469,12 +469,14 @@ export const RECOVERY_USERS_LISTED_MAX = 5_000;
 /**
  * A user read in the sandbox: its address as read — under the copy's
  * `.invalid`, its change awaiting its owner's click, or without `.invalid` —,
- * and whether it is active and frozen. Never its address itself.
+ * and whether it is active and frozen. Never its address itself, nor the
+ * person's name, which the extension does not read: a user is named by its
+ * username, as a run file names it.
  */
 export const recoveryUserSchema = z.strictObject({
   username: usersUsernameSchema,
   userId: userIdSchema.optional(),
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(255).optional(),
   address: usersAddressSchema.exclude(['kept']),
   active: z.boolean(),
   frozen: z.boolean(),
@@ -486,6 +488,11 @@ export const recoveryUserSchema = z.strictObject({
 export const recoveryUsersListSchema = z.strictObject({
   orgId: entryIdSchema,
   users: z.array(recoveryUserSchema).max(RECOVERY_USERS_LISTED_MAX),
+  /**
+   * Every user to bring back, those past the most the list holds included:
+   * more than `users` holds when the sandbox has more than a run can take.
+   */
+  total: countSchema.optional(),
   /** The list kept for the sandbox, which a run starts from: `USERS_MAX` users at most. */
   saved: z.strictObject({ config: usersConfigSchema, savedAt: instantSchema }).optional(),
 });

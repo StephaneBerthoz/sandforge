@@ -60,7 +60,9 @@ export type AuditAction =
   | 'checkpoint_undo'
   | 'checkpoint_export'
   | 'checkpoint_import'
-  | 'checkpoint_replay';
+  | 'checkpoint_replay'
+  /** The users of a sandbox set up from the Back into service page, as `sandforge users apply` does. */
+  | 'users_apply';
 
 /**
  * How a recorded run ended. `stopped` is a run stopped before it wrote

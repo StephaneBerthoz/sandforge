@@ -38,8 +38,12 @@ import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
 import { SandboxRefreshDetector } from '../modules/monitor/SandboxRefreshDetector.js';
-import { detectorProgressSource } from '../modules/recovery/recoveryProgress.js';
-import type { RecoveryProgressSource } from '../modules/recovery/recoveryProgress.js';
+import { deducedProgressSource } from '../modules/recovery/recoveryProgress.js';
+import type {
+  DeducedProgressSource,
+  RecoveryProgressSource,
+} from '../modules/recovery/recoveryProgress.js';
+import { RecoveryHandler } from './handlers/RecoveryHandler.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
@@ -216,8 +220,10 @@ export class ExtensionHandlers {
   /** Where background runs register; a pipeline's Sync step cancels its run through it. */
   private backgroundRegistry?: BackgroundOperationRegistry;
   private readonly refreshDetector: SandboxRefreshDetector;
-  /** How far each refreshed sandbox is back into service, read from the detector. */
-  private readonly recoveryProgressSource: RecoveryProgressSource;
+  /** How far each refreshed sandbox is back into service, its steps deduced from what SandForge keeps. */
+  private readonly recoveryProgressSource: DeducedProgressSource;
+  /** The Back into service page: its steps, its users, its audits and its note. */
+  private readonly recoveryHandler: RecoveryHandler;
   /** The store a command line told the checkpoints to be kept in; the default one otherwise. */
   private checkpointStore?: OrgCheckpointStore;
   /**
@@ -237,10 +243,13 @@ export class ExtensionHandlers {
       orgManager: deps.orgManager,
       log: deps.log,
     });
-    this.recoveryProgressSource = detectorProgressSource({
+    this.recoveryProgressSource = deducedProgressSource({
       refreshesOf: (entryId) => this.refreshDetector.refreshesOf(entryId),
+      organizationIdOf: (entryId) => this.refreshDetector.organizationIdOf(entryId),
       orgOf: (entryId) => deps.orgManager.getOrg(entryId),
       configStore: deps.configStore,
+      statusOf: (entryId) => this.recoveryHandler.progressCountOf(entryId),
+      log: deps.log,
     });
     // Shared mutable deps object — infraServices is set later via setInfraServices
     this.handlerDeps = {
@@ -265,6 +274,7 @@ export class ExtensionHandlers {
     };
 
     this.orgHandler = new OrgHandler(this.handlerDeps);
+    this.recoveryHandler = new RecoveryHandler(this.handlerDeps);
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
@@ -463,6 +473,13 @@ export class ExtensionHandlers {
     this.checkpointHandler.onCheckpointsChanged(() => {
       void this.automationHandler.revokeVoidGrants();
     });
+    // How far a sandbox is back into service is deduced again, and the
+    // launcher told, when the page changes a step, a refresh is noticed, or
+    // a checkpoint is taken or deleted; else within its short cache.
+    this.recoveryHandler.onStatusChanged((entryId) =>
+      this.recoveryProgressSource.invalidate(entryId),
+    );
+    this.checkpointHandler.onCheckpointsChanged(() => this.recoveryProgressSource.invalidate());
     this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
     // After the org is forgotten, so a pipeline a refresh starts reaches the
     // new org; and outside the identity check that noticed the refresh. The
@@ -478,6 +495,9 @@ export class ExtensionHandlers {
         this.automationHandler.noticeSandboxRefresh({ orgId: refresh.orgId, key }),
       );
     });
+    this.refreshDetector.onRefreshDetected((refresh) =>
+      this.recoveryProgressSource.invalidate(refresh.orgId),
+    );
   }
 
   /**
@@ -653,6 +673,7 @@ export class ExtensionHandlers {
   setCheckpointStore(store: OrgCheckpointStore): void {
     this.checkpointStore = store;
     this.checkpointHandler.setStore(store);
+    this.recoveryHandler.setCheckpointStore(store);
   }
 
   /**
@@ -1362,6 +1383,24 @@ export class ExtensionHandlers {
         'checkpoint:import',
       ],
       this.checkpointHandler,
+    );
+
+    // Back into service
+    route(
+      [
+        'recovery:status',
+        'recovery:users:list',
+        'recovery:users:plan',
+        'recovery:users:apply',
+        'recovery:users:cancel',
+        'recovery:users:config:save',
+        'recovery:users:config:export',
+        'recovery:users:config:import',
+        'recovery:audit',
+        'recovery:handoff',
+        'recovery:ack',
+      ],
+      this.recoveryHandler,
     );
 
     // Migration
