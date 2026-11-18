@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { SIDEPANEL_LOCALE_NAMESPACES } from '@sandforge/shared';
@@ -28,6 +28,9 @@ const ENTRY = join(SRC, 'main.sidepanel.tsx');
 const SIDEPANEL_CSS = join(SRC, 'sidepanel.css');
 const SIDEPANEL_TAILWIND = join(SRC, '..', 'tailwind.sidepanel.config.ts');
 const VITE_CONFIG = join(SRC, '..', 'vite.config.ts');
+
+/** A file under src/ as `a/b.tsx` on every OS: Windows paths would read `a\b.tsx`. */
+const fromSrc = (file: string): string => relative(SRC, file).split(sep).join('/');
 
 /** The file a relative specifier names, or undefined for a non-source import (CSS). */
 function resolveLocal(spec: string, from: string): string | undefined {
@@ -81,7 +84,7 @@ function sidebarGraph(): { files: Set<string>; packages: Map<string, string> } {
         const next = resolveLocal(spec, file);
         if (next !== undefined) queue.push(next);
       } else if (!packages.has(spec)) {
-        packages.set(spec, relative(SRC, file));
+        packages.set(spec, fromSrc(file));
       }
     }
   }
@@ -124,7 +127,7 @@ function inEnglishCatalogue(key: string): boolean {
 describe('sidebar entry', () => {
   it('reaches the sidebar through its entry, and nothing of the panel pages', () => {
     const { files } = sidebarGraph();
-    const reached = [...files].map((file) => relative(SRC, file));
+    const reached = [...files].map((file) => fromSrc(file));
     expect(reached).toContain('SidePanel.tsx');
     expect(reached.filter((file) => file.startsWith('pages/'))).toEqual([]);
   });
@@ -136,8 +139,8 @@ describe('sidebar entry', () => {
     const { default: config } = (await import(pathToFileURL(SIDEPANEL_TAILWIND).href)) as {
       default: { content: string[] };
     };
-    const content = config.content.map((file) => relative(SRC, file));
-    const reached = [...sidebarGraph().files].map((file) => relative(SRC, file));
+    const content = config.content.map((file) => fromSrc(file));
+    const reached = [...sidebarGraph().files].map((file) => fromSrc(file));
     expect(reached.filter((file) => !content.includes(file))).toEqual([]);
     expect(content.filter((file) => file.startsWith('pages/'))).toEqual([]);
   });
@@ -173,7 +176,7 @@ describe('sidebar entry', () => {
     const used = new Map<string, string>();
     for (const file of sidebarGraph().files) {
       for (const key of keyShapedStrings(file)) {
-        if (inEnglishCatalogue(key)) used.set(key, relative(SRC, file));
+        if (inEnglishCatalogue(key)) used.set(key, fromSrc(file));
       }
     }
     // Positive control: the walk reads the keys the sidebar is known to render.
