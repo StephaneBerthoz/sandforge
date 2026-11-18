@@ -349,6 +349,64 @@ describe('a plan behind its gates', () => {
     expect(accepted.automationRefusal).toBeUndefined();
   });
 
+  it('names what fires, and what could not be read, for a page to word it in its own language', () => {
+    const fired = usersAutomationRefusal(
+      {
+        kind: 'read',
+        automation: {
+          objectsRead: ['User', 'UserLogin'],
+          objects: [
+            {
+              objectApiName: 'User',
+              flows: [
+                {
+                  label: 'Welcome a user',
+                  apiName: 'Welcome_User',
+                  timing: 'afterSave',
+                  startsOn: 'createAndUpdate',
+                  condition: 'read',
+                  permissions: [],
+                },
+              ],
+              triggers: [{ name: 'UserTrigger', events: ['beforeUpdate', 'afterUpdate'] }],
+            },
+          ],
+          unread: [
+            { part: 'workflowRules', reason: 'INSUFFICIENT_ACCESS' },
+            // A start condition left unread hides nothing of what fires.
+            { part: 'conditions', reason: 'too many' },
+          ],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 3,
+        },
+      } as never,
+      'uat',
+      'users are written',
+      false,
+      'page',
+    );
+    expect(fired?.automation).toEqual({
+      fired: [
+        { kind: 'trigger', name: 'UserTrigger', objectApiName: 'User', when: 'beforeAndAfter' },
+        { kind: 'flow', name: 'Welcome a user', objectApiName: 'User', when: 'after' },
+      ],
+      unread: ['workflowRules'],
+    });
+    // Its words stay, for the log and the command line.
+    expect(fired?.message).toContain('User: Apex trigger UserTrigger (before and after save)');
+
+    const unknown = usersAutomationRefusal(
+      { kind: 'unread', reason: 'INVALID_SESSION_ID' },
+      'uat',
+      'users are written',
+      false,
+      'page',
+    );
+    expect(unknown?.automation).toEqual({ fired: [], notDeduced: true });
+    expect(JSON.stringify(unknown?.automation)).not.toContain('INVALID_SESSION_ID');
+  });
+
   it('says on the page what lifts the automation’s refusal, never a flag', () => {
     const refusal = usersAutomationRefusal(
       { kind: 'unread', reason: 'INSUFFICIENT_ACCESS' },

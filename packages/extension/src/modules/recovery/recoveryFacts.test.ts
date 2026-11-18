@@ -368,6 +368,42 @@ describe('recoveryFactsOf', () => {
     expect(facts.maskedAt).toBe('2026-11-18T10:00:00.000Z');
   });
 
+  it('picks the objects of the last masking of the sandbox, else those of the last on this machine', async () => {
+    expect((await factsOf()).maskObjects).toBeUndefined();
+    const trail = new AuditTrailStore(configStore);
+    const masked = (orgId: string, timestamp: string, objects: string[]) =>
+      trail.append({
+        id: crypto.randomUUID(),
+        action: 'anonymize_execute',
+        module: 'dataops',
+        orgId,
+        outcome: 'success',
+        timestamp,
+        objects: objects.map((objectApiName) => ({
+          objectApiName,
+          created: 0,
+          updated: 3,
+          deleted: 0,
+          failed: 0,
+        })),
+        details: {},
+      } as never);
+    masked('entry-dev', '2026-11-16T09:00:00.000Z', ['Lead', 'Contact']);
+    expect((await factsOf()).maskObjects).toEqual({
+      objects: ['Lead', 'Contact'],
+      from: 'machine',
+    });
+    // Its masking before the refresh is the one to run again on the copy.
+    masked('entry-uat', '2026-11-17T09:00:00.000Z', ['Contact', 'Account']);
+    // Stopped before it masked anything: it names no object.
+    masked('entry-uat', '2026-11-17T10:00:00.000Z', []);
+    masked('entry-dev', '2026-11-18T09:00:00.000Z', ['Case']);
+    expect((await factsOf()).maskObjects).toEqual({
+      objects: ['Contact', 'Account'],
+      from: 'org',
+    });
+  });
+
   it('reads the frozen dataset kept where the Frozen Dataset page keeps it', async () => {
     expect((await factsOf()).frozenManifest).toBeUndefined();
     const datasetDir = join(dir, 'sas', 'dataset');
@@ -426,7 +462,7 @@ describe('recoveryFactsOf', () => {
     );
     configStore.set(
       recoveryAckKey('entry-uat', BEFORE),
-      { steps: { masking: 'skipped' } },
+      { steps: { masking: 'skipped' }, finishedAt: '2026-11-18T17:00:00.000Z' },
       'recovery',
     );
     const facts = await factsOf();
@@ -434,7 +470,7 @@ describe('recoveryFactsOf', () => {
       handoffAt: '2026-11-18T16:00:00.000Z',
       testersSavedAt: '2026-11-18T09:00:00.000Z',
       refreshPipeline: true,
-      acks: { steps: { masking: 'skipped' } },
+      acks: { steps: { masking: 'skipped' }, finishedAt: '2026-11-18T17:00:00.000Z' },
       myDomainHost: HOST,
       tier: 'development',
       kind: 'sandbox',

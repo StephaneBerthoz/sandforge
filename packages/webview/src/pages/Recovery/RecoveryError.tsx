@@ -11,6 +11,7 @@ const ERROR_KEY: Record<RecoveryErrorCode, string> = {
   NOT_CONNECTED: 'recovery.error.NOT_CONNECTED',
   NOT_A_DEVELOPMENT_ORG: 'recovery.error.NOT_A_DEVELOPMENT_ORG',
   ORG_CHANGED: 'recovery.error.ORG_CHANGED',
+  NOTE_NOT_FOUND: 'recovery.error.NOTE_NOT_FOUND',
   CANCELLED: 'recovery.error.CANCELLED',
   FAILED: 'recovery.error.FAILED',
 };

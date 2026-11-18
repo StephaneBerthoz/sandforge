@@ -8867,6 +8867,7 @@
     "refreshedOn": "Refreshed on {{date}}",
     "notRefreshed": "No refresh noticed",
     "stepsDone": "{{done}}/{{total}} steps",
+    "finishedOn": "Finished on {{date}}",
     "progressLabel": "Steps of {{alias}} done or skipped",
     "notProven": {
       "title": "Not yet proven on a refreshed sandbox",
@@ -8887,6 +8888,7 @@
     "finish": "Finish",
     "finishHint": "Finish once {{alias}} is back in use: the launcher and Home stop leading with it.",
     "finished": "Finished: the launcher and Home no longer lead with {{alias}}.",
+    "resume": "Resume",
     "step": {
       "refresh": "Refresh noticed",
       "users": "Users",
@@ -8985,6 +8987,7 @@
       "keepInventory": "Keep the inventory for the next refresh",
       "writeNote": "Write the note",
       "writeNoteAgain": "Write it again and open it",
+      "openNote": "Open the note",
       "openSetup": "Open Setup",
       "openSetupFor": "Open Setup: {{name}}"
     },
@@ -8993,7 +8996,12 @@
       "beforeRefresh": "Before refresh"
     },
     "handoff": {
-      "written": "Written to {{path}} and opened in the editor."
+      "written": "Written to {{path}} and opened in the editor.",
+      "opened": "Opened {{path}} in the editor."
+    },
+    "masking": {
+      "objectsOfOrg": "Opens with {{objects}} picked: the objects of the last masking of {{alias}}.",
+      "objectsOfMachine": "Opens with {{objects}} picked: the objects of the last masking on this machine."
     },
     "audit": {
       "unread": "Could not be read, which says nothing either way: read it again, or check it in Setup.",
@@ -9065,6 +9073,7 @@
       "NOT_CONNECTED": "{{alias}} is not connected: reconnect it on the Organizations page, then try again.",
       "NOT_A_DEVELOPMENT_ORG": "{{alias}} is not a sandbox, a scratch org or a Developer Edition org: nothing of it was read, and nothing is written to it.",
       "ORG_CHANGED": "{{alias}} changed since the simulation: simulate again, then apply.",
+      "NOTE_NOT_FOUND": "The handoff note of {{alias}} is no longer on this machine: write it again.",
       "CANCELLED": "Stopped: what was done before the stop is listed.",
       "FAILED": "It failed: the SandForge output channel says why."
     },
@@ -9155,6 +9164,27 @@
         "groupRemoved": "leaves the group {{name}}",
         "queueAdded": "joins the queue {{name}}",
         "queueRemoved": "leaves the queue {{name}}"
+      },
+      "automation": {
+        "fired": "{{kind}} {{name}} on {{object}}, {{when}}",
+        "kind": {
+          "flow": "Flow",
+          "trigger": "Apex trigger",
+          "process": "Process Builder process",
+          "workflowRule": "Workflow rule"
+        },
+        "when": {
+          "before": "before save",
+          "after": "after save",
+          "beforeAndAfter": "before and after save"
+        },
+        "unread": {
+          "flows": "The flows of {{alias}} could not be read: whether one starts as a user is written is not known.",
+          "triggers": "The Apex triggers of {{alias}} could not be read: whether one runs as a user is written is not known.",
+          "processes": "The Process Builder processes of {{alias}} could not be read: whether one starts as a user is written is not known.",
+          "workflowRules": "The workflow rules of {{alias}} could not be read: whether one fires as a user is written is not known."
+        },
+        "notDeduced": "What {{alias}} runs as a user is written could not be read: what would fire is not known."
       }
     }
   },

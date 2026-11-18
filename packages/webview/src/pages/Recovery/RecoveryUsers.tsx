@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   RecoveryStatus,
   UsersApplyAnswer,
+  UsersAutomation,
   UsersChange,
   UsersConfig,
   UsersPlanAnswer,
@@ -14,6 +15,7 @@ import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import { formatNumber } from '../../utils/formatters';
 import {
+  automationOfPlan,
   choiceKeyOf,
   instantWords,
   planVerdictOf,
@@ -115,6 +117,39 @@ const RowFacts: React.FC<{ row: UserRow; given: GivenList | null }> = ({ row, gi
   );
 };
 
+/**
+ * What the org would set off as the users are written, under the acceptance
+ * it asks: each flow, trigger, process or rule by its kind, its name, its
+ * object and when it runs; then what could not be read, so may fire unnamed.
+ */
+const AutomationList: React.FC<{ automation: UsersAutomation; alias: string }> = ({
+  automation,
+  alias,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <ul
+      className="ml-5 flex list-disc flex-col gap-0.5 pl-4 text-xs text-text-primary"
+      data-testid="recovery-users-automation"
+    >
+      {automation.fired.map((fired, index) => (
+        <li key={`${fired.kind}-${fired.objectApiName}-${fired.name}-${index}`}>
+          {t('recovery.users.automation.fired', {
+            kind: t(`recovery.users.automation.kind.${fired.kind}`),
+            name: fired.name,
+            object: fired.objectApiName,
+            when: t(`recovery.users.automation.when.${fired.when}`),
+          })}
+        </li>
+      ))}
+      {(automation.unread ?? []).map((part) => (
+        <li key={part}>{t(`recovery.users.automation.unread.${part}`, { alias })}</li>
+      ))}
+      {automation.notDeduced && <li>{t('recovery.users.automation.notDeduced', { alias })}</li>}
+    </ul>
+  );
+};
+
 /** What a simulation says the run would do, user by user, and what it asks or refuses. */
 const PlanView: React.FC<{
   plan: UsersPlanAnswer;
@@ -124,6 +159,7 @@ const PlanView: React.FC<{
 }> = ({ plan, alias, accepted, onAccept }) => {
   const { t } = useTranslation();
   const verdict = planVerdictOf(plan);
+  const automation = automationOfPlan(plan);
   return (
     <div className="flex flex-col gap-2" data-testid="recovery-users-plan">
       <p className="text-xs font-semibold text-text-primary">
@@ -169,31 +205,35 @@ const PlanView: React.FC<{
         </ul>
       )}
       {verdict.asked.map((acceptance) => (
-        <label
-          key={acceptance}
-          className="flex items-start gap-2 text-xs text-text-primary"
-          data-testid={`recovery-users-${acceptance}`}
-        >
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={accepted[acceptance]}
-            onChange={(event) => onAccept(acceptance, event.target.checked)}
-          />
-          <span>
-            {t(
-              `recovery.users.accept.${acceptance}`,
-              // The emails are counted; what the org runs is not.
-              acceptance === 'acceptAutomation'
-                ? { alias }
-                : {
-                    alias,
-                    count: plan.emailsToPeople,
-                    formatted: formatNumber(plan.emailsToPeople),
-                  },
-            )}
-          </span>
-        </label>
+        <React.Fragment key={acceptance}>
+          <label
+            className="flex items-start gap-2 text-xs text-text-primary"
+            data-testid={`recovery-users-${acceptance}`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={accepted[acceptance]}
+              onChange={(event) => onAccept(acceptance, event.target.checked)}
+            />
+            <span>
+              {t(
+                `recovery.users.accept.${acceptance}`,
+                // The emails are counted; what the org runs is named below.
+                acceptance === 'acceptAutomation'
+                  ? { alias }
+                  : {
+                      alias,
+                      count: plan.emailsToPeople,
+                      formatted: formatNumber(plan.emailsToPeople),
+                    },
+              )}
+            </span>
+          </label>
+          {acceptance === 'acceptAutomation' && automation && (
+            <AutomationList automation={automation} alias={alias} />
+          )}
+        </React.Fragment>
       ))}
     </div>
   );

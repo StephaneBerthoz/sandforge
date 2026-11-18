@@ -788,7 +788,10 @@ const RecoveryMessages = [
   msg('recovery:audit:response'),
   msg('recovery:handoff'),
   msg('recovery:handoff:response'),
-  // A step skipped or marked done by hand, or the recovery finished.
+  // The newest note opened again as it was written.
+  msg('recovery:handoff:open'),
+  msg('recovery:handoff:open:response'),
+  // A step skipped or marked done by hand, or the recovery finished or resumed.
   msg('recovery:ack'),
   msg('recovery:ack:response'),
   // Error channel for every recovery request, by a code the page translates.

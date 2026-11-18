@@ -92,7 +92,17 @@ export interface RecoveryHandoffRequest extends BaseMessage {
   payload: RecoveryOrgPayload;
 }
 
-/** `recovery:ack`. WebView -> Extension. Skip a step, mark one done, clear either, or finish. */
+/**
+ * `recovery:handoff:open`. WebView -> Extension. Open the newest handoff note
+ * of the org in the editor, as it was written: refused `NOTE_NOT_FOUND` when
+ * no note of it is kept on this machine any more.
+ */
+export interface RecoveryHandoffOpenRequest extends BaseMessage {
+  type: 'recovery:handoff:open';
+  payload: RecoveryOrgPayload;
+}
+
+/** `recovery:ack`. WebView -> Extension. Skip a step, mark one done, clear either, finish, or resume. */
 export interface RecoveryAckRequest extends BaseMessage {
   type: 'recovery:ack';
   payload: RecoveryAckPayload;
@@ -162,6 +172,12 @@ export interface RecoveryAuditResponse extends BaseMessage {
 /** `recovery:handoff:response`. Extension -> WebView. Where the note was written. */
 export interface RecoveryHandoffResponse extends BaseMessage {
   type: 'recovery:handoff:response';
+  payload: { orgId: string; path: string };
+}
+
+/** `recovery:handoff:open:response`. Extension -> WebView. The note opened, where it is. */
+export interface RecoveryHandoffOpenResponse extends BaseMessage {
+  type: 'recovery:handoff:open:response';
   payload: { orgId: string; path: string };
 }
 

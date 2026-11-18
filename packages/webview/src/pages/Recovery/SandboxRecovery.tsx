@@ -93,8 +93,9 @@ export interface SandboxRecoveryProps {
  * Where one org stands after its refresh, as the extension deduces it: the
  * facts of the refresh, the progress n of N, the warning that none of it is
  * proven on a refreshed sandbox yet, the ten steps — each with what it runs
- * or opens —, what to keep before the next refresh, and Finish. Without a
- * refresh noticed, what to keep comes first.
+ * or opens —, what to keep before the next refresh, and Finish; once
+ * finished, when, and Resume. Without a refresh noticed, what to keep comes
+ * first.
  */
 export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
   const { t } = useTranslation();
@@ -107,7 +108,8 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
   const [focusUsers, setFocusUsers] = useState(false);
   const [auditAsked, setAuditAsked] = useState<AuditAsked | null>(null);
   const [audits, setAudits] = useState<Partial<Record<AuditStep, EnvAuditResult>>>({});
-  const [finishAsked, setFinishAsked] = useState(false);
+  /** Finish or Resume was asked, not a step's mark: whose button spins while the answer comes. */
+  const [endAsked, setEndAsked] = useState(false);
   const usersRef = useRef<HTMLDivElement>(null);
   const usersPanelId = useId();
 
@@ -199,7 +201,7 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
     ) : null;
 
   const mark = (step: RecoveryStep, how: StepMark): void => {
-    setFinishAsked(false);
+    setEndAsked(false);
     bridge.ack.mutate({ orgId: org.id, what: 'step', step: step.id, mark: how });
   };
 
@@ -276,23 +278,40 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
             </div>
           ),
         };
-      case 'masking':
-        return actionable
-          ? {
-              actions: (
-                <Button
-                  size="sm"
-                  variant={variant}
-                  onClick={() =>
-                    navigate('dataops', { dataopsTab: 'anonymize', targetOrgId: org.id })
-                  }
-                  data-testid="recovery-open-masking"
-                >
-                  {t('recovery.action.openMasking')}
-                </Button>
-              ),
-            }
-          : {};
+      case 'masking': {
+        if (!actionable) return {};
+        const asked = status.maskObjects;
+        return {
+          // The objects of the last masking come picked: DataOps opens on the
+          // template that masks them.
+          content: asked ? (
+            <p className="text-xs text-text-secondary" data-testid="recovery-mask-objects">
+              {t(
+                asked.from === 'org'
+                  ? 'recovery.masking.objectsOfOrg'
+                  : 'recovery.masking.objectsOfMachine',
+                { objects: asked.objects.join(', '), alias },
+              )}
+            </p>
+          ) : null,
+          actions: (
+            <Button
+              size="sm"
+              variant={variant}
+              onClick={() =>
+                navigate('dataops', {
+                  dataopsTab: 'anonymize',
+                  targetOrgId: org.id,
+                  ...(asked ? { maskObjects: asked.objects } : {}),
+                })
+              }
+              data-testid="recovery-open-masking"
+            >
+              {t('recovery.action.openMasking')}
+            </Button>
+          ),
+        };
+      }
       case 'replay': {
         const before = status.checkpointBefore;
         if (!actionable || !before) return {};
@@ -397,19 +416,44 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
         };
       }
       case 'handoff': {
-        if (step.status === 'skipped') return {};
         const written = bridge.handoff.data;
+        const reopened = bridge.handoffOpen.data;
+        // A note kept is opened again as it was left, the step skipped or not.
+        const kept = status.handoffNote !== undefined;
+        if (step.status === 'skipped' && !kept) return {};
+        const failed = bridge.handoff.error ? bridge.handoff : bridge.handoffOpen;
         return {
           actions: (
-            <Button
-              size="sm"
-              variant={variant}
-              loading={bridge.handoff.loading}
-              onClick={() => bridge.handoff.mutate({ orgId: org.id })}
-              data-testid="recovery-write-note"
-            >
-              {t(written ? 'recovery.action.writeNoteAgain' : 'recovery.action.writeNote')}
-            </Button>
+            <>
+              {kept && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={bridge.handoffOpen.loading}
+                  disabled={bridge.handoff.loading}
+                  onClick={() => bridge.handoffOpen.mutate({ orgId: org.id })}
+                  data-testid="recovery-open-note"
+                >
+                  {t('recovery.action.openNote')}
+                </Button>
+              )}
+              {step.status !== 'skipped' && (
+                <Button
+                  size="sm"
+                  variant={variant}
+                  loading={bridge.handoff.loading}
+                  disabled={bridge.handoffOpen.loading}
+                  onClick={() => bridge.handoff.mutate({ orgId: org.id })}
+                  data-testid="recovery-write-note"
+                >
+                  {t(
+                    written || kept
+                      ? 'recovery.action.writeNoteAgain'
+                      : 'recovery.action.writeNote',
+                  )}
+                </Button>
+              )}
+            </>
           ),
           after: (
             <>
@@ -422,10 +466,19 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
                   {t('recovery.handoff.written', { path: written.path })}
                 </p>
               )}
-              {bridge.handoff.error && (
+              {reopened && !bridge.handoffOpen.loading && (
+                <p
+                  className="text-xs text-text-secondary"
+                  role="status"
+                  data-testid="recovery-note-opened"
+                >
+                  {t('recovery.handoff.opened', { path: reopened.path })}
+                </p>
+              )}
+              {failed.error && (
                 <RecoveryError
-                  error={bridge.handoff.error}
-                  errorCode={bridge.handoff.errorCode}
+                  error={failed.error}
+                  errorCode={failed.errorCode}
                   alias={alias}
                   testId="recovery-note-error"
                 />
@@ -437,7 +490,7 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
     }
   };
 
-  const finished = finishAsked && acked !== null && !bridge.ack.loading && !bridge.ack.error;
+  const finishedAt = status.finishedAt;
 
   return (
     <div className="flex flex-col gap-4" data-testid="recovery-sandbox">
@@ -457,6 +510,14 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
           <span data-testid="recovery-count">
             {t('recovery.stepsDone', { done: status.done, total: status.total })}
           </span>
+          {finishedAt && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span data-testid="recovery-finished-on">
+                {t('recovery.finishedOn', { date: instantWords(finishedAt) })}
+              </span>
+            </>
+          )}
         </div>
         <ProgressBar
           value={status.done}
@@ -523,27 +584,51 @@ export const SandboxRecovery: React.FC<SandboxRecoveryProps> = ({ org }) => {
 
       {refresh && beforeNext}
 
-      {refresh && (
+      {(refresh || finishedAt) && (
         <div className="flex flex-col gap-2 border-t border-subtle pt-3">
-          <p className="text-xs text-text-secondary">{t('recovery.finishHint', { alias })}</p>
-          <div>
-            <Button
-              size="sm"
-              loading={finishAsked && bridge.ack.loading}
-              disabled={bridge.ack.loading}
-              onClick={() => {
-                setFinishAsked(true);
-                bridge.ack.mutate({ orgId: org.id, what: 'finish' });
-              }}
-              data-testid="recovery-finish"
-            >
-              {t('recovery.finish')}
-            </Button>
-          </div>
-          {finished && (
-            <p className="text-xs text-text-primary" role="status" data-testid="recovery-finished">
-              {t('recovery.finished', { alias })}
-            </p>
+          {finishedAt ? (
+            <>
+              <p
+                className="text-xs text-text-primary"
+                role="status"
+                data-testid="recovery-finished"
+              >
+                {t('recovery.finished', { alias })}
+              </p>
+              <div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={endAsked && bridge.ack.loading}
+                  disabled={bridge.ack.loading}
+                  onClick={() => {
+                    setEndAsked(true);
+                    bridge.ack.mutate({ orgId: org.id, what: 'resume' });
+                  }}
+                  data-testid="recovery-resume"
+                >
+                  {t('recovery.resume')}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-text-secondary">{t('recovery.finishHint', { alias })}</p>
+              <div>
+                <Button
+                  size="sm"
+                  loading={endAsked && bridge.ack.loading}
+                  disabled={bridge.ack.loading}
+                  onClick={() => {
+                    setEndAsked(true);
+                    bridge.ack.mutate({ orgId: org.id, what: 'finish' });
+                  }}
+                  data-testid="recovery-finish"
+                >
+                  {t('recovery.finish')}
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}

@@ -95,6 +95,7 @@ async function loadRecoveryModules() {
     usersAuditObjectsOf: users.usersAuditObjectsOf,
     ObservedUsersRunStore: users.ObservedUsersRunStore,
     journalDirOf: handoff.journalDirOf,
+    newestHandoffOf: handoff.newestHandoffOf,
     recoveryHandoffNoteOf: handoff.recoveryHandoffNoteOf,
     recoveryHandoffPathOf: handoff.recoveryHandoffPathOf,
     writeRecoveryHandoff: handoff.writeRecoveryHandoff,
@@ -128,6 +129,7 @@ const RECOVERY_TYPES = new Set([
   'recovery:users:config:import',
   'recovery:audit',
   'recovery:handoff',
+  'recovery:handoff:open',
   'recovery:ack',
 ]);
 
@@ -292,9 +294,10 @@ const MESSAGE_MAX = 4_000;
  *   only, as `sandforge env audit` reads them; the inventory of the jobs
  *   kept when asked.
  * - `recovery:handoff` — the note, written beside the command line's and
- *   opened in the editor.
+ *   opened in the editor; `recovery:handoff:open` opens the newest again as
+ *   it was left, unwritten, and refuses `NOTE_NOT_FOUND` when none is kept.
  * - `recovery:ack` — a step skipped, a check marked done, or the recovery
- *   finished, kept under the refresh's key.
+ *   finished or resumed, kept under the refresh's key.
  *
  * Each answer that changes a step is told to {@link onStatusChanged}, which
  * the launcher's progress listens to.
@@ -391,6 +394,9 @@ export class RecoveryHandler implements DomainHandler {
       case 'recovery:handoff':
         await this.handleHandoff(msg);
         return true;
+      case 'recovery:handoff:open':
+        await this.handleHandoffOpen(msg);
+        return true;
       case 'recovery:ack':
         await this.handleAck(msg);
         return true;
@@ -425,6 +431,9 @@ export class RecoveryHandler implements DomainHandler {
       const acks = m.readAcks(this.deps.configStore, key);
       if (parsed.what === 'finish') {
         acks.finishedAt = this.now().toISOString();
+      } else if (parsed.what === 'resume') {
+        // The launcher and Home lead with the sandbox again; its marks stay.
+        delete acks.finishedAt;
       } else if (parsed.mark === 'cleared') {
         delete acks.steps[parsed.step];
       } else {
@@ -964,6 +973,51 @@ export class RecoveryHandler implements DomainHandler {
       }
       this.respond(msg, 'recovery:handoff:response', { orgId: parsed.orgId, path });
       this.changed(parsed.orgId);
+    } catch (err: unknown) {
+      this.fail(msg, err, 'handoff');
+    }
+  }
+
+  /**
+   * Open the newest note of the org the sandbox is now again, as it was
+   * written and maybe changed since by hand: never written over. Refused
+   * `NOTE_NOT_FOUND` when no note of it is kept on this machine any more —
+   * deleted, or never written for the org the refresh made it.
+   */
+  private async handleHandoffOpen(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(recoveryOrgPayloadSchema, msg, 'recovery:error', this.deps);
+    if (!parsed) return;
+    try {
+      const m = await this.modules();
+      const status = await this.statusOf(parsed.orgId);
+      const note =
+        status.organizationId !== undefined
+          ? await m.newestHandoffOf(this.journalDir(m), status.organizationId)
+          : undefined;
+      if (note === undefined) {
+        throw new Refused(
+          'NOTE_NOT_FOUND',
+          `No handoff note of ${status.alias} as it is now is kept on this machine: write one. ` +
+            'Nothing was written.',
+          false,
+          'handoff',
+        );
+      }
+      try {
+        await this.openInEditor(note.path);
+      } catch (err: unknown) {
+        // Opening it is all that was asked: an editor that would not is a failure.
+        throw new Refused(
+          'FAILED',
+          `The handoff note could not be opened in the editor: ${extractErrorMessage(err)}`,
+          true,
+          'handoff',
+        );
+      }
+      this.respond(msg, 'recovery:handoff:open:response', {
+        orgId: parsed.orgId,
+        path: note.path,
+      });
     } catch (err: unknown) {
       this.fail(msg, err, 'handoff');
     }

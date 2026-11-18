@@ -8867,6 +8867,7 @@
     "refreshedOn": "Aktualisiert am {{date}}",
     "notRefreshed": "Keine Aktualisierung bemerkt",
     "stepsDone": "{{done}}/{{total}} Schritte",
+    "finishedOn": "Abgeschlossen am {{date}}",
     "progressLabel": "Erledigte oder übersprungene Schritte von {{alias}}",
     "notProven": {
       "title": "Auf einer aktualisierten Sandbox noch nicht erprobt",
@@ -8887,6 +8888,7 @@
     "finish": "Abschließen",
     "finishHint": "Schließen Sie ab, sobald {{alias}} wieder in Betrieb ist: Launcher und Startseite stellen sie dann nicht mehr voran.",
     "finished": "Abgeschlossen: Launcher und Startseite stellen {{alias}} nicht mehr voran.",
+    "resume": "Fortsetzen",
     "step": {
       "refresh": "Aktualisierung bemerkt",
       "users": "Benutzer",
@@ -8985,6 +8987,7 @@
       "keepInventory": "Bestandsaufnahme für die nächste Aktualisierung sichern",
       "writeNote": "Notiz schreiben",
       "writeNoteAgain": "Neu schreiben und öffnen",
+      "openNote": "Notiz öffnen",
       "openSetup": "Setup öffnen",
       "openSetupFor": "Setup öffnen: {{name}}"
     },
@@ -8993,7 +8996,12 @@
       "beforeRefresh": "Vor der Aktualisierung"
     },
     "handoff": {
-      "written": "In {{path}} geschrieben und im Editor geöffnet."
+      "written": "In {{path}} geschrieben und im Editor geöffnet.",
+      "opened": "{{path}} im Editor geöffnet."
+    },
+    "masking": {
+      "objectsOfOrg": "Öffnet mit {{objects}} ausgewählt: die Objekte der letzten Maskierung von {{alias}}.",
+      "objectsOfMachine": "Öffnet mit {{objects}} ausgewählt: die Objekte der letzten Maskierung auf diesem Rechner."
     },
     "audit": {
       "unread": "Konnte nicht gelesen werden, was weder für noch gegen etwas spricht: Lesen Sie erneut oder prüfen Sie es im Setup.",
@@ -9065,6 +9073,7 @@
       "NOT_CONNECTED": "{{alias}} ist nicht verbunden: Verbinden Sie sie auf der Seite Organisationen neu und versuchen Sie es erneut.",
       "NOT_A_DEVELOPMENT_ORG": "{{alias}} ist weder eine Sandbox noch eine Scratch-Org noch eine Developer-Edition-Org: Von ihr wurde nichts gelesen, und es wird nichts geschrieben.",
       "ORG_CHANGED": "{{alias}} hat sich seit der Simulation geändert: Simulieren Sie erneut und übernehmen Sie dann.",
+      "NOTE_NOT_FOUND": "Die Übergabenotiz von {{alias}} ist nicht mehr auf diesem Rechner: Schreiben Sie sie neu.",
       "CANCELLED": "Gestoppt: Was vor dem Stopp erledigt wurde, ist aufgeführt.",
       "FAILED": "Fehlgeschlagen: Der Ausgabekanal SandForge nennt den Grund."
     },
@@ -9155,6 +9164,27 @@
         "groupRemoved": "verlässt die Gruppe {{name}}",
         "queueAdded": "tritt der Warteschlange {{name}} bei",
         "queueRemoved": "verlässt die Warteschlange {{name}}"
+      },
+      "automation": {
+        "fired": "{{kind}} {{name}} auf {{object}}, {{when}}",
+        "kind": {
+          "flow": "Flow",
+          "trigger": "Apex-Trigger",
+          "process": "Process-Builder-Prozess",
+          "workflowRule": "Workflow-Regel"
+        },
+        "when": {
+          "before": "vor dem Speichern",
+          "after": "nach dem Speichern",
+          "beforeAndAfter": "vor und nach dem Speichern"
+        },
+        "unread": {
+          "flows": "Die Flows von {{alias}} ließen sich nicht lesen: Ob einer startet, wenn ein Benutzer geschrieben wird, ist nicht bekannt.",
+          "triggers": "Die Apex-Trigger von {{alias}} ließen sich nicht lesen: Ob einer läuft, wenn ein Benutzer geschrieben wird, ist nicht bekannt.",
+          "processes": "Die Process-Builder-Prozesse von {{alias}} ließen sich nicht lesen: Ob einer startet, wenn ein Benutzer geschrieben wird, ist nicht bekannt.",
+          "workflowRules": "Die Workflow-Regeln von {{alias}} ließen sich nicht lesen: Ob eine auslöst, wenn ein Benutzer geschrieben wird, ist nicht bekannt."
+        },
+        "notDeduced": "Was {{alias}} ausführt, wenn ein Benutzer geschrieben wird, ließ sich nicht lesen: Was auslösen würde, ist nicht bekannt."
       }
     }
   },

@@ -32,6 +32,7 @@ const RECOVERY_ERROR_CODES: ReadonlySet<string> = new Set<RecoveryErrorCode>([
   'NOT_CONNECTED',
   'NOT_A_DEVELOPMENT_ORG',
   'ORG_CHANGED',
+  'NOTE_NOT_FOUND',
   'CANCELLED',
   'FAILED',
 ]);
@@ -58,6 +59,8 @@ export interface RecoveryBridge {
   ack: BridgeMutationState<{ status: RecoveryStatus }>;
   audit: BridgeMutationState<{ orgId: string; audit: EnvAuditResult }>;
   handoff: BridgeMutationState<{ orgId: string; path: string }>;
+  /** The newest note opened again as it was left, never written over. */
+  handoffOpen: BridgeMutationState<{ orgId: string; path: string }>;
 }
 
 /** The status of a sandbox, its acknowledgements, its audits and its handoff note. */
@@ -72,7 +75,10 @@ export function useRecoveryBridge(): RecoveryBridge {
   const handoff = useBridgeMutation<{ orgId: string; path: string }>('recovery:handoff', {
     timeoutMs: STATUS_TIMEOUT_MS,
   });
-  return { status, ack, audit, handoff };
+  const handoffOpen = useBridgeMutation<{ orgId: string; path: string }>('recovery:handoff:open', {
+    timeoutMs: STATUS_TIMEOUT_MS,
+  });
+  return { status, ack, audit, handoff, handoffOpen };
 }
 
 /** The requests of the users step: list, simulate, apply with its progress, and the list's file. */

@@ -21,12 +21,16 @@ After a sandbox refresh, the page **SandForge: Back into service** lists the ste
 ## The steps
 
 1. **Refresh noticed**: when and how, the org before and after.
-2. **Users**: the users under `.invalid`, frozen or inactive, a box each. Simulate, then Apply, which waits for a simulation of the same list and asks at each run to let Salesforce email the people whose address is asked back. An address asked back awaits its owner's confirmation. The list is saved for the next refresh, exported as `users.json` for `sandforge users --config`, or imported from one.
-3. **Mask the data copied from production**: opens Masking in DataOps.
+2. **Users**: the users under `.invalid`, frozen or inactive, a box each. Simulate, then Apply, which waits for a simulation of the same list and asks at each run to let Salesforce email the people whose address is asked back, and to write although the sandbox runs automation on users, each flow, trigger, process or workflow rule that would fire listed under the question. An address asked back awaits its owner's confirmation. The list is saved for the next refresh, exported as `users.json` for `sandforge users --config`, or imported from one.
+3. **Mask the data copied from production**: opens Masking in DataOps, the objects of the sandbox's last masking picked — else those of the last masking on this machine —, on the template that masks them.
 4. **Replay the checkpoint of before**: opens the replay of the newest checkpoint taken before the refresh. On a sandbox marked Staging, the replay asks for the org's name typed.
 5. **Reload the frozen dataset**: opens Frozen Dataset on Load, the sandbox as its target.
 6. **Testers' start checkpoint**: opens a take named Testers' start, kept until deleted.
-7. **Email deliverability**, 8. **Scheduled jobs**, 9. **Endpoints that still name production**: Read, then each finding with its Setup page.
-8. **Handoff note**: written as Markdown and opened in the editor.
+7. **Email deliverability**: Read, then its Setup page; marked done once checked there.
+8. **Scheduled jobs**: Read, compared with the inventory kept before the refresh, then their Setup page.
+9. **Endpoints that still name production**: Read, each with its Setup page; marked done once changed.
+10. **Handoff note**: written as Markdown and opened in the editor. Once written, Open opens it again as it was left, and Write it again and open it writes it anew.
 
 **Before the next refresh**: a checkpoint named Before refresh, the inventory of the scheduled jobs, the list of the testers, and a pipeline from the Sandbox Refresh Post-Processing template.
+
+**Finish**: once the sandbox is back in use, the launcher and Home no longer lead with it. The page opened again says when it was finished, and Resume puts it back at their head.

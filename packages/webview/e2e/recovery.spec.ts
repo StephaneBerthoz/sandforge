@@ -6,10 +6,12 @@ import { themeContrastShortfalls } from './helpers/theme-contrast';
 import { MOCK_ORGS } from './fixtures';
 import {
   ANA,
+  BO,
   RECOVERY_ORG,
   appliedAna,
   auditOf,
   planOfAna,
+  planOfBoWithAutomation,
   refreshedStatus,
   unrefreshedStatus,
   usersList,
@@ -22,8 +24,10 @@ import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
  * against the `recovery:*` contract played by the spec: the sandbox after its
  * refresh, its ten steps and what to keep before the next refresh; the same
  * sandbox with no refresh noticed; the users chosen, simulated, accepted and
- * run, their addresses awaiting confirmation; the audits read with their
- * Setup pages; and the steps that open another page with what it needs.
+ * run, their addresses awaiting confirmation, what the automation would set
+ * off listed under its acceptance; the audits read with their Setup pages;
+ * the steps that open another page with what it needs; the note kept opened
+ * again; and a recovery finished, then resumed.
  *
  * Each state is scanned with axe under VS Code's default themes, Light 2026
  * and Dark 2026, and the two they replaced, with the stylesheet VS Code
@@ -141,6 +145,31 @@ async function expectReadable(page: Page, theme: Theme): Promise<void> {
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 }
 
+/** Choose Bo and simulate: the plan answered lists what the automation would set off. */
+async function simulateBo(page: Page, host: Extension): Promise<void> {
+  await page.getByTestId('recovery-users-toggle').click();
+  await host.answer('recovery:users:list', usersList());
+  await page.getByRole('checkbox', { name: BO }).check();
+  await page.getByTestId('recovery-users-simulate').click();
+  await host.answer('recovery:users:plan', {
+    orgId: RECOVERY_ORG.id,
+    plan: planOfBoWithAutomation(),
+  });
+  await expect(page.getByTestId('recovery-users-automation')).toBeVisible();
+}
+
+/** The refreshed sandbox with its note kept, its recovery finished, and the objects of its last masking. */
+function finishedStatus(): RecoveryStatus {
+  return refreshedStatus(
+    {
+      maskObjects: { objects: ['Contact', 'Lead'], from: 'org' },
+      handoffNote: { writtenAt: new Date(Date.now() - 3_600_000).toISOString() },
+      finishedAt: new Date(Date.now() - 600_000).toISOString(),
+    },
+    { handoff: 'ranAfterRefresh' },
+  );
+}
+
 /** Choose Ana, simulate, accept the email to her, and run. */
 async function runAna(page: Page, host: Extension): Promise<void> {
   await page.getByTestId('recovery-users-toggle').click();
@@ -238,6 +267,56 @@ test.describe('Back into service', () => {
     await expect(page.getByTestId('dataops-page')).toBeVisible();
   });
 
+  test('names the objects of the last masking Masking opens with', async ({ page }) => {
+    await openRecovery(page, 'Dark 2026', finishedStatus());
+    await expect(page.getByTestId('recovery-mask-objects')).toHaveText(
+      `Opens with Contact, Lead picked: the objects of the last masking of ${RECOVERY_ORG.alias}.`,
+    );
+    await page.getByTestId('recovery-open-masking').click();
+    await expect(page.getByTestId('dataops-page')).toBeVisible();
+  });
+
+  test('lists under its acceptance what the automation would set off, Apply closed until accepted', async ({
+    page,
+  }) => {
+    const host = await openRecovery(page, 'Dark 2026');
+    await simulateBo(page, host);
+    const listed = page.getByTestId('recovery-users-automation');
+    await expect(listed).toContainText('Apex trigger UserTrigger on User, after save');
+    await expect(listed).toContainText('Flow Welcome a user on User, after save');
+    await expect(listed).toContainText(
+      `The workflow rules of ${RECOVERY_ORG.alias} could not be read`,
+    );
+    await expect(page.getByTestId('recovery-users-apply')).toBeDisabled();
+    await page.getByTestId('recovery-users-acceptAutomation').getByRole('checkbox').check();
+    await expect(page.getByTestId('recovery-users-apply')).toBeEnabled();
+  });
+
+  test('opens the note kept again, never writing it, and says where', async ({ page }) => {
+    const host = await openRecovery(page, 'Dark 2026', finishedStatus());
+    await page.getByTestId('recovery-open-note').click();
+    const asked = await host.answer('recovery:handoff:open', {
+      orgId: RECOVERY_ORG.id,
+      path: '/home/someone/.sandforge/handoff/_recovery/note.md',
+    });
+    expect(asked.payload).toEqual({ orgId: RECOVERY_ORG.id });
+    await expect(page.getByTestId('recovery-note-opened')).toHaveText(
+      'Opened /home/someone/.sandforge/handoff/_recovery/note.md in the editor.',
+    );
+    expect(await host.bridge.getMessages('recovery:handoff')).toEqual([]);
+  });
+
+  test('opened again on a recovery finished, says when, and resumes it', async ({ page }) => {
+    const host = await openRecovery(page, 'Dark 2026', finishedStatus());
+    await expect(page.getByTestId('recovery-finished-on')).toContainText('Finished on');
+    await expect(page.getByTestId('recovery-finish')).toHaveCount(0);
+    await page.getByTestId('recovery-resume').click();
+    const asked = await host.answer('recovery:ack', { status: refreshedStatus() });
+    expect(asked.payload).toEqual({ orgId: RECOVERY_ORG.id, what: 'resume' });
+    await expect(page.getByTestId('recovery-finished-on')).toHaveCount(0);
+    await expect(page.getByTestId('recovery-finish')).toBeVisible();
+  });
+
   test('opens the replay of the checkpoint of before in Checkpoints', async ({ page }) => {
     await openRecovery(page, 'Dark 2026');
     await page.getByTestId('recovery-open-replay').click();
@@ -280,6 +359,13 @@ test.describe('Back into service', () => {
           applied: appliedAna(),
         });
         await expect(page.getByTestId('recovery-users-result')).toBeVisible();
+        await expectReadable(page, theme);
+      });
+
+      test('a recovery finished, its note kept, and the automation to accept', async ({ page }) => {
+        const host = await openRecovery(page, theme, finishedStatus());
+        await expect(page.getByTestId('recovery-resume')).toBeVisible();
+        await simulateBo(page, host);
         await expectReadable(page, theme);
       });
 

@@ -8867,6 +8867,7 @@
     "refreshedOn": "Rafraîchie le {{date}}",
     "notRefreshed": "Aucun rafraîchissement repéré",
     "stepsDone": "{{done}}/{{total}} étapes",
+    "finishedOn": "Terminée le {{date}}",
     "progressLabel": "Étapes de {{alias}} faites ou ignorées",
     "notProven": {
       "title": "Pas encore prouvé sur une sandbox rafraîchie",
@@ -8887,6 +8888,7 @@
     "finish": "Terminer",
     "finishHint": "Terminez une fois {{alias}} remise en service : le lanceur et l'Accueil cessent de la mettre en avant.",
     "finished": "Terminé : le lanceur et l'Accueil ne mettent plus {{alias}} en avant.",
+    "resume": "Reprendre",
     "step": {
       "refresh": "Rafraîchissement repéré",
       "users": "Utilisateurs",
@@ -8985,6 +8987,7 @@
       "keepInventory": "Garder l'inventaire pour le prochain rafraîchissement",
       "writeNote": "Écrire la note",
       "writeNoteAgain": "La réécrire et l'ouvrir",
+      "openNote": "Ouvrir la note",
       "openSetup": "Ouvrir le Setup",
       "openSetupFor": "Ouvrir le Setup : {{name}}"
     },
@@ -8993,7 +8996,12 @@
       "beforeRefresh": "Avant le rafraîchissement"
     },
     "handoff": {
-      "written": "Écrite dans {{path}} et ouverte dans l'éditeur."
+      "written": "Écrite dans {{path}} et ouverte dans l'éditeur.",
+      "opened": "{{path}} ouverte dans l'éditeur."
+    },
+    "masking": {
+      "objectsOfOrg": "S'ouvre avec {{objects}} cochés : les objets du dernier masquage de {{alias}}.",
+      "objectsOfMachine": "S'ouvre avec {{objects}} cochés : les objets du dernier masquage sur cette machine."
     },
     "audit": {
       "unread": "N'a pas pu être lu, ce qui ne dit rien dans un sens ni dans l'autre : relisez, ou vérifiez dans le Setup.",
@@ -9065,6 +9073,7 @@
       "NOT_CONNECTED": "{{alias}} n'est pas connectée : reconnectez-la dans la page Organisations, puis réessayez.",
       "NOT_A_DEVELOPMENT_ORG": "{{alias}} n'est ni une sandbox, ni une scratch org, ni une org Developer Edition : rien n'en a été lu, et rien n'y est écrit.",
       "ORG_CHANGED": "{{alias}} a changé depuis la simulation : simulez de nouveau, puis appliquez.",
+      "NOTE_NOT_FOUND": "La note de passation de {{alias}} n'est plus sur cette machine : écrivez-la de nouveau.",
       "CANCELLED": "Arrêté : ce qui a été fait avant l'arrêt est listé.",
       "FAILED": "Échec : le canal de sortie SandForge dit pourquoi."
     },
@@ -9155,6 +9164,27 @@
         "groupRemoved": "quitte le groupe {{name}}",
         "queueAdded": "rejoint la file d'attente {{name}}",
         "queueRemoved": "quitte la file d'attente {{name}}"
+      },
+      "automation": {
+        "fired": "{{kind}} {{name}} sur {{object}}, {{when}}",
+        "kind": {
+          "flow": "Flow",
+          "trigger": "Déclencheur Apex",
+          "process": "Processus Process Builder",
+          "workflowRule": "Règle de workflow"
+        },
+        "when": {
+          "before": "avant l'enregistrement",
+          "after": "après l'enregistrement",
+          "beforeAndAfter": "avant et après l'enregistrement"
+        },
+        "unread": {
+          "flows": "Les Flows de {{alias}} n'ont pas pu être lus : on ne sait pas si l'un d'eux démarre quand un utilisateur est écrit.",
+          "triggers": "Les déclencheurs Apex de {{alias}} n'ont pas pu être lus : on ne sait pas si l'un d'eux s'exécute quand un utilisateur est écrit.",
+          "processes": "Les processus Process Builder de {{alias}} n'ont pas pu être lus : on ne sait pas si l'un d'eux démarre quand un utilisateur est écrit.",
+          "workflowRules": "Les règles de workflow de {{alias}} n'ont pas pu être lues : on ne sait pas si l'une d'elles se déclenche quand un utilisateur est écrit."
+        },
+        "notDeduced": "Ce que {{alias}} exécute quand un utilisateur est écrit n'a pas pu être lu : on ne sait pas ce qui se déclencherait."
       }
     }
   },

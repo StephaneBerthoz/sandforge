@@ -11,7 +11,10 @@ import { useMessageListener } from '../../hooks/useMessageBus';
 
 /** What Home knows of the refreshed sandboxes: what its hero reads. */
 export interface RecoveryLeads {
-  /** The sandboxes whose refresh was noticed, n of N steps each, as `heroFor` reads them. */
+  /**
+   * The sandboxes whose refresh was noticed and whose recovery is not
+   * finished, n of N steps each, as `heroFor` reads them.
+   */
   afterRefresh: RecoveryProgress[];
   /**
    * The step a sandbox's recovery is at: the first still to do, else the
@@ -88,8 +91,9 @@ export function useRecoveryLeads(orgs: readonly SalesforceOrg[] | undefined): Re
   return useMemo(() => {
     const registered = new Set(key.split('\n'));
     const known = Object.values(statuses).filter((status) => registered.has(status.orgId));
+    // A recovery a person finished leads no more, as on the launcher, until Resume.
     const afterRefresh = known.flatMap((status) =>
-      status.refresh === undefined
+      status.refresh === undefined || status.finishedAt !== undefined
         ? []
         : [
             {

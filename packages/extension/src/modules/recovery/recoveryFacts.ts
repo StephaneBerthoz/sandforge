@@ -16,7 +16,8 @@
  *   the stores the command line shares (`~/.sandforge`); **the inventories**
  *   by the sandbox's My Domain host, which survives the refresh; **the
  *   masking runs and the frozen loads** in the audit trail of the window,
- *   by entry, since the refresh was noticed; **what a person acknowledged**
+ *   by entry, since the refresh was noticed — and the objects the last
+ *   masking addressed, whenever it ran; **what a person acknowledged**
  *   under the refresh's key.
  */
 
@@ -25,6 +26,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   AUDIT_TRAIL_LIMIT,
+  RECOVERY_MASK_OBJECTS_MAX,
   checkpointOrganizationIdSchema,
   guardTierOf,
   hostSchema,
@@ -176,6 +178,44 @@ function lastSuccessOf(
         one.action === action && one.outcome === 'success' && Date.parse(one.timestamp) > from,
     );
   return entry?.timestamp;
+}
+
+/** An object's API name, as the contract holds one. */
+const OBJECT_API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * The objects Masking is offered for the sandbox: those the newest masking
+ * run of the entry addressed — before its refresh too, since the copy brought
+ * the same objects back from production —, else those of the newest masking
+ * run on this machine, of any org. A run stopped before it masked anything
+ * names none, and is passed over. DataOps then opens on the template that
+ * masks them (`dataOpsLanding.ts`).
+ */
+function maskObjectsOf(
+  configStore: Pick<ConfigStore, 'get' | 'set'>,
+  entryId: string,
+): RecoveryFacts['maskObjects'] {
+  const runs = new AuditTrailStore(configStore)
+    .list({ limit: AUDIT_TRAIL_LIMIT })
+    .entries.filter((entry) => entry.action === 'anonymize_execute')
+    .map((entry) => ({
+      orgId: entry.orgId,
+      objects: [
+        ...new Set(
+          (Array.isArray(entry.objects) ? entry.objects : [])
+            .map((object) => object.objectApiName)
+            .filter(
+              (name): name is string => typeof name === 'string' && OBJECT_API_NAME.test(name),
+            ),
+        ),
+      ].slice(0, RECOVERY_MASK_OBJECTS_MAX),
+    }))
+    .filter((run) => run.objects.length > 0);
+  const own = runs.find((run) => run.orgId === entryId);
+  const chosen = own ?? runs[0];
+  return chosen !== undefined
+    ? { objects: chosen.objects, from: own !== undefined ? 'org' : 'machine' }
+    : undefined;
 }
 
 /** Whether a saved pipeline starts on the refresh of the entry. */
@@ -330,6 +370,7 @@ export async function recoveryFactsOf(
   const usersToBringBack = now !== undefined ? deps.usersListed?.(entryId, now) : undefined;
   const maskedAt = lastSuccessOf(deps.configStore, entryId, 'anonymize_execute', since);
   const frozenLoadedAt = lastSuccessOf(deps.configStore, entryId, 'frozen_load', since);
+  const maskObjects = maskObjectsOf(deps.configStore, entryId);
 
   const facts: RecoveryFacts = {
     orgId: entryId,
@@ -371,6 +412,7 @@ export async function recoveryFactsOf(
       : {}),
     ...(usersToBringBack !== undefined ? { usersToBringBack } : {}),
     ...(maskedAt !== undefined ? { maskedAt } : {}),
+    ...(maskObjects !== undefined ? { maskObjects } : {}),
     ...(frozenLoadedAt !== undefined ? { frozenLoadedAt } : {}),
     ...(frozenManifest !== undefined ? { frozenManifest } : {}),
     ...(inventoryBefore !== undefined ? { inventoryBefore } : {}),

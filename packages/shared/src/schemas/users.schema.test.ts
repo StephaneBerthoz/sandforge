@@ -200,6 +200,35 @@ describe('what a plan of sandforge users answers', () => {
       usersPlanAnswerSchema.safeParse({ ...plan, org: { ...ORG, kind: 'production' } }).success,
     ).toBe(false);
   });
+
+  it('names what an automation refused would set off, and what of it could not be read, beside its words', () => {
+    const refusal = {
+      code: 'AUTOMATION_NOT_ACCEPTED',
+      message: 'uat runs automation as users are written: User: Apex trigger UserTrigger',
+      automation: {
+        fired: [
+          { kind: 'trigger', name: 'UserTrigger', objectApiName: 'User', when: 'after' },
+          { kind: 'flow', name: 'Welcome a user', objectApiName: 'User', when: 'before' },
+        ],
+        unread: ['workflowRules'],
+      },
+    };
+    expect(usersPlanAnswerSchema.safeParse({ ...plan, refusals: [refusal] }).success).toBe(true);
+    const unknown = { ...refusal, automation: { fired: [], notDeduced: true } };
+    expect(usersPlanAnswerSchema.safeParse({ ...plan, refusals: [unknown] }).success).toBe(true);
+    for (const automation of [
+      { fired: [{ kind: 'assignmentRule', name: 'x', objectApiName: 'User', when: 'after' }] },
+      { fired: [], unread: ['conditions'] },
+      { fired: [], notDeduced: false },
+      { fired: [], reason: 'INSUFFICIENT_ACCESS' },
+    ]) {
+      expect(
+        usersPlanAnswerSchema.safeParse({ ...plan, refusals: [{ ...refusal, automation }] })
+          .success,
+        JSON.stringify(automation),
+      ).toBe(false);
+    }
+  });
 });
 
 describe('what an apply of sandforge users answers, and its removal', () => {

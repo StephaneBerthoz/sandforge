@@ -144,6 +144,12 @@ describe('useRecoveryLeads', () => {
     expect(result.current.afterRefresh).toEqual([]);
   });
 
+  it('leads with no sandbox whose recovery a person finished, until it is resumed', () => {
+    const { result } = renderHook(() => useRecoveryLeads([org('uat', 'Sandbox')]));
+    answer('req-1', { status: status('uat', { finishedAt: '2026-11-18T17:00:00.000Z' }) });
+    expect(result.current.afterRefresh).toEqual([]);
+  });
+
   it('reads no answer to a request it did not send, nor one without a status', () => {
     const { result } = renderHook(() => useRecoveryLeads([org('uat', 'Sandbox')]));
     answer('another-panel', { status: status('uat') });

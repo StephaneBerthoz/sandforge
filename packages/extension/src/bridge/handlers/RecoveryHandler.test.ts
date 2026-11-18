@@ -345,7 +345,35 @@ describe('RecoveryHandler — where the sandbox stands', () => {
     expect(configStore.get(`recovery:entry-uat:${BEFORE}`)).toMatchObject({
       finishedAt: '2026-11-18T16:00:00.000Z',
     });
+    status = recoveryStatusSchema.parse(
+      answer<{ status: unknown }>(deps, 'recovery:ack:response').status,
+    );
+    expect(status.finishedAt).toBe('2026-11-18T16:00:00.000Z');
     expect(told).toEqual(['entry-uat', 'entry-uat', 'entry-uat', 'entry-uat']);
+  });
+
+  it('resumes a recovery finished: its end taken back, its marks kept, the launcher told', async () => {
+    const deps = depsOf();
+    const handler = handlerOf(deps);
+    const told: string[] = [];
+    handler.onStatusChanged((entryId) => told.push(entryId));
+    configStore.set(
+      `recovery:entry-uat:${BEFORE}`,
+      { steps: { masking: 'skipped' }, finishedAt: '2026-11-18T15:00:00.000Z' },
+      'recovery',
+    );
+    expect((await statusOf(handler, deps)).finishedAt).toBe('2026-11-18T15:00:00.000Z');
+
+    await handler.handle(request('recovery:ack', { orgId: 'entry-uat', what: 'resume' }));
+    const status = recoveryStatusSchema.parse(
+      answer<{ status: unknown }>(deps, 'recovery:ack:response').status,
+    );
+    expect(status.finishedAt).toBeUndefined();
+    expect(status.steps.find((step) => step.id === 'masking')?.status).toBe('skipped');
+    expect(configStore.get(`recovery:entry-uat:${BEFORE}`)).toEqual({
+      steps: { masking: 'skipped' },
+    });
+    expect(told).toEqual(['entry-uat']);
   });
 
   it('refuses to mark done by hand a step that is deduced from what ran', async () => {
@@ -726,6 +754,54 @@ describe('RecoveryHandler — the audits and the note', () => {
     expect(note).toContain('   - Read closed, System email only or No access');
     status = await statusOf(handler, deps);
     expect(status.steps.find((step) => step.id === 'handoff')).toMatchObject({ status: 'done' });
+  });
+
+  it('opens the newest note again as it was written, and refuses one no longer kept', async () => {
+    const deps = depsOf();
+    const handler = handlerOf(deps);
+    await handler.handle(request('recovery:handoff:open', { orgId: 'entry-uat' }, 'req-open'));
+    expect(errorOf(deps)).toMatchObject({ code: 'NOTE_NOT_FOUND', step: 'handoff' });
+    expect(opened).toEqual([]);
+
+    await handler.handle(request('recovery:handoff', { orgId: 'entry-uat' }));
+    const { path } = answer<{ path: string }>(deps, 'recovery:handoff:response');
+    writeFileSync(path, 'kept as the person left it\n');
+    let status = await statusOf(handler, deps);
+    expect(status.handoffNote).toEqual({ writtenAt: '2026-11-18T16:00:00.000Z' });
+
+    await handler.handle(request('recovery:handoff:open', { orgId: 'entry-uat' }, 'req-open-2'));
+    expect(answer(deps, 'recovery:handoff:open:response')).toEqual({ orgId: 'entry-uat', path });
+    expect(opened).toEqual([path, path]);
+    // Opened, never written again.
+    expect(readFileSync(path, 'utf8')).toBe('kept as the person left it\n');
+
+    rmSync(path);
+    await handler.handle(request('recovery:handoff:open', { orgId: 'entry-uat' }, 'req-open-3'));
+    expect(errorOf(deps)).toMatchObject({ code: 'NOTE_NOT_FOUND', retryable: false });
+    status = await statusOf(handler, deps);
+    expect(status.handoffNote).toBeUndefined();
+  });
+
+  it('says an editor that would not open the note again, the note left as it is', async () => {
+    const deps = depsOf();
+    const handler = new RecoveryHandler(deps, {
+      journalDir: join(dir, 'journal'),
+      usersStore,
+      replayStore: { list: () => Promise.resolve([]) },
+      checkpointStore: (() => {
+        const opened = openCheckpointStore({
+          root: join(dir, 'checkpoints'),
+          locksDir: join(dir, 'locks'),
+        });
+        if (!('store' in opened)) throw new Error('no checkpoint store');
+        return opened.store;
+      })(),
+      openInEditor: () => Promise.reject(new Error('no editor in this window')),
+      now: () => new Date('2026-11-18T16:00:00.000Z'),
+    });
+    await handler.handle(request('recovery:handoff', { orgId: 'entry-uat' }));
+    await handler.handle(request('recovery:handoff:open', { orgId: 'entry-uat' }));
+    expect(errorOf(deps)).toMatchObject({ code: 'FAILED', step: 'handoff', retryable: true });
   });
 
   it('does not name the org now in a note while only production reported the refresh', async () => {

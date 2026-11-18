@@ -41,7 +41,7 @@ export interface RecoveryFacts {
   organizationId?: string;
   /** The refresh noticed last, as the page shows it. */
   refresh?: NonNullable<RecoveryStatus['refresh']>;
-  /** What a person skipped, marked done, or finished. */
+  /** What a person skipped, marked done, or finished, and when. */
   acks: RecoveryAcks;
   /** The newest checkpoint of the org before the refresh, taken to its end. */
   checkpointBefore?: NonNullable<RecoveryStatus['checkpointBefore']>;
@@ -55,6 +55,8 @@ export interface RecoveryFacts {
   usersToBringBack?: number;
   /** When a masking run of the sandbox since the refresh ended a success, the newest. */
   maskedAt?: string;
+  /** The objects the last masking of the sandbox, else of this machine, addressed. */
+  maskObjects?: NonNullable<RecoveryStatus['maskObjects']>;
   /** When a load of the frozen dataset into the sandbox since the refresh ended a success, the newest. */
   frozenLoadedAt?: string;
   frozenManifest?: NonNullable<RecoveryStatus['frozenManifest']>;
@@ -164,6 +166,8 @@ function preparationsOf(facts: RecoveryFacts): RecoveryPreparation[] {
 export function recoveryStatusOf(facts: RecoveryFacts): RecoveryStatus {
   const steps = stepsOf(facts);
   const { done, total } = recoveryProgressOf(steps);
+  // The objects Masking opens with are offered while there is something to mask.
+  const maskObjects = nothingCopied(facts) ? undefined : facts.maskObjects;
   return {
     orgId: facts.orgId,
     alias: facts.alias,
@@ -175,6 +179,10 @@ export function recoveryStatusOf(facts: RecoveryFacts): RecoveryStatus {
     ...(facts.checkpointBefore !== undefined ? { checkpointBefore: facts.checkpointBefore } : {}),
     ...(facts.frozenManifest !== undefined ? { frozenManifest: facts.frozenManifest } : {}),
     ...(facts.inventoryBefore !== undefined ? { inventoryBefore: facts.inventoryBefore } : {}),
+    ...(maskObjects !== undefined ? { maskObjects } : {}),
+    // A note kept is opened again whether the step was skipped or not.
+    ...(facts.handoffAt !== undefined ? { handoffNote: { writtenAt: facts.handoffAt } } : {}),
+    ...(facts.acks.finishedAt !== undefined ? { finishedAt: facts.acks.finishedAt } : {}),
     ...(facts.lastUsersRun !== undefined ? { lastUsersRun: facts.lastUsersRun } : {}),
     steps,
     beforeNextRefresh: preparationsOf(facts),

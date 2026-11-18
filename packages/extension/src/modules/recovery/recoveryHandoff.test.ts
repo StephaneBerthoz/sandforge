@@ -10,6 +10,7 @@ import {
   RECOVERY_HANDOFF_FOLDER,
   journalDirOf,
   lastHandoffOf,
+  newestHandoffOf,
   recoveryHandoffFolderOf,
   recoveryHandoffNoteOf,
   recoveryHandoffPathOf,
@@ -143,6 +144,18 @@ describe('the handoff note of Back into service', () => {
     writeFileSync(join(folder, 'notes.md'), '');
     expect(await lastHandoffOf(journal, AFTER)).toBe('2026-11-18T17:05:00.250Z');
     expect(await lastHandoffOf(journal, '00Dxx00000ZzZzZ')).toBeUndefined();
+  });
+
+  it('finds the newest note of the org now, where it is, to open it as it was written', async () => {
+    expect(await newestHandoffOf(journal, AFTER)).toBeUndefined();
+    const at = '2026-11-18T17:05:00.250Z';
+    const path = recoveryHandoffPathOf(journal, { organizationId: AFTER, at });
+    await writeRecoveryHandoff(
+      recoveryHandoffPathOf(journal, { organizationId: AFTER, at: '2026-11-18T16:00:00.000Z' }),
+      'older\n',
+    );
+    await writeRecoveryHandoff(path, 'newest\n');
+    expect(await newestHandoffOf(journal, `${AFTER}AAA`)).toEqual({ at, path });
   });
 
   it('keeps its files where SANDFORGE_JOURNAL_DIR says, else in .sandforge of the home', () => {

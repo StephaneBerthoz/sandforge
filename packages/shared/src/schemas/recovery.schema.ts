@@ -177,6 +177,15 @@ const countSchema = z.number().int().nonnegative();
 
 const reasonSchema = z.enum(RECOVERY_REASONS);
 
+/** An object's API name, namespaced ones included. */
+const objectApiNameSchema = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]*$/, { error: 'Not an object API name' })
+  .max(80);
+
+/** The most objects step 3 opens Masking with. */
+export const RECOVERY_MASK_OBJECTS_MAX = 200;
+
 /** A User Id, 15 or 18 characters. */
 const userIdSchema = z.string().regex(/^005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/, {
   error: 'Not a User Id',
@@ -287,6 +296,22 @@ export const recoveryStatusSchema = z
         jobs: countSchema,
       })
       .optional(),
+    /**
+     * The objects step 3 opens Masking with, picked: those the last masking
+     * of the sandbox addressed (`org`), else those of the last masking run on
+     * this machine (`machine`). Absent when none ran here, or the step does
+     * not apply.
+     */
+    maskObjects: z
+      .strictObject({
+        objects: z.array(objectApiNameSchema).min(1).max(RECOVERY_MASK_OBJECTS_MAX),
+        from: z.enum(['org', 'machine']),
+      })
+      .optional(),
+    /** The newest handoff note of the org the sandbox is now, kept on this machine: what Open opens again. */
+    handoffNote: z.strictObject({ writtenAt: instantSchema }).optional(),
+    /** When a person finished the recovery: the launcher shows it no more, until Resume. */
+    finishedAt: instantSchema.optional(),
     /** The last users run of the org the sandbox is now: what step 2 deduces from. */
     lastUsersRun: z
       .strictObject({
@@ -393,7 +418,10 @@ export type RecoveryAcks = z.infer<typeof recoveryAcksSchema>;
 
 // ─── What the page asks ──────────────────────────────────────────────────────
 
-/** `recovery:status`, `recovery:users:list`, `recovery:handoff`: the org asked about. */
+/**
+ * `recovery:status`, `recovery:users:list`, `recovery:handoff`,
+ * `recovery:handoff:open`: the org asked about.
+ */
 export const recoveryOrgPayloadSchema = z.strictObject({ orgId: entryIdSchema });
 
 /**
@@ -436,7 +464,11 @@ export const recoveryAuditPayloadSchema = z.strictObject({
   save: z.boolean(),
 });
 
-/** `recovery:ack`: a step skipped, marked done or cleared, or the recovery finished. */
+/**
+ * `recovery:ack`: a step skipped, marked done or cleared, the recovery
+ * finished, or resumed — its end taken back, the launcher leading with it
+ * again.
+ */
 export const recoveryAckPayloadSchema = z.discriminatedUnion('what', [
   z
     .strictObject({
@@ -450,6 +482,7 @@ export const recoveryAckPayloadSchema = z.discriminatedUnion('what', [
       if (why) ctx.addIssue({ code: 'custom', path: ['mark'], message: why });
     }),
   z.strictObject({ orgId: entryIdSchema, what: z.literal('finish') }),
+  z.strictObject({ orgId: entryIdSchema, what: z.literal('resume') }),
 ]);
 
 export type RecoveryOrgPayload = z.infer<typeof recoveryOrgPayloadSchema>;
@@ -506,8 +539,8 @@ export type RecoveryUsersList = z.infer<typeof recoveryUsersListSchema>;
  * Why a request of the page was not answered, by a code the page translates:
  * a malformed request, an org not registered or not connected, an org that is
  * not a sandbox, scratch org or Developer Edition — refused before anything is
- * read —, an org that changed between a simulation and its run, a stop, or a
- * failure.
+ * read —, an org that changed between a simulation and its run, a handoff
+ * note to open again that is no longer on this machine, a stop, or a failure.
  */
 export const RECOVERY_ERROR_CODES = [
   'INVALID_PAYLOAD',
@@ -515,6 +548,7 @@ export const RECOVERY_ERROR_CODES = [
   'NOT_CONNECTED',
   'NOT_A_DEVELOPMENT_ORG',
   'ORG_CHANGED',
+  'NOTE_NOT_FOUND',
   'CANCELLED',
   'FAILED',
 ] as const;

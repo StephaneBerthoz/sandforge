@@ -179,6 +179,36 @@ describe('recoveryStatusSchema', () => {
   it('refuses a key it does not name', () => {
     expect(refusalsOf(recoveryStatusSchema, { ...status(), restored: true })).toHaveLength(1);
   });
+
+  it('carries the objects Masking opens with, the note kept and the end of the recovery', () => {
+    expect(
+      refusalsOf(recoveryStatusSchema, {
+        ...status(),
+        maskObjects: { objects: ['Contact', 'Lead', 'acme__Patient__c'], from: 'org' },
+        handoffNote: { writtenAt: '2026-11-18T15:00:00.000Z' },
+        finishedAt: '2026-11-18T17:00:00.000Z',
+      }),
+    ).toEqual([]);
+    expect(
+      refusalsOf(recoveryStatusSchema, {
+        ...status(),
+        maskObjects: { objects: ['Contact'], from: 'machine' },
+      }),
+    ).toEqual([]);
+    for (const maskObjects of [
+      { objects: [], from: 'org' },
+      { objects: ['Contact.Email'], from: 'org' },
+      { objects: ['Contact'], from: 'template' },
+    ]) {
+      expect(
+        refusalsOf(recoveryStatusSchema, { ...status(), maskObjects }),
+        JSON.stringify(maskObjects),
+      ).toHaveLength(1);
+    }
+    expect(
+      refusalsOf(recoveryStatusSchema, { ...status(), handoffNote: { path: '/home/x/note.md' } }),
+    ).not.toEqual([]);
+  });
 });
 
 describe('the acknowledgements a person keeps', () => {
@@ -212,6 +242,13 @@ describe('the acknowledgements a person keeps', () => {
     expect(refusalsOf(recoveryAckPayloadSchema, { orgId: 'entry-uat', what: 'finish' })).toEqual(
       [],
     );
+    // A recovery finished is resumed: the launcher leads with it again.
+    expect(refusalsOf(recoveryAckPayloadSchema, { orgId: 'entry-uat', what: 'resume' })).toEqual(
+      [],
+    );
+    expect(
+      refusalsOf(recoveryAckPayloadSchema, { orgId: 'entry-uat', what: 'resume', step: 'users' }),
+    ).toHaveLength(1);
     expect(
       refusalsOf(recoveryAckPayloadSchema, {
         orgId: 'entry-uat',
@@ -352,6 +389,15 @@ describe('recoveryErrorPayloadSchema', () => {
         code: 'NOT_A_DEVELOPMENT_ORG',
         message: 'uat is a production org: nothing was read',
         retryable: false,
+      }),
+    ).toEqual([]);
+    // A note opened again that is no longer on this machine.
+    expect(
+      refusalsOf(recoveryErrorPayloadSchema, {
+        code: 'NOTE_NOT_FOUND',
+        message: 'No handoff note of uat is kept on this machine any more.',
+        retryable: false,
+        step: 'handoff',
       }),
     ).toEqual([]);
     expect(

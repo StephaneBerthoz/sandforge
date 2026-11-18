@@ -124,6 +124,27 @@ describe('SandboxRecovery', () => {
     });
   });
 
+  it('opens Masking with the objects of the last masking of the sandbox picked, and names them', () => {
+    open(refreshedStatus({ maskObjects: { objects: ['Contact', 'Lead'], from: 'org' } }));
+    expect(screen.getByTestId('recovery-mask-objects')).toHaveTextContent(
+      'Opens with Contact, Lead picked: the objects of the last masking of UAT.',
+    );
+    fireEvent.click(screen.getByTestId('recovery-open-masking'));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'dataops',
+      dataopsTab: 'anonymize',
+      targetOrgId: 'org-uat',
+      maskObjects: ['Contact', 'Lead'],
+    });
+  });
+
+  it('says the objects come from the last masking on this machine when the sandbox had none', () => {
+    open(refreshedStatus({ maskObjects: { objects: ['Case'], from: 'machine' } }));
+    expect(screen.getByTestId('recovery-mask-objects')).toHaveTextContent(
+      'Opens with Case picked: the objects of the last masking on this machine.',
+    );
+  });
+
   it('opens the replay of the checkpoint taken before the refresh', () => {
     open();
     fireEvent.click(screen.getByTestId('recovery-open-replay'));
@@ -290,6 +311,50 @@ describe('SandboxRecovery', () => {
     expect(host.current?.sent('recovery:status')).toHaveLength(2);
   });
 
+  it('opens the note kept again as it was left, and offers to write it anew', () => {
+    open(
+      refreshedStatus(
+        { handoffNote: { writtenAt: '2026-11-18T16:00:00.000Z' } },
+        { handoff: { reason: 'ranAfterRefresh', at: '2026-11-18T16:00:00.000Z' } },
+      ),
+    );
+    expect(screen.getByTestId('recovery-write-note')).toHaveTextContent(
+      'Write it again and open it',
+    );
+    fireEvent.click(screen.getByTestId('recovery-open-note'));
+    expect(host.current?.lastPayload('recovery:handoff:open')).toEqual({ orgId: 'org-uat' });
+    expect(host.current?.sent('recovery:handoff')).toEqual([]);
+    act(() =>
+      host.current?.answer('recovery:handoff:open', 'recovery:handoff:open:response', {
+        orgId: 'org-uat',
+        path: '/home/someone/.sandforge/handoff/_recovery/note.md',
+      }),
+    );
+    expect(screen.getByTestId('recovery-note-opened')).toHaveTextContent(
+      'Opened /home/someone/.sandforge/handoff/_recovery/note.md in the editor.',
+    );
+  });
+
+  it('says a note no longer kept, by its code, and that it can be written again', () => {
+    open(refreshedStatus({ handoffNote: { writtenAt: '2026-11-18T16:00:00.000Z' } }));
+    fireEvent.click(screen.getByTestId('recovery-open-note'));
+    act(() =>
+      host.current?.fail('recovery:handoff:open', {
+        code: 'NOTE_NOT_FOUND',
+        message: 'No handoff note of UAT is kept on this machine',
+      }),
+    );
+    expect(screen.getByTestId('recovery-note-error')).toHaveTextContent(
+      'The handoff note of UAT is no longer on this machine: write it again.',
+    );
+  });
+
+  it('offers no Open while no note is kept', () => {
+    open();
+    expect(screen.queryByTestId('recovery-open-note')).toBeNull();
+    expect(screen.getByTestId('recovery-write-note')).toHaveTextContent('Write the note');
+  });
+
   it('keeps what the next refresh needs: a checkpoint Before refresh, kept until deleted, and the pipeline', () => {
     open();
     fireEvent.click(screen.getByTestId('recovery-before-beforeRefreshCheckpoint-action'));
@@ -321,14 +386,32 @@ describe('SandboxRecovery', () => {
 
   it('finishes the recovery, and says the launcher no longer leads with it', () => {
     open();
+    expect(screen.queryByTestId('recovery-finished')).toBeNull();
     fireEvent.click(screen.getByTestId('recovery-finish'));
     expect(host.current?.lastPayload('recovery:ack')).toEqual({ orgId: 'org-uat', what: 'finish' });
     act(() =>
-      host.current?.answer('recovery:ack', 'recovery:ack:response', { status: refreshedStatus() }),
+      host.current?.answer('recovery:ack', 'recovery:ack:response', {
+        status: refreshedStatus({ finishedAt: '2026-11-18T17:00:00.000Z' }),
+      }),
     );
     expect(screen.getByTestId('recovery-finished')).toHaveTextContent(
       'Finished: the launcher and Home no longer lead with UAT.',
     );
+    expect(screen.queryByTestId('recovery-finish')).toBeNull();
+  });
+
+  it('opened again on a recovery finished, says when, and resumes it', () => {
+    open(refreshedStatus({ finishedAt: '2026-11-18T17:00:00.000Z' }));
+    expect(screen.getByTestId('recovery-finished-on')).toHaveTextContent(/^Finished on .*2026/);
+    expect(screen.getByTestId('recovery-finished')).toBeInTheDocument();
+    expect(screen.queryByTestId('recovery-finish')).toBeNull();
+    fireEvent.click(screen.getByTestId('recovery-resume'));
+    expect(host.current?.lastPayload('recovery:ack')).toEqual({ orgId: 'org-uat', what: 'resume' });
+    act(() =>
+      host.current?.answer('recovery:ack', 'recovery:ack:response', { status: refreshedStatus() }),
+    );
+    expect(screen.queryByTestId('recovery-finished-on')).toBeNull();
+    expect(screen.getByTestId('recovery-finish')).toBeInTheDocument();
   });
 
   it('words a refused mark by its code', () => {

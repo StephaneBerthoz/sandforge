@@ -324,11 +324,47 @@ export type UsersAddress = z.infer<typeof usersAddressSchema>;
 const USERS_MAX_CHANGES =
   4 + 2 * (USERS_MAX_PERMISSION_SETS + USERS_MAX_PERMISSION_SET_GROUPS + USERS_MAX_GROUPS);
 
-/** What a refusal says: its code, a pipeline's word, and its words, with the user it is of. */
+/** What sets something off as a user or its login is written: a flow, a trigger, a process, a rule. */
+export const USERS_FIRED_KINDS = ['flow', 'trigger', 'process', 'workflowRule'] as const;
+
+/** The parts of what an org runs that, unread, leave what fires unknown. */
+export const USERS_AUTOMATION_PARTS = ['flows', 'triggers', 'processes', 'workflowRules'] as const;
+
+/** The most a refusal names of what fires. */
+export const USERS_FIRED_MAX = 200;
+
+/** One thing that fires as a run writes a row of its object, and when: before the save, after, or both. */
+const usersFiredSchema = z.strictObject({
+  kind: z.enum(USERS_FIRED_KINDS),
+  /** The flow's, process's or rule's label, or the trigger's name. */
+  name: z.string().min(1).max(255),
+  objectApiName: apiNameOf('An object is named by its API name, as User'),
+  when: z.enum(['before', 'after', 'beforeAndAfter']),
+});
+
+/**
+ * What a refusal of the automation names, for a page to word it in its own
+ * language: what fires, in the order the org runs it, and why that list may
+ * fall short — `unread`, the parts the org would not let be read; or
+ * `notDeduced`, nothing of it read, so nothing is deduced of what fires.
+ */
+export const usersAutomationSchema = z.strictObject({
+  fired: z.array(usersFiredSchema).max(USERS_FIRED_MAX),
+  unread: z.array(z.enum(USERS_AUTOMATION_PARTS)).min(1).max(4).optional(),
+  notDeduced: z.literal(true).optional(),
+});
+
+export type UsersAutomation = z.infer<typeof usersAutomationSchema>;
+
+/**
+ * What a refusal says: its code, a pipeline's word, and its words, with the
+ * user it is of; a refusal of the automation, what fires beside.
+ */
 const usersRefusalSchema = z.strictObject({
   code: z.string().regex(/^[A-Z][A-Z_]{1,40}$/),
   message: z.string().min(1).max(4_000),
   username: usersUsernameSchema.optional(),
+  automation: usersAutomationSchema.optional(),
 });
 
 /** The org the script reached: never a production org. */

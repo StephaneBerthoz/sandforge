@@ -645,6 +645,7 @@ import type {
   RecoveryUsersConfigImportRequest,
   RecoveryAuditRequest,
   RecoveryHandoffRequest,
+  RecoveryHandoffOpenRequest,
   RecoveryAckRequest,
   RecoveryStatusResponse,
   RecoveryUsersListResponse,
@@ -656,6 +657,7 @@ import type {
   RecoveryUsersConfigImportResponse,
   RecoveryAuditResponse,
   RecoveryHandoffResponse,
+  RecoveryHandoffOpenResponse,
   RecoveryAckResponse,
   RecoveryErrorResponse,
 } from './recovery.messages.js';
@@ -937,6 +939,7 @@ export type WebViewToExtensionMessage =
   | RecoveryUsersConfigImportRequest
   | RecoveryAuditRequest
   | RecoveryHandoffRequest
+  | RecoveryHandoffOpenRequest
   | RecoveryAckRequest;
 
 /** Message from Extension to WebView (responses / events) */
@@ -1292,5 +1295,6 @@ export type ExtensionToWebViewMessage =
   | RecoveryUsersConfigImportResponse
   | RecoveryAuditResponse
   | RecoveryHandoffResponse
+  | RecoveryHandoffOpenResponse
   | RecoveryAckResponse
   | RecoveryErrorResponse;

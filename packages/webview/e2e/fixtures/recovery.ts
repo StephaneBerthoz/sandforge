@@ -150,6 +150,42 @@ export function planOfAna(): UsersPlanAnswer {
   });
 }
 
+/**
+ * What a simulation of Bo answers on a sandbox that runs automation on User:
+ * his activation and unfreezing would set off a trigger and a flow, and its
+ * workflow rules could not be read.
+ */
+export function planOfBoWithAutomation(): UsersPlanAnswer {
+  return usersPlanAnswerSchema.parse({
+    org: ORG,
+    users: [
+      {
+        username: BO,
+        userId: '005xx0000010002AAA',
+        changes: [
+          { what: 'active', from: false, to: true },
+          { what: 'frozen', from: true, to: false },
+        ],
+      },
+    ],
+    emailsToPeople: 0,
+    apiRequests: 5,
+    refusals: [
+      {
+        code: 'AUTOMATION_NOT_ACCEPTED',
+        message: 'The sandbox runs automation as users are written',
+        automation: {
+          fired: [
+            { kind: 'trigger', name: 'UserTrigger', objectApiName: 'User', when: 'after' },
+            { kind: 'flow', name: 'Welcome a user', objectApiName: 'User', when: 'after' },
+          ],
+          unread: ['workflowRules'],
+        },
+      },
+    ],
+  });
+}
+
 /** What the run of Ana answers: her address asked back, awaiting her click. */
 export function appliedAna(): UsersApplyAnswer {
   return usersApplyAnswerSchema.parse({

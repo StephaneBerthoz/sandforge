@@ -20,7 +20,7 @@
  * ```
  *
  * The note of the org the sandbox is now is what tells the page its last
- * step is done.
+ * step is done, and what its Open opens again, unwritten.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -90,6 +90,35 @@ function instantOf(stamp: string): string {
 }
 
 /**
+ * The newest note of the org: when it was written, and where it is — what
+ * Open opens again, as it was left. None when no note of it is kept, or the
+ * folder is not there.
+ */
+export async function newestHandoffOf(
+  journalDir: string,
+  organizationId: string,
+): Promise<{ at: string; path: string } | undefined> {
+  const key = organizationKey(organizationId);
+  const folder = recoveryHandoffFolderOf(journalDir);
+  let names: string[];
+  try {
+    names = await readdir(folder);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw err;
+  }
+  const notes = names.flatMap((name) => {
+    const match = NOTE_FILE.exec(name);
+    return match?.[1] !== undefined && match[2] === key ? [{ stamp: match[1], name }] : [];
+  });
+  const newest = notes.sort((a, b) => (a.stamp < b.stamp ? -1 : 1)).at(-1);
+  return newest !== undefined
+    ? { at: instantOf(newest.stamp), path: join(folder, newest.name) }
+    : undefined;
+}
+
+/**
  * When the newest note of the org was written: none when no note of it is
  * kept, or the folder is not there.
  */
@@ -97,21 +126,7 @@ export async function lastHandoffOf(
   journalDir: string,
   organizationId: string,
 ): Promise<string | undefined> {
-  const key = organizationKey(organizationId);
-  let names: string[];
-  try {
-    names = await readdir(recoveryHandoffFolderOf(journalDir));
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
-    throw err;
-  }
-  const stamps = names.flatMap((name) => {
-    const match = NOTE_FILE.exec(name);
-    return match?.[1] !== undefined && match[2] === key ? [match[1]] : [];
-  });
-  const newest = stamps.sort().at(-1);
-  return newest !== undefined ? instantOf(newest) : undefined;
+  return (await newestHandoffOf(journalDir, organizationId))?.at;
 }
 
 /** A step, as the note names it. */

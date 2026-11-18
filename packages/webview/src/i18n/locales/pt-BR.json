@@ -8867,6 +8867,7 @@
     "refreshedOn": "Atualizada em {{date}}",
     "notRefreshed": "Nenhuma atualização detectada",
     "stepsDone": "{{done}}/{{total}} etapas",
+    "finishedOn": "Concluído em {{date}}",
     "progressLabel": "Etapas de {{alias}} feitas ou ignoradas",
     "notProven": {
       "title": "Ainda não comprovado em uma sandbox atualizada",
@@ -8887,6 +8888,7 @@
     "finish": "Concluir",
     "finishHint": "Conclua quando {{alias}} estiver de volta em serviço: o lançador e o Início deixam de destacá-la.",
     "finished": "Concluído: o lançador e o Início não destacam mais {{alias}}.",
+    "resume": "Retomar",
     "step": {
       "refresh": "Atualização detectada",
       "users": "Usuários",
@@ -8985,6 +8987,7 @@
       "keepInventory": "Guardar o inventário para a próxima atualização",
       "writeNote": "Escrever a nota",
       "writeNoteAgain": "Reescrever e abrir",
+      "openNote": "Abrir a nota",
       "openSetup": "Abrir o Setup",
       "openSetupFor": "Abrir o Setup: {{name}}"
     },
@@ -8993,7 +8996,12 @@
       "beforeRefresh": "Antes da atualização"
     },
     "handoff": {
-      "written": "Escrita em {{path}} e aberta no editor."
+      "written": "Escrita em {{path}} e aberta no editor.",
+      "opened": "{{path}} aberta no editor."
+    },
+    "masking": {
+      "objectsOfOrg": "Abre com {{objects}} marcados: os objetos do último mascaramento de {{alias}}.",
+      "objectsOfMachine": "Abre com {{objects}} marcados: os objetos do último mascaramento nesta máquina."
     },
     "audit": {
       "unread": "Não foi possível ler, o que não diz nada em nenhum sentido: leia novamente ou verifique no Setup.",
@@ -9065,6 +9073,7 @@
       "NOT_CONNECTED": "{{alias}} não está conectada: reconecte-a na página Organizações e tente novamente.",
       "NOT_A_DEVELOPMENT_ORG": "{{alias}} não é uma sandbox, nem uma scratch org, nem uma org Developer Edition: nada dela foi lido, e nada é gravado nela.",
       "ORG_CHANGED": "{{alias}} mudou desde a simulação: simule novamente e depois aplique.",
+      "NOTE_NOT_FOUND": "A nota de passagem de {{alias}} não está mais nesta máquina: escreva-a novamente.",
       "CANCELLED": "Parado: o que foi feito antes da parada está listado.",
       "FAILED": "Falhou: o canal de saída SandForge diz por quê."
     },
@@ -9155,6 +9164,27 @@
         "groupRemoved": "sai do grupo {{name}}",
         "queueAdded": "entra na fila {{name}}",
         "queueRemoved": "sai da fila {{name}}"
+      },
+      "automation": {
+        "fired": "{{kind}} {{name}} em {{object}}, {{when}}",
+        "kind": {
+          "flow": "Flow",
+          "trigger": "Gatilho do Apex",
+          "process": "Processo do Process Builder",
+          "workflowRule": "Regra de fluxo de trabalho"
+        },
+        "when": {
+          "before": "antes de salvar",
+          "after": "depois de salvar",
+          "beforeAndAfter": "antes e depois de salvar"
+        },
+        "unread": {
+          "flows": "Não foi possível ler os Flows de {{alias}}: não se sabe se algum é iniciado quando um usuário é gravado.",
+          "triggers": "Não foi possível ler os gatilhos do Apex de {{alias}}: não se sabe se algum é executado quando um usuário é gravado.",
+          "processes": "Não foi possível ler os processos do Process Builder de {{alias}}: não se sabe se algum é iniciado quando um usuário é gravado.",
+          "workflowRules": "Não foi possível ler as regras de fluxo de trabalho de {{alias}}: não se sabe se alguma é disparada quando um usuário é gravado."
+        },
+        "notDeduced": "Não foi possível ler o que {{alias}} executa quando um usuário é gravado: não se sabe o que seria disparado."
       }
     }
   },

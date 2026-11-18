@@ -1397,6 +1397,7 @@ export class ExtensionHandlers {
         'recovery:users:config:import',
         'recovery:audit',
         'recovery:handoff',
+        'recovery:handoff:open',
         'recovery:ack',
       ],
       this.recoveryHandler,

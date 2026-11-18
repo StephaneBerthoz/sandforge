@@ -4,6 +4,7 @@ import type {
   RecoveryStatus,
   RecoveryStepId,
   RecoveryUser,
+  UsersAutomation,
   UsersConfig,
   UsersConfigUser,
   UsersPlanAnswer,
@@ -384,6 +385,17 @@ export function planVerdictOf(plan: UsersPlanAnswer): UsersPlanVerdict {
     blocking,
     changes: plan.users.some((user) => user.changes.length > 0),
   };
+}
+
+/**
+ * What a simulation says the org would set off as the users are written, and
+ * why that may not be all: what its refusal of the automation names, which
+ * the page words by kind. None when the org runs nothing on them, or it is
+ * accepted.
+ */
+export function automationOfPlan(plan: UsersPlanAnswer): UsersAutomation | undefined {
+  return (plan.refusals ?? []).find((refusal) => refusal.code === 'AUTOMATION_NOT_ACCEPTED')
+    ?.automation;
 }
 
 /** The refusal codes the page words; any other is named by its code. */

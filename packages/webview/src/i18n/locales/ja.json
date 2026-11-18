@@ -8285,6 +8285,7 @@
     "refreshedOn": "{{date}} にリフレッシュ",
     "notRefreshed": "リフレッシュは検出されていません",
     "stepsDone": "{{done}}/{{total}} 手順",
+    "finishedOn": "{{date}} に終了",
     "progressLabel": "{{alias}} の完了またはスキップした手順",
     "notProven": {
       "title": "リフレッシュ済み Sandbox ではまだ検証されていません",
@@ -8305,6 +8306,7 @@
     "finish": "終了",
     "finishHint": "{{alias}} の運用が再開したら終了してください: ランチャーとホームはこの組織を先頭に表示しなくなります。",
     "finished": "終了しました: ランチャーとホームは {{alias}} を先頭に表示しなくなりました。",
+    "resume": "再開",
     "step": {
       "refresh": "リフレッシュを検出",
       "users": "ユーザー",
@@ -8403,6 +8405,7 @@
       "keepInventory": "次のリフレッシュ用に一覧を保存",
       "writeNote": "メモを書く",
       "writeNoteAgain": "書き直して開く",
+      "openNote": "メモを開く",
       "openSetup": "Setup を開く",
       "openSetupFor": "Setup を開く: {{name}}"
     },
@@ -8411,7 +8414,12 @@
       "beforeRefresh": "リフレッシュ前"
     },
     "handoff": {
-      "written": "{{path}} に書き込み、エディターで開きました。"
+      "written": "{{path}} に書き込み、エディターで開きました。",
+      "opened": "{{path}} をエディターで開きました。"
+    },
+    "masking": {
+      "objectsOfOrg": "{{objects}} を選択した状態で開きます: {{alias}} の前回のマスキングのオブジェクトです。",
+      "objectsOfMachine": "{{objects}} を選択した状態で開きます: このマシンでの前回のマスキングのオブジェクトです。"
     },
     "audit": {
       "unread": "読み取れませんでした。どちらとも判断できません: 再度読み取るか、Setup で確認してください。",
@@ -8479,6 +8487,7 @@
       "NOT_CONNECTED": "{{alias}} は接続されていません: 組織ページで再接続してから、もう一度お試しください。",
       "NOT_A_DEVELOPMENT_ORG": "{{alias}} は Sandbox、スクラッチ組織、Developer Edition 組織のいずれでもありません: 何も読み取っておらず、何も書き込みません。",
       "ORG_CHANGED": "シミュレーション後に {{alias}} が変わりました: もう一度シミュレーションしてから適用してください。",
+      "NOTE_NOT_FOUND": "{{alias}} の引き継ぎメモはこのマシンにもうありません: もう一度書いてください。",
       "CANCELLED": "停止しました: 停止前に行われた内容を一覧表示しています。",
       "FAILED": "失敗しました: SandForge の出力チャネルに理由が表示されます。"
     },
@@ -8561,6 +8570,27 @@
         "groupRemoved": "グループ {{name}} から脱退",
         "queueAdded": "キュー {{name}} に参加",
         "queueRemoved": "キュー {{name}} から脱退"
+      },
+      "automation": {
+        "fired": "{{object}} の {{kind}} {{name}}（{{when}}）",
+        "kind": {
+          "flow": "フロー",
+          "trigger": "Apex トリガー",
+          "process": "Process Builder プロセス",
+          "workflowRule": "ワークフロールール"
+        },
+        "when": {
+          "before": "保存前",
+          "after": "保存後",
+          "beforeAndAfter": "保存前と保存後"
+        },
+        "unread": {
+          "flows": "{{alias}} のフローを読み取れませんでした: ユーザーの書き込み時にいずれかが開始されるかは不明です。",
+          "triggers": "{{alias}} の Apex トリガーを読み取れませんでした: ユーザーの書き込み時にいずれかが実行されるかは不明です。",
+          "processes": "{{alias}} の Process Builder プロセスを読み取れませんでした: ユーザーの書き込み時にいずれかが開始されるかは不明です。",
+          "workflowRules": "{{alias}} のワークフロールールを読み取れませんでした: ユーザーの書き込み時にいずれかが起動されるかは不明です。"
+        },
+        "notDeduced": "ユーザーの書き込み時に {{alias}} が実行するものを読み取れませんでした: 何が起動されるかは不明です。"
       }
     }
   },

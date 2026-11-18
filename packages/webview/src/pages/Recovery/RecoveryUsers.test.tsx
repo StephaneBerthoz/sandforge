@@ -212,6 +212,68 @@ describe('RecoveryUsers', () => {
     expect(screen.getByTestId('recovery-users-apply')).toBeDisabled();
   });
 
+  it('lists under its acceptance what the automation would set off, by kind, and what could not be read', () => {
+    open();
+    simulateAna(
+      planOfAna({
+        emailsToPeople: 0,
+        refusals: [
+          {
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            message: 'UAT runs automation as users are written: User: Apex trigger UserTrigger',
+            automation: {
+              fired: [
+                { kind: 'trigger', name: 'UserTrigger', objectApiName: 'User', when: 'after' },
+                {
+                  kind: 'workflowRule',
+                  name: 'Notify the manager',
+                  objectApiName: 'User',
+                  when: 'beforeAndAfter',
+                },
+              ],
+              unread: ['flows'],
+            },
+          },
+        ],
+      }),
+    );
+    const listed = screen.getByTestId('recovery-users-automation');
+    expect(listed).toHaveTextContent('Apex trigger UserTrigger on User, after save');
+    expect(listed).toHaveTextContent(
+      'Workflow rule Notify the manager on User, before and after save',
+    );
+    expect(listed).toHaveTextContent(
+      'The flows of UAT could not be read: whether one starts as a user is written is not known.',
+    );
+    // The English of the extension is for its log.
+    expect(listed).not.toHaveTextContent('runs automation as users are written');
+    expect(screen.getByTestId('recovery-users-apply')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('recovery-users-acceptAutomation').querySelector('input')!);
+    expect(screen.getByTestId('recovery-users-apply')).toBeEnabled();
+  });
+
+  it('says when nothing of what the org runs could be read, so nothing of it is known', () => {
+    open();
+    simulateAna(
+      planOfAna({
+        emailsToPeople: 0,
+        refusals: [
+          {
+            code: 'AUTOMATION_NOT_ACCEPTED',
+            message: 'What UAT runs as users are written could not be read (INVALID_SESSION_ID)',
+            automation: { fired: [], notDeduced: true },
+          },
+        ],
+      }),
+    );
+    expect(screen.getByTestId('recovery-users-automation')).toHaveTextContent(
+      'What UAT runs as a user is written could not be read: what would fire is not known.',
+    );
+    expect(screen.getByTestId('recovery-users-automation')).not.toHaveTextContent(
+      'INVALID_SESSION_ID',
+    );
+  });
+
   it('asks again, by its words, an org that changed since the simulation', () => {
     open();
     simulateAna();

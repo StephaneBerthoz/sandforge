@@ -259,6 +259,36 @@ describe('recoveryStatusOf', () => {
     });
   });
 
+  it('says a note is kept, which Open opens again, skipped or not', () => {
+    expect(recoveryStatusOf(facts()).handoffNote).toBeUndefined();
+    const kept = recoveryStatusOf(
+      facts({
+        handoffAt: '2026-11-18T16:00:00.000Z',
+        acks: { steps: { handoff: 'skipped' } },
+      }),
+    );
+    expect(kept.handoffNote).toEqual({ writtenAt: '2026-11-18T16:00:00.000Z' });
+  });
+
+  it('offers Masking the objects of the last masking, while the step applies', () => {
+    const maskObjects = { objects: ['Contact', 'Lead'], from: 'org' as const };
+    expect(recoveryStatusOf(facts({ maskObjects })).maskObjects).toEqual(maskObjects);
+    expect(recoveryStatusOf(facts()).maskObjects).toBeUndefined();
+    // A Developer sandbox copied nothing to mask.
+    expect(
+      recoveryStatusOf(facts({ maskObjects, sandboxType: 'Developer' })).maskObjects,
+    ).toBeUndefined();
+  });
+
+  it('says when the recovery was finished, until it is resumed', () => {
+    expect(recoveryStatusOf(facts()).finishedAt).toBeUndefined();
+    const finished = recoveryStatusOf(
+      facts({ acks: { steps: {}, finishedAt: '2026-11-18T17:00:00.000Z' } }),
+    );
+    expect(finished.finishedAt).toBe('2026-11-18T17:00:00.000Z');
+    expect(recoveryStatusSchema.safeParse(finished).success).toBe(true);
+  });
+
   it('keeps for the next refresh a checkpoint kept until deleted, the list, the inventory and a pipeline', () => {
     const status = recoveryStatusOf(
       facts({

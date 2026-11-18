@@ -29,12 +29,15 @@
 
 import type { Connection } from 'jsforce';
 import {
+  USERS_AUTOMATION_PARTS,
+  USERS_FIRED_MAX,
   USERS_MAX,
   firedOnWriteOf,
   isDevelopmentOrg,
   type ForgeFiredOnWrite,
   type ForgeTargetAutomation,
   type OrgTypeAndEdition,
+  type UsersAutomation,
   type UsersConfigUser,
   type UsersPlanAnswer,
 } from '@sandforge/shared';
@@ -327,13 +330,47 @@ export function firedOf(read: UsersAutomationRead): ForgeFiredOnWrite[] {
   return read.kind === 'read' ? firedOnWriteOf(read.automation, 'update') : [];
 }
 
+/** Whether `part` is one whose read, refused, leaves what fires unknown. */
+function hidesWhatFires(part: string): part is (typeof USERS_AUTOMATION_PARTS)[number] {
+  return (USERS_AUTOMATION_PARTS as readonly string[]).includes(part);
+}
+
+/**
+ * What a refusal of the automation names for a page, which words it in its
+ * own language: what fires, and why that may not be all — the parts the org
+ * would not let be read, or nothing read at all. Never the org's own answer,
+ * which is English and goes to the refusal's words.
+ */
+export function automationNamedOf(read: UsersAutomationRead): UsersAutomation | undefined {
+  if (read.kind === 'none') return undefined;
+  if (read.kind === 'unread') return { fired: [], notDeduced: true };
+  const fired = firedOf(read)
+    .filter((entry) => entry.name !== '')
+    .slice(0, USERS_FIRED_MAX)
+    .map(({ kind, name, objectApiName, when }) => ({
+      kind,
+      name: name.slice(0, 255),
+      objectApiName,
+      when,
+    }));
+  const unread = [
+    ...new Set(
+      automationUnreadOf(read.automation)
+        .map(({ part }) => part)
+        .filter(hidesWhatFires),
+    ),
+  ];
+  return { fired, ...(unread.length > 0 ? { unread } : {}) };
+}
+
 /** Whose words a refusal of the automation names what lifts it in: a command line's, or a page's. */
 export type UsersAutomationVoice = 'flags' | 'page';
 
 /**
  * Why a run, or a removal, will not write without its automation accepted:
- * what fires, named, or what could not be read. Nothing when nothing fires
- * and everything was read, or when it is accepted.
+ * what fires, named, or what could not be read — in words, and by kind, name
+ * and object for a page ({@link automationNamedOf}). Nothing when nothing
+ * fires and everything was read, or when it is accepted.
  */
 export function usersAutomationRefusal(
   read: UsersAutomationRead,
@@ -349,12 +386,14 @@ export function usersAutomationRefusal(
         `automation off in ${orgName} first.`
       : 'Nothing was written. Add --accept-automation to write all the same (accept: { automation: ' +
         `true } on the users resource of sandforge.yaml), or turn that automation off in ${orgName} first.`;
+  const automation = automationNamedOf(read);
   if (read.kind === 'unread') {
     return {
       code: AUTOMATION_NOT_ACCEPTED,
       message:
         `What ${orgName} runs as ${writes} could not be read (${read.reason}), so what fires is ` +
         `not known. ${lifted}`,
+      ...(automation !== undefined ? { automation } : {}),
     };
   }
   const fired = firedOf(read);
@@ -373,7 +412,11 @@ export function usersAutomationRefusal(
     );
   }
   parts.push(lifted);
-  return { code: AUTOMATION_NOT_ACCEPTED, message: parts.join(' ') };
+  return {
+    code: AUTOMATION_NOT_ACCEPTED,
+    message: parts.join(' '),
+    ...(automation !== undefined ? { automation } : {}),
+  };
 }
 
 /** The requests a read of the automation sent. */
