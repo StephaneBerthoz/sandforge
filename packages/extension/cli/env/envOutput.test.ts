@@ -265,6 +265,45 @@ describe('what an apply created, read back', () => {
       `    ${OUTPUT_MASK_WHY}`,
     ]);
   });
+
+  it('names a sandbox by its My Domain on its first line, as its plan does, from the host its state keeps', async () => {
+    const host = 'acme--uat.sandbox.my.salesforce.com';
+    const kept = stateOf({});
+    const sandbox: EnvState = { ...kept, org: { ...kept.org, kind: 'sandbox', host } };
+
+    const { output } = await outputOf(sandbox, deps());
+
+    expect(output.org).toEqual({
+      organizationId: ORG_ID,
+      kind: 'sandbox',
+      alias: 'pool-1',
+      host,
+    });
+    expect(outputLines(output)[0]).toBe(
+      `case-flow on pool-1 (sandbox acme--uat, ${ORG_ID}): state serial 4, written ${kept.updatedAt}`,
+    );
+    // A sandbox listed by its Id keeps no host, and a scratch org's host is
+    // no sandbox's My Domain: each is named by its kind alone.
+    const byId: EnvState = { ...kept, org: { ...kept.org, kind: 'sandbox' } };
+    const lines = [
+      outputLines((await outputOf(byId, deps())).output)[0],
+      outputLines(
+        (
+          await outputOf(
+            {
+              ...kept,
+              org: { ...kept.org, host: 'acme-dev-ed.scratch.my.salesforce.com' },
+            },
+            deps(),
+          )
+        ).output,
+      )[0],
+    ];
+    expect(lines).toEqual([
+      `case-flow on pool-1 (sandbox, ${ORG_ID}): state serial 4, written ${kept.updatedAt}`,
+      `case-flow on pool-1 (scratch, ${ORG_ID}): state serial 4, written ${kept.updatedAt}`,
+    ]);
+  });
 });
 
 describe('the state the line names', () => {

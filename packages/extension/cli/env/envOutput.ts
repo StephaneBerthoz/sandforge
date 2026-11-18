@@ -44,6 +44,7 @@ import { readUsersApply, usersSetUpOf } from './kinds/users.js';
 import { dependencyOrder } from './envPlan.js';
 import { createdByRun, type EnvReferenceDeps } from './envReferences.js';
 import type { EnvStateListing } from './envState.js';
+import { sandboxMyDomainOf } from './envTargetHost.js';
 
 /** What a resource a destroy took back says. */
 export const OUTPUT_DESTROYED_WHY = "taken back by a destroy: none of the org's records is its";
@@ -248,6 +249,7 @@ export async function outputOf(
         organizationId: state.org.organizationId,
         kind: state.org.kind,
         ...(state.org.alias !== undefined ? { alias: state.org.alias } : {}),
+        ...(state.org.host !== undefined ? { host: state.org.host } : {}),
       },
       state: { serial: state.serial, updatedAt: state.updatedAt },
       resources,
@@ -259,8 +261,11 @@ export async function outputOf(
 /** What `output` says on a terminal: per resource, its records by object, or why it names none. */
 export function outputLines(output: EnvOutput): string[] {
   const { org } = output;
+  // A sandbox by its My Domain, which a refresh keeps, as its plan names it.
+  const myDomain = org.kind === 'sandbox' ? sandboxMyDomainOf(org.host) : undefined;
   const lines = [
-    `${output.env} on ${org.alias ?? org.organizationId} (${org.kind}, ${org.organizationId}): ` +
+    `${output.env} on ${org.alias ?? org.organizationId} ` +
+      `(${org.kind}${myDomain !== undefined ? ` ${myDomain}` : ''}, ${org.organizationId}): ` +
       `state serial ${output.state.serial}, written ${output.state.updatedAt}`,
   ];
   for (const [name, resource] of Object.entries(output.resources)) {

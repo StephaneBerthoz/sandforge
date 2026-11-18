@@ -1954,6 +1954,78 @@ describe('sandforge-mcp: the environment tools', () => {
     await c.close();
   });
 
+  it('plans and applies with replace, replaceDrifted and acceptNoState, and names each where a plan’s drift or its refusal names its flag', async () => {
+    // What a plan says of a resource drifted, and of an org this machine keeps no state of.
+    const said =
+      '  drifted  testers  User 2 set up\n' +
+      '           its users changed since it was applied: jane.qa@acme.com.uat would be ' +
+      'unfrozen. Left as they are: --replace testers or --replace-drifted sets them up again, ' +
+      'converging from what the last run left\n' +
+      'an apply now would be refused: This machine keeps no state of uat-testers on uat: ' +
+      'records an earlier apply left there cannot be told from the org’s own, and would be ' +
+      'created twice. On a sandbox that lives on, apply asks --accept-no-state to go ahead. ' +
+      'Nothing was written.\n';
+    const { ran, run } = scripts(() => ({ code: 3, stderr: said }));
+    const c = client(run);
+    await c.initialized();
+
+    const planned = await c.call('env_plan', { file: 'sandforge.yaml', org: 'SB' });
+    const applied = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+    await c.call('env_plan', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      replace: ['testers'],
+      replaceDrifted: true,
+      acceptNoState: true,
+    });
+    await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+      replaceDrifted: true,
+    });
+
+    for (const [answered, tool] of [
+      [planned, 'env_plan'],
+      [applied, 'env_apply'],
+    ] as const) {
+      const text = textOf(answered);
+      expect(text, tool).toContain("--replace, named above, is this tool's replace: ");
+      expect(text, tool).toContain(
+        "--replace-drifted, named above, is this tool's replaceDrifted: ",
+      );
+      expect(text, tool).toContain(
+        "--accept-no-state, named above, is this tool's acceptNoState: true.",
+      );
+    }
+    expect(ran.slice(2).map((each) => each.args)).toEqual([
+      [
+        'plan',
+        '--file',
+        'sandforge.yaml',
+        '--org',
+        'SB',
+        '--replace',
+        'testers',
+        '--replace-drifted',
+        '--accept-no-state',
+        '--json',
+      ],
+      ['apply', '--file', 'sandforge.yaml', '--org', 'SB', '--replace-drifted', '--yes', '--json'],
+    ]);
+    // A destroy reads none of them: no parameter of env_destroy stands for one.
+    const listed = await c.request('tools/list');
+    const destroy = (
+      listed.result?.tools as Array<{ name: string; inputSchema: { properties: object } }>
+    ).find((tool) => tool.name === 'env_destroy')?.inputSchema.properties;
+    expect(Object.keys(destroy ?? {})).toEqual(['file', 'org', 'confirm', 'includeChanged']);
+    await c.close();
+  });
+
   it('audits with the file and the org, --save and --fail-on-findings only once asked, with no confirm, and reads exit 3 as findings, not a partial run', async () => {
     const answers: Array<Partial<CommandRun>> = [
       { code: 0, stdout: '{"findings":0}' },

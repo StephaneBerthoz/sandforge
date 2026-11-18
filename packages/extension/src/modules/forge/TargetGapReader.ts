@@ -136,17 +136,21 @@ const ROWS_PER_READ = 2_000;
 /** Past this share of its daily limit, a run brings the org near the end of it. */
 const BUDGET_NEAR_SHARE = 0.8;
 
+/** The parts of the read the org may refuse, in the order `ForgeTargetGaps.unread` says them. */
+const GAP_UNREAD_PARTS = [
+  'validationRules',
+  'validationRuleFormulas',
+  'duplicateRules',
+  'duplicateRuleActions',
+  'userPermissions',
+  'permissionSets',
+  'targetFields',
+  'sourceFields',
+  'apiBudget',
+] as const;
+
 /** A part of the read the org may refuse, as `ForgeTargetGaps.unread` names it. */
-export type GapUnreadPart =
-  | 'validationRules'
-  | 'validationRuleFormulas'
-  | 'duplicateRules'
-  | 'duplicateRuleActions'
-  | 'userPermissions'
-  | 'permissionSets'
-  | 'targetFields'
-  | 'sourceFields'
-  | 'apiBudget';
+export type GapUnreadPart = (typeof GAP_UNREAD_PARTS)[number];
 
 /** A field as the read needs it from an org's describe. */
 export interface GapField {
@@ -835,11 +839,11 @@ export class TargetGapReader {
   ): Promise<ForgeTargetGaps> {
     const excluded = new Set(scope.excludedObjects ?? []);
     const objects = objectsTheRunWrites(takenBackIn(graph), excluded);
-    const unread: ForgeTargetGaps['unread'] = [];
-    if (objects.length === 0) return { gaps: [], unread, requests: 0 };
+    const unread: Array<{ part: GapUnreadPart; reason: string; objectApiName?: string }> = [];
+    if (objects.length === 0) return { gaps: [], unread: [], requests: 0 };
     let requests = 0;
-    const said = (part: GapUnreadPart, reason: string): void => {
-      unread.push({ part, reason });
+    const said = (part: GapUnreadPart, reason: string, objectApiName?: string): void => {
+      unread.push({ part, reason, ...(objectApiName !== undefined ? { objectApiName } : {}) });
     };
     // API names are the org's to spell: matched whatever their case.
     const wanted = new Map(objects.map((name) => [name.toLowerCase(), name]));
@@ -878,7 +882,7 @@ export class TargetGapReader {
           if (into === targetFields && createable === false) closedInTarget.add(objectApiName);
         } catch (err: unknown) {
           requests++;
-          said(part, `${objectApiName}: ${extractErrorMessage(err)}`);
+          said(part, `${objectApiName}: ${extractErrorMessage(err)}`, objectApiName);
         }
       };
 
@@ -1173,8 +1177,30 @@ export class TargetGapReader {
       said('apiBudget', limitsRefusal ?? 'the limits the org answered hold no DailyApiRequests');
     }
     gaps.push(budgetGap(graph, scope, objects[0], budget));
-    return { gaps: mergeGaps(gaps), unread, requests };
+    return { gaps: mergeGaps(gaps), unread: unreadInOrder(unread, order), requests };
   }
+}
+
+/**
+ * What the read could not read, in one order whatever order the orgs
+ * answered in: what is of no object first, then per object in the order of
+ * the run, each by its part, then by its words. The reads go in parallel, and
+ * two identical dry runs said them in two orders.
+ */
+function unreadInOrder(
+  unread: ReadonlyArray<{ part: GapUnreadPart; reason: string; objectApiName?: string }>,
+  order: ReadonlyMap<string, number>,
+): ForgeTargetGaps['unread'] {
+  const at = (objectApiName: string | undefined): number =>
+    objectApiName === undefined ? -1 : (order.get(objectApiName) ?? order.size);
+  return [...unread]
+    .sort(
+      (a, b) =>
+        at(a.objectApiName) - at(b.objectApiName) ||
+        GAP_UNREAD_PARTS.indexOf(a.part) - GAP_UNREAD_PARTS.indexOf(b.part) ||
+        (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0),
+    )
+    .map(({ part, reason }) => ({ part, reason }));
 }
 
 /** The gap of each answer to who may create an object the user may not. */

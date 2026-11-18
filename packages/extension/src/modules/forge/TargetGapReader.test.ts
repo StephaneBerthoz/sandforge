@@ -1459,6 +1459,60 @@ describe('TargetGapReader — fields only the target requires', () => {
     });
   });
 
+  it('says what it could not read in one order whatever order the orgs answer in: what is of no object first, then by object in the order of the run, each by its part', async () => {
+    /** The read, the orgs answering the requests asked first first, or last. */
+    const readIn = async (firstAskedAnswers: 'first' | 'last') => {
+      const fake = fakeDeps({
+        refuse: {
+          rules: new Error('INSUFFICIENT_ACCESS: rules'),
+          duplicates: new Error('INSUFFICIENT_ACCESS: duplicates'),
+          describe: new Set(
+            ['Contact', 'Account'].flatMap((object) => [
+              `${TARGET}::${object}`,
+              `${SOURCE}::${object}`,
+            ]),
+          ),
+        },
+      });
+      let asked = 0;
+      const answeredIn =
+        <A extends unknown[], R>(ask: (...args: A) => Promise<R>) =>
+        async (...args: A): Promise<R> => {
+          const at = asked++;
+          const wait = firstAskedAnswers === 'first' ? at * 5 : 60 - at * 5;
+          await new Promise((resolve) => setTimeout(resolve, wait));
+          return ask(...args);
+        };
+      const deps = {
+        ...fake.deps,
+        query: answeredIn(fake.deps.query),
+        toolingQuery: answeredIn(fake.deps.toolingQuery),
+        describeFields: answeredIn(fake.deps.describeFields),
+        readLimits: answeredIn(fake.deps.readLimits),
+      };
+      return (
+        await new TargetGapReader(deps).read(
+          SOURCE,
+          TARGET,
+          graphOf([node('Contact'), node('Account')]),
+        )
+      ).unread;
+    };
+
+    const first = await readIn('first');
+    const last = await readIn('last');
+
+    expect(first).toEqual([
+      { part: 'validationRules', reason: 'INSUFFICIENT_ACCESS: rules' },
+      { part: 'duplicateRules', reason: 'INSUFFICIENT_ACCESS: duplicates' },
+      { part: 'targetFields', reason: 'Contact: INVALID_TYPE: Contact' },
+      { part: 'sourceFields', reason: 'Contact: INVALID_TYPE: Contact' },
+      { part: 'targetFields', reason: 'Account: INVALID_TYPE: Account' },
+      { part: 'sourceFields', reason: 'Account: INVALID_TYPE: Account' },
+    ]);
+    expect(last).toEqual(first);
+  });
+
   it('says an object it could not describe, and reads the others', async () => {
     const read = await readGaps([node('Account'), node('Contact')], {
       targetFields: {

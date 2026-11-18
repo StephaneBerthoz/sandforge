@@ -632,7 +632,13 @@ describe('output', () => {
 
     expect(ran.code).toBe(0);
     const output = envOutputSchema.parse(ran.answer);
-    expect(output.org).toEqual({ organizationId: ORG_ID, kind: 'developer', alias: 'TGT' });
+    // The host the state keeps, as the plan names it.
+    expect(output.org).toEqual({
+      organizationId: ORG_ID,
+      kind: 'developer',
+      alias: 'TGT',
+      host: 'example.my.salesforce.com',
+    });
     expect(Object.keys(output.resources)).toEqual(['accounts', 'contacts']);
     expect(output.resources['accounts']).toEqual({
       kind: 'seed',

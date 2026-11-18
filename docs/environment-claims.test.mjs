@@ -179,7 +179,7 @@ test('a page that hands a refreshed sandbox back says what no refreshed sandbox 
   // address asked back awaits its owner's click.
   assert.ok(
     SCHEMA.includes(
-      "'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +",
+      "'SandForge resets no password; once its owner has confirmed the address asked back, they ask ' +",
     ),
   );
   assert.ok(

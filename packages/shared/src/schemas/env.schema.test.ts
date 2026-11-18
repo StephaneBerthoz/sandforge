@@ -1116,8 +1116,14 @@ describe('a users resource', () => {
   it('takes each user’s keys, a password reset among none of them', () => {
     const jane = [...testers, 'users', 0];
     expect(refusalsOf(refreshedWith([...jane, 'login'], 'reset-email'))).toEqual([
-      'resources.testers.users.0: "login" is not a key of a user of a users resource, which takes username, email, active, frozen, profile, permissionSets, permissionSetGroups, groups: SandForge resets no password; once the address is restored, its owner asks Salesforce for one with Forgot your password?',
+      'resources.testers.users.0: "login" is not a key of a user of a users resource, which takes username, email, active, frozen, profile, permissionSets, permissionSetGroups, groups: SandForge resets no password; once its owner has confirmed the address asked back, they ask Salesforce for one with Forgot your password?',
     ]);
+    // An address asked back awaits its owner's click: never said restored.
+    const defaults = refusalsOf(refreshedWith([...testers, 'defaults', 'login'], 'reset-email'));
+    expect(defaults).toEqual([
+      expect.stringContaining('once its owner has confirmed the address asked back'),
+    ]);
+    expect(defaults.join('\n')).not.toMatch(/restored/);
     const reset = refreshedWith([...jane, 'resetPassword'], true);
     expect(refusalsOf(reset)).toEqual([
       expect.stringContaining('"resetPassword" is not a key of a user of a users resource'),

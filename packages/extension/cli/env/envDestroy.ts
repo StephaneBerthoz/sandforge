@@ -63,6 +63,7 @@
 import type {
   EnvCheckpointStepResult,
   EnvPlan,
+  EnvResourceKind,
   EnvRunResult,
   EnvState,
   EnvStepResult,
@@ -105,6 +106,35 @@ export interface EnvDestroyInput {
   sweep: boolean;
   /** Delete although the org runs automation as records go. */
   acceptAutomation: boolean;
+}
+
+/**
+ * What a destroy that took every resource back says it took, by the kinds of
+ * its resources. A users resource creates no record: an environment of users
+ * alone was said "every record of it taken back", of records it never had,
+ * and its users went unnamed. A masking wrote over records the org held:
+ * those stay as they are, masked. An address asked back is never put back.
+ */
+export function takenBackLine(
+  env: string,
+  alias: string,
+  kinds: readonly EnvResourceKind[],
+): string {
+  const users = kinds.includes('users');
+  const masked = kinds.includes('mask') ? ', and what it masked left masked' : '';
+  const kept = ': the state keeps it as destroyed';
+  if (users && kinds.every((kind) => kind === 'users' || kind === 'mask')) {
+    return (
+      `${env} is taken back from ${alias}, the assignments and memberships it created deleted ` +
+      `and each user put back as it was, but for an address asked back${masked}${kept}, and ` +
+      'the next apply sets them up again'
+    );
+  }
+  return (
+    `every record of ${env} is taken back from ${alias}` +
+    `${users ? ', each user put back as it was but for an address asked back' : ''}` +
+    `${masked}${kept}, and the next apply creates it again`
+  );
 }
 
 /** The order a destroy takes a state's resources back in: the last applied first. */
@@ -271,12 +301,12 @@ export async function destroyEnvironment(
     const whole = Object.values(current.resources).every((r) => r.status === 'destroyed');
     const checkpoints: EnvCheckpointStepResult[] = [];
     if (whole && stoppedAt === undefined) {
-      // A masking wrote over records the org held: those stay as they are, masked.
-      const masked = Object.values(current.resources).some((r) => r.kind === 'mask');
       deps.say(
-        `every record of ${env} is taken back from ${target.alias}` +
-          `${masked ? ', and what it masked left masked' : ''}: the state keeps it as ` +
-          'destroyed, and the next apply creates it again',
+        takenBackLine(
+          env,
+          target.alias,
+          Object.values(current.resources).map((r) => r.kind),
+        ),
       );
       // Kept by a rewind of the org under way, it stays named: the next destroy deletes it.
       for (const { step, checkpoint } of checkpointsOfState(current)) {

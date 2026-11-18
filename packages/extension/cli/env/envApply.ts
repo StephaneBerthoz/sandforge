@@ -74,6 +74,7 @@ import { z } from 'zod';
 import {
   usersApplyAnswerSchema,
   usersPlanAnswerSchema,
+  usersRemoveAnswerSchema,
   type EnvActionKind,
   type EnvCheckpointStepResult,
   type EnvPlan,
@@ -84,6 +85,7 @@ import {
   type EnvState,
   type EnvStepObject,
   type EnvStepResult,
+  type UsersChange,
 } from '@sandforge/shared';
 import type { LinkedLockOptions } from '../../src/modules/checkpoint/linkedLock.js';
 import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
@@ -1998,22 +2000,49 @@ function usersStepLines(step: EnvStepResult): string[] {
     return lines;
   }
   const removal = step.answer as Partial<UsersRemovalAnswer> | undefined;
+  // The assignments and memberships deleted, by object; then the users put
+  // back, apart, by what of them: "N change(s) put back, the deletions among
+  // them" counted both together, and said of users nothing it could name.
   const deleted = step.objects
     .map((object) => `${object.object} ${object.deleted} deleted`)
     .join('; ');
-  const undone = typeof removal?.undone === 'number' ? removal.undone : undefined;
-  const said = [
-    deleted,
-    undone !== undefined
-      ? `${undone} change(s) of its users put back, the deletions among them`
-      : '',
-  ].filter(Boolean);
+  const said = [deleted, usersPutBackWords(removal?.answer)].filter(Boolean);
   const lines = [`${head}${said.length > 0 ? `  ${said.join('; ')}` : ''}`];
   if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
   for (const kept of Array.isArray(removal?.kept) ? removal.kept : []) {
     lines.push(`      ${kept.username}: ${changeWords(kept.change)} kept, ${kept.why}`);
   }
   return lines;
+}
+
+/** What of a user a removal puts back, in the words of a count, in the order a removal writes them. */
+const PUT_BACK: ReadonlyArray<readonly [UsersChange['what'], string]> = [
+  ['frozen', 'freeze(s)'],
+  ['active', 'activation(s)'],
+  ['profile', 'profile(s)'],
+];
+
+/**
+ * The users a removal put back, and per kind what of them — a freeze, an
+ * activation, a profile —, or nothing when it put none back: its accesses,
+ * deleted, are counted by object beside. An address is never put back.
+ */
+function usersPutBackWords(answer: unknown): string {
+  const read = usersRemoveAnswerSchema.safeParse(answer);
+  if (!read.success) return '';
+  const kinds = new Set(PUT_BACK.map(([what]) => what));
+  const users = read.data.users.filter((user) =>
+    user.undone.some((change) => kinds.has(change.what)),
+  );
+  if (users.length === 0) return '';
+  const counts = PUT_BACK.flatMap(([what, words]) => {
+    const n = users.reduce(
+      (sum, user) => sum + user.undone.filter((change) => change.what === what).length,
+      0,
+    );
+    return n > 0 ? [`${n} ${words}`] : [];
+  });
+  return `User ${users.length} put back: ${counts.join(', ')}`;
 }
 
 /** What a replay's run says: per object what it created, then whose records kept their owner. */

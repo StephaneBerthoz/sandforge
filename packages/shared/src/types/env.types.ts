@@ -1193,7 +1193,8 @@ export interface EnvOutputResource {
  */
 export interface EnvOutput {
   env: string;
-  org: { organizationId: string; kind: EnvTargetKind; alias?: string };
+  /** `host`: the one the state keeps, its My Domain's; a sandbox is named by it, as its plan names it. */
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string; host?: string };
   state: { serial: number; updatedAt: string };
   resources: Record<string, EnvOutputResource>;
 }

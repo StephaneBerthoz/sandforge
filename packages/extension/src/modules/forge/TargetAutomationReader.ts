@@ -1665,6 +1665,35 @@ export function unreadPartOf(
     : { part, reason: `the org could not be reached (${unreachable})`, unreachable };
 }
 
+/** Where each part of the read that could not be read is said, in the order the read asks them. */
+const UNREAD_PART_ORDER: Readonly<Record<ForgeTargetAutomationUnread['part'], number>> = {
+  flows: 0,
+  triggers: 1,
+  conditions: 2,
+  processes: 3,
+  workflowRules: 4,
+  definitions: 5,
+  assignmentRules: 6,
+  duplicateRules: 7,
+  userPermissions: 8,
+  permissionSets: 9,
+};
+
+/**
+ * The parts the read could not read in one order whatever order the org
+ * answered in: by part, then by the words of each. The reads go in parallel,
+ * and two identical dry runs said them in two orders.
+ */
+function unreadInOrder(
+  unread: readonly ForgeTargetAutomationUnread[],
+): ForgeTargetAutomationUnread[] {
+  return [...unread].sort(
+    (a, b) =>
+      UNREAD_PART_ORDER[a.part] - UNREAD_PART_ORDER[b.part] ||
+      (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0),
+  );
+}
+
 /** Each task run, `limit` at a time at most, their answers in the order of the tasks. */
 export async function inFlight<T>(
   tasks: ReadonlyArray<() => Promise<T>>,
@@ -2203,7 +2232,7 @@ export class TargetAutomationReader {
     return {
       objectsRead: [...objectApiNames],
       objects,
-      unread,
+      unread: unreadInOrder(unread),
       conditionsNotRead: toRead.length - reading.length,
       conditionsBound,
       ...(notReadOn.length > 0 ? { conditionsNotReadOn: notReadOn } : {}),

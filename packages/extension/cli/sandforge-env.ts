@@ -2521,10 +2521,13 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           return;
         }
         const prepared = await prepare(args, deps, say);
+        // Its host too: the plan of a destruction names a sandbox by its My
+        // Domain, as the plan of an apply does.
         const org = {
           organizationId: prepared.target.organizationId,
           kind: prepared.target.kind,
           alias: prepared.target.alias,
+          ...(prepared.target.host !== undefined ? { host: prepared.target.host } : {}),
         };
         const previews = await stoppable(deps, 'reading what the org holds', (signal) =>
           previewRuns(

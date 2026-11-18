@@ -34,6 +34,7 @@ import {
   type EnvStepDeps,
 } from './envApply.js';
 import { readEnvFile, type EnvFileResolved } from './envFile.js';
+import { readUsersRemoval } from './kinds/users.js';
 import type { EnvTarget } from './envGuards.js';
 import { acquireEnvLock } from './envLock.js';
 import { classifyResources, envPlan, type EnvDryRun, type EnvPlanInput } from './envPlan.js';
@@ -960,6 +961,105 @@ describe('what an apply says', () => {
       '  contacts: not run, it depends on accounts (partial)',
       `apply: partial; state serial ${outcome.result.state.serial}`,
     ]);
+  });
+
+  it('says of a users removal the assignments and memberships it deleted, apart from the users it put back, by what it put back', async () => {
+    const { plan } = await planned(resolvedOf());
+    const user = (n: number) => `00500000000000${n}AAA`;
+    const answer = readUsersRemoval(
+      JSON.stringify({
+        org: { organizationId: ORG_ID, kind: 'sandbox', username: 'admin@acme.com.uat' },
+        run: 1,
+        status: 'success',
+        users: [
+          {
+            username: 'jane.qa@acme.com.uat',
+            userId: user(1),
+            undone: [
+              { what: 'group', name: 'QA_Team', type: 'Regular', to: 'removed' },
+              { what: 'permissionSet', name: 'QA_Tools', to: 'removed' },
+              { what: 'frozen', from: false, to: true },
+            ],
+          },
+          {
+            username: 'paul.qa@acme.com.uat',
+            userId: user(2),
+            undone: [
+              { what: 'permissionSetGroup', name: 'Support_Bundle', to: 'removed' },
+              { what: 'active', from: true, to: false },
+              { what: 'profile', from: 'QA Tester', to: 'Standard User' },
+            ],
+          },
+          {
+            username: 'erp.integration@acme.com.uat',
+            userId: user(3),
+            undone: [{ what: 'frozen', from: true, to: false }],
+          },
+          // Its accesses alone taken back: no user of it put back.
+          {
+            username: 'ops.qa@acme.com.uat',
+            userId: user(4),
+            undone: [{ what: 'permissionSet', name: 'QA_Tools', to: 'removed' }],
+          },
+        ],
+        apiRequests: 6,
+      }),
+    );
+    const removed = (counts: Record<string, number>) =>
+      Object.entries(counts).map(([object, deleted]) => ({
+        object,
+        created: 0,
+        refused: 0,
+        deleted,
+        kept: 0,
+      }));
+    const step = {
+      resource: 'testers',
+      action: 'delete' as const,
+      phase: 'remove' as const,
+      run: 1,
+      script: 'sandforge-users' as const,
+      exitCode: 0,
+      status: 'destroyed' as const,
+      objects: removed({ GroupMember: 1, PermissionSetAssignment: 3 }),
+      answer,
+    };
+
+    const lines = runResultLines(
+      { plan, steps: [step], status: 'success', state: { serial: 5 } },
+      'destroy',
+    );
+    // Nothing of its users put back: the deletions alone.
+    const accessesAlone = runResultLines(
+      {
+        plan,
+        steps: [
+          {
+            ...step,
+            objects: removed({ PermissionSetAssignment: 1 }),
+            answer: {
+              ...answer,
+              answer: { ...answer.answer, users: answer.answer.users.slice(3) },
+            },
+          },
+        ],
+        status: 'success',
+        state: { serial: 5 },
+      },
+      'destroy',
+    );
+
+    expect(lines).toEqual([
+      '',
+      '  testers removal of run 1: exit 0, destroyed  GroupMember 1 deleted; ' +
+        'PermissionSetAssignment 3 deleted; User 3 put back: 2 freeze(s), 1 activation(s), ' +
+        '1 profile(s)',
+      'destroy: success; state serial 5',
+    ]);
+    expect(accessesAlone[1]).toBe(
+      '  testers removal of run 1: exit 0, destroyed  PermissionSetAssignment 1 deleted',
+    );
+    expect(lines.join('\n')).not.toContain('change(s)');
   });
 });
 

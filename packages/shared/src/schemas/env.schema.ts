@@ -1076,11 +1076,13 @@ export const envMaskResourceSchema = strictObject('a mask resource', {
 
 /**
  * What a users resource answers a key that would reset a password: the
- * product resets none, and the owner of a restored address resets their own.
+ * product resets none, and the owner of an address asked back gets their own
+ * once they have confirmed it. Never said restored: the address stays under
+ * `.invalid` until its owner clicks the link Salesforce sends.
  */
 const NO_PASSWORD_RESET =
-  'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +
-  'one with Forgot your password?';
+  'SandForge resets no password; once its owner has confirmed the address asked back, they ask ' +
+  'Salesforce for one with Forgot your password?';
 
 /** One user of a users resource: who, by username, and what it is set up with. */
 const usersUserFileSchema = strictObject(
@@ -2421,6 +2423,8 @@ export const envOutputSchema = z.strictObject({
     organizationId: checkpointOrganizationIdSchema,
     kind: envTargetKindSchema,
     alias: z.string().min(1).max(255).optional(),
+    /** The host the state keeps, its My Domain's: a sandbox is named by it, as its plan names it. */
+    host: hostSchema.optional(),
   }),
   state: z.strictObject({ serial: countSchema, updatedAt: instantSchema }),
   resources: z.record(envNameSchema, envOutputResourceSchema),

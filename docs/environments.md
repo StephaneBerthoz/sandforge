@@ -725,7 +725,7 @@ $ echo $?
 
 ```console
 $ sandforge env output --file ../uat/sandforge.yaml --org uat
-uat-testers on uat (sandbox, 00Dxx0000001gPLEAY): state serial 2, written 2026-10-25T09:02:00.000Z
+uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY): state serial 2, written 2026-10-25T09:02:00.000Z
   testers  users, applied, run 1
     User  jane.qa@acme.com.uat 005000000000002AAA
     User  paul.qa@acme.com.uat 005000000000003AAA
@@ -739,7 +739,7 @@ Taken back, with `--include-changed`, jane.qa having changed since:
 
 ```console
 $ sandforge env destroy --file ../uat/sandforge.yaml --org uat --yes --include-changed
-plan of uat-testers on uat (sandbox, 00Dxx0000001gPLEAY)
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 2
   delete   testers
            taken back: the assignments and memberships the environment created deleted by id, each user put back as it was before; an address asked back stays, and no user is deleted, after every other resource
@@ -747,9 +747,9 @@ totals: 0 to create, 0 to replace, 1 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0; not counted: the removal of the runs of testers
 data storage: about 0 MB
 testers: taking back run 1
-every record of uat-testers is taken back from uat: the state keeps it as destroyed, and the next apply creates it again
+uat-testers is taken back from uat, the assignments and memberships it created deleted and each user put back as it was, but for an address asked back: the state keeps it as destroyed, and the next apply sets them up again
 
-  testers removal of run 1: exit 0, destroyed  GroupMember 1 deleted; PermissionSetAssignment 2 deleted; 6 change(s) of its users put back, the deletions among them
+  testers removal of run 1: exit 0, destroyed  GroupMember 1 deleted; PermissionSetAssignment 2 deleted; User 2 put back: 1 freeze(s), 1 activation(s), 1 profile(s)
 destroy: success; state serial 5
 ```
 

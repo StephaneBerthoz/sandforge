@@ -110,6 +110,18 @@ describe('the texts of each key of sandforge.yaml', () => {
       expect(text, path).not.toMatch(/[\w.+-]+@[\w-]+\.(?!invalid\b)[a-z]{2,}/i);
     }
   });
+
+  it('say an address asked back awaits its owner, never that it is restored', () => {
+    // Positive control: the texts of a users resource and of a user's address.
+    const users = Object.entries(ENV_SCHEMA_DESCRIPTIONS).filter(([, text]) =>
+      text.includes('.invalid'),
+    );
+    expect(users.length).toBeGreaterThan(1);
+    expect(users.map(([, text]) => text).join('\n')).toContain(
+      'once its owner has confirmed the address asked back',
+    );
+    for (const [path, text] of users) expect(text, path).not.toMatch(/\brestored\b/);
+  });
 });
 
 describe('figure', () => {

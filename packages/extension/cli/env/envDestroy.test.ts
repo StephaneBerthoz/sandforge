@@ -20,7 +20,7 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
 import { applyPlan, removeResource, type EnvStepDeps } from './envApply.js';
-import { destroyEnvironment, destroyOrder } from './envDestroy.js';
+import { destroyEnvironment, destroyOrder, takenBackLine } from './envDestroy.js';
 import { readEnvFile, type EnvFileResolved } from './envFile.js';
 import type { EnvTarget } from './envGuards.js';
 import { acquireEnvLock } from './envLock.js';
@@ -498,5 +498,40 @@ describe('destroy', () => {
     } finally {
       held.lock.release();
     }
+  });
+});
+
+describe('what a destroy that took everything back says it took', () => {
+  const ends = ': the state keeps it as destroyed, and the next apply creates it again';
+
+  it('says every record taken back where a resource wrote some, and the users and the masking beside them', () => {
+    expect([
+      takenBackLine('case-flow', 'TGT', ['seed', 'forge']),
+      takenBackLine('uat-masked', 'uat', ['mask']),
+      takenBackLine('uat', 'uat', ['users', 'seed']),
+      takenBackLine('uat', 'uat', ['users', 'replay', 'mask']),
+    ]).toEqual([
+      `every record of case-flow is taken back from TGT${ends}`,
+      `every record of uat-masked is taken back from uat, and what it masked left masked${ends}`,
+      'every record of uat is taken back from uat, each user put back as it was but for an ' +
+        `address asked back${ends}`,
+      'every record of uat is taken back from uat, each user put back as it was but for an ' +
+        `address asked back, and what it masked left masked${ends}`,
+    ]);
+  });
+
+  it('names no record of an environment of users alone: the accesses it created deleted, each user put back', () => {
+    const users =
+      'the assignments and memberships it created deleted and each user put back as it was, ' +
+      'but for an address asked back';
+    const again = ': the state keeps it as destroyed, and the next apply sets them up again';
+
+    expect([
+      takenBackLine('uat-testers', 'uat', ['users']),
+      takenBackLine('uat-testers', 'uat', ['users', 'mask']),
+    ]).toEqual([
+      `uat-testers is taken back from uat, ${users}${again}`,
+      `uat-testers is taken back from uat, ${users}, and what it masked left masked${again}`,
+    ]);
   });
 });

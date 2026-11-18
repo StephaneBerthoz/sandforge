@@ -1396,6 +1396,51 @@ describe('TargetAutomationReader', () => {
     expect(unreachableOf({ unread: refused })).toBe(undefined);
   });
 
+  it('says the parts it could not read in one order whatever order the org answers them in', async () => {
+    const denied = refusal('INSUFFICIENT_ACCESS', 'no access');
+    /** The read, the org answering the requests asked first first, or last. */
+    const readIn = async (firstAskedAnswers: 'first' | 'last') => {
+      const target = fakeTarget({
+        refuse: {
+          flows: denied,
+          triggers: denied,
+          processes: denied,
+          workflowRules: denied,
+          assignmentRules: denied,
+          duplicateRules: denied,
+        },
+      });
+      let asked = 0;
+      const answeredIn =
+        <A extends unknown[], R>(ask: (...args: A) => Promise<R>) =>
+        async (...args: A): Promise<R> => {
+          const at = asked++;
+          const wait = firstAskedAnswers === 'first' ? at * 5 : 40 - at * 5;
+          await new Promise((resolve) => setTimeout(resolve, wait));
+          return ask(...args);
+        };
+      const deps = {
+        ...target.deps,
+        query: answeredIn(target.deps.query),
+        toolingQuery: answeredIn(target.deps.toolingQuery),
+      };
+      return (await new TargetAutomationReader(deps).read('tgt', ['Case'])).unread;
+    };
+
+    const first = await readIn('first');
+    const last = await readIn('last');
+
+    expect(first.map((u) => u.part)).toEqual([
+      'flows',
+      'triggers',
+      'processes',
+      'workflowRules',
+      'assignmentRules',
+      'duplicateRules',
+    ]);
+    expect(last).toEqual(first);
+  });
+
   it('says each new part the target refuses, and reads the others all the same', async () => {
     const denied = refusal('INSUFFICIENT_ACCESS', 'no access');
     const target = fakeTarget({

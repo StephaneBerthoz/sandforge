@@ -448,8 +448,9 @@ jobs:
   #     # Takes the environment back once it is retired: set the repository
   #     # variable SANDFORGE_ENV_DESTROY to 'true'. The last resource first,
   #     # into the recycle bin; exit 3 when it left records, the state kept for
-  #     # the next destroy. A destroy that took everything back deletes the
-  #     # state, so the next apply to this org asks --accept-no-state again.
+  #     # the next destroy. A destroy that took everything back keeps the
+  #     # state too, every resource in it destroyed: the next apply to this org
+  #     # creates them again, with no --accept-no-state.
   #     - name: Destroy (sandforge env destroy)
   #       if: always() && vars.SANDFORGE_ENV_DESTROY == 'true'
   #       working-directory: sandforge

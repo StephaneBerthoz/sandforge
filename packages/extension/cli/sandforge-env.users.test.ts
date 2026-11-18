@@ -744,13 +744,38 @@ describe('a users resource', () => {
       expect.arrayContaining(['remove', '--run', '1', '--yes', '--json']),
     );
     expect(destroyed.said).toContain(
-      '  testers removal of run 1: exit 0, destroyed  PermissionSetAssignment 1 deleted; 3 ' +
-        'change(s) of its users put back, the deletions among them\n' +
+      '  testers removal of run 1: exit 0, destroyed  PermissionSetAssignment 1 deleted; User 2 ' +
+        'put back: 2 freeze(s)\n' +
         '      jane.qa@acme.com.uat: address asked back, awaiting its owner’s confirmation ' +
         'kept, an address asked back is never put back under .invalid\n',
     );
+    expect(destroyed.said).toContain(
+      `every record of ${ENV} is taken back from TGT, each user put back as it was but for an ` +
+        'address asked back: the state keeps it as destroyed, and the next apply creates it again\n',
+    );
     expect(users.users.map((user) => user.frozen)).toEqual([true, false]);
     expect(users.users[0]?.address).toBe('awaiting');
+  });
+
+  it('says of an environment of users alone what its destroy took back: no record, the accesses deleted apart from the users put back', async () => {
+    const { testers } = file().resources;
+    writeFile({ ...file(), resources: { testers } });
+    expect((await apply('--accept-user-emails')).code).toBe(0);
+
+    const destroyed = await destroy();
+
+    expect(destroyed.code, destroyed.said).toBe(0);
+    expect(destroyed.said).toContain(
+      `${ENV} is taken back from TGT, the assignments and memberships it created deleted and ` +
+        'each user put back as it was, but for an address asked back: the state keeps it as ' +
+        'destroyed, and the next apply sets them up again\n',
+    );
+    expect(destroyed.said).toContain(
+      '  testers removal of run 1: exit 0, destroyed  PermissionSetAssignment 1 deleted; User 2 ' +
+        'put back: 2 freeze(s)\n',
+    );
+    expect(destroyed.said).not.toContain('every record');
+    expect(destroyed.said).not.toContain('change(s)');
   });
 
   it('takes back a run stopped before it answered by the one run file its script began, and names two, never guessing', async () => {
@@ -1236,6 +1261,24 @@ describe('a sandbox listed by its My Domain', () => {
     expect((await stateOf()).state?.org.host).toBe(SANDBOX_HOST);
     // The state of before the refresh is where it was.
     expect((await stateOf(FORMER_ID)).state?.serial).toBe(1);
+  });
+
+  it('names its My Domain at the head of an output and of a destroy, as the plan does', async () => {
+    expect((await apply('--accept-no-state')).code).toBe(0);
+
+    const output = await run(['output', '--org', 'TGT', '--json']);
+    const destroyed = await destroy();
+
+    expect(envOutputSchema.parse(output.answer).org.host).toBe(SANDBOX_HOST);
+    // The state keeps the Organization Id in its 18-character form.
+    expect(output.said).toMatch(
+      new RegExp(
+        `^${ENV} on TGT \\(sandbox acme--uat, ${ORG_ID.slice(0, 15)}\\w{3}\\): state serial`,
+      ),
+    );
+    expect(destroyed.code, destroyed.said).toBe(0);
+    expect(destroyed.result.plan.org.host).toBe(SANDBOX_HOST);
+    expect(destroyed.said).toContain(`plan of ${ENV} on TGT (sandbox acme--uat, ${ORG_ID})\n`);
   });
 
   it('is refused, as today, with no state it can prove refreshed: --accept-no-state lifts it', async () => {

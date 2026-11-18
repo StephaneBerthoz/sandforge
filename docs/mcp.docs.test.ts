@@ -175,9 +175,22 @@ describe('docs/mcp.md', () => {
   it('names the parameter each environment flag the server passes stands for', () => {
     const rule = section('The confirm rule');
 
-    expect(rule).toContain("`acceptNoState` is `env_apply`'s `--accept-no-state`");
+    expect(rule).toContain(
+      '`acceptNoState` is `--accept-no-state`, and `replace` and `replaceDrifted` are ' +
+        '`--replace` and `--replace-drifted` (`env_plan`, `env_apply`)',
+    );
     expect(rule).toContain("`includeChanged` is `env_destroy`'s `--include-changed`");
     expect(SERVER).toContain("'--accept-no-state': 'acceptNoState'");
+    // A plan and an apply, each: a drift line names --replace and
+    // --replace-drifted, and the refusal of an org with no state
+    // --accept-no-state, whichever of the two tools ran it.
+    for (const passed of [
+      "...(args.acceptNoState === true ? ['--accept-no-state'] : []),",
+      "...(args.replaceDrifted === true ? ['--replace-drifted'] : []),",
+      "...(args.replace ?? []).flatMap((name) => ['--replace', name]),",
+    ]) {
+      expect(SERVER.split(passed), passed).toHaveLength(3);
+    }
     expect(SERVER).toContain("flags: { '--include-changed': 'includeChanged' },");
     expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
     expect(rule).toContain(

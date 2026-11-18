@@ -753,6 +753,40 @@ const acceptUserEmails = (of: string) =>
     `${of} Only once the person using you has accepted that Salesforce emails these people.`,
   );
 
+/** The resources of a file a plan or an apply replaces, by name, as `--replace <name>` each. */
+const envReplace = (of: string) =>
+  z
+    .array(z.string().regex(RESOURCE_NAME, 'a resource of the file, by its name'))
+    .min(1)
+    .max(50)
+    .optional()
+    .describe(of);
+
+/**
+ * What stands for the replace a plan's lines name, of a plan or of an apply:
+ * a resource drifted said "--replace <r> or --replace-drifted replaces it",
+ * which neither env_plan nor, for the second, env_apply took.
+ */
+function envReplaceNamed(act: 'plan' | 'apply'): Readonly<Record<string, string>> {
+  return act === 'plan'
+    ? {
+        '--replace':
+          "is this tool's replace: the resources, by their names in the file, it plans " +
+          "replaced as env_apply's replace replaces them.",
+        '--replace-drifted':
+          "is this tool's replaceDrifted: true plans every drifted resource replaced, as " +
+          "env_apply's replaceDrifted replaces them.",
+      }
+    : {
+        '--replace':
+          "is this tool's replace: the resources to replace, by their names in the file. Give " +
+          'it only once the person using you has agreed to it.',
+        '--replace-drifted':
+          "is this tool's replaceDrifted: true replaces every drifted resource. Give it only " +
+          'once the person using you has agreed to it.',
+      };
+}
+
 /** What `env audit --save` keeps, as a line that names it is told. */
 const AUDIT_SAVES =
   'it keeps the scheduled jobs read on this machine, to compare with after the next refresh.';
@@ -3788,7 +3822,8 @@ export const TOOLS: readonly ServedTool[] = [
       'the API requests, storage and emails it takes. Each resource is dry-run by its own ' +
       'script. Reads the org and the sources its resources clone from, writes nothing to an ' +
       'org. failOnDrift: true ends it exit 3 when the org no longer holds the environment as ' +
-      'applied — records deleted or changed since.',
+      'applied — records deleted or changed since. replace, replaceDrifted and acceptNoState ' +
+      'plan what env_apply would do with them.',
     readOnly: true,
     args: z.strictObject({
       file: envFile(),
@@ -3797,6 +3832,17 @@ export const TOOLS: readonly ServedTool[] = [
         .boolean()
         .optional()
         .describe('true: exit 3 when records the environment holds were deleted or changed since.'),
+      replace: envReplace(
+        'Plan what env_apply would do with replace: these resources replaced although kept or ' +
+          'drifted, by their names in the file.',
+      ),
+      replaceDrifted: acceptance(
+        'Plan what env_apply would do with replaceDrifted: every drifted resource replaced.',
+      ),
+      acceptNoState: acceptance(
+        'Plan what env_apply would do with acceptNoState: an apply to a Developer Edition or a ' +
+          'sandbox this machine has no state of is otherwise refused.',
+      ),
       acceptEmails: acceptance(
         'Plan what env_apply would do with acceptEmails: a seed or a clone is otherwise blocked ' +
           'where the org delivers the emails what still runs sends, or would not say whether it ' +
@@ -3808,7 +3854,12 @@ export const TOOLS: readonly ServedTool[] = [
           'emailing each of those people the link that confirms their address.',
       ),
     }),
-    flags: { '--accept-emails': 'acceptEmails', '--accept-user-emails': 'acceptUserEmails' },
+    flags: {
+      '--accept-no-state': 'acceptNoState',
+      '--accept-emails': 'acceptEmails',
+      '--accept-user-emails': 'acceptUserEmails',
+    },
+    named: envReplaceNamed('plan'),
     exits: {
       [PARTIAL_EXIT]:
         'drift: the org no longer holds the environment as applied, records deleted or changed ' +
@@ -3823,6 +3874,9 @@ export const TOOLS: readonly ServedTool[] = [
         '--org',
         args.org,
         ...(args.failOnDrift === true ? ['--fail-on-drift'] : []),
+        ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
+        ...(args.replaceDrifted === true ? ['--replace-drifted'] : []),
+        ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         ...(args.acceptUserEmails === true ? ['--accept-user-emails'] : []),
         '--json',
@@ -3835,8 +3889,9 @@ export const TOOLS: readonly ServedTool[] = [
     description:
       'Do to org what env_plan says, as sandforge env apply --yes --json does: plans again, then ' +
       'creates what the file declares, replaces what it is told to (replace: the resources, by ' +
-      'name) and deletes the resources the file no longer holds, each by its own script, into ' +
-      'the state kept on this machine; applied again, it writes nothing. A production org is ' +
+      'name; replaceDrifted: every drifted resource) and deletes the resources the file no ' +
+      'longer holds, each by its own script, into the state kept on this machine; applied ' +
+      'again, it writes nothing. A production org is ' +
       'refused, and a sandbox the file does not list. Needs confirm, the alias of org: env_plan ' +
       'first. acceptNoState lets it apply to an org this machine has no state of, where records ' +
       "an earlier apply left would be created twice. A resource's accept: { automation: true } " +
@@ -3851,15 +3906,14 @@ export const TOOLS: readonly ServedTool[] = [
       file: envFile(),
       org: alias('The org to fill: its sf CLI alias.'),
       confirm: confirmOf('org').optional(),
-      replace: z
-        .array(z.string().regex(RESOURCE_NAME, 'a resource of the file, by its name'))
-        .min(1)
-        .max(50)
-        .optional()
-        .describe(
-          'Resources to replace although kept or drifted, by their names in the file: their ' +
-            'earlier runs are taken back, then run again.',
-        ),
+      replace: envReplace(
+        'Resources to replace although kept or drifted, by their names in the file: their ' +
+          'earlier runs are taken back, then run again.',
+      ),
+      replaceDrifted: acceptance(
+        'Replace every drifted resource: its earlier runs are taken back, then run again. Only ' +
+          'once the person using you has agreed to it.',
+      ),
       acceptNoState: acceptance(
         'Apply to a Developer Edition or a sandbox this machine has no state of: records an ' +
           'earlier apply left there would be created twice. Only once the person using you has ' +
@@ -3889,6 +3943,7 @@ export const TOOLS: readonly ServedTool[] = [
       '--accept-user-emails': 'acceptUserEmails',
     },
     named: {
+      ...envReplaceNamed('apply'),
       '--accept-automation': fileAcceptsAutomation('env_apply'),
       // What an apply's audits say when no inventory of the jobs was kept
       // before: the line of env audit --save, which env_audit runs.
@@ -3906,6 +3961,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--org',
         args.org,
         ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
+        ...(args.replaceDrifted === true ? ['--replace-drifted'] : []),
         ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
         ...(args.acceptUserEmails === true ? ['--accept-user-emails'] : []),

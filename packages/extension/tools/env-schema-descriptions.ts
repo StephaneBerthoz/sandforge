@@ -116,8 +116,9 @@ const USER_SETTINGS = {
     'What becomes of the address the copy put under `.invalid`: `restore` takes the suffix off, ' +
     'and Salesforce sends its owner a link to confirm it, the address under `.invalid` until it ' +
     'is clicked; `keep`, the default, leaves it. That link is an email to a person, which only ' +
-    'the line accepts, with `--accept-user-emails`. SandForge resets no password: once the ' +
-    'address is restored, its owner asks Salesforce for one with Forgot your password?',
+    'the line accepts, with `--accept-user-emails`. SandForge resets no password: once its ' +
+    'owner has confirmed the address asked back, they ask Salesforce for one with Forgot your ' +
+    'password?',
   active:
     '`true` activates the user, within the licenses the org has free; `false` deactivates it. ' +
     'Without it, left as it is.',
@@ -703,7 +704,7 @@ export const ENV_SCHEMA_DESCRIPTIONS: Readonly<Record<string, string>> = {
   // The users kind
   'resources.<name>{users}':
     'A users resource: the org’s users handed back to its testers by `sandforge users` — an ' +
-    'address the copy put under `.invalid` restored, a user activated, frozen or unfrozen, a ' +
+    'address the copy put under `.invalid` asked back, a user activated, frozen or unfrozen, a ' +
     'profile, permission sets, groups and queues —, applied before every other resource and ' +
     'taken back after them all. Accesses are added, never taken. A `destroy` takes back what ' +
     'it added and puts each user back as it was, but for an address asked back; a user is ' +

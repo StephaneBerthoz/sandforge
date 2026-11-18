@@ -1677,7 +1677,8 @@ describe('docs/environments.md', () => {
     // Anchors: the destroy keeps the state and says so, and only no state on
     // a Developer Edition org or a sandbox refuses an apply.
     expect(DESTROY).not.toContain('deps.store.remove(');
-    expect(DESTROY).toContain("'destroyed, and the next apply creates it again'");
+    expect(DESTROY).toContain("const kept = ': the state keeps it as destroyed';");
+    expect(DESTROY).toContain('${masked}${kept}, and the next apply creates it again`');
     expect(GUARDS).toContain(
       "if (target.kind === 'scratch' || acceptNoState) return { warning: said };",
     );
@@ -1869,7 +1870,7 @@ describe('a refreshed sandbox, on the page', () => {
     expect(APPLY).toContain("address awaiting its owner's confirmation — Salesforce sent ");
     expect(USERS_SCRIPT).toContain("address awaiting its owner's confirmation — Salesforce");
     expect(SCHEMA).toContain(
-      "'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +",
+      "'SandForge resets no password; once its owner has confirmed the address asked back, they ask ' +",
     );
 
     const users = section(DOC, '### A users resource');
@@ -2671,6 +2672,18 @@ describe('the pages that send a reader to docs/environments.md', () => {
     // The note names the testers: an artifact kept a short time.
     expect(jobs).toMatch(/\$\{\{ runner\.temp \}\}\/handoff\.md[\s\S]*?retention-days: 3/);
     expect(PIPELINE).not.toMatch(/^\s+[^#\s][^\n]*sandforge@/m);
+  });
+
+  it('the jobs of an environment say a destroy that took everything back keeps the state, as the destroy does', () => {
+    // Positive control: what the destroy says once every resource is taken back.
+    expect(DESTROY).toContain('the state keeps it as destroyed');
+    expect(DESTROY).not.toMatch(/store\.(?:delete|remove)\(/);
+    // The comments of the steps, read as one text: their lines joined.
+    const jobs = envJobs().replace(/\s*\n\s*(?:# ?)?/g, ' ');
+    expect(jobs).toContain('A destroy that took everything back keeps the state too');
+
+    expect(jobs).not.toContain('deletes the state');
+    expect(jobs).not.toContain('asks --accept-no-state again');
   });
 
   it('the CI guide runs the script from the checkout, the state outside the repository, one org at a time', () => {
