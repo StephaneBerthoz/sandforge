@@ -6127,8 +6127,6 @@
   "sidePanel": {
     "noOrg": "No org connected",
     "selectOrg": "Select an org",
-    "connectedOrgs": "Orgs",
-    "recentOps": "Ops",
     "forge": "Forge",
     "forgeDesc": "Copy a real record and everything around it into another org",
     "favorites": "Favorites",
@@ -6137,21 +6135,15 @@
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
     "favoriteModule": "{{module}} in favorites",
-    "lastOp": "Last operation",
     "lastCheckpoint": "Last checkpoint of {{org}}: {{age}}",
     "lastCheckpointTitle": "“{{name}}”, taken {{date}}",
-    "openFull": "Open Full UI",
-    "running": "Running...",
     "newOrg": "New organization...",
     "openInBrowser": "Open in browser",
     "noOrgHint": "No org yet — connect one below",
     "loadingOrgs": "Loading orgs…",
-    "showMetrics": "Show metrics",
-    "hideMetrics": "Hide metrics",
     "fillOrg": "Fill {{alias}} with demo data",
     "fillOrgAction": "Fill with demo data",
     "fillOrgDesc": "A Seed template, one confirmation, no AI key",
-    "advanced": "Advanced",
     "firstOrg": {
       "title": "Connect your first org",
       "desc": "Bring in the orgs the Salesforce CLI already holds, or log in with your browser.",
@@ -6172,6 +6164,20 @@
       "protect": "Protect and restore",
       "watch": "Watch and compare",
       "automate": "Automate"
+    },
+    "needsSecondOrg": "Needs a second org",
+    "afterRefresh": {
+      "title": "Bring {{alias}} back into service",
+      "desc": "Refreshed {{age}} · {{done}}/{{total}} steps",
+      "compact": "Back into service · {{done}}/{{total}}"
+    },
+    "reconnect": {
+      "title": "Reconnect {{alias}}",
+      "desc": "Its session has ended: sign in again from Organizations"
+    },
+    "addSandbox": {
+      "title": "Add the sandbox to fill",
+      "desc": "Forge copies real records from {{alias}} into it"
     }
   },
   "frozen": {
@@ -8054,7 +8060,17 @@
     "forge": "Copy a real record and everything around it into another org",
     "autopilot": "Copy whole objects from one org to another",
     "seed": "Fill an org with realistic fake data",
-    "checkpoint": "Save the state of an org's data, and return the org to it later"
+    "checkpoint": "Save the state of an org's data, and return the org to it later",
+    "frozen": "Extract a set of records once, and load it into an org again after each refresh",
+    "sync": "Copy the objects you choose between two orgs, with mappings and transforms",
+    "migration": "Turn an SFDMU export.json into a Sync configuration, writing to no org",
+    "recovery": "Bring a refreshed sandbox back into service, one step at a time",
+    "dataops": "Back up an org's data, mask it, erase a person's records and clean up",
+    "monitor": "Watch an org's API limits, storage, jobs and sandbox refreshes",
+    "compare": "Compare two orgs' metadata and settings, and deploy what differs",
+    "reports": "Read past runs, the audit trail of every write and where records came from",
+    "automation": "Chain steps into a pipeline, run on demand, on a schedule or after a refresh",
+    "ai": "Ask about your orgs and draft pipelines and SOQL, with your own Anthropic key"
   },
   "checkpoint": {
     "concept": "A checkpoint is the state of an org's data at a moment. Rewind then deletes what was added since, gives back what changed and brings back what was deleted, whoever did it.",

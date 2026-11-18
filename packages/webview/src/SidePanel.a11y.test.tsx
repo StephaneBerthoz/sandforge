@@ -61,6 +61,184 @@ describe('SidePanel navigation landmarks', () => {
 });
 
 /**
+ * The modules are grouped by what they are for, in the one Modules nav: a
+ * group per need, named by its heading, rather than a nav per group, which
+ * would have a screen reader announce seven navigations.
+ */
+describe('SidePanel module groups', () => {
+  const renderIn = async (lng: 'en' | 'fr'): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+      </I18nextProvider>,
+    );
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRecentOpsStore.setState({ ops: [] });
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useFavoritesStore.setState({ favorites: [] });
+  });
+
+  it('names each group by its heading, inside the one Modules nav', async () => {
+    await renderIn('en');
+    const modules = screen.getByRole('navigation', { name: 'Modules' });
+    expect(within(modules).getAllByRole('group')).toHaveLength(5);
+    for (const name of [
+      'Fill an org',
+      'Copy between orgs',
+      'Protect and restore',
+      'Watch and compare',
+      'Automate',
+    ]) {
+      const group = within(modules).getByRole('group', { name });
+      expect(within(group).getByRole('heading', { name })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('navigation')).toHaveLength(2);
+  });
+
+  it('titles every row with a sentence of the catalogue saying what its module does', async () => {
+    // Four modules of fourteen had one: the others were brand names alone,
+    // four of them copying between orgs with nothing to tell them apart.
+    useOrgStore.setState({
+      orgs: [
+        {
+          id: 'org-a',
+          alias: 'QASandbox',
+          username: 'qa@example.com',
+          instanceUrl: 'https://example.my.salesforce.com',
+          orgId: '00D000000000000',
+          orgType: 'Sandbox',
+          authMethod: 'oauth_web',
+          safetyTier: OrgSafetyTier.LOW,
+          appearance: { color: '#000000', icon: '', position: 0 },
+          metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
+          status: 'connected',
+          lastConnected: '2026-03-07T00:00:00.000Z',
+          tags: [],
+        },
+      ],
+    });
+    await renderIn('en');
+    const summaries: Record<string, string> = en.moduleSummary;
+    const rows = within(screen.getByTestId('sidepanel-modules')).getAllByTestId(/^sidepanel-nav-/);
+    expect(rows).toHaveLength(14);
+    for (const row of rows) {
+      const id = (row.getAttribute('data-testid') ?? '').replace('sidepanel-nav-', '');
+      expect({ id, title: row.getAttribute('title') }).toEqual({ id, title: summaries[id] });
+      expect(summaries[id], id).toMatch(/^\p{Lu}.{20,}[^.]$/u);
+    }
+  });
+
+  it('says what a module does in its row’s title, in the language of the panel', async () => {
+    await renderIn('fr');
+    expect(screen.getByTestId('sidepanel-nav-seed').getAttribute('title')).toBe(
+      fr.moduleSummary.seed,
+    );
+    expect(screen.getByRole('group', { name: 'Remplir une org' })).toBeTruthy();
+  });
+});
+
+/**
+ * The hero after a refresh: the sandbox to bring back into service, how long
+ * ago it was refreshed, and how many of its steps are done.
+ */
+describe('SidePanel hero after a refresh', () => {
+  const sandbox = (id: string, alias: string): SalesforceOrg => ({
+    id,
+    alias,
+    username: `${id}@example.com`,
+    instanceUrl: 'https://example.my.salesforce.com',
+    orgId: '00D000000000000',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#000000', icon: '', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
+    status: 'connected',
+    lastConnected: '2026-03-07T00:00:00.000Z',
+    tags: [],
+  });
+
+  const renderAfterRefresh = async (lng: 'en' | 'fr'): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+      </I18nextProvider>,
+    );
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'org:list:response',
+            payload: {
+              orgs: [sandbox('org-a', 'DevSandbox'), sandbox('org-b', 'QASandbox')],
+              selectedOrgId: 'org-a',
+            },
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'sidebar:afterRefresh',
+            payload: [
+              {
+                orgId: 'org-b',
+                alias: 'QASandbox',
+                detectedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+                done: 2,
+                total: 9,
+              },
+            ],
+          },
+        }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRecentOpsStore.setState({ ops: [] });
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useFavoritesStore.setState({ favorites: [] });
+  });
+
+  it('names the sandbox, its refresh and the steps done', async () => {
+    await renderAfterRefresh('en');
+    const hero = screen.getByTestId('sidepanel-after-refresh-hero');
+    expect(hero.textContent).toContain('Bring QASandbox back into service');
+    expect(hero.textContent).toContain('Refreshed 3 hours ago · 2/9 steps');
+    // The bar repeats the count, which the button's text says.
+    expect(
+      screen.getByTestId('sidepanel-after-refresh-bar').closest('[aria-hidden="true"]'),
+    ).not.toBeNull();
+  });
+
+  it('says it in French', async () => {
+    await renderAfterRefresh('fr');
+    const hero = screen.getByTestId('sidepanel-after-refresh-hero');
+    expect(hero.textContent).toContain('Remettre QASandbox en service');
+    // The age is written in the language of the side bar's own catalogue,
+    // which the line under Checkpoints proves (SidePanel.lastCheckpoint.test).
+    expect(hero.textContent).toMatch(/Rafraîchie .+ · 2\/9 étapes/);
+  });
+});
+
+/**
  * The star beside each module was named by its title alone, "Add to
  * favorites" on every row: a screen reader heard the same button once per
  * module, and never whether that module was a favourite already.
@@ -171,19 +349,21 @@ describe('SidePanel last operation status', () => {
     ['success', 'Succeeded'],
     ['failed', 'Failed'],
     ['cancelled', 'Cancelled'],
-  ] as const)('names a %s operation by how it ended', async (status, name) => {
+  ] as const)('says in words how a %s operation ended, beside its module', async (status, name) => {
     endedAs(status);
     await renderIn('en');
 
-    const lastOp = within(screen.getByTestId('sidepanel-last-op'));
-    expect(lastOp.getByRole('img', { name })).toBe(screen.getByTestId(`op-status-${status}`));
+    const lastOp = screen.getByTestId('sidepanel-last-op');
+    expect(lastOp.textContent).toContain(`Seed · ${name}`);
+    // The icon repeats the word: a screen reader is not told it twice.
+    expect(screen.getByTestId(`op-status-${status}`).getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('names the status in the language of the panel', async () => {
+  it('says the status in the language of the panel', async () => {
     endedAs('cancelled');
     await renderIn('fr');
 
-    expect(screen.getByTestId('op-status-cancelled').getAttribute('aria-label')).toBe('Annulée');
+    expect(screen.getByTestId('sidepanel-last-op').textContent).toContain('Seed · Annulée');
   });
 });
 
@@ -405,11 +585,9 @@ describe('SidePanel fill hero and module names', () => {
 
   it('wraps a module’s name on two lines rather than cutting it, in every list', async () => {
     await renderWithOneOrg('de');
-    fireEvent.click(screen.getByTestId('sidepanel-advanced-toggle'));
     const names = [
       ...within(screen.getByTestId('sidepanel-favorites')).getAllByText('Eingefrorenes Dataset'),
       ...within(screen.getByTestId('sidepanel-modules')).queryAllByText('Eingefrorenes Dataset'),
-      ...within(screen.getByTestId('sidepanel-advanced')).queryAllByText('Eingefrorenes Dataset'),
       within(screen.getByTestId('sidepanel-tools')).getByText('Organisationen'),
     ];
     expect(names.length).toBeGreaterThanOrEqual(3);

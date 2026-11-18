@@ -23,7 +23,7 @@ Before you start, know three things:
 
 ## Quick Start
 
-1. Open **Autopilot** from the launcher's Modules list (it needs two connected orgs)
+1. Open **Autopilot** from the launcher's **Copy between orgs** group (it needs two connected orgs)
 2. **Connect source and target**: the org the records come from, and the org they go into
 3. **Select objects**: the objects of the source to copy. An object the target does not have is listed, marked _Not in the target org_, and cannot be picked
 4. **Review plan**: the two orgs, each with its type and instance; the objects and records the plan copies, in waves, what it reads only by id, and the lookups it leaves empty; what the plan comes to against the target's data storage and API requests, with **Fit to storage…**; the personal fields it found, and a **Personal data** tile saying what becomes of them; **Neutralize emails and phone numbers (recommended)**, ticked; **Checkpoint first**, unticked; and, under **Advanced: compliance framework**, the masking to apply

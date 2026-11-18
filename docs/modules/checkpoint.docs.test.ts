@@ -1157,16 +1157,18 @@ describe('docs/modules/checkpoint.md', () => {
     );
   });
 
-  it('opens from the third line of the side bar, as its quick start says', () => {
-    // Positive control: the side bar's primary modules, in their order, by
-    // the ids it names the rows of `NAV_GROUPS` by.
-    const primary = /const PRIMARY_MODULE_IDS = \[([\s\S]*?)\] as const;/.exec(SIDE_PANEL)?.[1];
-    expect(primary).toBeDefined();
-    const ids = [...(primary ?? '').matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
-    expect(ids.slice(0, 3)).toEqual(['seed', 'forge', 'checkpoint']);
-    expect(NAV_GROUPS_SRC).toMatch(/id: 'checkpoint',\s*labelKey: 'nav\.checkpoint',\s*icon: </);
+  it('opens from the side bar’s group its quick start names', () => {
+    // Positive control: the side bar lists the groups of `NAV_GROUPS`, and
+    // Checkpoints is a row of the group that protects and restores.
+    expect(SIDE_PANEL).toMatch(/NAV_GROUPS\.map\(/);
+    const protect =
+      /id: 'protect',\s*labelKey: '(sidePanel\.group\.protect)',\s*items: \[([\s\S]*?)\n {4}\],/.exec(
+        NAV_GROUPS_SRC,
+      );
+    expect(protect).not.toBeNull();
+    expect(protect?.[2]).toMatch(/id: 'checkpoint',\s*labelKey: 'nav\.checkpoint',\s*icon: </);
 
-    expect(DOC).toContain("third in the launcher's Modules list, after Seed and Forge");
+    expect(DOC).toContain(`in the launcher's **${label(protect?.[1] ?? '')}** group`);
   });
 });
 

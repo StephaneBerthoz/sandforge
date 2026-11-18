@@ -8,6 +8,7 @@ import { moduleIntentSchema } from '../composition/moduleIntent';
 import type { MessageBroker } from '../bridge/MessageBroker';
 import { isSupportedLocaleCode, readLocaleBundle } from '../core/i18n/localeBundles';
 import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
+import type { RecoveryProgressSource } from '../modules/recovery/recoveryProgress.js';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
@@ -32,6 +33,56 @@ export interface SidebarLastCheckpoint {
 export const LAST_CHECKPOINT_CACHE_MS = 60_000;
 
 /**
+ * What the launcher's hero reads of the refreshed sandboxes: each one not yet
+ * back into service, n of N steps, and when that may have changed.
+ */
+export interface SidebarAfterRefreshSource {
+  /** Every registered sandbox whose refresh was noticed and whose way back into service is not finished. */
+  list(): RecoveryProgress[];
+  /** Calls `listener` each time the list may have changed; the returned object stops the calls. */
+  onDidChange(listener: () => void): { dispose(): void };
+}
+
+/** What {@link sidebarAfterRefreshSource} reads. */
+export interface SidebarAfterRefreshDeps {
+  /** How far each refreshed sandbox is back into service. */
+  progress: Pick<RecoveryProgressSource, 'progressOf' | 'onDidChange'>;
+  /** The registered orgs, by their SandForge id. */
+  orgIds(): readonly string[];
+  /** Calls `listener` at each refresh noticed: `SandboxRefreshDetector.onRefreshDetected`. */
+  onRefreshDetected(listener: () => void): () => void;
+}
+
+/**
+ * The refreshed sandboxes as the launcher's hero shows them, read from the
+ * progress of each registered org. The list changes with a refresh noticed,
+ * and with a step done, skipped or finished when the progress can say so: the
+ * hero followed only the view's reveals, and a refresh noticed with the
+ * launcher open showed at the next one.
+ */
+export function sidebarAfterRefreshSource(
+  deps: SidebarAfterRefreshDeps,
+): SidebarAfterRefreshSource {
+  return {
+    list: () =>
+      deps.orgIds().flatMap((orgId) => {
+        const progress = deps.progress.progressOf(orgId);
+        return progress ? [progress] : [];
+      }),
+    onDidChange(listener) {
+      const stopRefreshes = deps.onRefreshDetected(listener);
+      const progressChanges = deps.progress.onDidChange?.(listener);
+      return {
+        dispose: () => {
+          stopRefreshes();
+          if (progressChanges) progressChanges.dispose();
+        },
+      };
+    },
+  };
+}
+
+/**
  * A message the provider posts straight to the sidebar webview, outside the
  * broker envelope. Each channel names the payload it carries: the org list
  * used to travel with an undeclared `selectedOrgId` that the sidebar read back
@@ -47,7 +98,7 @@ export type SidebarOutboundMessage =
     }
   | {
       type: 'settings:response';
-      payload: { settings: Record<string, unknown>; grappeEnabled?: boolean };
+      payload: { settings: Record<string, unknown> };
     }
   | {
       type: 'sidebar:cliOrgs';
@@ -121,6 +172,8 @@ export class SidebarViewProvider {
   private lastCheckpointGeneration = 0;
   /** The org the sidebar last asked the line of: the one told again when the checkpoints change. */
   private lastCheckpointOrg?: string;
+  /** Listening to the refreshed sandboxes' progress, for as long as the provider lives. */
+  private afterRefreshSubscription?: { dispose(): void };
 
   constructor(
     private extensionUri: vscode.Uri,
@@ -139,8 +192,6 @@ export class SidebarViewProvider {
     private languageGetter?: () => string | undefined,
     /** Editor display language (`vscode.env.language`) for the `auto` setting. */
     private editorLanguageGetter?: () => string | undefined,
-    /** Whether `sandforge.grappe.enabled` is on: the launcher lists Grappe only then. */
-    private grappeEnabledGetter?: () => boolean,
     /**
      * How many orgs the Salesforce CLI holds, read from its own files. Asked
      * only while no org is registered, for the launcher's first card.
@@ -151,7 +202,14 @@ export class SidebarViewProvider {
      * from this machine's store: nothing for a production org.
      */
     private lastCheckpointGetter?: (orgId: string) => Promise<SidebarLastCheckpoint | undefined>,
-  ) {}
+    /**
+     * The refreshed sandboxes not yet back into service, which the launcher's
+     * hero leads with: told with the org list, and again at each change.
+     */
+    private afterRefreshSource?: SidebarAfterRefreshSource,
+  ) {
+    this.afterRefreshSubscription = afterRefreshSource?.onDidChange(() => this.tellAfterRefresh());
+  }
 
   /**
    * Release the message listener + broker registration (test hook + manual
@@ -161,6 +219,8 @@ export class SidebarViewProvider {
   dispose(): void {
     this.messageSubscription?.dispose();
     this.messageSubscription = undefined;
+    this.afterRefreshSubscription?.dispose();
+    this.afterRefreshSubscription = undefined;
     this.releaseView();
   }
 
@@ -248,6 +308,9 @@ export class SidebarViewProvider {
             .then((count) => this.postMessage({ type: 'sidebar:cliOrgs', payload: { count } }))
             .catch(() => undefined);
         }
+        // The view is recreated at every reveal: the hero is told again with
+        // the orgs it reads the list against.
+        this.tellAfterRefresh();
       }
 
       // The sidebar cannot reach the broker's settings:get (its inbound
@@ -255,10 +318,7 @@ export class SidebarViewProvider {
       // can sync its UI language with the configured one.
       if (type === 'sidebar:requestSettings' && this.settingsGetter) {
         const settings = this.settingsGetter();
-        this.postMessage({
-          type: 'settings:response',
-          payload: { settings, grappeEnabled: this.grappeEnabledGetter?.() ?? false },
-        });
+        this.postMessage({ type: 'settings:response', payload: { settings } });
       }
 
       if (type === 'sidebar:selectOrg' && this.onOrgSelected) {
@@ -304,6 +364,23 @@ export class SidebarViewProvider {
     if (this.view && this.lastCheckpointOrg !== undefined) {
       void this.answerLastCheckpoint(this.lastCheckpointOrg);
     }
+  }
+
+  /**
+   * Tell the shown view which refreshed sandboxes are not yet back into
+   * service. A list that cannot be read tells nothing: the hero keeps what it
+   * was told last, and the next change or reveal tells it again.
+   */
+  private tellAfterRefresh(): void {
+    const source = this.afterRefreshSource;
+    if (!source || !this.view) return;
+    let list: RecoveryProgress[];
+    try {
+      list = source.list();
+    } catch {
+      return;
+    }
+    this.postMessage({ type: 'sidebar:afterRefresh', payload: list });
   }
 
   /**

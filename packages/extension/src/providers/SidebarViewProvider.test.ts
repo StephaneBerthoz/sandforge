@@ -3,9 +3,12 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type * as vscode from 'vscode';
+import type { RecoveryProgress } from '@sandforge/shared';
 import {
   LAST_CHECKPOINT_CACHE_MS,
   SidebarViewProvider,
+  sidebarAfterRefreshSource,
+  type SidebarAfterRefreshSource,
   type SidebarLastCheckpoint,
 } from './SidebarViewProvider';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
@@ -196,33 +199,10 @@ describe('SidebarViewProvider', () => {
     messageHandler!({ type: 'sidebar:requestSettings' });
 
     expect(settingsGetter).toHaveBeenCalledTimes(1);
+    // Nothing of Grappe: its page is retired, and the launcher lists it no more.
     expect(mockWebview.postMessage).toHaveBeenCalledWith({
       type: 'settings:response',
-      payload: { settings: { settings: { language: 'fr' } }, grappeEnabled: false },
-    });
-  });
-
-  it('tells the launcher whether Grappe is on, with the settings', () => {
-    const grappeProvider = new SidebarViewProvider(
-      extensionUri,
-      uriJoinPath,
-      executeCommand,
-      undefined,
-      undefined,
-      undefined,
-      () => ({}),
-      undefined,
-      undefined,
-      undefined,
-      () => true,
-    );
-    grappeProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
-
-    messageHandler!({ type: 'sidebar:requestSettings' });
-
-    expect(mockWebview.postMessage).toHaveBeenCalledWith({
-      type: 'settings:response',
-      payload: { settings: {}, grappeEnabled: true },
+      payload: { settings: { settings: { language: 'fr' } } },
     });
   });
 
@@ -234,7 +214,6 @@ describe('SidebarViewProvider', () => {
       uriJoinPath,
       executeCommand,
       () => registered,
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -381,7 +360,6 @@ describe('SidebarViewProvider', () => {
         undefined,
         undefined,
         undefined,
-        undefined,
         read,
       );
     }
@@ -515,6 +493,197 @@ describe('SidebarViewProvider', () => {
       expect(await ask('org-1')).toEqual({ orgId: 'org-1' });
       expect(await ask('org-1')).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
       expect(getter).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('the hero after a refresh', () => {
+    const PROGRESS: RecoveryProgress = {
+      orgId: 'org-2',
+      alias: 'QASandbox',
+      detectedAt: '2026-11-18T09:00:00.000Z',
+      done: 2,
+      total: 9,
+    };
+    /** What the source lists now. */
+    let listed: RecoveryProgress[];
+    /** Those listening for a change, as the source holds them. */
+    let listeners: Set<() => void>;
+    let source: SidebarAfterRefreshSource;
+
+    /** A provider whose hero is told by `told`, with no org registered. */
+    function providerTelling(told?: SidebarAfterRefreshSource): SidebarViewProvider {
+      return new SidebarViewProvider(
+        extensionUri,
+        uriJoinPath,
+        executeCommand,
+        () => [{ id: 'org-2' }],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        told,
+      );
+    }
+
+    /** The lists the view `view` was told, in order. */
+    function told(view: Record<string, unknown> = mockWebview): unknown[] {
+      return vi
+        .mocked(view.postMessage as (message: { type: string; payload: unknown }) => void)
+        .mock.calls.map(([message]) => message)
+        .filter((message) => message.type === 'sidebar:afterRefresh')
+        .map((message) => message.payload);
+    }
+
+    /** The source says its list may have changed. */
+    const change = (): void => {
+      for (const listener of listeners) listener();
+    };
+
+    beforeEach(() => {
+      listed = [PROGRESS];
+      listeners = new Set();
+      source = {
+        list: () => listed,
+        onDidChange: (listener) => {
+          listeners.add(listener);
+          return { dispose: () => listeners.delete(listener) };
+        },
+      };
+    });
+
+    it('tells the launcher the sandboxes to bring back into service, after the org list it asked for', () => {
+      providerTelling(source).resolveWebviewView(
+        mockWebviewView as never,
+        {} as never,
+        {} as never,
+      );
+
+      messageHandler!({ type: 'sidebar:requestOrgs' });
+
+      const types = vi
+        .mocked(mockWebview.postMessage as (message: { type: string }) => void)
+        .mock.calls.map(([message]) => message.type);
+      expect(types).toEqual(['org:list:response', 'sidebar:afterRefresh']);
+      expect(told()).toEqual([[PROGRESS]]);
+    });
+
+    it('tells it again each time the list may have changed, while a view is shown', () => {
+      const telling = providerTelling(source);
+      // Nothing to tell before a view: the next one asks with the org list.
+      change();
+      telling.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      expect(told()).toEqual([]);
+
+      listed = [{ ...PROGRESS, done: 3 }];
+      change();
+      expect(told()).toEqual([[{ ...PROGRESS, done: 3 }]]);
+
+      // Every step done: the empty list takes the hero away.
+      listed = [];
+      change();
+      expect(told()).toEqual([[{ ...PROGRESS, done: 3 }], []]);
+
+      disposeHandler!();
+      change();
+      expect(told()).toHaveLength(2);
+    });
+
+    it('stops listening once the provider is disposed', () => {
+      const telling = providerTelling(source);
+      expect(listeners.size).toBe(1);
+
+      telling.dispose();
+
+      expect(listeners.size).toBe(0);
+    });
+
+    it('tells the launcher nothing when the list cannot be read, and keeps answering the org list', () => {
+      providerTelling({
+        ...source,
+        list: () => {
+          throw new Error('unreadable');
+        },
+      }).resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+      messageHandler!({ type: 'sidebar:requestOrgs' });
+
+      expect(told()).toEqual([]);
+      expect(mockWebview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'org:list:response' }),
+      );
+    });
+
+    it('tells nothing of refreshes when no source is wired', () => {
+      providerTelling().resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      messageHandler!({ type: 'sidebar:requestOrgs' });
+      expect(told()).toEqual([]);
+    });
+  });
+
+  describe('sidebarAfterRefreshSource', () => {
+    const progressOf = (orgId: string): RecoveryProgress | undefined =>
+      orgId === 'org-sbx'
+        ? { orgId, alias: 'QASandbox', detectedAt: '2026-11-18T09:00:00.000Z', done: 0, total: 9 }
+        : undefined;
+
+    it('lists the progress of each registered org that has one, in the orgs’ order', () => {
+      const listed = sidebarAfterRefreshSource({
+        progress: { progressOf },
+        orgIds: () => ['org-dev', 'org-sbx', 'org-prod'],
+        onRefreshDetected: () => () => undefined,
+      }).list();
+
+      expect(listed.map((progress) => progress.orgId)).toEqual(['org-sbx']);
+    });
+
+    it('says a change on each refresh noticed and on each change of a progress, until disposed', () => {
+      const refreshListeners = new Set<() => void>();
+      const progressListeners = new Set<() => void>();
+      const changes = vi.fn();
+      const subscription = sidebarAfterRefreshSource({
+        progress: {
+          progressOf,
+          onDidChange: (listener) => {
+            progressListeners.add(listener);
+            return { dispose: () => progressListeners.delete(listener) };
+          },
+        },
+        orgIds: () => ['org-sbx'],
+        onRefreshDetected: (listener) => {
+          refreshListeners.add(listener);
+          return () => refreshListeners.delete(listener);
+        },
+      }).onDidChange(changes);
+
+      for (const listener of refreshListeners) listener();
+      for (const listener of progressListeners) listener();
+      expect(changes).toHaveBeenCalledTimes(2);
+
+      subscription.dispose();
+      expect(refreshListeners.size).toBe(0);
+      expect(progressListeners.size).toBe(0);
+    });
+
+    it('says a change on each refresh noticed when the progress cannot tell its own changes', () => {
+      const refreshListeners = new Set<() => void>();
+      const changes = vi.fn();
+      const subscription = sidebarAfterRefreshSource({
+        progress: { progressOf },
+        orgIds: () => ['org-sbx'],
+        onRefreshDetected: (listener) => {
+          refreshListeners.add(listener);
+          return () => refreshListeners.delete(listener);
+        },
+      }).onDidChange(changes);
+
+      for (const listener of refreshListeners) listener();
+      expect(changes).toHaveBeenCalledTimes(1);
+      subscription.dispose();
+      expect(refreshListeners.size).toBe(0);
     });
   });
 

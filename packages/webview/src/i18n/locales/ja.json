@@ -5786,8 +5786,6 @@
   "sidePanel": {
     "noOrg": "組織が接続されていません",
     "selectOrg": "組織を選択",
-    "connectedOrgs": "組織",
-    "recentOps": "操作",
     "forge": "Forge",
     "forgeDesc": "実際のレコードとその周辺のすべてを別の組織にコピー",
     "favorites": "お気に入り",
@@ -5796,21 +5794,15 @@
     "favorite": "お気に入りに追加",
     "unfavorite": "お気に入りから削除",
     "favoriteModule": "{{module}}をお気に入りに登録",
-    "lastOp": "最後の操作",
     "lastCheckpoint": "{{org}} の最新のチェックポイント: {{age}}",
     "lastCheckpointTitle": "「{{name}}」、{{date}} に作成",
-    "openFull": "フル UI を開く",
-    "running": "実行中...",
     "newOrg": "新規組織...",
     "openInBrowser": "ブラウザで開く",
     "noOrgHint": "組織がありません — 下から接続してください",
     "loadingOrgs": "組織を読み込み中…",
-    "showMetrics": "メトリクスを表示",
-    "hideMetrics": "メトリクスを非表示",
     "fillOrg": "デモデータで満たす：{{alias}}",
     "fillOrgAction": "デモデータで満たす",
     "fillOrgDesc": "Seed テンプレートで、確認は一度だけ、AI キーは不要",
-    "advanced": "詳細",
     "firstOrg": {
       "title": "最初の組織を接続",
       "desc": "Salesforce CLI に登録済みの組織を取り込むか、ブラウザでログインします。",
@@ -5830,6 +5822,20 @@
       "protect": "保護と復元",
       "watch": "監視と比較",
       "automate": "自動化"
+    },
+    "needsSecondOrg": "2 つ目の組織が必要です",
+    "afterRefresh": {
+      "title": "{{alias}} の運用を再開",
+      "desc": "{{age}}にリフレッシュ · {{done}}/{{total}} ステップ",
+      "compact": "運用再開 · {{done}}/{{total}}"
+    },
+    "reconnect": {
+      "title": "{{alias}} に再接続",
+      "desc": "セッションが終了しました。組織ページからもう一度ログインしてください"
+    },
+    "addSandbox": {
+      "title": "データを投入する Sandbox を追加",
+      "desc": "Forge が {{alias}} の実際のレコードをそこにコピーします"
     }
   },
   "frozen": {
@@ -7580,7 +7586,17 @@
     "forge": "実際のレコードとその周辺のすべてを別の組織にコピー",
     "autopilot": "オブジェクト全体を別の組織にコピー",
     "seed": "組織をリアルな架空データで満たす",
-    "checkpoint": "組織のデータの状態を保存し、後で組織をその状態に戻す"
+    "checkpoint": "組織のデータの状態を保存し、後で組織をその状態に戻す",
+    "frozen": "レコードのセットを一度抽出し、リフレッシュのたびに組織へ再ロード",
+    "sync": "選んだオブジェクトを 2 つの組織間でコピー（マッピングと変換付き）",
+    "migration": "SFDMU の export.json を Sync の設定に変換（組織には何も書き込まない）",
+    "recovery": "リフレッシュした Sandbox を 1 ステップずつ運用再開",
+    "dataops": "組織のデータをバックアップしてマスキングし、個人のレコードを消去し、不要なレコードを整理",
+    "monitor": "組織の API 制限、ストレージ、ジョブ、Sandbox のリフレッシュを監視",
+    "compare": "2 つの組織のメタデータと設定を比較し、差分をデプロイ",
+    "reports": "過去の実行、各書き込みの監査証跡、レコードの由来を確認",
+    "automation": "ステップをパイプラインにつなぎ、手動・スケジュール・リフレッシュ後に実行",
+    "ai": "組織について質問し、パイプラインや SOQL の下書きを作成（ご自身の Anthropic キーを使用）"
   },
   "checkpoint": {
     "concept": "チェックポイントは、ある時点の組織のデータの状態です。巻き戻すと、その後に追加されたものを削除し、変更されたものの値をその時点に戻し、削除されたものを復元します。誰が行った変更かは問いません。",

@@ -7009,12 +7009,11 @@ for (const theme of SCANNED_THEMES) {
       ]);
       const card = page.getByTestId('sidepanel-first-org');
       await expect(card).toContainText('Import up to 3 orgs from Salesforce CLI');
-      await expect(page.getByTestId('sidepanel-metrics')).toHaveCount(0);
 
       await expectReadable(page, theme);
     });
 
-    test('Side panel with one Developer Edition: the Seed hero, and Advanced open', async ({
+    test('Side panel with one Developer Edition: the Seed hero, every group, and a second org to add', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'sidepanel', theme);
@@ -7032,8 +7031,62 @@ for (const theme of SCANNED_THEMES) {
       await expect(hero).toContainText('Fill with demo data');
       await expect(page.getByTestId('sidepanel-seed-hero-alias')).toHaveText(DEV_SANDBOX.alias);
       await expect(hero).toHaveAttribute('title', `Fill ${DEV_SANDBOX.alias} with demo data`);
-      await page.getByTestId('sidepanel-advanced-toggle').click();
       await expect(page.getByTestId('sidepanel-nav-compare')).toBeVisible();
+      await expect(page.getByRole('group', { name: 'Watch and compare' })).toBeVisible();
+      await expect(page.getByTestId('sidepanel-needs-second-org')).toHaveText('Needs a second org');
+
+      await expectReadable(page, theme);
+    });
+
+    test('Side panel after a refresh: the hero that brings the sandbox back into service', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      await bridge.stream([
+        { type: 'org:list:response', payload: { orgs: MOCK_ORGS, selectedOrgId: DEV_SANDBOX.id } },
+      ]);
+      // A list, raw: the extension's answer, which `bridge.stream` does not carry.
+      await sendExtensionMessage(page, {
+        type: 'sidebar:afterRefresh',
+        payload: [
+          {
+            orgId: DEV_SANDBOX.id,
+            alias: DEV_SANDBOX.alias,
+            detectedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+            done: 2,
+            total: 9,
+          },
+        ],
+      });
+      const hero = page.getByTestId('sidepanel-after-refresh-hero');
+      await expect(hero).toContainText(`Bring ${DEV_SANDBOX.alias} back into service`);
+      await expect(hero).toContainText('Refreshed 3 hours ago · 2/9 steps');
+      await expect(page.getByTestId('sidepanel-nav-recovery')).toHaveAccessibleName(
+        'Back into service',
+      );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Side panel with a production org alone: the sandbox to add, never Forge', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      await bridge.stream([
+        {
+          type: 'org:list:response',
+          payload: {
+            orgs: [{ ...DEV_SANDBOX, alias: 'Live', orgType: 'Production' }],
+            selectedOrgId: DEV_SANDBOX.id,
+          },
+        },
+      ]);
+      const hero = page.getByTestId('sidepanel-add-sandbox-hero');
+      await expect(hero).toContainText('Add the sandbox to fill');
+      await expect(hero).toContainText('Forge copies real records from Live into it');
+      await expect(page.getByTestId('sidepanel-forge')).toHaveCount(0);
 
       await expectReadable(page, theme);
     });
@@ -7112,8 +7165,6 @@ for (const theme of SCANNED_THEMES) {
             },
           },
         ]);
-        await page.getByTestId('sidepanel-advanced-toggle').click();
-
         const hero = page.getByTestId('sidepanel-seed-hero');
         const verb = hero.getByText('Mit Demodaten füllen', { exact: true });
         await expect(verb).toBeVisible();
@@ -9958,11 +10009,11 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="recent-ops-card"]');
     });
 
-    test('Side panel last operation, named by how it ended', async ({ page }) => {
+    test('Side panel last operation, said by its module and how it ended', async ({ page }) => {
       await openPanel(bridge, page, 'sidepanel', theme);
       await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
-      // The panel shows the last operation only: each ending in turn, each
-      // status icon named, and each state scanned.
+      // The panel shows the last operation only: each ending in turn, said in
+      // words beside its module, and each state scanned.
       const endings: Array<[string, { type: string; payload: Record<string, unknown> }]> = [
         [
           'Succeeded',
@@ -9989,7 +10040,7 @@ for (const theme of STATE_THEMES) {
           ended,
         ]);
         const lastOp = page.getByTestId('sidepanel-last-op');
-        await expect(lastOp.getByRole('img', { name })).toBeVisible();
+        await expect(lastOp).toContainText(`Seed · ${name}`);
 
         await expectReadable(page, theme, '[data-testid="sidepanel-last-op"]');
       }

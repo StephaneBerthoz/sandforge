@@ -6127,8 +6127,6 @@
   "sidePanel": {
     "noOrg": "Keine Org verbunden",
     "selectOrg": "Org auswählen",
-    "connectedOrgs": "Orgs",
-    "recentOps": "Ops",
     "forge": "Forge",
     "forgeDesc": "Einen echten Datensatz mit allem, was dazugehört, in eine andere Org kopieren",
     "favorites": "Favoriten",
@@ -6137,21 +6135,15 @@
     "favorite": "Zu Favoriten hinzufügen",
     "unfavorite": "Aus Favoriten entfernen",
     "favoriteModule": "{{module}} in den Favoriten",
-    "lastOp": "Letzte Operation",
     "lastCheckpoint": "Letzter Prüfpunkt von {{org}}: {{age}}",
     "lastCheckpointTitle": "„{{name}}“, erstellt am {{date}}",
-    "openFull": "Vollständige UI öffnen",
-    "running": "Läuft...",
     "newOrg": "Neue Organisation...",
     "openInBrowser": "Im Browser öffnen",
     "noOrgHint": "Noch keine Org — verbinden Sie unten eine",
     "loadingOrgs": "Orgs werden geladen…",
-    "showMetrics": "Metriken anzeigen",
-    "hideMetrics": "Metriken ausblenden",
     "fillOrg": "Mit Demodaten füllen: {{alias}}",
     "fillOrgAction": "Mit Demodaten füllen",
     "fillOrgDesc": "Eine Seed-Vorlage, eine Bestätigung, kein KI-Schlüssel",
-    "advanced": "Erweitert",
     "firstOrg": {
       "title": "Verbinden Sie Ihre erste Org",
       "desc": "Übernehmen Sie die Orgs, die die Salesforce CLI bereits kennt, oder melden Sie sich im Browser an.",
@@ -6172,6 +6164,20 @@
       "protect": "Schützen und wiederherstellen",
       "watch": "Überwachen und vergleichen",
       "automate": "Automatisieren"
+    },
+    "needsSecondOrg": "Eine zweite Org wird benötigt",
+    "afterRefresh": {
+      "title": "{{alias}} wieder in Betrieb nehmen",
+      "desc": "Aktualisiert {{age}} · {{done}}/{{total}} Schritte",
+      "compact": "Wieder in Betrieb · {{done}}/{{total}}"
+    },
+    "reconnect": {
+      "title": "{{alias}} erneut verbinden",
+      "desc": "Die Sitzung ist abgelaufen: unter Organisationen erneut anmelden"
+    },
+    "addSandbox": {
+      "title": "Die zu befüllende Sandbox hinzufügen",
+      "desc": "Forge kopiert echte Datensätze aus {{alias}} hinein"
     }
   },
   "frozen": {
@@ -8054,7 +8060,17 @@
     "forge": "Einen echten Datensatz mit allem, was dazugehört, in eine andere Org kopieren",
     "autopilot": "Ganze Objekte von einer Org in eine andere kopieren",
     "seed": "Eine Org mit realistischen erfundenen Daten füllen",
-    "checkpoint": "Den Stand der Daten einer Org festhalten und die Org später darauf zurücksetzen"
+    "checkpoint": "Den Stand der Daten einer Org festhalten und die Org später darauf zurücksetzen",
+    "frozen": "Datensätze einmal extrahieren und nach jeder Sandbox-Aktualisierung erneut in eine Org laden",
+    "sync": "Ausgewählte Objekte zwischen zwei Orgs kopieren, mit Zuordnungen und Transformationen",
+    "migration": "Eine SFDMU-export.json in eine Sync-Konfiguration umwandeln, ohne in eine Org zu schreiben",
+    "recovery": "Eine aktualisierte Sandbox Schritt für Schritt wieder in Betrieb nehmen",
+    "dataops": "Die Daten einer Org sichern, maskieren, die Datensätze einer Person löschen und aufräumen",
+    "monitor": "API-Limits, Speicher, Jobs und Sandbox-Aktualisierungen einer Org überwachen",
+    "compare": "Metadaten und Einstellungen zweier Orgs vergleichen und die Unterschiede bereitstellen",
+    "reports": "Frühere Läufe, den Prüfpfad jedes Schreibvorgangs und die Herkunft der Datensätze lesen",
+    "automation": "Schritte zu einer Pipeline verketten, auf Abruf, nach Zeitplan oder nach einer Aktualisierung ausgeführt",
+    "ai": "Fragen zu Ihren Orgs stellen und Pipelines und SOQL entwerfen, mit Ihrem eigenen Anthropic-Schlüssel"
   },
   "checkpoint": {
     "concept": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat.",

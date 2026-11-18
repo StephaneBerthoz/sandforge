@@ -6127,8 +6127,6 @@
   "sidePanel": {
     "noOrg": "Ninguna org conectada",
     "selectOrg": "Seleccionar una org",
-    "connectedOrgs": "Orgs",
-    "recentOps": "Ops",
     "forge": "Forge",
     "forgeDesc": "Copiar un registro real y todo lo que lo rodea a otra org",
     "favorites": "Favoritos",
@@ -6137,21 +6135,15 @@
     "favorite": "Agregar a favoritos",
     "unfavorite": "Quitar de favoritos",
     "favoriteModule": "{{module}} en favoritos",
-    "lastOp": "Última operación",
     "lastCheckpoint": "Último punto de control de {{org}}: {{age}}",
     "lastCheckpointTitle": "«{{name}}», creado el {{date}}",
-    "openFull": "Abrir UI completa",
-    "running": "Ejecutando...",
     "newOrg": "Nueva organización...",
     "openInBrowser": "Abrir en el navegador",
     "noOrgHint": "Aún sin org — conecte una abajo",
     "loadingOrgs": "Cargando orgs…",
-    "showMetrics": "Mostrar métricas",
-    "hideMetrics": "Ocultar métricas",
     "fillOrg": "Rellenar {{alias}} con datos de demostración",
     "fillOrgAction": "Rellenar con datos de demostración",
     "fillOrgDesc": "Una plantilla de Seed, una confirmación, sin clave de IA",
-    "advanced": "Avanzado",
     "firstOrg": {
       "title": "Conecte su primera org",
       "desc": "Importe las orgs que la Salesforce CLI ya conoce o inicie sesión desde su navegador.",
@@ -6172,6 +6164,20 @@
       "protect": "Proteger y restaurar",
       "watch": "Supervisar y comparar",
       "automate": "Automatizar"
+    },
+    "needsSecondOrg": "Hace falta una segunda org",
+    "afterRefresh": {
+      "title": "Volver a poner {{alias}} en servicio",
+      "desc": "Actualizado {{age}} · {{done}}/{{total}} pasos",
+      "compact": "Vuelta al servicio · {{done}}/{{total}}"
+    },
+    "reconnect": {
+      "title": "Volver a conectar {{alias}}",
+      "desc": "Su sesión terminó: vuelva a iniciar sesión desde Organizaciones"
+    },
+    "addSandbox": {
+      "title": "Añadir el sandbox que llenar",
+      "desc": "Forge copia en él registros reales de {{alias}}"
     }
   },
   "frozen": {
@@ -8054,7 +8060,17 @@
     "forge": "Copiar un registro real y todo lo que lo rodea a otra org",
     "autopilot": "Copiar objetos completos de una org a otra",
     "seed": "Llenar una org con datos ficticios realistas",
-    "checkpoint": "Guardar el estado de los datos de una org y devolver la org a ese estado más tarde"
+    "checkpoint": "Guardar el estado de los datos de una org y devolver la org a ese estado más tarde",
+    "frozen": "Extraer un conjunto de registros una vez y volver a cargarlo en una org tras cada actualización",
+    "sync": "Copiar los objetos elegidos entre dos orgs, con asignaciones y transformaciones",
+    "migration": "Convertir un export.json de SFDMU en una configuración de Sync, sin escribir en ninguna org",
+    "recovery": "Volver a poner en servicio un sandbox actualizado, paso a paso",
+    "dataops": "Respaldar los datos de una org, enmascararlos, borrar los de una persona y limpiar",
+    "monitor": "Supervisar los límites de API, el almacenamiento, los trabajos y las actualizaciones de sandbox de una org",
+    "compare": "Comparar los metadatos y la configuración de dos orgs, y desplegar lo que difiere",
+    "reports": "Revisar las ejecuciones pasadas, la pista de auditoría de cada escritura y el origen de los registros",
+    "automation": "Encadenar pasos en un pipeline, ejecutado a demanda, según una programación o tras una actualización",
+    "ai": "Preguntar sobre sus orgs y redactar pipelines y SOQL, con su propia clave de Anthropic"
   },
   "checkpoint": {
     "concept": "Un punto de control es el estado de los datos de una org en un momento dado. Retroceder elimina después lo que se añadió desde entonces, devuelve sus valores a lo que cambió y recupera lo que se eliminó, quienquiera que lo hiciera.",

@@ -29,7 +29,7 @@ Before you start, know four things:
 
 The whole round trip on a Developer Edition org, in about a minute:
 
-1. Open **Checkpoints**: third in the launcher's Modules list, after Seed and Forge, or **SandForge: Open Checkpoints** from the Command Palette, or `G` then `K` in the panel. Pick the org.
+1. Open **Checkpoints**: in the launcher's **Protect and restore** group, or **SandForge: Open Checkpoints** from the Command Palette, or `G` then `K` in the panel. Pick the org.
 2. **Take a checkpoint**: keep the name it offers, or pick **Before UAT**, **Before demo** or **Clean baseline**; keep **Everything people work in**; read **Before it runs**, then **Take the checkpoint**.
 3. In Salesforce, create a record, change two and delete one.
 4. **Rewind…** on the checkpoint's row: the preview reads the org and writes nothing. It shows **1 to delete**, **2 to give back**, **1 to bring back**.

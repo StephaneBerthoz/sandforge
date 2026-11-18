@@ -581,3 +581,99 @@ test.describe('Responsive layout', () => {
     expect(overflow).toBe('auto');
   });
 });
+
+/** The German catalogue, as the extension answers `i18n:locale` with it. */
+const DE_BUNDLE = JSON.parse(
+  readFileSync(new URL('../src/i18n/locales/de.json', import.meta.url), 'utf8'),
+) as Record<string, unknown>;
+
+/**
+ * Open the launcher at `viewport`, the two sandboxes of the fixtures
+ * registered and none selected: the Forge hero, and Back into service listed.
+ */
+async function openLauncherAt(
+  page: Page,
+  viewport: { width: number; height: number },
+  german = false,
+): Promise<void> {
+  await page.setViewportSize(viewport);
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await page.addInitScript(() => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'sidepanel';
+  });
+  await page.goto('/');
+  if (german) {
+    await bridge.respondToNext(
+      'i18n:locale',
+      'i18n:locale:response',
+      { lng: 'de', bundle: DE_BUNDLE },
+      { timeout: 10_000 },
+    );
+  }
+  await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+  await bridge.stream([
+    { type: 'org:list:response', payload: { orgs: MOCK_ORGS, selectedOrgId: null } },
+  ]);
+  await expect(page.getByTestId('sidepanel-forge')).toBeVisible();
+}
+
+/** How the tools bar lays out: each tool's top, and whether its name is cut or broken. */
+async function toolsLayout(page: Page) {
+  return page.getByTestId('sidepanel-tools').evaluate((nav) =>
+    [...nav.querySelectorAll('button')].map((button) => {
+      const label = button.querySelector('span:last-child') as HTMLElement;
+      const lineHeight = parseFloat(getComputedStyle(label).lineHeight);
+      return {
+        name: label.textContent,
+        top: Math.round(button.getBoundingClientRect().top),
+        lines: Math.round(label.getBoundingClientRect().height / lineHeight),
+        cut: label.scrollWidth > label.clientWidth || label.scrollHeight > label.clientHeight,
+      };
+    }),
+  );
+}
+
+test.describe('Launcher in the sidebar', () => {
+  test('lists its five groups and its tools at 300 pixels, about 830 tall, with no horizontal scroll', async ({
+    page,
+  }) => {
+    // Under the panel's height so the spacer adds nothing: what is measured
+    // is the launcher itself. It was 874 pixels with Advanced folded, about
+    // 1 040 with it open; the groups list every module in about 800, 34 more
+    // with Back into service.
+    await openLauncherAt(page, { width: 300, height: 700 });
+    await expect(page.getByTestId('sidepanel-nav-recovery')).toBeVisible();
+    const root = await page.getByTestId('sidepanel-root').evaluate((el) => ({
+      height: el.scrollHeight,
+      spill: el.scrollWidth - el.clientWidth,
+    }));
+    expect(root.spill).toBe(0);
+    expect(root.height).toBeLessThanOrEqual(850);
+    expect(root.height).toBeGreaterThan(700);
+  });
+
+  test('sets its three tools side by side at 300 pixels, each name whole', async ({ page }) => {
+    await openLauncherAt(page, { width: 300, height: 900 });
+    const tools = await toolsLayout(page);
+    expect(new Set(tools.map((tool) => tool.top)).size).toBe(1);
+    for (const tool of tools) expect(tool).toEqual({ ...tool, lines: 1, cut: false });
+  });
+});
+
+test.describe('Launcher in the sidebar, in German', () => {
+  test.use({ locale: 'de-DE' });
+
+  for (const width of [300, 215, 170]) {
+    test(`keeps "Organisationen" whole at ${width} pixels, the tools bar wrapping rather than breaking it`, async ({
+      page,
+    }) => {
+      await openLauncherAt(page, { width, height: 900 }, true);
+      await expect(page.getByTestId('sidepanel-nav-orgs')).toContainText('Organisationen');
+      const tools = await toolsLayout(page);
+      for (const tool of tools) expect(tool).toEqual({ ...tool, lines: 1, cut: false });
+      // Side by side where they fit: the 300 pixels of the default sidebar.
+      if (width === 300) expect(new Set(tools.map((tool) => tool.top)).size).toBe(1);
+    });
+  }
+});

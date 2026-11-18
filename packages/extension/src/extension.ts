@@ -10,7 +10,7 @@ import { ExtensionHandlers } from './bridge/ExtensionHandlers';
 import { StatusBarProvider } from './providers/StatusBarProvider';
 import { WebviewPanelManager } from './providers/WebviewPanelManager';
 import type { UriJoinPath } from './providers/WebviewPanelManager';
-import { SidebarViewProvider } from './providers/SidebarViewProvider';
+import { SidebarViewProvider, sidebarAfterRefreshSource } from './providers/SidebarViewProvider';
 import { readConfiguredLanguage } from './providers/webviewHtml';
 import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerTypes';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
@@ -570,7 +570,6 @@ export function activate(context: vscode.ExtensionContext): void {
     // `<html lang>` on the sidebar shell — same closure the panels get.
     () => readConfiguredLanguage(configStore.getByCategory('settings')),
     () => vscode.env.language,
-    () => services.getSandforgeSetting<unknown>('grappe.enabled', false) === true,
     // Read from the CLI's own files, no process started: the launcher asks
     // only while no org is registered.
     () => countCliOrgs(os.homedir()),
@@ -578,6 +577,13 @@ export function activate(context: vscode.ExtensionContext): void {
     // Checkpoints handler, whose modules load on its first request: the
     // sweep the first view starts (step 7) loads them as well.
     (orgId) => handlers.latestCheckpointOf(orgId),
+    // The launcher's hero after a refresh: each refreshed sandbox not yet back
+    // into service, told again as a refresh is noticed or a step changes.
+    sidebarAfterRefreshSource({
+      progress: handlers.recoveryProgress,
+      orgIds: () => orgManager.getAllOrgs().map((org) => org.id),
+      onRefreshDetected: (listener) => handlers.sandboxRefreshes.onRefreshDetected(listener),
+    }),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,

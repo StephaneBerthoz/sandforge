@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { MockBridge } from './helpers';
 import { MOCK_ORGS } from './fixtures';
 import { injectVSCodeApiMock, sendExtensionMessage } from './mocks/vscode-api';
@@ -122,6 +122,11 @@ async function navigatedRoutes(page: Page): Promise<string[]> {
 }
 
 /** The route ids the launcher offers inside one of its nav containers. */
+/** The id a launcher group is drawn with, read from its testid. */
+async function groupId(group: Locator): Promise<string> {
+  return ((await group.getAttribute('data-testid')) ?? '').replace('sidepanel-group-', '');
+}
+
 async function entryRoutes(page: Page, containerTestId: string): Promise<string[]> {
   return page
     .getByTestId(containerTestId)
@@ -212,89 +217,143 @@ test.describe('Module launcher', () => {
     await openLauncher(page);
   });
 
-  test('offers the module and tool entries, the specialist ones under Advanced', async ({
+  test('offers every module in five groups by what they are for, none folded, and the three tools', async ({
     page,
   }) => {
     await expect(page.getByTestId('sidepanel-modules')).toBeVisible();
     await expect(page.getByTestId('sidepanel-tools')).toBeVisible();
 
-    // Seed, Forge and Monitor first: what a newcomer with one org needs, and
-    // Checkpoints beside them, the way back once an org is filled.
-    expect(await entryRoutes(page, 'sidepanel-modules')).toEqual([
-      'seed',
-      'forge',
-      'checkpoint',
-      'monitor',
-      'sync',
-      'autopilot',
-      'frozen',
-    ]);
-    await expect(page.getByTestId('sidepanel-advanced')).toHaveCount(0);
-    await page.getByTestId('sidepanel-advanced-toggle').click();
-    expect(await entryRoutes(page, 'sidepanel-advanced')).toEqual([
-      'compare',
-      'dataops',
-      'automation',
-      'migration',
-      'ai',
-    ]);
-    expect((await entryRoutes(page, 'sidepanel-tools')).sort()).toEqual(
-      ['help', 'orgs', 'settings'].sort(),
-    );
+    // Filling an org first: it works with one empty org. The two sandboxes
+    // registered list Back into service.
+    const modules = page.getByRole('navigation', { name: 'Modules' });
+    await expect(modules.getByRole('group')).toHaveCount(5);
+    const groups: Array<[string, string[]]> = [
+      ['Fill an org', ['seed', 'frozen']],
+      ['Copy between orgs', ['forge', 'sync', 'autopilot', 'migration']],
+      ['Protect and restore', ['recovery', 'checkpoint', 'dataops']],
+      ['Watch and compare', ['monitor', 'compare', 'reports']],
+      ['Automate', ['automation', 'ai']],
+    ];
+    for (const [name, routes] of groups) {
+      const group = modules.getByRole('group', { name });
+      await expect(group.getByRole('heading', { name })).toBeVisible();
+      expect(await entryRoutes(page, `sidepanel-group-${await groupId(group)}`)).toEqual(routes);
+    }
+    await expect(page.getByTestId('sidepanel-advanced-toggle')).toHaveCount(0);
+    expect(await entryRoutes(page, 'sidepanel-tools')).toEqual(['orgs', 'settings', 'help']);
   });
 
-  test('lists Grappe under Advanced once sandforge.grappe.enabled is on', async ({ page }) => {
-    await page.getByTestId('sidepanel-advanced-toggle').click();
-    expect(await entryRoutes(page, 'sidepanel-advanced')).not.toContain('grappe');
-
+  test('never lists Grappe, whose page is retired, whatever sandforge.grappe.enabled says', async ({
+    page,
+  }) => {
     await sendExtensionMessage(page, {
       type: 'settings:response',
       payload: { settings: {}, grappeEnabled: true },
     });
-
-    await expect(page.getByTestId('sidepanel-nav-grappe')).toBeVisible();
+    await expect(page.getByTestId('sidepanel-nav-reports')).toBeVisible();
+    await expect(page.getByTestId('sidepanel-nav-grappe')).toHaveCount(0);
   });
 
   test('every entry it offers is a route the extension can open', async ({ page }) => {
-    await sendExtensionMessage(page, {
-      type: 'settings:response',
-      payload: { settings: {}, grappeEnabled: true },
-    });
-    await page.getByTestId('sidepanel-advanced-toggle').click();
-    await expect(page.getByTestId('sidepanel-nav-grappe')).toBeVisible();
     const modules = await entryRoutes(page, 'sidepanel-modules');
-    const advanced = await entryRoutes(page, 'sidepanel-advanced');
     const tools = await entryRoutes(page, 'sidepanel-tools');
 
-    for (const route of [...modules, ...advanced, ...tools]) {
+    for (const route of [...modules, ...tools]) {
       await page.getByTestId(`sidepanel-nav-${route}`).click();
     }
     await page.getByTestId('sidepanel-forge').click();
 
     const emitted = await navigatedRoutes(page);
-    expect(emitted).toEqual([...modules, ...advanced, ...tools, 'forge']);
+    expect(emitted).toEqual([...modules, ...tools, 'forge']);
 
-    // The extension resolves an unknown route to `sandforge.openMonitor`
+    // The extension resolves an unknown route to `sandforge.openHome`
     // (SidebarViewProvider.ts), so a launcher entry whose route is not in the
-    // map does not fail loudly — it silently opens Monitor instead. That is
+    // map does not fail loudly — it silently opens Home instead. That is
     // what this asserts against.
     for (const route of emitted) {
       expect(Object.keys(SIDEBAR_ROUTE_COMMANDS)).toContain(route);
     }
 
     // And the other direction: a module command the extension registers with
-    // no way to reach it from the launcher. `reports` has no launcher entry
-    // and is reached from the command palette (ALL_ROUTES) or the G+R chord
-    // instead; `recovery`, Back into service, from the VS Code palette until
-    // the launcher lists it. `home` is the page Open Full UI opens, through
-    // `sidebar:openFull` rather than a route.
+    // no way to reach it from the launcher. `home` is the page the button
+    // beside the mark opens, through `sidebar:openFull` rather than a route;
+    // Grappe's command goes with its retired page.
     const launcherRoutes = new Set(emitted);
     const unreachable = MODULE_COMMANDS.map((c) => c.moduleId).filter(
-      (moduleId) => !launcherRoutes.has(moduleId),
+      (moduleId) => !launcherRoutes.has(moduleId) && moduleId !== 'grappe',
     );
-    expect(unreachable).toEqual(['home', 'recovery', 'reports']);
+    expect(unreachable).toEqual(['home']);
     await page.getByTestId('sidepanel-open-full').click();
     expect(await posted(page, 'sidebar:openFull')).toHaveLength(1);
+  });
+
+  test('after a refresh, the hero opens Back into service on the sandbox refreshed', async ({
+    page,
+  }) => {
+    const refreshed = MOCK_ORGS[1] as { id: string; alias: string };
+    await sendExtensionMessage(page, {
+      type: 'sidebar:afterRefresh',
+      payload: [
+        {
+          orgId: refreshed.id,
+          alias: refreshed.alias,
+          detectedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+          done: 3,
+          total: 9,
+        },
+      ],
+    });
+    const hero = page.getByTestId('sidepanel-after-refresh-hero');
+    await expect(hero).toContainText(`Bring ${refreshed.alias} back into service`);
+    await expect(hero).toContainText('Refreshed 2 hours ago · 3/9 steps');
+    await expect(page.getByTestId('sidepanel-forge')).toHaveCount(0);
+
+    await hero.click();
+
+    expect(await navigatedRoutes(page)).toEqual(['recovery']);
+    const selected = await posted(page, 'sidebar:selectOrg');
+    expect(selected.at(-1)?.payload).toEqual({ orgId: refreshed.id });
+
+    // Every step done: the hero goes back to Forge.
+    await sendExtensionMessage(page, { type: 'sidebar:afterRefresh', payload: [] });
+    await expect(page.getByTestId('sidepanel-forge')).toBeVisible();
+  });
+
+  test('with production orgs alone, the hero asks for the sandbox to fill, and opens the browser login', async ({
+    page,
+  }) => {
+    await sendExtensionMessage(page, {
+      type: 'org:list:response',
+      payload: {
+        orgs: [{ ...MOCK_ORGS[0], orgType: 'Production' }],
+        selectedOrgId: null,
+      },
+    });
+    await expect(page.getByTestId('sidepanel-forge')).toHaveCount(0);
+
+    await page.getByTestId('sidepanel-add-sandbox-hero').click();
+
+    expect((await posted(page, 'sidebar:navigate')).map((m) => m.payload)).toEqual([
+      { route: 'orgs', intent: { orgAction: 'login-web' } },
+    ]);
+  });
+
+  test('with one org connected, Copy between orgs says a second is needed, and opens Organizations', async ({
+    page,
+  }) => {
+    await expect(page.getByTestId('sidepanel-needs-second-org')).toHaveCount(0);
+    await sendExtensionMessage(page, {
+      type: 'org:list:response',
+      payload: { orgs: [{ ...MOCK_ORGS[0], orgType: 'Developer' }], selectedOrgId: null },
+    });
+
+    const needs = page
+      .getByTestId('sidepanel-group-copy')
+      .getByTestId('sidepanel-needs-second-org');
+    await expect(needs).toHaveText('Needs a second org');
+    await needs.click();
+
+    expect(await navigatedRoutes(page)).toEqual(['orgs']);
   });
 
   test('with one Developer Edition, the hero opens Seed on it rather than Forge', async ({

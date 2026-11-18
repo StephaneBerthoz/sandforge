@@ -23,6 +23,12 @@ describe('sidepanelLocaleSubset', () => {
     expect(sidepanelLocaleSubset({ sidePanel }).sidePanel).toBe(sidePanel);
   });
 
+  it('keeps what each module does, which titles the launcher’s rows', () => {
+    const moduleSummary = { seed: 'Remplir une org de données fictives réalistes' };
+    expect(SIDEPANEL_LOCALE_NAMESPACES).toContain('moduleSummary');
+    expect(sidepanelLocaleSubset({ moduleSummary, forge: {} })).toEqual({ moduleSummary });
+  });
+
   it('names each namespace once', () => {
     expect(new Set(SIDEPANEL_LOCALE_NAMESPACES).size).toBe(SIDEPANEL_LOCALE_NAMESPACES.length);
   });

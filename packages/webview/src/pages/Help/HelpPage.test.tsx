@@ -75,22 +75,6 @@ function sidePanelItems(): Array<{ id: string; icon: string }> {
   );
 }
 
-/**
- * The modules the side panel lists, in its order: its sections, Modules then
- * Advanced, as its source names them by id.
- */
-function sidePanelOrder(): string[] {
-  const source = readFileSync(join(__dirname, '..', '..', 'SidePanel.tsx'), 'utf-8');
-  return ['PRIMARY_MODULE_IDS', 'ADVANCED_MODULE_IDS'].flatMap((name) => {
-    const list = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const;`).exec(source);
-    if (!list)
-      throw new Error(
-        `${name} is not in SidePanel.tsx: read the side panel's order where it is now`,
-      );
-    return [...list[1].matchAll(/'([\w-]+)'/g)].map(([, id]) => id);
-  });
-}
-
 /** A caption as a sentence of a Help line says it: lower case first, no full stop. */
 const asSaid = (caption: string): string => caption.replace(/[.。]$/u, '').toLowerCase();
 
@@ -226,7 +210,7 @@ describe('HelpPage', () => {
     expect(en.help.checkpointContent).not.toMatch(/Give back|Bring back/);
   });
 
-  it('lists the modules in the side panel’s order, Seed first, with Organizations after Getting Started', () => {
+  it('lists the modules, Seed first, each a row of the side panel, with Organizations after Getting Started', () => {
     // Help put Forge first, then Monitor, then Seed, under a comment saying the
     // side panel, the walkthrough and the tour led with Forge: all three lead
     // a newcomer with one empty org to Seed.
@@ -256,12 +240,9 @@ describe('HelpPage', () => {
       'troubleshooting',
       'release-notes',
     ]);
-    const modules = sidePanelOrder().filter((id) => ids.includes(id));
-    expect(modules).toHaveLength(13);
-    expect(ids.filter((id) => modules.includes(id))).toEqual(modules);
-    // Each is a row of the list the side panel draws its rows from.
+    // Each is a row of the list the side panel draws its rows from, Organizations among them.
     const rows = sidePanelItems().map(({ id }) => id);
-    expect(modules.filter((id) => !rows.includes(id))).toEqual([]);
+    expect(ids.filter((id) => rows.includes(id))).toHaveLength(15);
   });
 
   it('draws each module and Organizations with the side panel’s icon, where it drew emoji', () => {

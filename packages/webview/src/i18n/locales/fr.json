@@ -6127,8 +6127,6 @@
   "sidePanel": {
     "noOrg": "Aucune org connectée",
     "selectOrg": "Sélectionner une org",
-    "connectedOrgs": "Orgs",
-    "recentOps": "Ops",
     "forge": "Forge",
     "forgeDesc": "Copier un enregistrement réel et tout ce qui l'entoure dans une autre org",
     "favorites": "Favoris",
@@ -6137,21 +6135,15 @@
     "favorite": "Ajouter aux favoris",
     "unfavorite": "Retirer des favoris",
     "favoriteModule": "{{module}} dans les favoris",
-    "lastOp": "Dernière opération",
     "lastCheckpoint": "Dernier point de contrôle de {{org}} : {{age}}",
     "lastCheckpointTitle": "« {{name}} », créé le {{date}}",
-    "openFull": "Ouvrir l'UI complète",
-    "running": "En cours...",
     "newOrg": "Nouvelle organisation...",
     "openInBrowser": "Ouvrir dans le navigateur",
     "noOrgHint": "Aucune org — connectez-en une ci-dessous",
     "loadingOrgs": "Chargement des orgs…",
-    "showMetrics": "Afficher les métriques",
-    "hideMetrics": "Masquer les métriques",
     "fillOrg": "Remplir {{alias}} de données de démonstration",
     "fillOrgAction": "Remplir de données de démonstration",
     "fillOrgDesc": "Un modèle Seed, une confirmation, sans clé d'IA",
-    "advanced": "Avancé",
     "firstOrg": {
       "title": "Connectez votre première org",
       "desc": "Importez les orgs que la Salesforce CLI connaît déjà, ou connectez-vous depuis votre navigateur.",
@@ -6172,6 +6164,20 @@
       "protect": "Protéger et restaurer",
       "watch": "Surveiller et comparer",
       "automate": "Automatiser"
+    },
+    "needsSecondOrg": "Il faut une deuxième org",
+    "afterRefresh": {
+      "title": "Remettre {{alias}} en service",
+      "desc": "Rafraîchie {{age}} · {{done}}/{{total}} étapes",
+      "compact": "Remettre en service · {{done}}/{{total}}"
+    },
+    "reconnect": {
+      "title": "Reconnecter {{alias}}",
+      "desc": "Sa session a pris fin : reconnectez-la depuis Organisations"
+    },
+    "addSandbox": {
+      "title": "Ajouter la sandbox à remplir",
+      "desc": "Forge y copie des enregistrements réels de {{alias}}"
     }
   },
   "frozen": {
@@ -8054,7 +8060,17 @@
     "forge": "Copier un enregistrement réel et tout ce qui l'entoure dans une autre org",
     "autopilot": "Copier des objets entiers d'une org vers une autre",
     "seed": "Remplir une org de données fictives réalistes",
-    "checkpoint": "Enregistrer l'état des données d'une org, et y ramener l'org plus tard"
+    "checkpoint": "Enregistrer l'état des données d'une org, et y ramener l'org plus tard",
+    "frozen": "Extraire un jeu d'enregistrements une fois, et le recharger dans une org après chaque rafraîchissement",
+    "sync": "Copier les objets choisis entre deux orgs, avec correspondances et transformations",
+    "migration": "Convertir un export.json SFDMU en configuration Sync, sans rien écrire dans une org",
+    "recovery": "Remettre en service une sandbox rafraîchie, étape par étape",
+    "dataops": "Sauvegarder les données d'une org, les masquer, effacer celles d'une personne et faire le ménage",
+    "monitor": "Surveiller les limites d'API, le stockage, les jobs et les rafraîchissements de sandbox d'une org",
+    "compare": "Comparer les métadonnées et les réglages de deux orgs, et déployer ce qui diffère",
+    "reports": "Relire les exécutions passées, la piste d'audit de chaque écriture et l'origine des enregistrements",
+    "automation": "Enchaîner des étapes en pipeline, lancé à la demande, selon un planning ou après un rafraîchissement",
+    "ai": "Interroger vos orgs et rédiger pipelines et SOQL, avec votre propre clé Anthropic"
   },
   "checkpoint": {
     "concept": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur.",

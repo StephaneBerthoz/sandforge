@@ -13,6 +13,13 @@
  * same namespaces (SIDEPANEL_LOCALE_NAMESPACES in @sandforge/shared), and the
  * sidebar entry's test checks that every key the sidebar renders is in one.
  */
-import { common, errorBoundary, home, nav, sidePanel } from '../i18n/locales/en.json';
+import {
+  common,
+  errorBoundary,
+  home,
+  moduleSummary,
+  nav,
+  sidePanel,
+} from '../i18n/locales/en.json';
 
-export default { common, errorBoundary, home, nav, sidePanel };
+export default { common, errorBoundary, home, moduleSummary, nav, sidePanel };

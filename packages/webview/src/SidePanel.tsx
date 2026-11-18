@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { syncLanguageFromSettings } from './i18n';
 import {
   Flame,
-  ExternalLink,
   AlertCircle,
   CheckCircle,
   XCircle,
@@ -16,10 +15,14 @@ import {
   Sprout,
   Globe,
   Download,
+  House,
+  ListChecks,
+  Plus,
 } from 'lucide-react';
 import { BrandMark } from './components/ui/BrandMark';
-import { MODULE_ITEMS, TOOL_ITEMS, isNavItemShown } from './navigation/navGroups';
+import { MODULE_ITEMS, NAV_GROUPS, TOOL_ITEMS, isNavItemShown } from './navigation/navGroups';
 import type { NavItem } from './navigation/navGroups';
+import { afterRefreshOf, heroFor } from './navigation/heroFor';
 import type { ModuleRoute } from './stores/useAppStore';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
@@ -36,10 +39,8 @@ import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import type { RecentOp } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
-import { getPersistedItem, setPersistedItem } from './utils/webviewStorage';
-import { orgToFill } from './utils/orgToFill';
 import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
-import type { OrgListResponse, OrgPageAction } from '@sandforge/shared';
+import type { OrgListResponse, OrgPageAction, RecoveryProgress } from '@sandforge/shared';
 
 /**
  * The word each status is read by: the one Home's badges print, so a status
@@ -54,22 +55,18 @@ const STATUS_NAME_KEYS: Record<RecentOp['status'], string> = {
 };
 
 /**
- * Status icon component for a recent operation.
- *
- * An image named by its status. The icons said it by shape and colour alone:
- * a screen reader read the operation's label and its time, and nothing of
- * whether it had succeeded, failed or been cancelled.
+ * Status icon of an operation, beside the word that says its status: hidden
+ * from a screen reader, which reads the word.
  */
 const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
-  const { t } = useTranslation();
-  const name = { role: 'img', 'aria-label': t(STATUS_NAME_KEYS[status]) };
+  const hidden = { 'aria-hidden': true } as const;
   switch (status) {
     case 'success':
       return (
         <CheckCircle
           className="w-3.5 h-3.5 text-status-success"
           data-testid="op-status-success"
-          {...name}
+          {...hidden}
         />
       );
     case 'partial':
@@ -77,7 +74,7 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
         <AlertCircle
           className="w-3.5 h-3.5 text-status-warning"
           data-testid="op-status-partial"
-          {...name}
+          {...hidden}
         />
       );
     case 'failed':
@@ -85,7 +82,7 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
         <XCircle
           className="w-3.5 h-3.5 text-status-error"
           data-testid="op-status-failed"
-          {...name}
+          {...hidden}
         />
       );
     case 'running':
@@ -93,7 +90,7 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
         <Loader
           className="w-3.5 h-3.5 text-status-info animate-spin"
           data-testid="op-status-running"
-          {...name}
+          {...hidden}
         />
       );
     // A run someone stopped: neither the success tick nor the failure cross.
@@ -102,50 +99,20 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
         <Ban
           className="w-3.5 h-3.5 text-text-secondary"
           data-testid="op-status-cancelled"
-          {...name}
+          {...hidden}
         />
       );
   }
 };
 
 /**
- * The launcher's sections as 1.82.0 lists them, rows of `NAV_GROUPS` named by
- * their ids: the modules a newcomer sees first, then those folded under
- * Advanced, Grappe last while its setting is on. The launcher keeps this
- * order and this folding until it lists the groups themselves, and this table
- * goes with them; Back into service and Reports are not listed here.
+ * Whether the launcher lists a row: Back into service once a sandbox is
+ * registered, the only kind of org a refresh happens to. Grappe's page is
+ * retired: its row is listed under no setting.
  */
-const PRIMARY_MODULE_IDS = [
-  'seed',
-  'forge',
-  'checkpoint',
-  'monitor',
-  'sync',
-  'autopilot',
-  'frozen',
-] as const;
-const ADVANCED_MODULE_IDS = [
-  'compare',
-  'dataops',
-  'automation',
-  'migration',
-  'ai',
-  'grappe',
-] as const;
-
-/** The rows of `NAV_GROUPS` these ids name, in the ids' order. */
-function rowsOf(ids: readonly ModuleRoute[]): NavItem[] {
-  return ids.flatMap((id) => MODULE_ITEMS.filter((item) => item.id === id));
+function listedIn(sandboxRegistered: boolean): (item: NavItem) => boolean {
+  return (item) => isNavItemShown(item, { sandboxRegistered, grappeEnabled: false });
 }
-
-const PRIMARY_MODULES = rowsOf(PRIMARY_MODULE_IDS);
-const ADVANCED_MODULES = rowsOf(ADVANCED_MODULE_IDS);
-
-/** Every module the launcher lists, in its order: what favourites are picked from. */
-const LISTED_MODULES: readonly NavItem[] = [...PRIMARY_MODULES, ...ADVANCED_MODULES];
-
-/** Webview state key of whether the Advanced section is open. */
-const ADVANCED_OPEN_KEY = 'sf-launcher-advanced-open';
 
 /**
  * A module's name in the launcher's lists: wrapped on two lines at most rather
@@ -157,6 +124,8 @@ const NAV_LABEL = 'text-xs font-medium leading-tight min-w-0 line-clamp-2 break-
 /** Props for one module row of the launcher. */
 interface ModuleRowProps {
   item: NavItem;
+  /** What the module does, said on hover. */
+  title: string;
   active: boolean;
   favorite: boolean;
   onOpen: () => void;
@@ -168,6 +137,7 @@ interface ModuleRowProps {
 /** One module of the launcher's lists: its button, and its favourite star. */
 const ModuleRow: React.FC<ModuleRowProps> = ({
   item,
+  title,
   active,
   favorite,
   onOpen,
@@ -191,6 +161,7 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
             : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
         )}
         onClick={onOpen}
+        title={title}
         aria-current={active ? 'page' : undefined}
         aria-describedby={describedBy}
         data-testid={`sidepanel-nav-${item.id}`}
@@ -336,21 +307,121 @@ const FirstOrgButton: React.FC<FirstOrgButtonProps> = ({
   </button>
 );
 
+/** Props for the launcher's hero: the one thing it leads with. */
+interface HeroCardProps {
+  testId: string;
+  icon: React.ReactNode;
+  /** What a click does, on a line of its own, wrapped and never cut. */
+  verb: string;
+  /** The org, under the verb: cut where it must be, the title says it whole. */
+  alias?: string;
+  aliasTestId?: string;
+  detail?: string;
+  title?: string;
+  /** How far, from 0 to 1: a bar under the words, which say it too. */
+  progress?: number;
+  progressTestId?: string;
+  onClick: () => void;
+}
+
 /**
- * Premium sidebar navigation for the VSCode side panel.
- * Features:
- * - SandForge branding with flame icon
- * - Full module navigation with accent colors and favorites
- * - Org switcher with live connection indicator
- * - Quick metrics (connected orgs / recent ops count)
- * - Running/last operation status
- * - "Open Full UI" button
+ * The hero on a panel with room for it. The verb has a line of its own: the
+ * title truncated to one line, and a scratch org named by its long username
+ * took the verb with it.
+ */
+const HeroCard: React.FC<HeroCardProps> = ({
+  testId,
+  icon,
+  verb,
+  alias,
+  aliasTestId,
+  detail,
+  title,
+  progress,
+  progressTestId,
+  onClick,
+}) => (
+  <div className="px-3 pt-3">
+    <button
+      type="button"
+      className={cn(
+        'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
+        'bg-surface-1 border border-subtle',
+        'hover:bg-surface-2 hover:border-active',
+        'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
+        'transition-all duration-200',
+      )}
+      onClick={onClick}
+      title={title}
+      data-testid={testId}
+    >
+      <div className="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
+        {icon}
+      </div>
+      <div className="text-left flex-1 min-w-0">
+        <div className="text-sm font-bold text-text-primary leading-tight break-words">{verb}</div>
+        {alias !== undefined && (
+          <div className="text-xs text-text-primary truncate" data-testid={aliasTestId}>
+            {alias}
+          </div>
+        )}
+        {detail !== undefined && (
+          <div className="text-[10px] text-text-secondary leading-tight">{detail}</div>
+        )}
+        {progress !== undefined && (
+          <div aria-hidden="true" className="mt-1.5 h-1 rounded-full bg-surface-3 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-hue-teal"
+              style={{ width: `${Math.min(Math.max(progress, 0), 1) * 100}%` }}
+              data-testid={progressTestId}
+            />
+          </div>
+        )}
+      </div>
+      <ArrowRight className="w-3.5 h-3.5 text-text-secondary group-hover:translate-x-0.5 transition-all shrink-0" />
+    </button>
+  </div>
+);
+
+/** The hero on a short panel: one row, so the modules stay in view. */
+const HeroCompact: React.FC<
+  Pick<HeroCardProps, 'testId' | 'icon' | 'verb' | 'alias' | 'title' | 'onClick'>
+> = ({ testId, icon, verb, alias, title, onClick }) => (
+  <div className="px-3 pt-2">
+    <button
+      type="button"
+      className={cn(
+        'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
+        'bg-surface-1 border border-subtle',
+        'hover:bg-surface-2 transition-all text-left',
+        'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
+      )}
+      onClick={onClick}
+      title={title}
+      data-testid={testId}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="flex flex-col min-w-0">
+        <span className="text-xs font-bold text-text-primary leading-tight">{verb}</span>
+        {alias !== undefined && (
+          <span className="text-[10px] text-text-primary truncate">{alias}</span>
+        )}
+      </span>
+      <ArrowRight className="w-3 h-3 text-text-secondary ml-auto shrink-0" />
+    </button>
+  </div>
+);
+
+/**
+ * The launcher in the VS Code sidebar: the org, what to do first with it,
+ * the modules grouped by what they are for, the run in flight or the last
+ * one, and the tools. Each module opens in its own editor tab.
  */
 export const SidePanel: React.FC = () => {
   const { t } = useTranslation();
   const vscodeApi = useVSCodeApi();
   // Feed the recent-ops store from operation lifecycle messages so the
-  // Running/Last operation blocks below have real data.
+  // activity line below has real data.
   useRecentOpsFeed();
   const ops = useRecentOpsStore((s) => s.ops);
   const lastOp = ops[0] as RecentOp | undefined;
@@ -381,8 +452,11 @@ export const SidePanel: React.FC = () => {
    * selected and eleven identical rows gave no sense of place at all.
    */
   const [activeRoute, setActiveRoute] = useState<string | null>(null);
-  /** Whether `sandforge.grappe.enabled` is on, as the extension says with the settings. */
-  const [grappeEnabled, setGrappeEnabled] = useState(false);
+  /**
+   * The refreshed sandboxes not yet back into service, as the extension tells
+   * them: undefined until it has.
+   */
+  const [afterRefresh, setAfterRefresh] = useState<RecoveryProgress[] | undefined>(undefined);
   /**
    * How many orgs the Salesforce CLI holds, said by the extension while no
    * org is registered; null until it says.
@@ -395,10 +469,6 @@ export const SidePanel: React.FC = () => {
   const [lastCheckpoint, setLastCheckpoint] = useState<LastCheckpointAnswer | null>(null);
   /** Moved on each minute, so the line's age is written again. */
   const [, setAgeTick] = useState(0);
-  /** Whether the Advanced modules are shown, kept for the next time the view opens. */
-  const [advancedOpen, setAdvancedOpen] = useState(
-    () => getPersistedItem(ADVANCED_OPEN_KEY) === 'true',
-  );
 
   /** Sorted orgs: connected first, then alphabetical by alias/username within each group. */
   const sortedOrgs = useMemo(() => {
@@ -460,13 +530,6 @@ export const SidePanel: React.FC = () => {
     };
   }, [orgDropdownOpen]);
 
-  // Collapsible Quick Metrics
-  const [metricsExpanded, setMetricsExpanded] = useState(true);
-
-  useEffect(() => {
-    if (isCompact) setMetricsExpanded(false);
-  }, [isCompact]);
-
   // Favorites store
   const favorites = useFavoritesStore((s) => s.favorites);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
@@ -489,7 +552,6 @@ export const SidePanel: React.FC = () => {
         type?: string;
         payload?: Partial<OrgListResponse['payload']> & {
           settings?: unknown;
-          grappeEnabled?: unknown;
           orgId?: string;
           count?: unknown;
         };
@@ -511,9 +573,6 @@ export const SidePanel: React.FC = () => {
       }
       if (msg.type === 'settings:response') {
         syncLanguageFromSettings(msg.payload?.settings);
-        if (typeof msg.payload?.grappeEnabled === 'boolean') {
-          setGrappeEnabled(msg.payload.grappeEnabled);
-        }
       }
       if (msg.type === 'sidebar:cliOrgs' && typeof msg.payload?.count === 'number') {
         setCliOrgCount(msg.payload.count);
@@ -521,6 +580,11 @@ export const SidePanel: React.FC = () => {
       if (msg.type === 'sidebar:lastCheckpoint') {
         const answer = lastCheckpointAnswerOf(msg.payload);
         if (answer) setLastCheckpoint(answer);
+      }
+      // The refreshed sandboxes, told with the org list and at each change.
+      if (msg.type === 'sidebar:afterRefresh') {
+        const told = afterRefreshOf(msg.payload);
+        if (told) setAfterRefresh(told);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -564,48 +628,41 @@ export const SidePanel: React.FC = () => {
     });
   };
 
-  /** Fill the one org connected: select it everywhere, then open Seed on its gallery. */
-  const fillOrg = (orgId: string): void => {
+  /**
+   * Open a module's page on an org: select it everywhere first, so the page
+   * opens on it. Seed's gallery for the one org to fill, Back into service
+   * for the sandbox refreshed.
+   */
+  const openOn = (orgId: string, route: ModuleRoute): void => {
     if (orgId !== selectedOrgId) {
       selectOrg(orgId);
       vscodeApi.postMessage({ type: 'sidebar:selectOrg', payload: { orgId } });
     }
-    navigate('seed');
+    navigate(route);
   };
 
-  const toggleAdvanced = (): void => {
-    setAdvancedOpen((open) => {
-      setPersistedItem(ADVANCED_OPEN_KEY, String(!open));
-      return !open;
-    });
-  };
-
-  /** Open the full editor panel. */
+  /** Open Home in an editor tab. */
   const openFull = (): void => {
     vscodeApi.postMessage({ type: 'sidebar:openFull' });
   };
 
-  // Metrics: connected orgs and recent ops
   const connectedCount = connectedOrgs.length;
-  const recentOpsCount = ops.length;
 
   /**
-   * What the launcher leads with. No org yet: a card to connect one. One org
-   * to fill, connected alone: Seed on it, since Forge, Sync and Autopilot all
-   * need a second org. Otherwise Forge. The hero always opened Forge, which
-   * with one org showed "Source and target must be different".
+   * What the launcher leads with: the rule Home follows too (`heroFor`). The
+   * hero always opened Forge, which with one org showed "Source and target
+   * must be different", and with a production org alone could only refuse.
    */
-  const noOrgYet = orgsLoaded && orgs.length === 0;
-  const fillTarget = connectedCount === 1 ? orgToFill(connectedOrgs, selectedOrgId) : undefined;
-  const hero: 'none' | 'seed' | 'forge' =
-    !orgsLoaded || noOrgYet ? 'none' : fillTarget ? 'seed' : 'forge';
-  const fillAlias = fillTarget ? orgDisplayName(fillTarget) : '';
-  const advancedItems = ADVANCED_MODULES.filter((item) =>
-    isNavItemShown(item, {
-      sandboxRegistered: orgs.some((org) => org.orgType === 'Sandbox'),
-      grappeEnabled,
-    }),
-  );
+  const hero = heroFor({ orgs: orgsLoaded ? orgs : undefined, selectedOrgId, afterRefresh });
+  const noOrgYet = hero.kind === 'firstOrg';
+  const listed = listedIn(orgs.some((org) => org.orgType === 'Sandbox'));
+  /**
+   * Under Copy between orgs, once an org is registered: every module of the
+   * group copies from one org to another, and fewer than two are connected.
+   */
+  const needsSecondOrg = orgsLoaded && orgs.length > 0 && connectedCount < 2;
+  /** The run in flight, else the last one: one line, which opens its module. */
+  const activity = runningOp ?? lastOp;
 
   return (
     <div
@@ -615,10 +672,29 @@ export const SidePanel: React.FC = () => {
       )}
       data-testid="sidepanel-root"
     >
-      {/* Branding: the product's own mark, not the Forge module's flame. */}
-      <div className="flex items-center gap-2.5 px-3 py-3 border-b border-subtle">
+      {/* Branding: the product's own mark, not the Forge module's flame, and
+          Home beside it. "Open Full UI", at the foot, promised a fuller
+          launcher and opened Home. */}
+      <div
+        className="flex items-center gap-2.5 px-3 py-2 border-b border-subtle"
+        data-testid="sidepanel-brand"
+      >
         <BrandMark className="w-5 h-5" />
-        <span className="text-sm font-bold tracking-tight">SandForge</span>
+        <span className="text-sm font-bold tracking-tight flex-1 min-w-0 truncate">SandForge</span>
+        <button
+          type="button"
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-2 py-1.5 shrink-0',
+            'text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1',
+            'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
+            'transition-colors',
+          )}
+          onClick={openFull}
+          data-testid="sidepanel-open-full"
+        >
+          <House className="w-3.5 h-3.5" aria-hidden="true" />
+          {t('nav.home')}
+        </button>
       </div>
 
       {/* Org Switcher */}
@@ -851,114 +927,90 @@ export const SidePanel: React.FC = () => {
         </div>
       )}
 
-      {/* Quick Metrics: nothing to count before the first org. */}
-      {!noOrgYet && (
-        <div className="px-3 pt-2.5">
-          <button
-            className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1"
-            onClick={() => setMetricsExpanded(!metricsExpanded)}
-            aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
-            data-testid="sidepanel-metrics-toggle"
-          >
-            <ChevronDown
-              className={cn(
-                'w-3 h-3 transition-transform duration-200',
-                !metricsExpanded && '-rotate-90',
-              )}
-            />
-            {t('sidePanel.connectedOrgs', 'Orgs')} / {t('sidePanel.recentOps', 'Ops')}
-          </button>
-          {metricsExpanded && (
-            <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
-              <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-                <div className="text-[10px] text-text-secondary uppercase tracking-wide">
-                  {t('sidePanel.connectedOrgs', 'Orgs')}
-                </div>
-                <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
-              </div>
-              <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-                <div className="text-[10px] text-text-secondary uppercase tracking-wide">
-                  {t('sidePanel.recentOps', 'Ops')}
-                </div>
-                <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {hero.kind === 'afterRefresh' &&
+        (isCompact ? (
+          <HeroCompact
+            testId="sidepanel-after-refresh-hero-compact"
+            icon={<ListChecks className="w-4 h-4 text-hue-teal" />}
+            verb={t('sidePanel.afterRefresh.compact', { done: hero.done, total: hero.total })}
+            alias={hero.alias}
+            title={t('sidePanel.afterRefresh.title', { alias: hero.alias })}
+            onClick={() => openOn(hero.orgId, 'recovery')}
+          />
+        ) : (
+          <HeroCard
+            testId="sidepanel-after-refresh-hero"
+            icon={<ListChecks className="w-5 h-5 text-hue-teal" />}
+            verb={t('sidePanel.afterRefresh.title', { alias: hero.alias })}
+            detail={t('sidePanel.afterRefresh.desc', {
+              age:
+                formatStoredDate(Math.min(Date.parse(hero.detectedAt), Date.now()), (d) =>
+                  formatRelativeTime(d),
+                ) ?? t('common.dateUnknown'),
+              done: hero.done,
+              total: hero.total,
+            })}
+            progress={hero.total > 0 ? hero.done / hero.total : 0}
+            progressTestId="sidepanel-after-refresh-bar"
+            onClick={() => openOn(hero.orgId, 'recovery')}
+          />
+        ))}
 
-      {/* Seed Hero: one org to fill, connected alone */}
-      {hero === 'seed' && fillTarget && !isCompact && (
-        <div className="px-3 pt-3">
-          <button
-            className={cn(
-              'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
-              'bg-surface-1 border border-subtle',
-              'hover:bg-surface-2 hover:border-active',
-              'transition-all duration-200',
-            )}
-            onClick={() => fillOrg(fillTarget.id)}
-            title={t('sidePanel.fillOrg', { alias: fillAlias })}
-            data-testid="sidepanel-seed-hero"
-          >
-            <div className="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
-              <Sprout className="w-5 h-5 text-hue-green" />
-            </div>
-            {/* The verb on a line of its own, wrapped and never cut: the
-                title truncated to one line, and a scratch org named by its
-                long username took the verb with it. The alias under it is
-                cut where it must be, and the title says it whole. */}
-            <div className="text-left flex-1 min-w-0">
-              <div className="text-sm font-bold text-text-primary leading-tight">
-                {t('sidePanel.fillOrgAction')}
-              </div>
-              <div
-                className="text-xs text-text-primary truncate"
-                data-testid="sidepanel-seed-hero-alias"
-              >
-                {fillAlias}
-              </div>
-              <div className="text-[10px] text-text-secondary leading-tight">
-                {t('sidePanel.fillOrgDesc')}
-              </div>
-            </div>
-            <ArrowRight className="w-3.5 h-3.5 text-text-secondary group-hover:translate-x-0.5 transition-all shrink-0" />
-          </button>
-        </div>
-      )}
-      {hero === 'seed' && fillTarget && isCompact && (
-        <div className="px-3 pt-2">
-          <button
-            className={cn(
-              'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
-              'bg-surface-1 border border-subtle',
-              'hover:bg-surface-2 transition-all text-left',
-            )}
-            onClick={() => fillOrg(fillTarget.id)}
-            title={t('sidePanel.fillOrg', { alias: fillAlias })}
-            data-testid="sidepanel-seed-hero-compact"
-          >
-            <Sprout className="w-4 h-4 text-hue-green shrink-0" />
-            <span className="flex flex-col min-w-0">
-              <span className="text-xs font-bold text-text-primary leading-tight">
-                {t('sidePanel.fillOrgAction')}
-              </span>
-              <span className="text-[10px] text-text-primary truncate">{fillAlias}</span>
-            </span>
-            <ArrowRight className="w-3 h-3 text-text-secondary ml-auto shrink-0" />
-          </button>
-        </div>
-      )}
+      {hero.kind === 'reconnect' &&
+        (isCompact ? (
+          <HeroCompact
+            testId="sidepanel-reconnect-hero-compact"
+            icon={<Plug className="w-4 h-4 text-status-warning" />}
+            verb={t('sidePanel.reconnect.title', { alias: hero.alias })}
+            title={t('sidePanel.reconnect.desc')}
+            onClick={() => navigate('orgs')}
+          />
+        ) : (
+          <HeroCard
+            testId="sidepanel-reconnect-hero"
+            icon={<Plug className="w-5 h-5 text-status-warning" />}
+            verb={t('sidePanel.reconnect.title', { alias: hero.alias })}
+            detail={t('sidePanel.reconnect.desc')}
+            onClick={() => navigate('orgs')}
+          />
+        ))}
+
+      {/* One org to fill, connected alone: Seed on it, since Forge, Sync and
+          Autopilot all need a second org. */}
+      {hero.kind === 'seed' &&
+        (isCompact ? (
+          <HeroCompact
+            testId="sidepanel-seed-hero-compact"
+            icon={<Sprout className="w-4 h-4 text-hue-green" />}
+            verb={t('sidePanel.fillOrgAction')}
+            alias={hero.alias}
+            title={t('sidePanel.fillOrg', { alias: hero.alias })}
+            onClick={() => openOn(hero.orgId, 'seed')}
+          />
+        ) : (
+          <HeroCard
+            testId="sidepanel-seed-hero"
+            icon={<Sprout className="w-5 h-5 text-hue-green" />}
+            verb={t('sidePanel.fillOrgAction')}
+            alias={hero.alias}
+            aliasTestId="sidepanel-seed-hero-alias"
+            detail={t('sidePanel.fillOrgDesc')}
+            title={t('sidePanel.fillOrg', { alias: hero.alias })}
+            onClick={() => openOn(hero.orgId, 'seed')}
+          />
+        ))}
 
       {/* Forge Hero: once there are two orgs to copy between */}
-      {hero === 'forge' && !isCompact && (
+      {hero.kind === 'forge' && !isCompact && (
         <div className="px-3 pt-3">
           <button
+            type="button"
             className={cn(
               'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
               // A flat tint: text on a gradient has no single background to be read against.
               'bg-forge/10 border border-forge/20',
               'hover:bg-forge/15 hover:border-forge/40',
+              'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
               'transition-all duration-200',
             )}
             onClick={() => navigate('forge')}
@@ -981,13 +1033,15 @@ export const SidePanel: React.FC = () => {
           </button>
         </div>
       )}
-      {hero === 'forge' && isCompact && (
+      {hero.kind === 'forge' && isCompact && (
         <div className="px-3 pt-2">
           <button
+            type="button"
             className={cn(
               'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
               'bg-forge/10 border border-forge/20',
               'hover:bg-forge/20 transition-all text-left',
+              'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
             )}
             onClick={() => navigate('forge')}
             data-testid="sidepanel-forge-compact"
@@ -998,6 +1052,27 @@ export const SidePanel: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Production orgs alone: Forge copies from them, into a sandbox still
+          to add. Forge was offered, and could only refuse. */}
+      {hero.kind === 'addSandbox' &&
+        (isCompact ? (
+          <HeroCompact
+            testId="sidepanel-add-sandbox-hero-compact"
+            icon={<Plus className="w-4 h-4 text-hue-orange" />}
+            verb={t('sidePanel.addSandbox.title')}
+            title={t('sidePanel.addSandbox.desc', { alias: hero.alias })}
+            onClick={() => navigate('orgs', { orgAction: 'login-web' })}
+          />
+        ) : (
+          <HeroCard
+            testId="sidepanel-add-sandbox-hero"
+            icon={<Plus className="w-5 h-5 text-hue-orange" />}
+            verb={t('sidePanel.addSandbox.title')}
+            detail={t('sidePanel.addSandbox.desc', { alias: hero.alias })}
+            onClick={() => navigate('orgs', { orgAction: 'login-web' })}
+          />
+        ))}
 
       {/* Favorite Modules (if any) */}
       {favorites.length > 0 && (
@@ -1010,221 +1085,186 @@ export const SidePanel: React.FC = () => {
             aria-label={t('sidePanel.favorites', 'Favorites')}
             data-testid="sidepanel-favorites"
           >
-            {LISTED_MODULES.filter((item) => favorites.includes(item.id)).map((item) => (
-              // The same geometry as the Modules row below. They were a
-              // different height and a different corner radius, forty pixels
-              // apart, for the same module.
-              <div key={item.id} className="flex items-center group">
-                <button
-                  className={cn(
-                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
-                    'transition-all duration-150',
-                    'focus-visible:outline-2 focus-visible:-outline-offset-2',
-                    'focus-visible:outline-(--sf-accent)',
-                    activeRoute === item.id
-                      ? 'text-text-primary bg-surface-1 shadow-xs'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
-                  )}
-                  onClick={() => navigate(item.id)}
-                  aria-current={activeRoute === item.id ? 'page' : undefined}
-                  data-testid={`sidepanel-fav-${item.id}`}
-                >
-                  <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-                  <span className={NAV_LABEL}>{t(item.labelKey)}</span>
-                </button>
-                {/* Removing a favourite meant scrolling down to find the same
+            {MODULE_ITEMS.filter(listed)
+              .filter((item) => favorites.includes(item.id))
+              .map((item) => (
+                // The same geometry as the Modules row below. They were a
+                // different height and a different corner radius, forty pixels
+                // apart, for the same module.
+                <div key={item.id} className="flex items-center group">
+                  <button
+                    className={cn(
+                      'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
+                      'transition-all duration-150',
+                      'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                      'focus-visible:outline-(--sf-accent)',
+                      activeRoute === item.id
+                        ? 'text-text-primary bg-surface-1 shadow-xs'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
+                    )}
+                    onClick={() => navigate(item.id)}
+                    title={t(`moduleSummary.${item.id}`)}
+                    aria-current={activeRoute === item.id ? 'page' : undefined}
+                    data-testid={`sidepanel-fav-${item.id}`}
+                  >
+                    <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
+                    <span className={NAV_LABEL}>{t(item.labelKey)}</span>
+                  </button>
+                  {/* Removing a favourite meant scrolling down to find the same
                     row again in Modules. */}
-                <button
-                  className={cn(
-                    'p-1 rounded-md transition-all duration-150 text-hue-amber',
-                    'hover:bg-surface-1',
-                    'focus-visible:outline-2 focus-visible:-outline-offset-2',
-                    'focus-visible:outline-(--sf-accent)',
-                  )}
-                  onClick={() => toggleFavorite(item.id)}
-                  data-testid={`sidepanel-fav-star-${item.id}`}
-                  aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
-                  aria-pressed={true}
-                  title={t('sidePanel.unfavorite', 'Remove from favorites')}
-                >
-                  <Star className="w-3 h-3 fill-current" />
-                </button>
-              </div>
-            ))}
+                  <button
+                    className={cn(
+                      'p-1 rounded-md transition-all duration-150 text-hue-amber',
+                      'hover:bg-surface-1',
+                      'focus-visible:outline-2 focus-visible:-outline-offset-2',
+                      'focus-visible:outline-(--sf-accent)',
+                    )}
+                    onClick={() => toggleFavorite(item.id)}
+                    data-testid={`sidepanel-fav-star-${item.id}`}
+                    aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
+                    aria-pressed={true}
+                    title={t('sidePanel.unfavorite', 'Remove from favorites')}
+                  >
+                    <Star className="w-3 h-3 fill-current" />
+                  </button>
+                </div>
+              ))}
           </nav>
         </div>
       )}
 
-      {/* Module Navigation */}
-      <div className="px-3 pt-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-2">
-          {t('sidePanel.modules', 'Modules')}
-        </div>
-        <nav
-          className="flex flex-col gap-0.5"
-          aria-label={t('sidePanel.modules', 'Modules')}
-          data-testid="sidepanel-modules"
-        >
-          {PRIMARY_MODULES.map((item) => {
-            const line = item.id === 'checkpoint' && selectedOrg ? shownCheckpoint : undefined;
-            return (
-              <React.Fragment key={item.id}>
-                <ModuleRow
-                  item={item}
-                  active={activeRoute === item.id}
-                  favorite={favorites.includes(item.id)}
-                  onOpen={() => navigate(item.id)}
-                  onToggleFavorite={() => toggleFavorite(item.id)}
-                  describedBy={line ? LAST_CHECKPOINT_LINE_ID : undefined}
-                />
-                {line && selectedOrg && (
-                  <LastCheckpointLine orgName={orgDisplayName(selectedOrg)} checkpoint={line} />
-                )}
-              </React.Fragment>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Advanced modules, folded until opened */}
-      <div className="px-3 pt-3">
-        <button
-          type="button"
-          className={cn(
-            'w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-1',
-            'hover:text-text-primary',
-            'focus-visible:outline-2 focus-visible:-outline-offset-2',
-            'focus-visible:outline-(--sf-accent)',
-          )}
-          onClick={toggleAdvanced}
-          aria-expanded={advancedOpen}
-          aria-controls="sidepanel-advanced-modules"
-          data-testid="sidepanel-advanced-toggle"
-        >
-          <ChevronDown
-            className={cn(
-              'w-3 h-3 transition-transform duration-200',
-              !advancedOpen && '-rotate-90',
-            )}
-            aria-hidden="true"
-          />
-          {t('sidePanel.advanced')}
-        </button>
-        {advancedOpen && (
-          <nav
-            id="sidepanel-advanced-modules"
-            className="flex flex-col gap-0.5"
-            aria-label={t('sidePanel.advanced')}
-            data-testid="sidepanel-advanced"
-          >
-            {advancedItems.map((item) => (
-              <ModuleRow
-                key={item.id}
-                item={item}
-                active={activeRoute === item.id}
-                favorite={favorites.includes(item.id)}
-                onOpen={() => navigate(item.id)}
-                onToggleFavorite={() => toggleFavorite(item.id)}
-              />
-            ))}
-          </nav>
-        )}
-      </div>
-
-      {/* Tool Navigation */}
-      <div className="px-3 pt-3">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-2">
-          {t('sidePanel.tools', 'Tools')}
-        </div>
-        <nav
-          className="flex flex-col gap-0.5"
-          aria-label={t('sidePanel.tools', 'Tools')}
-          data-testid="sidepanel-tools"
-        >
-          {TOOL_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              className={cn(
-                'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left w-full min-w-0',
-                'transition-all duration-150',
-                'focus-visible:outline-2 focus-visible:-outline-offset-2',
-                'focus-visible:outline-(--sf-accent)',
-                activeRoute === item.id
-                  ? 'text-text-primary bg-surface-1 shadow-xs'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
-              )}
-              onClick={() => navigate(item.id)}
-              aria-current={activeRoute === item.id ? 'page' : undefined}
-              data-testid={`sidepanel-nav-${item.id}`}
+      {/* The modules, grouped by what they are for, in one nav: each group
+          named by its heading. None folds: "Advanced" hid Masking and Compare
+          from the person who needed them after a refresh. */}
+      <nav
+        className="px-3 pt-1 flex flex-col"
+        aria-label={t('sidePanel.modules', 'Modules')}
+        data-testid="sidepanel-modules"
+      >
+        {NAV_GROUPS.map((group) => {
+          const items = group.items.filter(listed);
+          if (items.length === 0) return null;
+          const headingId = `sidepanel-group-${group.id}-title`;
+          return (
+            <div
+              key={group.id}
+              role="group"
+              aria-labelledby={headingId}
+              className="flex flex-col gap-0.5 pt-2"
+              data-testid={`sidepanel-group-${group.id}`}
             >
-              <span className="shrink-0">{item.icon}</span>
-              <span className={NAV_LABEL}>{t(item.labelKey)}</span>
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Running Operation */}
-      {runningOp && (
-        <div className="px-3 pt-3">
-          <div
-            className="rounded-lg bg-surface-1 px-3 py-2 flex items-center gap-2"
-            data-testid="sidepanel-running-op"
-          >
-            <Loader className="w-3.5 h-3.5 text-status-info animate-spin shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] text-text-secondary">{t('sidePanel.running')}</div>
-              <div className="text-xs font-medium truncate">{runningOp.label}</div>
+              <h2
+                id={headingId}
+                className="text-[10px] leading-tight font-semibold uppercase tracking-widest text-text-secondary px-1 mb-0.5"
+              >
+                {t(group.labelKey)}
+              </h2>
+              {items.map((item) => {
+                const line = item.id === 'checkpoint' && selectedOrg ? shownCheckpoint : undefined;
+                return (
+                  <React.Fragment key={item.id}>
+                    <ModuleRow
+                      item={item}
+                      title={t(`moduleSummary.${item.id}`)}
+                      active={activeRoute === item.id}
+                      favorite={favorites.includes(item.id)}
+                      onOpen={() => navigate(item.id)}
+                      onToggleFavorite={() => toggleFavorite(item.id)}
+                      describedBy={line ? LAST_CHECKPOINT_LINE_ID : undefined}
+                    />
+                    {line && selectedOrg && (
+                      <LastCheckpointLine orgName={orgDisplayName(selectedOrg)} checkpoint={line} />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {group.id === 'copy' && needsSecondOrg && (
+                <button
+                  type="button"
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left w-full min-w-0',
+                    'text-[11px] leading-tight text-text-secondary hover:text-text-primary hover:bg-surface-1',
+                    'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
+                  )}
+                  onClick={() => navigate('orgs')}
+                  data-testid="sidepanel-needs-second-org"
+                >
+                  <Plus className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 break-words">{t('sidePanel.needsSecondOrg')}</span>
+                </button>
+              )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Last Operation: opens the page of the module that ran it, where a
-          failed run says why and can be run again. It could not be clicked,
-          so a red one led nowhere. */}
-      {lastOp && !runningOp && (
-        <div className="px-3 pt-3">
-          <button
-            type="button"
-            className="w-full text-left rounded-lg bg-surface-1 px-3 py-2 text-text-primary hover:bg-surface-2 transition-colors"
-            onClick={() => navigate(lastOp.type)}
-            title={t('home.openOpModule', { module: t(`nav.${lastOp.type}`) })}
-            data-testid="sidepanel-last-op"
-          >
-            <span className="block text-[10px] text-text-secondary mb-1">
-              {t('sidePanel.lastOp')}
-            </span>
-            <span className="flex items-center gap-2">
-              <StatusIcon status={lastOp.status} />
-              <span className="text-xs truncate flex-1">{lastOp.label}</span>
-              <span className="text-[10px] text-text-secondary shrink-0">
-                {formatRelativeTimeI18n(lastOp.timestamp, t, 'common.relativeTime')}
-              </span>
-            </span>
-          </button>
-        </div>
-      )}
+          );
+        })}
+      </nav>
 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Open Full UI */}
-      <div className="px-3 py-3 border-t border-subtle">
-        <button
-          className={cn(
-            'w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 group',
-            'bg-surface-1 border border-subtle',
-            'hover:bg-surface-2 hover:border-active transition-all duration-150',
-            'text-xs font-medium text-text-secondary hover:text-text-primary',
-          )}
-          onClick={openFull}
-          data-testid="sidepanel-open-full"
-        >
-          <ExternalLink className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-          {t('sidePanel.openFull')}
-        </button>
-      </div>
+      {/* The run in flight, else the last one, on one line that opens its
+          module, where a failed run says why. The run in flight led nowhere,
+          and the module and status are said in the panel's language: the
+          label the extension gives a run is English. */}
+      {activity && (
+        <div className="px-3 pt-3">
+          <button
+            type="button"
+            className={cn(
+              'w-full flex items-center gap-2 rounded-lg bg-surface-1 px-3 py-2 text-left',
+              'text-text-primary hover:bg-surface-2 transition-colors',
+              'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sf-accent)',
+            )}
+            onClick={() => navigate(activity.type)}
+            title={t('home.openOpModule', { module: t(`nav.${activity.type}`) })}
+            data-testid={
+              activity.status === 'running' ? 'sidepanel-running-op' : 'sidepanel-last-op'
+            }
+          >
+            <StatusIcon status={activity.status} />
+            <span className="text-xs truncate flex-1 min-w-0">
+              {`${t(`nav.${activity.type}`)} · ${t(STATUS_NAME_KEYS[activity.status])}`}
+            </span>
+            {activity.status !== 'running' && (
+              <span className="text-[10px] text-text-secondary shrink-0">
+                {formatRelativeTimeI18n(activity.timestamp, t, 'common.relativeTime')}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* The tools, in one bar: each its icon over its name. A tool is never
+          narrower than "Organisationen", 84 pixels at this size: on a narrow
+          sidebar the bar wraps rather than break the word. */}
+      <nav
+        className="flex flex-wrap gap-0.5 px-2 py-1.5 mt-2 border-t border-subtle"
+        aria-label={t('sidePanel.tools', 'Tools')}
+        data-testid="sidepanel-tools"
+      >
+        {TOOL_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={cn(
+              'flex-1 basis-22 min-w-0 flex flex-col items-center gap-1 rounded-lg px-0.5 py-1.5',
+              'transition-all duration-150',
+              'focus-visible:outline-2 focus-visible:-outline-offset-2',
+              'focus-visible:outline-(--sf-accent)',
+              activeRoute === item.id
+                ? 'text-text-primary bg-surface-1 shadow-xs'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
+            )}
+            onClick={() => navigate(item.id)}
+            aria-current={activeRoute === item.id ? 'page' : undefined}
+            data-testid={`sidepanel-nav-${item.id}`}
+          >
+            <span className="shrink-0">{item.icon}</span>
+            <span className="text-[11px] font-medium leading-tight text-center max-w-full line-clamp-2 break-words">
+              {t(item.labelKey)}
+            </span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 };

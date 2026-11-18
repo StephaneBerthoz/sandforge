@@ -12,6 +12,7 @@ export const SIDEPANEL_LOCALE_NAMESPACES = [
   'common',
   'errorBoundary',
   'home',
+  'moduleSummary',
   'nav',
   'sidePanel',
 ] as const;

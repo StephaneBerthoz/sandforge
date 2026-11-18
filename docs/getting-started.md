@@ -47,28 +47,36 @@ After installation, you will see the SandForge flame in the VSCode Activity Bar 
 
 Top to bottom, the launcher gives you:
 
+- **Home** -- Beside the SandForge mark: opens Home in a full editor tab.
 - **Org switcher** -- The current org with a live status dot and its type badge (PROD, SANDBOX, SCRATCH...). Open it to list every registered org, jump to one in a browser, or pick **New organization...** at the bottom to go to Organizations.
-- **Connect your first org** -- Shown while no org is registered, in place of the counters and the hero: **Import up to N orgs from Salesforce CLI**, N being the orgs the CLI holds an authorization for (the import keeps those whose session still holds), and **Log in with your browser**. Each opens Organizations and starts that way of connecting. When the CLI holds no org, the browser login comes first.
-- **Orgs / Ops** -- Two counters, connected orgs and recent operations. Collapsible, and collapsed for you on short viewports.
-- **Hero** -- With one sandbox, scratch org or Developer Edition org connected, and no other, **Fill \<alias\> with demo data** opens Seed's template gallery on it. From two connected orgs it is the orange **Forge** button, straight into the record-scoped clone journey, which copies from one org into another.
-- **Favorites** -- Only shown once you star something. Every module in the lists below has a star button.
-- **Modules** -- Seed, Forge, Checkpoints, Monitor, Sync, Autopilot, Frozen Dataset.
-- **Advanced** -- Folded until you open it: Compare Org, DataOps, Automation, Migration, AI Assistant, and Grappe while `sandforge.grappe.enabled` is on.
-- **Tools** -- Organizations, Settings, Help.
-- **Running / Last Operation** -- The operation in flight, or the last one to finish with its status and age. A click on the last one opens its module, where a failed run says why.
-- **Open Full UI** -- Opens Home in a full editor tab.
+- **Connect your first org** -- Shown while no org is registered, in place of the hero: **Import up to N orgs from Salesforce CLI**, N being the orgs the CLI holds an authorization for (the import keeps those whose session still holds), and **Log in with your browser**. Each opens Organizations and starts that way of connecting. When the CLI holds no org, the browser login comes first.
+- **Hero** -- The one thing to do first. Once SandForge has noticed the refresh of a registered sandbox, **Bring \<alias\> back into service**, with when it was refreshed and how many of its steps are done, opens Back into service on it, until every step is done; the selected sandbox comes first, else the one refreshed last. When the selected org's session has ended, or no org is connected, **Reconnect \<alias\>** opens Organizations. With one sandbox, scratch org or Developer Edition org connected, and no other, **Fill \<alias\> with demo data** opens Seed's template gallery on it. From two connected orgs it is the orange **Forge** button, straight into the record-scoped clone journey, which copies from one org into another. With production orgs alone, **Add the sandbox to fill** opens Organizations on the browser login: Forge copies a production org's records into a sandbox, and never writes to production.
+- **Favorites** -- Only shown once you star something. Every module in the groups below has a star button.
 
-![Launcher — the SandForge mark, the current org, the modules a first run needs and the others folded under Advanced, in the VS Code sidebar](../assets/screenshots/launcher.png)
+The modules come next, in five groups named by what they are for, always in this order and never folded. Hovering a module says what it does.
 
-> **Note:** the **Home** dashboard — the recommended next step for the selected org, KPI row, connected orgs, recent operations — opens with **Open Full UI**, with a click on the SandForge item of the status bar once an org is registered (Organizations before that), and with **SandForge: Open Home** in the VS Code palette. Inside a SandForge panel, the `G` then `H` chord and the SandForge command palette on `Ctrl+K` (`Cmd+K` on macOS) reach it too. That palette is SandForge's own, distinct from the VSCode palette on `Ctrl+Shift+P`. Its first tile follows the orgs connected, as the launcher's hero does: **Getting started**, with **Import from Salesforce CLI** and **Log in with your browser**, while none is; **Fill \<alias\> with demo data** while one sandbox, scratch org or Developer Edition org is connected alone; Forge from two orgs on. Its recommendation offers **Fill \<alias\> with demo data** to a sandbox, scratch org or Developer Edition org holding fewer than 50 accounts, contacts, opportunities, cases and leads each, which is the case of a new Developer Edition and its sample data; its **?** says what it counted in each org. A click on a recent operation opens its module.
+- **Fill an org** -- Seed, Frozen Dataset.
+- **Copy between orgs** -- Forge, Sync, Autopilot, Migration. While fewer than two orgs are connected, **Needs a second org** under them opens Organizations.
+- **Protect and restore** -- Back into service, listed once a sandbox is registered, then Checkpoints and DataOps.
+- **Watch and compare** -- Monitor, Compare Org, Reports.
+- **Automate** -- Automation, AI Assistant.
 
-![Home — the dashboard Open Full UI opens](../assets/screenshots/home.png)
+At the foot:
+
+- **Activity** -- The operation in flight, or else the last one to finish: its module, how it ended and when, on one line. A click opens its module, where a failed run says why.
+- **Tools** -- Organizations, Settings, Help, side by side.
+
+![Launcher — the SandForge mark and Home, the current org, the hero, and the modules in five groups by what they are for, in the VS Code sidebar](../assets/screenshots/launcher.png)
+
+> **Note:** the **Home** dashboard — the recommended next step for the selected org, KPI row, connected orgs, recent operations — opens with **Home**, beside the launcher's mark, with a click on the SandForge item of the status bar once an org is registered (Organizations before that), and with **SandForge: Open Home** in the VS Code palette. Inside a SandForge panel, the `G` then `H` chord and the SandForge command palette on `Ctrl+K` (`Cmd+K` on macOS) reach it too. That palette is SandForge's own, distinct from the VSCode palette on `Ctrl+Shift+P`. Its first tile follows the orgs connected, as the launcher's hero does: **Getting started**, with **Import from Salesforce CLI** and **Log in with your browser**, while none is; **Fill \<alias\> with demo data** while one sandbox, scratch org or Developer Edition org is connected alone; Forge from two orgs on. Its recommendation offers **Fill \<alias\> with demo data** to a sandbox, scratch org or Developer Edition org holding fewer than 50 accounts, contacts, opportunities, cases and leads each, which is the case of a new Developer Edition and its sample data; its **?** says what it counted in each org. A click on a recent operation opens its module.
+
+![Home — the dashboard the launcher's Home button opens](../assets/screenshots/home.png)
 
 ---
 
 ## Connect Your Org
 
-1. Open **Organizations** from the launcher's Tools section, or pick **New organization...** at the bottom of the org switcher
+1. Open **Organizations** from the tools at the foot of the launcher, or pick **New organization...** at the bottom of the org switcher
 2. The Organizations page shows a connection banner with its auth methods, JWT and Device Flow folded under **More methods**, since both need a connected app of your own. As the page opens it says whether the Salesforce CLI answers on this machine, which Import from Salesforce CLI and Log in with your browser both run on:
    - **Import from Salesforce CLI** -- Imports orgs already authenticated via Salesforce CLI (fastest option)
    - **Log in with your browser** -- Opens a browser window for the standard OAuth web flow. The alias is optional: without one, the org takes its username
@@ -95,7 +103,7 @@ An org on another Salesforce cloud (for example Government Cloud Plus, on `sales
 
 A new Developer Edition, a Trailhead playground or a fresh scratch org holds a few sample records at most. Seed fills it from a built-in template: no second org, no AI key, no field rule to write.
 
-1. With one sandbox, scratch org or Developer Edition org connected, click **Fill \<alias\> with demo data** at the top of the launcher, or **Seed** in its Modules list: Seed opens on its template gallery, **Quick Seed from Template**
+1. With one sandbox, scratch org or Developer Edition org connected, click **Fill \<alias\> with demo data** at the top of the launcher, or **Seed** in its **Fill an org** group: Seed opens on its template gallery, **Quick Seed from Template**
 2. **CRM Starter**, marked _Start here_, comes first: accounts with their contacts, products priced in the standard price book, opportunities with their line items, and cases -- 295 records, about 0.6 MB, which a Developer Edition's 5 MB of data storage holds. Click **Use this**
 3. Check its record counts, which you can change, and the org, already selected. The confirmation also says what the org's automation runs as the records go in, and the emails it would send. Press **Start seeding**: nothing is written before
 4. The results count the records per object, group what the org refused by what refused it, and open a created record in Salesforce. **What this run created** removes them, and so does **Earlier seeds**, under the gallery, at any later time
