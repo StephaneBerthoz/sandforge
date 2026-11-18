@@ -12,7 +12,6 @@
   "command.openCheckpoints": "SandForge : Ouvrir les points de contrôle",
   "command.openRecovery": "SandForge : Remise en service",
   "command.openFrozen": "SandForge : Ouvrir le Jeu de données figé",
-  "command.openGrappe": "SandForge : Ouvrir Grappe (progression par partition)",
   "command.openAutopilot": "SandForge : Ouvrir Autopilot",
   "command.openCompare": "SandForge : Ouvrir Comparaison",
   "command.openDataOps": "SandForge : Ouvrir DataOps",
@@ -65,7 +64,7 @@
   "config.safety.requireProdConfirmation.deprecation": "N'est plus utilisé : toute écriture dans une org de production demande d'abord confirmation.",
   "config.safety.auditLogging.description": "Enregistrer chaque décision de contrôle de sécurité de Production Guard avec l’exécution qu’elle concerne dans le journal d’audit (Rapports → Journal d’audit). Désactivé, les exécutions restent enregistrées, sans les décisions.",
   "config.safety.confirmAboveRecords.description": "Avant qu'un clonage Forge, un run Autopilot ou une Sync n'écrive, demander une confirmation lorsqu'il s'apprête à écrire plus que ce nombre d'enregistrements (0 : ne jamais demander pour le volume). Un run proche du stockage de données de l'org cible, ou dont le stockage ne peut pas être lu, est toujours soumis à confirmation ; un run qui le dépasse est refusé.",
-  "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe). À partir de sandforge.grappe.autoActivateThreshold enregistrements, Seed signale chaque partition à sa fin dans la vue Grappe, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution.",
+  "config.grappe.enabled.description": "Afficher la progression d'une grosse exécution Seed, Sync ou Autopilot dans un panneau Grappe de son écran d'exécution : l'étape Exécution de Seed et de Sync, au-dessus du graphe d'Autopilot. À partir de sandforge.grappe.autoActivateThreshold enregistrements, Seed signale chaque partition à sa fin, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution. L'exécution reste séquentielle : aucune n'est plus rapide.",
   "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed, sync et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
   "config.grappe.grappeSize.description": "Nombre d'enregistrements par partition de grappe."
 }

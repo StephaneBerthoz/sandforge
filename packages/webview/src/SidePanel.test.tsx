@@ -334,6 +334,14 @@ describe('SidePanel', () => {
     expect(screen.queryByTestId('sidepanel-nav-grappe')).toBeNull();
   });
 
+  it('draws no empty Favorites list for a star left on the retired Grappe page', () => {
+    // 1.82 let Grappe be starred; its page is gone, and the star is kept with
+    // the others in the webview's state.
+    useFavoritesStore.setState({ favorites: ['grappe'] });
+    render(<SidePanel />);
+    expect(screen.queryByTestId('sidepanel-favorites')).toBeNull();
+  });
+
   it('lists Back into service once a sandbox is registered, the only kind of org a refresh happens to', () => {
     render(<SidePanel />);
     deliverOrgs([{ ...mockOrg, orgType: 'Developer' }]);

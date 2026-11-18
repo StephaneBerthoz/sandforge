@@ -103,8 +103,10 @@ describe('SidebarViewProvider', () => {
     messageHandler!({ type: 'sidebar:navigate', payload: { route: 'forge' } });
     expect(executeCommand).toHaveBeenCalledWith('sandforge.openForge');
 
+    // Grappe's page is retired: a launcher still asking for it lands on Home.
+    executeCommand.mockClear();
     messageHandler!({ type: 'sidebar:navigate', payload: { route: 'grappe' } });
-    expect(executeCommand).toHaveBeenCalledWith('sandforge.openGrappe');
+    expect(executeCommand.mock.calls).toEqual([['sandforge.openHome']]);
 
     // Routes that used to fall back to Monitor now have their own commands.
     messageHandler!({ type: 'sidebar:navigate', payload: { route: 'seed' } });

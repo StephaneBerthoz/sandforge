@@ -164,7 +164,7 @@ const PRODUCTION = {
 
 describe('HomePage', () => {
   beforeEach(() => {
-    useAppStore.setState({ currentRoute: 'home', grappeEnabled: false, navigationIntent: null });
+    useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });
     bridgeQueryCalls.length = 0;
@@ -522,8 +522,7 @@ describe('HomePage', () => {
     expect(screen.queryByTestId('open-recovery-btn')).toBeNull();
   });
 
-  it('offers no Grappe, whose page is retired, whatever its setting says', () => {
-    useAppStore.setState({ grappeEnabled: true });
+  it('offers no Grappe, whose page is retired', () => {
     render(<HomePage />);
     expect(screen.queryByTestId('quick-grappe-btn')).toBeNull();
     expect(screen.queryByTestId('open-grappe-btn')).toBeNull();

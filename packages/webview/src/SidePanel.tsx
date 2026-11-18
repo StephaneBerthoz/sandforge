@@ -107,11 +107,10 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
 
 /**
  * Whether the launcher lists a row: Back into service once a sandbox is
- * registered, the only kind of org a refresh happens to. Grappe's page is
- * retired: its row is listed under no setting.
+ * registered, the only kind of org a refresh happens to.
  */
 function listedIn(sandboxRegistered: boolean): (item: NavItem) => boolean {
-  return (item) => isNavItemShown(item, { sandboxRegistered, grappeEnabled: false });
+  return (item) => isNavItemShown(item, { sandboxRegistered });
 }
 
 /**
@@ -656,6 +655,11 @@ export const SidePanel: React.FC = () => {
   const hero = heroFor({ orgs: orgsLoaded ? orgs : undefined, selectedOrgId, afterRefresh });
   const noOrgYet = hero.kind === 'firstOrg';
   const listed = listedIn(orgs.some((org) => org.orgType === 'Sandbox'));
+  // A star kept for a module no longer listed (Grappe's retired page, starred
+  // in 1.82) drew a Favorites heading over nothing.
+  const anyFavoriteListed = MODULE_ITEMS.some(
+    (item) => listed(item) && favorites.includes(item.id),
+  );
   /**
    * Under Copy between orgs, once an org is registered: every module of the
    * group copies from one org to another, and fewer than two are connected.
@@ -1075,7 +1079,7 @@ export const SidePanel: React.FC = () => {
         ))}
 
       {/* Favorite Modules (if any) */}
-      {favorites.length > 0 && (
+      {anyFavoriteListed && (
         <div className="px-3 pt-3">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1.5">
             {t('sidePanel.favorites', 'Favorites')}

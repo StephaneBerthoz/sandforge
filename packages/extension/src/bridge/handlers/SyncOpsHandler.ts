@@ -2792,7 +2792,7 @@ export class SyncOpsHandler implements DomainHandler {
         queryTarget: readers.queryTarget,
         services: this.deps.services,
         // Same contract as seed: without BOTH the config and the callback the
-        // `grappe:*` channels never fire and the Grappe page stays blank.
+        // `grappe:*` channels never fire and the run's Grappe panel stays blank.
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
         countSource: readers.countSource,

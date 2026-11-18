@@ -106,10 +106,15 @@ describe('useGlobalShortcuts', () => {
     expect(useAppStore.getState().currentRoute).toBe('automation');
   });
 
-  it('navigates to grappe on Ctrl+7', () => {
+  it('opens no page on Ctrl+7 or G then G, the keys of the retired Grappe page', () => {
+    // Grappe's progress is read in the run screens of Seed, Sync and
+    // Autopilot: its page, the only thing these keys opened, is gone.
     renderHook(() => useGlobalShortcuts());
     document.dispatchEvent(new KeyboardEvent('keydown', { key: '7', ctrlKey: true }));
-    expect(useAppStore.getState().currentRoute).toBe('grappe');
+    expect(useAppStore.getState().currentRoute).toBe('home');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    expect(useAppStore.getState().currentRoute).toBe('home');
   });
 
   it('navigates to autopilot on Ctrl+8', () => {

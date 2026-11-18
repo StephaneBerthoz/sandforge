@@ -96,8 +96,8 @@ export interface WorkbenchReloadRequest extends BaseMessage {
 
 /**
  * Sent by a page that needs a SandForge setting changed: the extension opens
- * VS Code's Settings editor on it. The Grappe page is empty until
- * `sandforge.grappe.enabled` is on, and it had no way to get there.
+ * VS Code's Settings editor on it: a Forge notice names
+ * `sandforge.forge.maxRoots`, which no page can change itself.
  */
 export interface WorkbenchOpenSettingRequest extends BaseMessage {
   type: 'workbench:open-setting';

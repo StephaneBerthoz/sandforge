@@ -4119,13 +4119,6 @@
       "step5": "Cliquez sur Exporter en CSV ou Exporter en JSON pour enregistrer le journal tel qu'il est filtré.",
       "tip": "Rapports n'écrit dans aucune org ; Exporter en CSV et Exporter en JSON enregistrent toutes les entrées que retiennent les filtres, pas seulement celles affichées."
     },
-    "grappe": {
-      "step1": "Cliquez sur Ouvrir le paramètre Grappe et activez sandforge.grappe.enabled.",
-      "step2": "Laissez la page Grappe ouverte, ouvrez Seed dans le panneau latéral et lancez un Seed d'au moins 10 000 enregistrements.",
-      "step3": "Revenez sur la page Grappe pendant l'exécution : Exécution en cours montre l'avancement de chaque partition.",
-      "step4": "À la fin de l'exécution, lisez ses totaux sur les cartes Partitions, Enregistrements, Traités et En échec.",
-      "tip": "Baissez sandforge.grappe.autoActivateThreshold pour suivre des exécutions plus petites ; Grappe n'exécute rien lui-même et n'accélère aucune exécution."
-    },
     "ai": {
       "step1": "Si la page indique Assistant IA non configuré, cliquez sur Aller aux Paramètres.",
       "step2": "Collez votre clé Anthropic dans Clé API et cliquez sur Enregistrer la clé et activer l'IA.",
@@ -7344,33 +7337,14 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe montre la progression d'une grande exécution, partition par partition. Activez-le pour suivre votre prochain Seed de 10 000 enregistrements ou plus.",
     "active": "Grappe",
     "completed": "Terminé",
     "partitions": "Partitions",
     "totalRecords": "Enregistrements",
-    "processed": "Traités",
-    "failed": "En échec",
-    "subtitle": "Progression par partition pour les opérations de données à grande échelle",
-    "activeTitle": "Exécution en cours",
-    "emptyTitle": "Aucune grande exécution en cours",
-    "howItWorks": "Comment fonctionne Grappe",
-    "step1Title": "Découpage en partitions",
-    "step1Desc": "Un Seed est découpé en partitions de 5 000 enregistrements (sandforge.grappe.grappeSize), écrites dans l'ordre d'insertion ; une Sync signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin.",
-    "step2Title": "File de partitions",
-    "step2Desc": "Les partitions sont traitées l'une après l'autre, chacune signalée à sa fin",
-    "step3Title": "Totaux de l'exécution",
-    "step3Desc": "À la fin de l'exécution, la vue conserve le nombre de partitions et les enregistrements traités et en échec",
-    "openSeed": "Ouvrir Seed",
-    "openSetting": "Ouvrir le paramètre Grappe",
     "processedCount_one": "{{formatted}} traité",
     "processedCount_other": "{{formatted}} traités",
     "failedCount_one": "{{formatted}} en échec",
-    "failedCount_other": "{{formatted}} en échec",
-    "partitionCount_one": "{{count}} partition",
-    "partitionCount_other": "{{count}} partitions",
-    "emptyDescOn": "Grappe est activé : votre prochain Seed ou votre prochaine Sync au-delà du seuil d'enregistrements, 10 000 par défaut, s'affiche ici pendant son exécution.",
-    "percentComplete": "{{percent}} % terminé"
+    "failedCount_other": "{{formatted}} en échec"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",

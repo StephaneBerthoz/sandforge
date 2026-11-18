@@ -12,7 +12,6 @@
   "command.openCheckpoints": "SandForge: Prüfpunkte öffnen",
   "command.openRecovery": "SandForge: Wieder in Betrieb",
   "command.openFrozen": "SandForge: Eingefrorenes Dataset öffnen",
-  "command.openGrappe": "SandForge: Grappe öffnen (Partitionsfortschritt)",
   "command.openAutopilot": "SandForge: Autopilot öffnen",
   "command.openCompare": "SandForge: Vergleich öffnen",
   "command.openDataOps": "SandForge: DataOps öffnen",
@@ -65,7 +64,7 @@
   "config.safety.requireProdConfirmation.deprecation": "Wird nicht mehr verwendet: Jeder Schreibvorgang in einer Produktions-Org fragt zuerst nach.",
   "config.safety.auditLogging.description": "Jede Sicherheitsprüfung von Production Guard mit dem betroffenen Lauf im Audit-Protokoll festhalten (Berichte → Audit-Protokoll). Ausgeschaltet werden Läufe weiterhin aufgezeichnet, ohne die Entscheidungen.",
   "config.safety.confirmAboveRecords.description": "Bevor ein Forge-Klon, ein Autopilot-Lauf oder eine Synchronisierung schreibt, eine Bestätigung verlangen, wenn mehr als diese Anzahl Datensätze geschrieben werden soll (0: nie wegen der Menge fragen). Ein Lauf nahe am Datenspeicher der Ziel-Org, oder einer, dessen Speicher nicht gelesen werden kann, wird trotzdem bestätigt; einer darüber wird abgelehnt.",
-  "config.grappe.enabled.description": "Große Seed-, Sync- und Autopilot-Vorgänge im partitionierten Modus (Grappe) ausführen. Ab sandforge.grappe.autoActivateThreshold Datensätzen meldet Seed jede Partition nach Abschluss in der Grappe-Ansicht, Sync meldet eine Partition je Objekt, und Autopilot meldet nur Beginn und Ende des Laufs.",
+  "config.grappe.enabled.description": "Den Fortschritt eines großen Seed-, Sync- oder Autopilot-Laufs in einem Grappe-Bereich seiner Laufansicht zeigen: im Schritt Ausführen von Seed und Sync, über dem Graphen von Autopilot. Ab sandforge.grappe.autoActivateThreshold Datensätzen meldet Seed jede Partition nach Abschluss, Sync meldet eine Partition je Objekt, und Autopilot meldet nur Beginn und Ende des Laufs. Die Ausführung bleibt sequenziell: Kein Lauf wird schneller.",
   "config.grappe.autoActivateThreshold.description": "Datensatzanzahl, ab der der Grappe-Modus aktiviert wird (Seed, Sync und Autopilot). Wird ignoriert, wenn sandforge.grappe.enabled deaktiviert ist.",
   "config.grappe.grappeSize.description": "Datensätze pro Grappe-Partition."
 }

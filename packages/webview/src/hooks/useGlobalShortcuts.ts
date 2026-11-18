@@ -17,7 +17,6 @@ const CHORD_MAP: Record<string, ModuleRoute> = {
   h: 'home',
   m: 'monitor',
   f: 'forge',
-  g: 'grappe',
   c: 'compare',
   d: 'dataops',
   a: 'automation',
@@ -34,7 +33,11 @@ const CHORD_MAP: Record<string, ModuleRoute> = {
   l: 'help',
 };
 
-/** Ctrl+number direct navigation map. */
+/**
+ * Ctrl+number direct navigation map. 7 and the G G chord opened the Grappe
+ * page, retired: its progress is read in the run screens of Seed, Sync and
+ * Autopilot. The other keys stay where they were learnt.
+ */
 const CTRL_NUM_MAP: Record<string, ModuleRoute> = {
   '1': 'monitor',
   '2': 'seed',
@@ -42,7 +45,6 @@ const CTRL_NUM_MAP: Record<string, ModuleRoute> = {
   '4': 'compare',
   '5': 'dataops',
   '6': 'automation',
-  '7': 'grappe',
   '8': 'autopilot',
   '9': 'migration',
   '0': 'forge',

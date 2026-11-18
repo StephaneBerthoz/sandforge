@@ -5102,37 +5102,6 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
-    test('Grappe page', async ({ page }) => {
-      await navigateToModule(bridge, page, 'grappe', 'grappe-page', { theme });
-      const results = await checkAccessibility(page);
-      expectNoViolations(results);
-    });
-
-    test('Grappe page saying what it is for, its setting named on its button, then once it is on', async ({
-      page,
-    }) => {
-      await navigateToModule(bridge, page, 'grappe', 'grappe-page', { theme });
-      // The setting's id, on the button that opens it, rather than the
-      // sentence the empty page opened on.
-      await page.getByTestId('grappe-open-setting').focus();
-      await expect(page.getByRole('tooltip')).toHaveText('sandforge.grappe.enabled');
-      const description = page.getByTestId('grappe-empty').locator('p');
-      await expect(description).toContainText("Grappe shows a large run's progress");
-      await expect(description).not.toContainText('sandforge.grappe.enabled');
-      const withTooltip = await checkAccessibility(page);
-      expectNoViolations(withTooltip);
-      expect(
-        await contrastMeasuredIn(page, withTooltip, '[data-testid="grappe-empty"]'),
-      ).toBeGreaterThan(0);
-
-      await sendExtensionMessage(page, {
-        type: 'settings:response',
-        payload: { settings: {}, grappeEnabled: true },
-      });
-      await expect(description).toContainText('Grappe is on');
-      expectNoViolations(await checkAccessibility(page));
-    });
-
     test('Seed page', async ({ page }) => {
       await navigateToModule(bridge, page, 'seed', 'panel-app', { theme });
       await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
@@ -7099,20 +7068,23 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('toggle-trigger-trig-webhook')).toHaveCount(0);
     });
 
-    test('Grappe page while a partitioned run is in progress', async ({ page }) => {
-      await openPanel(bridge, page, 'grappe', theme);
-      await page.waitForSelector('[data-testid="grappe-page"]', { timeout: 10_000 });
+    test('Quick Seed run reported partition by partition in its Grappe panel', async ({ page }) => {
+      // The Grappe page drew these partitions apart from the run, naming
+      // neither its module nor its org. It is retired: they are read in the
+      // panel of the run's own screen, under the run's progress.
+      await openQuickSeedRunning(bridge, page, theme);
       await bridge.stream([
         {
           type: 'grappe:started',
-          payload: { operationId: 'grappe-1', totalPartitions: 2, totalRecords: 2000 },
+          payload: { operationId: 'grappe-1', totalPartitions: 2, totalRecords: 100 },
         },
         {
           type: 'grappe:partitionProgress',
-          payload: { grappeId: 'Account-1', percentage: 40, processedRecords: 400 },
+          payload: { grappeId: 'Account-1', percentage: 40, processedRecords: 20 },
         },
       ]);
-      await expect(page.getByRole('progressbar', { name: 'Account-1' })).toBeVisible({
+      const panel = page.getByTestId('quick-seed-executing').getByTestId('grappe-panel');
+      await expect(panel.getByRole('progressbar', { name: 'Account-1' })).toBeVisible({
         timeout: 10_000,
       });
 

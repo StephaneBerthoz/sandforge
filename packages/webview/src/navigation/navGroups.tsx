@@ -6,7 +6,6 @@ import {
   FileUp,
   Flame,
   GitCompare,
-  Grape,
   HelpCircle,
   History,
   ListChecks,
@@ -41,9 +40,7 @@ import type { ModuleRoute } from '../stores/useAppStore';
 /** A condition a row is listed under, which the list that renders it applies. */
 export type NavItemCondition =
   /** Back into service: once a sandbox is registered, the only kind of org a refresh happens to. */
-  | 'sandboxRegistered'
-  /** Grappe: while `sandforge.grappe.enabled` is on; off, its page is empty. */
-  | 'grappeEnabled';
+  'sandboxRegistered';
 
 /** One row: the route it opens, its name, its icon and its colour. */
 export interface NavItem {
@@ -162,13 +159,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         labelKey: 'nav.reports',
         icon: <ChartColumn className="w-4 h-4" />,
         accent: 'text-hue-sky',
-      },
-      {
-        id: 'grappe',
-        labelKey: 'nav.grappe',
-        icon: <Grape className="w-4 h-4" />,
-        accent: 'text-hue-indigo',
-        shownWhen: 'grappeEnabled',
       },
     ],
   },

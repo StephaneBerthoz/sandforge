@@ -9,7 +9,6 @@ export type ModuleRoute =
   | 'frozen'
   | 'checkpoint'
   | 'recovery'
-  | 'grappe'
   | 'monitor'
   | 'seed'
   | 'sync'
@@ -32,7 +31,6 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'frozen',
   'checkpoint',
   'recovery',
-  'grappe',
   'monitor',
   'seed',
   'sync',
@@ -188,11 +186,6 @@ export interface AppState {
   aiAvailable: boolean;
   /** Whether VS Code shows this panel; a hidden one keeps running. */
   panelVisible: boolean;
-  /**
-   * Whether `sandforge.grappe.enabled` is on: Home offers Grappe only then,
-   * an empty page otherwise.
-   */
-  grappeEnabled: boolean;
   navigate: (route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>) => void;
   /** Called by the page that read the intent, so a later visit opens normally. */
   clearNavigationIntent: () => void;
@@ -204,7 +197,6 @@ export interface AppState {
   setShowWhatsNew: (show: boolean, version?: string, since?: string, standIn?: boolean) => void;
   setAiAvailable: (available: boolean) => void;
   setPanelVisible: (visible: boolean) => void;
-  setGrappeEnabled: (enabled: boolean) => void;
 }
 
 /** Zustand store for application-level state */
@@ -221,7 +213,6 @@ export const useAppStore = create<AppState>((set) => ({
   whatsNewStandIn: false,
   aiAvailable: false,
   panelVisible: true,
-  grappeEnabled: false,
 
   navigate(route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>): void {
     set({ currentRoute: route, navigationIntent: intent ? { route, ...intent } : null });
@@ -266,9 +257,5 @@ export const useAppStore = create<AppState>((set) => ({
 
   setPanelVisible(visible: boolean): void {
     set({ panelVisible: visible });
-  },
-
-  setGrappeEnabled(enabled: boolean): void {
-    set({ grappeEnabled: enabled });
   },
 }));

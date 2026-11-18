@@ -69,7 +69,6 @@ const ROUTES: readonly string[] = [
   'frozen',
   'checkpoint',
   'recovery',
-  'grappe',
   'monitor',
   'compare',
   'dataops',

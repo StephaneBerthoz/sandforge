@@ -213,8 +213,8 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
     }
 
     it('opens the Settings editor on the SandForge setting a page names', () => {
-      // The Grappe page is empty until sandforge.grappe.enabled is on, and it
-      // could only say so: nothing on it led to the setting.
+      // A setting no page can change itself: the one that turns on the
+      // Grappe panel of the run screens.
       fromPanel({ setting: 'sandforge.grappe.enabled' });
 
       expect(executeCommand).toHaveBeenCalledWith(

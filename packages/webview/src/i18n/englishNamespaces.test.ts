@@ -41,9 +41,9 @@ describe('the English of a part of the panel, loaded with it', () => {
   });
 
   it('adds a namespace the panel does not hold yet, as the catalogue has it', async () => {
-    expect(i18n.t('grappe.subtitle')).toBe('grappe.subtitle');
+    expect(i18n.t('grappe.partitions')).toBe('grappe.partitions');
     await loadEnglishNamespaces(['grappe']);
-    expect(i18n.t('grappe.subtitle')).toBe(en.grappe.subtitle);
+    expect(i18n.t('grappe.partitions')).toBe(en.grappe.partitions);
     expect(i18n.getResourceBundle('en', 'translation')).toMatchObject({ grappe: en.grappe });
     // What the panel held stays.
     expect(i18n.t('common.cancel')).toBe(en.common.cancel);

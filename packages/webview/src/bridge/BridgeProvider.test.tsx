@@ -653,32 +653,6 @@ describe('BridgeProvider', () => {
     await i18n.changeLanguage('en');
   });
 
-  it('takes whether Grappe is on from each settings answer, the pushed one too', () => {
-    useAppStore.setState({ grappeEnabled: false });
-    render(
-      <BridgeProvider>
-        <div />
-      </BridgeProvider>,
-    );
-
-    fireMessage({
-      id: 'ext-settings-g1',
-      type: 'settings:response',
-      timestamp: Date.now(),
-      payload: { settings: {}, grappeEnabled: true },
-    });
-    expect(useAppStore.getState().grappeEnabled).toBe(true);
-
-    // An answer from an older host, which says nothing of it, changes nothing.
-    fireMessage({
-      id: 'ext-settings-g2',
-      type: 'settings:response',
-      timestamp: Date.now(),
-      payload: { settings: {} },
-    });
-    expect(useAppStore.getState().grappeEnabled).toBe(true);
-  });
-
   it('opens the page a command named, with what it was asked to start', () => {
     useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
     render(

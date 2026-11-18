@@ -184,8 +184,9 @@ test('every command an instruction names is contributed', () => {
 });
 
 test('a title keeps its own brackets, a bracketed mention does not take one', () => {
-  // The first is `command.openGrappe` as the manifest ships it; the second is
-  // the shape that made the scan stop at ')' in the first place.
+  // The first is `command.openGrappe` as the manifest shipped it until the
+  // Grappe page was retired; the second is the shape that made the scan stop
+  // at ')' in the first place.
   assert.deepEqual(commandsNamedIn('SandForge: Open Grappe (partition progress)'), [
     'Open Grappe (partition progress)',
   ]);

@@ -250,20 +250,15 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   // One-shot language recovery: the webview state (per-document) may have
   // lost the persisted language while the extension-side settings blob still
   // carries it — adopt the blob value once (see importLanguageFromSettings).
-  // The same answer carries `sandforge.forge.graphView` and whether Grappe is
-  // on, taken whenever they come: the extension sends them again when either
-  // setting changes.
-  useMessageListener<
-    BaseMessage & {
-      payload: { settings?: unknown; forgeGraphView?: unknown; grappeEnabled?: unknown };
-    }
-  >('settings:response', (msg) => {
-    importLanguageFromSettings(msg.payload?.settings);
-    useForgeViewStore.getState().adoptSetting(msg.payload?.forgeGraphView);
-    if (typeof msg.payload?.grappeEnabled === 'boolean') {
-      useAppStore.getState().setGrappeEnabled(msg.payload.grappeEnabled);
-    }
-  });
+  // The same answer carries `sandforge.forge.graphView`, taken whenever it
+  // comes: the extension sends it again when the setting changes.
+  useMessageListener<BaseMessage & { payload: { settings?: unknown; forgeGraphView?: unknown } }>(
+    'settings:response',
+    (msg) => {
+      importLanguageFromSettings(msg.payload?.settings);
+      useForgeViewStore.getState().adoptSetting(msg.payload?.forgeGraphView);
+    },
+  );
 
   // What the command that opened this panel asked its page to start: the
   // launcher's first card opens Organizations on an import from the CLI or on

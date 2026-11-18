@@ -5,7 +5,7 @@ export interface RecentOp {
   /** Unique identifier for the operation. */
   id: string;
   /** Module that produced the operation: the page a click on it opens. */
-  type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation' | 'frozen' | 'grappe';
+  type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation' | 'frozen';
   /** Short human-readable label. */
   label: string;
   /**

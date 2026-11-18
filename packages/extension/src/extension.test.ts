@@ -558,7 +558,7 @@ describe('extension', () => {
 
     activate(context);
 
-    // 19 module commands (Home, Checkpoints and Back into service among them) + 1 cheers + 1 sandforge.ai config-change listener
+    // 18 module commands (Home, Checkpoints and Back into service among them, Grappe's retired) + 1 cheers + 1 sandforge.ai config-change listener
     // + 1 sandforge.forge.graphView config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command + AI token budget reset command
@@ -567,8 +567,8 @@ describe('extension', () => {
     // + checkpoints-changed unsub (the sidebar's line under Checkpoints)
     // + orgManager + offlineManager + liveOperationTracker
     // + performanceTracker + sandbox refresh detection + pipeline triggers
-    // + the context the walkthrough's Connect step completes on = 42
-    expect(context.subscriptions.length).toBe(42);
+    // + the context the walkthrough's Connect step completes on = 41
+    expect(context.subscriptions.length).toBe(41);
   });
 
   it('tells the editor at activation that no org is registered yet, which Get Started reads', async () => {

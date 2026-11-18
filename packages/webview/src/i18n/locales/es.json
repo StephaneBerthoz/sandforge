@@ -4119,13 +4119,6 @@
       "step5": "Pulse Exportar a CSV o Exportar a JSON para guardar el registro tal como está filtrado.",
       "tip": "Informes no escribe en ninguna org; Exportar a CSV y Exportar a JSON guardan todas las entradas que cumplen los filtros, no solo las mostradas."
     },
-    "grappe": {
-      "step1": "Haga clic en Abrir el ajuste de Grappe y active sandforge.grappe.enabled.",
-      "step2": "Deje abierta la página de Grappe, abra Seed en el panel lateral y ejecute un Seed de 10.000 registros o más.",
-      "step3": "Vuelva a la página de Grappe durante la ejecución: Ejecución en curso muestra el avance de cada partición.",
-      "step4": "Al terminar la ejecución, lea sus totales en las tarjetas Particiones, Registros, Procesados y Fallidos.",
-      "tip": "Baje sandforge.grappe.autoActivateThreshold para seguir ejecuciones más pequeñas; Grappe no ejecuta nada por sí mismo ni acelera ninguna ejecución."
-    },
     "ai": {
       "step1": "Si la página dice Asistente IA no configurado, haga clic en Ir a Configuración.",
       "step2": "Pegue su clave de Anthropic en Clave de API y haga clic en Guardar la clave y activar la IA.",
@@ -7344,33 +7337,14 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe muestra el progreso de una ejecución grande, partición por partición. Actívelo para seguir su próximo Seed de 10.000 registros o más.",
     "active": "Grappe",
     "completed": "Completado",
     "partitions": "Particiones",
     "totalRecords": "Registros",
-    "processed": "Procesados",
-    "failed": "Fallidos",
-    "subtitle": "Progreso por partición para operaciones de datos a gran escala",
-    "activeTitle": "Ejecución en curso",
-    "emptyTitle": "Ninguna ejecución grande en curso",
-    "howItWorks": "Cómo funciona Grappe",
-    "step1Title": "División en particiones",
-    "step1Desc": "Un Seed se divide en particiones de 5.000 registros (sandforge.grappe.grappeSize), escritas en orden de inserción; una Sync informa una partición por objeto, y un plan de Autopilot solo su inicio y su fin.",
-    "step2Title": "Cola de particiones",
-    "step2Desc": "Las particiones se procesan una tras otra y se informan al completarse",
-    "step3Title": "Totales de la ejecución",
-    "step3Desc": "Al terminar la ejecución, la vista conserva el número de particiones y los registros procesados y fallidos",
-    "openSeed": "Abrir Seed",
-    "openSetting": "Abrir el ajuste de Grappe",
     "processedCount_one": "{{formatted}} procesado",
     "processedCount_other": "{{formatted}} procesados",
     "failedCount_one": "{{formatted}} fallido",
-    "failedCount_other": "{{formatted}} fallidos",
-    "partitionCount_one": "{{count}} partición",
-    "partitionCount_other": "{{count}} particiones",
-    "emptyDescOn": "Grappe está activado: su próximo Seed o Sync por encima del umbral de registros, 10.000 por defecto, aparece aquí mientras se ejecuta.",
-    "percentComplete": "{{percent}} % completado"
+    "failedCount_other": "{{formatted}} fallidos"
   },
   "errorBoundary": {
     "title": "Algo salió mal",

@@ -103,13 +103,6 @@ function navGroups(): NavGroupSource[] {
   });
 }
 
-/**
- * The launcher's rows of a group: Grappe's page is retired, and the launcher
- * lists its row under no setting (`listedIn`, SidePanel.tsx).
- */
-const launcherRows = (group: NavGroupSource) =>
-  group.rows.filter((row) => row.shownWhen !== 'grappeEnabled');
-
 /** Labels for a nav array, in the order the launcher shows them. */
 const labelsFor = (arrayName: string): string[] =>
   navIds(arrayName).map((id) => {
@@ -156,7 +149,7 @@ describe('docs/getting-started.md', () => {
         const heading = EN.sidePanel.group[group.id];
         expect(heading, `sidePanel.group.${group.id} missing from en.json`).toBeDefined();
         const line = bullet(body, heading);
-        const positions = launcherRows(group).map(({ id }) => {
+        const positions = group.rows.map(({ id }) => {
           const label = NAV_LABELS[id];
           expect(label, `nav.${id} missing from en.json`).toBeDefined();
           expect(line, `module "${label}" missing from the ${heading} group`).toContain(label);
@@ -170,7 +163,7 @@ describe('docs/getting-started.md', () => {
 
     it('says when a module is listed only under a condition', () => {
       const conditioned = navGroups().flatMap((group) =>
-        launcherRows(group)
+        group.rows
           .filter((row) => row.shownWhen !== undefined)
           .map((row) => ({ group: group.id, ...row })),
       );

@@ -4119,13 +4119,6 @@
       "step5": "Press Export as CSV or Export as JSON to save the trail as filtered.",
       "tip": "Reports writes nothing to any org; Export as CSV and Export as JSON save every entry the filters match, not only those shown."
     },
-    "grappe": {
-      "step1": "Click Open the Grappe setting and turn on sandforge.grappe.enabled.",
-      "step2": "Leave the Grappe page open, open Seed in the side panel, and seed 10,000 records or more.",
-      "step3": "Return to the Grappe page during the run: Run in progress shows each partition's progress.",
-      "step4": "When the run ends, read its totals on the Partitions, Records, Processed and Failed cards.",
-      "tip": "Lower sandforge.grappe.autoActivateThreshold to watch smaller runs; Grappe runs nothing itself and makes no run faster."
-    },
     "ai": {
       "step1": "If the page says AI Assistant not configured, click Go to Settings.",
       "step2": "Paste your Anthropic key into API key and click Save key and turn on AI.",
@@ -7344,33 +7337,14 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe shows a large run's progress, partition by partition. Turn it on to follow your next Seed of 10,000 records or more.",
     "active": "Grappe",
     "completed": "Completed",
     "partitions": "Partitions",
     "totalRecords": "Records",
-    "processed": "Processed",
-    "failed": "Failed",
-    "subtitle": "Per-partition progress for large-scale data operations",
-    "activeTitle": "Run in progress",
-    "emptyTitle": "No large run in progress",
-    "howItWorks": "How Grappe works",
-    "step1Title": "Cut into partitions",
-    "step1Desc": "A Seed is cut into partitions of 5,000 records (sandforge.grappe.grappeSize), written in insert order; a Sync reports one partition per object, and an Autopilot run only its start and its end.",
-    "step2Title": "Partition queue",
-    "step2Desc": "Partitions are processed one after another, each reported as it completes",
-    "step3Title": "Run totals",
-    "step3Desc": "When the run ends, the view keeps the partition count and the records processed and failed",
-    "openSeed": "Open Seed",
-    "openSetting": "Open the Grappe setting",
     "processedCount_one": "{{formatted}} processed",
     "processedCount_other": "{{formatted}} processed",
     "failedCount_one": "{{formatted}} failed",
-    "failedCount_other": "{{formatted}} failed",
-    "partitionCount_one": "{{count}} partition",
-    "partitionCount_other": "{{count}} partitions",
-    "emptyDescOn": "Grappe is on: your next Seed or Sync past the record threshold, 10,000 by default, shows here as it runs.",
-    "percentComplete": "{{percent}}% complete"
+    "failedCount_other": "{{formatted}} failed"
   },
   "errorBoundary": {
     "title": "Something went wrong",

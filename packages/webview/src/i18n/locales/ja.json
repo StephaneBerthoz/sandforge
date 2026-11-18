@@ -3912,13 +3912,6 @@
       "step5": "CSV にエクスポート または JSON にエクスポート をクリックし、絞り込んだ状態のログを保存します。",
       "tip": "レポート は組織に何も書き込みません。CSV にエクスポート と JSON にエクスポート は、表示中の分だけでなく、フィルターに一致するすべてのエントリーを保存します。"
     },
-    "grappe": {
-      "step1": "Grappe の設定を開く をクリックし、sandforge.grappe.enabled をオンにしてください。",
-      "step2": "Grappe のページを開いたまま、サイドパネルから Seed を開き、10,000 件以上のレコードで Seed を実行してください。",
-      "step3": "実行中に Grappe のページに戻り、実行中 の欄で各パーティションの進捗を確認してください。",
-      "step4": "実行が終わったら、パーティション、レコード、処理済み、失敗 の各カードで合計を確認してください。",
-      "tip": "sandforge.grappe.autoActivateThreshold を下げると小さな実行も表示されますが、Grappe 自体は何も実行せず、実行を速くもしません。"
-    },
     "ai": {
       "step1": "ページに AI アシスタントが未設定です と表示されたら、設定を開く をクリックします。",
       "step2": "Anthropic のキーを API キー に貼り付け、キーを保存して AI をオンにする をクリックします。",
@@ -6878,30 +6871,12 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe は大規模な実行の進捗をパーティションごとに表示します。有効にすると、10,000 件以上のレコードの次の Seed を追跡できます。",
     "active": "Grappe",
     "completed": "完了",
     "partitions": "パーティション",
     "totalRecords": "レコード",
-    "processed": "処理済み",
-    "failed": "失敗",
-    "subtitle": "大規模データ操作のパーティション単位の進捗",
-    "activeTitle": "実行中",
-    "emptyTitle": "進行中の大規模な実行はありません",
-    "howItWorks": "Grappe のしくみ",
-    "step1Title": "パーティションへの分割",
-    "step1Desc": "Seed は 5,000 件ずつのパーティション（sandforge.grappe.grappeSize）に分割され、挿入順に書き込まれます。Sync はオブジェクトごとに 1 パーティション、Autopilot プランは開始と終了だけを報告します。",
-    "step2Title": "パーティションキュー",
-    "step2Desc": "パーティションは順番に処理され、完了ごとに報告されます",
-    "step3Title": "実行の合計",
-    "step3Desc": "実行が終わると、ビューにパーティション数と処理済み・失敗レコード数が残ります",
-    "openSeed": "Seed を開く",
-    "openSetting": "Grappe の設定を開く",
     "processedCount_other": "{{formatted}}件処理済み",
-    "failedCount_other": "{{formatted}}件失敗",
-    "partitionCount_other": "{{count}}パーティション",
-    "emptyDescOn": "Grappe は有効です。レコードしきい値（既定は 10,000 件）を超える次の Seed または Sync が、実行中にここに表示されます。",
-    "percentComplete": "{{percent}}% 完了"
+    "failedCount_other": "{{formatted}}件失敗"
   },
   "errorBoundary": {
     "title": "問題が発生しました",

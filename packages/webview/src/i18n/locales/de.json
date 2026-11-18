@@ -4119,13 +4119,6 @@
       "step5": "Klicken Sie auf Als CSV exportieren oder Als JSON exportieren, um das Protokoll wie gefiltert zu speichern.",
       "tip": "Berichte schreibt in keine Org; Als CSV exportieren und Als JSON exportieren speichern jeden Eintrag, den die Filter treffen, nicht nur die angezeigten."
     },
-    "grappe": {
-      "step1": "Klicken Sie auf Grappe-Einstellung öffnen und aktivieren Sie sandforge.grappe.enabled.",
-      "step2": "Lassen Sie die Grappe-Seite geöffnet, öffnen Sie Seed im Seitenpanel und starten Sie einen Seed-Lauf ab 10.000 Datensätzen.",
-      "step3": "Kehren Sie während des Laufs zur Grappe-Seite zurück: Laufende Ausführung zeigt den Fortschritt jeder Partition.",
-      "step4": "Lesen Sie nach dem Ende des Laufs die Summen auf den Karten Partitionen, Datensätze, Verarbeitet und Fehlgeschlagen ab.",
-      "tip": "Senken Sie sandforge.grappe.autoActivateThreshold, um kleinere Läufe zu verfolgen; Grappe führt selbst nichts aus und macht keinen Lauf schneller."
-    },
     "ai": {
       "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf Zu den Einstellungen.",
       "step2": "Fügen Sie Ihren Anthropic-Schlüssel unter API-Schlüssel ein und klicken Sie auf Schlüssel speichern und KI aktivieren.",
@@ -7344,33 +7337,14 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe zeigt den Fortschritt eines großen Laufs, Partition für Partition. Schalten Sie es ein, um Ihren nächsten Seed mit 10.000 Datensätzen oder mehr zu verfolgen.",
     "active": "Grappe",
     "completed": "Abgeschlossen",
     "partitions": "Partitionen",
     "totalRecords": "Datensätze",
-    "processed": "Verarbeitet",
-    "failed": "Fehlgeschlagen",
-    "subtitle": "Fortschritt pro Partition für Datenoperationen im großen Maßstab",
-    "activeTitle": "Laufende Ausführung",
-    "emptyTitle": "Kein großer Lauf aktiv",
-    "howItWorks": "So funktioniert Grappe",
-    "step1Title": "Aufteilung in Partitionen",
-    "step1Desc": "Ein Seed wird in Partitionen zu 5.000 Datensätzen aufgeteilt (sandforge.grappe.grappeSize) und in Einfügereihenfolge geschrieben; eine Sync meldet eine Partition je Objekt, ein Autopilot-Lauf nur seinen Beginn und sein Ende.",
-    "step2Title": "Partitionswarteschlange",
-    "step2Desc": "Die Partitionen werden nacheinander verarbeitet und jeweils nach Abschluss gemeldet",
-    "step3Title": "Lauf-Summen",
-    "step3Desc": "Am Ende des Laufs behält die Ansicht die Partitionsanzahl sowie die verarbeiteten und fehlgeschlagenen Datensätze",
-    "openSeed": "Seed öffnen",
-    "openSetting": "Grappe-Einstellung öffnen",
     "processedCount_one": "{{formatted}} verarbeitet",
     "processedCount_other": "{{formatted}} verarbeitet",
     "failedCount_one": "{{formatted}} fehlgeschlagen",
-    "failedCount_other": "{{formatted}} fehlgeschlagen",
-    "partitionCount_one": "{{count}} Partition",
-    "partitionCount_other": "{{count}} Partitionen",
-    "emptyDescOn": "Grappe ist eingeschaltet: Ihr nächster Seed- oder Sync-Lauf über der Datensatzschwelle, standardmäßig 10.000, erscheint hier, während er läuft.",
-    "percentComplete": "{{percent}} % abgeschlossen"
+    "failedCount_other": "{{formatted}} fehlgeschlagen"
   },
   "errorBoundary": {
     "title": "Etwas ist schiefgelaufen",

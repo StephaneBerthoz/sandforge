@@ -2680,7 +2680,7 @@ export class SeedOpsHandler implements DomainHandler {
         services: this.deps.services,
         // Grappe stays sequential unless `sandforge.grappe.enabled` is on AND
         // the template crosses the threshold — but adapter, config and callback
-        // must all be present, or the Grappe page renders an empty shell.
+        // must all be present, or the run's Grappe panel stays empty.
         grappeAdapter: new SeedGrappeAdapter(() => crypto.randomUUID(), grappeConfig?.grappeSize),
         grappeConfig,
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),

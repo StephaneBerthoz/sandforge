@@ -31,7 +31,7 @@ describe('NAV_GROUPS', () => {
       ['fill', ['seed', 'frozen']],
       ['copy', ['forge', 'sync', 'autopilot', 'migration']],
       ['protect', ['recovery', 'checkpoint', 'dataops']],
-      ['watch', ['monitor', 'compare', 'reports', 'grappe']],
+      ['watch', ['monitor', 'compare', 'reports']],
       ['automate', ['automation', 'ai']],
     ]);
   });
@@ -47,25 +47,21 @@ describe('NAV_GROUPS', () => {
     }
   });
 
-  it('shows Back into service once a sandbox is registered, and Grappe while its setting is on', () => {
+  it('shows Back into service once a sandbox is registered, and every other module always', () => {
+    // Grappe was listed while its setting was on; its page is retired, and
+    // its progress is read in the run screens of Seed, Sync and Autopilot.
     const conditional = MODULE_ITEMS.filter((item) => item.shownWhen !== undefined).map(
       ({ id, shownWhen }) => [id, shownWhen],
     );
-    expect(conditional).toEqual([
-      ['recovery', 'sandboxRegistered'],
-      ['grappe', 'grappeEnabled'],
-    ]);
+    expect(conditional).toEqual([['recovery', 'sandboxRegistered']]);
 
     const recovery = MODULE_ITEMS.find((item) => item.id === 'recovery');
-    const grappe = MODULE_ITEMS.find((item) => item.id === 'grappe');
     const seed = MODULE_ITEMS.find((item) => item.id === 'seed');
-    if (!recovery || !grappe || !seed) throw new Error('a module is missing');
-    const none = { sandboxRegistered: false, grappeEnabled: false };
+    if (!recovery || !seed) throw new Error('a module is missing');
+    const none = { sandboxRegistered: false };
     expect(isNavItemShown(seed, none)).toBe(true);
     expect(isNavItemShown(recovery, none)).toBe(false);
-    expect(isNavItemShown(recovery, { ...none, sandboxRegistered: true })).toBe(true);
-    expect(isNavItemShown(grappe, { ...none, sandboxRegistered: true })).toBe(false);
-    expect(isNavItemShown(grappe, { ...none, grappeEnabled: true })).toBe(true);
+    expect(isNavItemShown(recovery, { sandboxRegistered: true })).toBe(true);
   });
 
   it('draws Reports with the icon Help draws it with, and Back into service with a checklist', () => {

@@ -66,7 +66,6 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openCheckpoints', moduleId: 'checkpoint', title: 'Checkpoints' },
   { command: 'sandforge.openRecovery', moduleId: 'recovery', title: 'Back into service' },
   { command: 'sandforge.openFrozen', moduleId: 'frozen', title: 'Frozen Dataset' },
-  { command: 'sandforge.openGrappe', moduleId: 'grappe', title: 'Grappe' },
   { command: 'sandforge.openAutopilot', moduleId: 'autopilot', title: 'Autopilot' },
   { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare Org' },
   { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },

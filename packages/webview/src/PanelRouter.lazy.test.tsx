@@ -19,7 +19,6 @@ vi.mock('./pages/OrgManager/OrgManagerPage', () => stand('orgs', 'OrgManagerPage
 vi.mock('./pages/Forge/ForgePage', () => stand('forge', 'ForgePage'));
 vi.mock('./pages/Frozen/FrozenPage', () => stand('frozen', 'FrozenPage'));
 vi.mock('./pages/Checkpoint/CheckpointPage', () => stand('checkpoint', 'CheckpointPage'));
-vi.mock('./pages/Grappe/GrappePage', () => stand('grappe', 'GrappePage'));
 vi.mock('./pages/Monitor/MonitorPage', () => stand('monitor', 'MonitorPage'));
 vi.mock('./pages/Compare/ComparePage', () => stand('compare', 'ComparePage'));
 vi.mock('./pages/DataOps/DataOpsPage', () => stand('dataops', 'DataOpsPage'));

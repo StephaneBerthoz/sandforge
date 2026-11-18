@@ -15,7 +15,7 @@ function listed(groupId: string): string[] {
 
 describe('AllModulesTile', () => {
   beforeEach(() => {
-    useAppStore.setState({ currentRoute: 'home', navigationIntent: null, grappeEnabled: false });
+    useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
   });
 
   it('lists every module in the launcher’s five groups, in their order, each group named', () => {
@@ -61,8 +61,7 @@ describe('AllModulesTile', () => {
     expect(listed('protect')[0]).toBe('recovery');
   });
 
-  it('lists no Grappe, whose page is retired, whatever sandforge.grappe.enabled says', () => {
-    useAppStore.setState({ grappeEnabled: true });
+  it('lists no Grappe, whose page is retired', () => {
     render(<AllModulesTile sandboxRegistered />);
     expect(screen.queryByTestId('open-grappe-btn')).toBeNull();
   });

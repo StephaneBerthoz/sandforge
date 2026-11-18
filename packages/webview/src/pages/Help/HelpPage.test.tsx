@@ -241,8 +241,9 @@ describe('HelpPage', () => {
       'release-notes',
     ]);
     // Each is a row of the list the side panel draws its rows from, Organizations among them.
+    // Grappe's section is not one: its page and its row are retired.
     const rows = sidePanelItems().map(({ id }) => id);
-    expect(ids.filter((id) => rows.includes(id))).toHaveLength(15);
+    expect(ids.filter((id) => rows.includes(id))).toHaveLength(14);
   });
 
   it('draws each module and Organizations with the side panel’s icon, where it drew emoji', () => {
@@ -252,7 +253,7 @@ describe('HelpPage', () => {
     const panel = sidePanelItems();
     const drawn = new Map(HELP_SECTIONS.map((section) => [section.id, section.icon]));
     const shared = panel.filter(({ id }) => drawn.has(id));
-    expect(shared).toHaveLength(15);
+    expect(shared).toHaveLength(14);
     for (const { id, icon } of shared) {
       // By the component itself: lucide names one icon several ways (History).
       const component = (lucide as unknown as Record<string, unknown>)[icon];

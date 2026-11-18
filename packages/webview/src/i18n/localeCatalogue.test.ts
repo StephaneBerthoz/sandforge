@@ -649,7 +649,6 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
     // contrôle", and the same English word in four other languages.
     Checkpoints: 'checkpoint',
     Frozen: 'frozen',
-    Grappe: 'grappe',
     Autopilot: 'autopilot',
     Compare: 'compare',
     DataOps: 'dataops',

@@ -35,7 +35,6 @@ export const HOW_TO_DOCS = {
   automation: 'docs/modules/automation.md',
   migration: 'docs/modules/migration.md',
   reports: 'docs/modules/reports.md',
-  grappe: 'docs/modules/grappe.md',
   ai: 'docs/modules/ai-assistant.md',
 };
 

@@ -1458,9 +1458,9 @@ export class ExtensionHandlers {
     });
 
     // A page that needs a SandForge setting changed opens it in the Settings
-    // editor: the Grappe page stays empty until `sandforge.grappe.enabled` is
-    // on, and had no way to get there. Only a `sandforge.*` id is opened —
-    // the editor reads anything else as a search of its own.
+    // editor: a Forge notice names `sandforge.forge.maxRoots`, which no page
+    // can change itself. Only a `sandforge.*` id is opened — the editor reads
+    // anything else as a search of its own.
     router.route('workbench:open-setting', (msg: BaseMessage) => {
       const parsed = OPENABLE_SETTING.safeParse((msg as { payload?: unknown }).payload);
       if (!parsed.success) {

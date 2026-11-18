@@ -29,7 +29,7 @@ export interface AutopilotCompositionDeps {
   /**
    * Forwards the orchestrator's grappe lifecycle events to the webview. Built
    * by the activation root, which owns the broker; without it the three
-   * `grappe:*` channels never fire and the Grappe page stays blank.
+   * `grappe:*` channels never fire and the run's Grappe panel stays blank.
    */
   onGrappeEvent?: (event: GrappeEventEnvelope) => void;
 }

@@ -52,7 +52,6 @@ import {
   RotateCcw,
   RotateCw,
   Save,
-  Server,
   Settings,
   Shield,
   SkipForward,
@@ -138,7 +137,6 @@ const ICONS = {
   reply: Reply,
   rocket: Rocket,
   save: Save,
-  server: Server,
   shield: Shield,
   snowflake: Snowflake,
   // Seed's, as the side panel draws it.

@@ -116,10 +116,6 @@ export const MODULE_HOW_TO = {
     ],
     tip: 'howTo.reports.tip',
   },
-  grappe: {
-    steps: ['howTo.grappe.step1', 'howTo.grappe.step2', 'howTo.grappe.step3', 'howTo.grappe.step4'],
-    tip: 'howTo.grappe.tip',
-  },
   ai: {
     steps: ['howTo.ai.step1', 'howTo.ai.step2', 'howTo.ai.step3', 'howTo.ai.step4'],
     tip: 'howTo.ai.tip',

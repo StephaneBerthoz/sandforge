@@ -120,18 +120,16 @@ describe('SettingsHandler', () => {
       expect(posted().payload).toEqual({
         settings: { settings: { language: 'fr' } },
         forgeGraphView: 'graph',
-        grappeEnabled: false,
       });
     });
 
-    it('says whether Grappe is on, so the launcher and Home list it only then', async () => {
+    it('says nothing of Grappe, whose page is retired and listed nowhere', async () => {
+      // Whether Grappe was on told the launcher and Home to list its page.
+      // The page is gone; the run screens' panel needs no word of the setting.
       editorHolds({ 'grappe.enabled': true });
       await handler.handle(createMsg('settings:get'));
-      editorHolds({});
-      await handler.handle(createMsg('settings:get'));
 
-      expect((posted(0).payload as { grappeEnabled?: boolean }).grappeEnabled).toBe(true);
-      expect((posted(1).payload as { grappeEnabled?: boolean }).grappeEnabled).toBe(false);
+      expect(posted(0).payload).not.toHaveProperty('grappeEnabled');
     });
   });
 

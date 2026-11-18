@@ -276,11 +276,10 @@ test.describe('Module launcher', () => {
 
     // And the other direction: a module command the extension registers with
     // no way to reach it from the launcher. `home` is the page the button
-    // beside the mark opens, through `sidebar:openFull` rather than a route;
-    // Grappe's command goes with its retired page.
+    // beside the mark opens, through `sidebar:openFull` rather than a route.
     const launcherRoutes = new Set(emitted);
     const unreachable = MODULE_COMMANDS.map((c) => c.moduleId).filter(
-      (moduleId) => !launcherRoutes.has(moduleId) && moduleId !== 'grappe',
+      (moduleId) => !launcherRoutes.has(moduleId),
     );
     expect(unreachable).toEqual(['home']);
     await page.getByTestId('sidepanel-open-full').click();

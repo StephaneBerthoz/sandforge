@@ -147,11 +147,6 @@
         "icon": "$(snowflake)"
       },
       {
-        "command": "sandforge.openGrappe",
-        "title": "%command.openGrappe%",
-        "icon": "$(symbol-namespace)"
-      },
-      {
         "command": "sandforge.openAutopilot",
         "title": "%command.openAutopilot%",
         "icon": "$(rocket)"
@@ -225,12 +220,6 @@
       }
     ],
     "keybindings": [
-      {
-        "command": "sandforge.openGrappe",
-        "key": "ctrl+shift+r",
-        "mac": "cmd+shift+r",
-        "when": "activeViewlet == 'workbench.view.extension.sandforge' && !textInputFocus"
-      },
       {
         "command": "sandforge.openAutomation",
         "key": "ctrl+shift+a",

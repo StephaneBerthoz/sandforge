@@ -13,13 +13,12 @@ const KNOWN_MODULES: ReadonlySet<string> = new Set([
   'dataops',
   'automation',
   'frozen',
-  'grappe',
 ]);
 
 /**
  * Map the free-form `module` string sent by extension handlers
  * (SeedOpsHandler, SyncOpsHandler, ForgeHandler, DataOpsHandler,
- * AutomationHandler, FrozenDatasetHandler, GrappeHandler) to the store's
+ * AutomationHandler, FrozenDatasetHandler) to the store's
  * category union: the page a click on the operation opens. A Seed clone says
  * `clone`, and is Seed's: it collapsed to Automation with the unknown ids,
  * which was harmless while the field was never read.

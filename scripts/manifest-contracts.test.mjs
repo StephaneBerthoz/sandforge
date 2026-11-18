@@ -176,18 +176,17 @@ test('the view, its container and the provider are one name', () => {
 test('Ctrl+Shift+R leaves Refactor to the editor', () => {
   /*
    * VS Code binds Ctrl+Shift+R to Refactor… wherever `textInputFocus`
-   * holds — the `kbExpr` of its RefactorAction; on macOS it is Ctrl too,
-   * where Grappe takes Cmd — and an extension's keybinding outranks a
-   * built-in one when both apply.
-   * Bound while the SandForge view was the active viewlet, Grappe took the
-   * keys from every editor typed in beside it. The SandForge view is a
-   * webview, where `textInputFocus` never holds: left out there, Grappe keeps
-   * its keys in the view and gives them back to the editor.
+   * holds — the `kbExpr` of its RefactorAction; on macOS it is Ctrl too —
+   * and an extension's keybinding outranks a built-in one when both apply.
+   * Bound while the SandForge view was the active viewlet, the Grappe page
+   * took the keys from every editor typed in beside it. That page is retired
+   * with its key; a binding that takes Ctrl+Shift+R again leaves it to the
+   * editor wherever text is typed, as the SandForge view, a webview, never
+   * holds `textInputFocus`.
    */
-  const onKey = (contributes.keybindings ?? []).filter(
-    (entry) => entry.key?.toLowerCase() === 'ctrl+shift+r',
-  );
-  assert.ok(onKey.length > 0, 'nothing is bound to ctrl+shift+r — has the binding moved?');
+  const bindings = contributes.keybindings ?? [];
+  assert.ok(bindings.length > 0, 'no keybinding read — has the manifest moved?');
+  const onKey = bindings.filter((entry) => entry.key?.toLowerCase() === 'ctrl+shift+r');
   for (const entry of onKey) {
     assert.match(
       entry.when ?? '',
@@ -195,6 +194,43 @@ test('Ctrl+Shift+R leaves Refactor to the editor', () => {
       `${entry.command} takes Ctrl+Shift+R from Refactor in an editor: ${entry.when}`,
     );
   }
+});
+
+test('the retired Grappe page leaves no command, key or palette title behind', () => {
+  /*
+   * The Grappe page showed the partitions of a run that Seed, Sync and
+   * Autopilot already show in their own run screens, from the same store, and
+   * named neither the module nor the org. It is retired; its setting and the
+   * run screens' panel stay. A command left behind would open "Unknown
+   * module: grappe" from the palette.
+   */
+  const commands = (contributes.commands ?? []).map((entry) => entry.command);
+  assert.ok(commands.includes('sandforge.openSeed'), 'the commands are not where this reads them');
+  const named = [
+    ...commands,
+    ...(contributes.keybindings ?? []).map((entry) => entry.command),
+    ...Object.values(contributes.menus ?? {})
+      .flat()
+      .map((entry) => entry.command),
+  ];
+  assert.deepEqual(
+    named.filter((command) => /grappe/i.test(command ?? '')),
+    [],
+  );
+  const bundles = readdirSync(join(repoRoot, EXTENSION)).filter((name) =>
+    /^package\.nls(\.[\w-]+)?\.json$/.test(name),
+  );
+  assert.equal(bundles.length, 6, `${bundles.length} bundles read — re-point this gate`);
+  for (const bundle of bundles) {
+    const titles = Object.keys(readJson(EXTENSION, bundle)).filter(
+      (key) => key.startsWith('command.') && /grappe/i.test(key),
+    );
+    assert.deepEqual(titles, [], `${bundle} still titles a Grappe command`);
+  }
+  const moduleCommands = read(EXTENSION, 'src', 'composition', 'moduleCommands.ts');
+  assert.doesNotMatch(moduleCommands, /moduleId:\s*'grappe'/);
+  // What stays: the setting that turns the run screens' panel on.
+  assert.ok(contributes.configuration?.properties?.['sandforge.grappe.enabled']);
 });
 
 test('every module the extension can open is a route the webview can mount', () => {

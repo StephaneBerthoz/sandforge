@@ -36,7 +36,7 @@ describe('useAppStore', () => {
   });
 
   it('should navigate through multiple routes sequentially', () => {
-    const routes: ModuleRoute[] = ['orgs', 'grappe', 'settings', 'home'];
+    const routes: ModuleRoute[] = ['orgs', 'reports', 'settings', 'home'];
     for (const route of routes) {
       getState().navigate(route);
       expect(getState().currentRoute).toBe(route);
@@ -75,14 +75,15 @@ describe('useAppStore', () => {
   });
 
   it('should expose ALL_ROUTES with all module routes', () => {
-    expect(ALL_ROUTES).toHaveLength(20);
+    expect(ALL_ROUTES).toHaveLength(19);
     expect(ALL_ROUTES).toContain('home');
     expect(ALL_ROUTES).toContain('recovery');
     expect(ALL_ROUTES).toContain('orgs');
     expect(ALL_ROUTES).toContain('forge');
     expect(ALL_ROUTES).toContain('frozen');
     expect(ALL_ROUTES).toContain('checkpoint');
-    expect(ALL_ROUTES).toContain('grappe');
+    // Grappe's page is retired: its progress is read in the runs it reports on.
+    expect(ALL_ROUTES).not.toContain('grappe');
     expect(ALL_ROUTES).toContain('monitor');
     expect(ALL_ROUTES).toContain('seed');
     expect(ALL_ROUTES).toContain('sync');

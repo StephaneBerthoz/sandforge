@@ -17,13 +17,12 @@ export interface AllModulesTileProps {
  * Home's "Quick actions" opened Forge, Monitor and Automation and listed no
  * other module, so the page the launcher's Home button opens offered less
  * than the launcher itself; it also put Automation forward while the launcher
- * folded it away. Grappe's page is retired: its row is listed under no
- * setting, as in the launcher.
+ * folded it away.
  */
 export const AllModulesTile: React.FC<AllModulesTileProps> = ({ sandboxRegistered }) => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
-  const facts = { sandboxRegistered, grappeEnabled: false };
+  const facts = { sandboxRegistered };
 
   return (
     <section

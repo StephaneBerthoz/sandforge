@@ -21,15 +21,6 @@ function forgeGraphViewOf(deps: HandlerDeps): ForgeGraphView {
   return held.success ? held.data : 'auto';
 }
 
-/**
- * Whether `sandforge.grappe.enabled` is on. Off, the Grappe page has nothing
- * to show, and the launcher and Home leave it out: it was the fourth of eleven
- * modules of equal weight, an empty page to whoever looked at the list first.
- */
-function grappeEnabledOf(deps: HandlerDeps): boolean {
-  return deps.services?.getSandforgeSetting?.<unknown>('grappe.enabled', false) === true;
-}
-
 /** Message types handled by SettingsHandler. */
 const SETTINGS_TYPES = new Set([
   'settings:get',
@@ -78,8 +69,8 @@ export class SettingsHandler implements DomainHandler {
 
   /**
    * Tell every panel the settings again, with no request behind them: the
-   * `sandforge.forge.graphView` or `sandforge.grappe.enabled` setting changed
-   * in the editor, and a panel reads it only as it opens otherwise. Each panel takes the message by its
+   * `sandforge.forge.graphView` setting changed in the editor, and a panel
+   * reads it only as it opens otherwise. Each panel takes the message by its
    * type; a request waiting for its own answer lets it pass.
    */
   postSettings(): void {
@@ -93,18 +84,15 @@ export class SettingsHandler implements DomainHandler {
 
   /**
    * What every `settings:response` carries: the blob the panels save, and the
-   * editor settings the blob does not hold: the one the Forge screens read,
-   * and whether Grappe is on.
+   * editor setting the blob does not hold that the Forge screens read.
    */
   private settingsPayload(): {
     settings: Record<string, unknown>;
     forgeGraphView: ForgeGraphView;
-    grappeEnabled: boolean;
   } {
     return {
       settings: this.deps.configStore.getByCategory('settings'),
       forgeGraphView: forgeGraphViewOf(this.deps),
-      grappeEnabled: grappeEnabledOf(this.deps),
     };
   }
 
