@@ -106,7 +106,6 @@ const STEP_LINE: Partial<Record<RecoveryStepId, Partial<Record<RecoveryReason, s
     toDo: 'recovery.line.replay.toDo',
     ranAfterRefresh: 'recovery.line.replay.ranAfterRefresh',
     noCheckpointBefore: 'recovery.line.replay.noCheckpointBefore',
-    stagingSandbox: 'recovery.line.replay.stagingSandbox',
   },
   frozen: {
     toDo: 'recovery.line.frozen.toDo',

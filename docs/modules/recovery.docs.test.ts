@@ -388,8 +388,11 @@ describe('docs/modules/recovery.md', () => {
     );
     expect(FROZEN_HANDLER).toContain("'REPLAY_STAGING_UNCONFIRMED'");
     expect(SANDBOX_RECOVERY).toContain("t('recovery.line.replay.staging', { alias })");
-    // The deduced steps never refuse the replay for the mark.
-    expect(functionBody(STATUS, 'stepsOf')).not.toContain('stagingSandbox');
+    // The deduced steps never refuse the replay for the mark; the frozen
+    // dataset step, whose load the mark refuses, is said refused instead.
+    const steps = functionBody(STATUS, 'stepsOf');
+    expect(steps).not.toMatch(/stepOf\('replay', 'refused'/);
+    expect(steps).toContain("stepOf('frozen', 'refused', 'stagingSandbox')");
 
     const staging = prose('Replay into a sandbox marked Staging');
     expect(staging).toContain(
@@ -399,7 +402,9 @@ describe('docs/modules/recovery.md', () => {
       'the extension refuses the replay before it reads anything of the org',
     );
     expect(staging).toContain('A Frozen Dataset load into a sandbox marked Staging stays refused.');
-    expect(stepLine('frozen')).toContain('A sandbox marked Staging refuses the load');
+    expect(stepLine('frozen')).toContain(
+      'On a sandbox marked Staging the step is refused, since the mark refuses the load',
+    );
   });
 
   it('says what the command line runs counts for the steps, and what counts from the editor alone', () => {

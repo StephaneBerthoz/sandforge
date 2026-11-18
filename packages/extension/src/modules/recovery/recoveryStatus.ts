@@ -12,7 +12,9 @@
  *
  * A sandbox marked Staging replays the checkpoint of before as any other:
  * its replay asks for the org's name typed under the simulation, and is
- * never refused for the mark (D7).
+ * never refused for the mark (D7). A frozen dataset is never loaded there:
+ * its step is refused, counted in N and never in n — a step nothing can do —
+ * until a person skips it, as the page offers.
  */
 
 import {
@@ -134,7 +136,9 @@ function stepsOf(facts: RecoveryFacts): RecoveryStep[] {
       : ranOrSkipped('replay', facts, facts.replayedAt),
     facts.frozenManifest === undefined
       ? stepOf('frozen', 'notApplicable', 'noManifest')
-      : ranOrSkipped('frozen', facts, facts.frozenLoadedAt),
+      : facts.tier === 'staging' && facts.acks.steps.frozen !== 'skipped'
+        ? stepOf('frozen', 'refused', 'stagingSandbox')
+        : ranOrSkipped('frozen', facts, facts.frozenLoadedAt),
     ranOrSkipped('testersCheckpoint', facts, testersStart?.takenAt),
     markedOrSkipped('deliverability', facts),
     facts.inventoryBefore === undefined

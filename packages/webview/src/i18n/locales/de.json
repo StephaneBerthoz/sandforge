@@ -8955,7 +8955,6 @@
         "toDo": "Öffnet die Wiedergabe von {{name}}, erstellt am {{date}} vor der Aktualisierung: erst simulieren, dann ihre Datensätze in {{alias}} wiedergeben.",
         "ranAfterRefresh": "Der Prüfpunkt von vorher wurde nach der Aktualisierung in {{alias}} wiedergegeben.",
         "noCheckpointBefore": "Vor der Aktualisierung wurde kein Prüfpunkt von {{alias}} erstellt: Erstellen Sie unten einen vor der nächsten.",
-        "stagingSandbox": "{{alias}} ist als Staging markiert, wo diese Wiedergabe abgelehnt wird.",
         "staging": "{{alias}} ist als Staging markiert: Die Wiedergabe verlangt, dass Sie ihren Namen eingeben, bevor sie schreibt."
       },
       "frozen": {

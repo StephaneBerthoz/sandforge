@@ -8955,7 +8955,6 @@
         "toDo": "Abre a reprodução de {{name}}, criado em {{date}} antes da atualização: simule-a e depois reproduza os seus registros em {{alias}}.",
         "ranAfterRefresh": "O ponto de verificação de antes foi reproduzido em {{alias}} após a atualização.",
         "noCheckpointBefore": "Nenhum ponto de verificação de {{alias}} foi criado antes da atualização: crie um antes da próxima, abaixo.",
-        "stagingSandbox": "{{alias}} está marcada como Staging, onde esta reprodução é recusada.",
         "staging": "{{alias}} está marcada como Staging: a reprodução pede que você digite o nome dela antes de gravar."
       },
       "frozen": {

@@ -8955,7 +8955,6 @@
         "toDo": "Opens the replay of {{name}}, taken on {{date}} before the refresh: simulate it, then replay its records into {{alias}}.",
         "ranAfterRefresh": "The checkpoint of before was replayed into {{alias}} after the refresh.",
         "noCheckpointBefore": "No checkpoint of {{alias}} was taken before the refresh: take one before the next, below.",
-        "stagingSandbox": "{{alias}} is marked Staging, where this replay is refused.",
         "staging": "{{alias}} is marked Staging: the replay asks you to type its name before it writes."
       },
       "frozen": {

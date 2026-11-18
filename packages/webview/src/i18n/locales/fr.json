@@ -8955,7 +8955,6 @@
         "toDo": "Ouvre le rejeu de {{name}}, pris le {{date}} avant le rafraîchissement : simulez-le, puis rejouez ses enregistrements dans {{alias}}.",
         "ranAfterRefresh": "Le point de contrôle d'avant a été rejoué dans {{alias}} après le rafraîchissement.",
         "noCheckpointBefore": "Aucun point de contrôle de {{alias}} n'a été pris avant le rafraîchissement : prenez-en un avant le prochain, ci-dessous.",
-        "stagingSandbox": "{{alias}} est marquée Préproduction, où ce rejeu est refusé.",
         "staging": "{{alias}} est marquée Préproduction : le rejeu vous demande de taper son nom avant d'écrire."
       },
       "frozen": {

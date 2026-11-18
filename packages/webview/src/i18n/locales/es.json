@@ -8955,7 +8955,6 @@
         "toDo": "Abre la reproducción de {{name}}, creado el {{date}} antes de la actualización: simúlela y luego reproduzca sus registros en {{alias}}.",
         "ranAfterRefresh": "El punto de control de antes se reprodujo en {{alias}} después de la actualización.",
         "noCheckpointBefore": "No se creó ningún punto de control de {{alias}} antes de la actualización: cree uno antes de la próxima, más abajo.",
-        "stagingSandbox": "{{alias}} está marcado como Staging, donde esta reproducción se rechaza.",
         "staging": "{{alias}} está marcado como Staging: la reproducción le pide que escriba su nombre antes de escribir."
       },
       "frozen": {

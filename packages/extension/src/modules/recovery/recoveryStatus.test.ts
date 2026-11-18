@@ -188,6 +188,31 @@ describe('recoveryStatusOf', () => {
     expect(status.steps.find((step) => step.id === 'replay')).toMatchObject({ status: 'todo' });
   });
 
+  it('refuses the load of the frozen dataset into a sandbox marked Staging, never counted as doable', () => {
+    const frozenManifest = { frozenAt: '2026-11-01T10:00:00.000Z', objects: 4, records: 120 };
+    const status = recoveryStatusOf(facts({ tier: 'staging', frozenManifest }));
+    expect(status.steps.find((step) => step.id === 'frozen')).toEqual({
+      id: 'frozen',
+      status: 'refused',
+      reason: 'stagingSandbox',
+    });
+    // In N, never in n: the same count as the frozen step to do, with nothing to do it.
+    expect(status).toMatchObject({ done: 1, total: 8 });
+    expect(recoveryStatusSchema.safeParse(status).success).toBe(true);
+    // Nothing kept to load: not applicable, Staging or not.
+    expect(statusOfStep({ tier: 'staging' }, 'frozen')).toMatchObject({
+      status: 'notApplicable',
+      reason: 'noManifest',
+    });
+    // A person who skips it ends it, as the page offers.
+    expect(
+      statusOfStep(
+        { tier: 'staging', frozenManifest, acks: { steps: { frozen: 'skipped' } } },
+        'frozen',
+      ),
+    ).toMatchObject({ status: 'skipped', reason: 'skipped' });
+  });
+
   it('loads the frozen dataset kept on this machine, not applicable without one', () => {
     const frozenManifest = { frozenAt: '2026-11-01T10:00:00.000Z', objects: 4, records: 120 };
     expect(statusOfStep({}, 'frozen')).toMatchObject({ reason: 'noManifest' });

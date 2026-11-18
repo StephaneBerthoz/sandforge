@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -50,6 +50,7 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { readInventories } from '../../modules/audit/auditStore.js';
 import { openCheckpointStore } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import { SasPathGuard, findRepoRoot } from '../../modules/frozendataset/SasPathGuard.js';
+import { buildFrozenManifest, serializeManifest } from '../../modules/frozendataset/manifest.js';
 import { EMAIL_NOT_PERMITTED } from '../../modules/forge/targetDeliverability.js';
 import type { DetectedSandboxRefresh } from '../../modules/monitor/SandboxRefreshDetector.js';
 import {
@@ -272,6 +273,53 @@ describe('RecoveryHandler — where the sandbox stands', () => {
     });
     expect(status.steps[0]).toMatchObject({ id: 'refresh', status: 'done' });
     expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+
+  it('refuses the frozen load of a sandbox marked Staging, and the launcher never counts it done', async () => {
+    orgs.set('entry-uat', sandbox({ staging: true }));
+    const datasetDir = join(dir, 'sas', 'dataset');
+    mkdirSync(datasetDir, { recursive: true });
+    writeFileSync(
+      join(datasetDir, 'manifest.json'),
+      serializeManifest(
+        buildFrozenManifest({
+          version: '1.0.0',
+          source: { orgId: '00DXXXXXXXXXXXX', orgAlias: 'DEV', decisionDate: '2026-11-01' },
+          saltFingerprint: 'abcdef012345',
+          rulesVersion: '1.0.0',
+          volumetry: {
+            budgetMax: 2500,
+            measured: { Account: 12 },
+            measuredAt: '2026-11-01T09:00:00.000Z',
+          },
+          nonReidentification: {
+            passed: true,
+            checks: [],
+            author: 'qa',
+            checkedAt: '2026-11-01T10:00:00.000Z',
+          },
+          author: 'qa',
+          now: () => new Date('2026-11-01T10:00:00.000Z'),
+        }),
+      ),
+    );
+    configStore.set('frozen:config', { datasetDir }, 'frozen');
+    const deps = depsOf();
+    const handler = handlerOf(deps);
+    const status = await statusOf(handler, deps);
+    expect(status.tier).toBe('staging');
+    expect(status.steps.find((step) => step.id === 'frozen')).toEqual({
+      id: 'frozen',
+      status: 'refused',
+      reason: 'stagingSandbox',
+    });
+    // The replay of the checkpoint of before stays open there (D7).
+    expect(status.steps.find((step) => step.id === 'replay')?.status).not.toBe('refused');
+    expect(await handler.progressCountOf('entry-uat')).toEqual({
+      done: status.done,
+      total: status.total,
+    });
+    expect(status.total - status.done).toBeGreaterThanOrEqual(1);
   });
 
   it('refuses an org not registered, and a production org, by their codes', async () => {

@@ -74,6 +74,11 @@ describe('the line of a step', () => {
     }
   });
 
+  it('has no sentence of a replay refused in Staging, where a replay is confirmed by its name', () => {
+    expect(lineKeyOf('frozen', 'stagingSandbox')).toBe('recovery.line.frozen.stagingSandbox');
+    expect(lineKeyOf('replay', 'stagingSandbox')).toBe('recovery.reason.stagingSandbox');
+  });
+
   it('says what a replay opens, of the checkpoint taken before the refresh', () => {
     expect(lineOf('replay', 'toDo', refreshedStatus(), WORDS)).toEqual({
       key: 'recovery.line.replay.toDo',
