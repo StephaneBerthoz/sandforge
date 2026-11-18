@@ -4,9 +4,6 @@ import type {
   DataQualityCheckError,
   DataQualityDuplicates,
   DataQualityFieldFill,
-  DataQualityObjectResult,
-  DataQualityScanResult,
-  DataQualityScanTarget,
   DataQualityStaleness,
   DataQualityUnmeasuredField,
 } from '@sandforge/shared';
@@ -21,14 +18,6 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 export interface QualityScanConnection {
   describe(objectApiName: string): Promise<unknown>;
   query(soql: string): Promise<{ totalSize: number; records: unknown[] }>;
-}
-
-/** What a scan is asked to read. */
-export interface QualityScanRequest {
-  orgId: string;
-  objects: DataQualityScanTarget[];
-  /** Records not modified for this many days count as stale. */
-  staleDays: number;
 }
 
 /**
@@ -369,95 +358,4 @@ export async function countStale(
     report(errors, 'stale', err);
     return { stale: null, errors };
   }
-}
-
-/** Read one object. A describe or a count the org refuses fails the object, not the scan. */
-async function scanObject(
-  conn: QualityScanConnection,
-  target: DataQualityScanTarget,
-  staleDays: number,
-): Promise<DataQualityObjectResult> {
-  let described: z.infer<typeof describedObjectSchema>;
-  let objectApiName: string;
-  let totalRecords: number;
-  try {
-    described = describedObjectSchema.parse(
-      await conn.describe(assertSoqlIdentifier(target.objectApiName)),
-    );
-    objectApiName = assertSoqlIdentifier(described.name);
-    if (described.queryable === false) {
-      throw new Error(`${objectApiName} cannot be queried.`);
-    }
-    totalRecords = (await conn.query(`SELECT COUNT() FROM ${objectApiName}`)).totalSize;
-  } catch (err: unknown) {
-    return {
-      status: 'failed',
-      objectApiName: target.objectApiName,
-      message: extractErrorMessage(err),
-    };
-  }
-
-  const keyFields = described.fields
-    .filter(isDuplicateKey)
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  // Three independent reads: none waits on another's answer.
-  const [fill, duplicates, stale] = await Promise.all([
-    countFills(conn, objectApiName, described.fields.filter(isFilledIn), totalRecords),
-    findDuplicates(conn, objectApiName, keyFields, target.duplicateKey, totalRecords),
-    countStale(conn, objectApiName, described.fields, staleDays, totalRecords),
-  ]);
-
-  return {
-    status: 'scanned',
-    objectApiName: target.objectApiName,
-    label: described.label,
-    totalRecords,
-    fields: fill.fields,
-    unmeasured: fill.unmeasured,
-    duplicates: duplicates.duplicates,
-    stale: stale.stale,
-    keyFields: keyFields.map((f) => ({ fieldApiName: f.name, label: f.label })),
-    errors: [...fill.errors, ...duplicates.errors, ...stale.errors],
-  };
-}
-
-/**
- * Measure the records of the objects asked for: how often each field a person
- * fills in is filled, which values of a key repeat, and how many records nobody
- * has modified for `staleDays`.
- *
- * Every figure is a count the org made — `COUNT()`, `COUNT(field)`, a
- * `GROUP BY … HAVING` — and no query returns a record, so the queries a scan
- * sends are bounded by the number of fields, never by the number of records.
- * The org still counts every record, and a count it gives up on, on a very
- * large object, is reported rather than taken for zero. Where a bound applies, the result
- * says so: a duplicate search that reached its LIMIT is `truncated`, and a
- * field that could not be counted is listed with the reason.
- */
-export async function scanDataQuality(
-  conn: QualityScanConnection,
-  request: QualityScanRequest,
-  now: () => Date = () => new Date(),
-): Promise<DataQualityScanResult> {
-  // Written into the query text, so held to what the payload schema allows.
-  if (!Number.isInteger(request.staleDays) || request.staleDays < 1) {
-    throw new Error(`A staleness threshold is a whole number of days, not ${request.staleDays}.`);
-  }
-  const scannedAt = now().toISOString();
-  const objects: DataQualityObjectResult[] = [];
-  for (const target of request.objects) {
-    objects.push(await scanObject(conn, target, request.staleDays));
-  }
-  return {
-    orgId: request.orgId,
-    staleDays: request.staleDays,
-    scannedAt,
-    bounds: {
-      duplicateGroupLimit: DUPLICATE_GROUP_LIMIT,
-      duplicateSample: DUPLICATE_SAMPLE,
-      singleFieldQueries: SINGLE_FIELD_QUERIES,
-    },
-    objects,
-  };
 }

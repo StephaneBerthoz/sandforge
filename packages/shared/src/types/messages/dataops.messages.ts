@@ -4,7 +4,6 @@ import type {
   BackupStatus,
   CleanupRecommendation,
   CleanupScanResult,
-  DataQualityScanResult,
   DataQualityScanTarget,
   PiiInventoryResult,
   BackupSetSummary,
@@ -770,22 +769,6 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
 }
 
 /**
- * Measure the records of a few objects: fill counts, repeated values of a key,
- * records not modified for `staleDays` (validated by
- * dataOpsQualityScanPayloadSchema). Read-only: aggregate queries and describes.
- */
-export interface DataOpsQualityScanRequest extends BaseMessage {
-  type: 'dataops:quality-scan';
-  payload: { orgId: string; objects: DataQualityScanTarget[]; staleDays: number };
-}
-
-/** Result of `dataops:quality-scan`; a scan that could not start fails on `dataops:error`. */
-export interface DataOpsQualityScanResponse extends BaseMessage {
-  type: 'dataops:quality-scan:response';
-  payload: DataQualityScanResult;
-}
-
-/**
  * Which fields of a few objects hold personal data: the pre-flight PII
  * detector, confirmed on a bounded sample (validated by
  * dataOpsPiiInventoryPayloadSchema). Reads only.
@@ -900,8 +883,8 @@ export interface DataOpsSubjectLogResponse extends BaseMessage {
 /**
  * Count, for a few objects, the records a cleanup would look at: not modified
  * for `staleDays`, orphans of a lookup the business relies on, repeated values
- * of a key. The quality scan's own request (validated by
- * dataOpsQualityScanPayloadSchema). Reads only.
+ * of a key, and how filled each field is (validated by
+ * dataOpsCleanupScanPayloadSchema). Reads only.
  */
 export interface DataOpsCleanupScanRequest extends BaseMessage {
   type: 'dataops:cleanup:scan';
@@ -1088,7 +1071,7 @@ export interface DataOpsEmptyUndoResponse extends BaseMessage {
 }
 
 /**
- * Error response for dataops backup/rollback/anonymize/quality-scan failures
+ * Error response for dataops backup/rollback/anonymize failures
  * (emitted via sendHandlerError). Dual-channel note: `operation:failed` carries the
  * lifecycle, `dataops:error` settles the in-flight webview mutation — the
  * webview surfaces the error from this channel only (see DataOpsHandler).

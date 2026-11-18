@@ -9,7 +9,7 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 import {
   dataOpsCleanupDeletePayloadSchema,
   dataOpsCleanupExportPayloadSchema,
-  dataOpsQualityScanPayloadSchema,
+  dataOpsCleanupScanPayloadSchema,
   validatePayload,
 } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -155,12 +155,13 @@ export class DataOpsCleanupHandler implements DomainHandler {
 
   /**
    * Answer `dataops:cleanup:scan`: counts only, so it takes no guard. The
-   * request is the quality scan's own — the objects, a duplicate key each,
-   * the staleness threshold — and is held to the same schema.
+   * request names the objects, a duplicate key each, and the staleness
+   * threshold; the scan also counts how filled each field is, which a
+   * quality scan of its own once did.
    */
   private async handleScan(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
-      dataOpsQualityScanPayloadSchema,
+      dataOpsCleanupScanPayloadSchema,
       msg,
       'dataops:error',
       this.deps,

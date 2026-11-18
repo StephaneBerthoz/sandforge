@@ -1070,11 +1070,11 @@ export const piiScanPayloadSchema = z.object({
   objectNames: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
 });
 /**
- * `dataops:quality-scan`: a few objects, each at most once, a duplicate key
+ * `dataops:cleanup:scan`: a few objects, each at most once, a duplicate key
  * each may name, and the staleness threshold in whole days. Both names reach
  * SOQL text, so both are held to the API-name shape here.
  */
-export const dataOpsQualityScanPayloadSchema = z.object({
+export const dataOpsCleanupScanPayloadSchema = z.object({
   orgId: orgIdSchema,
   objects: z
     .array(

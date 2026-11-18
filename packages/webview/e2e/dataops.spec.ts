@@ -788,8 +788,8 @@ test.describe('DataOps — Cleanup', () => {
     await expect(contact.getByTestId('quality-unmeasured-not-countable')).toContainText(
       'Description',
     );
-    // Nothing of it was asked on a channel of its own.
-    expect(await outgoing(page, 'dataops:quality-scan')).toHaveLength(0);
+    // One scan asked it all.
+    expect(await outgoing(page, 'dataops:cleanup:scan')).toHaveLength(1);
   });
 
   test('scans, says what a delete takes, and deletes only after the confirmation', async ({

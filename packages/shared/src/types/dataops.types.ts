@@ -107,7 +107,7 @@ export interface AnonymizationRuleConfig {
  */
 export type AnonymizationTemplateRuleConfig = Omit<AnonymizationRuleConfig, 'hashSalt'>;
 
-/** One object a data-quality scan is asked to read. */
+/** One object a cleanup scan is asked to read. */
 export interface DataQualityScanTarget {
   objectApiName: ApiName;
   /** Field to look for duplicates by; without one the scan takes `Email`, else the record's name. */
@@ -178,35 +178,12 @@ export interface DataQualityCheckError {
   message: string;
 }
 
-/** One object a data-quality scan read. */
-export interface DataQualityObjectScan {
-  status: 'scanned';
-  objectApiName: ApiName;
-  label: string;
-  /** `SELECT COUNT()`: every other figure is out of this many records. */
-  totalRecords: number;
-  /** The fields a person or an integration fills in, emptiest first. */
-  fields: DataQualityFieldFill[];
-  /** Such fields the scan could not count, named so their absence is not read as full. */
-  unmeasured: DataQualityUnmeasuredField[];
-  /** Null when there was no key the org can group records by. */
-  duplicates: DataQualityDuplicates | null;
-  /** Null when the object has no `LastModifiedDate` to filter on. */
-  stale: DataQualityStaleness | null;
-  /** Fields the org can group records by: what a duplicate search may be keyed on. */
-  keyFields: Array<{ fieldApiName: string; label: string }>;
-  errors: DataQualityCheckError[];
-}
-
 /** An object the scan could not read at all: not described, or not counted. */
 export interface DataQualityObjectFailure {
   status: 'failed';
   objectApiName: ApiName;
   message: string;
 }
-
-/** One object of a data-quality scan, read or not. */
-export type DataQualityObjectResult = DataQualityObjectScan | DataQualityObjectFailure;
 
 /** The bounds a scan worked within, so a result that met one can say which. */
 export interface DataQualityScanBounds {
@@ -216,20 +193,6 @@ export interface DataQualityScanBounds {
   duplicateSample: number;
   /** Fields counted with a query of their own, per object. */
   singleFieldQueries: number;
-}
-
-/**
- * What `dataops:quality-scan` answers: for each object asked for, how often
- * its fields are filled, which values repeat, and how many records nobody has
- * modified for `staleDays` — every figure a count the org made, none of them
- * taken from records read by the extension.
- */
-export interface DataQualityScanResult {
-  orgId: string;
-  staleDays: number;
-  scannedAt: ISODateString;
-  bounds: DataQualityScanBounds;
-  objects: DataQualityObjectResult[];
 }
 
 /** How the PII detector classes a field it names. */

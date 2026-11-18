@@ -1202,7 +1202,6 @@ export class ExtensionHandlers {
         'dataops:rollback',
         'dataops:anonymize',
         'dataops:anonymization-templates',
-        'dataops:quality-scan',
         'dataops:anonymization-template:save',
         'dataops:anonymization-template:delete',
         'dataops:anonymize:coverage',

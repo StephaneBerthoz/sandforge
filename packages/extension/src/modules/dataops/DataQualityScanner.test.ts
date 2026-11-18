@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import type { DataQualityObjectScan } from '@sandforge/shared';
+import type { CleanupObjectScan } from '@sandforge/shared';
 import {
   DUPLICATE_GROUP_LIMIT,
   DUPLICATE_SAMPLE,
   FILL_COUNTS_PER_QUERY,
   SINGLE_FIELD_QUERIES,
-  scanDataQuality,
 } from './DataQualityScanner.js';
 import type { QualityScanConnection } from './DataQualityScanner.js';
+import { scanCleanup } from './CleanupScanner.js';
 
 /** A describe field with the attributes a scan reads; a writable text field by default. */
 function field(name: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -75,21 +75,26 @@ const fillRow = (...values: number[]): Answer => ({
   records: [Object.fromEntries(values.map((v, i) => [`expr${i}`, v]))],
 });
 
+/**
+ * Scan through the cleanup scan, the one caller of the counts this module
+ * holds: a quality scan of its own, on a tab of its own, sent the same queries.
+ */
 const scan = (
   conn: QualityScanConnection,
   objects: Array<{ objectApiName: string; duplicateKey?: string }>,
   staleDays = 365,
 ) =>
-  scanDataQuality(
-    conn,
-    { orgId: 'org-1', objects, staleDays },
-    () => new Date('2026-09-01T10:00:00Z'),
-  );
+  scanCleanup(conn, { orgId: 'org-1', objects, staleDays }, () => new Date('2026-09-01T10:00:00Z'));
 
-const scanned = (result: Awaited<ReturnType<typeof scan>>, index = 0): DataQualityObjectScan => {
+/** An object the scan read, with the fill counts a cleanup scan always carries. */
+type Counted = CleanupObjectScan & Required<Pick<CleanupObjectScan, 'fields' | 'unmeasured'>>;
+
+const scanned = (result: Awaited<ReturnType<typeof scan>>, index = 0): Counted => {
   const object = result.objects[index];
   if (object.status !== 'scanned') throw new Error(`object ${index} failed: ${object.message}`);
-  return object;
+  const { fields, unmeasured } = object;
+  if (!fields || !unmeasured) throw new Error(`object ${index} carries no fill counts`);
+  return { ...object, fields, unmeasured };
 };
 
 const ACCOUNT = {
@@ -112,7 +117,7 @@ const ACCOUNT = {
   ],
 };
 
-describe('scanDataQuality — fill counts', () => {
+describe('the counts of a cleanup scan — fill counts', () => {
   it('counts every field people fill in with one aggregate query, and reads no record', async () => {
     const org = fakeOrg({ Account: ACCOUNT }, [
       [/^SELECT COUNT\(\) FROM Account$/, count(16)],
@@ -268,7 +273,7 @@ describe('scanDataQuality — fill counts', () => {
   });
 });
 
-describe('scanDataQuality — duplicates', () => {
+describe('the counts of a cleanup scan — duplicates', () => {
   const CONTACT = {
     name: 'Contact',
     label: 'Contact',
@@ -413,7 +418,7 @@ describe('scanDataQuality — duplicates', () => {
   });
 });
 
-describe('scanDataQuality — stale records', () => {
+describe('the counts of a cleanup scan — stale records', () => {
   it('counts the records not modified within the threshold', async () => {
     const org = fakeOrg({ Account: ACCOUNT }, [
       [/^SELECT COUNT\(\) FROM Account$/, count(16)],
@@ -459,7 +464,7 @@ describe('scanDataQuality — stale records', () => {
   });
 });
 
-describe('scanDataQuality — objects', () => {
+describe('the counts of a cleanup scan — objects', () => {
   it('asks nothing more of an object with no records than its describe and its count', async () => {
     const org = fakeOrg({ Account: ACCOUNT }, [[/^SELECT COUNT\(\) FROM Account$/, count(0)]]);
 

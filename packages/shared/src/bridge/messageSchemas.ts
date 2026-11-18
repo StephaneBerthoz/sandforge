@@ -285,8 +285,6 @@ const DataOpsMessages = [
   msg('dataops:backup:response'),
   msg('dataops:rollback:response'),
   msg('dataops:anonymize:response'),
-  msg('dataops:quality-scan'),
-  msg('dataops:quality-scan:response'),
   msg('dataops:pii-inventory'),
   msg('dataops:pii-inventory:response'),
   msg('dataops:dsr:search'),
@@ -314,7 +312,7 @@ const DataOpsMessages = [
   msg('dataops:empty:cancel:response'),
   msg('dataops:empty:undo'),
   msg('dataops:empty:undo:response'),
-  // Error channel for backup/rollback/anonymize/quality-scan failures, and for
+  // Error channel for backup/rollback/anonymize failures, and for
   // the inventory, subject-request and cleanup requests that cannot start.
   msg('dataops:error'),
   msg('dataops:anonymization-templates'),

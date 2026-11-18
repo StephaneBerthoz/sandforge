@@ -44,7 +44,7 @@ import {
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   anonymizationTemplateSavePayloadSchema,
-  dataOpsQualityScanPayloadSchema,
+  dataOpsCleanupScanPayloadSchema,
   dataOpsSubjectSearchPayloadSchema,
   dataOpsSubjectErasePayloadSchema,
   dataOpsCleanupDeletePayloadSchema,
@@ -546,9 +546,9 @@ describe('anonymizationTemplateSavePayloadSchema', () => {
   });
 });
 
-describe('dataOpsQualityScanPayloadSchema', () => {
+describe('dataOpsCleanupScanPayloadSchema', () => {
   const scan = (overrides: Record<string, unknown>) =>
-    dataOpsQualityScanPayloadSchema.safeParse({
+    dataOpsCleanupScanPayloadSchema.safeParse({
       orgId: 'o',
       objects: [{ objectApiName: 'Contact', duplicateKey: 'Email' }, { objectApiName: 'Account' }],
       staleDays: 365,

@@ -265,11 +265,9 @@ import type {
   DataOpsAnonymizeRequest,
   DataOpsAutomationRequest,
   DataOpsAutomationResponse,
-  DataOpsQualityScanRequest,
   DataOpsBackupResponse,
   DataOpsRollbackResponse,
   DataOpsAnonymizeResponse,
-  DataOpsQualityScanResponse,
   DataOpsPiiInventoryRequest,
   DataOpsPiiInventoryResponse,
   DataOpsSubjectSearchRequest,
@@ -768,7 +766,6 @@ export type WebViewToExtensionMessage =
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
   | DataOpsAutomationRequest
-  | DataOpsQualityScanRequest
   | DataOpsPiiInventoryRequest
   | DataOpsSubjectSearchRequest
   | DataOpsSubjectExportRequest
@@ -1068,7 +1065,6 @@ export type ExtensionToWebViewMessage =
   | DataOpsBackupResponse
   | DataOpsRollbackResponse
   | DataOpsAnonymizeResponse
-  | DataOpsQualityScanResponse
   | DataOpsPiiInventoryResponse
   | DataOpsSubjectSearchResponse
   | DataOpsSubjectExportResponse
