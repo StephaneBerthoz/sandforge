@@ -64,6 +64,7 @@ import {
   verifyForgeRun,
 } from './helpers/refusalStates';
 import { sampleBudget, wholeOrgGraph } from '../src/pages/Forge/testing/wholeOrg';
+import { refreshedStatus as recoveryStatus } from './fixtures/recovery';
 
 /** A checkpoint of the first mock org a Rewind step can name: its id one a step's schema reads. */
 function rewindableCheckpoint() {
@@ -2153,6 +2154,24 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Back into service, a refreshed sandbox with its how-to open', async ({ page }) => {
+      await navigateToModule(bridge, page, 'recovery', 'recovery-page', {
+        theme,
+        orgs: true,
+        howTo: true,
+      });
+      await bridge.waitForMessage('recovery:status', { timeout: 10_000 });
+      await answerAll(page, 'recovery:status', 'recovery:status:response', {
+        status: recoveryStatus(),
+      });
+      await expect(page.getByTestId('recovery-steps').locator(':scope > li')).toHaveCount(10);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="recovery-sandbox"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Home with no org: Getting started leads, with the two ways to connect', async ({

@@ -87,10 +87,6 @@ const CHANNEL_SHAPE_RE = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)+$/;
  * send. Shrink this list by deleting the four together (coverage.test.ts keeps
  * the Zod ↔ TS halves honest); never grow it to silence a new dead route.
  */
-/** Why the Back into service page's channels are answered before the page sends them. */
-const BACK_INTO_SERVICE_PAGE =
-  'The extension answers it before the Back into service page sends it: each entry leaves once the page does.';
-
 export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = [
   {
     channel: 'seed:template:delete',
@@ -104,50 +100,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     channel: 'frozen:remove:preview',
     reason:
       'sandforge frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',
-  },
-  {
-    channel: 'recovery:status',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:list',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:plan',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:apply',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:cancel',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:config:save',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:config:export',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:users:config:import',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:audit',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:handoff',
-    reason: BACK_INTO_SERVICE_PAGE,
-  },
-  {
-    channel: 'recovery:ack',
-    reason: BACK_INTO_SERVICE_PAGE,
   },
 ];
 

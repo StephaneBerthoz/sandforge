@@ -23,6 +23,16 @@ export const MODULE_HOW_TO = {
     ],
     tip: 'howTo.checkpoint.tip',
   },
+  recovery: {
+    steps: [
+      'howTo.recovery.step1',
+      'howTo.recovery.step2',
+      'howTo.recovery.step3',
+      'howTo.recovery.step4',
+      'howTo.recovery.step5',
+    ],
+    tip: 'howTo.recovery.tip',
+  },
   sync: {
     steps: ['howTo.sync.step1', 'howTo.sync.step2', 'howTo.sync.step3', 'howTo.sync.step4'],
     tip: 'howTo.sync.tip',

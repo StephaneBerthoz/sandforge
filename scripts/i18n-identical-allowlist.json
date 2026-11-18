@@ -48,6 +48,8 @@
     "monitor.liveOps.activeCount_one",
     "org.tagsPlaceholder",
     "orgAutomation.flow",
+    "recovery.audit.endpoints.source.namedCredential",
+    "recovery.audit.endpoints.source.remoteSite",
     "reports.context.decisionCount",
     "reports.detailLine",
     "seed.automation.entry",

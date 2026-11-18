@@ -66,7 +66,12 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'howTo',
     'moduleSummary',
   ]),
-  recovery: page(() => import('./pages/Recovery/RecoveryPage'), 'RecoveryPage', ['recovery']),
+  recovery: page(() => import('./pages/Recovery/RecoveryPage'), 'RecoveryPage', [
+    'emptyState',
+    'errors',
+    'howTo',
+    'recovery',
+  ]),
   grappe: page(() => import('./pages/Grappe/GrappePage'), 'GrappePage', ['grappe', 'howTo']),
   monitor: page(() => import('./pages/Monitor/MonitorPage'), 'MonitorPage', [
     'emptyState',

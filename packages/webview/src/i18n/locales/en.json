@@ -4021,6 +4021,14 @@
       "step5": "Org refreshed or expired? Replay in another org… on its row: Simulate, then Replay.",
       "tip": "Rewind undoes everyone's changes since the checkpoint, not only yours. Undo this rewind takes it back for up to 15 days."
     },
+    "recovery": {
+      "step1": "Pick the refreshed sandbox in the org picker: the page reads where its recovery stands.",
+      "step2": "Choose the users to bring back, simulate, then apply: each address awaits its owner's click.",
+      "step3": "Mask production's data, replay the checkpoint of before, then take Testers' start.",
+      "step4": "Read the deliverability, the scheduled jobs and the endpoints, and check them in Setup.",
+      "step5": "Write the handoff note, then keep what the next refresh starts from.",
+      "tip": "Take a checkpoint named Before refresh before each refresh: the next recovery replays it."
+    },
     "sync": {
       "step1": "On the Sync tab, click Start Quick Sync.",
       "step2": "Choose the Source org and the Target org, then click Next.",
@@ -8826,8 +8834,307 @@
   },
   "recovery": {
     "title": "Bring {{alias}} back into service",
-    "emptyTitle": "The steps after a sandbox refresh",
-    "emptyDesc": "They will be listed here: the users to bring back, the masking of production's data, the checkpoint to replay, and what still names production."
+    "subtitle": "The steps that bring a sandbox back into use after its refresh, each with where it stands",
+    "noOrgs": "No org connected yet",
+    "concept": "After a sandbox refresh, these steps bring it back into use: the users to give back, the masking of production's data, the checkpoint to replay, and what still names production.",
+    "noOrg": "Pick the sandbox to bring back into service in the org picker.",
+    "production": "{{alias}} is a production org. Only a sandbox, a scratch org or a Developer Edition org is brought back into service here: nothing of {{alias}} is read, and nothing is written to it.",
+    "loading": "Reading where {{alias}} stands…",
+    "retry": "Try again",
+    "factsLabel": "Where {{alias}} stands",
+    "refreshedOn": "Refreshed on {{date}}",
+    "notRefreshed": "No refresh noticed",
+    "stepsDone": "{{done}}/{{total}} steps",
+    "progressLabel": "Steps of {{alias}} done or skipped",
+    "notProven": {
+      "title": "Not yet proven on a refreshed sandbox",
+      "body": "These steps have run on scratch orgs, never yet on a sandbox just refreshed. Until one does, three points rest on what the code reads and what Salesforce documents: that a refresh puts each address under .invalid, that the sandbox is reached on its My Domain host, and what a refresh leaves of the scheduled jobs and the deliverability."
+    },
+    "noRefresh": "SandForge noticed no refresh of {{alias}}. The steps below work all the same, and what to keep before the next refresh comes first.",
+    "stepsTitle": "Steps",
+    "status": {
+      "todo": "To do",
+      "done": "Done",
+      "skipped": "Skipped",
+      "notApplicable": "Does not apply",
+      "refused": "Refused"
+    },
+    "skip": "Skip",
+    "markDone": "Mark as done",
+    "undo": "Undo",
+    "finish": "Finish",
+    "finishHint": "Finish once {{alias}} is back in use: the launcher and Home stop leading with it.",
+    "finished": "Finished: the launcher and Home no longer lead with {{alias}}.",
+    "step": {
+      "refresh": "Refresh noticed",
+      "users": "Users",
+      "masking": "Mask the data copied from production",
+      "replay": "Replay the checkpoint of before",
+      "frozen": "Reload the frozen dataset",
+      "testersCheckpoint": "Testers' start checkpoint",
+      "deliverability": "Email deliverability",
+      "scheduledJobs": "Scheduled jobs",
+      "endpoints": "Endpoints that still name production",
+      "handoff": "Handoff note"
+    },
+    "reason": {
+      "refreshDetected": "The refresh was noticed.",
+      "ranAfterRefresh": "Done on {{alias}} after the refresh.",
+      "markedDone": "Marked as done.",
+      "ready": "Kept for the next refresh.",
+      "toDo": "Still to do.",
+      "skipped": "Skipped: Undo puts it back among the steps to do.",
+      "noRefreshDetected": "No refresh of {{alias}} was noticed.",
+      "nothingCopied": "A Developer or Developer Pro sandbox: none of production's data was copied.",
+      "noCheckpointBefore": "No checkpoint of {{alias}} was taken before the refresh.",
+      "noManifest": "No frozen dataset is kept on this machine.",
+      "noInventoryBefore": "No inventory of the scheduled jobs was kept before the refresh.",
+      "noUserToBringBack": "No user of {{alias}} has an address under .invalid, nor is frozen or inactive.",
+      "stagingSandbox": "{{alias}} is marked Staging, which refuses this step."
+    },
+    "line": {
+      "refresh": {
+        "refreshDetected": "{{alias}} was refreshed: it is a new org, and what was written to it before the refresh is gone.",
+        "noRefreshDetected": "SandForge noticed no refresh of {{alias}}: it sees one when it connects to the sandbox, when the Monitor reads it, or in production's refresh history."
+      },
+      "users": {
+        "toDo": "Gives the users you choose their address back, and activates or unfreezes them: simulate, then apply.",
+        "ranAfterRefresh": "Run {{run}} set the users up: each address asked back awaits its owner's confirmation.",
+        "noUserToBringBack": "No user of {{alias}} has an address under .invalid, nor is frozen or inactive: a users.json can still set testers up."
+      },
+      "masking": {
+        "toDo": "Opens Masking in DataOps on {{alias}}: mask what the refresh copied from production before the testers come in.",
+        "ranAfterRefresh": "A masking ran on {{alias}} after the refresh.",
+        "nothingCopied": "A Developer or Developer Pro sandbox copies none of production's data: there is nothing to mask."
+      },
+      "replay": {
+        "toDo": "Opens the replay of {{name}}, taken on {{date}} before the refresh: simulate it, then replay its records into {{alias}}.",
+        "ranAfterRefresh": "The checkpoint of before was replayed into {{alias}} after the refresh.",
+        "noCheckpointBefore": "No checkpoint of {{alias}} was taken before the refresh: take one before the next, below.",
+        "stagingSandbox": "{{alias}} is marked Staging, where this replay is refused.",
+        "staging": "{{alias}} is marked Staging: the replay asks you to type its name before it writes."
+      },
+      "frozen": {
+        "toDo": "Opens the load into {{alias}} of the dataset frozen on {{date}} (objects: {{objects}}, records: {{records}}).",
+        "ranAfterRefresh": "The frozen dataset was loaded into {{alias}} after the refresh.",
+        "noManifest": "No frozen dataset is kept on this machine: extract one in Frozen Dataset to reload it after the next refresh.",
+        "stagingSandbox": "{{alias}} is marked Staging, where a frozen dataset is never loaded: replay a checkpoint instead."
+      },
+      "testersCheckpoint": {
+        "toDo": "Opens a checkpoint take named Testers' start, kept until deleted: the state the testers start from, which {{alias}} can be rewound to.",
+        "ranAfterRefresh": "A checkpoint of {{alias}} was taken after the refresh."
+      },
+      "deliverability": {
+        "toDo": "Reads whether {{alias}} delivers email: check it in Setup, then mark the step as done."
+      },
+      "scheduledJobs": {
+        "toDo": "Compares the scheduled jobs of {{alias}} with the inventory kept on {{date}}, before the refresh, and keeps the one read now for the next refresh.",
+        "ranAfterRefresh": "The scheduled jobs were compared after the refresh.",
+        "noInventoryBefore": "No inventory of the jobs was kept before the refresh: there is nothing to compare against. Keep one now, for the next refresh."
+      },
+      "endpoints": {
+        "toDo": "Lists the Named Credentials, Remote Sites and fields that still name production, each with its Setup page: change them, then mark the step as done."
+      },
+      "handoff": {
+        "toDo": "Writes a Markdown note of what each step did, the point the testers start from and what is left, and opens it in the editor.",
+        "ranAfterRefresh": "The handoff note was written after the refresh."
+      }
+    },
+    "refresh": {
+      "byConnection": "Noticed on {{date}} when SandForge connected to it",
+      "byMonitor": "Noticed on {{date}} by the Monitor",
+      "byProduction": "Reported on {{date}} by the refresh history of {{org}}",
+      "byProductionUnnamed": "Reported on {{date}} by production's refresh history",
+      "orgChanged": "Was org {{from}}, now org {{to}}",
+      "orgBefore": "Was org {{from}}: the new one is read once {{alias}} answers",
+      "instanceChanged": "Moved from instance {{from}} to {{to}}",
+      "cachesForgotten": "SandForge forgot what it had cached of the org before",
+      "cachesKept": "SandForge forgets what it cached of the org before once {{alias}} answers"
+    },
+    "action": {
+      "showUsers": "Choose the users",
+      "hideUsers": "Hide the users",
+      "openMasking": "Open Masking",
+      "openReplay": "Open the replay",
+      "openLoad": "Open the load",
+      "takeTesters": "Take Testers' start…",
+      "read": "Read",
+      "readAgain": "Read again",
+      "keepInventory": "Keep the inventory for the next refresh",
+      "writeNote": "Write the note",
+      "writeNoteAgain": "Write it again and open it",
+      "openSetup": "Open Setup",
+      "openSetupFor": "Open Setup: {{name}}"
+    },
+    "names": {
+      "testersStart": "Testers' start",
+      "beforeRefresh": "Before refresh"
+    },
+    "handoff": {
+      "written": "Written to {{path}} and opened in the editor."
+    },
+    "audit": {
+      "unread": "Could not be read, which says nothing either way: read it again, or check it in Setup.",
+      "deliverability": {
+        "open": "{{alias}} delivers every email (Setup > Deliverability: All email): what runs there reaches real people.",
+        "closed": "{{alias}} delivers system email at most (System email only or No access)."
+      },
+      "jobs": {
+        "against_one": "{{formatted}} scheduled job now, compared with the inventory of {{date}}.",
+        "against_other": "{{formatted}} scheduled jobs now, compared with the inventory of {{date}}.",
+        "noInventory_one": "{{formatted}} scheduled job now, with no inventory of before to compare it with.",
+        "noInventory_other": "{{formatted}} scheduled jobs now, with no inventory of before to compare them with.",
+        "status": {
+          "gone": "gone since the inventory",
+          "frozen": "runs as a frozen user",
+          "inactive": "runs as an inactive user",
+          "new": "new since the inventory"
+        },
+        "kept_one": "{{formatted}} job as before.",
+        "kept_other": "{{formatted}} jobs as before.",
+        "saved": "This inventory is kept for the next refresh."
+      },
+      "endpoints": {
+        "none": "Nothing read in {{alias}} names production.",
+        "found_one": "{{formatted}} place still names production:",
+        "found_other": "{{formatted}} places still name production:",
+        "notDeduced": "Production's own hosts could not be deduced from the host of {{alias}}: only login.salesforce.com was looked for.",
+        "source": {
+          "namedCredential": "Named Credential",
+          "remoteSite": "Remote Site",
+          "field": "Field"
+        },
+        "why": {
+          "listed": "a production host you listed",
+          "myDomain": "production's My Domain",
+          "lightning": "production's Lightning host",
+          "site": "production's site",
+          "login": "login.salesforce.com"
+        }
+      }
+    },
+    "before": {
+      "title": "Before the next refresh",
+      "intro": "What the next recovery starts from, kept now.",
+      "beforeRefreshCheckpoint": {
+        "todo": "Take a checkpoint named Before refresh, kept until deleted: the next recovery replays it.",
+        "done": "A checkpoint of {{alias}} is kept for the next refresh.",
+        "action": "Take Before refresh…"
+      },
+      "jobsInventory": {
+        "todo": "Keep the inventory of the scheduled jobs: the next recovery compares the jobs with it.",
+        "done": "An inventory of the jobs of {{alias}} is kept for the next refresh.",
+        "action": "Keep the inventory"
+      },
+      "testersList": {
+        "todo": "Save the list of the testers: the next recovery starts from it.",
+        "done": "The list of the testers is saved for {{alias}}.",
+        "action": "Choose the users"
+      },
+      "automation": {
+        "todo": "Run a pipeline after each refresh, from the Sandbox Refresh Post-Processing template.",
+        "done": "A pipeline runs after each refresh of {{alias}}.",
+        "action": "Automate after each refresh…"
+      }
+    },
+    "error": {
+      "INVALID_PAYLOAD": "The extension refused the request as malformed: open the page again.",
+      "ORG_NOT_FOUND": "{{alias}} is no longer registered in SandForge: add it again on the Organizations page.",
+      "NOT_CONNECTED": "{{alias}} is not connected: reconnect it on the Organizations page, then try again.",
+      "NOT_A_DEVELOPMENT_ORG": "{{alias}} is not a sandbox, a scratch org or a Developer Edition org: nothing of it was read, and nothing is written to it.",
+      "ORG_CHANGED": "{{alias}} changed since the simulation: simulate again, then apply.",
+      "CANCELLED": "Stopped: what was done before the stop is listed.",
+      "FAILED": "It failed: the SandForge output channel says why."
+    },
+    "users": {
+      "intro": "The users of {{alias}} to bring back: their address under .invalid, frozen or inactive. Their profile, permission sets and groups stay as copied, unless a users.json you import says otherwise.",
+      "loading": "Reading the users of {{alias}}…",
+      "none": "No user of {{alias}} has an address under .invalid, nor is frozen or inactive.",
+      "filter": "Filter by name or username",
+      "shown_one": "{{shown}} of {{formatted}} user shown: filter to find the others.",
+      "shown_other": "{{shown}} of {{formatted}} users shown: filter to find the others.",
+      "capped_one": "Only {{formatted}} of the {{total}} users to bring back is listed: a users.json you import names the others.",
+      "capped_other": "Only {{formatted}} of the {{total}} users to bring back are listed: a users.json you import names the others.",
+      "chosen_one": "{{formatted}} user chosen.",
+      "chosen_other": "{{formatted}} users chosen.",
+      "replaces": "The run replaces run {{run}}: it converges from what that one set up.",
+      "tooMany": "A run sets up {{most}} users at most: choose fewer, and run the others next.",
+      "simulate": "Simulate",
+      "apply": "Apply",
+      "applyRefused": "The run did not go through: simulate again to read where the users stand, then apply.",
+      "simulateFirst": "Apply waits for a simulation of the users chosen as they are now.",
+      "planTitle_one": "What the run would do, nothing written yet ({{formatted}} request):",
+      "planTitle_other": "What the run would do, nothing written yet ({{formatted}} requests):",
+      "nothingToChange": "nothing to change",
+      "nothingChanged": "nothing changed",
+      "license": "License {{name}}: {{used}} of {{total}} used, {{toUse}} more taken by this run.",
+      "refusal": {
+        "USERS_LICENSE": "A license the run needs has none left free: see the licenses above.",
+        "USERS_PERMISSION_SET_LICENSE": "{{username}}: a permission set needs a license that is not free for this user.",
+        "USERS_SELF": "{{username}} is the user SandForge is connected as, and the run would lock it out: leave it out, or connect as another.",
+        "USERS_NO_RIGHT": "The user SandForge is connected as may not manage users in {{alias}} (Manage Users).",
+        "USERS_NO_USER": "No user of {{alias}} has the username {{username}}.",
+        "USERS_TWO_USERS": "Several users of {{alias}} answer to {{username}}: write the sandbox's username in full.",
+        "USERS_SAME_USER": "Two entries name the same user, {{username}}: one entry per user.",
+        "USERS_PROFILE_UNKNOWN": "A profile the list names is not in {{alias}}.",
+        "USERS_PERMISSION_SET_UNKNOWN": "A permission set the list names is not in {{alias}}.",
+        "USERS_GROUP_UNKNOWN": "A group or queue the list names is not in {{alias}}.",
+        "USERS_NO_LOGIN": "{{username}}: {{alias}} keeps no login of this user, which a freeze needs.",
+        "USERS_RUN_NOT_FOUND": "This machine keeps no run of that number for {{alias}}: simulate again.",
+        "USERS_RUN_REPLACED": "The run to replace was replaced since: simulate again.",
+        "other": "{{alias}} refuses the run ({{code}})."
+      },
+      "accept": {
+        "acceptUserEmails_one": "Let Salesforce email {{formatted}} person the link that confirms the address asked back, for this run only.",
+        "acceptUserEmails_other": "Let Salesforce email {{formatted}} people the link that confirms each address asked back, for this run only.",
+        "acceptEmails_one": "{{alias}} may deliver every email, and {{formatted}} address would be asked back before the masking is done: accept, for this run only, that what runs there may email this person. Otherwise set Setup > Deliverability to System email only first.",
+        "acceptEmails_other": "{{alias}} may deliver every email, and {{formatted}} addresses would be asked back before the masking is done: accept, for this run only, that what runs there may email these people. Otherwise set Setup > Deliverability to System email only first.",
+        "acceptAutomation": "{{alias}} runs automation when a user is written, or what it runs could not be read: write all the same, for this run only."
+      },
+      "progress": "{{done}} of {{total}} users",
+      "running": "Setting the users of {{alias}} up…",
+      "result": {
+        "success": "Run {{run}}: the users are set up as asked.",
+        "partial": "Run {{run}} ended partial: what {{alias}} refused is named under each user.",
+        "failure": "Run {{run}} was refused before it wrote anything.",
+        "cancelled": "Run {{run}} was stopped: what it did before the stop is listed.",
+        "emails_one": "Salesforce emailed {{formatted}} person the link that confirms the address.",
+        "emails_other": "Salesforce emailed {{formatted}} people the link that confirms their address.",
+        "refusedChange": "{{change}}: refused ({{code}})"
+      },
+      "save": "Save the list for the next refresh",
+      "export": "Export users.json",
+      "import": "Import users.json",
+      "saved": "List saved for the next refresh, {{date}}.",
+      "exported": "Written to {{fileName}}.",
+      "imported_one": "{{fileName}} read: {{formatted}} user, set up as it says.",
+      "imported_other": "{{fileName}} read: {{formatted}} users, set up as it says.",
+      "address": {
+        "invalid": "address under .invalid",
+        "awaiting": "awaiting confirmation",
+        "restored": "address without .invalid"
+      },
+      "inactive": "inactive",
+      "frozen": "frozen",
+      "fromFile": "as {{fileName}} says",
+      "fromSaved": "as the saved list says",
+      "change": {
+        "email": "address asked back, awaiting its owner's confirmation",
+        "activated": "activated",
+        "deactivated": "deactivated",
+        "frozen": "frozen",
+        "unfrozen": "unfrozen",
+        "profile": "profile {{from}} → {{to}}",
+        "permissionSetAdded": "permission set {{name}} given",
+        "permissionSetRemoved": "permission set {{name}} taken back",
+        "permissionSetGroupAdded": "permission set group {{name}} given",
+        "permissionSetGroupRemoved": "permission set group {{name}} taken back",
+        "groupAdded": "joins the group {{name}}",
+        "groupRemoved": "leaves the group {{name}}",
+        "queueAdded": "joins the queue {{name}}",
+        "queueRemoved": "leaves the queue {{name}}"
+      }
+    }
   },
   "checkpointNotes": {
     "leftOut": {

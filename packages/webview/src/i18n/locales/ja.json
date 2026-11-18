@@ -3815,6 +3815,14 @@
       "step5": "組織がリフレッシュされたか期限切れなら、行の 別の組織でリプレイ… から シミュレーション、続いて リプレイ をクリックします。",
       "tip": "巻き戻しは自分の変更だけでなく、チェックポイント以降の全員の変更を元に戻します。この巻き戻しを元に戻す は最大 15 日間使えます。"
     },
+    "recovery": {
+      "step1": "組織の選択でリフレッシュされた Sandbox を選ぶと、運用再開の状態が読み取られます。",
+      "step2": "戻すユーザーを選び、シミュレーションしてから適用します: 各アドレスは本人のクリック待ちです。",
+      "step3": "本番データをマスキングし、以前のチェックポイントをリプレイしてから、「テスター開始時点」を作成します。",
+      "step4": "到達性、スケジュール済みジョブ、エンドポイントを読み取り、Setup で確認します。",
+      "step5": "引き継ぎメモを書き、次のリフレッシュの起点を保持します。",
+      "tip": "リフレッシュの前に毎回「リフレッシュ前」チェックポイントを作成すると、次の運用再開でリプレイされます。"
+    },
     "sync": {
       "step1": "Sync タブでクイック Sync を開始ボタンをクリックします。",
       "step2": "ソース組織とターゲット組織を選び、次へをクリックします。",
@@ -8245,8 +8253,295 @@
   },
   "recovery": {
     "title": "{{alias}} の運用を再開",
-    "emptyTitle": "Sandbox のリフレッシュ後の手順",
-    "emptyDesc": "ここに一覧表示されます: 戻すユーザー、本番データのマスキング、リプレイするチェックポイント、まだ本番組織を指している設定。"
+    "subtitle": "リフレッシュ後の Sandbox の運用を再開する手順と、各手順の状態",
+    "noOrgs": "まだ組織が接続されていません",
+    "concept": "Sandbox のリフレッシュ後、これらの手順で運用を再開します: 戻すユーザー、本番データのマスキング、リプレイするチェックポイント、まだ本番組織を指している設定。",
+    "noOrg": "組織の選択で、運用を再開する Sandbox を選んでください。",
+    "production": "{{alias}} は本番組織です。運用再開の対象は Sandbox、スクラッチ組織、Developer Edition 組織です: {{alias}} からは何も読み取らず、何も書き込みません。",
+    "loading": "{{alias}} の状態を読み取っています…",
+    "retry": "再試行",
+    "factsLabel": "{{alias}} の状態",
+    "refreshedOn": "{{date}} にリフレッシュ",
+    "notRefreshed": "リフレッシュは検出されていません",
+    "stepsDone": "{{done}}/{{total}} 手順",
+    "progressLabel": "{{alias}} の完了またはスキップした手順",
+    "notProven": {
+      "title": "リフレッシュ済み Sandbox ではまだ検証されていません",
+      "body": "これらの手順はスクラッチ組織で実行されただけで、リフレッシュ直後の Sandbox ではまだ実行されていません。それまでは、次の 3 点がコードの読み取りと Salesforce のドキュメントに基づいています: リフレッシュで各アドレスが .invalid 付きになること、Sandbox にその My Domain ホストで接続できること、リフレッシュ後のスケジュール済みジョブと到達性の状態。"
+    },
+    "noRefresh": "SandForge は {{alias}} のリフレッシュを検出していません。以下の手順はそのまま使えます。次のリフレッシュ前に保持しておくものを先頭に表示しています。",
+    "stepsTitle": "手順",
+    "status": {
+      "todo": "未完了",
+      "done": "完了",
+      "skipped": "スキップ",
+      "notApplicable": "対象外",
+      "refused": "拒否"
+    },
+    "skip": "スキップ",
+    "markDone": "完了にする",
+    "undo": "元に戻す",
+    "finish": "終了",
+    "finishHint": "{{alias}} の運用が再開したら終了してください: ランチャーとホームはこの組織を先頭に表示しなくなります。",
+    "finished": "終了しました: ランチャーとホームは {{alias}} を先頭に表示しなくなりました。",
+    "step": {
+      "refresh": "リフレッシュを検出",
+      "users": "ユーザー",
+      "masking": "本番からコピーされたデータをマスキング",
+      "replay": "以前のチェックポイントをリプレイ",
+      "frozen": "凍結データセットを再読み込み",
+      "testersCheckpoint": "チェックポイント「テスター開始時点」",
+      "deliverability": "メールの到達性",
+      "scheduledJobs": "スケジュール済みジョブ",
+      "endpoints": "まだ本番組織を指すエンドポイント",
+      "handoff": "引き継ぎメモ"
+    },
+    "reason": {
+      "refreshDetected": "リフレッシュを検出しました。",
+      "ranAfterRefresh": "リフレッシュ後に {{alias}} で実行済みです。",
+      "markedDone": "完了にしました。",
+      "ready": "次のリフレッシュ用に保持しています。",
+      "toDo": "まだ未完了です。",
+      "skipped": "スキップしました: 元に戻すと未完了の手順に戻ります。",
+      "noRefreshDetected": "{{alias}} のリフレッシュは検出されていません。",
+      "nothingCopied": "Developer または Developer Pro の Sandbox です: 本番データはコピーされていません。",
+      "noCheckpointBefore": "リフレッシュ前に {{alias}} のチェックポイントは作成されていません。",
+      "noManifest": "このマシンには凍結データセットが保存されていません。",
+      "noInventoryBefore": "リフレッシュ前にスケジュール済みジョブの一覧は保存されていません。",
+      "noUserToBringBack": "{{alias}} には、アドレスが .invalid 付きのユーザーも、凍結や無効のユーザーもいません。",
+      "stagingSandbox": "{{alias}} はステージングとしてマークされており、この手順は拒否されます。"
+    },
+    "line": {
+      "refresh": {
+        "refreshDetected": "{{alias}} はリフレッシュされました: 新しい組織であり、リフレッシュ前に書き込まれたデータは残っていません。",
+        "noRefreshDetected": "SandForge は {{alias}} のリフレッシュを検出していません: Sandbox への接続時、モニターによる読み取り時、または本番組織のリフレッシュ履歴で検出します。"
+      },
+      "users": {
+        "toDo": "選んだユーザーのアドレスを戻し、有効化または凍結解除します: シミュレーションしてから適用します。",
+        "ranAfterRefresh": "実行 {{run}} でユーザーを設定しました: 戻すよう求めた各アドレスは本人の確認待ちです。",
+        "noUserToBringBack": "{{alias}} には、アドレスが .invalid 付きのユーザーも、凍結や無効のユーザーもいません: users.json でテスターを設定することはできます。"
+      },
+      "masking": {
+        "toDo": "{{alias}} で DataOps のマスキングを開きます: テスターが使い始める前に、リフレッシュで本番からコピーされたデータをマスキングします。",
+        "ranAfterRefresh": "リフレッシュ後に {{alias}} でマスキングを実行しました。",
+        "nothingCopied": "Developer または Developer Pro の Sandbox には本番データがコピーされません: マスキングするものはありません。"
+      },
+      "replay": {
+        "toDo": "リフレッシュ前の {{date}} に作成された {{name}} のリプレイを開きます: シミュレーションしてから、そのレコードを {{alias}} にリプレイします。",
+        "ranAfterRefresh": "リフレッシュ後に、以前のチェックポイントを {{alias}} にリプレイしました。",
+        "noCheckpointBefore": "リフレッシュ前に {{alias}} のチェックポイントは作成されていません: 次のリフレッシュの前に下で作成してください。",
+        "stagingSandbox": "{{alias}} はステージングとしてマークされており、このリプレイは拒否されます。",
+        "staging": "{{alias}} はステージングとしてマークされています: リプレイは書き込み前に組織名の入力を求めます。"
+      },
+      "frozen": {
+        "toDo": "{{date}} に凍結されたデータセットの {{alias}} への読み込みを開きます (オブジェクト: {{objects}}、レコード: {{records}})。",
+        "ranAfterRefresh": "リフレッシュ後に、凍結データセットを {{alias}} に読み込みました。",
+        "noManifest": "このマシンには凍結データセットが保存されていません: 次のリフレッシュ後に再読み込みするには、凍結データセットで抽出してください。",
+        "stagingSandbox": "{{alias}} はステージングとしてマークされており、凍結データセットは読み込まれません: 代わりにチェックポイントをリプレイしてください。"
+      },
+      "testersCheckpoint": {
+        "toDo": "「テスター開始時点」という名前のチェックポイントの作成を開きます。無期限で保持され、テスターが開始する状態であり、{{alias}} をこの状態に巻き戻せます。",
+        "ranAfterRefresh": "リフレッシュ後に {{alias}} のチェックポイントを作成しました。"
+      },
+      "deliverability": {
+        "toDo": "{{alias}} がメールを配信するかを読み取ります: Setup で確認してから、この手順を完了にしてください。"
+      },
+      "scheduledJobs": {
+        "toDo": "{{alias}} のスケジュール済みジョブを、リフレッシュ前の {{date}} に保存した一覧と比較し、今回読み取った一覧を次のリフレッシュ用に保存します。",
+        "ranAfterRefresh": "リフレッシュ後にスケジュール済みジョブを比較しました。",
+        "noInventoryBefore": "リフレッシュ前にジョブの一覧は保存されていません: 比較するものがありません。次のリフレッシュのために、今保存してください。"
+      },
+      "endpoints": {
+        "toDo": "まだ本番組織を指している Named Credential、Remote Site、項目を、それぞれの Setup ページとともに一覧表示します: 変更してから、この手順を完了にしてください。"
+      },
+      "handoff": {
+        "toDo": "各手順の実施内容、テスターの開始時点、残っている作業を Markdown のメモに書き、エディターで開きます。",
+        "ranAfterRefresh": "リフレッシュ後に引き継ぎメモを書きました。"
+      }
+    },
+    "refresh": {
+      "byConnection": "{{date}} に SandForge の接続時に検出",
+      "byMonitor": "{{date}} にモニターが検出",
+      "byProduction": "{{date}} に {{org}} のリフレッシュ履歴による報告",
+      "byProductionUnnamed": "{{date}} に本番組織のリフレッシュ履歴による報告",
+      "orgChanged": "組織 {{from}} から組織 {{to}} に変わりました",
+      "orgBefore": "以前は組織 {{from}}: 新しい組織は {{alias}} が応答した時点で読み取ります",
+      "instanceChanged": "インスタンスが {{from}} から {{to}} に移動しました",
+      "cachesForgotten": "SandForge は以前の組織についてキャッシュしていた情報を破棄しました",
+      "cachesKept": "SandForge は {{alias}} が応答した時点で、以前の組織についてキャッシュした情報を破棄します"
+    },
+    "action": {
+      "showUsers": "ユーザーを選ぶ",
+      "hideUsers": "ユーザーを隠す",
+      "openMasking": "マスキングを開く",
+      "openReplay": "リプレイを開く",
+      "openLoad": "読み込みを開く",
+      "takeTesters": "「テスター開始時点」を作成…",
+      "read": "読み取る",
+      "readAgain": "再度読み取る",
+      "keepInventory": "次のリフレッシュ用に一覧を保存",
+      "writeNote": "メモを書く",
+      "writeNoteAgain": "書き直して開く",
+      "openSetup": "Setup を開く",
+      "openSetupFor": "Setup を開く: {{name}}"
+    },
+    "names": {
+      "testersStart": "テスター開始時点",
+      "beforeRefresh": "リフレッシュ前"
+    },
+    "handoff": {
+      "written": "{{path}} に書き込み、エディターで開きました。"
+    },
+    "audit": {
+      "unread": "読み取れませんでした。どちらとも判断できません: 再度読み取るか、Setup で確認してください。",
+      "deliverability": {
+        "open": "{{alias}} はすべてのメールを配信します (Setup > 到達性: すべてのメール): そこで実行される処理は実在の人に届きます。",
+        "closed": "{{alias}} が配信するのは最大でもシステムメールのみです (システムメールのみ、またはアクセスなし)。"
+      },
+      "jobs": {
+        "against_other": "現在 {{formatted}} 件のスケジュール済みジョブ。{{date}} の一覧と比較しました。",
+        "noInventory_other": "現在 {{formatted}} 件のスケジュール済みジョブ。比較する以前の一覧はありません。",
+        "status": {
+          "gone": "一覧の作成後に消えました",
+          "frozen": "凍結されたユーザーとして実行",
+          "inactive": "無効なユーザーとして実行",
+          "new": "一覧の作成後に追加"
+        },
+        "kept_other": "{{formatted}} 件のジョブは以前と同じです。",
+        "saved": "この一覧は次のリフレッシュ用に保存されています。"
+      },
+      "endpoints": {
+        "none": "{{alias}} で読み取った中に、本番組織を指すものはありません。",
+        "found_other": "{{formatted}} か所がまだ本番組織を指しています:",
+        "notDeduced": "{{alias}} のホストから本番組織のホストを推定できませんでした: login.salesforce.com のみを検索しました。",
+        "source": {
+          "namedCredential": "Named Credential",
+          "remoteSite": "Remote Site",
+          "field": "項目"
+        },
+        "why": {
+          "listed": "指定された本番ホスト",
+          "myDomain": "本番組織の My Domain",
+          "lightning": "本番組織の Lightning ホスト",
+          "site": "本番組織のサイト",
+          "login": "login.salesforce.com"
+        }
+      }
+    },
+    "before": {
+      "title": "次のリフレッシュの前に",
+      "intro": "次の運用再開の起点を、今のうちに保持します。",
+      "beforeRefreshCheckpoint": {
+        "todo": "「リフレッシュ前」という名前のチェックポイントを無期限で作成します: 次の運用再開でリプレイされます。",
+        "done": "{{alias}} のチェックポイントを次のリフレッシュ用に保持しています。",
+        "action": "「リフレッシュ前」を作成…"
+      },
+      "jobsInventory": {
+        "todo": "スケジュール済みジョブの一覧を保存します: 次の運用再開でジョブと比較されます。",
+        "done": "{{alias}} のジョブの一覧を次のリフレッシュ用に保存しています。",
+        "action": "一覧を保存"
+      },
+      "testersList": {
+        "todo": "テスターのリストを保存します: 次の運用再開はこのリストから始まります。",
+        "done": "テスターのリストを {{alias}} 用に保存しています。",
+        "action": "ユーザーを選ぶ"
+      },
+      "automation": {
+        "todo": "Sandbox Refresh Post-Processing テンプレートから、リフレッシュのたびにパイプラインを実行します。",
+        "done": "{{alias}} のリフレッシュのたびにパイプラインが実行されます。",
+        "action": "リフレッシュのたびに自動化…"
+      }
+    },
+    "error": {
+      "INVALID_PAYLOAD": "形式が正しくないため、拡張機能が要求を拒否しました: ページを開き直してください。",
+      "ORG_NOT_FOUND": "{{alias}} は SandForge に登録されていません: 組織ページで再度追加してください。",
+      "NOT_CONNECTED": "{{alias}} は接続されていません: 組織ページで再接続してから、もう一度お試しください。",
+      "NOT_A_DEVELOPMENT_ORG": "{{alias}} は Sandbox、スクラッチ組織、Developer Edition 組織のいずれでもありません: 何も読み取っておらず、何も書き込みません。",
+      "ORG_CHANGED": "シミュレーション後に {{alias}} が変わりました: もう一度シミュレーションしてから適用してください。",
+      "CANCELLED": "停止しました: 停止前に行われた内容を一覧表示しています。",
+      "FAILED": "失敗しました: SandForge の出力チャネルに理由が表示されます。"
+    },
+    "users": {
+      "intro": "{{alias}} で戻すユーザー: アドレスが .invalid 付き、凍結、または無効のユーザー。プロファイル、権限セット、グループはコピーされたままです。インポートした users.json で別の指定がある場合を除きます。",
+      "loading": "{{alias}} のユーザーを読み取っています…",
+      "none": "{{alias}} には、アドレスが .invalid 付きのユーザーも、凍結や無効のユーザーもいません。",
+      "filter": "名前またはユーザー名で絞り込む",
+      "shown_other": "{{formatted}} 人中 {{shown}} 人を表示しています: 他のユーザーは絞り込んで探してください。",
+      "capped_other": "戻すユーザー {{total}} 人のうち、表示しているのは {{formatted}} 人のみです: 残りはインポートする users.json で指定します。",
+      "chosen_other": "{{formatted}} 人を選択しました。",
+      "replaces": "この実行は実行 {{run}} を置き換えます: その実行で設定した内容から収束させます。",
+      "tooMany": "1 回の実行で設定できるユーザーは最大 {{most}} 人です: 選ぶ人数を減らし、残りは次の実行で設定してください。",
+      "simulate": "シミュレーション",
+      "apply": "適用",
+      "applyRefused": "実行は完了しませんでした: もう一度シミュレーションしてユーザーの状態を読み直してから、適用してください。",
+      "simulateFirst": "適用するには、現在選択しているユーザーでのシミュレーションが必要です。",
+      "planTitle_other": "実行した場合の内容 (まだ何も書き込んでいません、リクエスト {{formatted}} 件):",
+      "nothingToChange": "変更なし",
+      "nothingChanged": "何も変更されませんでした",
+      "license": "ライセンス {{name}}: {{total}} 中 {{used}} 使用中、この実行でさらに {{toUse}} 使用。",
+      "refusal": {
+        "USERS_LICENSE": "実行に必要なライセンスに空きがありません: 上のライセンスを確認してください。",
+        "USERS_PERMISSION_SET_LICENSE": "{{username}}: 権限セットに必要なライセンスが、このユーザーには空いていません。",
+        "USERS_SELF": "{{username}} は SandForge が接続しているユーザーであり、この実行でロックアウトされます: 対象から外すか、別のユーザーで接続してください。",
+        "USERS_NO_RIGHT": "SandForge が接続しているユーザーは、{{alias}} でユーザーを管理できません (ユーザーの管理)。",
+        "USERS_NO_USER": "{{alias}} にはユーザー名 {{username}} のユーザーがいません。",
+        "USERS_TWO_USERS": "{{alias}} の複数のユーザーが {{username}} に該当します: Sandbox のユーザー名を完全に書いてください。",
+        "USERS_SAME_USER": "2 つのエントリが同じユーザー {{username}} を指しています: ユーザーごとに 1 エントリにしてください。",
+        "USERS_PROFILE_UNKNOWN": "リストにあるプロファイルが {{alias}} に存在しません。",
+        "USERS_PERMISSION_SET_UNKNOWN": "リストにある権限セットが {{alias}} に存在しません。",
+        "USERS_GROUP_UNKNOWN": "リストにあるグループまたはキューが {{alias}} に存在しません。",
+        "USERS_NO_LOGIN": "{{username}}: {{alias}} にはこのユーザーのログイン情報がなく、凍結にはそれが必要です。",
+        "USERS_RUN_NOT_FOUND": "このマシンには {{alias}} のその番号の実行が保存されていません: もう一度シミュレーションしてください。",
+        "USERS_RUN_REPLACED": "置き換える実行はすでに置き換えられています: もう一度シミュレーションしてください。",
+        "other": "{{alias}} がこの実行を拒否しました ({{code}})。"
+      },
+      "accept": {
+        "acceptUserEmails_other": "この実行に限り、戻すよう求めた各アドレスを確認するリンクを、Salesforce が {{formatted}} 人にメールで送ることを許可します。",
+        "acceptEmails_other": "{{alias}} はすべてのメールを配信する可能性があり、マスキングの完了前に {{formatted}} 件のアドレスが戻されます: この実行に限り、そこで実行される処理がこれらの人にメールを送る可能性を受け入れてください。受け入れない場合は、先に Setup > 到達性 を システムメールのみ に設定してください。",
+        "acceptAutomation": "{{alias}} ではユーザーの書き込み時に自動化が実行されるか、実行内容を読み取れませんでした: この実行に限り、それでも書き込みます。"
+      },
+      "progress": "{{total}} 人中 {{done}} 人",
+      "running": "{{alias}} のユーザーを設定しています…",
+      "result": {
+        "success": "実行 {{run}}: 指定どおりにユーザーを設定しました。",
+        "partial": "実行 {{run}} は一部のみ完了しました: {{alias}} が拒否した内容を各ユーザーの下に示しています。",
+        "failure": "実行 {{run}} は何も書き込む前に拒否されました。",
+        "cancelled": "実行 {{run}} は停止されました: 停止前に行った内容を一覧表示しています。",
+        "emails_other": "Salesforce は {{formatted}} 人に、アドレスを確認するリンクをメールで送りました。",
+        "refusedChange": "{{change}}: 拒否 ({{code}})"
+      },
+      "save": "次のリフレッシュ用にリストを保存",
+      "export": "users.json をエクスポート",
+      "import": "users.json をインポート",
+      "saved": "次のリフレッシュ用にリストを保存しました ({{date}})。",
+      "exported": "{{fileName}} に書き込みました。",
+      "imported_other": "{{fileName}} を読み込みました: {{formatted}} 人のユーザーを、記載どおりに設定します。",
+      "address": {
+        "invalid": "アドレスが .invalid 付き",
+        "awaiting": "確認待ち",
+        "restored": "アドレスに .invalid なし"
+      },
+      "inactive": "無効",
+      "frozen": "凍結",
+      "fromFile": "{{fileName}} の指定どおり",
+      "fromSaved": "保存したリストの指定どおり",
+      "change": {
+        "email": "アドレスの戻しを要求、本人の確認待ち",
+        "activated": "有効化",
+        "deactivated": "無効化",
+        "frozen": "凍結",
+        "unfrozen": "凍結解除",
+        "profile": "プロファイル {{from}} → {{to}}",
+        "permissionSetAdded": "権限セット {{name}} を付与",
+        "permissionSetRemoved": "権限セット {{name}} を削除",
+        "permissionSetGroupAdded": "権限セットグループ {{name}} を付与",
+        "permissionSetGroupRemoved": "権限セットグループ {{name}} を削除",
+        "groupAdded": "グループ {{name}} に参加",
+        "groupRemoved": "グループ {{name}} から脱退",
+        "queueAdded": "キュー {{name}} に参加",
+        "queueRemoved": "キュー {{name}} から脱退"
+      }
+    }
   },
   "checkpointNotes": {
     "leftOut": {

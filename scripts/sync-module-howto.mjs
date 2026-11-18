@@ -25,6 +25,7 @@ export const HOW_TO_DOCS = {
   forge: 'docs/forge-quickstart.md',
   seed: 'docs/modules/seed.md',
   checkpoint: 'docs/modules/checkpoint.md',
+  recovery: 'docs/modules/recovery.md',
   sync: 'docs/modules/sync.md',
   autopilot: 'docs/modules/autopilot.md',
   frozen: 'docs/modules/frozen-dataset.md',

@@ -4021,6 +4021,14 @@
       "step5": "Org atualizada ou expirada? Reproduzir em outra org… na linha dela: Simular e depois Reproduzir.",
       "tip": "Retroceder desfaz as mudanças de todos desde o ponto de verificação, não só as suas. Desfazer este retrocesso fica disponível por até 15 dias."
     },
+    "recovery": {
+      "step1": "Escolha a sandbox atualizada no seletor de orgs: a página lê o estado da volta ao serviço dela.",
+      "step2": "Escolha os usuários, simule e depois aplique: cada endereço aguarda o clique do seu titular.",
+      "step3": "Mascare os dados de produção, reproduza o ponto de verificação de antes e crie Início dos testadores.",
+      "step4": "Leia a capacidade de entrega, os jobs agendados e os endpoints, e verifique-os no Setup.",
+      "step5": "Escreva a nota de passagem e guarde aquilo de que partirá a próxima atualização.",
+      "tip": "Crie um ponto de verificação Antes da atualização antes de cada atualização: a próxima volta ao serviço o reproduz."
+    },
     "sync": {
       "step1": "Na aba Sync, clique em Iniciar Sync rápido.",
       "step2": "Escolha a Org de origem e a Org de destino e clique em Próximo.",
@@ -8826,8 +8834,307 @@
   },
   "recovery": {
     "title": "Colocar {{alias}} de volta em serviço",
-    "emptyTitle": "As etapas após uma atualização de sandbox",
-    "emptyDesc": "Elas serão listadas aqui: os usuários a recuperar, o mascaramento dos dados de produção, o ponto de verificação a reproduzir e o que ainda aponta para a produção."
+    "subtitle": "As etapas que colocam uma sandbox de volta em serviço após a atualização, cada uma com o seu estado",
+    "noOrgs": "Nenhuma org conectada ainda",
+    "concept": "Após a atualização de uma sandbox, estas etapas a colocam de volta em serviço: os usuários a recuperar, o mascaramento dos dados de produção, o ponto de verificação a reproduzir e o que ainda aponta para a produção.",
+    "noOrg": "Escolha no seletor de orgs a sandbox a colocar de volta em serviço.",
+    "production": "{{alias}} é uma org de produção. A volta ao serviço trata de uma sandbox, uma scratch org ou uma org Developer Edition: nada de {{alias}} é lido, e nada é gravado nela.",
+    "loading": "Lendo o estado de {{alias}}…",
+    "retry": "Tentar novamente",
+    "factsLabel": "Estado de {{alias}}",
+    "refreshedOn": "Atualizada em {{date}}",
+    "notRefreshed": "Nenhuma atualização detectada",
+    "stepsDone": "{{done}}/{{total}} etapas",
+    "progressLabel": "Etapas de {{alias}} feitas ou ignoradas",
+    "notProven": {
+      "title": "Ainda não comprovado em uma sandbox atualizada",
+      "body": "Estas etapas rodaram em scratch orgs, nunca ainda em uma sandbox recém-atualizada. Até lá, três pontos se baseiam no que o código lê e no que a Salesforce documenta: que uma atualização coloca cada endereço sob .invalid, que a sandbox é alcançada no seu host do My Domain, e o que uma atualização deixa dos jobs agendados e da capacidade de entrega."
+    },
+    "noRefresh": "O SandForge não detectou nenhuma atualização de {{alias}}. As etapas abaixo funcionam assim mesmo, e o que guardar antes da próxima atualização vem primeiro.",
+    "stepsTitle": "Etapas",
+    "status": {
+      "todo": "A fazer",
+      "done": "Feito",
+      "skipped": "Ignorado",
+      "notApplicable": "Não se aplica",
+      "refused": "Recusado"
+    },
+    "skip": "Ignorar",
+    "markDone": "Marcar como feito",
+    "undo": "Desfazer",
+    "finish": "Concluir",
+    "finishHint": "Conclua quando {{alias}} estiver de volta em serviço: o lançador e o Início deixam de destacá-la.",
+    "finished": "Concluído: o lançador e o Início não destacam mais {{alias}}.",
+    "step": {
+      "refresh": "Atualização detectada",
+      "users": "Usuários",
+      "masking": "Mascarar os dados copiados da produção",
+      "replay": "Reproduzir o ponto de verificação de antes",
+      "frozen": "Recarregar o dataset congelado",
+      "testersCheckpoint": "Ponto de verificação Início dos testadores",
+      "deliverability": "Capacidade de entrega de e-mails",
+      "scheduledJobs": "Jobs agendados",
+      "endpoints": "Endpoints que ainda apontam para a produção",
+      "handoff": "Nota de passagem"
+    },
+    "reason": {
+      "refreshDetected": "A atualização foi detectada.",
+      "ranAfterRefresh": "Feito em {{alias}} após a atualização.",
+      "markedDone": "Marcado como feito.",
+      "ready": "Guardado para a próxima atualização.",
+      "toDo": "Ainda a fazer.",
+      "skipped": "Ignorado: Desfazer o devolve às etapas a fazer.",
+      "noRefreshDetected": "Nenhuma atualização de {{alias}} foi detectada.",
+      "nothingCopied": "Uma sandbox Developer ou Developer Pro: nenhum dado da produção foi copiado.",
+      "noCheckpointBefore": "Nenhum ponto de verificação de {{alias}} foi criado antes da atualização.",
+      "noManifest": "Nenhum dataset congelado está guardado nesta máquina.",
+      "noInventoryBefore": "Nenhum inventário dos jobs agendados foi guardado antes da atualização.",
+      "noUserToBringBack": "Nenhum usuário de {{alias}} tem um endereço sob .invalid, nem está congelado ou inativo.",
+      "stagingSandbox": "{{alias}} está marcada como Staging, o que recusa esta etapa."
+    },
+    "line": {
+      "refresh": {
+        "refreshDetected": "{{alias}} foi atualizada: é uma nova org, e o que foi gravado nela antes da atualização não existe mais.",
+        "noRefreshDetected": "O SandForge não detectou nenhuma atualização de {{alias}}: ele a vê quando se conecta à sandbox, quando o Monitor a lê ou no histórico de atualizações da produção."
+      },
+      "users": {
+        "toDo": "Devolve o endereço aos usuários que você escolher, e os ativa ou descongela: simule e depois aplique.",
+        "ranAfterRefresh": "A execução {{run}} configurou os usuários: cada endereço solicitado de volta aguarda a confirmação do seu titular.",
+        "noUserToBringBack": "Nenhum usuário de {{alias}} tem um endereço sob .invalid, nem está congelado ou inativo: um users.json ainda pode configurar testadores."
+      },
+      "masking": {
+        "toDo": "Abre o mascaramento do DataOps em {{alias}}: mascare o que a atualização copiou da produção antes da chegada dos testadores.",
+        "ranAfterRefresh": "Um mascaramento rodou em {{alias}} após a atualização.",
+        "nothingCopied": "Uma sandbox Developer ou Developer Pro não copia nenhum dado da produção: não há nada a mascarar."
+      },
+      "replay": {
+        "toDo": "Abre a reprodução de {{name}}, criado em {{date}} antes da atualização: simule-a e depois reproduza os seus registros em {{alias}}.",
+        "ranAfterRefresh": "O ponto de verificação de antes foi reproduzido em {{alias}} após a atualização.",
+        "noCheckpointBefore": "Nenhum ponto de verificação de {{alias}} foi criado antes da atualização: crie um antes da próxima, abaixo.",
+        "stagingSandbox": "{{alias}} está marcada como Staging, onde esta reprodução é recusada.",
+        "staging": "{{alias}} está marcada como Staging: a reprodução pede que você digite o nome dela antes de gravar."
+      },
+      "frozen": {
+        "toDo": "Abre o carregamento em {{alias}} do dataset congelado em {{date}} (objetos: {{objects}}, registros: {{records}}).",
+        "ranAfterRefresh": "O dataset congelado foi carregado em {{alias}} após a atualização.",
+        "noManifest": "Nenhum dataset congelado está guardado nesta máquina: extraia um em Dataset congelado para recarregá-lo após a próxima atualização.",
+        "stagingSandbox": "{{alias}} está marcada como Staging, onde um dataset congelado nunca é carregado: reproduza um ponto de verificação em vez disso."
+      },
+      "testersCheckpoint": {
+        "toDo": "Abre a criação de um ponto de verificação chamado Início dos testadores, guardado sem prazo: o estado de onde partem os testadores, ao qual {{alias}} pode voltar.",
+        "ranAfterRefresh": "Um ponto de verificação de {{alias}} foi criado após a atualização."
+      },
+      "deliverability": {
+        "toDo": "Lê se {{alias}} entrega e-mails: verifique no Setup e depois marque a etapa como feita."
+      },
+      "scheduledJobs": {
+        "toDo": "Compara os jobs agendados de {{alias}} com o inventário guardado em {{date}}, antes da atualização, e guarda o lido agora para a próxima atualização.",
+        "ranAfterRefresh": "Os jobs agendados foram comparados após a atualização.",
+        "noInventoryBefore": "Nenhum inventário dos jobs foi guardado antes da atualização: não há com o que comparar. Guarde um agora, para a próxima atualização."
+      },
+      "endpoints": {
+        "toDo": "Lista as Named Credentials, Remote Sites e campos que ainda apontam para a produção, cada um com a sua página do Setup: altere-os e depois marque a etapa como feita."
+      },
+      "handoff": {
+        "toDo": "Escreve uma nota Markdown do que cada etapa fez, do ponto de onde partem os testadores e do que falta, e a abre no editor.",
+        "ranAfterRefresh": "A nota de passagem foi escrita após a atualização."
+      }
+    },
+    "refresh": {
+      "byConnection": "Detectado em {{date}} quando o SandForge se conectou",
+      "byMonitor": "Detectado em {{date}} pelo Monitor",
+      "byProduction": "Informado em {{date}} pelo histórico de atualizações de {{org}}",
+      "byProductionUnnamed": "Informado em {{date}} pelo histórico de atualizações da produção",
+      "orgChanged": "Era a org {{from}}, agora a org {{to}}",
+      "orgBefore": "Era a org {{from}}: a nova é lida assim que {{alias}} responder",
+      "instanceChanged": "Passou da instância {{from}} para {{to}}",
+      "cachesForgotten": "O SandForge descartou o que tinha em cache da org anterior",
+      "cachesKept": "O SandForge descarta o que tem em cache da org anterior assim que {{alias}} responder"
+    },
+    "action": {
+      "showUsers": "Escolher os usuários",
+      "hideUsers": "Ocultar os usuários",
+      "openMasking": "Abrir o mascaramento",
+      "openReplay": "Abrir a reprodução",
+      "openLoad": "Abrir o carregamento",
+      "takeTesters": "Criar Início dos testadores…",
+      "read": "Ler",
+      "readAgain": "Ler novamente",
+      "keepInventory": "Guardar o inventário para a próxima atualização",
+      "writeNote": "Escrever a nota",
+      "writeNoteAgain": "Reescrever e abrir",
+      "openSetup": "Abrir o Setup",
+      "openSetupFor": "Abrir o Setup: {{name}}"
+    },
+    "names": {
+      "testersStart": "Início dos testadores",
+      "beforeRefresh": "Antes da atualização"
+    },
+    "handoff": {
+      "written": "Escrita em {{path}} e aberta no editor."
+    },
+    "audit": {
+      "unread": "Não foi possível ler, o que não diz nada em nenhum sentido: leia novamente ou verifique no Setup.",
+      "deliverability": {
+        "open": "{{alias}} entrega todos os e-mails (Setup > Capacidade de entrega: Todos os e-mails): o que roda lá chega a pessoas reais.",
+        "closed": "{{alias}} entrega no máximo os e-mails do sistema (Somente e-mails do sistema ou Sem acesso)."
+      },
+      "jobs": {
+        "against_one": "{{formatted}} job agendado agora, comparado com o inventário de {{date}}.",
+        "against_other": "{{formatted}} jobs agendados agora, comparados com o inventário de {{date}}.",
+        "noInventory_one": "{{formatted}} job agendado agora, sem inventário de antes com que compará-lo.",
+        "noInventory_other": "{{formatted}} jobs agendados agora, sem inventário de antes com que compará-los.",
+        "status": {
+          "gone": "sumiu desde o inventário",
+          "frozen": "roda como um usuário congelado",
+          "inactive": "roda como um usuário inativo",
+          "new": "novo desde o inventário"
+        },
+        "kept_one": "{{formatted}} job como antes.",
+        "kept_other": "{{formatted}} jobs como antes.",
+        "saved": "Este inventário está guardado para a próxima atualização."
+      },
+      "endpoints": {
+        "none": "Nada do que foi lido em {{alias}} aponta para a produção.",
+        "found_one": "{{formatted}} lugar ainda aponta para a produção:",
+        "found_other": "{{formatted}} lugares ainda apontam para a produção:",
+        "notDeduced": "Os hosts próprios da produção não puderam ser deduzidos do host de {{alias}}: só login.salesforce.com foi procurado.",
+        "source": {
+          "namedCredential": "Named Credential",
+          "remoteSite": "Remote Site",
+          "field": "Campo"
+        },
+        "why": {
+          "listed": "um host de produção que você listou",
+          "myDomain": "o My Domain da produção",
+          "lightning": "o host Lightning da produção",
+          "site": "o site da produção",
+          "login": "login.salesforce.com"
+        }
+      }
+    },
+    "before": {
+      "title": "Antes da próxima atualização",
+      "intro": "Aquilo de que partirá a próxima volta ao serviço, guardado agora.",
+      "beforeRefreshCheckpoint": {
+        "todo": "Crie um ponto de verificação chamado Antes da atualização, guardado sem prazo: a próxima volta ao serviço o reproduz.",
+        "done": "Um ponto de verificação de {{alias}} está guardado para a próxima atualização.",
+        "action": "Criar Antes da atualização…"
+      },
+      "jobsInventory": {
+        "todo": "Guarde o inventário dos jobs agendados: a próxima volta ao serviço compara os jobs com ele.",
+        "done": "Um inventário dos jobs de {{alias}} está guardado para a próxima atualização.",
+        "action": "Guardar o inventário"
+      },
+      "testersList": {
+        "todo": "Salve a lista dos testadores: a próxima volta ao serviço parte dela.",
+        "done": "A lista dos testadores está salva para {{alias}}.",
+        "action": "Escolher os usuários"
+      },
+      "automation": {
+        "todo": "Rode um pipeline após cada atualização, a partir do modelo Sandbox Refresh Post-Processing.",
+        "done": "Um pipeline roda após cada atualização de {{alias}}.",
+        "action": "Automatizar após cada atualização…"
+      }
+    },
+    "error": {
+      "INVALID_PAYLOAD": "A extensão recusou a solicitação, malformada: abra a página novamente.",
+      "ORG_NOT_FOUND": "{{alias}} não está mais registrada no SandForge: adicione-a novamente na página Organizações.",
+      "NOT_CONNECTED": "{{alias}} não está conectada: reconecte-a na página Organizações e tente novamente.",
+      "NOT_A_DEVELOPMENT_ORG": "{{alias}} não é uma sandbox, nem uma scratch org, nem uma org Developer Edition: nada dela foi lido, e nada é gravado nela.",
+      "ORG_CHANGED": "{{alias}} mudou desde a simulação: simule novamente e depois aplique.",
+      "CANCELLED": "Parado: o que foi feito antes da parada está listado.",
+      "FAILED": "Falhou: o canal de saída SandForge diz por quê."
+    },
+    "users": {
+      "intro": "Os usuários de {{alias}} a recuperar: endereço sob .invalid, congelados ou inativos. O perfil, os conjuntos de permissões e os grupos ficam como copiados, a menos que um users.json que você importar diga outra coisa.",
+      "loading": "Lendo os usuários de {{alias}}…",
+      "none": "Nenhum usuário de {{alias}} tem um endereço sob .invalid, nem está congelado ou inativo.",
+      "filter": "Filtrar por nome ou nome de usuário",
+      "shown_one": "{{shown}} de {{formatted}} usuário exibido: filtre para encontrar os outros.",
+      "shown_other": "{{shown}} de {{formatted}} usuários exibidos: filtre para encontrar os outros.",
+      "capped_one": "Só {{formatted}} dos {{total}} usuários a recuperar está listado: um users.json que você importar nomeia os outros.",
+      "capped_other": "Só {{formatted}} dos {{total}} usuários a recuperar estão listados: um users.json que você importar nomeia os outros.",
+      "chosen_one": "{{formatted}} usuário escolhido.",
+      "chosen_other": "{{formatted}} usuários escolhidos.",
+      "replaces": "A execução substitui a execução {{run}}: ela converge a partir do que aquela configurou.",
+      "tooMany": "Uma execução configura no máximo {{most}} usuários: escolha menos e configure os outros depois.",
+      "simulate": "Simular",
+      "apply": "Aplicar",
+      "applyRefused": "A execução não foi concluída: simule novamente para reler o estado dos usuários e depois aplique.",
+      "simulateFirst": "Aplicar aguarda uma simulação dos usuários escolhidos como estão agora.",
+      "planTitle_one": "O que a execução faria, nada gravado ainda ({{formatted}} solicitação):",
+      "planTitle_other": "O que a execução faria, nada gravado ainda ({{formatted}} solicitações):",
+      "nothingToChange": "nada a mudar",
+      "nothingChanged": "nada mudou",
+      "license": "Licença {{name}}: {{used}} de {{total}} em uso, mais {{toUse}} tomadas por esta execução.",
+      "refusal": {
+        "USERS_LICENSE": "Uma licença de que a execução precisa não tem nenhuma livre: veja as licenças acima.",
+        "USERS_PERMISSION_SET_LICENSE": "{{username}}: um conjunto de permissões precisa de uma licença que não está livre para este usuário.",
+        "USERS_SELF": "{{username}} é o usuário com que o SandForge está conectado, e a execução o bloquearia: deixe-o de fora ou conecte-se com outro.",
+        "USERS_NO_RIGHT": "O usuário com que o SandForge está conectado não pode gerenciar usuários em {{alias}} (Gerenciar usuários).",
+        "USERS_NO_USER": "Nenhum usuário de {{alias}} tem o nome de usuário {{username}}.",
+        "USERS_TWO_USERS": "Vários usuários de {{alias}} respondem a {{username}}: escreva por inteiro o nome de usuário da sandbox.",
+        "USERS_SAME_USER": "Duas entradas nomeiam o mesmo usuário, {{username}}: uma entrada por usuário.",
+        "USERS_PROFILE_UNKNOWN": "Um perfil que a lista nomeia não existe em {{alias}}.",
+        "USERS_PERMISSION_SET_UNKNOWN": "Um conjunto de permissões que a lista nomeia não existe em {{alias}}.",
+        "USERS_GROUP_UNKNOWN": "Um grupo ou uma fila que a lista nomeia não existe em {{alias}}.",
+        "USERS_NO_LOGIN": "{{username}}: {{alias}} não guarda nenhum login deste usuário, que um congelamento exige.",
+        "USERS_RUN_NOT_FOUND": "Esta máquina não guarda nenhuma execução com esse número para {{alias}}: simule novamente.",
+        "USERS_RUN_REPLACED": "A execução a substituir já foi substituída: simule novamente.",
+        "other": "{{alias}} recusa a execução ({{code}})."
+      },
+      "accept": {
+        "acceptUserEmails_one": "Permitir que a Salesforce envie a {{formatted}} pessoa o link que confirma o endereço solicitado de volta, somente nesta execução.",
+        "acceptUserEmails_other": "Permitir que a Salesforce envie a {{formatted}} pessoas o link que confirma cada endereço solicitado de volta, somente nesta execução.",
+        "acceptEmails_one": "{{alias}} pode entregar todos os e-mails, e {{formatted}} endereço seria solicitado de volta antes do fim do mascaramento: aceite, somente nesta execução, que o que roda lá possa escrever a esta pessoa. Caso contrário, defina antes Setup > Capacidade de entrega como Somente e-mails do sistema.",
+        "acceptEmails_other": "{{alias}} pode entregar todos os e-mails, e {{formatted}} endereços seriam solicitados de volta antes do fim do mascaramento: aceite, somente nesta execução, que o que roda lá possa escrever a estas pessoas. Caso contrário, defina antes Setup > Capacidade de entrega como Somente e-mails do sistema.",
+        "acceptAutomation": "{{alias}} executa automação quando um usuário é gravado, ou o que ela executa não pôde ser lido: gravar assim mesmo, somente nesta execução."
+      },
+      "progress": "{{done}} de {{total}} usuários",
+      "running": "Configurando os usuários de {{alias}}…",
+      "result": {
+        "success": "Execução {{run}}: os usuários estão configurados como pedido.",
+        "partial": "A execução {{run}} terminou parcial: o que {{alias}} recusou aparece sob cada usuário.",
+        "failure": "A execução {{run}} foi recusada antes de gravar qualquer coisa.",
+        "cancelled": "A execução {{run}} foi parada: o que ela fez antes da parada está listado.",
+        "emails_one": "A Salesforce enviou a {{formatted}} pessoa o link que confirma o endereço.",
+        "emails_other": "A Salesforce enviou a {{formatted}} pessoas o link que confirma o endereço delas.",
+        "refusedChange": "{{change}}: recusado ({{code}})"
+      },
+      "save": "Salvar a lista para a próxima atualização",
+      "export": "Exportar users.json",
+      "import": "Importar users.json",
+      "saved": "Lista salva para a próxima atualização, em {{date}}.",
+      "exported": "Gravado em {{fileName}}.",
+      "imported_one": "{{fileName}} lido: {{formatted}} usuário, configurado como ele diz.",
+      "imported_other": "{{fileName}} lido: {{formatted}} usuários, configurados como ele diz.",
+      "address": {
+        "invalid": "endereço sob .invalid",
+        "awaiting": "aguardando confirmação",
+        "restored": "endereço sem .invalid"
+      },
+      "inactive": "inativo",
+      "frozen": "congelado",
+      "fromFile": "como {{fileName}} diz",
+      "fromSaved": "como a lista salva diz",
+      "change": {
+        "email": "endereço solicitado de volta, aguardando a confirmação do titular",
+        "activated": "ativado",
+        "deactivated": "desativado",
+        "frozen": "congelado",
+        "unfrozen": "descongelado",
+        "profile": "perfil {{from}} → {{to}}",
+        "permissionSetAdded": "conjunto de permissões {{name}} atribuído",
+        "permissionSetRemoved": "conjunto de permissões {{name}} retirado",
+        "permissionSetGroupAdded": "grupo de conjuntos de permissões {{name}} atribuído",
+        "permissionSetGroupRemoved": "grupo de conjuntos de permissões {{name}} retirado",
+        "groupAdded": "entra no grupo {{name}}",
+        "groupRemoved": "sai do grupo {{name}}",
+        "queueAdded": "entra na fila {{name}}",
+        "queueRemoved": "sai da fila {{name}}"
+      }
+    }
   },
   "checkpointNotes": {
     "leftOut": {

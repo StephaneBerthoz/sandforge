@@ -4021,6 +4021,14 @@
       "step5": "Org rafraîchie ou expirée ? Rejouer dans une autre org… sur sa ligne : Simuler, puis Rejouer.",
       "tip": "Le retour arrière défait les modifications de chacun depuis le point de contrôle, pas seulement les vôtres. Annuler ce retour arrière reste possible 15 jours au plus."
     },
+    "recovery": {
+      "step1": "Choisissez la sandbox rafraîchie dans le sélecteur d'org : la page lit où en est sa remise en service.",
+      "step2": "Choisissez les utilisateurs, simulez, puis appliquez : chaque adresse attend le clic de son titulaire.",
+      "step3": "Masquez les données de la production, rejouez le point de contrôle d'avant, puis prenez Départ des testeurs.",
+      "step4": "Lisez la délivrabilité, les jobs planifiés et les points d'accès, et vérifiez-les dans le Setup.",
+      "step5": "Écrivez la note de passation, puis gardez ce d'où partira le prochain rafraîchissement.",
+      "tip": "Prenez un point de contrôle Avant le rafraîchissement avant chaque rafraîchissement : la prochaine remise en service le rejoue."
+    },
     "sync": {
       "step1": "Dans l'onglet Sync, cliquez sur Démarrer le Sync rapide.",
       "step2": "Choisissez l'Org source et l'Org cible, puis cliquez sur Suivant.",
@@ -8826,8 +8834,307 @@
   },
   "recovery": {
     "title": "Remettre {{alias}} en service",
-    "emptyTitle": "Les étapes après un rafraîchissement de sandbox",
-    "emptyDesc": "Elles seront listées ici : les utilisateurs à remettre, le masquage des données de la production, le point de contrôle à rejouer et ce qui nomme encore la production."
+    "subtitle": "Les étapes qui remettent une sandbox en service après son rafraîchissement, chacune avec où elle en est",
+    "noOrgs": "Aucune org connectée pour l'instant",
+    "concept": "Après le rafraîchissement d'une sandbox, ces étapes la remettent en service : les utilisateurs à remettre, le masquage des données de la production, le point de contrôle à rejouer et ce qui nomme encore la production.",
+    "noOrg": "Choisissez la sandbox à remettre en service dans le sélecteur d'org.",
+    "production": "{{alias}} est une org de production. La remise en service concerne une sandbox, une scratch org ou une org Developer Edition : rien de {{alias}} n'est lu, et rien n'y est écrit.",
+    "loading": "Lecture de l'état de {{alias}}…",
+    "retry": "Réessayer",
+    "factsLabel": "Où en est {{alias}}",
+    "refreshedOn": "Rafraîchie le {{date}}",
+    "notRefreshed": "Aucun rafraîchissement repéré",
+    "stepsDone": "{{done}}/{{total}} étapes",
+    "progressLabel": "Étapes de {{alias}} faites ou ignorées",
+    "notProven": {
+      "title": "Pas encore prouvé sur une sandbox rafraîchie",
+      "body": "Ces étapes ont tourné sur des scratch orgs, jamais encore sur une sandbox tout juste rafraîchie. D'ici là, trois points reposent sur ce que lit le code et sur ce que documente Salesforce : qu'un rafraîchissement place chaque adresse sous .invalid, que la sandbox se joint sur son hôte My Domain, et ce qu'un rafraîchissement laisse des jobs planifiés et de la délivrabilité."
+    },
+    "noRefresh": "SandForge n'a repéré aucun rafraîchissement de {{alias}}. Les étapes ci-dessous fonctionnent quand même, et ce qu'il faut garder avant le prochain rafraîchissement passe en tête.",
+    "stepsTitle": "Étapes",
+    "status": {
+      "todo": "À faire",
+      "done": "Fait",
+      "skipped": "Ignoré",
+      "notApplicable": "Sans objet",
+      "refused": "Refusé"
+    },
+    "skip": "Ignorer",
+    "markDone": "Marquer comme fait",
+    "undo": "Annuler",
+    "finish": "Terminer",
+    "finishHint": "Terminez une fois {{alias}} remise en service : le lanceur et l'Accueil cessent de la mettre en avant.",
+    "finished": "Terminé : le lanceur et l'Accueil ne mettent plus {{alias}} en avant.",
+    "step": {
+      "refresh": "Rafraîchissement repéré",
+      "users": "Utilisateurs",
+      "masking": "Masquer les données copiées de la production",
+      "replay": "Rejouer le point de contrôle d'avant",
+      "frozen": "Recharger le jeu de données figé",
+      "testersCheckpoint": "Point de contrôle Départ des testeurs",
+      "deliverability": "Délivrabilité des e-mails",
+      "scheduledJobs": "Jobs planifiés",
+      "endpoints": "Points d'accès qui nomment encore la production",
+      "handoff": "Note de passation"
+    },
+    "reason": {
+      "refreshDetected": "Le rafraîchissement a été repéré.",
+      "ranAfterRefresh": "Fait sur {{alias}} après le rafraîchissement.",
+      "markedDone": "Marqué comme fait.",
+      "ready": "Gardé pour le prochain rafraîchissement.",
+      "toDo": "Reste à faire.",
+      "skipped": "Ignoré : Annuler la remet parmi les étapes à faire.",
+      "noRefreshDetected": "Aucun rafraîchissement de {{alias}} n'a été repéré.",
+      "nothingCopied": "Une sandbox Developer ou Developer Pro : aucune donnée de la production n'a été copiée.",
+      "noCheckpointBefore": "Aucun point de contrôle de {{alias}} n'a été pris avant le rafraîchissement.",
+      "noManifest": "Aucun jeu de données figé n'est gardé sur cette machine.",
+      "noInventoryBefore": "Aucun inventaire des jobs planifiés n'a été gardé avant le rafraîchissement.",
+      "noUserToBringBack": "Aucun utilisateur de {{alias}} n'a d'adresse sous .invalid, ni n'est gelé ou inactif.",
+      "stagingSandbox": "{{alias}} est marquée Préproduction, ce qui refuse cette étape."
+    },
+    "line": {
+      "refresh": {
+        "refreshDetected": "{{alias}} a été rafraîchie : c'est une nouvelle org, et ce qui y avait été écrit avant le rafraîchissement a disparu.",
+        "noRefreshDetected": "SandForge n'a repéré aucun rafraîchissement de {{alias}} : il en voit un quand il se connecte à la sandbox, quand le Moniteur la lit, ou dans l'historique de rafraîchissement de la production."
+      },
+      "users": {
+        "toDo": "Rend leur adresse aux utilisateurs que vous choisissez, et les active ou les dégèle : simulez, puis appliquez.",
+        "ranAfterRefresh": "L'exécution {{run}} a remis les utilisateurs : chaque adresse redemandée attend la confirmation de son titulaire.",
+        "noUserToBringBack": "Aucun utilisateur de {{alias}} n'a d'adresse sous .invalid, ni n'est gelé ou inactif : un users.json peut encore remettre des testeurs."
+      },
+      "masking": {
+        "toDo": "Ouvre le masquage de DataOps sur {{alias}} : masquez ce que le rafraîchissement a copié de la production avant l'arrivée des testeurs.",
+        "ranAfterRefresh": "Un masquage a tourné sur {{alias}} après le rafraîchissement.",
+        "nothingCopied": "Une sandbox Developer ou Developer Pro ne copie aucune donnée de la production : il n'y a rien à masquer."
+      },
+      "replay": {
+        "toDo": "Ouvre le rejeu de {{name}}, pris le {{date}} avant le rafraîchissement : simulez-le, puis rejouez ses enregistrements dans {{alias}}.",
+        "ranAfterRefresh": "Le point de contrôle d'avant a été rejoué dans {{alias}} après le rafraîchissement.",
+        "noCheckpointBefore": "Aucun point de contrôle de {{alias}} n'a été pris avant le rafraîchissement : prenez-en un avant le prochain, ci-dessous.",
+        "stagingSandbox": "{{alias}} est marquée Préproduction, où ce rejeu est refusé.",
+        "staging": "{{alias}} est marquée Préproduction : le rejeu vous demande de taper son nom avant d'écrire."
+      },
+      "frozen": {
+        "toDo": "Ouvre le chargement dans {{alias}} du jeu de données figé le {{date}} (objets : {{objects}}, enregistrements : {{records}}).",
+        "ranAfterRefresh": "Le jeu de données figé a été chargé dans {{alias}} après le rafraîchissement.",
+        "noManifest": "Aucun jeu de données figé n'est gardé sur cette machine : extrayez-en un dans Jeu de données figé pour le recharger après le prochain rafraîchissement.",
+        "stagingSandbox": "{{alias}} est marquée Préproduction, où un jeu de données figé n'est jamais chargé : rejouez plutôt un point de contrôle."
+      },
+      "testersCheckpoint": {
+        "toDo": "Ouvre la prise d'un point de contrôle nommé Départ des testeurs, gardé sans fin : l'état d'où partent les testeurs, auquel {{alias}} peut revenir.",
+        "ranAfterRefresh": "Un point de contrôle de {{alias}} a été pris après le rafraîchissement."
+      },
+      "deliverability": {
+        "toDo": "Lit si {{alias}} délivre les e-mails : vérifiez-le dans le Setup, puis marquez l'étape comme faite."
+      },
+      "scheduledJobs": {
+        "toDo": "Met les jobs planifiés de {{alias}} en regard de l'inventaire gardé le {{date}}, avant le rafraîchissement, et garde celui lu maintenant pour le prochain rafraîchissement.",
+        "ranAfterRefresh": "Les jobs planifiés ont été comparés après le rafraîchissement.",
+        "noInventoryBefore": "Aucun inventaire des jobs n'a été gardé avant le rafraîchissement : il n'y a rien à comparer. Gardez-en un maintenant, pour le prochain rafraîchissement."
+      },
+      "endpoints": {
+        "toDo": "Liste les Named Credentials, Remote Sites et champs qui nomment encore la production, chacun avec sa page du Setup : changez-les, puis marquez l'étape comme faite."
+      },
+      "handoff": {
+        "toDo": "Écrit une note Markdown de ce que chaque étape a fait, du point d'où partent les testeurs et de ce qui reste, et l'ouvre dans l'éditeur.",
+        "ranAfterRefresh": "La note de passation a été écrite après le rafraîchissement."
+      }
+    },
+    "refresh": {
+      "byConnection": "Repéré le {{date}} quand SandForge s'y est connecté",
+      "byMonitor": "Repéré le {{date}} par le Moniteur",
+      "byProduction": "Signalé le {{date}} par l'historique de rafraîchissement de {{org}}",
+      "byProductionUnnamed": "Signalé le {{date}} par l'historique de rafraîchissement de la production",
+      "orgChanged": "Était l'org {{from}}, désormais l'org {{to}}",
+      "orgBefore": "Était l'org {{from}} : la nouvelle se lit dès que {{alias}} répond",
+      "instanceChanged": "Passée de l'instance {{from}} à {{to}}",
+      "cachesForgotten": "SandForge a oublié ce qu'il gardait en cache de l'org d'avant",
+      "cachesKept": "SandForge oublie ce qu'il garde en cache de l'org d'avant dès que {{alias}} répond"
+    },
+    "action": {
+      "showUsers": "Choisir les utilisateurs",
+      "hideUsers": "Masquer les utilisateurs",
+      "openMasking": "Ouvrir le masquage",
+      "openReplay": "Ouvrir le rejeu",
+      "openLoad": "Ouvrir le chargement",
+      "takeTesters": "Prendre Départ des testeurs…",
+      "read": "Lire",
+      "readAgain": "Relire",
+      "keepInventory": "Garder l'inventaire pour le prochain rafraîchissement",
+      "writeNote": "Écrire la note",
+      "writeNoteAgain": "La réécrire et l'ouvrir",
+      "openSetup": "Ouvrir le Setup",
+      "openSetupFor": "Ouvrir le Setup : {{name}}"
+    },
+    "names": {
+      "testersStart": "Départ des testeurs",
+      "beforeRefresh": "Avant le rafraîchissement"
+    },
+    "handoff": {
+      "written": "Écrite dans {{path}} et ouverte dans l'éditeur."
+    },
+    "audit": {
+      "unread": "N'a pas pu être lu, ce qui ne dit rien dans un sens ni dans l'autre : relisez, ou vérifiez dans le Setup.",
+      "deliverability": {
+        "open": "{{alias}} délivre tous les e-mails (Setup > Délivrabilité : Tous les e-mails) : ce qui y tourne atteint de vraies personnes.",
+        "closed": "{{alias}} délivre au plus les e-mails système (E-mails système uniquement, ou Aucun accès)."
+      },
+      "jobs": {
+        "against_one": "{{formatted}} job planifié à présent, comparé à l'inventaire du {{date}}.",
+        "against_other": "{{formatted}} jobs planifiés à présent, comparés à l'inventaire du {{date}}.",
+        "noInventory_one": "{{formatted}} job planifié à présent, sans inventaire d'avant auquel le comparer.",
+        "noInventory_other": "{{formatted}} jobs planifiés à présent, sans inventaire d'avant auquel les comparer.",
+        "status": {
+          "gone": "disparu depuis l'inventaire",
+          "frozen": "tourne sous un utilisateur gelé",
+          "inactive": "tourne sous un utilisateur inactif",
+          "new": "nouveau depuis l'inventaire"
+        },
+        "kept_one": "{{formatted}} job comme avant.",
+        "kept_other": "{{formatted}} jobs comme avant.",
+        "saved": "Cet inventaire est gardé pour le prochain rafraîchissement."
+      },
+      "endpoints": {
+        "none": "Rien de ce qui a été lu dans {{alias}} ne nomme la production.",
+        "found_one": "{{formatted}} endroit nomme encore la production :",
+        "found_other": "{{formatted}} endroits nomment encore la production :",
+        "notDeduced": "Les hôtes propres à la production n'ont pas pu être déduits de l'hôte de {{alias}} : seul login.salesforce.com a été cherché.",
+        "source": {
+          "namedCredential": "Named Credential",
+          "remoteSite": "Remote Site",
+          "field": "Champ"
+        },
+        "why": {
+          "listed": "un hôte de production que vous avez listé",
+          "myDomain": "le My Domain de la production",
+          "lightning": "l'hôte Lightning de la production",
+          "site": "le site de la production",
+          "login": "login.salesforce.com"
+        }
+      }
+    },
+    "before": {
+      "title": "Avant le prochain rafraîchissement",
+      "intro": "Ce d'où partira la prochaine remise en service, gardé dès maintenant.",
+      "beforeRefreshCheckpoint": {
+        "todo": "Prenez un point de contrôle nommé Avant le rafraîchissement, gardé sans fin : la prochaine remise en service le rejoue.",
+        "done": "Un point de contrôle de {{alias}} est gardé pour le prochain rafraîchissement.",
+        "action": "Prendre Avant le rafraîchissement…"
+      },
+      "jobsInventory": {
+        "todo": "Gardez l'inventaire des jobs planifiés : la prochaine remise en service y compare les jobs.",
+        "done": "Un inventaire des jobs de {{alias}} est gardé pour le prochain rafraîchissement.",
+        "action": "Garder l'inventaire"
+      },
+      "testersList": {
+        "todo": "Enregistrez la liste des testeurs : la prochaine remise en service en part.",
+        "done": "La liste des testeurs est enregistrée pour {{alias}}.",
+        "action": "Choisir les utilisateurs"
+      },
+      "automation": {
+        "todo": "Lancez un pipeline après chaque rafraîchissement, à partir du modèle Sandbox Refresh Post-Processing.",
+        "done": "Un pipeline tourne après chaque rafraîchissement de {{alias}}.",
+        "action": "Automatiser après chaque rafraîchissement…"
+      }
+    },
+    "error": {
+      "INVALID_PAYLOAD": "L'extension a refusé la demande, mal formée : rouvrez la page.",
+      "ORG_NOT_FOUND": "{{alias}} n'est plus enregistrée dans SandForge : ajoutez-la de nouveau dans la page Organisations.",
+      "NOT_CONNECTED": "{{alias}} n'est pas connectée : reconnectez-la dans la page Organisations, puis réessayez.",
+      "NOT_A_DEVELOPMENT_ORG": "{{alias}} n'est ni une sandbox, ni une scratch org, ni une org Developer Edition : rien n'en a été lu, et rien n'y est écrit.",
+      "ORG_CHANGED": "{{alias}} a changé depuis la simulation : simulez de nouveau, puis appliquez.",
+      "CANCELLED": "Arrêté : ce qui a été fait avant l'arrêt est listé.",
+      "FAILED": "Échec : le canal de sortie SandForge dit pourquoi."
+    },
+    "users": {
+      "intro": "Les utilisateurs de {{alias}} à remettre : adresse sous .invalid, gelés ou inactifs. Leur profil, leurs ensembles d'autorisations et leurs groupes restent tels que copiés, sauf si un users.json que vous importez dit autre chose.",
+      "loading": "Lecture des utilisateurs de {{alias}}…",
+      "none": "Aucun utilisateur de {{alias}} n'a d'adresse sous .invalid, ni n'est gelé ou inactif.",
+      "filter": "Filtrer par nom ou nom d'utilisateur",
+      "shown_one": "{{shown}} utilisateur affiché sur {{formatted}} : filtrez pour trouver les autres.",
+      "shown_other": "{{shown}} utilisateurs affichés sur {{formatted}} : filtrez pour trouver les autres.",
+      "capped_one": "Seul {{formatted}} des {{total}} utilisateurs à remettre est listé : un users.json que vous importez nomme les autres.",
+      "capped_other": "Seuls {{formatted}} des {{total}} utilisateurs à remettre sont listés : un users.json que vous importez nomme les autres.",
+      "chosen_one": "{{formatted}} utilisateur choisi.",
+      "chosen_other": "{{formatted}} utilisateurs choisis.",
+      "replaces": "L'exécution remplace l'exécution {{run}} : elle converge à partir de ce que celle-ci a mis en place.",
+      "tooMany": "Une exécution remet {{most}} utilisateurs au plus : choisissez-en moins, et remettez les autres ensuite.",
+      "simulate": "Simuler",
+      "apply": "Appliquer",
+      "applyRefused": "L'exécution n'a pas abouti : simulez de nouveau pour relire où en sont les utilisateurs, puis appliquez.",
+      "simulateFirst": "Appliquer attend une simulation des utilisateurs choisis tels qu'ils sont maintenant.",
+      "planTitle_one": "Ce que ferait l'exécution, rien d'écrit encore ({{formatted}} requête) :",
+      "planTitle_other": "Ce que ferait l'exécution, rien d'écrit encore ({{formatted}} requêtes) :",
+      "nothingToChange": "rien à changer",
+      "nothingChanged": "rien n'a changé",
+      "license": "Licence {{name}} : {{used}} utilisées sur {{total}}, {{toUse}} de plus prises par cette exécution.",
+      "refusal": {
+        "USERS_LICENSE": "Une licence dont l'exécution a besoin n'en a plus de libre : voyez les licences ci-dessus.",
+        "USERS_PERMISSION_SET_LICENSE": "{{username}} : un ensemble d'autorisations demande une licence qui n'est pas libre pour cet utilisateur.",
+        "USERS_SELF": "{{username}} est l'utilisateur sous lequel SandForge est connecté, et l'exécution le bloquerait : laissez-le de côté, ou connectez-vous sous un autre.",
+        "USERS_NO_RIGHT": "L'utilisateur sous lequel SandForge est connecté ne peut pas gérer les utilisateurs dans {{alias}} (Gérer les utilisateurs).",
+        "USERS_NO_USER": "Aucun utilisateur de {{alias}} n'a le nom d'utilisateur {{username}}.",
+        "USERS_TWO_USERS": "Plusieurs utilisateurs de {{alias}} répondent à {{username}} : écrivez en entier le nom d'utilisateur de la sandbox.",
+        "USERS_SAME_USER": "Deux entrées nomment le même utilisateur, {{username}} : une entrée par utilisateur.",
+        "USERS_PROFILE_UNKNOWN": "Un profil que nomme la liste n'existe pas dans {{alias}}.",
+        "USERS_PERMISSION_SET_UNKNOWN": "Un ensemble d'autorisations que nomme la liste n'existe pas dans {{alias}}.",
+        "USERS_GROUP_UNKNOWN": "Un groupe ou une file d'attente que nomme la liste n'existe pas dans {{alias}}.",
+        "USERS_NO_LOGIN": "{{username}} : {{alias}} ne garde aucune connexion de cet utilisateur, ce qu'un gel demande.",
+        "USERS_RUN_NOT_FOUND": "Cette machine ne garde aucune exécution de ce numéro pour {{alias}} : simulez de nouveau.",
+        "USERS_RUN_REPLACED": "L'exécution à remplacer a été remplacée depuis : simulez de nouveau.",
+        "other": "{{alias}} refuse l'exécution ({{code}})."
+      },
+      "accept": {
+        "acceptUserEmails_one": "Laisser Salesforce envoyer à {{formatted}} personne le lien qui confirme l'adresse redemandée, pour cette exécution seulement.",
+        "acceptUserEmails_other": "Laisser Salesforce envoyer à {{formatted}} personnes le lien qui confirme chaque adresse redemandée, pour cette exécution seulement.",
+        "acceptEmails_one": "{{alias}} peut délivrer tous les e-mails, et {{formatted}} adresse serait redemandée avant la fin du masquage : acceptez, pour cette exécution seulement, que ce qui y tourne puisse écrire à cette personne. Sinon, passez d'abord Setup > Délivrabilité sur E-mails système uniquement.",
+        "acceptEmails_other": "{{alias}} peut délivrer tous les e-mails, et {{formatted}} adresses seraient redemandées avant la fin du masquage : acceptez, pour cette exécution seulement, que ce qui y tourne puisse écrire à ces personnes. Sinon, passez d'abord Setup > Délivrabilité sur E-mails système uniquement.",
+        "acceptAutomation": "{{alias}} exécute de l'automatisation quand un utilisateur est écrit, ou ce qu'elle exécute n'a pas pu être lu : écrire quand même, pour cette exécution seulement."
+      },
+      "progress": "{{done}} utilisateurs sur {{total}}",
+      "running": "Remise des utilisateurs de {{alias}}…",
+      "result": {
+        "success": "Exécution {{run}} : les utilisateurs sont remis comme demandé.",
+        "partial": "L'exécution {{run}} s'est terminée partielle : ce que {{alias}} a refusé est nommé sous chaque utilisateur.",
+        "failure": "L'exécution {{run}} a été refusée avant d'écrire quoi que ce soit.",
+        "cancelled": "L'exécution {{run}} a été arrêtée : ce qu'elle a fait avant l'arrêt est listé.",
+        "emails_one": "Salesforce a envoyé à {{formatted}} personne le lien qui confirme l'adresse.",
+        "emails_other": "Salesforce a envoyé à {{formatted}} personnes le lien qui confirme leur adresse.",
+        "refusedChange": "{{change}} : refusé ({{code}})"
+      },
+      "save": "Enregistrer la liste pour le prochain rafraîchissement",
+      "export": "Exporter users.json",
+      "import": "Importer users.json",
+      "saved": "Liste enregistrée pour le prochain rafraîchissement, le {{date}}.",
+      "exported": "Écrit dans {{fileName}}.",
+      "imported_one": "{{fileName}} lu : {{formatted}} utilisateur, remis comme il le dit.",
+      "imported_other": "{{fileName}} lu : {{formatted}} utilisateurs, remis comme il le dit.",
+      "address": {
+        "invalid": "adresse sous .invalid",
+        "awaiting": "en attente de confirmation",
+        "restored": "adresse sans .invalid"
+      },
+      "inactive": "inactif",
+      "frozen": "gelé",
+      "fromFile": "comme le dit {{fileName}}",
+      "fromSaved": "comme le dit la liste enregistrée",
+      "change": {
+        "email": "adresse redemandée, en attente de la confirmation de son titulaire",
+        "activated": "activé",
+        "deactivated": "désactivé",
+        "frozen": "gelé",
+        "unfrozen": "dégelé",
+        "profile": "profil {{from}} → {{to}}",
+        "permissionSetAdded": "ensemble d'autorisations {{name}} donné",
+        "permissionSetRemoved": "ensemble d'autorisations {{name}} retiré",
+        "permissionSetGroupAdded": "groupe d'ensembles d'autorisations {{name}} donné",
+        "permissionSetGroupRemoved": "groupe d'ensembles d'autorisations {{name}} retiré",
+        "groupAdded": "rejoint le groupe {{name}}",
+        "groupRemoved": "quitte le groupe {{name}}",
+        "queueAdded": "rejoint la file d'attente {{name}}",
+        "queueRemoved": "quitte la file d'attente {{name}}"
+      }
+    }
   },
   "checkpointNotes": {
     "leftOut": {
