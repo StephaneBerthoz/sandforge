@@ -234,31 +234,21 @@ test.describe('DataOps — with a connected org', () => {
     expect((request.payload as Record<string, unknown>).orgId).toBe('org-src-1');
   });
 
-  test('displays KPI summary row', async ({ page }) => {
+  test('counts the org’s backups on the Backups tab, with no row of counts above the tabs', async ({
+    page,
+  }) => {
     await answerMountQueries(page, bridge);
 
-    const kpis = page.getByTestId('dataops-kpi-row');
-    await expect(kpis).toBeVisible();
-
-    // Three facts of the answered data, each what its label says: two backups
-    // of the org holding 1500 + 800 records, one of them failed, two
-    // anonymization templates. The cards read "Records Processed" and an
-    // "Error Rate" of failed backups over objects backed up.
-    const values = kpis.getByTestId('kpi-value');
-    await expect(values).toHaveCount(3);
-    await expect(values.nth(0)).toHaveText('2');
-    await expect(kpis.getByTestId('kpi-card').nth(0)).toContainText('Backups of DevSandbox');
-    await expect(kpis.getByTestId('kpi-card').nth(0)).toContainText('2,300 records');
-    await expect(values.nth(1)).toHaveText('1');
-    await expect(kpis.getByTestId('kpi-card').nth(1)).toContainText('Partial or failed backups');
-    await expect(values.nth(2)).toHaveText('2');
-    await expect(kpis.getByTestId('kpi-card').nth(2)).toContainText('Anonymization templates');
+    // Three cards of counts stood above every tab and pushed their work down.
+    await expect(page.getByTestId('page-tab-badge-backup')).toHaveText('2');
+    await expect(page.getByTestId('dataops-kpi-row')).toHaveCount(0);
   });
 
   test('marks each backup in words of the interface, the failed one that kept rows as Partial', async ({
     page,
   }) => {
     await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-backup').click();
 
     await expect(page.getByTestId('backup-status-op-backup-1')).toHaveText('Completed');
     await expect(page.getByTestId('backup-status-op-backup-2')).toHaveText('Partial');
@@ -271,8 +261,8 @@ test.describe('DataOps — with a connected org', () => {
     page,
   }) => {
     await answerMountQueries(page, bridge);
-    await page.getByTestId('page-tab-restore').click();
-    await page.getByTestId('restore-backup-op-backup-1').getByRole('button').first().click();
+    await page.getByTestId('page-tab-backup').click();
+    // On its row, nothing to select first.
     await page.getByTestId('restore-btn-op-backup-1').click();
 
     await expect(page.getByTestId('danger-title')).toContainText('into DevSandbox?');
@@ -310,22 +300,31 @@ test.describe('DataOps — with a connected org', () => {
     });
   });
 
-  test('the Restore tab of an org with no backup opens the Backup tab, which offers a checkpoint', async ({
+  test('Backups of an org with no backup offers a checkpoint, and opens Masking, where Create backup is', async ({
     page,
   }) => {
     await bridge.waitForMessage('backup:list', { timeout: 10_000 });
     await respondToAll(page, 'backup:list', 'backup:list:result', { backups: [] });
-    await page.getByTestId('page-tab-restore').click();
+    await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'dataops:anonymization-templates',
+      'dataops:anonymization-templates:response',
+      { templates: MOCK_TEMPLATES },
+    );
+    await page.getByTestId('page-tab-backup').click();
 
-    await expect(page.getByTestId('restore-panel')).toContainText('No backup of DevSandbox yet');
-    await page.getByTestId('empty-action-button').click();
-    await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('backup-panel')).toContainText('No backup of DevSandbox yet');
     await expect(page.getByTestId('backup-checkpoint')).toContainText('take a checkpoint');
+    await page.getByTestId('empty-action-button').click();
+    await expect(page.getByTestId('page-tab-anonymize')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('create-backup-btn')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('shows the loading skeleton until the backup list answers', async ({ page }) => {
-    // The backup tab waits on `backup:list` and nothing else, so the skeleton
+  test('shows the loading skeleton on Backups until the backup list answers', async ({ page }) => {
+    // The Backups tab waits on `backup:list` and nothing else, so the skeleton
     // is on screen for as long as the request is unanswered.
+    await page.getByTestId('page-tab-backup').click();
     await expect(page.getByTestId('dataops-skeleton')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('backup-panel')).toHaveCount(0);
 
@@ -337,6 +336,7 @@ test.describe('DataOps — with a connected org', () => {
 
   test('displays content area after data loads', async ({ page }) => {
     await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-backup').click();
 
     await expect(page.getByTestId('dataops-content')).toBeVisible({ timeout: 10_000 });
 
@@ -350,51 +350,41 @@ test.describe('DataOps — with a connected org', () => {
   test('displays tab navigation with all tabs', async ({ page }) => {
     await answerMountQueries(page, bridge);
 
+    // In the order of the work, by the ids they always had.
     const tabs = page.getByTestId('page-tabs').getByRole('tab');
-    await expect(tabs).toHaveCount(6);
-    await expect(tabs).toHaveText([
-      'Backup',
-      'Restore',
-      'Anonymize',
-      'Compliance',
-      'Cleanup',
-      'Quality',
-    ]);
+    await expect(tabs).toHaveCount(5);
+    await expect(tabs).toHaveText(['Masking', /^Backups/, 'Personal data', 'Cleanup', 'Emptying']);
   });
 
-  test('backup tab is active by default', async ({ page }) => {
+  test('Masking is open by default, Create backup beside the template', async ({ page }) => {
     await answerMountQueries(page, bridge);
 
-    await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('backup-panel')).toBeVisible();
+    await expect(page.getByTestId('page-tab-anonymize')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('anonymize-panel')).toBeVisible();
     await expect(page.getByTestId('create-backup-btn')).toBeVisible();
-    await expect(page.getByTestId('restore-panel')).toHaveCount(0);
-    await expect(page.getByTestId('anonymize-panel')).toHaveCount(0);
+    await expect(page.getByTestId('backup-panel')).toHaveCount(0);
   });
 
   test('can switch tabs', async ({ page }) => {
     await answerMountQueries(page, bridge);
 
-    await page.getByTestId('page-tab-restore').click();
-    await expect(page.getByTestId('page-tab-restore')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('restore-panel')).toBeVisible();
-    await expect(page.getByTestId('backup-panel')).toHaveCount(0);
-    // A backup whose read failed part-way keeps the rows it read: Restore
-    // offers it beside the completed one, marked partial.
-    await expect(page.getByTestId('restore-backup-op-backup-1')).toBeVisible();
-    await expect(page.getByTestId('restore-backup-op-backup-2')).toBeVisible();
-    await expect(page.getByTestId('restore-partial-badge-op-backup-2')).toHaveText('Partial');
-    await expect(page.getByTestId('restore-partial-badge-op-backup-1')).toHaveCount(0);
+    await page.getByTestId('page-tab-backup').click();
+    await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('backup-panel')).toBeVisible();
+    await expect(page.getByTestId('anonymize-panel')).toHaveCount(0);
+    // A backup whose read failed part-way keeps the rows it read: it is
+    // offered for a restore beside the completed one, marked partial.
+    await expect(page.getByTestId('restore-btn-op-backup-1')).toBeVisible();
+    await expect(page.getByTestId('restore-btn-op-backup-2')).toBeVisible();
+    await expect(page.getByTestId('backup-status-op-backup-2')).toHaveText('Partial');
+    await expect(page.getByTestId('export-backup-op-backup-1')).toBeVisible();
+    await expect(page.getByTestId('delete-backup-btn-op-backup-1')).toBeVisible();
 
     await page.getByTestId('page-tab-anonymize').click();
     await expect(page.getByTestId('page-tab-anonymize')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('anonymize-panel')).toBeVisible();
     await expect(page.getByTestId('template-select')).toBeVisible();
-    await expect(page.getByTestId('restore-panel')).toHaveCount(0);
-
-    await page.getByTestId('page-tab-backup').click();
-    await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('backup-panel')).toBeVisible();
+    await expect(page.getByTestId('backup-panel')).toHaveCount(0);
   });
 
   test('lists each rule of a template by the field it masks and its method', async ({ page }) => {
@@ -465,7 +455,7 @@ test.describe('DataOps — with a connected org', () => {
     await expect(page.getByTestId('delete-template-btn')).toBeVisible();
   });
 
-  test('the compliance and cleanup tabs open their panels, and never spin on a query they do not read', async ({
+  test('the personal data, cleanup and emptying tabs open their panels, and never spin on a query they do not read', async ({
     page,
   }) => {
     await answerMountQueries(page, bridge);
@@ -475,6 +465,7 @@ test.describe('DataOps — with a connected org', () => {
     for (const [tab, testid] of [
       ['gdpr', 'compliance-panel'],
       ['cleanup', 'cleanup-panel'],
+      ['emptying', 'empty-panel'],
     ] as const) {
       await page.getByTestId(`page-tab-${tab}`).click();
       await expect(page.getByTestId(testid)).toBeVisible();
@@ -499,165 +490,6 @@ test.describe('DataOps — with a connected org', () => {
 
     await banner.getByRole('button', { name: 'Dismiss' }).click();
     await expect(banner).toHaveCount(0);
-  });
-});
-
-/** A scan of Contact as `dataops:quality-scan:response` carries it: every figure a count. */
-function qualityAnswer(duplicateKey: 'Email' | 'Phone'): Record<string, unknown> {
-  return {
-    orgId: 'org-src-1',
-    staleDays: 365,
-    scannedAt: '2026-09-01T10:00:00.000Z',
-    bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
-    objects: [
-      {
-        status: 'scanned',
-        objectApiName: 'Contact',
-        label: 'Contact',
-        totalRecords: 18,
-        fields: [
-          { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
-          { fieldApiName: 'Salutation', label: 'Salutation', filled: 7, required: false },
-          { fieldApiName: 'Phone', label: 'Business Phone', filled: 13, required: false },
-          { fieldApiName: 'Email', label: 'Email', filled: 17, required: false },
-          { fieldApiName: 'LastName', label: 'Last Name', filled: 18, required: true },
-        ],
-        unmeasured: [
-          { fieldApiName: 'Description', label: 'Description', reason: 'not-countable' },
-        ],
-        duplicates:
-          duplicateKey === 'Email'
-            ? {
-                keyField: 'Email',
-                keyLabel: 'Email',
-                groups: [{ value: 'shared@example.com', count: 2 }],
-                groupCount: 1,
-                recordCount: 2,
-                truncated: false,
-              }
-            : {
-                keyField: 'Phone',
-                keyLabel: 'Business Phone',
-                groups: [
-                  { value: '+33 1 00 00 00 01', count: 3 },
-                  { value: '+33 1 00 00 00 02', count: 2 },
-                ],
-                groupCount: 2,
-                recordCount: 5,
-                truncated: false,
-              },
-        stale: { days: 365, records: 3 },
-        keyFields: [
-          { fieldApiName: 'Phone', label: 'Business Phone' },
-          { fieldApiName: 'Email', label: 'Email' },
-        ],
-        errors: [],
-      },
-    ],
-  };
-}
-
-test.describe('DataOps — Quality', () => {
-  let bridge: MockBridge;
-
-  test.beforeEach(async ({ page }) => {
-    bridge = await openDataOps(page);
-    await answerMountQueries(page, bridge);
-    await page.getByTestId('page-tab-quality').click();
-    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
-    await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
-      objects: [
-        { apiName: 'Account', label: 'Account' },
-        { apiName: 'Contact', label: 'Contact' },
-        { apiName: 'Opportunity', label: 'Opportunity' },
-      ],
-    });
-  });
-
-  test('scans the objects picked and shows what the org counted', async ({ page }) => {
-    // It was a coming-soon notice while nothing produced a quality result.
-    await expect(page.getByTestId('dataops-quality-soon')).toHaveCount(0);
-
-    await page.getByTestId('quality-object-option-Contact').check();
-    await page.getByTestId('quality-scan-btn').click();
-    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
-    const [request] = await outgoing(page, 'dataops:quality-scan');
-    expect(request.payload).toEqual({
-      orgId: 'org-src-1',
-      objects: [{ objectApiName: 'Contact' }],
-      staleDays: 365,
-    });
-
-    await respondToAll(
-      page,
-      'dataops:quality-scan',
-      'dataops:quality-scan:response',
-      qualityAnswer('Email'),
-    );
-
-    const contact = page.getByTestId('quality-object-Contact');
-    await expect(contact).toBeVisible({ timeout: 10_000 });
-    await expect(contact.getByTestId('quality-total')).toHaveText('18 records');
-    await expect(contact.getByTestId('quality-summary-empty')).toHaveText('2 of 5 counted');
-    await expect(contact.getByTestId('quality-summary-stale')).toHaveText('3 (16.7%)');
-    await expect(contact.getByTestId('quality-duplicate-summary')).toHaveText(
-      '1 value of Email is carried by 2 records.',
-    );
-    await expect(contact.getByTestId('quality-field-Fax').first()).toContainText('Always empty');
-    await expect(contact.getByTestId('quality-unmeasured-not-countable')).toContainText(
-      'Description',
-    );
-  });
-
-  test('looks for duplicates by another field when one is picked, for that object alone', async ({
-    page,
-  }) => {
-    await page.getByTestId('quality-object-option-Contact').check();
-    await page.getByTestId('quality-scan-btn').click();
-    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
-    await respondToAll(
-      page,
-      'dataops:quality-scan',
-      'dataops:quality-scan:response',
-      qualityAnswer('Email'),
-    );
-
-    const contact = page.getByTestId('quality-object-Contact');
-    await contact.getByLabel('Find duplicates by').selectOption('Phone');
-
-    await expect.poll(async () => (await outgoing(page, 'dataops:quality-scan')).length).toBe(2);
-    const [, rescan] = await outgoing(page, 'dataops:quality-scan');
-    expect(rescan.payload).toEqual({
-      orgId: 'org-src-1',
-      objects: [{ objectApiName: 'Contact', duplicateKey: 'Phone' }],
-      staleDays: 365,
-    });
-    await respondToAll(
-      page,
-      'dataops:quality-scan',
-      'dataops:quality-scan:response',
-      qualityAnswer('Phone'),
-    );
-
-    await expect(contact.getByTestId('quality-duplicate-summary')).toHaveText(
-      '2 values of Business Phone are each carried by more than one record: 5 records in all.',
-      { timeout: 10_000 },
-    );
-  });
-
-  test('shows the extension refusing a scan', async ({ page }) => {
-    await page.getByTestId('quality-object-option-Account').check();
-    await page.getByTestId('quality-scan-btn').click();
-    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
-    await respondToAll(page, 'dataops:quality-scan', 'dataops:error', {
-      message: 'INVALID_SESSION_ID: Session expired or invalid',
-      code: 'UNKNOWN',
-      retryable: false,
-    });
-
-    await expect(page.getByTestId('quality-scan-error')).toContainText('INVALID_SESSION_ID', {
-      timeout: 10_000,
-    });
   });
 });
 
@@ -900,6 +732,64 @@ test.describe('DataOps — Cleanup', () => {
   test.beforeEach(async ({ page }) => {
     bridge = await openDataOps(page);
     await openObjectTab(page, bridge, 'cleanup');
+  });
+
+  test('says how filled each field is and which values repeat, beside what a delete takes, from one scan', async ({
+    page,
+  }) => {
+    // Quality was a tab of its own: the same picker, threshold and Scan.
+    await page.getByTestId('cleanup-object-option-Contact').check();
+    await page.getByTestId('cleanup-scan-btn').click();
+    await bridge.waitForMessage('dataops:cleanup:scan', { timeout: 10_000 });
+    await respondToAll(page, 'dataops:cleanup:scan', 'dataops:cleanup:scan:response', {
+      orgId: 'org-src-1',
+      staleDays: 365,
+      scannedAt: '2026-09-23T10:00:00.000Z',
+      orphanThreshold: 0.9,
+      bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
+      objects: [
+        {
+          status: 'scanned',
+          objectApiName: 'Contact',
+          label: 'Contact',
+          totalRecords: 18,
+          fields: [
+            { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
+            { fieldApiName: 'Salutation', label: 'Salutation', filled: 7, required: false },
+            { fieldApiName: 'Email', label: 'Email', filled: 17, required: false },
+            { fieldApiName: 'LastName', label: 'Last Name', filled: 18, required: true },
+          ],
+          unmeasured: [
+            { fieldApiName: 'Description', label: 'Description', reason: 'not-countable' },
+          ],
+          stale: { days: 365, records: 3 },
+          orphans: [],
+          duplicates: {
+            keyField: 'Email',
+            keyLabel: 'Email',
+            groups: [{ value: 'shared@example.com', count: 2 }],
+            groupCount: 1,
+            recordCount: 2,
+            truncated: false,
+          },
+          keyFields: [{ fieldApiName: 'Email', label: 'Email' }],
+          errors: [],
+        },
+      ],
+    });
+
+    const contact = page.getByTestId('cleanup-object-Contact');
+    await expect(contact.getByTestId('cleanup-stale-delete')).toBeVisible({ timeout: 10_000 });
+    await expect(contact.getByTestId('quality-duplicate-table')).toContainText(
+      'shared@example.com',
+    );
+    await expect(contact.getByTestId('quality-summary-empty')).toHaveText('2 of 4 counted');
+    await expect(contact.getByTestId('quality-field-Fax').first()).toContainText('Always empty');
+    await expect(contact.getByTestId('quality-unmeasured-not-countable')).toContainText(
+      'Description',
+    );
+    // Nothing of it was asked on a channel of its own.
+    expect(await outgoing(page, 'dataops:quality-scan')).toHaveLength(0);
   });
 
   test('scans, says what a delete takes, and deletes only after the confirmation', async ({

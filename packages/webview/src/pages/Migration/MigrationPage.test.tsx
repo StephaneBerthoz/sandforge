@@ -381,7 +381,7 @@ describe('MigrationPage — what the import did not carry over', () => {
     expect(limit).toContain('set a filter on its row, a range of CreatedDate for instance');
     expect(limit).toContain('Forge with Depth ALL and Records per object set to A sample');
     expect(notMaster).toContain('Autopilot copies only the records the objects you tick point at');
-    expect(deleteOldData).toContain('DataOps → Cleanup → Empty objects');
+    expect(deleteOldData).toContain('DataOps → Emptying → Empty objects');
     // An honest note: never "copy, then mask", which writes the real values first.
     expect(mockAll).toContain("name in the export's mockFields only the fields to keep out");
     expect(mockAll).not.toMatch(/mask/i);

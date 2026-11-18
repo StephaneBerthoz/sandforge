@@ -200,7 +200,7 @@ never empties, is not known here: the command registers the org afresh, from
 what it says it is. So the whole of a Partial Copy or Full sandbox, read from
 its data storage — past the 1 GB of a Developer Pro sandbox — is refused,
 --org and a --resume of such a run alike (COPY_SANDBOX), before anything is
-read: empty it whole from DataOps Cleanup in the panel, which knows the mark,
+read: empty it whole from DataOps Emptying in the panel, which knows the mark,
 or pick its objects with --objects, which Production Guard asks about. A
 scratch org and a Developer or Developer Pro sandbox are emptied whole.
 

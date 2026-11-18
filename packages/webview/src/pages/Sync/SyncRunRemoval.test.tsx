@@ -645,7 +645,7 @@ describe('SyncRunRemoval', () => {
       );
       expect(screen.getByTestId('sync-removal-put-back-not-kept').textContent).toBe(
         'Values from before no longer kept (past sandforge.backup.maxAgeDays, or deleted from ' +
-          "the Restore tab): 1. Those records keep the run's values.",
+          "the Backups tab): 1. Those records keep the run's values.",
       );
       fireEvent.click(screen.getByTestId('sync-removal-remove'));
       expect(screen.getByTestId('sync-removal-confirm-not-kept')).toBeTruthy();
@@ -868,7 +868,7 @@ describe('SyncRunRemoval', () => {
       'Account: 2,000 of 4,321 given back their values from before the run' +
         ' · changed since the run, left as they are: 1 · no longer in DEV-SANDBOX: 2' +
         ' · refused by DEV-SANDBOX: 3 · values from before no longer kept (their backup was' +
-        ' deleted from the Restore tab, or reached its retention): 4' +
+        ' deleted from the Backups tab, or reached its retention): 4' +
         ' · not reached before the stop: 5' +
         " · given back but for fields DEV-SANDBOX no longer takes, which keep the run's values: 6" +
         'Account.OwnerId: the owner is inactive',

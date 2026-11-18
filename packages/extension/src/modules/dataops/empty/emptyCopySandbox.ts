@@ -51,7 +51,7 @@ export async function copySandboxRefusal(
 ): Promise<DataOpsEmptyRefusal | undefined> {
   if (input.orgType !== 'Sandbox') return undefined;
   const instead =
-    'Empty it whole from DataOps Cleanup in the panel, which knows whether it is marked ' +
+    'Empty it whole from DataOps Emptying in the panel, which knows whether it is marked ' +
     'Staging, or pick the objects to empty with --objects, which Production Guard asks about. ' +
     NOTHING_READ;
   let storage: number;

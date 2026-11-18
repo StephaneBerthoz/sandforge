@@ -18,7 +18,7 @@ import {
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * DataOps → Cleanup → Empty objects and Empty the org, on the fake bridge,
+ * DataOps → Emptying → Empty objects and Empty the org, on the fake bridge,
  * every answer in the shape the extension sends (fixtures/empty.ts): a
  * preview before any button deletes, a production org never asked, a delete
  * for good greyed out without its permission, a confirmation armed by the
@@ -81,8 +81,8 @@ async function lastPayload(page: Page, type: string): Promise<Record<string, unk
   return requests[requests.length - 1].payload as Record<string, unknown>;
 }
 
-/** Boot DataOps on `orgs`, open Cleanup, and answer what its parts ask as they open. */
-async function openCleanup(
+/** Boot DataOps on `orgs`, open Emptying, and answer what its parts ask as they open. */
+async function openEmptying(
   page: Page,
   orgs: readonly unknown[] = MOCK_ORGS,
   scope = emptyScope(),
@@ -94,11 +94,7 @@ async function openCleanup(
   });
   await page.goto('/');
   await bridge.seedOrgs(orgs);
-  await page.getByTestId('page-tab-cleanup').click();
-  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
-  await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
-    objects: [{ apiName: 'Account', label: 'Account' }],
-  });
+  await page.getByTestId('page-tab-emptying').click();
   await page.getByTestId('empty-panel').or(page.getByTestId('empty-production')).waitFor();
   if (await page.getByTestId('empty-panel').isVisible()) {
     await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
@@ -127,7 +123,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('says the whole preview before any button deletes, and asks it as picked', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     // Nothing deletes before a preview: no button for it on the page.
     await expect(page.getByTestId('empty-preview-empty')).toHaveCount(0);
     await expect(page.getByTestId('empty-objects-preview')).toBeDisabled();
@@ -182,7 +178,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
       alias: 'Prod',
       orgType: 'Production',
     });
-    await openCleanup(page, [production]);
+    await openEmptying(page, [production]);
     await expect(page.getByTestId('empty-production-refusal')).toContainText(
       'Prod is a production org, or cannot be told from one.',
     );
@@ -202,7 +198,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
     });
     await page.goto('/');
     await bridge.seedOrgs(MOCK_ORGS);
-    await page.getByTestId('page-tab-cleanup').click();
+    await page.getByTestId('page-tab-emptying').click();
     await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
     await respondToAll(page, 'dataops:empty:scope', 'dataops:error', {
       message:
@@ -218,7 +214,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('greys the delete for good out without Bulk API Hard Delete, and says why', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await expect(page.getByTestId('empty-objects-hard')).toBeDisabled();
     // Whose, never by a username: the page is screenshotted and pasted.
     await expect(page.getByTestId('empty-objects-hard-why')).toHaveText(
@@ -232,7 +228,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('deletes for good only when ticked with the permission, its confirmation saying no Undo', async ({
     page,
   }) => {
-    await openCleanup(page, MOCK_ORGS, emptyScope({ permitted: true }));
+    await openEmptying(page, MOCK_ORGS, emptyScope({ permitted: true }));
     await expect(page.getByTestId('empty-objects-hard')).toBeEnabled();
     await page.getByTestId('empty-objects-hard').check();
     const hard = objectsPreview();
@@ -255,7 +251,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('arms the emptying with the org name typed, the button saying the act and its size', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await page.getByTestId('empty-org-preview').click();
     expect(await lastPayload(page, 'dataops:empty:preview')).toEqual({
       orgId: EMPTY_ORG.id,
@@ -301,7 +297,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('stops a run from its page before its next call, and says what it did not reach', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(page);
     await page.getByTestId('empty-preview-empty').click();
     await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
@@ -345,7 +341,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('brings the records back with Undo, asked with the org name and what fires', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(page);
     await page.getByTestId('empty-preview-empty').click();
     await page.getByTestId('danger-input').fill(EMPTY_ORG.alias);
@@ -389,7 +385,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('a run the preview named blockers for: named before, refused after with the org words', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(page);
     await expect(page.getByTestId('empty-preview-blockers')).toBeVisible();
     await page.getByTestId('empty-preview-empty').click();
@@ -410,7 +406,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   });
 
   test('holds the emptying while a refusal no box lifts stands, and says it', async ({ page }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(
       page,
       objectsPreview({
@@ -433,7 +429,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('names each person at work and when, and empties on their work once its box is ticked', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(page, peopleAtWork());
     await expect(page.getByTestId('empty-preview-person-005000000000077')).toContainText(
       'Ada Example: 4 records, last changed',
@@ -462,7 +458,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('takes up the last emptying with the people at work accepted only when ticked', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     await previewObjects(
       page,
       objectsPreview({ openRun: { runId: RUN_ID, startedAt: '2026-11-12T14:05:12.000Z' } }),
@@ -485,7 +481,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('lists the org history from the audit trail, Undo on its last emptying', async ({
     page,
   }) => {
-    await openCleanup(page);
+    await openEmptying(page);
     const entry = page.getByTestId(`empty-history-${emptyAudit()[0].id}`);
     await expect(entry).toContainText('143 records deleted, 2 refused');
     await expect(entry).toContainText(RUN_ID);
@@ -510,7 +506,7 @@ test.describe('DataOps — Empty objects and Empty the org', () => {
   test('a sandbox marked Staging: the whole org is refused, objects are offered', async ({
     page,
   }) => {
-    await openCleanup(page, [{ ...MOCK_ORGS[0], staging: true }]);
+    await openEmptying(page, [{ ...MOCK_ORGS[0], staging: true }]);
     await expect(page.getByTestId('empty-org-staging')).toContainText('marked Staging');
     await expect(page.getByTestId('empty-org-preview')).toHaveCount(0);
     await expect(page.getByTestId('empty-objects-staging')).toBeVisible();

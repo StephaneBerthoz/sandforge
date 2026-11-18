@@ -878,7 +878,7 @@ describe('forge:undo', () => {
       expect(errors()[0].payload).toMatchObject({ code: 'NOT_RECORDED' });
       expect(errors()[0].payload.message).toContain(
         'A checkpoint taken before the run takes the org back (Checkpoints → Rewind…); without one, ' +
-          'DataOps → Cleanup → Empty objects empties its objects, every record of them.',
+          'DataOps → Emptying → Empty objects empties its objects, every record of them.',
       );
     });
 

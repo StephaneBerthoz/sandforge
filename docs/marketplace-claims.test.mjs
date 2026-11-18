@@ -1110,7 +1110,7 @@ test('no surface still calls DataOps Restore unbuilt', () => {
   const dataops = surfaces['docs/modules/dataops.md'];
   const restoreSection = dataops.slice(
     dataops.indexOf('### Restore'),
-    dataops.indexOf('### Anonymize'),
+    dataops.indexOf('### Masking'),
   );
   assert.ok(restoreSection.length > 0, 'the Restore section is gone from docs/modules/dataops.md');
   if (/coming soon/i.test(restoreSection)) {

@@ -300,7 +300,7 @@ test('a run of the whole org goes from Review with no file and no Clone directly
   await expect(page.getByTestId('forge-whole-org-dry-run')).toHaveCount(0);
 });
 
-test('Empty these objects first opens DataOps on Cleanup for the target, the objects it holds picked', async ({
+test('Empty these objects first opens DataOps on Emptying for the target, the objects it holds picked', async ({
   page,
 }) => {
   const bridge = await openReview(page, 'Light Modern');
@@ -308,7 +308,7 @@ test('Empty these objects first opens DataOps on Cleanup for the target, the obj
   await page.getByTestId('review-target-holds-empty-first-btn').click();
 
   await expect(page.getByTestId('dataops-page')).toBeVisible();
-  await expect(page.getByTestId('page-tab-cleanup')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('page-tab-emptying')).toHaveAttribute('aria-selected', 'true');
   await page.getByTestId('empty-panel').waitFor();
   await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
   await answerAll(page, 'dataops:empty:scope', 'dataops:empty:scope:response', scopeAnswer());

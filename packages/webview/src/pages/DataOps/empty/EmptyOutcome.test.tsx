@@ -101,7 +101,7 @@ describe('EmptyOutcome', () => {
     });
     expect(screen.getByTestId('empty-outcome-title')).toHaveTextContent('dev emptied in part');
     expect(screen.getByTestId('empty-result-pass-Account')).toHaveTextContent(
-      '3 records made since the preview are left as they are',
+      '3 records made since the simulation are left as they are',
     );
     expect(screen.getByTestId('empty-result-pass-Account')).toHaveTextContent(
       'DELETE_FAILED: a Case still names it in AccountId',
@@ -119,7 +119,7 @@ describe('EmptyOutcome', () => {
     expect(screen.queryByTestId('empty-undo-previewed-lost')).toBeNull();
   });
 
-  it('names what its preview said no undo would bring back, which no undelete names', () => {
+  it('names what its simulation said no undo would bring back, which no undelete names', () => {
     renderOutcome({
       kind: 'undo',
       undo: {
@@ -137,7 +137,7 @@ describe('EmptyOutcome', () => {
       },
     });
     const lost = screen.getByTestId('empty-undo-previewed-lost');
-    expect(lost).toHaveTextContent('Not brought back, as the preview said Undo could not');
+    expect(lost).toHaveTextContent('Not brought back, as the simulation said Undo could not');
     expect(lost).toHaveTextContent('1 Opportunity: gone before Pricebook2');
     expect(lost).not.toHaveTextContent('OrderItem');
   });

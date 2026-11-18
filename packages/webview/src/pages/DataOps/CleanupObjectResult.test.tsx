@@ -42,6 +42,7 @@ function result(over: Partial<CleanupResult> = {}, busy = false) {
       staleDays={365}
       orphanThreshold={0.9}
       duplicateGroupLimit={2000}
+      singleFieldQueries={20}
       busy={busy}
       {...handlers}
     />,
@@ -50,6 +51,37 @@ function result(over: Partial<CleanupResult> = {}, busy = false) {
 }
 
 describe('CleanupObjectResult', () => {
+  it('says how filled each field is, below what can be deleted, as Quality said it', () => {
+    result({
+      fields: [
+        { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
+        { fieldApiName: 'Email', label: 'Email', filled: 90, required: false },
+      ],
+      unmeasured: [{ fieldApiName: 'Description', label: 'Description', reason: 'not-countable' }],
+    });
+
+    const fields = screen.getByTestId('cleanup-fields');
+    expect(fields.textContent).toContain('How filled each field is');
+    expect(screen.getByTestId('quality-mostly-empty-table').textContent).toContain('Fax');
+    expect(screen.getByTestId('quality-unmeasured-not-countable').textContent).toContain(
+      'Description',
+    );
+  });
+
+  it('says nothing of the fields of a scan that did not count them', () => {
+    result();
+    expect(screen.queryByTestId('cleanup-fields')).toBeNull();
+  });
+
+  it('lists the values most repeated beside the copies a delete takes', () => {
+    result();
+
+    const table = screen.getByTestId('quality-duplicate-table');
+    expect(table.textContent).toContain('shared@example.com');
+    expect(table.textContent).toContain('3');
+    expect(screen.getByTestId('cleanup-duplicates-delete')).toBeDefined();
+  });
+
   it('holds Delete back, with the reason and what is left, on an object the user may not delete', () => {
     // Delete was offered, and refused once its review opened.
     result({ deletable: false });
@@ -143,6 +175,7 @@ describe('CleanupObjectResult', () => {
         staleDays={365}
         orphanThreshold={0.9}
         duplicateGroupLimit={2000}
+        singleFieldQueries={20}
         busy={false}
         onKeyChange={vi.fn()}
         onExport={vi.fn()}

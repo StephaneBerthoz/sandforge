@@ -118,7 +118,7 @@ describe('SliceSetRow', () => {
     const all = screen.getByTestId('restore-set-set-1-all');
     expect(all.getAttribute('aria-disabled')).toBe('true');
     expect(document.getElementById(all.getAttribute('aria-describedby') ?? '')?.textContent).toBe(
-      'Its masking run is still open: resume it to its end, or abandon it, on the Anonymize ' +
+      'Its masking run is still open: resume it to its end, or abandon it, on the Masking ' +
         'tab before restoring. Resumed, it would mask again what a restore puts back.',
     );
     fireEvent.click(all);

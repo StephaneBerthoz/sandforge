@@ -25,7 +25,7 @@ describe('copySandboxRefusal', () => {
       expect(refusal?.code).toBe(COPY_SANDBOX);
       expect(refusal?.message).toContain(`UAT is a Partial Copy or Full sandbox`);
       expect(refusal?.message).toContain(`${max.toLocaleString('en-US')} MB`);
-      expect(refusal?.message).toContain('DataOps Cleanup in the panel');
+      expect(refusal?.message).toContain('DataOps Emptying in the panel');
       expect(refusal?.message).toContain('--objects');
       expect(refusal?.message).toContain('No record was read or deleted.');
     }

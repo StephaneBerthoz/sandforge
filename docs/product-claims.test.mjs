@@ -1827,9 +1827,9 @@ function jsxMountCount(relativePath, tagName) {
 function assertCleanupDeletesOnlyWhatAScanRecommends() {
   // Positive control: the walk reads the page's panels.
   assert.equal(
-    jsxMountCount(DATAOPS_PAGE_FILE, 'QualityPanel'),
+    jsxMountCount(DATAOPS_PAGE_FILE, 'BackupPanel'),
     1,
-    'the JSX walk does not see the Quality panel in DataOpsPage — it is not reading the page',
+    'the JSX walk does not see the Backups panel in DataOpsPage — it is not reading the page',
   );
   assert.deepEqual(
     [

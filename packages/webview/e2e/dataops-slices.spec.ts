@@ -195,10 +195,10 @@ async function openDataOps(
     'dataops:anonymization-templates:response',
     { templates: TEMPLATES },
   );
-  await expect(page.getByTestId('backup-panel')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('anonymize-panel')).toBeVisible({ timeout: 10_000 });
 }
 
-/** Open the Anonymize tab on the template, the coverage answering `coverage`. */
+/** Open the Masking tab on the template, the coverage answering `coverage`. */
 async function pickTemplate(page: Page, coverage: Record<string, unknown>): Promise<void> {
   await page.getByTestId('page-tab-anonymize').click();
   await page.getByTestId('template-select').selectOption('tpl-gdpr');
@@ -337,11 +337,11 @@ for (const theme of THEMES) {
         ]);
     });
 
-    test('Restore lists a set, opens its slices and restores one, each passing axe', async ({
+    test('Backups lists a set, opens its slices and restores one, each passing axe', async ({
       page,
     }) => {
       await openDataOps(page, theme, { backups: [], sets: [SET] });
-      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('page-tab-backup').click();
       await expect(page.getByTestId('restore-set-set-1')).toBeVisible();
       await page.getByTestId('restore-set-set-1-toggle').click();
       await expect(page.getByTestId('restore-set-set-1-slices')).toBeVisible();
@@ -359,7 +359,7 @@ for (const theme of THEMES) {
       expect(restore.payload).toMatchObject({ operationId: 'set-1', slices: [2], fromPage: true });
     });
 
-    test('Restore badges a backup in slices that stopped part way as partial, says it, and passes axe', async ({
+    test('Backups badges a backup in slices that stopped part way as partial, says it, and passes axe', async ({
       page,
     }) => {
       const stopped = {
@@ -371,7 +371,7 @@ for (const theme of THEMES) {
         slices: [slice(1, 'snapshotted', { masked: 0 }), slice(2, 'snapshotted', { masked: 0 })],
       };
       await openDataOps(page, theme, { backups: [], sets: [stopped] });
-      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('page-tab-backup').click();
       await expect(page.getByTestId('restore-set-set-2-state')).toHaveText('Partial');
       await expect(page.getByTestId('restore-set-set-2-partial')).toHaveText(
         'Stopped before every record was backed up: no run takes it up. Its slices restore as they are; a new backup in slices takes every record again.',
@@ -380,7 +380,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
     });
 
-    test('Backup offers slices for an object the last backup stopped at the cap for, and passes axe', async ({
+    test('Create backup, on Masking, offers slices for an object the last backup stopped at the cap for, and passes axe', async ({
       page,
     }) => {
       await openDataOps(page, theme, {

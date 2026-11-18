@@ -151,7 +151,7 @@ test.describe('Quick Sync refused for the target’s data storage', () => {
     await expect(page.getByTestId('forge-depth-all')).toBeVisible();
   });
 
-  test('Empty these objects opens DataOps on Cleanup for the target, the objects picked and the target selected', async ({
+  test('Empty these objects opens DataOps on Emptying for the target, the objects picked and the target selected', async ({
     page,
   }) => {
     const bridge = new MockBridge();
@@ -161,7 +161,7 @@ test.describe('Quick Sync refused for the target’s data storage', () => {
     await page.getByTestId('quick-sync-empty-first').click();
 
     await expect(page.getByTestId('dataops-page')).toBeVisible();
-    await expect(page.getByTestId('page-tab-cleanup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('page-tab-emptying')).toHaveAttribute('aria-selected', 'true');
     await page.getByTestId('empty-panel').waitFor();
     await answerOnceAsked(
       page,
@@ -279,7 +279,7 @@ test.describe('a simulation whose target lacks an object', () => {
 });
 
 test.describe('Migration’s import of an SFDMU export that emptied objects first', () => {
-  test('offers to empty them, held until the run’s target is picked, then opens DataOps on Cleanup for it, those objects picked', async ({
+  test('offers to empty them, held until the run’s target is picked, then opens DataOps on Emptying for it, those objects picked', async ({
     page,
   }) => {
     const bridge = new MockBridge();
@@ -302,7 +302,7 @@ test.describe('Migration’s import of an SFDMU export that emptied objects firs
     await button.click();
 
     await expect(page.getByTestId('dataops-page')).toBeVisible();
-    await expect(page.getByTestId('page-tab-cleanup')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('page-tab-emptying')).toHaveAttribute('aria-selected', 'true');
     await page.getByTestId('empty-panel').waitFor();
     await answerOnceAsked(
       page,

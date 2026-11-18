@@ -3656,7 +3656,7 @@ export class DataOpsHandler implements DomainHandler {
         // did not say.
         objectResults: (meta.objects ?? []).map(heldOf),
         ...(meta.partial ? { partial: true } : {}),
-        // A Sync run's, which the Restore tab says: removing the run gives it back.
+        // A Sync run's, which the Backups tab says: removing the run gives it back.
         ...(meta.origin === 'sync' ? { origin: 'sync' as const } : {}),
       });
     }
@@ -5260,7 +5260,7 @@ export class DataOpsHandler implements DomainHandler {
     return {
       resume: 'Resume on the DataOps panel, or sandforge dataops anonymize --resume',
       abandon: 'Abandon on the DataOps panel, or sandforge dataops anonymize --abandon',
-      restore: () => 'the Restore tab of the DataOps panel lists the set and puts its values back',
+      restore: () => 'the Backups tab of the DataOps panel lists the set and puts its values back',
     };
   }
 
@@ -5366,7 +5366,7 @@ export class DataOpsHandler implements DomainHandler {
     const ways = this.onCommandLine
       ? 'give --store a folder on another disk, delete the backups no longer needed ' +
         '(sandforge backup --list, then delete them), or keep backups fewer days (--max-age-days)'
-      : 'delete the backups no longer needed in the Restore tab, or keep backups fewer days ' +
+      : 'delete the backups no longer needed in the Backups tab, or keep backups fewer days ' +
         '(sandforge.backup.maxAgeDays)';
     return (
       `${before ? 'Nothing was masked' : 'The run stopped between two slices'}: the slices' ` +
@@ -7580,8 +7580,8 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * Answer `backup:objects`: the objects the Backup tab reads before an
-   * Anonymize — those a masking run of the template picked plans in the org,
+   * Answer `backup:objects`: the objects Create backup reads before a
+   * masking run — those a masking run of the template picked plans in the org,
    * or of every template listed when none is picked, in the order their rules
    * first name them (`plannedAnonymizeObjects`). The tab read the objects the
    * rules name, so a template masking contacts in an org with person accounts

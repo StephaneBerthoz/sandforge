@@ -10,11 +10,13 @@ import { scopeAnswer } from '../src/pages/DataOps/empty/testing/emptyAnswers';
 
 /**
  * Empty these objects first, from the Review of a clone of the whole org:
- * DataOps opens on Cleanup with the objects the target holds picked. One the
- * target's scope does not offer — a package's object, one the user may not
- * delete — was left picked and said nothing until a preview left it out. It
- * is said left out, with why, as Cleanup opens, and never asked. Scanned with
- * axe under VS Code's default themes and the two they replaced.
+ * DataOps opens on Emptying with the objects the target holds picked, Empty
+ * objects in view and holding the focus: it sat below Cleanup's scan, off
+ * screen. One the target's scope does not offer — a package's object, one the
+ * user may not delete — was left picked and said nothing until a simulation
+ * left it out. It is said left out, with why, as Emptying opens, and never
+ * asked. Scanned with axe under VS Code's default themes and the two they
+ * replaced.
  */
 const THEMES = ['Light 2026', 'Dark 2026', 'Light Modern', 'Dark Modern'] as const;
 type Theme = (typeof THEMES)[number];
@@ -126,6 +128,10 @@ for (const theme of THEMES) {
     await page.getByTestId('review-target-holds-empty-first-btn').click();
 
     await page.getByTestId('empty-panel').waitFor();
+    await expect(page.getByTestId('page-tab-emptying')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('cleanup-panel')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Empty objects', exact: true })).toBeFocused();
+    await expect(page.getByTestId('empty-objects')).toBeInViewport();
     await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
     await answerAll(
       page,

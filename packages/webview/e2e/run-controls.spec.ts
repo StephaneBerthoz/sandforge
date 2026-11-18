@@ -181,11 +181,11 @@ async function openDataOps(page: Page, theme: Theme): Promise<MockBridge> {
     'dataops:anonymization-templates:response',
     { templates: TEMPLATES },
   );
-  await expect(page.getByTestId('backup-panel')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('anonymize-panel')).toBeVisible({ timeout: 10_000 });
   return bridge;
 }
 
-/** Open the Anonymize tab on the GDPR template. */
+/** Open the Masking tab on the GDPR template. */
 async function pickTemplate(page: Page): Promise<void> {
   await page.getByTestId('page-tab-anonymize').click();
   await page.getByTestId('template-select').selectOption('tpl-gdpr');
@@ -290,8 +290,7 @@ for (const theme of THEMES) {
 
     test('a restore offers its Cancel while it writes, and passes axe', async ({ page }) => {
       await openDataOps(page, theme);
-      await page.getByTestId('page-tab-restore').click();
-      await page.getByTestId('restore-backup-op-backup-1').locator('[role="button"]').click();
+      await page.getByTestId('page-tab-backup').click();
       await page.getByTestId('restore-btn-op-backup-1').click();
       // It asks first, naming the org, and passes axe asking.
       await expect(page.getByTestId('danger-title')).toContainText('DevSandbox');

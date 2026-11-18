@@ -28,7 +28,6 @@
     "disabled": "Désactivé",
     "enable": "Activer",
     "disable": "Désactiver",
-    "selected": "Sélectionné",
     "object": "Objet",
     "type": "Type",
     "status": "Statut",
@@ -1098,7 +1097,7 @@
       "created_one": "{{formatted}} enregistrement créé dans {{org}}",
       "created_other": "{{formatted}} enregistrements créés dans {{org}}",
       "removeDescription": "Supprime de {{org}} les enregistrements que ce seed a insérés, le dernier objet écrit d'abord, les enfants avant leurs parents ; ils vont dans sa corbeille. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis le seed, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
-      "notKept": "Ce que ce seed a créé n'est plus conservé — il a été écarté pour faire place à des seeds plus récents, ou a tourné avant que les seeds soient conservés sur disque — et ne peut pas être retiré d'ici. Pour reprendre ses enregistrements : rembobinez l'org à un point de contrôle pris avant lui, dans Points de contrôle ; ou videz ses objets dans DataOps → Nettoyage → Vider des objets, qui supprime tous leurs enregistrements, pas seulement ceux de ce seed.",
+      "notKept": "Ce que ce seed a créé n'est plus conservé — il a été écarté pour faire place à des seeds plus récents, ou a tourné avant que les seeds soient conservés sur disque — et ne peut pas être retiré d'ici. Pour reprendre ses enregistrements : rembobinez l'org à un point de contrôle pris avant lui, dans Points de contrôle ; ou videz ses objets dans DataOps → Vidage → Vider des objets, qui supprime tous leurs enregistrements, pas seulement ceux de ce seed.",
       "historyTitle": "Seeds précédents",
       "historyNote": "Les seeds que l'extension a conservés, les plus récents d'abord : ceux dont les enregistrements sont encore dans leur org peuvent être retirés, y compris après un rechargement de la fenêtre. Un seed dont les enregistrements sont encore dans son org reste listé jusqu'à son retrait ; des seeds retirés, les 20 plus récents sont listés.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} enregistrement créé",
@@ -1996,7 +1995,7 @@
       "queryClause": "« {{detail}} » dans sa query n'est pas repris : Sync n'exécute pas la query.",
       "queryUnread": "Sa query n'a pas pu être lue, et aucun filtre n'en vient : Sync lit tous les enregistrements de l'objet. Posez un filtre sur sa ligne.",
       "whereRefused": "Son WHERE fait plus que filtrer, par exemple avec une sous-requête, et Sync le refuse : réécrivez-le sur sa ligne, sinon l'enregistrement de la configuration sera refusé.",
-      "deleteOldData": "deleteOldData n'est pas repris : les anciens enregistrements de la cible ne sont pas supprimés d'abord. Pour partir d'un objet vide, videz-le d'abord dans DataOps → Nettoyage → Vider des objets, puis lancez la synchronisation.",
+      "deleteOldData": "deleteOldData n'est pas repris : les anciens enregistrements de la cible ne sont pas supprimés d'abord. Pour partir d'un objet vide, videz-le d'abord dans DataOps → Vidage → Vider des objets, puis lancez la synchronisation.",
       "emptyFirst": "Vider d'abord ces objets dans la cible",
       "emptyFirstPickTarget": "Choisissez l'org cible sous L'exécuter depuis Sync pour y vider ces objets.",
       "mockFields": "SFDMU écrit des valeurs factices dans {{detail}}. Sync n'en a pas : ces champs sont laissés hors de l'écriture plutôt que copiés avec leurs vraies valeurs. Un champ obligatoire fait échouer l'enregistrement ; retirez-le de mockFields pour le copier.",
@@ -2056,7 +2055,7 @@
   },
   "dataops": {
     "title": "DataOps",
-    "backup": "Sauvegarde",
+    "backup": "Sauvegardes",
     "backupPartial": "Partielle : {{objects}} contiennent plus de lignes que cette sauvegarde n'en a lu. Une restauration ne rétablit que ces lignes.",
     "backupPartialLead": "Partielle : une restauration ne rétablit que les lignes lues par cette sauvegarde, et laisse le reste de chaque objet tel quel.",
     "backupStoppedAtCap": "{{object}} : {{read}} lignes lues sur {{held}} — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
@@ -2068,17 +2067,21 @@
     "backupNotKeptEncrypted": "{{object}} : {{fields}} non conservés — champs chiffrés que l'utilisateur avec lequel SandForge se connecte voit masqués, faute de l'autorisation View Encrypted Data. Une restauration les laisse tels que l'org les contient.",
     "restorePartialBadge": "Partielle",
     "backupExported": "Enregistrée dans {{path}}. Enregistrements par objet : {{records}}.",
-    "backupDesc": "Créer et gérer les sauvegardes de données",
-    "restore": "Restaurer",
-    "anonymize": "Anonymiser",
-    "anonymizeDesc": "Anonymiser les données sensibles",
+    "restore": "Restaurer…",
+    "anonymize": "Masquage",
+    "anonymizeDesc": "Masquer les données sensibles",
+    "maskAsked": {
+      "lead": "À masquer sur {{org}} : {{objects}}.",
+      "notMasked": "{{name}} ne masque pas {{objects}} : choisissez un autre modèle, ou créez-en un avec Créer un modèle.",
+      "noTemplate": "Aucun modèle ne masque {{objects}} : créez-en un avec Créer un modèle."
+    },
     "cleanup": "Nettoyage",
-    "quality": "Qualité",
+    "emptying": "Vidage",
     "noOrgSelected": "Aucune org sélectionnée : choisissez-en une dans la liste ci-dessus.",
     "noBackups": "Aucune sauvegarde disponible",
     "createBackup": "Créer une sauvegarde",
     "backupObjectsTemplate": "Sauvegarde {{objects}} : les objets que {{name}} masque.",
-    "backupObjectsAll": "Sauvegarde {{objects}} : les objets que masquent les modèles d’anonymisation.",
+    "backupObjectsAll": "Sauvegarde {{objects}} : les objets que masquent les modèles de masquage.",
     "restoreInProgress": "Restauration en cours...",
     "restoreRewriteAll": "Réécrire chaque ligne de la sauvegarde, y compris celles que l'org contient déjà telles que la sauvegarde les a gardées. Décoché, une restauration lit d'abord l'org et n'écrit que les lignes modifiées depuis la sauvegarde.",
     "restoreResult": "Dernière restauration — écrites : {{written}} · déjà comme dans la sauvegarde, laissées telles quelles : {{unchanged}} · refusées : {{failed}}",
@@ -2114,7 +2117,7 @@
       "readFailed": "{{rows}} (lecture échouée)",
       "capHint": "La sauvegarde s'est arrêtée à son plafond de lignes par objet pour {{objects}} : relevez sandforge.backup.maxRecordsPerObject dans les Paramètres et sauvegardez de nouveau pour garder chaque ligne."
     },
-    "compliance": "Conformité",
+    "compliance": "Données personnelles",
     "frameworks": {
       "gdpr": "RGPD",
       "ccpa": "CCPA",
@@ -2132,45 +2135,30 @@
       "constant": "Constante",
       "preserve_format": "Conserver le format"
     },
-    "anonymizedFields": "Modèles d'anonymisation",
     "emptyState": {
       "title": "Protégez les données de votre org",
-      "description": "DataOps sauvegarde, restaure et anonymise les données de votre org, traite les demandes des personnes concernées et nettoie les enregistrements dont personne n'a besoin.",
-      "step2": "Sauvegardez les champs qu'un modèle masque avant d'anonymiser",
-      "step3": "Anonymisez les champs sensibles avec un modèle",
+      "description": "DataOps masque les données de votre org, les sauvegarde et les restaure, traite les demandes des personnes concernées, nettoie les enregistrements dont personne n'a besoin, et vide des objets ou toute l'org.",
+      "step2": "Sauvegardez les champs qu'un modèle masque avant de les masquer",
+      "step3": "Masquez les champs sensibles avec un modèle",
       "step4": "Restaurez une sauvegarde dans l'org d'où elle provient"
     },
     "exportBackup": "Exporter",
     "soon": {},
     "qualityScan": {
-      "intro": "Compte, pour les objets que vous choisissez, à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un moment. C'est l'org qui compte : aucun enregistrement n'est lu un par un, et rien n'est écrit.",
-      "objectsLegend": "Objets à analyser (jusqu'à {{max}})",
       "staleDays": "Non modifiés depuis (jours)",
       "staleDaysInvalid": "Saisissez un nombre entier de jours entre 1 et {{max}}.",
-      "scan": "Analyser",
-      "method": "Les décomptes portent sur tous les enregistrements que l'utilisateur connecté peut voir. Les cases à cocher, les formules et les champs que l'org tient elle-même sont écartés : une case à cocher n'est jamais vide, et personne ne saisit les autres.",
-      "objectFailed": "Impossible d'analyser cet objet : {{message}}",
-      "records_one": "{{formatted}} enregistrement",
-      "records_other": "{{formatted}} enregistrements",
-      "noRecords": "Aucun enregistrement : rien à mesurer.",
       "mostlyEmpty": "Champs presque toujours vides",
       "ofCounted": "{{part}} sur {{whole}} comptés",
       "noMostlyEmpty": "Aucun champ compté n'est vide sur la plupart des enregistrements.",
       "requiredEmpty": "Champs obligatoires laissés vides",
       "requiredHint": "L'org exige ces champs sur un nouvel enregistrement, et une partie des enregistrements qu'elle contient déjà les laisse vides.",
-      "duplicates": "Doublons probables",
       "duplicateKey": "Chercher les doublons par",
       "pickKey": "Choisissez un champ",
       "noKeyField": "L'org ne peut regrouper les enregistrements de cet objet par aucun champ.",
       "noDuplicates": "Aucune valeur de {{field}} n'est portée par plus d'un enregistrement.",
-      "duplicateGroups_one": "{{formatted}} valeur de {{field}} est portée par {{records}} enregistrements.",
-      "duplicateGroups_other": "{{formatted}} valeurs de {{field}} sont portées chacune par plus d'un enregistrement : {{records}} enregistrements en tout.",
       "duplicateSample": "Les {{shown}} valeurs les plus répétées sur {{total}}.",
       "duplicatesTruncated": "La recherche s'arrête à {{limit}} valeurs répétées : il peut y en avoir plus que ce qui est compté ici.",
       "recordsColumn": "Enregistrements",
-      "stale_one": "Non modifiés depuis {{count}} jour",
-      "stale_other": "Non modifiés depuis {{count}} jours",
-      "notMeasured": "Non mesuré",
       "field": "Champ",
       "filled": "Remplis",
       "fillRate": "Taux de remplissage",
@@ -2179,10 +2167,7 @@
       "unmeasured": "Non comptés ({{total}})",
       "notCountable": "texte long, enrichi ou chiffré, que l'org ne sait ni compter ni filtrer",
       "queryBudget": "chacun demande sa propre requête, et une analyse en lance au plus {{limit}} par objet",
-      "refusedByOrg": "l'org a refusé le comptage ; sa réponse figure ci-dessous",
-      "fillRefused": "Comptage du remplissage : {{message}}",
-      "duplicatesRefused": "Doublons : {{message}}",
-      "staleRefused": "Enregistrements non modifiés : {{message}}"
+      "refusedByOrg": "l'org a refusé le comptage ; sa réponse figure ci-dessous"
     },
     "templateEditor": {
       "title": "Nouveau modèle",
@@ -2358,7 +2343,7 @@
       "refusedByOrg_other": "{{formatted}} refusés par l'org, et laissés tels quels."
     },
     "cleanupScan": {
-      "intro": "Compte, pour les objets que vous choisissez, les enregistrements qu'un nettoyage examinerait : ceux que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée. Le comptage est fait par l'org : aucun enregistrement n'est lu, et rien n'est écrit avant que vous ne supprimiez.",
+      "intro": "Compte, pour les objets que vous choisissez, les enregistrements qu'un nettoyage examinerait : ceux que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée ; et le remplissage de chaque champ. Le comptage est fait par l'org : aucun enregistrement n'est lu, et rien n'est écrit avant que vous ne supprimiez.",
       "objectsLegend": "Objets à examiner (jusqu'à {{max}})",
       "scan": "Analyser",
       "method": "Une suppression prend au plus {{limit}} enregistrements à la fois (les enregistrements non modifiés, les plus anciens d'abord) : relancez-la pour le reste. Un export en prend {{limit}} à la fois, et Exporter les suivants reprend là où il s'est arrêté.",
@@ -2383,6 +2368,7 @@
       "copies": "Valeurs répétées de {{field}} : {{values}}. Copies en trop : {{copies}}.",
       "copiesRule": "Une suppression garde, pour chaque valeur répétée, l'enregistrement modifié en dernier, et supprime les autres copies. Elle ne les fusionne pas : ce qui pointe vers une copie est supprimé avec elle ou reste sans elle.",
       "copiesOf": "les copies en trop par {{field}}",
+      "fields": "Remplissage de chaque champ",
       "export": "Exporter",
       "delete": "Supprimer…",
       "exportWhat": "Exporter : {{what}}",
@@ -2421,7 +2407,7 @@
       "keepHint": "Une sauvegarde des champs que l'exécution masque est prise avant sa première écriture. Si elle ne peut pas contenir toutes les lignes que l'exécution masquerait, rien n'est masqué.",
       "taken_one": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrement : Restaurer les remet.",
       "taken_other": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrements : Restaurer les remet.",
-      "openRestore": "Ouvrir dans Restaurer",
+      "openRestore": "Ouvrir dans Sauvegardes",
       "refused": "Aucune sauvegarde n'a pu être conservée, donc rien n'a été masqué. Un objet qui compte plus de lignes qu'une sauvegarde n'en contient se masque par tranches : cochez « Masquer par tranches » dans la confirmation. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs »."
     },
     "slices": {
@@ -2471,7 +2457,7 @@
         "late_one": "{{formatted}} enregistrement a été créé pendant l'exécution dans une plage déjà masquée : aucune sauvegarde ne le contient, et il n'a pas été masqué. Reprendre le masque, avec une sauvegarde à lui.",
         "late_other": "{{formatted}} enregistrements ont été créés pendant l'exécution dans une plage déjà masquée : aucune sauvegarde ne les contient, et ils n'ont pas été masqués. Reprendre les masque, avec une sauvegarde à eux.",
         "left": "Il reste des tranches. Reprendre masque le reste, chaque tranche sauvegardée d'abord.",
-        "openRestore": "Ouvrir l'ensemble dans Restaurer"
+        "openRestore": "Ouvrir l'ensemble dans Sauvegardes"
       },
       "table": {
         "slice": "Tranche",
@@ -2505,7 +2491,7 @@
           "partial": "Partiel"
         },
         "filtered": "Limité à : {{filters}}",
-        "openHeld": "Son masquage est encore ouvert : reprenez-le jusqu'au bout, ou abandonnez-le, dans l'onglet Anonymiser avant de restaurer. Repris, il masquerait de nouveau ce qu'une restauration remet.",
+        "openHeld": "Son masquage est encore ouvert : reprenez-le jusqu'au bout, ou abandonnez-le, dans l'onglet Masquage avant de restaurer. Repris, il masquerait de nouveau ce qu'une restauration remet.",
         "partialNote": "Arrêté avant que chaque enregistrement soit sauvegardé : aucune exécution ne le reprend. Ses tranches se restaurent telles quelles ; une nouvelle sauvegarde par tranches reprend tous les enregistrements.",
         "expand": "Afficher ses tranches",
         "collapse": "Masquer ses tranches",
@@ -2532,23 +2518,19 @@
       },
       "backup": {
         "toggle": "Sauvegarder par tranches",
-        "hint_one": "{{objects}} compte plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Restaurer les liste comme un seul ensemble.",
-        "hint_other": "{{objects}} comptent plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Restaurer les liste comme un seul ensemble."
+        "hint_one": "{{objects}} compte plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Sauvegardes les liste comme un seul ensemble.",
+        "hint_other": "{{objects}} comptent plus de lignes qu'une sauvegarde n'en contient : par tranches, chaque tranche est une sauvegarde à part, et Sauvegardes les liste comme un seul ensemble."
       },
       "notify": {
         "done": "Masquage par tranches terminé : {{done}} tranches masquées sur {{total}}, chacune avec sa sauvegarde.",
-        "open": "Masquage par tranches arrêté avec des tranches restantes : {{done}} masquées sur {{total}}. Reprendre, dans l'onglet Anonymiser, continue.",
-        "late_one": "Masquage par tranches terminé, mais {{formatted}} enregistrement créé pendant l'exécution n'a pas été masqué : Reprendre, dans l'onglet Anonymiser, le masque.",
-        "late_other": "Masquage par tranches terminé, mais {{formatted}} enregistrements créés pendant l'exécution n'ont pas été masqués : Reprendre, dans l'onglet Anonymiser, les masque."
+        "open": "Masquage par tranches arrêté avec des tranches restantes : {{done}} masquées sur {{total}}. Reprendre, dans l'onglet Masquage, continue.",
+        "late_one": "Masquage par tranches terminé, mais {{formatted}} enregistrement créé pendant l'exécution n'a pas été masqué : Reprendre, dans l'onglet Masquage, le masque.",
+        "late_other": "Masquage par tranches terminé, mais {{formatted}} enregistrements créés pendant l'exécution n'ont pas été masqués : Reprendre, dans l'onglet Masquage, les masque."
       }
     },
     "backupDeleteConfirmSync": "Supprimer cette sauvegarde ? Elle contient ce que l'exécution Sync du {{date}} a écrasé : retirer cette exécution dans Sync ne remettra plus ces valeurs, et elles disparaissent définitivement de cette machine.",
     "restoreSyncPartial": "L'exécution Sync écrit encore, ou s'est arrêtée avant la fin — sa fenêtre s'est fermée, ou l'extension s'est arrêtée : cette sauvegarde contient ce qu'elle avait conservé jusque-là.",
     "orgPicker": "Org que lisent et écrivent les onglets ci-dessous",
-    "kpi": {
-      "backups": "Sauvegardes de {{org}}",
-      "partial": "Sauvegardes partielles ou échouées"
-    },
     "backupStatus": {
       "pending": "En attente",
       "running": "En cours",
@@ -2561,20 +2543,18 @@
     "checkpointBeforeRisk": "Avant une exécution risquée sur une sandbox, créez un point de contrôle (Points de contrôle → Créer un point de contrôle) : Revenir à ce point… y ramène les données de l'org.",
     "takeCheckpoint": "Créer un point de contrôle",
     "restoreEmpty": "Aucune sauvegarde de {{org}} pour l'instant",
-    "restoreEmptyDesc": "Les sauvegardes prises dans l'onglet Sauvegarde, et celles qu'une exécution Sync garde de ce qu'elle remplace, sont listées ici.",
+    "restoreEmptyDesc": "Créer une sauvegarde, à côté du modèle dans l'onglet Masquage, en prend une, tout comme un masquage qui conserve d'abord les valeurs ; une exécution Sync en garde une de ce qu'elle remplace. Chacune est listée ici.",
     "restoreCreateBackup": "Créer une sauvegarde",
-    "restorePick": "Cliquez sur une sauvegarde pour la restaurer ou la supprimer.",
     "restoreConfirm": {
       "title": "Restaurer la sauvegarde du {{date}} dans {{org}} ?",
       "changed": "Les lignes modifiées depuis le {{date}} reprennent les valeurs de la sauvegarde, quel que soit l'auteur de la modification.",
       "syncKept": "Les enregistrements que l'exécution Sync du {{date}} a remplacés reprennent les valeurs qu'ils avaient avant elle ; ceux modifiés ou supprimés depuis l'exécution sont laissés tels quels.",
-      "rewriteAll": "Chaque ligne de la sauvegarde est écrite, y compris celles que l'org contient déjà telles que dans la sauvegarde.",
       "objects": "Ce que contient la sauvegarde :",
       "confirm": "Restaurer dans {{org}}"
     },
     "anonymizeConfirm": {
-      "title": "Anonymiser {{org}} avec « {{name}} » ?",
-      "resumeTitle": "Reprendre l'anonymisation de {{org}} avec « {{name}} » ?",
+      "title": "Masquer {{org}} avec « {{name}} » ?",
+      "resumeTitle": "Reprendre le masquage de {{org}} avec « {{name}} » ?",
       "description": "Remplace ces champs partout où un enregistrement a une valeur : {{fields}}.",
       "resumeDescription": "Remplace ces champs dans les enregistrements que l'exécution arrêtée a laissés : {{fields}}."
     },
@@ -3969,7 +3949,7 @@
     "checkpointContent": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur. Son aperçu compte, objet par objet, les enregistrements à Supprimer, à qui Rendre les valeurs et à Rétablir. Une sauvegarde DataOps est une copie de certains objets : sa restauration ne supprime jamais ce qui a été ajouté.\n- Le retour arrière défait le travail de tous depuis le point de contrôle, pas seulement les exécutions de SandForge : n'importe quel utilisateur, Flow ou intégration. L'aperçu indique qui a modifié quoi en dernier avant que rien ne soit écrit.\n- Jamais sur une org de production : les points de contrôle sont réservés aux sandboxes, aux scratch orgs et aux orgs Developer Edition, et aucun paramètre ni option ne lève ce refus.\n- Les données seulement : champs, Flows, règles de validation, présentations, autorisations, utilisateurs et configuration restent tels quels, et ce qui est déjà sorti de l'org (e-mails, callouts, événements de plateforme) reste envoyé.\n- Les fichiers ne sont couverts qu'en partie : un retour arrière supprime les fichiers joints depuis à ses enregistrements et rétablit ceux supprimés depuis, mais un fichier qui a reçu une nouvelle version conserve son nouveau contenu.\n- Un point de contrôle contient en clair les valeurs des enregistrements, dont des données personnelles, sur cette machine, lisibles par vous seul, pendant 30 jours sauf si vous le conservez.",
     "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Planifications lance une configuration enregistrée selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente dans l'onglet Conflits.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Présence des permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Objets : les objets des deux orgs, lus en direct à l'ouverture de l'onglet\n- Écarts de paramètres d'org : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déployer depuis le diff : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox, une scratch org ou une org Developer Edition",
-    "dataopsContent": "Opérations sur les données de l'org choisie en haut de la page :\n- Sauvegarde : une copie des objets que masquent les modèles d’anonymisation, ou de ceux que masque le modèle choisi, conservée sur cette machine. Ce n'est pas un point de contrôle : avant une exécution risquée sur une sandbox, créez un point de contrôle. Sauvegarder par tranches dépasse la taille d’une sauvegarde ; arrêtée, elle est partielle.\n- Restaurer demande d'abord, en nommant l'org et chaque objet de la sauvegarde, puis remet la sauvegarde dans l'org d'où elle provient ; sauf si Réécrire chaque ligne de la sauvegarde est coché, elle n'écrit que les lignes modifiées depuis.\n- Anonymiser masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA, ou un modèle à vous créé par Créer un modèle ; sauf si vous décochez Conserver d'abord les valeurs, elle sauvegarde ce qu'elle masque, pour que Restaurer puisse le remettre.\n- Conformité trouve les champs qui contiennent des données personnelles, puis les enregistrements d'une personne par e-mail, nom ou téléphone, à exporter, effacer ou supprimer après un examen et une confirmation saisie.\n- Nettoyage compte les enregistrements inactifs, les références vides et les valeurs répétées, à exporter ou supprimer après un examen et une confirmation saisie, 1 000 à la fois.\n- Qualité compte à quelle fréquence chaque champ est rempli, les valeurs de clé partagées et les enregistrements inactifs, et n'écrit rien.",
+    "dataopsContent": "Opérations sur les données de l'org choisie en haut de la page :\n- Masquage masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA, ou un modèle à vous créé par Créer un modèle ; sauf si vous décochez Conserver d'abord les valeurs, il sauvegarde ce qu'il masque, pour que Restaurer… puisse le remettre. Créer une sauvegarde, à côté du modèle, copie sur cette machine les objets qu'il masque.\n- Sauvegardes liste chaque sauvegarde de l'org, chacune avec Restaurer…, Exporter et Supprimer. Restaurer… demande d'abord, en nommant l'org et chaque objet, et s'il faut réécrire chaque ligne ; décoché, il n'écrit que les lignes modifiées depuis. Une sauvegarde n'est pas un point de contrôle : avant une exécution risquée sur une sandbox, créez un point de contrôle.\n- Données personnelles trouve les champs qui contiennent des données personnelles, puis les enregistrements d'une personne par e-mail, nom ou téléphone, à exporter, effacer ou supprimer après un examen et une confirmation saisie.\n- Nettoyage compte les enregistrements inactifs, les références vides, les valeurs répétées et le remplissage de chaque champ, à exporter ou supprimer après un examen et une confirmation saisie, 1 000 à la fois.\n- Vidage supprime tous les enregistrements des objets choisis, ou de toute l'org, une fois que Simuler a compté ce qui part et que vous avez saisi le nom de l'org.",
     "automationContent": "Constructeur visuel de pipelines :\n- Sous Étapes, la page propose les types d'étapes qu'un pipeline exécute : Sync, Seed, Anonymisation, Sauvegarde, Point de contrôle, Retour arrière, Comparaison, Vérification préalable, Condition, Délai, Approbation et Notification. Sync exécute une configuration enregistrée sur la page Sync, et s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, derrière une étape Approbation dans une sandbox marquée Staging, et ne sont jamais retentées. Une étape Retour arrière fait revenir une org à un point de contrôle conservé sur cette machine, au plus le nombre d'enregistrements indiqué, une fois que vous l'avez confirmée avec l'alias de l'org, ou, si elle n'en a pas, son nom ou son ID d'organisation, sous son aperçu. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page : un pipeline qui contient l'une de ces étapes, ou une étape Script, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
     "forgeContent": "Forge copie un enregistrement et ce qui s'y rattache, depuis l'org sélectionnée dans le panneau latéral vers une sandbox, une scratch org ou une org Developer Edition ; il refuse toute autre org. Les ID sont remappés à l'écriture.\n- Avant Exécuter le Forge, dans la revue : Simuler vérifie ici chaque enregistrement, n'envoie rien ; Répéter dans la cible : la cible essaie un échantillon, annulé ensuite ; coûte des appels API.\n- Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels. Anonymiser les PII masque les noms, les adresses et les autres champs personnels.\n- Enregistrer comme modèle, sur les résultats d'une exécution, garde son enregistrement ou sa requête, sa profondeur, ses options et ses décisions ; l'onglet Modèle la relance, et Importer un modèle en lit un depuis un fichier.\n- Cloner directement, dans Autres façons de lancer, lance la découverte puis le clonage sans s'arrêter sur le graphe ni sur la revue ; Production Guard juge cette exécution comme toute autre.\n- Graphe ou tableau : jusqu'à 25 objets sont dessinés en graphe, au-delà en tableau, comme tout graphe sur un panneau de moins de 560 pixels ; Vue graphe / Vue tableau, ou le paramètre sandforge.forge.graphView, choisit la vue.\n- Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
     "frozenContent": "Le Jeu de données figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Fichier de règles : Lancer l'extraction en demande un, dans ~/.sandforge-sas/rules.json sauf si la configuration le déplace. Créer le fichier de règles en écrit un vide, qui vide chaque champ sans règle ; une règle nomme son champ en Objet.Champ et un générateur comme email, firstName, clear ou keep (approuvé), et Format des règles les liste tous\n- Pseudonymisation déterministe, avec SANDFORGE_FROZEN_SALT là où il est défini, sinon avec le sel gardé dans le stockage secret de VS Code, que la première extraction crée s'il n'y en a pas encore\n- Un contrôle en quatre points doit réussir avant que le jeu de données soit écrit\n- Chargement : dans une sandbox, une scratch org ou une org Developer Edition, jamais dans une org de production ni dans une sandbox marquée en préproduction, avec un Pilote facultatif sur un enregistrement racine d'abord, et une vérification après le chargement",
@@ -4071,12 +4051,12 @@
       "tip": "Comparer n'écrit rien. Déployer depuis le diff valide d'abord dans la cible, n'y supprime rien et refuse une cible de production."
     },
     "dataops": {
-      "step1": "Choisissez l'org dans la liste en haut de la page, puis ouvrez l'onglet Anonymiser.",
-      "step2": "Choisissez un modèle dans Sélectionner un modèle ; sa carte liste chaque champ qu'il masque.",
-      "step3": "Cliquez sur Aperçu : les premiers enregistrements affichent Original à côté de Masqué, et rien n'est écrit.",
-      "step4": "Cliquez sur Appliquer, cochez Conserver d'abord les valeurs et, si elle s'affiche, Masquer par tranches, saisissez le nom de l'org, puis cliquez sur Confirmer.",
-      "step5": "Pour vider des objets ou toute l'org, ouvrez Nettoyage : son aperçu dit ce qui part avant toute suppression.",
-      "tip": "Sauf si vous décochez Conserver d'abord les valeurs, Appliquer sauvegarde les valeurs qu'il masque : Ouvrir dans Restaurer, puis Restaurer, les remet en place."
+      "step1": "Masquage : choisissez un modèle, cliquez sur Aperçu, puis sur Appliquer avec Conserver d'abord les valeurs coché.",
+      "step2": "Sauvegardes : chaque sauvegarde a Restaurer…, Exporter et Supprimer ; Restaurer… nomme l'org avant d'écrire.",
+      "step3": "Données personnelles : trouvez les champs qui en contiennent, puis les enregistrements d'une personne à exporter ou effacer.",
+      "step4": "Nettoyage : choisissez des objets, Analyser, puis exportez ou supprimez à côté de chaque constat, remplissage compris.",
+      "step5": "Vidage : choisissez des objets ou toute l'org, Simuler, puis saisissez le nom de l'org pour la vider.",
+      "tip": "Créer une sauvegarde, à côté du modèle dans Masquage, garde ce qu'il masque ; avant toute autre exécution risquée, créez un point de contrôle."
     },
     "monitor": {
       "step1": "Si la page affiche Sélectionnez une org à surveiller, cliquez sur l'org à suivre.",
@@ -4444,9 +4424,9 @@
       "statusFailure": "Échec",
       "remove": "Supprimer les enregistrements créés par cette exécution",
       "removeLeft": "Supprimer ce qui reste des enregistrements de cette exécution",
-      "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
+      "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Vidage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "removeOrgGone": "L'org où cette exécution a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
-      "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
+      "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici. Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Vidage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution.",
       "sweepAction": "Reprendre ce que l'automatisation de la cible a créé",
       "roots_one": "{{formatted}} enregistrement {{object}} choisi par sa requête, {{written}} dans la cible",
       "roots_other": "{{formatted}} enregistrements {{object}} choisis par sa requête, dont {{written}} dans la cible",
@@ -5201,7 +5181,7 @@
         "personalList": "Les champs, par objet",
         "targetHolds_one": "{{target}} détient déjà environ {{formatted}} enregistrement de {{objects}} de ces objets. Le clonage ajoute les siens à côté, il ne les remplace pas, et un champ unique ou une règle de doublons peut en refuser certains.",
         "targetHolds_other": "{{target}} détient déjà environ {{formatted}} enregistrements de {{objects}} de ces objets. Le clonage ajoute les siens à côté, il ne les remplace pas, et un champ unique ou une règle de doublons peut en refuser certains.",
-        "emptyFirst": "Pour partir d'une cible vide, videz d'abord ces objets dans DataOps → Nettoyage → Vider des objets, puis découvrez à nouveau l'org ici.",
+        "emptyFirst": "Pour partir d'une cible vide, videz d'abord ces objets dans DataOps → Vidage → Vider des objets, puis découvrez à nouveau l'org ici.",
         "targetHoldsNone": "{{target}} ne détient aucun enregistrement des objets que le clonage copie, d'après ses décomptes d'enregistrements.",
         "targetHoldsReading": "Lecture de ce que {{target}} détient déjà de ces objets…",
         "targetHoldsFailed": "Ce que {{target}} détient déjà de ces objets n'a pas pu être lu : {{message}}",
@@ -6906,7 +6886,7 @@
       "restoredKeptChanged": "modifiés depuis l'exécution, laissés tels quels : {{n}}",
       "restoredGone": "plus dans {{org}} : {{n}}",
       "restoredRefused": "refusés par {{org}} : {{n}}",
-      "restoredNotKept": "valeurs d'avant plus conservées (sauvegarde supprimée depuis l'onglet Restaurer, ou arrivée au terme de sa conservation) : {{n}}",
+      "restoredNotKept": "valeurs d'avant plus conservées (sauvegarde supprimée depuis l'onglet Sauvegardes, ou arrivée au terme de sa conservation) : {{n}}",
       "restoredNotReached": "non atteints avant l'arrêt : {{n}}",
       "titleOverwritten": "Ce que cette exécution a écrasé",
       "titleDeleted": "Ce que cette exécution a supprimé",
@@ -6921,7 +6901,7 @@
       "overwrittenNotKept_one": "{{formatted}} enregistrement de {{org}} écrasé, ses valeurs d'avant plus conservées sur cette machine",
       "overwrittenNotKept_other": "{{formatted}} enregistrements de {{org}} écrasés, leurs valeurs d'avant plus conservées sur cette machine",
       "keptUntil": "conservées jusqu'au {{date}} (sandforge.backup.maxAgeDays)",
-      "putBackNotKept": "Valeurs d'avant plus conservées (au-delà de sandforge.backup.maxAgeDays, ou supprimées depuis l'onglet Restaurer) : {{n}}. Ces enregistrements gardent les valeurs de l'exécution.",
+      "putBackNotKept": "Valeurs d'avant plus conservées (au-delà de sandforge.backup.maxAgeDays, ou supprimées depuis l'onglet Sauvegardes) : {{n}}. Ces enregistrements gardent les valeurs de l'exécution.",
       "deleted_one": "{{formatted}} enregistrement de {{org}} supprimé par l'exécution, comme la source l'avait supprimé : son retrait le rétablit depuis la corbeille tant qu'il y est",
       "deleted_other": "{{formatted}} enregistrements de {{org}} supprimés par l'exécution, comme la source les avait supprimés : son retrait les rétablit depuis la corbeille tant qu'ils y sont",
       "writtenAgain_one": "{{formatted}} enregistrement de cette exécution a été réécrit par {{config}} le {{date}} : retirez d'abord cette exécution-là, sinon il compte comme modifié depuis celle-ci",
@@ -7439,7 +7419,7 @@
     "insertsNeutralized": "Insère chaque enregistrement ; les e-mails et les numéros de téléphone sont neutralisés.",
     "readCut": "{{read}} des {{held}} enregistrements de l'org source : le reste n'est pas copié.",
     "refusal": {
-      "storage": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste à l'org cible. Sync rapide n'a pas de filtre : retirez des objets ici, ou ouvrez-les dans l'assistant, où chaque objet prend un filtre. Pour copier une partie de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible. Ou libérez du stockage de données dans l'org cible : DataOps → Nettoyage → Vider des objets supprime ce qu'elle contient de ces objets.",
+      "storage": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste à l'org cible. Sync rapide n'a pas de filtre : retirez des objets ici, ou ouvrez-les dans l'assistant, où chaque objet prend un filtre. Pour copier une partie de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible. Ou libérez du stockage de données dans l'org cible : DataOps → Vidage → Vider des objets supprime ce qu'elle contient de ces objets.",
       "openInWizard": "Ouvrir dans l'assistant",
       "openForge": "Ouvrir Forge",
       "emptyFirst": "Vider ces objets dans la cible"
@@ -7941,7 +7921,7 @@
     },
     "runNotInHistory": {
       "explanation": "Cette exécution n'est plus dans l'historique de Forge, qui garde les dernières : ce qu'elle a écrit n'est plus connu ici. Rien n'a été lu ni écrit.",
-      "action": "Regardez sous Exécutions plus anciennes, après Exécutions récentes : une exécution dont les enregistrements peuvent encore être supprimés y figure. Sinon, un point de contrôle pris avant l'exécution ramène l'org en arrière (Points de contrôle → Revenir à ce point…), et DataOps → Nettoyage → Vider des objets vide ses objets, tous leurs enregistrements."
+      "action": "Regardez sous Exécutions plus anciennes, après Exécutions récentes : une exécution dont les enregistrements peuvent encore être supprimés y figure. Sinon, un point de contrôle pris avant l'exécution ramène l'org en arrière (Points de contrôle → Revenir à ce point…), et DataOps → Vidage → Vider des objets vide ses objets, tous leurs enregistrements."
     },
     "removalRunning": {
       "explanation": "Une suppression de cette exécution est déjà en cours, depuis cette page ou une autre : une seconde demanderait, et supprimerait, deux fois. Rien de plus n'a été supprimé.",
@@ -7953,7 +7933,7 @@
     },
     "journalGone": {
       "explanation": "Les Id des enregistrements de cette exécution étaient gardés dans son journal sur cette machine, qui n'existe plus : plus rien ici ne les distingue des autres enregistrements de l'org. Rien n'a été lu ni écrit.",
-      "action": "Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Nettoyage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution."
+      "action": "Un point de contrôle pris avant l'exécution ramène l'org à avant elle : Points de contrôle → Revenir à ce point…. Sans point de contrôle, DataOps → Vidage → Vider des objets vide les objets qu'elle a écrits — tous leurs enregistrements, pas seulement ceux de cette exécution."
     },
     "notRecorded": {
       "explanation": "Cette exécution a été enregistrée avant que Forge garde ce qu'une exécution crée, et où : ses enregistrements ne se distinguent pas des autres enregistrements de l'org. Rien n'a été lu ni écrit."
@@ -8961,7 +8941,7 @@
     "title": "Vider des objets ou l'org",
     "production": "{{org}} est une org de production, ou ne se distingue pas d'une org de production. Vider est réservé aux sandboxes, aux scratch orgs et aux orgs Developer Edition : SandForge ne vide jamais les objets d'une org de production, et rien ne lève ce refus.",
     "scopeReading": "Lecture des objets de {{org}}…",
-    "previewButton": "Aperçu",
+    "previewButton": "Simuler",
     "list": {
       "filter": "Filtrer",
       "noMatch": "Aucun objet ne correspond au filtre.",
@@ -8969,7 +8949,7 @@
     },
     "objects": {
       "title": "Vider des objets",
-      "intro": "Supprime tous les enregistrements des objets choisis, et ce que Salesforce supprime avec eux. Un aperçu compte tout d'abord ; rien n'est supprimé avant que vous confirmiez avec le nom de l'org.",
+      "intro": "Supprime tous les enregistrements des objets choisis, et ce que Salesforce supprime avec eux. Une simulation compte tout d'abord ; rien n'est supprimé avant que vous confirmiez avec le nom de l'org.",
       "legend": "Objets à vider",
       "picked_one": "{{formatted}} objet choisi",
       "picked_other": "{{formatted}} objets choisis",
@@ -9050,7 +9030,7 @@
     },
     "preview": {
       "reading": "Comptage des enregistrements de {{org}}, et de ce qui part avec eux…",
-      "stop": "Arrêter l'aperçu",
+      "stop": "Arrêter la simulation",
       "titleObjects": "Ce que vider ces objets de {{org}} supprimerait",
       "titleOrg": "Ce que vider {{org}} supprimerait",
       "nothing": "{{org}} ne contient rien que ces objets supprimeraient.",
@@ -9059,8 +9039,8 @@
       "readAt": "Compté à {{at}} : les enregistrements créés après restent tels quels.",
       "uncounted": "L'org n'a pas voulu compter ceux-ci, et leurs enregistrements ne sont pas dans la somme : {{objects}}.",
       "hard": "Supprimé définitivement : Salesforce ne rend rien de ce qu'une suppression définitive emporte, y compris ce qui part avec. Annuler ne sera pas possible.",
-      "stopped": "L'aperçu a été arrêté avant que tous les comptes soient faits : relancez l'aperçu pour vider.",
-      "stale": "Les options ont changé depuis cet aperçu : relancez l'aperçu avant de vider.",
+      "stopped": "La simulation a été arrêtée avant que tous les comptes soient faits : simulez de nouveau pour vider.",
+      "stale": "Les options ont changé depuis cette simulation : simulez de nouveau avant de vider.",
       "openRun": "Le dernier vidage de {{org}} ({{runId}}, commencé le {{at}}) s'est arrêté en cours de route. Reprenez-le, ou annulez-le, avant d'en lancer un autre : son Annuler atteint alors encore l'org telle qu'elle était.",
       "resume": "Le reprendre…",
       "undoOpen": "L'annuler…",
@@ -9135,16 +9115,16 @@
       "acceptPeopleActive": "Vider quand même : leurs modifications partent avec les enregistrements. Toute autre personne au travail d'ici là fait refuser l'exécution.",
       "leftOut_one": "{{formatted}} objet laissé de côté, avec la raison",
       "leftOut_other": "{{formatted}} objets laissés de côté, chacun avec sa raison",
-      "checkpointLead": "Point de contrôle d'abord, tel que cet aperçu le lit :",
+      "checkpointLead": "Point de contrôle d'abord, tel que cette simulation le lit :",
       "holding": "Ce qui empêche le vidage maintenant",
-      "again": "Relancer l'aperçu"
+      "again": "Simuler de nouveau"
     },
     "confirm": {
       "title": "Vider {{org}} ?",
       "description": "{{records}} de {{objects}} vont dans la corbeille. Annuler les rend tant que la corbeille les garde.",
       "descriptionHard": "{{records}} de {{objects}} sont supprimés définitivement.",
       "noUndo": "Annuler ne sera pas possible : Salesforce ne rend rien de ce qu'une suppression définitive emporte.",
-      "automation": "À mesure que les enregistrements partent, {{org}} exécute ce que l'aperçu a listé.",
+      "automation": "À mesure que les enregistrements partent, {{org}} exécute ce que la simulation a listé.",
       "muted": "Ce que la mise en sourdine fait taire reste silencieux pendant le run, puis est rendu.",
       "peopleActive": "Ce que {{people}} a modifié dans la dernière heure part aussi.",
       "blockers": "{{records}} d'objets non vidés désignent des enregistrements qu'il supprime, par une relation de recherche qui refuse la suppression : les enregistrements qu'ils désignent seront refusés.",
@@ -9181,20 +9161,20 @@
         "refused": "Refusés",
         "notReached": "Non atteints"
       },
-      "madeSince_one": "{{formatted}} enregistrement créé depuis l'aperçu reste tel quel",
-      "madeSince_other": "{{formatted}} enregistrements créés depuis l'aperçu restent tels quels",
+      "madeSince_one": "{{formatted}} enregistrement créé depuis la simulation reste tel quel",
+      "madeSince_other": "{{formatted}} enregistrements créés depuis la simulation restent tels quels",
       "removedRuns_one": "Le journal du vidage précédent de l'org a été abandonné : Annuler n'atteint que celui-ci.",
       "removedRuns_other": "Les journaux des vidages précédents de l'org ont été abandonnés : Annuler n'atteint que celui-ci.",
       "undo": "Annuler…",
       "undoWhile": "Rend {{runId}} depuis la corbeille tant qu'elle garde les enregistrements.",
       "noUndoHard": "Annuler n'est pas possible : ce vidage a supprimé définitivement.",
       "noUndoNothing": "Rien n'a été supprimé : il n'y a rien à annuler.",
-      "previewAgain": "Relancer l'aperçu",
+      "previewAgain": "Simuler de nouveau",
       "done": "Terminé"
     },
     "resume": {
       "title": "Reprendre le vidage {{runId}} de {{org}} ?",
-      "description": "Il supprime ce que le run arrêté n'avait pas encore atteint, tel que son aperçu l'a montré, et relit au départ ce que {{org}} exécute.",
+      "description": "Il supprime ce que le run arrêté n'avait pas encore atteint, tel que sa simulation l'a montré, et relit au départ ce que {{org}} exécute.",
       "button": "Reprendre le vidage",
       "acceptAutomation": "Laisser s'exécuter ce que {{org}} exécute quand les enregistrements sont supprimés",
       "acceptPeopleActive": "Reprendre même si d'autres ont modifié des enregistrements de ces objets dans {{org}} dans la dernière heure : leur travail part aussi"
@@ -9218,7 +9198,7 @@
       "othersDeletion": "{{formatted}} supprimés par un autre utilisateur, que seul Modify All Data fait revenir.",
       "refusedCount": "{{formatted}} refusés.",
       "notReached": "{{formatted}} non atteints.",
-      "previewedLostTitle": "Non rendus, comme l'aperçu l'annonçait"
+      "previewedLostTitle": "Non rendus, comme la simulation l'annonçait"
     },
     "history": {
       "title": "Vidages de {{org}}",

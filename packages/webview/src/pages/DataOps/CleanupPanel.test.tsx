@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import type { CleanupScanResult } from '@sandforge/shared';
-import { CleanupPanel } from './CleanupPanel';
+import type { CleanupObjectResult, CleanupScanResult } from '@sandforge/shared';
+import { CleanupPanel, mergeObjectResults, parseStaleDays } from './CleanupPanel';
 
 interface MutationState {
   mutate: ReturnType<typeof vi.fn>;
@@ -101,7 +101,74 @@ beforeEach(() => {
   };
 });
 
+describe('parseStaleDays', () => {
+  it('reads a whole number of days in range, and nothing else', () => {
+    expect(parseStaleDays('365')).toBe(365);
+    expect(parseStaleDays(' 30 ')).toBe(30);
+    expect(parseStaleDays('0')).toBeNull();
+    expect(parseStaleDays('1.5')).toBeNull();
+    expect(parseStaleDays('3651')).toBeNull();
+    expect(parseStaleDays('')).toBeNull();
+  });
+});
+
+describe('mergeObjectResults', () => {
+  /** An object of a scan, its duplicates keyed on `key` when one is given. */
+  const object = (objectApiName: string, key?: string): CleanupObjectResult => ({
+    status: 'scanned',
+    objectApiName,
+    label: objectApiName,
+    totalRecords: 3,
+    stale: null,
+    orphans: [],
+    duplicates: key
+      ? {
+          keyField: key,
+          keyLabel: key,
+          groups: [],
+          groupCount: 0,
+          recordCount: 0,
+          truncated: false,
+        }
+      : null,
+    keyFields: [],
+    errors: [],
+  });
+
+  it('replaces the objects an answer carries and keeps the others in place', () => {
+    const previous = [object('Account'), object('Contact')];
+    const merged = mergeObjectResults(previous, [object('Account', 'Phone')]);
+
+    expect(merged.map((o) => o.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(merged[0].status === 'scanned' && merged[0].duplicates?.keyField).toBe('Phone');
+    expect(merged[1]).toBe(previous[1]);
+  });
+});
+
 describe('CleanupPanel', () => {
+  it('says how filled each field is beside what can be deleted, from one scan', () => {
+    // Quality was a tab of its own, with the same picker, threshold and Scan.
+    states['dataops:cleanup:scan'].data = {
+      ...scanned,
+      objects: [
+        {
+          ...scanned.objects[0],
+          fields: [
+            { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
+            { fieldApiName: 'Name', label: 'Account Name', filled: 10, required: true },
+          ],
+          unmeasured: [],
+        },
+      ],
+    };
+    render(<CleanupPanel orgId="org-1" orgName="dev1" />);
+
+    expect(screen.getByTestId('cleanup-stale-delete')).toBeDefined();
+    expect(screen.getByTestId('quality-mostly-empty-table').textContent).toContain('Fax');
+    expect(screen.getByTestId('quality-summary-empty').textContent).toBe('1 of 2 counted');
+    expect(screen.queryByTestId('quality-panel')).toBeNull();
+  });
+
   it('scans the objects picked with the threshold typed', () => {
     render(<CleanupPanel orgId="org-1" orgName="dev1" />);
 

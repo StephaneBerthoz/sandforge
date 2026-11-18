@@ -7,6 +7,7 @@ import type {
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { formatNumber } from '../../utils/formatters';
+import { FieldFill } from './FieldFill';
 
 /** Props for {@link CleanupObjectResult}. */
 export interface CleanupObjectResultProps {
@@ -17,6 +18,8 @@ export interface CleanupObjectResultProps {
   orphanThreshold: number;
   /** Repeated values one duplicate search reads at most. */
   duplicateGroupLimit: number;
+  /** Fields the scan counts with a query of their own, per object, at most. */
+  singleFieldQueries: number;
   /** Look for duplicates by another field. */
   onKeyChange: (fieldApiName: string) => void;
   /** Save the records a recommendation names to a file. */
@@ -30,13 +33,15 @@ export interface CleanupObjectResultProps {
 /**
  * One object of a cleanup scan: its stale records, the orphans of each lookup
  * the business relies on, and the copies of a repeated value — each with the
- * export and the delete of the records it names.
+ * export and the delete of the records it names —, then how filled each of its
+ * fields is, which a Quality tab of its own said.
  */
 export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
   result,
   staleDays,
   orphanThreshold,
   duplicateGroupLimit,
+  singleFieldQueries,
   onKeyChange,
   onExport,
   onReview,
@@ -224,6 +229,40 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
                 field: duplicates.keyLabel,
               })}
             </p>
+            {/* The values most repeated, which Quality listed: what the
+                copies are copies of. */}
+            <table className="w-full text-xs" data-testid="quality-duplicate-table">
+              <thead>
+                <tr className="border-b border-(--sf-border)">
+                  <th scope="col" className="py-1 pr-3 text-left font-medium text-text-secondary">
+                    {duplicates.keyLabel}
+                  </th>
+                  <th scope="col" className="py-1 pr-3 text-right font-medium text-text-secondary">
+                    {t('dataops.qualityScan.recordsColumn')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {duplicates.groups.map((group) => (
+                  <tr key={group.value} className="border-b border-(--sf-border) last:border-0">
+                    <td className="break-all py-1 pr-3 text-left text-text-primary">
+                      {group.value}
+                    </td>
+                    <td className="py-1 pr-3 text-right text-text-primary">
+                      {number(group.count)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {duplicates.groupCount > duplicates.groups.length && (
+              <p className="text-xs text-text-secondary">
+                {t('dataops.qualityScan.duplicateSample', {
+                  shown: number(duplicates.groups.length),
+                  total: number(duplicates.groupCount),
+                })}
+              </p>
+            )}
             {duplicates.truncated && (
               <p className="text-xs text-status-warning">
                 {t('dataops.qualityScan.duplicatesTruncated', {
@@ -240,6 +279,20 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
           </>
         )}
       </div>
+
+      {(result.fields !== undefined || (result.unmeasured ?? []).length > 0) && (
+        <div className="flex flex-col gap-1" data-testid="cleanup-fields">
+          <h4 className="text-xs font-semibold text-text-primary">
+            {t('dataops.cleanupScan.fields')}
+          </h4>
+          <FieldFill
+            fields={result.fields ?? []}
+            unmeasured={result.unmeasured ?? []}
+            totalRecords={result.totalRecords}
+            singleFieldQueries={singleFieldQueries}
+          />
+        </div>
+      )}
 
       {result.errors.length > 0 && (
         <ul className="flex flex-col gap-1" data-testid="cleanup-errors">

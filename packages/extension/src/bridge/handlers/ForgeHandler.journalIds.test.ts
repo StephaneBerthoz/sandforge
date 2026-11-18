@@ -853,7 +853,7 @@ describe('a run whose ids are in its journal', () => {
     expect(answerTo('wv-undo', 'forge:undo:error')).toMatchObject({
       code: 'JOURNAL_GONE',
       message: expect.stringMatching(
-        /checkpoint taken before the run .*Checkpoints → Rewind….*DataOps → Cleanup → Empty objects empties its objects, every record of them/,
+        /checkpoint taken before the run .*Checkpoints → Rewind….*DataOps → Emptying → Empty objects empties its objects, every record of them/,
       ),
     });
     expect(answerTo('wv-verify', 'forge:verify:error')).toMatchObject({ code: 'JOURNAL_GONE' });

@@ -55,12 +55,18 @@ const contactDescribe = {
   ],
 };
 
-/** 100 contacts: 95 under an account, 10 with a manager, 30 untouched for a year. */
+/**
+ * 100 contacts: 95 under an account, 10 with a manager, each with an owner,
+ * 60 with an email, 30 untouched for a year.
+ */
 function contactOrg() {
   const query = vi.fn(async (soql: string) => {
     if (soql === 'SELECT COUNT() FROM Contact') return { totalSize: 100, records: [] };
-    if (soql.startsWith('SELECT COUNT(AccountId), COUNT(ReportsToId)')) {
-      return { totalSize: 1, records: [{ expr0: 95, expr1: 10 }] };
+    if (soql === 'SELECT COUNT(AccountId), COUNT(ReportsToId), COUNT(OwnerId) FROM Contact') {
+      return { totalSize: 1, records: [{ expr0: 95, expr1: 10, expr2: 100 }] };
+    }
+    if (soql === 'SELECT COUNT() FROM Contact WHERE Email != null') {
+      return { totalSize: 60, records: [] };
     }
     if (soql.includes('GROUP BY Email')) {
       return { totalSize: 1, records: [{ k: 'shared@example.com', n: 3 }] };
@@ -92,6 +98,65 @@ describe('scanCleanup', () => {
     expect(contact.stale).toEqual({ days: 365, records: 30 });
     expect(contact.duplicates).toMatchObject({ keyField: 'Email', groupCount: 1, recordCount: 3 });
     expect(result.orphanThreshold).toBe(ORPHAN_FILL_THRESHOLD);
+  });
+
+  it('counts how often each field a person fills in is filled, as Quality counted it, beside what can be deleted', async () => {
+    // Cleanup and Quality picked the same objects, read the same stale and
+    // duplicate counts, and were two tabs: one scan now says both.
+    const result = await scanCleanup(contactOrg(), {
+      orgId: 'org-1',
+      objects: [{ objectApiName: 'Contact' }],
+      staleDays: 365,
+    });
+
+    const contact = result.objects[0] as CleanupObjectScan;
+    expect(contact.fields).toEqual([
+      { fieldApiName: 'ReportsToId', label: 'Reports To ID', filled: 10, required: false },
+      { fieldApiName: 'Email', label: 'Email', filled: 60, required: false },
+      { fieldApiName: 'AccountId', label: 'Account ID', filled: 95, required: false },
+      { fieldApiName: 'OwnerId', label: 'Owner ID', filled: 100, required: true },
+    ]);
+    expect(contact.unmeasured).toEqual([]);
+  });
+
+  it('counts the lookups an orphan is found by before any other field a query of its own counts', async () => {
+    // Past the budget of single-field counts, a field is named unmeasured: a
+    // lookup the org filters but will not aggregate is counted first, or its
+    // orphans would go unsaid for the sake of a fill rate.
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      name: `Note${i}__c`,
+      label: `Note ${i}`,
+      type: 'string',
+      createable: true,
+      updateable: true,
+      filterable: true,
+    }));
+    const conn = {
+      describe: vi.fn(async () => ({
+        ...contactDescribe,
+        fields: [...many, lookup('AccountId', ['Account'], { aggregatable: false })],
+      })),
+      query: vi.fn(async (soql: string) => {
+        if (soql === 'SELECT COUNT() FROM Contact') return { totalSize: 100, records: [] };
+        if (soql === 'SELECT COUNT() FROM Contact WHERE AccountId != null') {
+          return { totalSize: 95, records: [] };
+        }
+        if (soql.includes('!= null')) return { totalSize: 50, records: [] };
+        return { totalSize: 0, records: [] };
+      }),
+    };
+
+    const result = await scanCleanup(conn, {
+      orgId: 'org-1',
+      objects: [{ objectApiName: 'Contact' }],
+      staleDays: 365,
+    });
+
+    const contact = result.objects[0] as CleanupObjectScan;
+    expect(contact.orphans.map((o) => o.fieldApiName)).toEqual(['AccountId']);
+    expect(contact.unmeasured?.map((f) => f.reason)).toEqual(
+      Array.from({ length: 6 }, () => 'query-budget'),
+    );
   });
 
   it('says whether the connected user may delete the records, so the page offers what it can do', async () => {

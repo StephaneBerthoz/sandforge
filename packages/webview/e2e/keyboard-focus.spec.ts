@@ -306,13 +306,11 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
       'dataops:anonymization-templates:response',
       { templates: [] },
     );
-    const restoreTab = page.getByTestId('page-tabs').getByRole('tab', { name: 'Restore' });
-    await restoreTab.focus();
+    const backupsTab = page.getByTestId('page-tabs').getByRole('tab', { name: /^Backups/ });
+    await backupsTab.focus();
     await page.keyboard.press('Enter');
-    const card = (id: string) =>
-      page.getByTestId(`restore-backup-${id}`).locator('[role="button"]');
-    await card('op-backup-2').focus();
-    await page.keyboard.press('Enter');
+    /** The first control of a backup's row, where the keyboard lands on it. */
+    const card = (id: string) => page.getByTestId(`restore-btn-${id}`);
     await pressWithKeyboard(page, 'delete-backup-btn-op-backup-2');
     await pressWithKeyboard(page, 'delete-backup-confirm');
     const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
@@ -335,11 +333,11 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
 
     await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS.slice(0, 1) });
     await expect(page.getByTestId('dataops-content')).not.toHaveAttribute('aria-busy', 'true');
-    await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
+    await expect(page.getByTestId('backup-op-backup-2')).toHaveCount(0);
     await expect(card('op-backup-1')).toBeFocused();
   });
 
-  /** The Restore tab, its two backups listed, opened with the keys. */
+  /** The Backups tab, its two backups listed, opened with the keys. */
   async function openRestoreTab(page: Page): Promise<MockBridge> {
     const bridge = await openModule(page, 'dataops');
     await bridge.waitForMessage('backup:list', { timeout: 10_000 });
@@ -350,21 +348,19 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
       'dataops:anonymization-templates:response',
       { templates: [] },
     );
-    const restoreTab = page.getByTestId('page-tabs').getByRole('tab', { name: 'Restore' });
-    await restoreTab.focus();
+    const backupsTab = page.getByTestId('page-tabs').getByRole('tab', { name: /^Backups/ });
+    await backupsTab.focus();
     await page.keyboard.press('Enter');
     return bridge;
   }
 
-  test('Cancel and Confirm hand the focus back to the Delete that asked, and the card in its place takes it once the backup is gone', async ({
+  test('Cancel and Confirm hand the focus back to the Delete that asked, and the row in its place takes it once the backup is gone', async ({
     page,
   }) => {
     // Both answers took the question away, and the focus with it to <body>.
     const bridge = await openRestoreTab(page);
-    const card = (id: string) =>
-      page.getByTestId(`restore-backup-${id}`).locator('[role="button"]');
-    await card('op-backup-2').focus();
-    await page.keyboard.press('Enter');
+    /** The first control of a backup's row, where the keyboard lands on it. */
+    const card = (id: string) => page.getByTestId(`restore-btn-${id}`);
     const remove = page.getByTestId('delete-backup-btn-op-backup-2');
 
     await pressWithKeyboard(page, 'delete-backup-btn-op-backup-2');
@@ -390,11 +386,11 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
       .poll(async () => (await bridge.getMessages('backup:list')).length)
       .toBeGreaterThan(listReads);
     await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS.slice(0, 1) });
-    await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
+    await expect(page.getByTestId('backup-op-backup-2')).toHaveCount(0);
     await expect(card('op-backup-1')).toBeFocused();
   });
 
-  test('Delete all hands the focus back to itself, and the Restore heading takes it once every backup is gone', async ({
+  test('Delete all hands the focus back to itself, and the Backups heading takes it once every backup is gone', async ({
     page,
   }) => {
     const bridge = await openRestoreTab(page);
@@ -421,7 +417,7 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
     await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
 
     await expect(
-      page.getByTestId('restore-panel').getByRole('heading', { name: 'Restore', exact: true }),
+      page.getByTestId('backup-panel').getByRole('heading', { name: 'Backups', exact: true }),
     ).toBeFocused();
   });
 });

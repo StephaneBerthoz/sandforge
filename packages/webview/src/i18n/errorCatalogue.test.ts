@@ -385,7 +385,7 @@ describe('what the hints say, in English', () => {
     expect(errors.journalGone.action).toContain(
       `${en.nav.checkpoint} → ${en.checkpoint.list.rewind}`,
     );
-    expect(errors.journalGone.action).toContain('DataOps → Cleanup → Empty objects');
+    expect(errors.journalGone.action).toContain('DataOps → Emptying → Empty objects');
     expect(errors.journalGone.action).toContain("not this run's alone");
     expect(errors.runNotInHistory.action).toContain(en.forge.history.olderTitle);
   });

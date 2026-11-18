@@ -28,7 +28,6 @@
     "disabled": "Deaktiviert",
     "enable": "Aktivieren",
     "disable": "Deaktivieren",
-    "selected": "Ausgewählt",
     "object": "Objekt",
     "type": "Typ",
     "status": "Status",
@@ -1098,7 +1097,7 @@
       "created_one": "{{formatted}} Datensatz in {{org}} erstellt",
       "created_other": "{{formatted}} Datensätze in {{org}} erstellt",
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Seed eingefügt hat, das zuletzt geschriebene Objekt zuerst, die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Seed geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
-      "notKept": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt — er wurde für neuere Seeds verworfen oder lief, bevor Seeds auf dem Datenträger aufbewahrt wurden — und kann von hier aus nicht entfernt werden. Um seine Datensätze zurückzunehmen: Setzen Sie die Org unter Prüfpunkte auf einen Prüfpunkt von davor zurück, oder leeren Sie seine Objekte unter DataOps → Bereinigung → Objekte leeren, was alle ihre Datensätze löscht, nicht nur die dieses Seeds.",
+      "notKept": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt — er wurde für neuere Seeds verworfen oder lief, bevor Seeds auf dem Datenträger aufbewahrt wurden — und kann von hier aus nicht entfernt werden. Um seine Datensätze zurückzunehmen: Setzen Sie die Org unter Prüfpunkte auf einen Prüfpunkt von davor zurück, oder leeren Sie seine Objekte unter DataOps → Leeren → Objekte leeren, was alle ihre Datensätze löscht, nicht nur die dieses Seeds.",
       "historyTitle": "Frühere Seeds",
       "historyNote": "Die Seeds, die diese Erweiterung aufbewahrt hat, die neuesten zuerst: Seeds, deren Datensätze noch in ihrer Org sind, können entfernt werden, auch nachdem das Fenster neu geladen wurde. Ein Seed, dessen Datensätze noch in seiner Org sind, bleibt aufgeführt, bis er entfernt wird; von den entfernten Seeds werden die 20 neuesten aufgeführt.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} Datensatz erstellt",
@@ -1996,7 +1995,7 @@
       "queryClause": "„{{detail}}“ in seiner Query wird nicht übernommen: Sync führt die Query nicht aus.",
       "queryUnread": "Seine Query ließ sich nicht lesen, daher kommt von ihr kein Filter: Sync liest jeden Datensatz des Objekts. Setzen Sie einen Filter in seiner Zeile.",
       "whereRefused": "Sein WHERE tut mehr als filtern, etwa mit einer Unterabfrage, und Sync lehnt es ab: Schreiben Sie es in seiner Zeile um, sonst wird das Speichern abgelehnt.",
-      "deleteOldData": "deleteOldData wird nicht übernommen: Die alten Datensätze des Ziels werden nicht vorher gelöscht. Um mit einem leeren Objekt zu beginnen, leeren Sie es zuerst unter DataOps → Bereinigung → Objekte leeren und starten Sie dann die Synchronisierung.",
+      "deleteOldData": "deleteOldData wird nicht übernommen: Die alten Datensätze des Ziels werden nicht vorher gelöscht. Um mit einem leeren Objekt zu beginnen, leeren Sie es zuerst unter DataOps → Leeren → Objekte leeren und starten Sie dann die Synchronisierung.",
       "emptyFirst": "Diese Objekte zuerst im Ziel leeren",
       "emptyFirstPickTarget": "Wählen Sie unter Aus Sync ausführen die Ziel-Org, um diese Objekte dort zu leeren.",
       "mockFields": "SFDMU schreibt Fantasiewerte in {{detail}}. Sync hat keine: Diese Felder bleiben beim Schreiben außen vor, statt mit ihren echten Werten kopiert zu werden. Ein Pflichtfeld lässt den Datensatz scheitern; nehmen Sie es aus mockFields heraus, um es zu kopieren.",
@@ -2056,7 +2055,7 @@
   },
   "dataops": {
     "title": "DataOps",
-    "backup": "Sicherung",
+    "backup": "Sicherungen",
     "backupPartial": "Unvollständig: {{objects}} enthalten mehr Zeilen, als diese Sicherung gelesen hat. Eine Wiederherstellung bringt nur diese Zeilen zurück.",
     "backupPartialLead": "Unvollständig: Eine Wiederherstellung bringt nur die Zeilen zurück, die diese Sicherung gelesen hat, und lässt den Rest jedes Objekts, wie er ist.",
     "backupStoppedAtCap": "{{object}}: {{read}} von {{held}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
@@ -2068,17 +2067,21 @@
     "backupNotKeptEncrypted": "{{object}}: {{fields}} nicht aufbewahrt — verschlüsselte Felder, die der Benutzer, mit dem SandForge sich verbindet, ohne die Berechtigung View Encrypted Data maskiert sieht. Eine Wiederherstellung lässt sie so, wie die Org sie enthält.",
     "restorePartialBadge": "Unvollständig",
     "backupExported": "Gespeichert unter {{path}}. Datensätze pro Objekt: {{records}}.",
-    "backupDesc": "Datensicherungen erstellen und verwalten",
-    "restore": "Wiederherstellen",
-    "anonymize": "Anonymisieren",
-    "anonymizeDesc": "Sensible Daten anonymisieren",
+    "restore": "Wiederherstellen…",
+    "anonymize": "Maskierung",
+    "anonymizeDesc": "Sensible Daten maskieren",
+    "maskAsked": {
+      "lead": "Auf {{org}} zu maskieren: {{objects}}.",
+      "notMasked": "{{name}} maskiert {{objects}} nicht: Wählen Sie eine andere Vorlage oder erstellen Sie eine mit Vorlage erstellen.",
+      "noTemplate": "Keine Vorlage maskiert {{objects}}: Erstellen Sie eine mit Vorlage erstellen."
+    },
     "cleanup": "Bereinigung",
-    "quality": "Qualität",
+    "emptying": "Leeren",
     "noOrgSelected": "Keine Org ausgewählt: Wählen Sie oben in der Liste eine aus.",
     "noBackups": "Keine Sicherungen verfügbar",
     "createBackup": "Sicherung erstellen",
     "backupObjectsTemplate": "Sichert {{objects}}: die Objekte, die {{name}} maskiert.",
-    "backupObjectsAll": "Sichert {{objects}}: die Objekte, die die Anonymisierungsvorlagen maskieren.",
+    "backupObjectsAll": "Sichert {{objects}}: die Objekte, die die Maskierungsvorlagen maskieren.",
     "restoreInProgress": "Wiederherstellung läuft...",
     "restoreRewriteAll": "Jede Zeile der Sicherung zurückschreiben, auch die, die die Org bereits so enthält wie die Sicherung. Nicht angehakt, liest eine Wiederherstellung zuerst die Org und schreibt nur die Zeilen, die sich seit der Sicherung geändert haben.",
     "restoreResult": "Letzte Wiederherstellung — geschrieben: {{written}} · bereits wie in der Sicherung, unverändert gelassen: {{unchanged}} · abgelehnt: {{failed}}",
@@ -2114,7 +2117,7 @@
       "readFailed": "{{rows}} (Lesen fehlgeschlagen)",
       "capHint": "Die Sicherung hat bei {{objects}} an ihrer Obergrenze von Zeilen pro Objekt angehalten: Erhöhen Sie sandforge.backup.maxRecordsPerObject in den Einstellungen und sichern Sie erneut, damit jede Zeile enthalten ist."
     },
-    "compliance": "Compliance",
+    "compliance": "Personenbezogene Daten",
     "frameworks": {
       "gdpr": "DSGVO",
       "ccpa": "CCPA",
@@ -2132,45 +2135,30 @@
       "constant": "Konstante",
       "preserve_format": "Format beibehalten"
     },
-    "anonymizedFields": "Anonymisierungsvorlagen",
     "emptyState": {
       "title": "Schützen Sie die Daten Ihrer Org",
-      "description": "DataOps sichert Ihre Org-Daten, stellt sie wieder her und anonymisiert sie, bearbeitet Betroffenenanfragen und bereinigt die Datensätze, die niemand braucht.",
-      "step2": "Sichern Sie vor dem Anonymisieren die Felder, die eine Vorlage maskiert",
-      "step3": "Sensible Felder mit einer Vorlage anonymisieren",
+      "description": "DataOps maskiert Ihre Org-Daten, sichert sie und stellt sie wieder her, bearbeitet Betroffenenanfragen, bereinigt die Datensätze, die niemand braucht, und leert Objekte oder die ganze Org.",
+      "step2": "Sichern Sie vor dem Maskieren die Felder, die eine Vorlage maskiert",
+      "step3": "Sensible Felder mit einer Vorlage maskieren",
       "step4": "Eine Sicherung in die Org zurückspielen, aus der sie stammt"
     },
     "exportBackup": "Exportieren",
     "soon": {},
     "qualityScan": {
-      "intro": "Zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels mehrere Datensätze teilen und wie viele Datensätze seit einiger Zeit niemand geändert hat. Die Org zählt selbst: Kein Datensatz wird einzeln gelesen, und nichts wird geschrieben.",
-      "objectsLegend": "Zu prüfende Objekte (bis zu {{max}})",
       "staleDays": "Nicht geändert seit (Tagen)",
       "staleDaysInvalid": "Geben Sie eine ganze Zahl von Tagen zwischen 1 und {{max}} ein.",
-      "scan": "Prüfen",
-      "method": "Die Zählungen umfassen alle Datensätze, die der verbundene Benutzer sehen kann. Kontrollkästchen, Formeln und die Felder, die die Org selbst pflegt, bleiben außen vor: Ein Kontrollkästchen ist nie leer, und die anderen tippt niemand ein.",
-      "objectFailed": "Dieses Objekt konnte nicht geprüft werden: {{message}}",
-      "records_one": "{{formatted}} Datensatz",
-      "records_other": "{{formatted}} Datensätze",
-      "noRecords": "Keine Datensätze: nichts zu messen.",
       "mostlyEmpty": "Meist leere Felder",
       "ofCounted": "{{part}} von {{whole}} gezählten",
       "noMostlyEmpty": "Kein gezähltes Feld ist bei den meisten Datensätzen leer.",
       "requiredEmpty": "Leer gelassene Pflichtfelder",
       "requiredHint": "Die Org verlangt diese Felder bei einem neuen Datensatz, und ein Teil der vorhandenen Datensätze lässt sie leer.",
-      "duplicates": "Wahrscheinliche Duplikate",
       "duplicateKey": "Duplikate suchen nach",
       "pickKey": "Feld wählen",
       "noKeyField": "Die Org kann die Datensätze dieses Objekts nach keinem Feld gruppieren.",
       "noDuplicates": "Kein Wert von {{field}} kommt in mehr als einem Datensatz vor.",
-      "duplicateGroups_one": "{{formatted}} Wert von {{field}} kommt in {{records}} Datensätzen vor.",
-      "duplicateGroups_other": "{{formatted}} Werte von {{field}} kommen jeweils in mehr als einem Datensatz vor: insgesamt {{records}} Datensätze.",
       "duplicateSample": "Die {{shown}} häufigsten von {{total}} Werten.",
       "duplicatesTruncated": "Die Suche endet bei {{limit}} wiederholten Werten: Es kann mehr geben, als hier gezählt sind.",
       "recordsColumn": "Datensätze",
-      "stale_one": "Seit {{count}} Tag nicht geändert",
-      "stale_other": "Seit {{count}} Tagen nicht geändert",
-      "notMeasured": "Nicht gemessen",
       "field": "Feld",
       "filled": "Gefüllt",
       "fillRate": "Füllgrad",
@@ -2179,10 +2167,7 @@
       "unmeasured": "Nicht gezählt ({{total}})",
       "notCountable": "langer, formatierter oder verschlüsselter Text, den die Org weder zählen noch filtern kann",
       "queryBudget": "jedes braucht eine eigene Abfrage, und eine Prüfung stellt höchstens {{limit}} davon pro Objekt",
-      "refusedByOrg": "die Org hat die Zählung abgelehnt; ihre Antwort steht unten",
-      "fillRefused": "Füllzählung: {{message}}",
-      "duplicatesRefused": "Duplikate: {{message}}",
-      "staleRefused": "Nicht geänderte Datensätze: {{message}}"
+      "refusedByOrg": "die Org hat die Zählung abgelehnt; ihre Antwort steht unten"
     },
     "templateEditor": {
       "title": "Neue Vorlage",
@@ -2358,7 +2343,7 @@
       "refusedByOrg_other": "{{formatted}} von der Org abgelehnt und unverändert gelassen."
     },
     "cleanupScan": {
-      "intro": "Zählt für die gewählten Objekte die Datensätze, die eine Bereinigung betrachten würde: die, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts. Die Org zählt selbst: Kein Datensatz wird gelesen, und nichts wird geschrieben, bevor Sie löschen.",
+      "intro": "Zählt für die gewählten Objekte die Datensätze, die eine Bereinigung betrachten würde: die, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; dazu den Füllgrad jedes Felds. Die Org zählt selbst: Kein Datensatz wird gelesen, und nichts wird geschrieben, bevor Sie löschen.",
       "objectsLegend": "Zu betrachtende Objekte (bis zu {{max}})",
       "scan": "Prüfen",
       "method": "Ein Löschvorgang nimmt höchstens {{limit}} Datensätze auf einmal (bei seit Längerem nicht geänderten Datensätzen die ältesten zuerst): Führen Sie ihn für den Rest erneut aus. Ein Export nimmt {{limit}} auf einmal, und Die nächsten exportieren setzt dort fort, wo er aufgehört hat.",
@@ -2383,6 +2368,7 @@
       "copies": "Wiederholte Werte von {{field}}: {{values}}. Überzählige Kopien: {{copies}}.",
       "copiesRule": "Ein Löschvorgang behält für jeden wiederholten Wert den zuletzt geänderten Datensatz und löscht die anderen Kopien. Er führt sie nicht zusammen: Was auf eine Kopie verweist, wird mit ihr gelöscht oder bleibt ohne sie.",
       "copiesOf": "die überzähligen Kopien nach {{field}}",
+      "fields": "Füllgrad jedes Felds",
       "export": "Exportieren",
       "delete": "Löschen…",
       "exportWhat": "Exportieren: {{what}}",
@@ -2421,7 +2407,7 @@
       "keepHint": "Vor dem ersten Schreiben wird eine Sicherung der Felder erstellt, die der Lauf maskiert. Kann sie nicht jede Zeile aufnehmen, die der Lauf maskieren würde, wird nichts maskiert.",
       "taken_one": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensatz aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
       "taken_other": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensätzen aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
-      "openRestore": "In „Wiederherstellen“ öffnen",
+      "openRestore": "In „Sicherungen“ öffnen",
       "refused": "Es konnte keine Sicherung aufbewahrt werden, daher wurde nichts maskiert. Ein Objekt mit mehr Zeilen, als eine Sicherung enthält, wird in Abschnitten maskiert: Aktivieren Sie „In Abschnitten maskieren“ in der Bestätigung. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“."
     },
     "slices": {
@@ -2471,7 +2457,7 @@
         "late_one": "{{formatted}} Datensatz wurde während des Laufs in einem bereits maskierten Bereich angelegt: Keine Sicherung enthält ihn, und er wurde nicht maskiert. „Fortsetzen“ maskiert ihn, mit einer eigenen Sicherung.",
         "late_other": "{{formatted}} Datensätze wurden während des Laufs in einem bereits maskierten Bereich angelegt: Keine Sicherung enthält sie, und sie wurden nicht maskiert. „Fortsetzen“ maskiert sie, mit einer eigenen Sicherung.",
         "left": "Es bleiben Abschnitte. „Fortsetzen“ maskiert den Rest, jeden Abschnitt vorher gesichert.",
-        "openRestore": "Den Satz in „Wiederherstellen“ öffnen"
+        "openRestore": "Den Satz in „Sicherungen“ öffnen"
       },
       "table": {
         "slice": "Abschnitt",
@@ -2505,7 +2491,7 @@
           "partial": "Unvollständig"
         },
         "filtered": "Beschränkt auf: {{filters}}",
-        "openHeld": "Sein Maskierungslauf ist noch offen: Setzen Sie ihn auf der Registerkarte „Anonymisieren“ bis zum Ende fort, oder geben Sie ihn auf, bevor Sie wiederherstellen. Fortgesetzt würde er erneut maskieren, was eine Wiederherstellung zurückschreibt.",
+        "openHeld": "Sein Maskierungslauf ist noch offen: Setzen Sie ihn auf der Registerkarte „Maskierung“ bis zum Ende fort, oder geben Sie ihn auf, bevor Sie wiederherstellen. Fortgesetzt würde er erneut maskieren, was eine Wiederherstellung zurückschreibt.",
         "partialNote": "Angehalten, bevor jeder Datensatz gesichert war: Kein Lauf setzt die Gruppe fort. Ihre Abschnitte werden so wiederhergestellt, wie sie sind; eine neue Sicherung in Abschnitten nimmt wieder alle Datensätze.",
         "expand": "Seine Abschnitte anzeigen",
         "collapse": "Seine Abschnitte ausblenden",
@@ -2532,23 +2518,19 @@
       },
       "backup": {
         "toggle": "In Abschnitten sichern",
-        "hint_one": "{{objects}} hat mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Wiederherstellen“ führt sie als einen Satz.",
-        "hint_other": "{{objects}} haben mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Wiederherstellen“ führt sie als einen Satz."
+        "hint_one": "{{objects}} hat mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Sicherungen“ führt sie als einen Satz.",
+        "hint_other": "{{objects}} haben mehr Zeilen, als eine Sicherung enthält: In Abschnitten ist jeder Abschnitt eine eigene Sicherung, und „Sicherungen“ führt sie als einen Satz."
       },
       "notify": {
         "done": "Maskieren in Abschnitten beendet: {{done}} von {{total}} Abschnitten maskiert, jeder mit seiner Sicherung.",
-        "open": "Maskieren in Abschnitten mit verbleibenden Abschnitten angehalten: {{done}} von {{total}} maskiert. „Fortsetzen“ auf der Registerkarte „Anonymisieren“ macht weiter.",
-        "late_one": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegter Datensatz wurde nicht maskiert: „Fortsetzen“ auf der Registerkarte „Anonymisieren“ maskiert ihn.",
-        "late_other": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegte Datensätze wurden nicht maskiert: „Fortsetzen“ auf der Registerkarte „Anonymisieren“ maskiert sie."
+        "open": "Maskieren in Abschnitten mit verbleibenden Abschnitten angehalten: {{done}} von {{total}} maskiert. „Fortsetzen“ auf der Registerkarte „Maskierung“ macht weiter.",
+        "late_one": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegter Datensatz wurde nicht maskiert: „Fortsetzen“ auf der Registerkarte „Maskierung“ maskiert ihn.",
+        "late_other": "Maskieren in Abschnitten beendet, aber {{formatted}} während des Laufs angelegte Datensätze wurden nicht maskiert: „Fortsetzen“ auf der Registerkarte „Maskierung“ maskiert sie."
       }
     },
     "backupDeleteConfirmSync": "Diese Sicherung löschen? Sie enthält, was der Sync-Lauf vom {{date}} überschrieben hat: Diesen Lauf in Sync zu entfernen, stellt diese Werte dann nicht mehr wieder her, und sie sind endgültig von diesem Rechner weg.",
     "restoreSyncPartial": "Der Sync-Lauf schreibt noch, oder er hat vor seinem Ende angehalten — sein Fenster wurde geschlossen oder die Erweiterung hat angehalten: Diese Sicherung enthält, was er bis dahin aufbewahrt hatte.",
     "orgPicker": "Org, die die Registerkarten unten lesen und schreiben",
-    "kpi": {
-      "backups": "Sicherungen von {{org}}",
-      "partial": "Unvollständige oder fehlgeschlagene Sicherungen"
-    },
     "backupStatus": {
       "pending": "Ausstehend",
       "running": "Läuft",
@@ -2561,20 +2543,18 @@
     "checkpointBeforeRisk": "Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt (Prüfpunkte → Prüfpunkt erstellen): Zurücksetzen… bringt die Daten der Org dorthin zurück.",
     "takeCheckpoint": "Prüfpunkt erstellen",
     "restoreEmpty": "Noch keine Sicherung von {{org}}",
-    "restoreEmptyDesc": "Hier stehen die auf der Registerkarte Sicherung erstellten Sicherungen und die, die ein Sync-Lauf von dem aufbewahrt, was er überschreibt.",
+    "restoreEmptyDesc": "Sicherung erstellen, neben der Vorlage auf der Registerkarte Maskierung, erstellt eine, ebenso eine Maskierung, die die Werte vorher aufbewahrt; ein Sync-Lauf bewahrt eine von dem auf, was er überschreibt. Jede steht hier.",
     "restoreCreateBackup": "Sicherung erstellen",
-    "restorePick": "Klicken Sie auf eine Sicherung, um sie wiederherzustellen oder zu löschen.",
     "restoreConfirm": {
       "title": "Die Sicherung vom {{date}} in {{org}} wiederherstellen?",
       "changed": "Seit dem {{date}} geänderte Zeilen erhalten die Werte der Sicherung zurück, egal wer sie geändert hat.",
       "syncKept": "Die Datensätze, die der Sync-Lauf vom {{date}} überschrieben hat, erhalten ihre Werte von davor zurück; seit dem Lauf geänderte oder gelöschte bleiben, wie sie sind.",
-      "rewriteAll": "Jede Zeile der Sicherung wird geschrieben, auch die, die die Org schon so enthält wie die Sicherung.",
       "objects": "Was die Sicherung enthält:",
       "confirm": "In {{org}} wiederherstellen"
     },
     "anonymizeConfirm": {
-      "title": "{{org}} mit „{{name}}“ anonymisieren?",
-      "resumeTitle": "Anonymisierung von {{org}} mit „{{name}}“ fortsetzen?",
+      "title": "{{org}} mit „{{name}}“ maskieren?",
+      "resumeTitle": "Maskierung von {{org}} mit „{{name}}“ fortsetzen?",
       "description": "Überschreibt diese Felder überall, wo ein Datensatz einen Wert hat: {{fields}}.",
       "resumeDescription": "Überschreibt diese Felder in den Datensätzen, die der angehaltene Lauf übrig gelassen hat: {{fields}}."
     },
@@ -3969,7 +3949,7 @@
     "checkpointContent": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat. Seine Vorschau zählt Objekt für Objekt die Datensätze unter Löschen, Werte zurückgeben und Zurückholen. Eine DataOps-Sicherung ist eine Kopie einiger Objekte: Ihre Wiederherstellung löscht nie, was hinzugefügt wurde.\n- Das Zurücksetzen macht die Arbeit aller seit dem Prüfpunkt ungeschehen, nicht nur die Läufe von SandForge: ob von Benutzern, Flows oder Integrationen. Die Vorschau zeigt, wer was zuletzt geändert hat, bevor etwas geschrieben wird.\n- Nie in einer Produktions-Org: Prüfpunkte sind für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht, und keine Einstellung und keine Option hebt diese Ablehnung auf.\n- Nur Daten: Felder, Flows, Validierungsregeln, Layouts, Berechtigungen, Benutzer und Setup bleiben, wie sie sind, und was die Org schon verlassen hat (E-Mails, Callouts, Plattformereignisse), bleibt gesendet.\n- Dateien sind nur zum Teil abgedeckt: Das Zurücksetzen löscht die seitdem an seine Datensätze angehängten Dateien und holt die seitdem gelöschten zurück, doch eine Datei, die eine neue Version erhalten hat, behält ihren neuen Inhalt.\n- Ein Prüfpunkt enthält die Werte der Datensätze im Klartext, darunter personenbezogene Daten, auf diesem Rechner, nur für Sie lesbar, 30 Tage lang, sofern Sie ihn nicht aufbewahren.",
     "syncContent": "Sync kopiert Objekte von einer Org in eine andere, Feld für Feld; der Tab Verlauf listet jeden Lauf, und der Tab Zeitpläne führt eine gespeicherte Konfiguration nach Zeitplan aus.\n- Ein Delta-Lauf einer gespeicherten Konfiguration liest, was sich seit ihrem letzten erfolgreichen Lauf geändert hat, und kann im Ziel löschen, was die Quelle gelöscht hat.\n- Auto-Zuordnung verbindet Felder mit demselben API-Namen. Eine Transformationsregel ändert ein einziges Feld in jedem geschriebenen Datensatz; eine Regel ohne Feld wird abgelehnt, bevor etwas gelesen oder gespeichert wird. Wertzuordnungen kommen aus einer importierten SFDMU-Konfiguration.\n- „E-Mail-Adressen und Telefonnummern neutralisieren“ ist an, sofern Sie es nicht abwählen; „Die Dateien dieser Datensätze kopieren“ bringt ihre Dateien mit.\n- Tab Echtzeit: schreibt jede Änderung, die die Quelle veröffentlicht (Change Data Capture), sobald sie kommt; einen Konflikt entscheidet die Strategie, oder er wird auf dem Tab Konflikte zurückgehalten.\n- „Entfernen, was dieser Lauf erstellt hat“, in den Ergebnissen oder im Verlaufseintrag des Laufs, löscht, was er eingefügt hat, und seine Dateien, gibt den Datensätzen, die er überschrieben hat, ihre vorherigen Werte zurück, aufbewahrt für sandforge.backup.maxAgeDays, und holt zurück, was ein Delta-Lauf gelöscht hat. Production Guard verweigert es in einer Produktions-Org.\n- Eine Echtzeit-Sitzung wird ebenso entfernt, unter „Frühere Sitzungen“, sobald sie gestoppt ist.",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Vorhandene Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Objekte: die Objekte beider Orgs, live gelesen beim Öffnen des Tabs\n- Abweichung der Org-Einstellungen: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Aus Diff bereitstellen: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie die Validierung dann in einer Sandbox, einer Scratch-Org oder einer Developer-Edition-Org bereit",
-    "dataopsContent": "Datenoperationen in der oben auf der Seite gewählten Org:\n- Sicherung: eine Kopie der Objekte, die die Anonymisierungsvorlagen maskieren, oder derer, die die gewählte Vorlage maskiert, auf diesem Rechner abgelegt. Sie ist kein Prüfpunkt: Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt. „In Abschnitten sichern“ geht über die Größe einer Sicherung hinaus; angehalten, ist sie unvollständig.\n- Wiederherstellen fragt zuerst und nennt die Org und jedes Objekt der Sicherung, dann spielt es die Sicherung in die Org zurück, aus der sie stammt; sofern „Jede Zeile der Sicherung zurückschreiben“ nicht angehakt ist, schreibt es nur die seitdem geänderten Zeilen.\n- Anonymisieren maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA oder mit einer eigenen aus „Vorlage erstellen“; sofern Sie „Die Werte vorher aufbewahren“ nicht abwählen, sichert es, was es maskiert, damit „Wiederherstellen“ es zurückschreiben kann.\n- Compliance findet die Felder mit personenbezogenen Daten, dann die Datensätze einer Person über E-Mail, Name oder Telefon, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren, zu anonymisieren oder zu löschen.\n- Bereinigung zählt veraltete Datensätze, leere Lookups und wiederholte Werte, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren oder zu löschen, 1.000 auf einmal.\n- Qualität zählt, wie oft jedes Feld gefüllt ist, geteilte Schlüsselwerte und veraltete Datensätze, und schreibt nichts.",
+    "dataopsContent": "Datenoperationen in der oben auf der Seite gewählten Org:\n- Maskierung maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA oder mit einer eigenen aus „Vorlage erstellen“; sofern Sie „Die Werte vorher aufbewahren“ nicht abwählen, sichert sie, was sie maskiert, damit „Wiederherstellen…“ es zurückschreiben kann. „Sicherung erstellen“ neben der Vorlage kopiert die Objekte, die sie maskiert, auf diesen Rechner.\n- Sicherungen listet jede Sicherung der Org, jede mit „Wiederherstellen…“, „Exportieren“ und „Löschen“. „Wiederherstellen…“ fragt zuerst, nennt die Org und jedes Objekt und fragt, ob jede Zeile zurückgeschrieben wird; nicht angehakt, schreibt es nur die seitdem geänderten Zeilen. Eine Sicherung ist kein Prüfpunkt: Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt.\n- Personenbezogene Daten findet die Felder mit personenbezogenen Daten, dann die Datensätze einer Person über E-Mail, Name oder Telefon, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren, zu anonymisieren oder zu löschen.\n- Bereinigung zählt veraltete Datensätze, leere Lookups, wiederholte Werte und wie oft jedes Feld gefüllt ist, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren oder zu löschen, 1.000 auf einmal.\n- Leeren löscht alle Datensätze der gewählten Objekte oder der ganzen Org, sobald „Simulieren“ gezählt hat, was verschwindet, und Sie den Namen der Org eingetippt haben.",
     "automationContent": "Visueller Pipeline-Builder:\n- Unter „Schritte“ bietet die Seite die Schritttypen an, die eine Pipeline ausführt: Sync, Seed, Anonymisierung, Sicherung, Prüfpunkt, Zurücksetzen, Vergleich, Vorabprüfung, Bedingung, Verzögerung, Genehmigung und Benachrichtigung. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus, und schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor. Seed und Anonymisierung führen eine Vorlage ihrer Seite aus, nie in einer Produktions-Org, in einer als Staging markierten Sandbox nach einem Genehmigungsschritt, und werden nie wiederholt. Ein Zurücksetzen-Schritt setzt eine Org auf einen auf diesem Rechner aufbewahrten Prüfpunkt zurück, höchstens so viele Datensätze wie eingestellt, sobald Sie ihn unter seiner Vorschau mit dem Alias der Org bestätigt haben, oder, wenn sie keinen hat, mit ihrem Namen oder ihrer Organisations-ID. Wiederherstellung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite: Eine Pipeline mit einem dieser Schritte oder mit einem Skript-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge kopiert einen Datensatz und das, was mit ihm verbunden ist, aus der im Seitenpanel gewählten Org in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org; jede andere Org lehnt es ab. Die IDs werden beim Schreiben neu zugeordnet.\n- Vor Forge ausführen, in der Überprüfung: Simulieren prüft hier jeden Datensatz, sendet nichts; Testlauf im Ziel: Das Ziel testet eine Stichprobe, zurückgesetzt; kostet API-Aufrufe.\n- E-Mails und Telefonnummern werden neutralisiert (.invalid, fiktive Nummern), es sei denn, Sie aktivieren „E-Mails und Telefonnummern unverändert lassen“. PII anonymisieren maskiert Namen, Adressen und andere personenbezogene Felder.\n- Als Vorlage speichern, in den Ergebnissen eines Laufs, behält seinen Datensatz oder seine Abfrage, seine Tiefe, seine Optionen und seine Entscheidungen; der Tab Vorlage führt ihn erneut aus, und Vorlage importieren liest eine aus einer Datei.\n- Direkt klonen, in Weitere Startmöglichkeiten, führt die Ermittlung und dann das Klonen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten; Production Guard beurteilt diesen Lauf wie jeden anderen.\n- Graph oder Tabelle: Bis zu 25 Objekte werden als Graph gezeichnet, mehr als Tabelle, ebenso jeder Graph in einem Panel unter 560 Pixel Breite; Graph-Ansicht / Tabellenansicht oder die Einstellung sandforge.forge.graphView wählt die Ansicht.\n- Ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.",
     "frozenContent": "Das eingefrorene Dataset wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Regeldatei: Extraktion starten braucht eine, unter ~/.sandforge-sas/rules.json, sofern die Konfiguration sie nicht verlegt. Regeldatei erstellen schreibt eine leere, die jedes Feld ohne Regel leert; eine Regel nennt ihr Feld als Objekt.Feld und einen Generator wie email, firstName, clear oder keep (freigegeben), und Regelformat listet sie alle\n- Deterministische Pseudonymisierung mit SANDFORGE_FROZEN_SALT, wo es gesetzt ist, sonst mit dem Salt aus dem geheimen Speicher von VS Code, das die erste Extraktion erstellt, wenn dort noch keines liegt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor das Dataset geschrieben wird\n- Laden: in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org, nie in eine Produktions-Org oder eine als Staging markierte Sandbox, mit einem optionalen Pilot auf zuerst einem Stammdatensatz und einer Verifizierung nach dem Laden",
@@ -4071,12 +4051,12 @@
       "tip": "Der Vergleich schreibt nichts. Aus Diff bereitstellen validiert zuerst im Ziel, löscht dort nichts und lehnt eine Produktions-Org als Ziel ab."
     },
     "dataops": {
-      "step1": "Wählen Sie die Org in der Liste oben auf der Seite und öffnen Sie dann die Registerkarte Anonymisieren.",
-      "step2": "Wählen Sie unter Vorlage auswählen eine Vorlage; ihre Karte listet jedes Feld auf, das sie maskiert.",
-      "step3": "Klicken Sie auf Vorschau: Die ersten Datensätze zeigen Original neben Maskiert, und nichts wird geschrieben.",
-      "step4": "Klicken Sie auf Anwenden, haken Sie Die Werte vorher aufbewahren und, falls angezeigt, In Abschnitten maskieren an, geben Sie den Namen der Org ein und klicken Sie auf Bestätigen.",
-      "step5": "Um Objekte oder die ganze Org zu leeren, öffnen Sie Bereinigung: Die Vorschau zeigt vor jedem Löschen, was verschwindet.",
-      "tip": "Sofern Sie Die Werte vorher aufbewahren nicht deaktivieren, sichert Anwenden die Werte, die es maskiert: Klicken Sie auf In „Wiederherstellen“ öffnen und dann auf Wiederherstellen, um sie zurückzuschreiben."
+      "step1": "Maskierung: Wählen Sie eine Vorlage, klicken Sie auf Vorschau, dann auf Anwenden mit Die Werte vorher aufbewahren.",
+      "step2": "Sicherungen: Jede Sicherung hat Wiederherstellen…, Exportieren und Löschen; Wiederherstellen… nennt die Org vorher.",
+      "step3": "Personenbezogene Daten: Finden Sie die Felder, dann die Datensätze einer Person zum Exportieren oder Anonymisieren.",
+      "step4": "Bereinigung: Objekte wählen, Prüfen, dann neben jedem Befund exportieren oder löschen, Füllgrad inbegriffen.",
+      "step5": "Leeren: Objekte oder die ganze Org wählen, Simulieren, dann den Namen der Org eintippen, um sie zu leeren.",
+      "tip": "Sicherung erstellen, neben der Vorlage unter Maskierung, bewahrt, was sie maskiert; vor jedem anderen riskanten Lauf erstellen Sie einen Prüfpunkt."
     },
     "monitor": {
       "step1": "Zeigt die Seite Org zum Überwachen auswählen, klicken Sie auf die Org, die Sie beobachten möchten.",
@@ -4444,9 +4424,9 @@
       "statusFailure": "Fehlgeschlagen",
       "remove": "Die von diesem Durchlauf erstellten Datensätze entfernen",
       "removeLeft": "Die verbliebenen Datensätze dieses Durchlaufs entfernen",
-      "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
+      "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Leeren → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "removeOrgGone": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
-      "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
+      "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern. Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Leeren → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs.",
       "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat",
       "roots_one": "{{formatted}} {{object}}-Datensatz, von seiner Abfrage ausgewählt, davon {{written}} im Ziel",
       "roots_other": "{{formatted}} {{object}}-Datensätze, von seiner Abfrage ausgewählt, davon {{written}} im Ziel",
@@ -5201,7 +5181,7 @@
         "personalList": "Die Felder, nach Objekt",
         "targetHolds_one": "{{target}} enthält bereits etwa {{formatted}} Datensatz von {{objects}} dieser Objekte. Der Lauf fügt seine eigenen daneben hinzu, er ersetzt sie nicht, und ein eindeutiges Feld oder eine Duplikatregel kann einige ablehnen.",
         "targetHolds_other": "{{target}} enthält bereits etwa {{formatted}} Datensätze von {{objects}} dieser Objekte. Der Lauf fügt seine eigenen daneben hinzu, er ersetzt sie nicht, und ein eindeutiges Feld oder eine Duplikatregel kann einige ablehnen.",
-        "emptyFirst": "Um mit einem leeren Ziel zu beginnen, leeren Sie diese Objekte zuerst unter DataOps → Bereinigung → Objekte leeren und ermitteln Sie die Org dann hier erneut.",
+        "emptyFirst": "Um mit einem leeren Ziel zu beginnen, leeren Sie diese Objekte zuerst unter DataOps → Leeren → Objekte leeren und ermitteln Sie die Org dann hier erneut.",
         "targetHoldsNone": "{{target}} enthält laut seinen Datensatzzählungen keinen Datensatz der Objekte, die der Lauf kopiert.",
         "targetHoldsReading": "Es wird gelesen, was {{target}} von diesen Objekten bereits enthält …",
         "targetHoldsFailed": "Was {{target}} von diesen Objekten bereits enthält, konnte nicht gelesen werden: {{message}}",
@@ -6906,7 +6886,7 @@
       "restoredKeptChanged": "seit dem Lauf geändert, belassen, wie sie sind: {{n}}",
       "restoredGone": "nicht mehr in {{org}}: {{n}}",
       "restoredRefused": "von {{org}} abgelehnt: {{n}}",
-      "restoredNotKept": "vorherige Werte nicht mehr aufbewahrt (Sicherung auf dem Tab Wiederherstellen gelöscht oder Aufbewahrungsdauer erreicht): {{n}}",
+      "restoredNotKept": "vorherige Werte nicht mehr aufbewahrt (Sicherung auf dem Tab Sicherungen gelöscht oder Aufbewahrungsdauer erreicht): {{n}}",
       "restoredNotReached": "vor dem Anhalten nicht erreicht: {{n}}",
       "titleOverwritten": "Was dieser Lauf überschrieben hat",
       "titleDeleted": "Was dieser Lauf gelöscht hat",
@@ -6921,7 +6901,7 @@
       "overwrittenNotKept_one": "{{formatted}} Datensatz in {{org}} überschrieben, seine vorherigen Werte nicht mehr auf diesem Rechner aufbewahrt",
       "overwrittenNotKept_other": "{{formatted}} Datensätze in {{org}} überschrieben, ihre vorherigen Werte nicht mehr auf diesem Rechner aufbewahrt",
       "keptUntil": "aufbewahrt bis {{date}} (sandforge.backup.maxAgeDays)",
-      "putBackNotKept": "Vorherige Werte nicht mehr aufbewahrt (älter als sandforge.backup.maxAgeDays oder auf dem Tab Wiederherstellen gelöscht): {{n}}. Diese Datensätze behalten die Werte des Laufs.",
+      "putBackNotKept": "Vorherige Werte nicht mehr aufbewahrt (älter als sandforge.backup.maxAgeDays oder auf dem Tab Sicherungen gelöscht): {{n}}. Diese Datensätze behalten die Werte des Laufs.",
       "deleted_one": "{{formatted}} Datensatz in {{org}} vom Lauf gelöscht, wie die Quelle ihn gelöscht hatte: Sein Entfernen stellt ihn aus dem Papierkorb wieder her, solange er dort ist",
       "deleted_other": "{{formatted}} Datensätze in {{org}} vom Lauf gelöscht, wie die Quelle sie gelöscht hatte: Sein Entfernen stellt sie aus dem Papierkorb wieder her, solange sie dort sind",
       "writtenAgain_one": "{{formatted}} Datensatz dieses Laufs wurde am {{date}} von {{config}} erneut geschrieben: Entfernen Sie zuerst jenen Lauf, sonst gilt er als seit diesem geändert",
@@ -7439,7 +7419,7 @@
     "insertsNeutralized": "Fügt jeden Datensatz ein; E-Mail-Adressen und Telefonnummern werden neutralisiert.",
     "readCut": "{{read}} der {{held}} Datensätze der Quell-Org: Der Rest wird nicht kopiert.",
     "refusal": {
-      "storage": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als der Ziel-Org bleibt. Schnell-Sync hat keinen Filter: Lassen Sie hier Objekte weg, oder öffnen Sie sie im Assistenten, wo jedes Objekt einen Filter erhält. Um einen Teil der Quelle zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt. Oder geben Sie Datenspeicher in der Ziel-Org frei: DataOps → Bereinigung → Objekte leeren löscht, was sie von diesen Objekten enthält.",
+      "storage": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als der Ziel-Org bleibt. Schnell-Sync hat keinen Filter: Lassen Sie hier Objekte weg, oder öffnen Sie sie im Assistenten, wo jedes Objekt einen Filter erhält. Um einen Teil der Quelle zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt. Oder geben Sie Datenspeicher in der Ziel-Org frei: DataOps → Leeren → Objekte leeren löscht, was sie von diesen Objekten enthält.",
       "openInWizard": "Im Assistenten öffnen",
       "openForge": "Forge öffnen",
       "emptyFirst": "Diese Objekte im Ziel leeren"
@@ -7941,7 +7921,7 @@
     },
     "runNotInHistory": {
       "explanation": "Dieser Durchlauf ist nicht mehr im Verlauf von Forge, der die letzten Durchläufe behält: Was er geschrieben hat, ist hier nicht mehr bekannt. Es wurde nichts gelesen oder geschrieben.",
-      "action": "Sehen Sie unter Ältere Durchläufe nach, unterhalb von Letzte Durchläufe: Ein Durchlauf, dessen Datensätze sich noch entfernen lassen, steht dort. Sonst bringt ein vor dem Durchlauf erstellter Prüfpunkt die Org zurück (Prüfpunkte → Zurücksetzen…), und DataOps → Bereinigung → Objekte leeren leert seine Objekte, jeden ihrer Datensätze."
+      "action": "Sehen Sie unter Ältere Durchläufe nach, unterhalb von Letzte Durchläufe: Ein Durchlauf, dessen Datensätze sich noch entfernen lassen, steht dort. Sonst bringt ein vor dem Durchlauf erstellter Prüfpunkt die Org zurück (Prüfpunkte → Zurücksetzen…), und DataOps → Leeren → Objekte leeren leert seine Objekte, jeden ihrer Datensätze."
     },
     "removalRunning": {
       "explanation": "Ein Entfernen dieses Durchlaufs läuft bereits, von dieser Seite oder einer anderen: Ein zweites würde doppelt fragen und doppelt löschen. Es wurde nichts weiter gelöscht.",
@@ -7953,7 +7933,7 @@
     },
     "journalGone": {
       "explanation": "Die IDs der Datensätze dieses Durchlaufs wurden in seinem Journal auf diesem Rechner gehalten, das nicht mehr da ist: Nichts hier unterscheidet sie mehr von den übrigen Datensätzen der Org. Es wurde nichts gelesen oder geschrieben.",
-      "action": "Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Bereinigung → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs."
+      "action": "Ein vor dem Durchlauf erstellter Prüfpunkt bringt die Org auf den Stand davor zurück: Prüfpunkte → Zurücksetzen…. Ohne einen leert DataOps → Leeren → Objekte leeren die Objekte, die er geschrieben hat — jeden ihrer Datensätze, nicht nur die dieses Durchlaufs."
     },
     "notRecorded": {
       "explanation": "Dieser Durchlauf wurde aufgezeichnet, bevor Forge festhielt, was ein Durchlauf erstellt und wo: Seine Datensätze lassen sich nicht von den übrigen der Org unterscheiden. Es wurde nichts gelesen oder geschrieben."
@@ -8961,7 +8941,7 @@
     "title": "Objekte oder die Org leeren",
     "production": "{{org}} ist eine Produktions-Org oder lässt sich nicht von einer unterscheiden. Leeren ist für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht: SandForge leert nie Objekte einer Produktions-Org, und nichts hebt diese Sperre auf.",
     "scopeReading": "Die Objekte von {{org}} werden gelesen…",
-    "previewButton": "Vorschau",
+    "previewButton": "Simulieren",
     "list": {
       "filter": "Filtern",
       "noMatch": "Kein Objekt passt zum Filter.",
@@ -8969,7 +8949,7 @@
     },
     "objects": {
       "title": "Objekte leeren",
-      "intro": "Löscht alle Datensätze der gewählten Objekte und das, was Salesforce mit ihnen löscht. Eine Vorschau zählt zuerst alles; gelöscht wird erst, wenn Sie mit dem Namen der Org bestätigen.",
+      "intro": "Löscht alle Datensätze der gewählten Objekte und das, was Salesforce mit ihnen löscht. Eine Simulation zählt zuerst alles; gelöscht wird erst, wenn Sie mit dem Namen der Org bestätigen.",
       "legend": "Zu leerende Objekte",
       "picked_one": "{{formatted}} Objekt gewählt",
       "picked_other": "{{formatted}} Objekte gewählt",
@@ -9050,7 +9030,7 @@
     },
     "preview": {
       "reading": "Die Datensätze von {{org}} und was mit ihnen geht, werden gezählt…",
-      "stop": "Vorschau anhalten",
+      "stop": "Simulation anhalten",
       "titleObjects": "Was das Leeren dieser Objekte von {{org}} löschen würde",
       "titleOrg": "Was das Leeren von {{org}} löschen würde",
       "nothing": "{{org}} enthält nichts, was diese Objekte löschen würden.",
@@ -9059,8 +9039,8 @@
       "readAt": "Gezählt um {{at}}: Danach angelegte Datensätze bleiben, wie sie sind.",
       "uncounted": "Diese wollte die Org nicht zählen, und ihre Datensätze sind nicht in der Summe: {{objects}}.",
       "hard": "Endgültig gelöscht: Salesforce holt nichts zurück, was ein Hard Delete nimmt, auch nicht, was mitgeht. Rückgängig wird nicht möglich sein.",
-      "stopped": "Die Vorschau wurde angehalten, bevor alle Zählungen vorlagen: Erstellen Sie die Vorschau erneut, um zu leeren.",
-      "stale": "Die Optionen haben sich seit dieser Vorschau geändert: Erstellen Sie die Vorschau erneut, bevor Sie leeren.",
+      "stopped": "Die Simulation wurde angehalten, bevor alle Zählungen vorlagen: Simulieren Sie erneut, um zu leeren.",
+      "stale": "Die Optionen haben sich seit dieser Simulation geändert: Simulieren Sie erneut, bevor Sie leeren.",
       "openRun": "Das letzte Leeren von {{org}} ({{runId}}, begonnen am {{at}}) hat mittendrin angehalten. Setzen Sie es fort oder machen Sie es rückgängig, bevor ein weiteres beginnt: Sein Rückgängig erreicht die Org dann noch so, wie sie war.",
       "resume": "Fortsetzen…",
       "undoOpen": "Rückgängig machen…",
@@ -9135,16 +9115,16 @@
       "acceptPeopleActive": "Trotzdem leeren: Ihre Änderungen gehen mit den Datensätzen. Wer bis dahin sonst noch arbeitet, lässt den Lauf ablehnen.",
       "leftOut_one": "{{formatted}} Objekt ausgelassen, mit Grund",
       "leftOut_other": "{{formatted}} Objekte ausgelassen, jedes mit Grund",
-      "checkpointLead": "Zuerst ein Prüfpunkt, wie diese Vorschau ihn liest:",
+      "checkpointLead": "Zuerst ein Prüfpunkt, wie diese Simulation ihn liest:",
       "holding": "Was das Leeren jetzt verhindert",
-      "again": "Vorschau erneut erstellen"
+      "again": "Erneut simulieren"
     },
     "confirm": {
       "title": "{{org}} leeren?",
       "description": "{{records}} aus {{objects}} kommen in den Papierkorb. Rückgängig holt sie zurück, solange der Papierkorb sie hält.",
       "descriptionHard": "{{records}} aus {{objects}} werden endgültig gelöscht.",
       "noUndo": "Rückgängig wird nicht möglich sein: Salesforce holt nichts zurück, was ein Hard Delete nimmt.",
-      "automation": "Während die Datensätze gehen, führt {{org}} aus, was die Vorschau aufgeführt hat.",
+      "automation": "Während die Datensätze gehen, führt {{org}} aus, was die Simulation aufgeführt hat.",
       "muted": "Was die Stummschaltung zum Schweigen bringt, bleibt während des Laufs still und wird dann zurückgegeben.",
       "peopleActive": "Was {{people}} in der letzten Stunde geändert hat, geht mit.",
       "blockers": "{{records}} nicht geleerter Objekte verweisen über ein Nachschlagefeld, das das Löschen verweigert, auf Datensätze, die es löscht: Die Datensätze, auf die sie verweisen, werden verweigert.",
@@ -9181,20 +9161,20 @@
         "refused": "Verweigert",
         "notReached": "Nicht erreicht"
       },
-      "madeSince_one": "{{formatted}} seit der Vorschau angelegter Datensatz bleibt, wie er ist",
-      "madeSince_other": "{{formatted}} seit der Vorschau angelegte Datensätze bleiben, wie sie sind",
+      "madeSince_one": "{{formatted}} seit der Simulation angelegter Datensatz bleibt, wie er ist",
+      "madeSince_other": "{{formatted}} seit der Simulation angelegte Datensätze bleiben, wie sie sind",
       "removedRuns_one": "Das Journal des früheren Leerens der Org wurde verworfen: Rückgängig erreicht nur dieses.",
       "removedRuns_other": "Die Journale der früheren Leerungen der Org wurden verworfen: Rückgängig erreicht nur dieses.",
       "undo": "Rückgängig machen…",
       "undoWhile": "Holt {{runId}} aus dem Papierkorb zurück, solange er die Datensätze hält.",
       "noUndoHard": "Rückgängig ist nicht möglich: Dieses Leeren hat endgültig gelöscht.",
       "noUndoNothing": "Nichts wurde gelöscht: Es gibt nichts rückgängig zu machen.",
-      "previewAgain": "Vorschau erneut erstellen",
+      "previewAgain": "Erneut simulieren",
       "done": "Fertig"
     },
     "resume": {
       "title": "Das Leeren {{runId}} von {{org}} fortsetzen?",
-      "description": "Es löscht, was der angehaltene Lauf noch nicht erreicht hatte, wie seine Vorschau es zeigte, und liest beim Start erneut, was {{org}} ausführt.",
+      "description": "Es löscht, was der angehaltene Lauf noch nicht erreicht hatte, wie seine Simulation es zeigte, und liest beim Start erneut, was {{org}} ausführt.",
       "button": "Leeren fortsetzen",
       "acceptAutomation": "Ausführen lassen, was {{org}} beim Löschen der Datensätze ausführt",
       "acceptPeopleActive": "Fortsetzen, auch wenn andere in der letzten Stunde Datensätze dieser Objekte in {{org}} geändert haben: Ihre Arbeit geht mit"
@@ -9218,7 +9198,7 @@
       "othersDeletion": "{{formatted}} von einem anderen Benutzer gelöscht, was nur Modify All Data zurückholt.",
       "refusedCount": "{{formatted}} verweigert.",
       "notReached": "{{formatted}} nicht erreicht.",
-      "previewedLostTitle": "Nicht zurückgeholt, wie die Vorschau es angekündigt hat"
+      "previewedLostTitle": "Nicht zurückgeholt, wie die Simulation es angekündigt hat"
     },
     "history": {
       "title": "Leerungen von {{org}}",

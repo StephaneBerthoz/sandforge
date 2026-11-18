@@ -600,7 +600,7 @@ function sayingWhatFailed(target: InFlightTarget, said: { err?: unknown }): InFl
  */
 const RECORDS_TAKEN_BACK_BY =
   'A checkpoint taken before the run takes the org back (Checkpoints → Rewind…); without one, ' +
-  'DataOps → Cleanup → Empty objects empties its objects, every record of them.';
+  'DataOps → Emptying → Empty objects empties its objects, every record of them.';
 
 /** Why a reader of a run's ids was refused: they were kept in its journal, which is gone. */
 const JOURNAL_GONE = 'JOURNAL_GONE';

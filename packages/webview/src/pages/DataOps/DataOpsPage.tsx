@@ -31,18 +31,18 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { OrgTypeBadge } from '../../components/ui/OrgBadge';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
-import { KPICard } from '../../components/ui/KPICard';
-import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
-import { BackupPanel } from './BackupPanel';
-import { RestorePanel, type RestoreCounts } from './RestorePanel';
+import { BentoTile } from '../../components/ui/BentoGrid';
+import { fadeIn } from '../../motion/presets';
+import { BackupPanel, type RestoreCounts, type RestoreOptions } from './BackupPanel';
+import { BackupCreate } from './BackupCreate';
+import { AnonymizePanel, CleanupPanel, CompliancePanel, EmptyPanel } from './dataOpsParts';
 import {
-  AnonymizePanel,
-  CleanupPanel,
-  CompliancePanel,
-  EmptyPanel,
-  QualityPanel,
-} from './dataOpsParts';
+  isDataOpsTab,
+  landingOf,
+  maskedObjects,
+  templateFor,
+  type DataOpsTab,
+} from './dataOpsLanding';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import {
   accordPayloadOf,
@@ -51,16 +51,6 @@ import {
 } from './DataOpsAutomation';
 import { formatNumber } from '../../utils/formatters';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
-
-/**
- * The objects templates mask, in the order their rules first name them: those
- * a masking run of each addresses.
- */
-function maskedObjects(templates: readonly ListedAnonymizationTemplate[]): string[] {
-  return templates
-    .flatMap((tpl) => tpl.rules.map((rule) => rule.fieldPattern.split('.')[0]))
-    .filter((name, i, all) => name !== '' && name !== '*' && all.indexOf(name) === i);
-}
 
 /**
  * The snapshot a masking run's answer names, which Restore puts back, or
@@ -151,18 +141,40 @@ function restoredSlicesOf(value: unknown): RestoreCounts['slices'] {
   return { restored: indexes(false), skipped: indexes(true) };
 }
 
+/**
+ * The objects asked to be masked as Masking opened — those a refresh copied
+ * from production, as Back into service names them —, and the ones the
+ * template picked for them leaves unmasked.
+ */
+const MaskAsked: React.FC<{
+  objects: readonly string[];
+  org: string;
+  template: ListedAnonymizationTemplate | undefined;
+}> = ({ objects, org, template }) => {
+  const { t } = useTranslation();
+  const masked = template ? maskedObjects([template]) : [];
+  const left = objects.filter((name) => !masked.includes(name));
+  return (
+    <div
+      className="flex flex-col gap-1 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-primary"
+      role="note"
+      data-testid="mask-asked"
+    >
+      <p>{t('dataops.maskAsked.lead', { org, objects: objects.join(', ') })}</p>
+      {left.length > 0 && (
+        <p data-testid="mask-asked-left">
+          {template
+            ? t('dataops.maskAsked.notMasked', { name: template.name, objects: left.join(', ') })
+            : t('dataops.maskAsked.noTemplate', { objects: left.join(', ') })}
+        </p>
+      )}
+    </div>
+  );
+};
+
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
   const { t } = useTranslation();
-
-  const DATAOPS_TABS: PageTab[] = [
-    { id: 'backup', label: t('dataops.backup'), icon: 'archive' },
-    { id: 'restore', label: t('dataops.restore'), icon: 'discard' },
-    { id: 'anonymize', label: t('dataops.anonymize'), icon: 'eye-closed' },
-    { id: 'gdpr', label: t('dataops.compliance'), icon: 'shield' },
-    { id: 'cleanup', label: t('dataops.cleanup'), icon: 'trash' },
-    { id: 'quality', label: t('dataops.quality'), icon: 'checklist' },
-  ];
   const orgs = useOrgStore((s) => s.orgs);
   // The org the user actually picked — the same reactive selector MonitorPage
   // and the rest of the product read.
@@ -182,28 +194,37 @@ export const DataOpsPage: React.FC = () => {
   );
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  // Forge's Review of a clone of the whole org opens Cleanup on Empty
-  // objects with the objects the target already holds records of picked,
-  // for the org it selected: that once, and for that org alone.
+  // Where the navigation asked the page to open, read once: a tab by its id;
+  // Emptying with the objects Forge's Review of a clone of the whole org, or
+  // Quick Sync's refusal, asks to empty first; Masking with the objects Back
+  // into service asks to mask. Objects are taken for the org selected alone.
   const navigationIntent = useAppStore((s) => s.navigationIntent);
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
-  const [emptyFirst] = useState(() =>
-    navigationIntent?.route === 'dataops' &&
-    navigationIntent.emptyObjects !== undefined &&
-    navigationIntent.targetOrgId === currentOrg?.id
-      ? { orgId: navigationIntent.targetOrgId, objects: navigationIntent.emptyObjects }
-      : null,
-  );
+  const [landing] = useState(() => landingOf(navigationIntent, currentOrg?.id));
   useEffect(() => {
     if (navigationIntent?.route === 'dataops') clearNavigationIntent();
   }, [navigationIntent, clearNavigationIntent]);
-  const [activeTab, setActiveTab] = useState(emptyFirst ? 'cleanup' : 'backup');
-  const [selectedBackupId, setSelectedBackupId] = useState<string>('');
-  /** A restore writes every row back rather than the rows that changed since the backup. */
-  const [rewriteAll, setRewriteAll] = useState(false);
-  /** A restore of a Sync run's backup writes the records changed since the run too. */
-  const [includeChanged, setIncludeChanged] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<DataOpsTab>(landing.tab);
+  /**
+   * Whether Emptying, opened by the navigation, brings its first section into
+   * view and gives it the focus: arrived from Forge, the objects picked sat
+   * below the Cleanup scan, off screen at 1280×800, and nothing moved to them.
+   * Once, as the page opens.
+   */
+  const [emptyingLanded, setEmptyingLanded] = useState(landing.tab === 'emptying');
+  const changeTab = (id: string): void => {
+    if (!isDataOpsTab(id)) return;
+    setEmptyingLanded(false);
+    setActiveTab(id);
+  };
+  /** The backup or set a masking run's result opened Backups on. */
+  const [openedBackupId, setOpenedBackupId] = useState<string>('');
+  /**
+   * The template picked, or none yet: then, with objects asked to be masked,
+   * the one that masks them (`templateFor`), as soon as the templates are
+   * listed.
+   */
+  const [pickedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   // Local UI state
   const [error, setError] = useState<string | null>(null);
@@ -333,6 +354,13 @@ export const DataOpsPage: React.FC = () => {
     undefined,
     { responseType: 'dataops:anonymization-templates:response' },
   );
+  const templates = templatesQuery.data?.templates ?? [];
+  // The objects asked to be masked are the selected org's alone: another org
+  // picked since takes them off the tab.
+  const maskAsked =
+    landing.mask && landing.mask.orgId === currentOrg?.id ? landing.mask : undefined;
+  const selectedTemplateId =
+    pickedTemplateId ?? (maskAsked ? (templateFor(templates, maskAsked.objects) ?? '') : '');
 
   /**
    * Bridge query: the objects Create Backup reads in the org — those a masking
@@ -408,7 +436,6 @@ export const DataOpsPage: React.FC = () => {
   // The host says which, as a masking run plans them in the org: Account
   // too, for a template that masks contacts in an org with person accounts,
   // which the rules do not name. Until it answers, the rules' objects.
-  const templates = templatesQuery.data?.templates ?? [];
   const pickedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
   const templateObjects = maskedObjects(pickedTemplate ? [pickedTemplate] : templates);
   const plannedObjects = backupObjectsQuery.data?.objects ?? templateObjects;
@@ -431,7 +458,7 @@ export const DataOpsPage: React.FC = () => {
     if (anonymizeEnded) refetchCoverage.current();
   }, [anonymizeEnded, refetchCoverage]);
   // A set given up is no longer open: Apply is offered again, and the set,
-  // listed in Restore, says so.
+  // listed in Backups, says so.
   const abandonEnded = abandonMutation.data ?? abandonMutation.error;
   const refetchAfterAbandon = useLatestRef(() => {
     coverageQuery.refetch();
@@ -442,8 +469,8 @@ export const DataOpsPage: React.FC = () => {
   }, [abandonEnded, refetchAfterAbandon]);
 
   // The snapshot a run took before it masked is a backup of the org: listed
-  // once the run ends, so Restore offers it. So is the set of a run in
-  // slices, each slice's backup in it.
+  // once the run ends, so Backups offers to restore it. So is the set of a
+  // run in slices, each slice's backup in it.
   const anonymizeAnswer = anonymizeMutation.data;
   const anonymizeSnapshot = useMemo(() => readSnapshot(anonymizeAnswer), [anonymizeAnswer]);
   const anonymizeSlices = useMemo(() => readSliceRun(anonymizeAnswer), [anonymizeAnswer]);
@@ -570,7 +597,7 @@ export const DataOpsPage: React.FC = () => {
 
   const forgetDeletedTemplate = useLatestRef((templateId: string) => {
     templatesQuery.refetch();
-    // With none picked, Backup reads what every template listed masks.
+    // With none picked, Create backup reads what every template listed masks.
     backupObjectsQuery.refetch();
     setSelectedTemplateId((current) => (current === templateId ? '' : current));
   });
@@ -598,14 +625,19 @@ export const DataOpsPage: React.FC = () => {
   // extension side all along — CRUD/FLS guard, 200-record upsert batching, api
   // limit checks, progress events — and nothing had ever sent it. The Restore
   // button voided its argument behind a comment saying it "could be extended".
-  const handleRestore = (operationId: string, accord?: DataOpsAutomationAccord) => {
+  // How it writes is asked in its question, the boxes there.
+  const handleRestore = (
+    operationId: string,
+    options: RestoreOptions,
+    accord?: DataOpsAutomationAccord,
+  ) => {
     if (!currentOrg) return;
     setError(null);
     rollbackMutation.mutate({
       orgId: currentOrg.id,
       operationId,
-      ...(rewriteAll ? { rewriteAll: true } : {}),
-      ...(includeChanged ? { includeChanged: true } : {}),
+      ...(options.rewriteAll ? { rewriteAll: true } : {}),
+      ...(options.includeChanged ? { includeChanged: true } : {}),
       ...accordPayloadOf(accord),
       ...ASKED_FROM_PAGE,
     });
@@ -617,6 +649,7 @@ export const DataOpsPage: React.FC = () => {
   const handleRestoreSet = (
     setId: string,
     slices: number[] | undefined,
+    options: Pick<RestoreOptions, 'rewriteAll'>,
     accord?: DataOpsAutomationAccord,
   ) => {
     if (!currentOrg) return;
@@ -625,7 +658,7 @@ export const DataOpsPage: React.FC = () => {
       orgId: currentOrg.id,
       operationId: setId,
       ...(slices ? { slices } : {}),
-      ...(rewriteAll ? { rewriteAll: true } : {}),
+      ...(options.rewriteAll ? { rewriteAll: true } : {}),
       ...accordPayloadOf(accord),
       ...ASKED_FROM_PAGE,
     });
@@ -695,7 +728,7 @@ export const DataOpsPage: React.FC = () => {
   useEffect(() => {
     const outcome = deleteBackupsMutation.data;
     if (!outcome) return;
-    if (outcome.deleted.includes(selectedBackupId)) setSelectedBackupId('');
+    if (outcome.deleted.includes(openedBackupId)) setOpenedBackupId('');
     refetchBackups.current();
     addNotification({
       level: 'success',
@@ -704,7 +737,7 @@ export const DataOpsPage: React.FC = () => {
       autoDismissMs: 4000,
     });
     deleteBackupsMutation.reset();
-  }, [deleteBackupsMutation, selectedBackupId, refetchBackups, addNotification, t]);
+  }, [deleteBackupsMutation, openedBackupId, refetchBackups, addNotification, t]);
 
   const handleSaveTemplate = (draft: AnonymizationTemplateDraft) => {
     setError(null);
@@ -745,10 +778,10 @@ export const DataOpsPage: React.FC = () => {
     });
   };
 
-  /** Open the Restore tab on the snapshot a masking run took, or on its set of slices. */
-  const openRestoreOn = (operationId: string) => {
-    setSelectedBackupId(operationId);
-    setActiveTab('restore');
+  /** Open Backups on the snapshot a masking run took, or on its set of slices. */
+  const openBackupsOn = (operationId: string) => {
+    setOpenedBackupId(operationId);
+    changeTab('backup');
   };
 
   // Masks only what the run that stopped short left, from where it stopped:
@@ -806,16 +839,22 @@ export const DataOpsPage: React.FC = () => {
     );
   }
 
-  // Three facts the page holds. The cards read "Records Processed", the
-  // records the backups hold; "Error Rate", failed backups over objects
-  // backed up, 0.0% beside a backup whose read had failed; and "Anonymized
-  // Templates", which anonymize nothing.
-  // A set of slices is one backup of the org, whatever its slices.
-  const backedUpRecords =
-    backups.reduce((sum, b) => sum + b.totalRecords, 0) +
-    sets.reduce((sum, s) => sum + s.totalRecords, 0);
-  const partialBackups = backups.filter((b) => b.partial === true || b.status === 'failed').length;
-  const templateCount = templates.length;
+  // The tabs, in the order of the work, Masking first. Backups carries the
+  // count of the org's backups, a set of slices one backup whatever its
+  // slices: the page drew three cards of counts above every tab, Cleanup's
+  // and Personal data's too, and pushed their work below the fold.
+  const DATAOPS_TABS: PageTab[] = [
+    { id: 'anonymize', label: t('dataops.anonymize'), icon: 'eye-closed' },
+    {
+      id: 'backup',
+      label: t('dataops.backup'),
+      icon: 'archive',
+      ...(currentOrg ? { badge: backups.length + sets.length } : {}),
+    },
+    { id: 'gdpr', label: t('dataops.compliance'), icon: 'shield' },
+    { id: 'cleanup', label: t('dataops.cleanup'), icon: 'checklist' },
+    { id: 'emptying', label: t('dataops.emptying'), icon: 'trash' },
+  ];
 
   // A checkpoint is the way back from a run on any object: offered where one
   // can be taken.
@@ -829,8 +868,8 @@ export const DataOpsPage: React.FC = () => {
 
   // A tab waits only on the query it actually reads. Gating the skeleton on
   // both queries at once let a slow templates response paint a skeleton on top
-  // of an already-loaded backup list; Compliance, Cleanup and Quality read
-  // neither query, and each says what it waits on itself.
+  // of an already-loaded backup list; Personal data, Cleanup and Emptying
+  // read neither query, and each says what it waits on itself.
   //
   // And only for its first answer. The list is read again after a backup
   // ends, after a backup is deleted and after a template is saved or deleted,
@@ -839,11 +878,7 @@ export const DataOpsPage: React.FC = () => {
   // focus back to — and the panel's own state, a confirmation it was asking.
   // Read again, the panel stays drawn and says it is busy.
   const tabQuery =
-    activeTab === 'anonymize'
-      ? templatesQuery
-      : activeTab === 'backup' || activeTab === 'restore'
-        ? backupsQuery
-        : null;
+    activeTab === 'anonymize' ? templatesQuery : activeTab === 'backup' ? backupsQuery : null;
   const tabLoading = tabQuery !== null && tabQuery.loading && tabQuery.data === null;
   const tabReading = tabQuery !== null && tabQuery.loading && tabQuery.data !== null;
 
@@ -893,51 +928,7 @@ export const DataOpsPage: React.FC = () => {
         />
       )}
 
-      {/* KPI summary row: the selected org's, so none without one. */}
-      {orgName && (
-        <m.div
-          variants={staggerContainer}
-          initial="hidden"
-          animate="visible"
-          data-testid="dataops-kpi-row"
-        >
-          <BentoGrid columns={3} gap="md">
-            <m.div variants={slideUp}>
-              <KPICard
-                className="h-full"
-                icon="archive"
-                label={t('dataops.kpi.backups', { org: orgName })}
-                value={formatNumber(backups.length + sets.length)}
-                subtitle={t('common.recordCountFormatted', {
-                  count: backedUpRecords,
-                  formatted: formatNumber(backedUpRecords),
-                })}
-                variant="default"
-              />
-            </m.div>
-            <m.div variants={slideUp}>
-              <KPICard
-                className="h-full"
-                icon="warning"
-                label={t('dataops.kpi.partial')}
-                value={formatNumber(partialBackups)}
-                variant={partialBackups > 0 ? 'warning' : 'success'}
-              />
-            </m.div>
-            <m.div variants={slideUp}>
-              <KPICard
-                className="h-full"
-                icon="eye-closed"
-                label={t('dataops.anonymizedFields')}
-                value={formatNumber(templateCount)}
-                variant="default"
-              />
-            </m.div>
-          </BentoGrid>
-        </m.div>
-      )}
-
-      <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+      <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={changeTab} />
 
       <BentoTile className="p-0" hover={false}>
         <div className="p-4" data-testid="dataops-content" aria-busy={tabReading || undefined}>
@@ -948,57 +939,6 @@ export const DataOpsPage: React.FC = () => {
               <Skeleton variant="text" width="50%" height="1em" />
               <Skeleton variant="rect" height="80px" />
             </div>
-          )}
-
-          {activeTab === 'backup' && !tabLoading && (
-            <BackupPanel
-              backups={backups}
-              sets={sets}
-              objects={backupObjects}
-              template={pickedTemplate?.name}
-              slicesOffered={backupSliced}
-              inSlices={backupInSlices}
-              onInSlicesChange={setBackupInSlices}
-              onOpenSet={openRestoreOn}
-              onCreate={handleCreateBackup}
-              onExport={handleExportBackup}
-              // Nothing held the button while a backup read, nor stopped it.
-              isCreating={backupMutation.loading}
-              onStop={backupStop.cancel}
-              stopRequested={backupStop.requested}
-              onTakeCheckpoint={takeCheckpoint}
-            />
-          )}
-
-          {activeTab === 'restore' && !tabLoading && (
-            <RestorePanel
-              orgName={orgName}
-              {...(currentOrg ? { orgId: currentOrg.id } : {})}
-              onCreateBackup={() => setActiveTab('backup')}
-              backups={backups}
-              sets={sets}
-              onRestoreSet={handleRestoreSet}
-              selectedBackupId={selectedBackupId}
-              onSelectBackup={(operationId) => {
-                // The choice is made of one backup: another starts without it.
-                if (operationId !== selectedBackupId) setIncludeChanged(false);
-                setSelectedBackupId(operationId);
-              }}
-              onRestore={handleRestore}
-              // Nothing disabled the button while the upserts ran, so a second
-              // click started a second restore over the first one.
-              isRestoring={rollbackMutation.loading}
-              rewriteAll={rewriteAll}
-              onRewriteAllChange={setRewriteAll}
-              includeChanged={includeChanged}
-              onIncludeChangedChange={setIncludeChanged}
-              lastRestore={lastRestore}
-              onDelete={(operationId) => handleDeleteBackups([operationId])}
-              onDeleteAll={() => handleDeleteBackups()}
-              isDeleting={deleteBackupsMutation.loading}
-              onStop={restoreStop.cancel}
-              stopRequested={restoreStop.requested}
-            />
           )}
 
           {activeTab === 'anonymize' && !tabLoading && (
@@ -1026,13 +966,68 @@ export const DataOpsPage: React.FC = () => {
               isApplying={anonymizeMutation.loading}
               progress={anonymizeProgress}
               sliceRun={sliceRun}
-              onOpenSet={openRestoreOn}
+              onOpenSet={openBackupsOn}
               coverage={coverageQuery.data}
               onStop={anonymizeStop.cancel}
               stopRequested={anonymizeStop.requested}
               snapshotTaken={anonymizeSnapshot}
-              onOpenRestore={openRestoreOn}
+              onOpenRestore={openBackupsOn}
               snapshotRefused={anonymizeMutation.errorCode === 'SNAPSHOT_NOT_TAKEN'}
+              {...(maskAsked && orgName
+                ? {
+                    asked: (
+                      <MaskAsked
+                        objects={maskAsked.objects}
+                        org={orgName}
+                        template={pickedTemplate}
+                      />
+                    ),
+                  }
+                : {})}
+              // Beside the template whose objects it reads: it was taken on a
+              // tab of its own, which listed what Masking wrote over.
+              {...(currentOrg
+                ? {
+                    backup: (
+                      <BackupCreate
+                        objects={backupObjects}
+                        {...(pickedTemplate ? { template: pickedTemplate.name } : {})}
+                        slicesOffered={backupSliced}
+                        inSlices={backupInSlices}
+                        onInSlicesChange={setBackupInSlices}
+                        onCreate={handleCreateBackup}
+                        // Nothing held the button while a backup read, nor stopped it.
+                        isCreating={backupMutation.loading}
+                        onStop={backupStop.cancel}
+                        stopRequested={backupStop.requested}
+                      />
+                    ),
+                  }
+                : {})}
+            />
+          )}
+
+          {activeTab === 'backup' && !tabLoading && (
+            <BackupPanel
+              orgName={orgName}
+              {...(currentOrg ? { orgId: currentOrg.id } : {})}
+              onCreateBackup={() => changeTab('anonymize')}
+              backups={backups}
+              sets={sets}
+              openedId={openedBackupId}
+              onRestore={handleRestore}
+              onRestoreSet={handleRestoreSet}
+              // Nothing disabled the button while the upserts ran, so a second
+              // click started a second restore over the first one.
+              isRestoring={rollbackMutation.loading}
+              lastRestore={lastRestore}
+              onExport={handleExportBackup}
+              onDelete={(operationId) => handleDeleteBackups([operationId])}
+              onDeleteAll={() => handleDeleteBackups()}
+              isDeleting={deleteBackupsMutation.loading}
+              onStop={restoreStop.cancel}
+              stopRequested={restoreStop.requested}
+              onTakeCheckpoint={takeCheckpoint}
             />
           )}
 
@@ -1043,24 +1038,24 @@ export const DataOpsPage: React.FC = () => {
             <CompliancePanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
           )}
 
-          {/* Beside the recommendations, emptying objects or the whole org:
-              a chunk of its own, fetched once the tab is opened. */}
+          {/* The scan counts what Quality counted beside what can be deleted:
+              one picker, one scan, each delete beside what it found. */}
           {activeTab === 'cleanup' && currentOrg && orgName && (
-            <div className="flex flex-col gap-6">
-              <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
-              <EmptyPanel
-                key={`empty-${currentOrg.id}`}
-                orgId={currentOrg.id}
-                orgName={orgName}
-                {...(emptyFirst?.orgId === currentOrg.id
-                  ? { initialObjects: emptyFirst.objects }
-                  : {})}
-              />
-            </div>
+            <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} orgName={orgName} />
           )}
 
-          {activeTab === 'quality' && currentOrg && (
-            <QualityPanel key={currentOrg.id} orgId={currentOrg.id} />
+          {/* Emptying objects or the whole org: a tab of its own, Cleanup's
+              scan no longer above it, a chunk fetched once it is opened. */}
+          {activeTab === 'emptying' && currentOrg && orgName && (
+            <EmptyPanel
+              key={`empty-${currentOrg.id}`}
+              orgId={currentOrg.id}
+              orgName={orgName}
+              {...(landing.empty?.orgId === currentOrg.id
+                ? { initialObjects: landing.empty.objects }
+                : {})}
+              focusOnOpen={emptyingLanded}
+            />
           )}
         </div>
       </BentoTile>

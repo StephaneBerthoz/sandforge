@@ -55,6 +55,11 @@ export interface EmptyPanelProps {
   orgName: string;
   /** The objects Empty objects opens with picked: those a clone of the whole org asked to empty first. */
   initialObjects?: readonly string[];
+  /**
+   * Opened by a navigation — Forge's Review, Quick Sync's refusal —: Empty
+   * objects comes into view and takes the focus as the panel opens, once.
+   */
+  focusOnOpen?: boolean;
 }
 
 /** How each section deletes. */
@@ -191,9 +196,25 @@ function useEmptyStop(requestId: string | null): { requested: boolean; stop: () 
  * from here or there; its result offers Undo where Undo is possible, and the
  * org's history says each emptying and undo of the audit trail.
  */
-export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialObjects }) => {
+export const EmptyPanel: React.FC<EmptyPanelProps> = ({
+  orgId,
+  orgName,
+  initialObjects,
+  focusOnOpen = false,
+}) => {
   const { t } = useTranslation();
   const objectsHeadingId = useId();
+  const objectsHeading = useRef<HTMLHeadingElement>(null);
+  // Arrived with objects picked, nothing moved to them: the section sat below
+  // Cleanup's scan, off screen at 1280×800, the focus left on the link that
+  // opened the page.
+  const focusFirst = useRef(focusOnOpen);
+  useEffect(() => {
+    if (!focusFirst.current) return;
+    focusFirst.current = false;
+    objectsHeading.current?.scrollIntoView?.({ block: 'start' });
+    objectsHeading.current?.focus();
+  }, []);
   const orgHeadingId = useId();
   const org = useOrgStore((s) => s.orgs.find((candidate) => candidate.id === orgId));
   const registeredProduction = !isDevelopmentOrg(org);
@@ -423,7 +444,12 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
         className="flex flex-col gap-2 rounded-lg border border-status-error p-3 text-xs text-text-primary"
         data-testid="empty-production"
       >
-        <h2 id={objectsHeadingId} className="text-sm font-semibold text-text-primary">
+        <h2
+          id={objectsHeadingId}
+          ref={objectsHeading}
+          tabIndex={-1}
+          className="text-sm font-semibold text-text-primary focus:outline-hidden"
+        >
           {t('dataopsEmpty.title')}
         </h2>
         <p role="alert" className="text-status-error" data-testid="empty-production-refusal">
@@ -474,7 +500,7 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
       checked={how[mode].checkpointFirst}
       onChange={(checked) => setHowOf(mode, { checkpointFirst: checked })}
       orgId={orgId}
-      costSaid="preview"
+      costSaid="simulation"
       estimate={
         asked?.mode === mode && answer?.checkpoint && !stale
           ? { of: answer.checkpoint, lead: t('dataopsEmpty.preview.checkpointLead') }
@@ -532,7 +558,12 @@ export const EmptyPanel: React.FC<EmptyPanelProps> = ({ orgId, orgName, initialO
         className="flex flex-col gap-3 rounded-lg border border-subtle p-3"
         data-testid="empty-objects"
       >
-        <h2 id={objectsHeadingId} className="text-sm font-semibold text-text-primary">
+        <h2
+          id={objectsHeadingId}
+          ref={objectsHeading}
+          tabIndex={-1}
+          className="text-sm font-semibold text-text-primary focus:outline-hidden"
+        >
           {t('dataopsEmpty.objects.title')}
         </h2>
         <p className="text-text-secondary">{t('dataopsEmpty.objects.intro')}</p>

@@ -90,7 +90,7 @@ export interface AnonymizePanelProps {
    * rows created late, whether slices are left —, or the set it gave up.
    */
   sliceRun?: { result: SliceSetResult; abandoned?: boolean } | null;
-  /** Open the Restore tab on a set of slices. */
+  /** Open Backups on a set of slices. */
   onOpenSet?: (setId: string) => void;
   /**
    * Reads the first rows of each object the template masks and masks them as
@@ -113,10 +113,20 @@ export interface AnonymizePanelProps {
   stopRequested?: boolean;
   /** The snapshot the last run took before it masked, which Restore puts back. */
   snapshotTaken?: { operationId: string; totalRecords: number } | null;
-  /** Open the Restore tab on that snapshot. */
+  /** Open Backups on that snapshot. */
   onOpenRestore?: (operationId: string) => void;
   /** Whether the last run was refused because its snapshot could not be taken. */
   snapshotRefused?: boolean;
+  /**
+   * The objects asked to be masked as the tab opened, and whether the template
+   * picked masks them: said under the heading, above the templates.
+   */
+  asked?: React.ReactNode;
+  /**
+   * Create backup, beside the template whose objects it reads: below its card,
+   * or below the list while none is picked.
+   */
+  backup?: React.ReactNode;
 }
 
 /** What the host answers `dataops:anonymize:coverage` with. */
@@ -567,6 +577,8 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   snapshotTaken,
   onOpenRestore,
   snapshotRefused = false,
+  asked,
+  backup,
 }) => {
   const { t } = useTranslation();
   // Apply and Resume both write over the org's records, behind the same typed confirmation.
@@ -652,6 +664,8 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           {t('dataops.createTemplate')}
         </Button>
       </div>
+
+      {asked}
 
       {editing && onSaveTemplate && (
         <AnonymizationTemplateEditor
@@ -1078,6 +1092,8 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           )}
         </div>
       )}
+
+      {!editing && backup}
 
       {!editing && selectedPreview && <PreviewResult preview={selectedPreview} />}
     </div>

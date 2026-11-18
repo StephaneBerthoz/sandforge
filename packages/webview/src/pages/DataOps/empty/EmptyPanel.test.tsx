@@ -119,6 +119,30 @@ describe('EmptyPanel', () => {
     });
   });
 
+  it('brings Empty objects into view and gives it the focus when a navigation opened it, once', () => {
+    // Arrived from Forge with objects picked, the section sat off screen, the
+    // focus left on the link that opened the page.
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const { unmount } = render(
+      <EmptyPanel orgId="org-1" orgName="dev" initialObjects={['Contact']} focusOnOpen />,
+    );
+
+    const heading = screen.getByRole('heading', { name: 'Empty objects' });
+    expect(document.activeElement).toBe(heading);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    expect(document.activeElement).not.toBe(screen.getByRole('heading', { name: 'Empty objects' }));
+    expect(scrolled).toHaveBeenCalledTimes(1);
+  });
+
+  it('says its plan of the whole scope is a simulation, as Forge and Sync say theirs', () => {
+    render(<EmptyPanel orgId="org-1" orgName="dev" />);
+    expect(screen.getByTestId('empty-objects-preview').textContent).toBe('Simulate');
+  });
+
   it('says left out, with why, the objects asked to be emptied first that cannot be picked, and never asks them', () => {
     render(
       <EmptyPanel

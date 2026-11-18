@@ -77,7 +77,7 @@ export const BackupsBeforeErasure: React.FC<BackupsBeforeErasureProps> = ({ orgI
           {t('dataops.dsr.deleteBackupsBefore', { count: held.length })}
         </Button>
       </div>
-      {/* The question the Restore tab's Delete asks, its button saying what
+      {/* The question the Backups tab's Delete asks, its button saying what
           it deletes: it was a bare Confirm under a sentence about restoring. */}
       {confirming && (
         <DeleteQuestion

@@ -1,33 +1,42 @@
 # DataOps
 
-Back up your org data, anonymize sensitive fields, find and erase one person's
-records, and clean up the records nobody needs, from a single tabbed page.
+Mask the personal data a copy brought from production, keep and restore the
+values, find and erase one person's records, clean up the records nobody needs,
+and empty objects or the whole org, from one page of five tabs in the order of
+the work: **Masking**, **Backups**, **Personal data**, **Cleanup** and
+**Emptying**. The page opens on Masking.
 
 <!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.dataops in packages/webview/src/i18n/locales/en.json -->
 
 ## How to
 
-1. Pick the org in the list at the top of the page, then open the Anonymize tab.
-2. Pick a template in Select a template; its card lists each field it masks.
-3. Click Preview: the first records show Original beside Masked, and nothing is written.
-4. Click Apply, tick Keep the values first and, if shown, Mask in slices, type the org's name, Confirm.
-5. To empty objects or the whole org, open Cleanup: its preview says what goes before any delete.
+1. Masking: pick a template, click Preview, then Apply with Keep the values first ticked.
+2. Backups: each backup has Restore…, Export and Delete; Restore… names the org before it writes.
+3. Personal data: find the fields that hold it, then one person's records to export or erase.
+4. Cleanup: pick objects, Scan, then export or delete beside what it found, fill rates included.
+5. Emptying: pick objects or the whole org, Simulate, then type the org's name to empty it.
 
-**Tip:** Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back.
+**Tip:** Create backup, beside the template on Masking, keeps what it masks; before any other risky run, take a checkpoint.
 
 <!-- how-to:end -->
 
-> **Status.** Backup, Restore, Anonymize, Compliance, Cleanup and Data Quality
-> are wired end to end. Each section below says what it does and where it stops.
+> **Status.** Masking, Backups (backup and restore), Personal data, Cleanup
+> (with the fill counts Data Quality had) and Emptying are wired end to end.
+> Each section below says what it does and where it stops.
 
 ## Quick Start
 
 1. Navigate to **DataOps** from the sidebar, and pick the org in the list at the top
    of the page: the one the status bar and the other panels follow
-2. The KPI row shows the org's backups on this machine and the records they hold,
-   how many of them are partial or failed, and how many anonymization templates
-   are listed
-3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
+2. The page opens on **Masking**. The **Backups** tab carries the count of the
+   org's backups on this machine, a set of slices counted once; each backup
+   says there whether it is partial or failed
+3. Use the tab bar to switch between Masking, Backups, Personal data, Cleanup and
+   Emptying. A navigation that names a tab opens on it: Forge's **Empty these
+   objects first** and Quick Sync's refusal open Emptying with the objects
+   picked, **Empty objects** brought into view and given the focus; one that
+   names objects to mask (Back into service, after a refresh) opens Masking on
+   the template that masks them, and says which it does not
 4. Before masking, leave **Keep the values first, so Restore can put them back** ticked in
    Apply's confirmation, or start with a backup: without either, the mask cannot be undone.
    An object holding more records than one backup does is masked in slices, each backed up
@@ -36,29 +45,32 @@ records, and clean up the records nobody needs, from a single tabbed page.
 
 ## Features
 
-### Backup
+### Backups
 
-Take a copy of the objects an Anonymize writes over:
+**Create backup**, beside the template on the Masking tab, takes a copy of the
+objects a masking run writes over. The **Backups** tab lists every backup of
+the org on this machine, one list, each backup with **Restore…**, **Export**
+and **Delete**:
 
 - The objects follow the templates: a backup reads the objects the template
-  picked on the Anonymize tab masks or, with none picked, every object a
+  picked on the Masking tab masks or, with none picked, every object a
   listed template masks -- Contact, Lead, Account and Opportunity for the
   templates that ship -- as a masking run of them plans them in the org:
   Account too for a template that masks contacts, in an org with person
-  accounts. The Backup tab names them before the click. Each is
+  accounts. Create backup names them before the click. Each is
   read whole, every field, page after page -- 2,000 records a page on a
   sandbox, 500 on production or a Developer Edition -- up to a cap of
   records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless
   you set it, from 100 to 1,000,000). There is no object picker and no
   incremental mode -- each backup is a new copy
-- **Back up in slices.** When an object the tab reads holds more records than
+- **Back up in slices.** When an object Create backup reads holds more records than
   one backup does -- the masking check of the template picked plans it in
-  more than one slice, or the latest backup of it stopped at the cap -- the
-  tab offers **Back up in slices**, unticked. Ticked, **Create Backup** backs
+  more than one slice, or the latest backup of it stopped at the cap --
+  Create backup offers **Back up in slices**, unticked. Ticked, **Create backup** backs
   up each object in slices of the cap's records, consecutive by `Id`, each
   slice a backup of its own: an object past the cap, or past 1,000,000, is
   held whole, up to 2,000 slices. The slices make a set, listed on one row
-  here and in Restore, restored whole or a slice at a time, and deleted whole
+  on the Backups tab, restored whole or a slice at a time, and deleted whole
   (see [Restoring and keeping a set](#restoring-and-keeping-a-set)). A slice
   the org will not read in time (`QUERY_TIMEOUT`, `OPERATION_TOO_LARGE`) is
   read again halved, three times at most and never under 100 records; past
@@ -69,7 +81,7 @@ Take a copy of the objects an Anonymize writes over:
   ([In slices from the command line](#in-slices-from-the-command-line))
 - A classic encrypted field (`encryptedstring`) is not kept when the user
   SandForge connects as lacks View Encrypted Data, which the API answers
-  masked: the Backup tab names it per object, and a restore leaves it as the
+  masked: the Backups tab names it per object, and a restore leaves it as the
   org holds it. Kept, the mask was written back over the real value
 - Each page is written to disk before the next is read, one record to a
   line, so a backup holds one page in memory whatever the object's size
@@ -80,15 +92,16 @@ Take a copy of the objects an Anonymize writes over:
   record is kept with the values of two saves
 - Every backup is written to extension storage with per-object record counts,
   the records each object held when it was read, and the org id the org
-  answered with, and listed newest-first in the Backup tab
-- A backup that reached the cap on an object says so in the Backup and
-  Restore tabs and in Apply's restore check, per object: the records it read,
+  answered with, and listed newest-first on the Backups tab
+- A backup that reached the cap on an object says so on the Backups tab and
+  in Apply's restore check, per object: the records it read,
   the records the object held, and that it stopped at the cap. A restore of
   it brings back those records only. Of an object past 1,000,000 records,
   which no backup holds whole, the tab names **Back up in slices** instead
   of the setting
-- One-click backup creation from the Backup Panel
-- A backup is listed in Live Operations while it reads, and the Backup tab
+- **Create backup** sits beside the template on the Masking tab, where the
+  template picked chooses what it reads
+- A backup is listed in Live Operations while it reads, and Create backup
   offers **Cancel run** meanwhile. It stops between two pages when either
   cancels it, the window closes or the extension deactivates, and what it
   wrote is removed, so a stopped run leaves no half-saved backup -- run it
@@ -96,7 +109,7 @@ Take a copy of the objects an Anonymize writes over:
   before the cancel, as said above
 - A backup whose read the org fails part-way keeps the records it read,
   listed as failed and partial with the object it stopped on and each object
-  it never reached, which it holds none of -- the Backup and Restore tabs and
+  it never reached, which it holds none of -- the Backups tab and
   a restore's warning name them -- and says so; one the disk could not take a
   page of keeps nothing
 - A backup holds the records' values unencrypted, personal data among them,
@@ -111,7 +124,7 @@ Take a copy of the objects an Anonymize writes over:
   name on stderr each backup they remove, a Sync run's said as the run's. A
   backup taken before
   that setting existed is kept until you delete it: the retention counts from
-  the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
+  the first start that had it, so an upgrade never takes a backup away. The Backups tab deletes
   one, or every backup of the org; disconnecting an org asks whether its
   backups go with it, and an erasure offers to delete those taken before it.
   A set of slices is never one of the ten: it goes whole, its age counted
@@ -127,13 +140,16 @@ Take a copy of the objects an Anonymize writes over:
 
 Restore data from a previously saved backup:
 
-- Browse available backups with timestamps, record counts and the objects
-  each holds, newest first
-- Select a specific backup and restore it to the current org. **Restore** asks
+- Browse available backups on the Backups tab with timestamps, record counts
+  and the objects each holds, newest first
+- Restore a backup to the current org with **Restore…** on its row. It asks
   first, writing nothing until **Restore into _org_**: the question names the
   org, each object of the backup with its records, and that the rows changed
   since the backup get its values back, whoever changed them — of a Sync run's
-  backup, that the records changed since the run are left as they are
+  backup, that the records changed since the run are left as they are. How it
+  writes is asked there too, each box unticked as the question opens: **Write
+  every row of the backup back**, and of a Sync run's backup **Also restore
+  the records changed or deleted since the run**
 - A restore puts the whole backup back: there is no choice of records, objects
   or moment in time, only of which backup -- of a set of slices, of every
   slice or one of them (see
@@ -145,7 +161,7 @@ Restore data from a previously saved backup:
   run's removal does, a record changed since the run — modified after its last
   write — or deleted since is left as it is, and counted per object with the
   result, unless **Also restore the records changed or deleted since the run**
-  is ticked. `sandforge backup --restore` and `sandforge dataops anonymize
+  is ticked in the restore's question. `sandforge backup --restore` and `sandforge dataops anonymize
 --restore` leave them as they are too, and end on exit code 3, unless
   `--include-changed` is given, as the run's own `sandforge sync --remove
 --include-changed` gives them back. Its delete question says that removing
@@ -171,7 +187,7 @@ What a restore does, in order:
   the backup; the others are counted as unchanged, and the result says how
   many. A row the org no longer holds goes too, and its answer says what became
   of it; a batch whose values cannot be read is written whole. **Write every
-  row of the backup back** on the Restore tab, or `--rewrite-all` with
+  row of the backup back** in the restore's question, or `--rewrite-all` with
   `sandforge backup --restore`, upserts every row, the unchanged ones included
 - Reports progress per object, reading the backup 200 records at a time:
   backups taken before records went one to a line, and those kept in extension
@@ -181,7 +197,7 @@ What a restore does, in order:
   the object was left as it is
 - Says, with its result, what the active duplicate rules of the objects it
   put back wrote during it for the records it wrote, and keeps it, as a
-  masking does (see [Anonymize](#anonymize)): a restore writes back the values
+  masking does (see [Masking](#masking)): a restore writes back the values
   a rule matches on. The page warns when they wrote something or it could not
   be read, and `--json` carries it under `duplicates`
 - Drops the fields _nobody_ may write — a backup is a verbatim
@@ -190,7 +206,7 @@ What a restore does, in order:
 - Stops with an FLS error if a field _you_ may not write is in the payload,
   rather than restoring the record with that column silently missing
 
-A restore is listed in Live Operations while it writes, and the Restore tab
+A restore is listed in Live Operations while it writes, and the Backups tab
 offers **Cancel run** meanwhile. It stops between two batches when it is
 cancelled — from either, by Ctrl-C at `sandforge dataops --restore`, or as the
 window closes — as a masking run does: the records it put back before are counted,
@@ -198,10 +214,15 @@ the audit trail records it cancelled with them, and the same restore run
 again puts back the rest, writing only the rows that do not hold the backup's
 values yet.
 
-### Anonymize
+### Masking
 
-Mask sensitive data using the built-in anonymization templates, or templates of
-your own:
+The **Masking** tab masks sensitive data using the built-in masking templates,
+or templates of your own, **Create backup** beside the template (see
+[Backups](#backups)). Opened with objects to mask -- by Back into service,
+after a refresh copied production's data -- it picks the template that masks
+them all with the fewest other objects, else the one that masks the most of
+them, says the objects asked, and names those the template picked does not
+mask:
 
 - Browse anonymization templates from the template library; each rule is
   listed by the `Object.Field` it masks and its method
@@ -214,7 +235,7 @@ your own:
   counts come before Production Guard is asked, so its confirmation says how
   many records the run writes over, and a sandbox run past 50,000 records is
   logged with the guard's volume warning. A backup holds at most its cap of
-  records per object (see Backup), so on a larger object it cannot bring back
+  records per object (see Backups), so on a larger object it cannot bring back
   every record a run masks: the restore check marks, per object, a backup
   that stopped at the cap or on a failed read and names the setting that
   raises the cap, and Apply's confirmation names, per object, the records a
@@ -239,7 +260,7 @@ your own:
   asked, `SNAPSHOT_NOT_TAKEN`, nothing masked, and the tab names the box. A
   backup that cannot be taken refuses the run too, under the same code,
   nothing masked, and the tab says how to mask without one. Its result points to the backup, and **Open
-  in Restore** opens the Restore tab on it. Unticked, the confirmation names
+  in Backups** opens the Backups tab on it. Unticked, the confirmation names
   instead the records a restore of the latest backup can never bring back,
   and nothing is masked in slices. A resume takes no backup: the run it
   resumes took one -- a run in slices resumed backs up each slice it has
@@ -258,7 +279,7 @@ your own:
   `sandforge dataops anonymize` ends on exit code 1. An object with no record
   holds nothing to mask, and refuses nothing
 - **A run that stops before the end says what it left.** A cancel -- the
-  Anonymize tab's **Cancel run** while the run masks, or Live Operations',
+  Masking tab's **Cancel run** while the run masks, or Live Operations',
   where it is listed -- honoured between two batches, or before the first
   write while it counts, waits on Production Guard or takes its backup; the org's daily API requests reaching 95%, past which
   the run makes no further call; an error; records the org refuses. The run
@@ -297,7 +318,7 @@ your own:
   erasure in place read theirs the same way
 - **Resume where it stopped.** A run that stopped before the end keeps, on
   this machine, where it got: per object, whether it was read to the end, the
-  last record it handled, and the records the org refused. The Anonymize tab
+  last record it handled, and the records the org refused. The Masking tab
   then offers **Resume where it stopped** beside Apply: the resume first tries
   the refused records again, by `Id`, then reads each object on from where the
   run stopped, so no record the first run masked is masked again. The records
@@ -446,7 +467,7 @@ sends no Bulk API batch.
   Operations: the run is, with its progress
 - **Each slice, its own duplicate rules and people.** As a slice ends, the
   run reads what the active duplicate rules wrote for its records (see
-  [Anonymize](#anonymize)), then forgets the people it made up for them,
+  [Masking](#masking)), then forgets the people it made up for them,
   keeping how many times each name was given: what it holds in memory is one
   slice, never the object
 - **A slice the org will not read in time** (`QUERY_TIMEOUT`,
@@ -470,7 +491,7 @@ sends no Bulk API batch.
   have been left
 - **What it says at the end.** One row per slice -- the records its backup
   holds, masked, refused, deleted since, and its state -- then the records
-  created during the run, and **Open the set in Restore**. A run that left
+  created during the run, and **Open the set in Backups**. A run that left
   nothing ends its set, and forgets its key. The audit trail records each run
   once, its details naming the set, the records a slice holds and the slices
   that run masked, and the page notifies how the run ended
@@ -501,7 +522,7 @@ sends no Bulk API batch.
   mask again
 - **Abandon the run** asks first, then gives the set up: nothing more is
   masked, and no resume carries it on. The slices it masked stay masked,
-  each with its backup, which Restore puts back until the retention removes
+  each with its backup, which **Restore…** puts back until the retention removes
   them; the records no slice reached keep their values. Its key and its
   checkpoint go: a new Apply masks with another key, and the same address
   gets another digest. Abandon writes nothing to the org, and is refused
@@ -515,12 +536,11 @@ sends no Bulk API batch.
 
 #### Restoring and keeping a set
 
-- **One row a set.** Backup lists a set on one row, whatever its slices --
-  what took it, a masking run or a backup, when, its slices and records --
-  with the way to it in Restore. Restore lists it on one row too, with any
-  filter it was held to and where it stands, **Open**, **Done** or **Given
-  up**, and shows its slices, each with its records and state: opened on the
-  set a masking run's **Open the set in Restore** names
+- **One row a set.** The Backups tab lists a set on one row, whatever its
+  slices -- what took it, a masking run or a backup, when, its slices and
+  records, any filter it was held to and where it stands, **Open**, **Done**
+  or **Given up** -- and shows its slices, each with its records and state:
+  opened on the set a masking run's **Open the set in Backups** names
 - **Restore all** puts back every slice not restored yet, **Restore slice
   _k_** that slice alone, again if it was. The question names the org, each
   object with its records, what the org runs as they are written back, and
@@ -530,7 +550,8 @@ sends no Bulk API batch.
   differ written -- under one read of what the org runs, one Production
   Guard question and one mute for the whole. Stopped part way, the same
   **Restore all** carries on from the first slice not restored; with **Write
-  every row of the backup back** ticked, it puts every slice back again. A
+  every row of the backup back** ticked in its question, it puts every slice
+  back again. A
   set whose every slice was put back already says when, and writes nothing
 - **A masking set still open is not restored**: resumed, its run would mask
   again what a restore puts back. Resume it to its end, or abandon it, first
@@ -540,7 +561,7 @@ sends no Bulk API batch.
   passed since it last moved. An open set goes too, which ends its run: the
   next Resume says there is nothing to resume. **Delete the set** deletes it
   whole; a slice is never deleted alone (`SLICE_DELETE_ALONE`)
-- **No export.** **Export** on the Backup tab writes a backup that is no set;
+- **No export.** **Export** on the Backups tab writes a backup that is no set;
   nothing writes a set's slices to one file
 - **Apply's restore check reads no set.** The latest backup it counts, and
   the records the confirmation says a restore could never bring back, are of
@@ -615,7 +636,7 @@ npx sandforge backup --org <alias> --object Contact --where "Contact:CreatedDate
   `sandforge dataops anonymize --resume`, or `--abandon`, run on the
   resource's store with its object and rules, ends the set
 
-### Compliance (GDPR/CCPA)
+### Personal data (GDPR/CCPA)
 
 Find which fields hold personal data, then handle a data subject request: find
 one person's records, export them, and erase them.
@@ -666,7 +687,7 @@ number, or several, and **Search**. It looks in the objects the inventory read:
     field you may not edit is left as it is and named. Made-up names and
     addresses can look like another record's: the result says what the
     org's active duplicate rules wrote during it for the records it
-    overwrote, kept, as a masking says it (see [Anonymize](#anonymize))
+    overwrote, kept, as a masking says it (see [Masking](#masking))
   - **Delete**: the records go to the org's recycle bin, with what the org
     deletes along with them (a contact's tasks, an account's contacts and
     opportunities). Records stay in the recycle bin until it is emptied
@@ -707,8 +728,10 @@ after a restart, search again.
 
 ### Cleanup
 
-Find the records nobody needs, and export or delete them. Pick up to 10
-objects and a number of days, and **Scan**:
+Find the records nobody needs, and export or delete them beside what the
+scan found, which also says how filled each field is (see
+[Data Quality](#data-quality)). Pick up to 10 objects and a number of days, and
+**Scan**:
 
 - **Not modified for a while**: records whose `LastModifiedDate` is older than
   `LAST_N_DAYS:n` (365 days by default)
@@ -717,14 +740,15 @@ objects and a number of days, and **Scan**:
   leave it empty are listed. Only a lookup a person fills, that points at one
   object, and that the org lets be empty, is looked at: a required lookup is
   never empty, and one to a user, a queue or a record type names no parent
-- **Extra copies of a repeated value**: the duplicate search of the Quality
-  tab, by `Email`, else the record's name, or any field picked. A delete keeps,
+- **Extra copies of a repeated value**: the duplicate search, by `Email`,
+  else the record's name, or any field picked, the values most repeated listed.
+  A delete keeps,
   for each value, the record modified last, and deletes the other copies. It
   does not merge them: what points at a copy is deleted with it or left
   without it
 
-The scan counts with the Quality tab's own queries and reads no record.
-Each recommendation can be:
+The scan counts, one query a check, and reads no record. Each recommendation
+can be:
 
 - **Exported**: every field of the records it names, to a JSON file you pick
 - **Deleted**: a review first says how many records go and how many records of
@@ -749,8 +773,10 @@ of your own.
 
 ### Empty objects and Empty the org
 
-Two sections of **Cleanup** delete every record of whole objects, where the
-recommendations above delete the records a scan found. Both read the org
+The two sections of the **Emptying** tab delete every record of whole objects,
+where Cleanup's recommendations delete the records a scan found. Opened from
+Forge's **Empty these objects first** or Quick Sync's refusal, the tab picks
+the objects named, brings **Empty objects** into view and gives it the focus. Both read the org
 first and say everything before a button to delete exists; both send the
 records to the recycle bin unless asked to delete them for good, keep a
 journal on this machine, and offer **Undo**.
@@ -789,7 +815,7 @@ sandbox instead ([below](#from-the-command-line)).
 
 #### Before anything is deleted
 
-The dry run comes first, and says:
+**Simulate** comes first, a dry run of the whole scope, and says:
 
 - per object, in the order the run takes them, the records it deletes, and
   per object the records the org deletes along with them — read first by
@@ -832,7 +858,7 @@ A run is refused before its first delete, every refusal said at once:
   checkpoint's take, a rewind, an undo, another emptying;
 - the org's last emptying stopped part way: resume it or undo it first;
 - someone other than you changed records of these objects in the last hour,
-  unless their work is accepted to go: the preview names each of them and
+  unless their work is accepted to go: the simulation names each of them and
   when they last changed a record, beside the box that accepts it, and the run
   takes the work of those it named alone — anyone else at work by then
   refuses it;
@@ -840,10 +866,10 @@ A run is refused before its first delete, every refusal said at once:
 - what fires, or its emails, not accepted, or the mute refused;
 - a checkpoint asked first that cannot be taken, past 500,000 records or the
   disk's room among them;
-- the org changed since the preview beyond what it showed: an object it did
+- the org changed since the simulation beyond what it showed: an object it did
   not show, more records going along, more that no undo would bring back, or
   a user who now sees less. Records of the objects emptied made since the
-  preview are left, and counted.
+  simulation are left, and counted.
 
 Then Production Guard is asked, a delete or a delete for good, and the run
 holds the org's lock to its end. Each object goes by REST calls of 200 under
@@ -854,7 +880,7 @@ it, and each such pair is kept in the journal. A delete Salesforce refuses for
 a record still hanging from it is sent again in later rounds. The run is
 listed in Live Operations, whose **Cancel** stops it before its next call or
 job, and recorded in the audit trail as a cleanup delete, its details saying
-an emptying; its undo is recorded as an emptying undo. The preview the run
+an emptying; its undo is recorded as an emptying undo. The simulation the run
 acts on is kept a day on this machine, as a rewind's is: a window reloaded
 meanwhile still empties as it showed.
 
@@ -871,14 +897,14 @@ org refuses as it is opened without the permission.
 **Undo** brings back from the recycle bin what the org's last emptying
 deleted, parents first, while the bin holds them, and names what could not
 come back: records emptied from the bin since, records only Modify All Data
-brings back, and, once the run went through, what its preview said no undo
+brings back, and, once the run went through, what its simulation said no undo
 would bring back. It reaches the org's last emptying alone: once a run ends,
 the journals of the org's earlier ones go. It is refused for a run that
 deleted for good.
 
 A run stopped part way — cancelled, failed, its process gone — is open: the
 org's next emptying is refused until it is taken up, which deletes what is
-left of what its preview confirmed, or undone. Taken up, a run whose every
+left of what its simulation confirmed, or undone. Taken up, a run whose every
 record left the org refuses again ends **partial**, each refusal named in the
 org's words, and is closed: what stays stays, and Undo still brings back what
 it deleted. The journals are kept in
@@ -917,7 +943,7 @@ sandbox marked Staging in the extension: its registration of an org is the
 org's own, made afresh at each run. So it refuses the whole of a Partial Copy
 or Full sandbox, read from its data storage — past the 1 GB of a Developer
 Pro sandbox — `--org` and a `--resume` of such a run alike (`COPY_SANDBOX`,
-exit `1`, nothing read): empty it whole from DataOps Cleanup, which knows the
+exit `1`, nothing read): empty it whole from DataOps Emptying, which knows the
 mark, or pick its objects with `--objects`, which Production Guard asks
 about. A Developer or Developer Pro sandbox and a scratch org are emptied
 whole as before, and `--undo` is never refused for it. The MCP server's `empty_preview`,
@@ -925,10 +951,14 @@ whole as before, and `--undo` is never refused for it. The MCP server's `empty_p
 
 ### Data Quality
 
-Measure how the records of a few objects are kept, read-only:
+Cleanup's **Scan** measures how the records of the objects picked are kept,
+beside what it finds to export or delete. Quality was a tab of its own, with
+the same picker, the same number of days and the same queries; the counts are
+read-only:
 
-- Pick up to 10 objects of the selected org -- the list is the org's objects a
-  record can be created in, the same one Seed offers -- and a number of days
+- Pick up to 10 objects of the selected org on the Cleanup tab -- the list is
+  the org's objects a record can be created in, the same one Seed offers -- and
+  a number of days
 - **Fill counts.** For every field a person or an integration fills in, how
   many records hold a value, and the share of the total. Fields filled on fewer
   than half of the records are listed as mostly empty, and a field no record
@@ -971,6 +1001,8 @@ How it counts, and where it stops:
 - An object the org will not describe or count is reported as failed, and the
   others are still scanned; a check the org refuses on one object shows what
   the org said, next to the checks that ran
+- The lookups an orphan is found by are counted first, so the 20 single-field
+  queries never leave one uncounted for the sake of a fill rate
 
 ### What the org runs as DataOps writes
 
@@ -997,7 +1029,7 @@ Forge, Sync, Seed and Frozen Dataset do:
   uncounted, running none of its delete automation
 - **Duplicate rules**: the active ones of what a masking, a restore or an
   erasure in place writes over, named; each then says what they wrote during
-  it for the records it wrote (see [Anonymize](#anonymize))
+  it for the records it wrote (see [Masking](#masking))
 - **The emails**, counted against what the org has left today of its single
   and workflow emails: past them, the write is refused (`EMAILS_EXCEEDED`),
   whatever is accepted
@@ -1035,15 +1067,15 @@ as a Rewind step's; an Approval step stands for none of them (see
 ## Tips
 
 - Leave **Keep the values first, so Restore can put them back** ticked in Apply's
-  confirmation, or create a backup before running anonymization: the mask is
+  confirmation, or **Create backup** beside the template before masking: the mask is
   applied in place and, without either, cannot be undone
 - An object holding more records than one backup does is no reason to untick
   it: tick **Mask in slices** as well, and each slice is backed up just
   before it is masked
 - A backup can only be restored into the org it was taken from, so keep one
   backup per org rather than one per project
-- Check the KPI row for the backups this machine keeps of the org, and those a
-  cap or a failed read left partial
+- Check the Backups tab for the backups this machine keeps of the org, its
+  count on the tab, and those a cap or a failed read left partial
 - A backup reads only the objects the templates mask: before a Seed, Sync or
-  Forge run, take a checkpoint instead (the Backup tab's **Take a checkpoint**
+  Forge run, take a checkpoint instead (the Backups tab's **Take a checkpoint**
   opens Checkpoints on one), which **Rewind…** returns the org's data to

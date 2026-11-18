@@ -28,7 +28,6 @@
     "disabled": "Desabilitado",
     "enable": "Habilitar",
     "disable": "Desabilitar",
-    "selected": "Selecionado",
     "object": "Objeto",
     "type": "Tipo",
     "status": "Status",
@@ -1098,7 +1097,7 @@
       "created_one": "{{formatted}} registro criado em {{org}}",
       "created_other": "{{formatted}} registros criados em {{org}}",
       "removeDescription": "Exclui de {{org}} os registros que este seed inseriu, primeiro o último objeto gravado, os filhos antes dos pais; eles vão para a lixeira. Um registro do qual dependem registros que ficam em {{org}} é mantido, assim como um registro alterado desde o seed, ou do qual dependem registros adicionados desde então, a menos que você o inclua abaixo.",
-      "notKept": "O que este seed criou não é mais guardado — foi descartado para dar lugar a seeds mais recentes, ou rodou antes de os seeds serem guardados em disco — e não pode ser removido daqui. Para desfazer seus registros: volte a org a um ponto de verificação tirado antes dele, em Pontos de verificação; ou esvazie seus objetos em DataOps → Limpeza → Esvaziar objetos, que exclui todos os registros deles, não só os deste seed.",
+      "notKept": "O que este seed criou não é mais guardado — foi descartado para dar lugar a seeds mais recentes, ou rodou antes de os seeds serem guardados em disco — e não pode ser removido daqui. Para desfazer seus registros: volte a org a um ponto de verificação tirado antes dele, em Pontos de verificação; ou esvazie seus objetos em DataOps → Esvaziamento → Esvaziar objetos, que exclui todos os registros deles, não só os deste seed.",
       "historyTitle": "Seeds anteriores",
       "historyNote": "Os seeds que esta extensão guardou, os mais recentes primeiro: aqueles cujos registros ainda estão na org podem ser removidos, também depois de recarregar a janela. Um seed cujos registros ainda estão na org permanece na lista até ser removido; dos seeds removidos, os 20 mais recentes são listados.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro criado",
@@ -1996,7 +1995,7 @@
       "queryClause": "“{{detail}}” na query dele não é levado: o Sync não executa a query.",
       "queryUnread": "A query dele não pôde ser lida, então nenhum filtro vem dela: o Sync lê todos os registros do objeto. Defina um filtro na linha dele.",
       "whereRefused": "O WHERE dele faz mais do que filtrar, por exemplo com uma subconsulta, e o Sync o recusa: reescreva-o na linha dele, ou o salvamento será recusado.",
-      "deleteOldData": "deleteOldData não é levado: os registros antigos do destino não são excluídos antes. Para começar com um objeto vazio, esvazie-o primeiro em DataOps → Limpeza → Esvaziar objetos e depois execute a sincronização.",
+      "deleteOldData": "deleteOldData não é levado: os registros antigos do destino não são excluídos antes. Para começar com um objeto vazio, esvazie-o primeiro em DataOps → Esvaziamento → Esvaziar objetos e depois execute a sincronização.",
       "emptyFirst": "Esvaziar estes objetos no destino primeiro",
       "emptyFirstPickTarget": "Escolha a org de destino em Executá-la pelo Sync para esvaziar estes objetos lá.",
       "mockFields": "O SFDMU grava valores fictícios em {{detail}}. O Sync não os tem: esses campos ficam fora da gravação em vez de serem copiados com seus valores reais. Um campo obrigatório faz o registro falhar; tire-o de mockFields para copiá-lo.",
@@ -2056,7 +2055,7 @@
   },
   "dataops": {
     "title": "DataOps",
-    "backup": "Backup",
+    "backup": "Backups",
     "backupPartial": "Parcial: {{objects}} têm mais linhas do que este backup leu. Uma restauração traz de volta apenas essas linhas.",
     "backupPartialLead": "Parcial: uma restauração traz de volta apenas as linhas que este backup leu e deixa o resto de cada objeto como está.",
     "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} linhas lidas — parou no limite (sandforge.backup.maxRecordsPerObject).",
@@ -2068,17 +2067,21 @@
     "backupNotKeptEncrypted": "{{object}}: {{fields}} não guardados — campos criptografados que o usuário com que o SandForge se conecta vê mascarados, por não ter a permissão View Encrypted Data. Uma restauração os deixa como a org os tem.",
     "restorePartialBadge": "Parcial",
     "backupExported": "Salvo em {{path}}. Registros por objeto: {{records}}.",
-    "backupDesc": "Criar e gerenciar backups de dados",
-    "restore": "Restaurar",
-    "anonymize": "Anonimizar",
-    "anonymizeDesc": "Anonimizar dados sensíveis",
+    "restore": "Restaurar…",
+    "anonymize": "Mascaramento",
+    "anonymizeDesc": "Mascarar dados sensíveis",
+    "maskAsked": {
+      "lead": "Para mascarar em {{org}}: {{objects}}.",
+      "notMasked": "{{name}} não mascara {{objects}}: escolha outro modelo, ou crie um com Criar modelo.",
+      "noTemplate": "Nenhum modelo mascara {{objects}}: crie um com Criar modelo."
+    },
     "cleanup": "Limpeza",
-    "quality": "Qualidade",
+    "emptying": "Esvaziamento",
     "noOrgSelected": "Nenhuma org selecionada: escolha uma na lista acima.",
     "noBackups": "Nenhum backup disponível",
     "createBackup": "Criar backup",
     "backupObjectsTemplate": "Faz backup de {{objects}}: os objetos que {{name}} mascara.",
-    "backupObjectsAll": "Faz backup de {{objects}}: os objetos que os modelos de anonimização mascaram.",
+    "backupObjectsAll": "Faz backup de {{objects}}: os objetos que os modelos de mascaramento mascaram.",
     "restoreInProgress": "Restaurando dados...",
     "restoreRewriteAll": "Gravar de volta cada linha do backup, inclusive as que a org já contém como o backup as guardou. Desmarcado, uma restauração lê primeiro a org e grava apenas as linhas que mudaram desde o backup.",
     "restoreResult": "Última restauração — gravadas: {{written}} · já como no backup, deixadas como estão: {{unchanged}} · recusadas: {{failed}}",
@@ -2114,7 +2117,7 @@
       "readFailed": "{{rows}} (a leitura falhou)",
       "capHint": "O backup parou no limite de linhas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject nas Configurações e faça o backup de novo para guardar todas as linhas."
     },
-    "compliance": "Conformidade",
+    "compliance": "Dados pessoais",
     "frameworks": {
       "gdpr": "LGPD",
       "ccpa": "CCPA",
@@ -2132,45 +2135,30 @@
       "constant": "Constante",
       "preserve_format": "Preservar formato"
     },
-    "anonymizedFields": "Modelos de anonimização",
     "emptyState": {
       "title": "Proteja os dados da sua org",
-      "description": "O DataOps faz backup, restaura e anonimiza os dados da sua org, atende às solicitações de titulares e limpa os registros de que ninguém precisa.",
-      "step2": "Faça backup dos campos que um modelo mascara antes de anonimizar",
-      "step3": "Anonimize campos sensíveis com um template",
+      "description": "O DataOps mascara os dados da sua org, faz backup deles e os restaura, atende às solicitações de titulares, limpa os registros de que ninguém precisa e esvazia objetos ou a org inteira.",
+      "step2": "Faça backup dos campos que um modelo mascara antes de mascará-los",
+      "step3": "Mascare campos sensíveis com um modelo",
       "step4": "Restaure um backup na org de onde ele foi tirado"
     },
     "exportBackup": "Exportar",
     "soon": {},
     "qualityScan": {
-      "intro": "Conta, para os objetos que você escolher, com que frequência cada campo é preenchido, quais valores de uma chave vários registros compartilham e quantos registros ninguém modifica há algum tempo. A org faz a contagem: nenhum registro é lido um a um, e nada é gravado.",
-      "objectsLegend": "Objetos a analisar (até {{max}})",
       "staleDays": "Sem modificação há (dias)",
       "staleDaysInvalid": "Informe um número inteiro de dias entre 1 e {{max}}.",
-      "scan": "Analisar",
-      "method": "As contagens abrangem todos os registros que o usuário conectado pode ver. Caixas de seleção, fórmulas e os campos que a própria org mantém ficam de fora: uma caixa de seleção nunca está vazia, e ninguém digita os outros.",
-      "objectFailed": "Não foi possível analisar este objeto: {{message}}",
-      "records_one": "{{formatted}} registro",
-      "records_other": "{{formatted}} registros",
-      "noRecords": "Nenhum registro: nada a medir.",
       "mostlyEmpty": "Campos quase sempre vazios",
       "ofCounted": "{{part}} de {{whole}} contados",
       "noMostlyEmpty": "Nenhum campo contado está vazio na maioria dos registros.",
       "requiredEmpty": "Campos obrigatórios deixados vazios",
       "requiredHint": "A org exige estes campos em um registro novo, e uma parte dos registros que ela já contém os deixa vazios.",
-      "duplicates": "Prováveis duplicatas",
       "duplicateKey": "Procurar duplicatas por",
       "pickKey": "Escolha um campo",
       "noKeyField": "A org não consegue agrupar os registros deste objeto por nenhum campo.",
       "noDuplicates": "Nenhum valor de {{field}} aparece em mais de um registro.",
-      "duplicateGroups_one": "{{formatted}} valor de {{field}} aparece em {{records}} registros.",
-      "duplicateGroups_other": "{{formatted}} valores de {{field}} aparecem, cada um, em mais de um registro: {{records}} registros no total.",
       "duplicateSample": "Os {{shown}} valores mais repetidos de {{total}}.",
       "duplicatesTruncated": "A busca para em {{limit}} valores repetidos: pode haver mais do que os contados aqui.",
       "recordsColumn": "Registros",
-      "stale_one": "Sem modificação no último dia",
-      "stale_other": "Sem modificação nos últimos {{count}} dias",
-      "notMeasured": "Não medido",
       "field": "Campo",
       "filled": "Preenchidos",
       "fillRate": "Taxa de preenchimento",
@@ -2179,10 +2167,7 @@
       "unmeasured": "Não contados ({{total}})",
       "notCountable": "texto longo, rico ou criptografado, que a org não consegue contar nem filtrar",
       "queryBudget": "cada um exige uma consulta própria, e uma análise faz no máximo {{limit}} delas por objeto",
-      "refusedByOrg": "a org recusou a contagem; a resposta dela está abaixo",
-      "fillRefused": "Contagem de preenchimento: {{message}}",
-      "duplicatesRefused": "Duplicatas: {{message}}",
-      "staleRefused": "Registros sem modificação: {{message}}"
+      "refusedByOrg": "a org recusou a contagem; a resposta dela está abaixo"
     },
     "templateEditor": {
       "title": "Novo modelo",
@@ -2358,7 +2343,7 @@
       "refusedByOrg_other": "{{formatted}} recusados pela org, e deixados como estavam."
     },
     "cleanupScan": {
-      "intro": "Conta, para os objetos que você escolher, os registros que uma limpeza examinaria: os que ninguém modifica há um certo número de dias, os que deixam vazia uma pesquisa em que o negócio se apoia, e as cópias a mais de um valor repetido. A org faz a contagem: nenhum registro é lido, e nada é gravado até que você exclua.",
+      "intro": "Conta, para os objetos que você escolher, os registros que uma limpeza examinaria: os que ninguém modifica há um certo número de dias, os que deixam vazia uma pesquisa em que o negócio se apoia, e as cópias a mais de um valor repetido; e quanto cada campo é preenchido. A org faz a contagem: nenhum registro é lido, e nada é gravado até que você exclua.",
       "objectsLegend": "Objetos a examinar (até {{max}})",
       "scan": "Analisar",
       "method": "Uma exclusão processa no máximo {{limit}} registros de cada vez (no caso dos registros sem modificação, os mais antigos primeiro): execute de novo para o restante. Uma exportação processa {{limit}} de cada vez, e Exportar os próximos continua de onde parou.",
@@ -2383,6 +2368,7 @@
       "copies": "Valores repetidos de {{field}}: {{values}}. Cópias a mais: {{copies}}.",
       "copiesRule": "Uma exclusão mantém, para cada valor repetido, o registro modificado por último, e exclui as outras cópias. Ela não as mescla: o que aponta para uma cópia é excluído com ela ou fica sem ela.",
       "copiesOf": "as cópias a mais por {{field}}",
+      "fields": "Quanto cada campo é preenchido",
       "export": "Exportar",
       "delete": "Excluir…",
       "exportWhat": "Exportar: {{what}}",
@@ -2421,7 +2407,7 @@
       "keepHint": "Antes da primeira gravação, é feito um backup dos campos que a execução mascara. Se ele não puder conter todas as linhas que a execução mascararia, nada é mascarado.",
       "taken_one": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registro: Restaurar os devolve.",
       "taken_other": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registros: Restaurar os devolve.",
-      "openRestore": "Abrir em Restaurar",
+      "openRestore": "Abrir em Backups",
       "refused": "Nenhum backup pôde ser guardado, então nada foi mascarado. Um objeto com mais linhas do que um backup guarda é mascarado em partes: marque “Mascarar em partes” na confirmação. Para mascarar sem volta, desmarque “Guardar os valores antes”."
     },
     "slices": {
@@ -2471,7 +2457,7 @@
         "late_one": "{{formatted}} registro foi criado durante a execução em um intervalo já mascarado: nenhum backup o guarda, e ele não foi mascarado. Retomar o mascara, com um backup próprio.",
         "late_other": "{{formatted}} registros foram criados durante a execução em um intervalo já mascarado: nenhum backup os guarda, e eles não foram mascarados. Retomar os mascara, com um backup próprio.",
         "left": "Restam partes. Retomar mascara o resto, cada parte com backup feito antes.",
-        "openRestore": "Abrir o conjunto em Restaurar"
+        "openRestore": "Abrir o conjunto em Backups"
       },
       "table": {
         "slice": "Parte",
@@ -2505,7 +2491,7 @@
           "partial": "Parcial"
         },
         "filtered": "Limitado a: {{filters}}",
-        "openHeld": "Sua mascaração ainda está aberta: retome-a até o fim, ou abandone-a, na aba Anonimizar antes de restaurar. Retomada, ela mascararia de novo o que uma restauração devolve.",
+        "openHeld": "Sua mascaração ainda está aberta: retome-a até o fim, ou abandone-a, na aba Mascaramento antes de restaurar. Retomada, ela mascararia de novo o que uma restauração devolve.",
         "partialNote": "Parou antes de fazer backup de cada registro: nenhuma execução o retoma. Suas partes são restauradas como estão; um novo backup em partes pega todos os registros de novo.",
         "expand": "Mostrar suas partes",
         "collapse": "Ocultar suas partes",
@@ -2532,23 +2518,19 @@
       },
       "backup": {
         "toggle": "Fazer backup em partes",
-        "hint_one": "{{objects}} tem mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Restaurar as lista como um só conjunto.",
-        "hint_other": "{{objects}} têm mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Restaurar as lista como um só conjunto."
+        "hint_one": "{{objects}} tem mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Backups as lista como um só conjunto.",
+        "hint_other": "{{objects}} têm mais linhas do que um backup guarda: em partes, cada parte é um backup próprio, e Backups as lista como um só conjunto."
       },
       "notify": {
         "done": "Mascaração em partes concluída: {{done}} de {{total}} partes mascaradas, cada uma com seu backup.",
-        "open": "Mascaração em partes interrompida com partes restantes: {{done}} de {{total}} mascaradas. Retomar, na aba Anonimizar, continua.",
-        "late_one": "Mascaração em partes concluída, mas {{formatted}} registro criado durante a execução não foi mascarado: Retomar, na aba Anonimizar, o mascara.",
-        "late_other": "Mascaração em partes concluída, mas {{formatted}} registros criados durante a execução não foram mascarados: Retomar, na aba Anonimizar, os mascara."
+        "open": "Mascaração em partes interrompida com partes restantes: {{done}} de {{total}} mascaradas. Retomar, na aba Mascaramento, continua.",
+        "late_one": "Mascaração em partes concluída, mas {{formatted}} registro criado durante a execução não foi mascarado: Retomar, na aba Mascaramento, o mascara.",
+        "late_other": "Mascaração em partes concluída, mas {{formatted}} registros criados durante a execução não foram mascarados: Retomar, na aba Mascaramento, os mascara."
       }
     },
     "backupDeleteConfirmSync": "Excluir este backup? Ele guarda o que a execução do Sync de {{date}} sobrescreveu: remover essa execução no Sync não devolverá mais esses valores, e eles somem de vez desta máquina.",
     "restoreSyncPartial": "A execução do Sync ainda está gravando, ou parou antes de terminar — a janela foi fechada ou a extensão parou: este backup guarda o que ela tinha guardado até então.",
     "orgPicker": "Org que as abas abaixo leem e gravam",
-    "kpi": {
-      "backups": "Backups de {{org}}",
-      "partial": "Backups parciais ou com falha"
-    },
     "backupStatus": {
       "pending": "Pendente",
       "running": "Em andamento",
@@ -2561,20 +2543,18 @@
     "checkpointBeforeRisk": "Antes de uma execução arriscada em uma sandbox, crie um ponto de verificação (Pontos de verificação → Criar um ponto de verificação): Retroceder… devolve os dados da org a esse ponto.",
     "takeCheckpoint": "Criar um ponto de verificação",
     "restoreEmpty": "Ainda não há backup de {{org}}",
-    "restoreEmptyDesc": "Aqui aparecem os backups feitos na aba Backup e os que uma execução do Sync guarda do que sobrescreve.",
+    "restoreEmptyDesc": "Criar backup, ao lado do modelo na aba Mascaramento, faz um, assim como um mascaramento que guarda os valores antes; uma execução do Sync guarda um do que sobrescreve. Cada um aparece aqui.",
     "restoreCreateBackup": "Criar um backup",
-    "restorePick": "Clique em um backup para restaurá-lo ou excluí-lo.",
     "restoreConfirm": {
       "title": "Restaurar o backup de {{date}} em {{org}}?",
       "changed": "As linhas alteradas desde {{date}} recebem de volta os valores do backup, não importa quem as alterou.",
       "syncKept": "Os registros que a execução do Sync de {{date}} sobrescreveu recebem de volta os valores que tinham antes dela; os alterados ou excluídos desde a execução ficam como estão.",
-      "rewriteAll": "Cada linha do backup é gravada, inclusive as que a org já tem iguais às do backup.",
       "objects": "O que o backup contém:",
       "confirm": "Restaurar em {{org}}"
     },
     "anonymizeConfirm": {
-      "title": "Anonimizar {{org}} com “{{name}}”?",
-      "resumeTitle": "Retomar a anonimização de {{org}} com “{{name}}”?",
+      "title": "Mascarar {{org}} com “{{name}}”?",
+      "resumeTitle": "Retomar o mascaramento de {{org}} com “{{name}}”?",
       "description": "Sobrescreve estes campos em todo registro que tenha um valor: {{fields}}.",
       "resumeDescription": "Sobrescreve estes campos nos registros que a execução interrompida deixou: {{fields}}."
     },
@@ -3969,7 +3949,7 @@
     "checkpointContent": "Um ponto de verificação é o estado dos dados de uma org em um momento. Retroceder depois exclui o que foi adicionado desde então, devolve ao que mudou os seus valores e recupera o que foi excluído, não importa quem o fez. A prévia dele conta, objeto por objeto, os registros a Excluir, aos quais Devolver valores e a Recuperar. Um backup do DataOps é uma cópia de alguns objetos: a restauração dele nunca exclui o que foi adicionado.\n- O retrocesso desfaz o trabalho de todos desde o ponto de verificação, não só as execuções do SandForge: qualquer usuário, fluxo ou integração. A prévia diz quem alterou o quê por último antes que qualquer coisa seja gravada.\n- Nunca em uma org de produção: os pontos de verificação são para sandboxes, scratch orgs e orgs Developer Edition, e nenhum ajuste ou opção suspende essa recusa.\n- Só dados: campos, fluxos, regras de validação, layouts, permissões, usuários e configuração ficam como estão, e o que já saiu da org (e-mails, callouts, eventos de plataforma) continua enviado.\n- Os arquivos só são abrangidos em parte: retroceder exclui os arquivos anexados desde então aos registros dele e recupera os excluídos desde então, mas um arquivo que recebeu uma nova versão mantém o novo conteúdo.\n- Um ponto de verificação guarda em claro os valores dos registros, dados pessoais entre eles, nesta máquina, legíveis só por você, por 30 dias, a menos que você o guarde até excluí-lo.",
     "syncContent": "O Sync copia objetos de uma org para outra, campo a campo; a aba Histórico lista cada execução, e a aba Agendamentos executa uma configuração salva conforme um agendamento.\n- Uma execução delta de uma configuração salva lê o que mudou desde a última execução bem-sucedida, e pode excluir no destino o que a origem excluiu.\n- Mapeamento automático associa os campos com o mesmo nome de API. Uma regra de transformação altera um único campo em cada registro gravado; uma regra sem campo é recusada antes que algo seja lido ou salvo. Os mapeamentos de valores vêm de uma configuração do SFDMU importada.\n- Neutralizar e-mails e números de telefone fica ativado, a menos que você desmarque; Copiar os arquivos destes registros traz os arquivos deles.\n- Aba Tempo real: grava cada alteração que a origem publica (Change Data Capture) assim que chega; um conflito é decidido pela estratégia ou retido na aba Conflitos.\n- Remover o que esta execução criou, nos resultados ou na entrada do histórico da execução, exclui o que ela inseriu e seus arquivos, devolve aos registros que ela sobrescreveu os valores de antes, guardados por sandforge.backup.maxAgeDays, e recupera o que uma execução delta excluiu. O Production Guard recusa isso em uma org de produção.\n- Uma sessão de Tempo real é removida do mesmo modo, em Sessões anteriores, depois que ela para.",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Presença de permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Objetos: os objetos das duas orgs, lidos ao vivo quando você abre a aba\n- Desvio das configurações da org: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantar a partir do diff: escolha o que difere, valide primeiro no destino e depois implante a validação em uma sandbox, uma scratch org ou uma org Developer Edition",
-    "dataopsContent": "Operações de dados na org escolhida no topo da página:\n- Backup: uma cópia dos objetos que os modelos de anonimização mascaram, ou dos que o modelo escolhido mascara, guardada nesta máquina. Não é um ponto de verificação: antes de uma execução arriscada em uma sandbox, crie um ponto de verificação. Fazer backup em partes passa do tamanho de um backup; interrompido, fica parcial.\n- Restaurar pergunta antes, nomeando a org e cada objeto do backup, e então devolve o backup à org de onde ele foi tirado; a menos que Gravar de volta cada linha do backup esteja marcada, grava só as linhas que mudaram desde então.\n- Anonimizar mascara os campos diretamente na org com um modelo integrado como GDPR, CCPA ou HIPAA, ou um seu de Criar modelo; a menos que você desmarque Guardar os valores antes, faz backup do que mascara, para que Restaurar possa devolvê-lo.\n- Conformidade encontra os campos com dados pessoais e depois os registros de uma pessoa por e-mail, nome ou telefone, para exportá-los, anonimizá-los ou excluí-los após uma revisão e uma confirmação digitada.\n- Limpeza conta registros inativos, pesquisas vazias e valores repetidos, para exportá-los ou excluí-los após uma revisão e uma confirmação digitada, 1.000 por vez.\n- Qualidade conta com que frequência cada campo é preenchido, os valores de chave compartilhados e os registros inativos, e não grava nada.",
+    "dataopsContent": "Operações de dados na org escolhida no topo da página:\n- Mascaramento mascara os campos diretamente na org com um modelo integrado como GDPR, CCPA ou HIPAA, ou um seu de Criar modelo; a menos que você desmarque Guardar os valores antes, faz backup do que mascara, para que Restaurar… possa devolvê-lo. Criar backup, ao lado do modelo, copia nesta máquina os objetos que ele mascara.\n- Backups lista cada backup da org, cada um com Restaurar…, Exportar e Excluir. Restaurar… pergunta antes, nomeando a org e cada objeto, e se deve gravar de volta cada linha; desmarcado, grava só as linhas que mudaram desde então. Um backup não é um ponto de verificação: antes de uma execução arriscada em uma sandbox, crie um ponto de verificação.\n- Dados pessoais encontra os campos com dados pessoais e depois os registros de uma pessoa por e-mail, nome ou telefone, para exportá-los, anonimizá-los ou excluí-los após uma revisão e uma confirmação digitada.\n- Limpeza conta registros inativos, pesquisas vazias, valores repetidos e com que frequência cada campo é preenchido, para exportá-los ou excluí-los após uma revisão e uma confirmação digitada, 1.000 por vez.\n- Esvaziamento exclui todos os registros dos objetos escolhidos, ou da org inteira, depois que Simular contou o que sai e você digitou o nome da org.",
     "automationContent": "Construtor visual de pipelines:\n- Em Etapas, a página oferece os tipos de etapas que um pipeline executa: Sync, Seed, Anonimização, Backup, Ponto de verificação, Retrocesso, Comparação, Pré-verificação, Condição, Atraso, Aprovação e Notificação. O Sync executa uma configuração salva na página Sync e, se grava em uma org sobre a qual o Production Guard pergunta, precisa de uma etapa Aprovação antes. Seed e Anonimização executam um modelo da própria página, nunca em uma org de produção, depois de uma etapa Aprovação em uma sandbox marcada como Staging, e nunca são tentadas de novo. Uma etapa Retrocesso devolve uma org a um ponto de verificação guardado nesta máquina, no máximo os registros definidos, depois que você a confirma abaixo da prévia com o alias da org, ou, se ela não tiver alias, o nome dela ou o ID da organização. Restauração e Exclusão gravam em uma org e só são executadas pela própria página: um pipeline que contenha uma dessas etapas, ou uma etapa Script, Loop ou Paralelo, é recusado antes de começar\n- Um pipeline começa pelo botão Executar pipeline, nos horários que uma expressão cron indica enquanto o VS Code está aberto, ou quando o SandForge detecta a atualização de uma sandbox escolhida\n- Histórico de execução: status, duração total e erros de cada execução, o que cada uma de suas etapas fez, e os inícios que um gatilho perdeu\n- Modelos de pipeline do Marketplace",
     "forgeContent": "O Forge copia um registro e o que se relaciona com ele, da org selecionada no painel lateral para uma sandbox, uma scratch org ou uma org Developer Edition; ele recusa qualquer outra org. Os IDs são remapeados na escrita.\n- Antes de Executar Forge, na revisão: Simular verifica aqui cada registro, não envia nada; Ensaiar: o destino testa uma amostra, revertida; consome chamadas de API.\n- E-mails e números de telefone são neutralizados (.invalid, números fictícios), a menos que você marque Manter e-mails e números de telefone como estão. Anonimizar PII mascara nomes, endereços e outros campos pessoais.\n- Salvar como modelo, nos resultados de uma execução, guarda o registro ou a consulta dela, a profundidade, as opções e as decisões; a aba Modelo a executa de novo, e Importar um modelo lê um de um arquivo.\n- Clonar diretamente, em Outras formas de começar, executa a descoberta e depois a clonagem sem parar no grafo nem na revisão; o Production Guard avalia essa execução como qualquer outra.\n- Grafo ou tabela: até 25 objetos são desenhados como grafo, mais como tabela, assim como qualquer grafo em um painel com menos de 560 pixels; Visualização em grafo / Visualização em tabela, ou a configuração sandforge.forge.graphView, escolhe a visualização.\n- Um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso.",
     "frozenContent": "O Dataset congelado extrai um dataset de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Arquivo de regras: Executar extração precisa de um, em ~/.sandforge-sas/rules.json, a menos que a configuração o mova. Criar arquivo de regras grava um vazio, que esvazia cada campo sem regra; uma regra nomeia o campo como Objeto.Campo e um gerador como email, firstName, clear ou keep (aprovado), e Formato das regras lista todos\n- Pseudonimização determinística, com SANDFORGE_FROZEN_SALT onde ela está definida ou, caso contrário, com o salt guardado no armazenamento secreto do VS Code, que a primeira extração cria se ainda não houver nenhum\n- Uma verificação de quatro pontos precisa passar antes que o dataset seja gravado\n- Carga: em uma sandbox, uma scratch org ou uma org Developer Edition, nunca em uma org de produção nem em uma sandbox marcada como Staging, com um Piloto opcional em primeiro um registro raiz, e uma verificação depois da carga",
@@ -4071,12 +4051,12 @@
       "tip": "Comparar não grava nada. Implantar a partir do diff valida primeiro no destino, não exclui nada lá e recusa um destino de produção."
     },
     "dataops": {
-      "step1": "Escolha a org na lista no topo da página e abra a aba Anonimizar.",
-      "step2": "Escolha um modelo em Selecionar um modelo; o cartão do modelo lista cada campo que ele mascara.",
-      "step3": "Clique em Pré-visualizar: os primeiros registros mostram Original ao lado de Mascarado, sem gravar nada.",
-      "step4": "Clique em Aplicar, marque Guardar os valores antes e, se aparecer, Mascarar em partes, digite o nome da org e clique em Confirmar.",
-      "step5": "Para esvaziar objetos ou a org inteira, abra Limpeza: a prévia diz o que sai antes de qualquer exclusão.",
-      "tip": "A menos que você desmarque Guardar os valores antes, Aplicar faz backup dos valores que mascara: clique em Abrir em Restaurar e depois em Restaurar para devolvê-los."
+      "step1": "Mascaramento: escolha um modelo, clique em Pré-visualizar e depois em Aplicar com Guardar os valores antes marcado.",
+      "step2": "Backups: cada backup tem Restaurar…, Exportar e Excluir; Restaurar… nomeia a org antes de gravar.",
+      "step3": "Dados pessoais: encontre os campos que os contêm e depois os registros de uma pessoa para exportar ou apagar.",
+      "step4": "Limpeza: escolha objetos, Analisar, e depois exporte ou exclua ao lado de cada achado, preenchimento incluído.",
+      "step5": "Esvaziamento: escolha objetos ou a org inteira, Simular, e depois digite o nome da org para esvaziá-la.",
+      "tip": "Criar backup, ao lado do modelo em Mascaramento, guarda o que ele mascara; antes de qualquer outra execução arriscada, crie um ponto de verificação."
     },
     "monitor": {
       "step1": "Se a página mostrar Selecione uma org para monitorar, clique na org que você quer acompanhar.",
@@ -4444,9 +4424,9 @@
       "statusFailure": "Falhou",
       "remove": "Remover os registros que esta execução criou",
       "removeLeft": "Remover o que resta dos registros desta execução",
-      "removeNotRecorded": "Registrada antes de as execuções guardarem o que criam: seus registros não podem ser removidos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
+      "removeNotRecorded": "Registrada antes de as execuções guardarem o que criam: seus registros não podem ser removidos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
       "removeOrgGone": "A org em que esta execução gravou não está mais registrada: seus registros não podem ser removidos daqui.",
-      "journalGone": "Os Ids dos registros desta execução ficavam no seu diário, que não existe mais: eles não podem mais ser removidos, verificados, tentados de novo nem salvos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
+      "journalGone": "Os Ids dos registros desta execução ficavam no seu diário, que não existe mais: eles não podem mais ser removidos, verificados, tentados de novo nem salvos daqui. Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução.",
       "sweepAction": "Recuperar o que a automação do destino criou",
       "roots_one": "{{formatted}} registro {{object}} escolhido pela consulta, {{written}} deles no destino",
       "roots_other": "{{formatted}} registros {{object}} escolhidos pela consulta, {{written}} deles no destino",
@@ -5201,7 +5181,7 @@
         "personalList": "Os campos, por objeto",
         "targetHolds_one": "{{target}} já tem cerca de {{formatted}} registro de {{objects}} destes objetos. A execução acrescenta os seus ao lado, não os substitui, e um campo único ou uma regra de duplicidade pode recusar alguns.",
         "targetHolds_other": "{{target}} já tem cerca de {{formatted}} registros de {{objects}} destes objetos. A execução acrescenta os seus ao lado, não os substitui, e um campo único ou uma regra de duplicidade pode recusar alguns.",
-        "emptyFirst": "Para começar com um destino vazio, esvazie primeiro estes objetos em DataOps → Limpeza → Esvaziar objetos e depois descubra a org de novo aqui.",
+        "emptyFirst": "Para começar com um destino vazio, esvazie primeiro estes objetos em DataOps → Esvaziamento → Esvaziar objetos e depois descubra a org de novo aqui.",
         "targetHoldsNone": "{{target}} não tem nenhum registro dos objetos que a execução copia, segundo suas contagens de registros.",
         "targetHoldsReading": "Lendo o que {{target}} já tem destes objetos…",
         "targetHoldsFailed": "Não foi possível ler o que {{target}} já tem destes objetos: {{message}}",
@@ -6906,7 +6886,7 @@
       "restoredKeptChanged": "alterados desde a execução, deixados como estão: {{n}}",
       "restoredGone": "não estão mais em {{org}}: {{n}}",
       "restoredRefused": "recusados por {{org}}: {{n}}",
-      "restoredNotKept": "valores anteriores não mais guardados (o backup foi excluído na aba Restaurar, ou chegou ao fim da retenção): {{n}}",
+      "restoredNotKept": "valores anteriores não mais guardados (o backup foi excluído na aba Backups, ou chegou ao fim da retenção): {{n}}",
       "restoredNotReached": "não alcançados antes da parada: {{n}}",
       "titleOverwritten": "O que esta execução sobrescreveu",
       "titleDeleted": "O que esta execução excluiu",
@@ -6921,7 +6901,7 @@
       "overwrittenNotKept_one": "{{formatted}} registro de {{org}} sobrescrito, seus valores anteriores não mais guardados nesta máquina",
       "overwrittenNotKept_other": "{{formatted}} registros de {{org}} sobrescritos, seus valores anteriores não mais guardados nesta máquina",
       "keptUntil": "guardados até {{date}} (sandforge.backup.maxAgeDays)",
-      "putBackNotKept": "Valores anteriores não mais guardados (após sandforge.backup.maxAgeDays, ou excluídos na aba Restaurar): {{n}}. Esses registros mantêm os valores da execução.",
+      "putBackNotKept": "Valores anteriores não mais guardados (após sandforge.backup.maxAgeDays, ou excluídos na aba Backups): {{n}}. Esses registros mantêm os valores da execução.",
       "deleted_one": "{{formatted}} registro de {{org}} excluído pela execução, como a origem o tinha excluído: removê-la o recupera da lixeira enquanto ele estiver lá",
       "deleted_other": "{{formatted}} registros de {{org}} excluídos pela execução, como a origem os tinha excluído: removê-la os recupera da lixeira enquanto estiverem lá",
       "writtenAgain_one": "{{formatted}} registro desta execução foi gravado de novo por {{config}} em {{date}}: remova primeiro aquela execução, ou ele conta como alterado desde esta",
@@ -7439,7 +7419,7 @@
     "insertsNeutralized": "Insere cada registro; e-mails e números de telefone são neutralizados.",
     "readCut": "{{read}} dos {{held}} registros da org de origem: o restante não é copiado.",
     "refusal": {
-      "storage": "A sincronização foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta à org de destino. O Sync rápido não tem filtro: retire objetos aqui, ou abra-os no assistente, onde cada objeto aceita um filtro. Para copiar uma parte da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino. Ou libere armazenamento de dados na org de destino: DataOps → Limpeza → Esvaziar objetos exclui o que ela contém desses objetos.",
+      "storage": "A sincronização foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta à org de destino. O Sync rápido não tem filtro: retire objetos aqui, ou abra-os no assistente, onde cada objeto aceita um filtro. Para copiar uma parte da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino. Ou libere armazenamento de dados na org de destino: DataOps → Esvaziamento → Esvaziar objetos exclui o que ela contém desses objetos.",
       "openInWizard": "Abrir no assistente",
       "openForge": "Abrir o Forge",
       "emptyFirst": "Esvaziar estes objetos no destino"
@@ -7941,7 +7921,7 @@
     },
     "runNotInHistory": {
       "explanation": "Esta execução não está mais no histórico do Forge, que guarda as mais recentes: o que ela gravou não é mais conhecido aqui. Nada foi lido nem gravado.",
-      "action": "Veja em Execuções mais antigas, abaixo de Execuções recentes: uma execução cujos registros ainda podem ser removidos aparece ali. Se não, um ponto de verificação criado antes da execução leva a org de volta (Pontos de verificação → Retroceder…), e DataOps → Limpeza → Esvaziar objetos esvazia os objetos dela, todos os registros deles."
+      "action": "Veja em Execuções mais antigas, abaixo de Execuções recentes: uma execução cujos registros ainda podem ser removidos aparece ali. Se não, um ponto de verificação criado antes da execução leva a org de volta (Pontos de verificação → Retroceder…), e DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos dela, todos os registros deles."
     },
     "removalRunning": {
       "explanation": "Já há uma remoção desta execução em andamento, desta página ou de outra: uma segunda perguntaria, e excluiria, duas vezes. Nada mais foi excluído.",
@@ -7953,7 +7933,7 @@
     },
     "journalGone": {
       "explanation": "Os Ids dos registros desta execução eram guardados no diário dela nesta máquina, que não existe mais: nada aqui os distingue mais dos outros registros da org. Nada foi lido nem gravado.",
-      "action": "Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Limpeza → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução."
+      "action": "Um ponto de verificação criado antes da execução leva a org de volta a antes dela: Pontos de verificação → Retroceder…. Sem um, DataOps → Esvaziamento → Esvaziar objetos esvazia os objetos que ela gravou — todos os registros deles, não só os desta execução."
     },
     "notRecorded": {
       "explanation": "Esta execução foi registrada antes de o Forge guardar o que uma execução cria, e onde: os registros dela não se distinguem dos outros da org. Nada foi lido nem gravado."
@@ -8961,7 +8941,7 @@
     "title": "Esvaziar objetos ou a org",
     "production": "{{org}} é uma org de produção, ou não se distingue de uma. Esvaziar é para sandboxes, scratch orgs e orgs Developer Edition: o SandForge nunca esvazia objetos de uma org de produção, e nada suspende essa recusa.",
     "scopeReading": "Lendo os objetos de {{org}}…",
-    "previewButton": "Prévia",
+    "previewButton": "Simular",
     "list": {
       "filter": "Filtrar",
       "noMatch": "Nenhum objeto corresponde ao filtro.",
@@ -8969,7 +8949,7 @@
     },
     "objects": {
       "title": "Esvaziar objetos",
-      "intro": "Exclui todos os registros dos objetos escolhidos, e o que o Salesforce exclui junto com eles. Uma prévia conta tudo primeiro; nada é excluído até você confirmar com o nome da org.",
+      "intro": "Exclui todos os registros dos objetos escolhidos, e o que o Salesforce exclui junto com eles. Uma simulação conta tudo primeiro; nada é excluído até você confirmar com o nome da org.",
       "legend": "Objetos a esvaziar",
       "picked_one": "{{formatted}} objeto escolhido",
       "picked_other": "{{formatted}} objetos escolhidos",
@@ -9050,7 +9030,7 @@
     },
     "preview": {
       "reading": "Contando os registros de {{org}}, e o que vai junto com eles…",
-      "stop": "Parar a prévia",
+      "stop": "Parar a simulação",
       "titleObjects": "O que esvaziar estes objetos de {{org}} excluiria",
       "titleOrg": "O que esvaziar {{org}} excluiria",
       "nothing": "{{org}} não contém nada que estes objetos excluiriam.",
@@ -9059,8 +9039,8 @@
       "readAt": "Contado às {{at}}: registros criados depois ficam como estão.",
       "uncounted": "A org não quis contar estes, e seus registros não estão na soma: {{objects}}.",
       "hard": "Excluído de vez: o Salesforce não traz de volta nada do que uma exclusão definitiva leva, incluindo o que vai junto. Desfazer não será possível.",
-      "stopped": "A prévia foi parada antes de todas as contagens: gere a prévia de novo para esvaziar.",
-      "stale": "As opções mudaram desde esta prévia: gere a prévia de novo antes de esvaziar.",
+      "stopped": "A simulação foi parada antes de todas as contagens: simule de novo para esvaziar.",
+      "stale": "As opções mudaram desde esta simulação: simule de novo antes de esvaziar.",
       "openRun": "O último esvaziamento de {{org}} ({{runId}}, iniciado em {{at}}) parou no meio. Retome-o, ou desfaça-o, antes de começar outro: assim seu Desfazer ainda alcança a org como ela estava.",
       "resume": "Retomá-lo…",
       "undoOpen": "Desfazê-lo…",
@@ -9135,16 +9115,16 @@
       "acceptPeopleActive": "Esvaziar mesmo assim: as alterações dessas pessoas vão junto com os registros. Qualquer outra pessoa que trabalhe até lá faz a execução ser recusada.",
       "leftOut_one": "{{formatted}} objeto deixado de fora, com o motivo",
       "leftOut_other": "{{formatted}} objetos deixados de fora, cada um com seu motivo",
-      "checkpointLead": "Primeiro um ponto de verificação, como esta prévia o lê:",
+      "checkpointLead": "Primeiro um ponto de verificação, como esta simulação o lê:",
       "holding": "O que impede o esvaziamento agora",
-      "again": "Gerar a prévia de novo"
+      "again": "Simular de novo"
     },
     "confirm": {
       "title": "Esvaziar {{org}}?",
       "description": "{{records}} de {{objects}} vão para a lixeira. O Desfazer os traz de volta enquanto a lixeira os guarda.",
       "descriptionHard": "{{records}} de {{objects}} são excluídos de vez.",
       "noUndo": "Desfazer não será possível: o Salesforce não traz de volta nada do que uma exclusão definitiva leva.",
-      "automation": "À medida que os registros saem, {{org}} executa o que a prévia listou.",
+      "automation": "À medida que os registros saem, {{org}} executa o que a simulação listou.",
       "muted": "O que o silenciamento cala fica quieto durante a execução, e depois é devolvido.",
       "peopleActive": "O que {{people}} alterou na última hora também vai junto.",
       "blockers": "{{records}} de objetos não esvaziados apontam para registros que ele exclui, por uma pesquisa que recusa a exclusão: os registros para os quais apontam serão recusados.",
@@ -9181,20 +9161,20 @@
         "refused": "Recusados",
         "notReached": "Não alcançados"
       },
-      "madeSince_one": "{{formatted}} registro criado desde a prévia fica como está",
-      "madeSince_other": "{{formatted}} registros criados desde a prévia ficam como estão",
+      "madeSince_one": "{{formatted}} registro criado desde a simulação fica como está",
+      "madeSince_other": "{{formatted}} registros criados desde a simulação ficam como estão",
       "removedRuns_one": "O diário do esvaziamento anterior da org foi descartado: o Desfazer alcança só este.",
       "removedRuns_other": "Os diários dos esvaziamentos anteriores da org foram descartados: o Desfazer alcança só este.",
       "undo": "Desfazer…",
       "undoWhile": "Traz {{runId}} de volta da lixeira enquanto ela guarda os registros.",
       "noUndoHard": "Desfazer não é possível: este esvaziamento excluiu de vez.",
       "noUndoNothing": "Nada foi excluído: não há nada a desfazer.",
-      "previewAgain": "Gerar a prévia de novo",
+      "previewAgain": "Simular de novo",
       "done": "Concluído"
     },
     "resume": {
       "title": "Retomar o esvaziamento {{runId}} de {{org}}?",
-      "description": "Ele exclui o que a execução parada ainda não tinha alcançado, como sua prévia mostrou, e lê de novo, ao começar, o que {{org}} executa.",
+      "description": "Ele exclui o que a execução parada ainda não tinha alcançado, como sua simulação mostrou, e lê de novo, ao começar, o que {{org}} executa.",
       "button": "Retomar o esvaziamento",
       "acceptAutomation": "Deixar executar o que {{org}} executa quando os registros são excluídos",
       "acceptPeopleActive": "Retomar mesmo que outras pessoas tenham alterado registros destes objetos em {{org}} na última hora: o trabalho delas vai junto"
@@ -9218,7 +9198,7 @@
       "othersDeletion": "{{formatted}} excluídos por outro usuário, o que só o Modify All Data traz de volta.",
       "refusedCount": "{{formatted}} recusados.",
       "notReached": "{{formatted}} não alcançados.",
-      "previewedLostTitle": "Não trazidos de volta, como a prévia anunciou"
+      "previewedLostTitle": "Não trazidos de volta, como a simulação anunciou"
     },
     "history": {
       "title": "Esvaziamentos de {{org}}",

@@ -139,7 +139,7 @@ describe('RestoredResult', () => {
     expect(screen.getByTestId('results-restored-Account').textContent).toBe(
       'Account: 2,000 of 4,321 given back their values from before the run' +
         ' · no longer in DEV-SB: 2' +
-        ' · values from before no longer kept (their backup was deleted from the Restore tab,' +
+        ' · values from before no longer kept (their backup was deleted from the Backups tab,' +
         ' or reached its retention): 1' +
         " · given back but for fields DEV-SB no longer takes, which keep the run's values: 3",
     );

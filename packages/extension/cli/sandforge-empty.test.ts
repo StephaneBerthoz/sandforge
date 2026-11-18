@@ -652,7 +652,7 @@ describe('sandforge-empty: a Partial Copy or Full sandbox', () => {
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ refused: { code: 'COPY_SANDBOX' } });
     expect(stderr).toContain('UAT is a Partial Copy or Full sandbox');
-    expect(stderr).toContain('DataOps Cleanup in the panel');
+    expect(stderr).toContain('DataOps Emptying in the panel');
     expect(h.sent).toEqual([]);
     expect(h.org.sent).toEqual([]);
   });

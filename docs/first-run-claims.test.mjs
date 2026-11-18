@@ -657,9 +657,9 @@ test('the CI guide gets an auth URL from the command that prints it, and documen
 
 test('both READMEs sell the DataOps snapshot as what it is', () => {
   assert.match(
-    read(...WEBVIEW_SRC, 'pages', 'DataOps', 'BackupPanel.tsx'),
+    read(...WEBVIEW_SRC, 'pages', 'DataOps', 'BackupCreate.tsx'),
     /the objects it reads follow the templates/,
-    'the Backup tab may pick its objects now — re-read the DataOps rows',
+    'Create backup may pick its objects now — re-read the DataOps rows',
   );
   for (const relPath of READMES) {
     const text = read(...relPath.split('/'));

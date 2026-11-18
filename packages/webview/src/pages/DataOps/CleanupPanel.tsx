@@ -24,7 +24,6 @@ import { Input } from '../../components/ui/Input';
 import { formatNumber } from '../../utils/formatters';
 import { CleanupObjectResult } from './CleanupObjectResult';
 import { ObjectPicker } from './ObjectPicker';
-import { mergeObjectResults, parseStaleDays } from './QualityPanel';
 import { RemovalOutcomeView, RemovalPlanView } from './RemovalPlanView';
 import {
   accordPayloadOf,
@@ -86,6 +85,29 @@ interface Report {
   staleDays: number;
   orphanThreshold: number;
   duplicateGroupLimit: number;
+  singleFieldQueries: number;
+}
+
+/**
+ * The objects of `incoming` in place of their earlier results, the others
+ * kept, in the order they were first shown. A change of duplicate key rescans
+ * one object; the page must not lose the others to it.
+ */
+export function mergeObjectResults<T extends { objectApiName: string }>(
+  previous: readonly T[],
+  incoming: readonly T[],
+): T[] {
+  const byName = new Map(incoming.map((o) => [o.objectApiName, o]));
+  const merged = previous.map((o) => byName.get(o.objectApiName) ?? o);
+  const shown = new Set(previous.map((o) => o.objectApiName));
+  return [...merged, ...incoming.filter((o) => !shown.has(o.objectApiName))];
+}
+
+/** The staleness threshold typed, when it is one the extension accepts. */
+export function parseStaleDays(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) return null;
+  const days = Number(value.trim());
+  return days >= 1 && days <= QUALITY_SCAN_MAX_STALE_DAYS ? days : null;
 }
 
 /** The recommendation a delete is being reviewed for. */
@@ -112,7 +134,10 @@ function fieldLabelOf(result: CleanupResult, recommendation: CleanupRecommendati
 /**
  * The Cleanup tab: for the objects picked, the records a cleanup would look at
  * — not modified for a number of days, orphans of a lookup the business
- * relies on, copies of a repeated value — each exported to a file or deleted.
+ * relies on, copies of a repeated value — each exported to a file or deleted,
+ * and how filled each field is. Quality was a tab of its own, with the same
+ * picker, the same threshold and the same Scan, and counted with the same
+ * queries.
  *
  * The scan counts and writes nothing. A delete starts with a review — how
  * many records, and what the org deletes along with them — and goes through a
@@ -171,6 +196,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
       staleDays: answer.staleDays,
       orphanThreshold: answer.orphanThreshold,
       duplicateGroupLimit: answer.bounds.duplicateGroupLimit,
+      singleFieldQueries: answer.bounds.singleFieldQueries,
     }));
   }, [answer]);
 
@@ -494,6 +520,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId, orgName }) =>
               staleDays={report.staleDays}
               orphanThreshold={report.orphanThreshold}
               duplicateGroupLimit={report.duplicateGroupLimit}
+              singleFieldQueries={report.singleFieldQueries}
               onKeyChange={(key) => changeKey(result.objectApiName, key)}
               onExport={(recommendation) => {
                 setLastExport({ objectApiName: result.objectApiName, recommendation });

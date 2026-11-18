@@ -1072,7 +1072,7 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     );
     // Said with what still takes them back: it named none.
     expect(unrecorded).toContain('Checkpoints → Rewind…');
-    expect(unrecorded).toContain('DataOps → Cleanup → Empty objects');
+    expect(unrecorded).toContain('DataOps → Emptying → Empty objects');
     expect(unrecorded).toContain('not this run');
   });
 
@@ -1624,7 +1624,7 @@ describe('ForgeHistoryPanel — a run whose ids are in its journal', () => {
       "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here.",
     );
     expect(gone).toContain('Checkpoints → Rewind…');
-    expect(gone).toContain('DataOps → Cleanup → Empty objects');
+    expect(gone).toContain('DataOps → Emptying → Empty objects');
     expect(screen.queryByTestId('forge-history-remove-forge-older')).toBeNull();
     expect(screen.getByTestId('forge-history-older-forge-older').textContent).toContain(
       '7 records to remove from DEV-SANDBOX',

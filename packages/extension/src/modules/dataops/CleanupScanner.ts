@@ -101,16 +101,29 @@ async function scanObject(
     .filter(isDuplicateKey)
     .sort((a, b) => a.label.localeCompare(b.label));
   const lookups = described.fields.filter(isOrphanLookup);
+  // Every field a person fills in is counted, as Quality counted them: the
+  // scan says how filled each one is beside what can be deleted. The lookups
+  // come first, so the budget of single-field counts never leaves one an
+  // orphan is found by uncounted.
+  const filledIn = [
+    ...lookups,
+    ...described.fields.filter((f) => isFilledIn(f) && !lookups.includes(f)),
+  ];
 
-  // Three independent reads, each the one the Quality tab counts with.
+  // Three independent reads, the queries Quality counted with.
   const [fills, duplicates, stale] = await Promise.all([
-    countFills(conn, objectApiName, lookups, totalRecords),
+    countFills(conn, objectApiName, filledIn, totalRecords),
     findDuplicates(conn, objectApiName, keyFields, target.duplicateKey, totalRecords),
     countStale(conn, objectApiName, described.fields, staleDays, totalRecords),
   ]);
 
   const orphans: CleanupOrphans[] = fills.fields
-    .filter((f) => isReliedOn(f.filled, totalRecords) && f.filled < totalRecords)
+    .filter(
+      (f) =>
+        lookups.some((l) => l.name === f.fieldApiName) &&
+        isReliedOn(f.filled, totalRecords) &&
+        f.filled < totalRecords,
+    )
     .map((f) => {
       const lookup = lookups.find((l) => l.name === f.fieldApiName);
       return {
@@ -128,6 +141,8 @@ async function scanObject(
     objectApiName: target.objectApiName,
     label: described.label,
     totalRecords,
+    fields: fills.fields,
+    unmeasured: fills.unmeasured,
     stale: stale.stale,
     orphans,
     duplicates: duplicates.duplicates,
@@ -141,12 +156,13 @@ async function scanObject(
 /**
  * Count what a cleanup would look at in the objects asked for: the records
  * nobody has modified for `staleDays`, the orphans of each lookup the business
- * relies on, and the values of a key more than one record carries.
+ * relies on, and the values of a key more than one record carries — and how
+ * filled each field a person fills in is, which a Quality tab of its own
+ * counted with the same queries.
  *
- * Every figure is a count the org made, with the Quality tab's own queries —
- * `COUNT(field)` for the lookups, its duplicate search, its staleness count —
- * so a scan reads no record, and what it costs depends on the fields, not on
- * the records.
+ * Every figure is a count the org made — `COUNT(field)` for the fields, the
+ * duplicate search, the staleness count — so a scan reads no record, and what
+ * it costs depends on the fields, not on the records.
  *
  * @param conn - The org.
  * @param request - The org, the objects and the staleness threshold.

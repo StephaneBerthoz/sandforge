@@ -269,8 +269,9 @@ export const PAGE_FIRST_PAINT_BUDGET = 1_000_000;
  * The pages that check something against a schema before they paint, and
  * may parse zod with it, each with what it checks. Any other page parses no
  * zod before it paints: Home parsed it, 94 kB, to read a record id, and
- * DataOps for the template schema built beside the constants its Anonymize
- * tab reads, a tab it does not open on and loads once it is opened.
+ * DataOps for the template schema built beside the constants its Masking tab
+ * reads, the tab it opens on, a chunk of its own fetched once the page has
+ * painted.
  */
 export const PAGES_THAT_VALIDATE = new Map([
   ['forge', 'a SOQL filter typed in, against the rule the extension holds every filter to'],

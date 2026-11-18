@@ -449,8 +449,8 @@ describe('HelpPage', () => {
       expect(bundle.help.dataopsContent, lng).toContain(bundle.dataops.createTemplate);
       expect(bundle.help.dataopsContent, lng).toMatch(checkpointWord[lng as keyof typeof LOCALES]);
     }
-    expect(en.help.dataopsContent).toContain('Backup: a copy of');
-    expect(en.help.dataopsContent).toContain('Restore asks first');
+    expect(en.help.dataopsContent).toContain('Create backup, beside the template, copies');
+    expect(en.help.dataopsContent).toContain('Restore… asks first');
     expect(en.help.dataopsContent).not.toMatch(/snapshot|Create Template/);
   });
 

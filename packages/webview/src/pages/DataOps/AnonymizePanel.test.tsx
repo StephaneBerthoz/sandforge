@@ -470,7 +470,7 @@ describe('AnonymizePanel', () => {
       fireEvent.click(screen.getByTestId('apply-btn'));
 
       expect(screen.getByTestId('danger-title').textContent).toBe(
-        'Anonymize dev1 with “GDPR Template”?',
+        'Mask dev1 with “GDPR Template”?',
       );
       expect(screen.getByRole('dialog').textContent).toContain(
         'Overwrites these fields wherever a record holds a value: Contact.Email (Mask), Contact.Phone (Fake).',
@@ -794,7 +794,7 @@ describe('AnonymizePanel', () => {
       fireEvent.click(screen.getByTestId('resume-btn'));
       expect(onResume).not.toHaveBeenCalled();
       expect(screen.getByTestId('danger-title').textContent).toBe(
-        'Resume anonymizing dev1 with “GDPR Template”?',
+        'Resume masking dev1 with “GDPR Template”?',
       );
       expect(screen.getByRole('dialog').textContent).toContain(
         'Overwrites these fields in the records the stopped run left: Contact.Email (Mask), Contact.Phone (Fake).',

@@ -28,7 +28,6 @@
     "disabled": "Deshabilitado",
     "enable": "Habilitar",
     "disable": "Deshabilitar",
-    "selected": "Seleccionado",
     "object": "Objeto",
     "type": "Tipo",
     "status": "Estado",
@@ -1098,7 +1097,7 @@
       "created_one": "{{formatted}} registro creado en {{org}}",
       "created_other": "{{formatted}} registros creados en {{org}}",
       "removeDescription": "Elimina de {{org}} los registros que insertó este seed, primero el último objeto escrito, los hijos antes que sus padres; van a su papelera de reciclaje. Se conserva un registro del que dependen registros que se quedan en {{org}}, y también un registro modificado desde el seed, o del que dependen registros añadidos desde entonces, salvo que lo incluya abajo.",
-      "notKept": "Lo que creó este seed ya no se conserva — se descartó para dejar sitio a seeds más recientes, o se ejecutó antes de que los seeds se conservaran en disco — y no se puede quitar desde aquí. Para recuperar sus registros: rebobine la org a un punto de control tomado antes, en Puntos de control; o vacíe sus objetos en DataOps → Limpieza → Vaciar objetos, que elimina todos sus registros, no solo los de este seed.",
+      "notKept": "Lo que creó este seed ya no se conserva — se descartó para dejar sitio a seeds más recientes, o se ejecutó antes de que los seeds se conservaran en disco — y no se puede quitar desde aquí. Para recuperar sus registros: rebobine la org a un punto de control tomado antes, en Puntos de control; o vacíe sus objetos en DataOps → Vaciado → Vaciar objetos, que elimina todos sus registros, no solo los de este seed.",
       "historyTitle": "Seeds anteriores",
       "historyNote": "Los seeds que conservó esta extensión, los más recientes primero: los que aún tienen registros en su org se pueden quitar, también después de recargar la ventana. Un seed cuyos registros siguen en su org permanece en la lista hasta que se quita; de los seeds quitados, se listan los 20 más recientes.",
       "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro creado",
@@ -1996,7 +1995,7 @@
       "queryClause": "«{{detail}}» de su query no se traslada: Sync no ejecuta la query.",
       "queryUnread": "Su query no se pudo leer, así que no viene ningún filtro de ella: Sync lee todos los registros del objeto. Ponga un filtro en su fila.",
       "whereRefused": "Su WHERE hace algo más que filtrar, por ejemplo con una subconsulta, y Sync lo rechaza: reescríbalo en su fila, o el guardado se rechazará.",
-      "deleteOldData": "deleteOldData no se traslada: los registros antiguos del destino no se eliminan antes. Para empezar con un objeto vacío, vacíelo primero en DataOps → Limpieza → Vaciar objetos y luego ejecute la sincronización.",
+      "deleteOldData": "deleteOldData no se traslada: los registros antiguos del destino no se eliminan antes. Para empezar con un objeto vacío, vacíelo primero en DataOps → Vaciado → Vaciar objetos y luego ejecute la sincronización.",
       "emptyFirst": "Vaciar primero estos objetos en el destino",
       "emptyFirstPickTarget": "Elija la org de destino en Ejecutarla desde Sync para vaciar allí estos objetos.",
       "mockFields": "SFDMU escribe valores ficticios en {{detail}}. Sync no los tiene: estos campos quedan fuera de la escritura en lugar de copiarse con sus valores reales. Un campo obligatorio hace fallar el registro; quítelo de mockFields para copiarlo.",
@@ -2056,7 +2055,7 @@
   },
   "dataops": {
     "title": "DataOps",
-    "backup": "Respaldo",
+    "backup": "Respaldos",
     "backupPartial": "Parcial: {{objects}} contienen más filas de las que leyó este respaldo. Una restauración solo recupera esas filas.",
     "backupPartialLead": "Parcial: una restauración solo recupera las filas que leyó este respaldo y deja el resto de cada objeto como está.",
     "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
@@ -2068,17 +2067,21 @@
     "backupNotKeptEncrypted": "{{object}}: {{fields}} no conservados — campos cifrados que el usuario con el que SandForge se conecta ve enmascarados, al no tener el permiso View Encrypted Data. Una restauración los deja como la org los tiene.",
     "restorePartialBadge": "Parcial",
     "backupExported": "Guardada en {{path}}. Registros por objeto: {{records}}.",
-    "backupDesc": "Crear y administrar respaldos de datos",
-    "restore": "Restaurar",
-    "anonymize": "Anonimizar",
-    "anonymizeDesc": "Anonimizar datos sensibles",
+    "restore": "Restaurar…",
+    "anonymize": "Enmascaramiento",
+    "anonymizeDesc": "Enmascarar datos sensibles",
+    "maskAsked": {
+      "lead": "Para enmascarar en {{org}}: {{objects}}.",
+      "notMasked": "{{name}} no enmascara {{objects}}: elija otra plantilla, o cree una con Crear plantilla.",
+      "noTemplate": "Ninguna plantilla enmascara {{objects}}: cree una con Crear plantilla."
+    },
     "cleanup": "Limpieza",
-    "quality": "Calidad",
+    "emptying": "Vaciado",
     "noOrgSelected": "Ninguna org seleccionada: elija una en la lista de arriba.",
     "noBackups": "No hay respaldos disponibles",
     "createBackup": "Crear respaldo",
     "backupObjectsTemplate": "Respalda {{objects}}: los objetos que enmascara {{name}}.",
-    "backupObjectsAll": "Respalda {{objects}}: los objetos que enmascaran las plantillas de anonimización.",
+    "backupObjectsAll": "Respalda {{objects}}: los objetos que enmascaran las plantillas de enmascaramiento.",
     "restoreInProgress": "Restaurando datos...",
     "restoreRewriteAll": "Volver a escribir cada fila del respaldo, incluidas las que la org ya contiene tal como las guardó el respaldo. Sin marcar, una restauración lee primero la org y solo escribe las filas que cambiaron desde el respaldo.",
     "restoreResult": "Última restauración — escritas: {{written}} · ya como en el respaldo, sin tocar: {{unchanged}} · rechazadas: {{failed}}",
@@ -2114,7 +2117,7 @@
       "readFailed": "{{rows}} (la lectura falló)",
       "capHint": "El respaldo se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer el respaldo para conservar todas las filas."
     },
-    "compliance": "Cumplimiento",
+    "compliance": "Datos personales",
     "frameworks": {
       "gdpr": "RGPD",
       "ccpa": "CCPA",
@@ -2132,45 +2135,30 @@
       "constant": "Constante",
       "preserve_format": "Preservar formato"
     },
-    "anonymizedFields": "Plantillas de anonimización",
     "emptyState": {
       "title": "Proteja los datos de su org",
-      "description": "DataOps respalda, restaura y anonimiza los datos de su org, atiende las solicitudes de interesados y limpia los registros que nadie necesita.",
-      "step2": "Respalde los campos que una plantilla enmascara antes de anonimizar",
-      "step3": "Anonimice campos sensibles con una plantilla",
+      "description": "DataOps enmascara los datos de su org, los respalda y los restaura, atiende las solicitudes de interesados, limpia los registros que nadie necesita y vacía objetos o toda la org.",
+      "step2": "Respalde los campos que una plantilla enmascara antes de enmascararlos",
+      "step3": "Enmascare campos sensibles con una plantilla",
       "step4": "Restaure un respaldo en la org de la que se tomó"
     },
     "exportBackup": "Exportar",
     "soon": {},
     "qualityScan": {
-      "intro": "Cuenta, para los objetos que elija, con qué frecuencia se rellena cada campo, qué valores de una clave comparten varios registros y cuántos registros nadie ha modificado desde hace tiempo. La org hace el recuento: no se lee ningún registro uno a uno ni se escribe nada.",
-      "objectsLegend": "Objetos que analizar (hasta {{max}})",
       "staleDays": "Sin modificar desde hace (días)",
       "staleDaysInvalid": "Introduzca un número entero de días entre 1 y {{max}}.",
-      "scan": "Analizar",
-      "method": "Los recuentos abarcan todos los registros que puede ver el usuario conectado. Se dejan fuera las casillas de verificación, las fórmulas y los campos que mantiene la propia org: una casilla nunca está vacía, y los demás no los escribe nadie.",
-      "objectFailed": "No se pudo analizar este objeto: {{message}}",
-      "records_one": "{{formatted}} registro",
-      "records_other": "{{formatted}} registros",
-      "noRecords": "Sin registros: nada que medir.",
       "mostlyEmpty": "Campos casi siempre vacíos",
       "ofCounted": "{{part}} de {{whole}} contados",
       "noMostlyEmpty": "Ningún campo contado está vacío en la mayoría de los registros.",
       "requiredEmpty": "Campos obligatorios vacíos",
       "requiredHint": "La org exige estos campos en un registro nuevo, y una parte de los registros que ya contiene los deja vacíos.",
-      "duplicates": "Duplicados probables",
       "duplicateKey": "Buscar duplicados por",
       "pickKey": "Elija un campo",
       "noKeyField": "La org no puede agrupar los registros de este objeto por ningún campo.",
       "noDuplicates": "Ningún valor de {{field}} aparece en más de un registro.",
-      "duplicateGroups_one": "{{formatted}} valor de {{field}} aparece en {{records}} registros.",
-      "duplicateGroups_other": "{{formatted}} valores de {{field}} aparecen cada uno en más de un registro: {{records}} registros en total.",
       "duplicateSample": "Los {{shown}} valores más repetidos de {{total}}.",
       "duplicatesTruncated": "La búsqueda se detiene en {{limit}} valores repetidos: puede haber más de los contados aquí.",
       "recordsColumn": "Registros",
-      "stale_one": "Sin modificar en el último día",
-      "stale_other": "Sin modificar en los últimos {{count}} días",
-      "notMeasured": "Sin medir",
       "field": "Campo",
       "filled": "Rellenos",
       "fillRate": "Tasa de relleno",
@@ -2179,10 +2167,7 @@
       "unmeasured": "Sin contar ({{total}})",
       "notCountable": "texto largo, enriquecido o cifrado, que la org no puede contar ni filtrar",
       "queryBudget": "cada uno requiere su propia consulta, y un análisis lanza como máximo {{limit}} por objeto",
-      "refusedByOrg": "la org rechazó el recuento; su respuesta figura abajo",
-      "fillRefused": "Recuento de relleno: {{message}}",
-      "duplicatesRefused": "Duplicados: {{message}}",
-      "staleRefused": "Registros sin modificar: {{message}}"
+      "refusedByOrg": "la org rechazó el recuento; su respuesta figura abajo"
     },
     "templateEditor": {
       "title": "Nueva plantilla",
@@ -2358,7 +2343,7 @@
       "refusedByOrg_other": "{{formatted}} rechazados por la org, y dejados como estaban."
     },
     "cleanupScan": {
-      "intro": "Cuenta, para los objetos que elija, los registros que miraría una limpieza: los que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio, y las copias sobrantes de un valor repetido. La org hace el recuento: no se lee ningún registro, y no se escribe nada hasta que elimine.",
+      "intro": "Cuenta, para los objetos que elija, los registros que miraría una limpieza: los que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio, y las copias sobrantes de un valor repetido; y cuánto se rellena cada campo. La org hace el recuento: no se lee ningún registro, y no se escribe nada hasta que elimine.",
       "objectsLegend": "Objetos que revisar (hasta {{max}})",
       "scan": "Analizar",
       "method": "Una eliminación toma como mucho {{limit}} registros cada vez (los registros sin modificar, los más antiguos primero): vuelva a ejecutarla para el resto. Una exportación toma {{limit}} cada vez, y Exportar los siguientes continúa donde se detuvo.",
@@ -2383,6 +2368,7 @@
       "copies": "Valores repetidos de {{field}}: {{values}}. Copias sobrantes: {{copies}}.",
       "copiesRule": "Una eliminación conserva, para cada valor repetido, el registro modificado en último lugar, y elimina las demás copias. No las fusiona: lo que apunta a una copia se elimina con ella o se queda sin ella.",
       "copiesOf": "las copias sobrantes por {{field}}",
+      "fields": "Cuánto se rellena cada campo",
       "export": "Exportar",
       "delete": "Eliminar…",
       "exportWhat": "Exportar: {{what}}",
@@ -2421,7 +2407,7 @@
       "keepHint": "Antes de la primera escritura se toma un respaldo de los campos que enmascara la ejecución. Si no puede contener todas las filas que la ejecución enmascararía, no se enmascara nada.",
       "taken_one": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registro: Restaurar los devuelve.",
       "taken_other": "Los valores anteriores al enmascaramiento se conservan en un respaldo de {{formatted}} registros: Restaurar los devuelve.",
-      "openRestore": "Abrir en Restaurar",
+      "openRestore": "Abrir en Respaldos",
       "refused": "No se pudo conservar ningún respaldo, así que no se enmascaró nada. Un objeto con más filas de las que guarda un respaldo se enmascara por tramos: marque «Enmascarar por tramos» en la confirmación. Para enmascarar sin vuelta atrás, desmarque «Conservar primero los valores»."
     },
     "slices": {
@@ -2471,7 +2457,7 @@
         "late_one": "{{formatted}} registro se creó durante la ejecución en un rango ya enmascarado: ningún respaldo lo guarda, y no se enmascaró. Reanudar lo enmascara, con un respaldo propio.",
         "late_other": "{{formatted}} registros se crearon durante la ejecución en un rango ya enmascarado: ningún respaldo los guarda, y no se enmascararon. Reanudar los enmascara, con un respaldo propio.",
         "left": "Quedan tramos. Reanudar enmascara el resto, cada tramo respaldado antes.",
-        "openRestore": "Abrir el conjunto en Restaurar"
+        "openRestore": "Abrir el conjunto en Respaldos"
       },
       "table": {
         "slice": "Tramo",
@@ -2505,7 +2491,7 @@
           "partial": "Parcial"
         },
         "filtered": "Limitado a: {{filters}}",
-        "openHeld": "Su enmascaramiento sigue abierto: reanúdelo hasta el final, o abandónelo, en la pestaña Anonimizar antes de restaurar. Reanudado, volvería a enmascarar lo que una restauración devuelve.",
+        "openHeld": "Su enmascaramiento sigue abierto: reanúdelo hasta el final, o abandónelo, en la pestaña Enmascaramiento antes de restaurar. Reanudado, volvería a enmascarar lo que una restauración devuelve.",
         "partialNote": "Se detuvo antes de respaldar cada registro: ninguna ejecución lo reanuda. Sus tramos se restauran tal como están; un nuevo respaldo por tramos vuelve a tomar todos los registros.",
         "expand": "Mostrar sus tramos",
         "collapse": "Ocultar sus tramos",
@@ -2532,23 +2518,19 @@
       },
       "backup": {
         "toggle": "Respaldar por tramos",
-        "hint_one": "{{objects}} tiene más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Restaurar los lista como un solo conjunto.",
-        "hint_other": "{{objects}} tienen más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Restaurar los lista como un solo conjunto."
+        "hint_one": "{{objects}} tiene más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Respaldos los lista como un solo conjunto.",
+        "hint_other": "{{objects}} tienen más filas de las que guarda un respaldo: por tramos, cada tramo es un respaldo propio, y Respaldos los lista como un solo conjunto."
       },
       "notify": {
         "done": "Enmascaramiento por tramos terminado: {{done}} de {{total}} tramos enmascarados, cada uno con su respaldo.",
-        "open": "Enmascaramiento por tramos detenido con tramos pendientes: {{done}} de {{total}} enmascarados. Reanudar, en la pestaña Anonimizar, continúa.",
-        "late_one": "Enmascaramiento por tramos terminado, pero {{formatted}} registro creado durante la ejecución no se enmascaró: Reanudar, en la pestaña Anonimizar, lo enmascara.",
-        "late_other": "Enmascaramiento por tramos terminado, pero {{formatted}} registros creados durante la ejecución no se enmascararon: Reanudar, en la pestaña Anonimizar, los enmascara."
+        "open": "Enmascaramiento por tramos detenido con tramos pendientes: {{done}} de {{total}} enmascarados. Reanudar, en la pestaña Enmascaramiento, continúa.",
+        "late_one": "Enmascaramiento por tramos terminado, pero {{formatted}} registro creado durante la ejecución no se enmascaró: Reanudar, en la pestaña Enmascaramiento, lo enmascara.",
+        "late_other": "Enmascaramiento por tramos terminado, pero {{formatted}} registros creados durante la ejecución no se enmascararon: Reanudar, en la pestaña Enmascaramiento, los enmascara."
       }
     },
     "backupDeleteConfirmSync": "¿Eliminar este respaldo? Guarda lo que sobrescribió la ejecución de Sync del {{date}}: quitar esa ejecución en Sync ya no devolverá estos valores, y desaparecen para siempre de este equipo.",
     "restoreSyncPartial": "La ejecución de Sync sigue escribiendo, o se detuvo antes de terminar — su ventana se cerró o la extensión se detuvo: este respaldo guarda lo que había conservado hasta entonces.",
     "orgPicker": "Org que leen y escriben las pestañas de abajo",
-    "kpi": {
-      "backups": "Respaldos de {{org}}",
-      "partial": "Respaldos parciales o fallidos"
-    },
     "backupStatus": {
       "pending": "Pendiente",
       "running": "En curso",
@@ -2561,20 +2543,18 @@
     "checkpointBeforeRisk": "Antes de una ejecución arriesgada en un sandbox, cree un punto de control (Puntos de control → Crear un punto de control): Retroceder… devuelve los datos de la org a ese punto.",
     "takeCheckpoint": "Crear un punto de control",
     "restoreEmpty": "Aún no hay respaldos de {{org}}",
-    "restoreEmptyDesc": "Aquí aparecen los respaldos hechos en la pestaña Respaldo y los que una ejecución de Sync guarda de lo que sobrescribe.",
+    "restoreEmptyDesc": "Crear respaldo, junto a la plantilla en la pestaña Enmascaramiento, hace uno, igual que un enmascaramiento que conserva primero los valores; una ejecución de Sync guarda uno de lo que sobrescribe. Cada uno aparece aquí.",
     "restoreCreateBackup": "Crear un respaldo",
-    "restorePick": "Haga clic en un respaldo para restaurarlo o eliminarlo.",
     "restoreConfirm": {
       "title": "¿Restaurar el respaldo del {{date}} en {{org}}?",
       "changed": "Las filas modificadas desde el {{date}} recuperan los valores del respaldo, quienquiera que las haya cambiado.",
       "syncKept": "Los registros que la ejecución de Sync del {{date}} sobrescribió recuperan los valores que tenían antes; los modificados o eliminados desde la ejecución se quedan como están.",
-      "rewriteAll": "Se escribe cada fila del respaldo, incluidas las que la org ya tiene igual que el respaldo.",
       "objects": "Lo que contiene el respaldo:",
       "confirm": "Restaurar en {{org}}"
     },
     "anonymizeConfirm": {
-      "title": "¿Anonimizar {{org}} con «{{name}}»?",
-      "resumeTitle": "¿Reanudar la anonimización de {{org}} con «{{name}}»?",
+      "title": "¿Enmascarar {{org}} con «{{name}}»?",
+      "resumeTitle": "¿Reanudar el enmascaramiento de {{org}} con «{{name}}»?",
       "description": "Sobrescribe estos campos en cada registro que tenga un valor: {{fields}}.",
       "resumeDescription": "Sobrescribe estos campos en los registros que dejó la ejecución detenida: {{fields}}."
     },
@@ -3969,7 +3949,7 @@
     "checkpointContent": "Un punto de control es el estado de los datos de una org en un momento dado. Retroceder elimina después lo que se añadió desde entonces, devuelve sus valores a lo que cambió y recupera lo que se eliminó, quienquiera que lo hiciera. Su vista previa cuenta, objeto por objeto, los registros a Eliminar, a los que Devolver valores y a Recuperar. Un respaldo de DataOps es una copia de algunos objetos: su restauración nunca elimina lo que se añadió.\n- Deshace el trabajo de todos desde el punto de control, no solo las ejecuciones de SandForge: cualquier usuario, flujo o integración. La vista previa dice quién cambió qué por última vez antes de escribir nada.\n- Nunca en una org de producción: los puntos de control son para sandboxes, scratch orgs y orgs Developer Edition, y ningún ajuste ni opción levanta el rechazo.\n- Solo datos: campos, flujos, reglas de validación, formatos de página, permisos, usuarios y configuración se quedan como están, y lo que ya salió de la org (correos, callouts, eventos de plataforma) queda enviado.\n- Los archivos no se cubren del todo: retroceder elimina los archivos adjuntados desde entonces a sus registros y recupera los eliminados desde entonces, pero un archivo que recibió una nueva versión conserva su nuevo contenido.\n- Un punto de control guarda sin cifrar los valores de los registros, datos personales incluidos, en este equipo, legibles solo por usted, durante 30 días salvo que lo conserve.",
     "syncContent": "Sync copia objetos de una org a otra, campo por campo; la pestaña Historial lista cada ejecución, y la pestaña Programaciones ejecuta una configuración guardada según una programación.\n- Una ejecución delta de una configuración guardada lee lo que cambió desde su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó.\n- Mapeo automático empareja los campos con el mismo nombre de API. Una regla de transformación cambia un solo campo en cada registro escrito; una regla sin campo se rechaza antes de leer o guardar nada. Los mapeos de valores vienen de una configuración de SFDMU importada.\n- Neutralizar los correos y los números de teléfono está activado salvo que lo desmarque; Copiar los archivos de estos registros trae sus archivos.\n- Pestaña Tiempo real: escribe cada cambio que publica el origen (Change Data Capture) en cuanto llega; un conflicto lo decide la estrategia, o queda retenido en la pestaña Conflictos.\n- Quitar lo que creó esta ejecución, en los resultados o en la entrada del historial de la ejecución, elimina lo que insertó y sus archivos, devuelve a los registros que sobrescribió sus valores de antes, conservados durante sandforge.backup.maxAgeDays, y recupera lo que una ejecución delta eliminó. Production Guard lo rechaza en una org de producción.\n- Una sesión de Tiempo real se quita igual, en Sesiones anteriores, una vez detenida.",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Presencia de permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Objetos: los objetos de ambas orgs, leídos en vivo al abrir la pestaña\n- Desvío de ajustes de la org: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Desplegar desde diff: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox, una scratch org o una org Developer Edition",
-    "dataopsContent": "Operaciones de datos en la org elegida arriba de la página:\n- Respaldo: una copia de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en este equipo. No es un punto de control: antes de una ejecución arriesgada en un sandbox, cree un punto de control. Respaldar por tramos supera el tamaño de un respaldo; detenido, queda parcial.\n- Restaurar pregunta antes, nombrando la org y cada objeto del respaldo, y luego devuelve el respaldo a la org de la que se tomó; salvo que esté marcada Volver a escribir cada fila del respaldo, solo escribe las filas que cambiaron desde entonces.\n- Anonimizar enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA, o una propia de Crear plantilla; salvo que desmarque Conservar primero los valores, respalda lo que enmascara, para que Restaurar pueda devolverlo.\n- Cumplimiento encuentra los campos con datos personales y luego los registros de una persona por correo, nombre o teléfono, para exportarlos, anonimizarlos o eliminarlos tras una revisión y una confirmación escrita.\n- Limpieza cuenta registros inactivos, búsquedas vacías y valores repetidos, para exportarlos o eliminarlos tras una revisión y una confirmación escrita, 1.000 a la vez.\n- Calidad cuenta con qué frecuencia se rellena cada campo, los valores de clave compartidos y los registros inactivos, y no escribe nada.",
+    "dataopsContent": "Operaciones de datos en la org elegida arriba de la página:\n- Enmascaramiento enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA, o una propia de Crear plantilla; salvo que desmarque Conservar primero los valores, respalda lo que enmascara, para que Restaurar… pueda devolverlo. Crear respaldo, junto a la plantilla, copia en este equipo los objetos que enmascara.\n- Respaldos lista cada respaldo de la org, cada uno con Restaurar…, Exportar y Eliminar. Restaurar… pregunta antes, nombrando la org y cada objeto, y si volver a escribir cada fila; sin marcar, solo escribe las filas que cambiaron desde entonces. Un respaldo no es un punto de control: antes de una ejecución arriesgada en un sandbox, cree un punto de control.\n- Datos personales encuentra los campos con datos personales y luego los registros de una persona por correo, nombre o teléfono, para exportarlos, anonimizarlos o eliminarlos tras una revisión y una confirmación escrita.\n- Limpieza cuenta registros inactivos, búsquedas vacías, valores repetidos y con qué frecuencia se rellena cada campo, para exportarlos o eliminarlos tras una revisión y una confirmación escrita, 1.000 a la vez.\n- Vaciado elimina todos los registros de los objetos que elija, o de toda la org, una vez que Simular ha contado lo que se va y ha escrito el nombre de la org.",
     "automationContent": "Constructor visual de pipelines:\n- En Pasos, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o, si no tiene alias, su nombre o su ID de organización. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "Forge copia un registro y lo que se relaciona con él, desde la org seleccionada en el panel lateral a un sandbox, una scratch org o una org Developer Edition; rechaza cualquier otra org. Los ID se reasignan al escribir.\n- Antes de Ejecutar Forge, en la revisión: Simular comprueba aquí cada registro, no envía nada; Ensayar: el destino prueba una muestra, revertida; consume llamadas a la API.\n- Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están. Anonimizar PII enmascara nombres, direcciones y otros campos personales.\n- Guardar como plantilla, en los resultados de una ejecución, conserva su registro o su consulta, su profundidad, sus opciones y sus decisiones; la pestaña Plantilla la vuelve a ejecutar, e Importar una plantilla lee una desde un archivo.\n- Clonar directamente, en Otras formas de empezar, ejecuta el descubrimiento y luego la clonación sin detenerse en el grafo ni en la revisión; Production Guard juzga esa ejecución como cualquier otra.\n- Grafo o tabla: hasta 25 objetos se dibujan como grafo, más como tabla, igual que cualquier grafo en un panel de menos de 560 píxeles; Vista de grafo / Vista de tabla, o el ajuste sandforge.forge.graphView, elige la vista.\n- Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
     "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Archivo de reglas: Ejecutar extracción necesita uno, en ~/.sandforge-sas/rules.json salvo que la configuración lo mueva. Crear archivo de reglas escribe uno vacío, que vacía cada campo sin regla; una regla nombra su campo como Objeto.Campo y un generador como email, firstName, clear o keep (aprobado), y Formato de las reglas los lista todos\n- Seudonimización determinista, con SANDFORGE_FROZEN_SALT donde está definida o, en su defecto, con la sal guardada en el almacenamiento secreto de VS Code, que la primera extracción crea si aún no hay ninguna\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: en un sandbox, una scratch org o una org Developer Edition, nunca en una org de producción ni en un sandbox marcado como Staging, con un Piloto opcional sobre primero un registro raíz, y una verificación después de la carga",
@@ -4071,12 +4051,12 @@
       "tip": "Comparar no escribe nada. Desplegar desde diff valida primero en el destino, no elimina nada allí y rechaza un destino de producción."
     },
     "dataops": {
-      "step1": "Elija la org en la lista de la parte superior de la página y abra la pestaña Anonimizar.",
-      "step2": "Elija una plantilla en Seleccionar una plantilla; su tarjeta muestra cada campo que enmascara.",
-      "step3": "Haga clic en Vista previa: los primeros registros muestran Original junto a Enmascarado, sin escribir nada.",
-      "step4": "Haga clic en Aplicar, marque Conservar primero los valores y, si aparece, Enmascarar por tramos, escriba el nombre de la org y haga clic en Confirmar.",
-      "step5": "Para vaciar objetos o toda la org, abra Limpieza: su vista previa dice lo que se va antes de borrar nada.",
-      "tip": "Salvo que desmarque Conservar primero los valores, Aplicar respalda los valores que enmascara: haga clic en Abrir en Restaurar y luego en Restaurar para devolverlos."
+      "step1": "Enmascaramiento: elija una plantilla, haga clic en Vista previa y luego en Aplicar con Conservar primero los valores.",
+      "step2": "Respaldos: cada respaldo tiene Restaurar…, Exportar y Eliminar; Restaurar… nombra la org antes de escribir.",
+      "step3": "Datos personales: encuentre los campos que los contienen y luego los registros de una persona para exportar o borrar.",
+      "step4": "Limpieza: elija objetos, Analizar, y luego exporte o elimine junto a cada hallazgo, relleno incluido.",
+      "step5": "Vaciado: elija objetos o toda la org, Simular, y luego escriba el nombre de la org para vaciarla.",
+      "tip": "Crear respaldo, junto a la plantilla en Enmascaramiento, guarda lo que enmascara; antes de cualquier otra ejecución arriesgada, cree un punto de control."
     },
     "monitor": {
       "step1": "Si la página muestra Seleccione una org para vigilar, haga clic en la org que quiere seguir.",
@@ -4444,9 +4424,9 @@
       "statusFailure": "Fallida",
       "remove": "Eliminar los registros que creó esta ejecución",
       "removeLeft": "Eliminar lo que queda de los registros de esta ejecución",
-      "removeNotRecorded": "Registrada antes de que las ejecuciones guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
+      "removeNotRecorded": "Registrada antes de que las ejecuciones guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Vaciado → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
       "removeOrgGone": "La org en la que escribió esta ejecución ya no está registrada: sus registros no se pueden eliminar desde aquí.",
-      "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
+      "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí. Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Vaciado → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución.",
       "sweepAction": "Recuperar lo que creó la automatización del destino",
       "roots_one": "{{formatted}} registro {{object}} que eligió su consulta, {{written}} de ellos en el destino",
       "roots_other": "{{formatted}} registros {{object}} que eligió su consulta, {{written}} de ellos en el destino",
@@ -5201,7 +5181,7 @@
         "personalList": "Los campos, por objeto",
         "targetHolds_one": "{{target}} ya tiene unos {{formatted}} registro de {{objects}} de estos objetos. La ejecución añade los suyos al lado, no los reemplaza, y un campo único o una regla de duplicados puede rechazar algunos.",
         "targetHolds_other": "{{target}} ya tiene unos {{formatted}} registros de {{objects}} de estos objetos. La ejecución añade los suyos al lado, no los reemplaza, y un campo único o una regla de duplicados puede rechazar algunos.",
-        "emptyFirst": "Para empezar con un destino vacío, vacíe primero estos objetos en DataOps → Limpieza → Vaciar objetos y luego vuelva a descubrir la org aquí.",
+        "emptyFirst": "Para empezar con un destino vacío, vacíe primero estos objetos en DataOps → Vaciado → Vaciar objetos y luego vuelva a descubrir la org aquí.",
         "targetHoldsNone": "{{target}} no tiene ningún registro de los objetos que copia la ejecución, según sus recuentos de registros.",
         "targetHoldsReading": "Leyendo lo que {{target}} ya tiene de estos objetos…",
         "targetHoldsFailed": "No se pudo leer lo que {{target}} ya tiene de estos objetos: {{message}}",
@@ -6906,7 +6886,7 @@
       "restoredKeptChanged": "modificados desde la ejecución, dejados como están: {{n}}",
       "restoredGone": "ya no están en {{org}}: {{n}}",
       "restoredRefused": "rechazados por {{org}}: {{n}}",
-      "restoredNotKept": "valores anteriores ya no conservados (su respaldo se eliminó desde la pestaña Restaurar, o llegó al final de su conservación): {{n}}",
+      "restoredNotKept": "valores anteriores ya no conservados (su respaldo se eliminó desde la pestaña Respaldos, o llegó al final de su conservación): {{n}}",
       "restoredNotReached": "no alcanzados antes de la detención: {{n}}",
       "titleOverwritten": "Lo que sobrescribió esta ejecución",
       "titleDeleted": "Lo que eliminó esta ejecución",
@@ -6921,7 +6901,7 @@
       "overwrittenNotKept_one": "{{formatted}} registro de {{org}} sobrescrito, sus valores anteriores ya no conservados en este equipo",
       "overwrittenNotKept_other": "{{formatted}} registros de {{org}} sobrescritos, sus valores anteriores ya no conservados en este equipo",
       "keptUntil": "conservados hasta el {{date}} (sandforge.backup.maxAgeDays)",
-      "putBackNotKept": "Valores anteriores ya no conservados (pasado sandforge.backup.maxAgeDays, o eliminados desde la pestaña Restaurar): {{n}}. Esos registros conservan los valores de la ejecución.",
+      "putBackNotKept": "Valores anteriores ya no conservados (pasado sandforge.backup.maxAgeDays, o eliminados desde la pestaña Respaldos): {{n}}. Esos registros conservan los valores de la ejecución.",
       "deleted_one": "{{formatted}} registro de {{org}} eliminado por la ejecución, como el origen lo había eliminado: quitarla lo recupera de la papelera mientras siga allí",
       "deleted_other": "{{formatted}} registros de {{org}} eliminados por la ejecución, como el origen los había eliminado: quitarla los recupera de la papelera mientras sigan allí",
       "writtenAgain_one": "{{formatted}} registro de esta ejecución lo volvió a escribir {{config}} el {{date}}: quite primero esa ejecución, o cuenta como modificado desde esta",
@@ -7439,7 +7419,7 @@
     "insertsNeutralized": "Inserta cada registro; los correos y los números de teléfono se neutralizan.",
     "readCut": "{{read}} de los {{held}} registros de la org de origen: el resto no se copia.",
     "refusal": {
-      "storage": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino. Sync rápido no tiene filtro: quite objetos aquí, o ábralos en el asistente, donde cada objeto admite un filtro. Para copiar una parte del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino. O libere almacenamiento de datos en la org de destino: DataOps → Limpieza → Vaciar objetos elimina lo que contiene de estos objetos.",
+      "storage": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino. Sync rápido no tiene filtro: quite objetos aquí, o ábralos en el asistente, donde cada objeto admite un filtro. Para copiar una parte del origen que quepa en el destino, use Forge con la profundidad ALL y Registros por objeto en Una muestra que quepa en el destino. O libere almacenamiento de datos en la org de destino: DataOps → Vaciado → Vaciar objetos elimina lo que contiene de estos objetos.",
       "openInWizard": "Abrir en el asistente",
       "openForge": "Abrir Forge",
       "emptyFirst": "Vaciar estos objetos en el destino"
@@ -7941,7 +7921,7 @@
     },
     "runNotInHistory": {
       "explanation": "Esta ejecución ya no está en el historial de Forge, que guarda las últimas: lo que escribió ya no se conoce aquí. No se leyó ni se escribió nada.",
-      "action": "Mire en Ejecuciones anteriores, bajo Ejecuciones recientes: una ejecución cuyos registros aún se pueden eliminar aparece allí. Si no, un punto de control tomado antes de la ejecución devuelve la org atrás (Puntos de control → Retroceder…), y DataOps → Limpieza → Vaciar objetos vacía sus objetos, todos sus registros."
+      "action": "Mire en Ejecuciones anteriores, bajo Ejecuciones recientes: una ejecución cuyos registros aún se pueden eliminar aparece allí. Si no, un punto de control tomado antes de la ejecución devuelve la org atrás (Puntos de control → Retroceder…), y DataOps → Vaciado → Vaciar objetos vacía sus objetos, todos sus registros."
     },
     "removalRunning": {
       "explanation": "Ya hay en curso una eliminación de esta ejecución, desde esta página u otra: una segunda preguntaría, y eliminaría, dos veces. No se eliminó nada más.",
@@ -7953,7 +7933,7 @@
     },
     "journalGone": {
       "explanation": "Los Id de los registros de esta ejecución se guardaban en su diario en esta máquina, que ya no existe: nada aquí los distingue ya de los demás registros de la org. No se leyó ni se escribió nada.",
-      "action": "Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Limpieza → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución."
+      "action": "Un punto de control tomado antes de la ejecución devuelve la org a antes de ella: Puntos de control → Retroceder…. Sin uno, DataOps → Vaciado → Vaciar objetos vacía los objetos que escribió — todos sus registros, no solo los de esta ejecución."
     },
     "notRecorded": {
       "explanation": "Esta ejecución se registró antes de que Forge guardara lo que crea una ejecución, y dónde: sus registros no se distinguen de los demás de la org. No se leyó ni se escribió nada."
@@ -8961,7 +8941,7 @@
     "title": "Vaciar objetos o la org",
     "production": "{{org}} es una org de producción, o no se distingue de una. Vaciar es para sandboxes, scratch orgs y orgs Developer Edition: SandForge nunca vacía objetos de una org de producción, y nada levanta este rechazo.",
     "scopeReading": "Leyendo los objetos de {{org}}…",
-    "previewButton": "Vista previa",
+    "previewButton": "Simular",
     "list": {
       "filter": "Filtrar",
       "noMatch": "Ningún objeto coincide con el filtro.",
@@ -8969,7 +8949,7 @@
     },
     "objects": {
       "title": "Vaciar objetos",
-      "intro": "Elimina todos los registros de los objetos que elija, y lo que Salesforce elimina junto con ellos. Una vista previa lo cuenta todo primero; no se elimina nada hasta que confirme con el nombre de la org.",
+      "intro": "Elimina todos los registros de los objetos que elija, y lo que Salesforce elimina junto con ellos. Una simulación lo cuenta todo primero; no se elimina nada hasta que confirme con el nombre de la org.",
       "legend": "Objetos que vaciar",
       "picked_one": "{{formatted}} objeto elegido",
       "picked_other": "{{formatted}} objetos elegidos",
@@ -9050,7 +9030,7 @@
     },
     "preview": {
       "reading": "Contando los registros de {{org}}, y lo que va con ellos…",
-      "stop": "Detener la vista previa",
+      "stop": "Detener la simulación",
       "titleObjects": "Lo que vaciar estos objetos de {{org}} eliminaría",
       "titleOrg": "Lo que vaciar {{org}} eliminaría",
       "nothing": "{{org}} no contiene nada que estos objetos eliminarían.",
@@ -9059,8 +9039,8 @@
       "readAt": "Contado a las {{at}}: los registros creados después quedan como están.",
       "uncounted": "La org no quiso contar estos, y sus registros no están en la suma: {{objects}}.",
       "hard": "Eliminado para siempre: Salesforce no recupera nada de lo que se lleva una eliminación definitiva, incluido lo que va con ello. Deshacer no será posible.",
-      "stopped": "La vista previa se detuvo antes de tener todos los recuentos: vuelva a generarla para vaciar.",
-      "stale": "Las opciones cambiaron desde esta vista previa: vuelva a generarla antes de vaciar.",
+      "stopped": "La simulación se detuvo antes de tener todos los recuentos: simule de nuevo para vaciar.",
+      "stale": "Las opciones cambiaron desde esta simulación: simule de nuevo antes de vaciar.",
       "openRun": "El último vaciado de {{org}} ({{runId}}, iniciado el {{at}}) se detuvo a medias. Reanúdelo, o deshágalo, antes de que empiece otro: así su Deshacer aún alcanza la org tal como estaba.",
       "resume": "Reanudarlo…",
       "undoOpen": "Deshacerlo…",
@@ -9135,16 +9115,16 @@
       "acceptPeopleActive": "Vaciar de todos modos: sus cambios se van con los registros. Cualquier otra persona que trabaje hasta entonces hace que se rechace la ejecución.",
       "leftOut_one": "{{formatted}} objeto dejado fuera, con el motivo",
       "leftOut_other": "{{formatted}} objetos dejados fuera, cada uno con su motivo",
-      "checkpointLead": "Primero un punto de control, tal como lo lee esta vista previa:",
+      "checkpointLead": "Primero un punto de control, tal como lo lee esta simulación:",
       "holding": "Lo que impide el vaciado ahora",
-      "again": "Volver a generar la vista previa"
+      "again": "Simular de nuevo"
     },
     "confirm": {
       "title": "¿Vaciar {{org}}?",
       "description": "{{records}} de {{objects}} van a la papelera. Deshacer los recupera mientras la papelera los conserva.",
       "descriptionHard": "{{records}} de {{objects}} se eliminan para siempre.",
       "noUndo": "Deshacer no será posible: Salesforce no recupera nada de lo que se lleva una eliminación definitiva.",
-      "automation": "A medida que se van los registros, {{org}} ejecuta lo que listó la vista previa.",
+      "automation": "A medida que se van los registros, {{org}} ejecuta lo que listó la simulación.",
       "muted": "Lo que el silencio acalla queda callado durante la ejecución, y luego se devuelve.",
       "peopleActive": "Lo que {{people}} cambió en la última hora también se va.",
       "blockers": "{{records}} de objetos no vaciados nombran registros que elimina, por una búsqueda que rechaza la eliminación: los registros que nombran serán rechazados.",
@@ -9181,20 +9161,20 @@
         "refused": "Rechazados",
         "notReached": "No alcanzados"
       },
-      "madeSince_one": "{{formatted}} registro creado desde la vista previa queda como está",
-      "madeSince_other": "{{formatted}} registros creados desde la vista previa quedan como están",
+      "madeSince_one": "{{formatted}} registro creado desde la simulación queda como está",
+      "madeSince_other": "{{formatted}} registros creados desde la simulación quedan como están",
       "removedRuns_one": "Se descartó el diario del vaciado anterior de la org: Deshacer alcanza solo este.",
       "removedRuns_other": "Se descartaron los diarios de los vaciados anteriores de la org: Deshacer alcanza solo este.",
       "undo": "Deshacer…",
       "undoWhile": "Recupera {{runId}} de la papelera mientras conserva los registros.",
       "noUndoHard": "Deshacer no es posible: este vaciado eliminó para siempre.",
       "noUndoNothing": "No se eliminó nada: no hay nada que deshacer.",
-      "previewAgain": "Volver a generar la vista previa",
+      "previewAgain": "Simular de nuevo",
       "done": "Listo"
     },
     "resume": {
       "title": "¿Reanudar el vaciado {{runId}} de {{org}}?",
-      "description": "Elimina lo que la ejecución detenida aún no había alcanzado, tal como mostró su vista previa, y vuelve a leer al empezar lo que {{org}} ejecuta.",
+      "description": "Elimina lo que la ejecución detenida aún no había alcanzado, tal como mostró su simulación, y vuelve a leer al empezar lo que {{org}} ejecuta.",
       "button": "Reanudar el vaciado",
       "acceptAutomation": "Dejar que se ejecute lo que {{org}} ejecuta cuando se eliminan los registros",
       "acceptPeopleActive": "Reanudar aunque otros hayan cambiado registros de estos objetos en {{org}} en la última hora: su trabajo también se va"
@@ -9218,7 +9198,7 @@
       "othersDeletion": "{{formatted}} eliminados por otro usuario, lo que solo Modify All Data recupera.",
       "refusedCount": "{{formatted}} rechazados.",
       "notReached": "{{formatted}} no alcanzados.",
-      "previewedLostTitle": "No recuperados, como anunciaba la vista previa"
+      "previewedLostTitle": "No recuperados, como anunciaba la simulación"
     },
     "history": {
       "title": "Vaciados de {{org}}",

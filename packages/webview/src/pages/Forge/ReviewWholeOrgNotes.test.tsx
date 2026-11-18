@@ -130,7 +130,7 @@ describe('ReviewWholeOrgNotes', () => {
       'uat already holds about 1,520 records of 2 of these objects. The run adds its own beside them, it does not replace them, and a unique field or a duplicate rule may refuse some.',
     );
     expect(screen.getByTestId('review-target-holds-empty-first').textContent).toBe(
-      'To start from an empty target, empty these objects first in DataOps → Cleanup → Empty objects, then discover the org again here.',
+      'To start from an empty target, empty these objects first in DataOps → Emptying → Empty objects, then discover the org again here.',
     );
     expect(screen.getByTestId('review-target-holds').textContent).not.toContain('Case');
   });

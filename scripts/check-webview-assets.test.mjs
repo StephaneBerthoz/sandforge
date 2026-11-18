@@ -362,7 +362,7 @@ test('a page may parse no more than 1 MB before it paints, and only three pages 
   assert.ok(!PAGES_THAT_VALIDATE.has('home'), 'Home reads a record id, and validates nothing');
   assert.ok(
     !PAGES_THAT_VALIDATE.has('dataops'),
-    'DataOps opens on Backup, and loads its Anonymize tab, beside whose constants the template schema is built, once opened',
+    'DataOps opens on Masking, a chunk of its own beside whose constants the template schema is built, fetched once the page has painted',
   );
 });
 

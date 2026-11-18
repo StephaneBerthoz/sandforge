@@ -1276,8 +1276,8 @@ async function answerAll(
 }
 
 /**
- * DataOps' Cleanup tab drawn with its emptying, the scope of the org and its
- * history answered as the extension answers them (fixtures/empty.ts).
+ * DataOps' Emptying tab, the scope of the org and its history answered as the
+ * extension answers them (fixtures/empty.ts).
  */
 async function openEmptying(
   bridge: MockBridge,
@@ -1288,12 +1288,9 @@ async function openEmptying(
   await openPanel(bridge, page, 'dataops', theme);
   await bridge.seedOrgs(MOCK_ORGS);
   await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
-  await page.getByTestId('page-tab-cleanup').click();
+  await page.getByTestId('page-tab-emptying').click();
   await bridge.waitForMessage('dataops:empty:scope', { timeout: 10_000 });
   await answerAll(page, 'dataops:empty:scope', 'dataops:empty:scope:response', scope);
-  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
-    objects: [{ apiName: 'Account', label: 'Account' }],
-  });
   await bridge.waitForMessage('reports:audit', { timeout: 10_000 });
   await answerAll(page, 'reports:audit', 'reports:audit:response', {
     entries: emptyAudit(),
@@ -9150,7 +9147,7 @@ for (const theme of SCANNED_THEMES) {
         { ...DEV_SANDBOX, id: 'org-prod-1', alias: 'Prod', orgType: 'Production' },
       ]);
       await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
-      await page.getByTestId('page-tab-cleanup').click();
+      await page.getByTestId('page-tab-emptying').click();
       await page.getByTestId('empty-production-refusal').waitFor({ timeout: 10_000 });
 
       const results = await checkAccessibility(page);
@@ -12264,7 +12261,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="empty-preview"]');
     });
 
-    test('DataOps backups a cap stopped short, on Backup, Restore and in the restore check', async ({
+    test('DataOps backups a cap stopped short, on Backups, in the restore question and the restore check', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12320,26 +12317,22 @@ for (const theme of STATE_THEMES) {
           ],
         },
       );
+      await page.getByTestId('page-tab-backup').click();
       await expect(page.getByTestId('backup-partial-bk-cap')).toContainText('stopped at the cap');
-      // Marked Partial in amber, as Restore marks it, not a green "completed";
-      // and a checkpoint offered as the way back from a run on any object.
+      await expect(page.getByTestId('backup-partial-bk-cap')).toContainText('the read failed');
+      // Marked Partial in amber, not a green "completed"; and a checkpoint
+      // offered as the way back from a run on any object.
       await expect(page.getByTestId('backup-status-bk-cap')).toHaveText('Partial');
       await expect(page.getByTestId('backup-checkpoint')).toBeVisible();
       await expectReadable(page, theme);
 
-      await page.getByTestId('page-tab-restore').click();
-      await expect(page.getByTestId('restore-partial-bk-cap')).toContainText('the read failed');
-      await expect(page.getByTestId('restore-partial-badge-bk-cap')).toHaveText('Partial');
-      // The choice to write every row back, and what the last restore wrote
-      // and found unchanged.
-      await expect(page.getByTestId('restore-rewrite-all')).toBeVisible();
-      await expect(page.getByTestId('restore-pick')).toBeVisible();
-      await page.getByTestId('restore-backup-bk-cap').getByRole('button').first().click();
       await page.getByTestId('restore-btn-bk-cap').click();
-      // Asked first, naming the org and what each object holds.
+      // Asked first, naming the org and what each object holds, with the
+      // choice to write every row back.
       await expect(page.getByTestId('restore-confirm-objects')).toContainText(
         'Contact: 700 records',
       );
+      await expect(page.getByRole('dialog').getByTestId('restore-rewrite-all')).toBeVisible();
       await nothingFires(page);
       await expectReadable(page, theme);
       await page.getByTestId('danger-confirm-btn').click();
@@ -12451,7 +12444,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore deleting a backup, and every backup of the org, each asked first', async ({
+    test('DataOps Backups deleting a backup, and every backup of the org, each asked first', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12486,8 +12479,7 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
-      await page.getByTestId('restore-backup-bk-1').getByRole('button').first().click();
+      await page.getByTestId('page-tab-backup').click();
       await page.getByTestId('delete-backup-btn-bk-1').click();
       await expect(page.getByTestId('delete-backup-question')).toBeVisible();
       await expectReadable(page, theme);
@@ -12498,7 +12490,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore of an org with no backup, offering to take one', async ({ page }) => {
+    test('DataOps Backups of an org with no backup, offering to take one', async ({ page }) => {
       await openPanel(bridge, page, 'dataops', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
@@ -12510,15 +12502,15 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
-      await expect(page.getByTestId('restore-panel')).toContainText(
+      await page.getByTestId('page-tab-backup').click();
+      await expect(page.getByTestId('backup-panel')).toContainText(
         `No backup of ${MOCK_ORGS[0].alias} yet`,
       );
       await expect(page.getByTestId('empty-action-button')).toHaveText('Create a backup');
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore read again once a backup is deleted, its list kept and said busy', async ({
+    test('DataOps Backups read again once a backup is deleted, its list kept and said busy', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12543,8 +12535,7 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
-      await page.getByTestId('restore-backup-bk-2').getByRole('button').first().click();
+      await page.getByTestId('page-tab-backup').click();
       await page.getByTestId('delete-backup-btn-bk-2').click();
       await page.getByTestId('delete-backup-confirm').click();
       const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
@@ -12558,11 +12549,11 @@ for (const theme of STATE_THEMES) {
       // The list is read again: the panel stays, and says it is busy.
       await expect(page.getByTestId('dataops-content')).toHaveAttribute('aria-busy', 'true');
       await expect(page.getByTestId('dataops-skeleton')).toHaveCount(0);
-      await expect(page.getByTestId('restore-backup-bk-1')).toBeVisible();
+      await expect(page.getByTestId('backup-bk-1')).toBeVisible();
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore with the Delete that asked holding the keyboard while the deletion runs', async ({
+    test('DataOps Backups with the Delete that asked holding the keyboard while the deletion runs', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12588,8 +12579,7 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
-      await page.getByTestId('restore-backup-bk-1').getByRole('button').first().click();
+      await page.getByTestId('page-tab-backup').click();
       const remove = page.getByTestId('delete-backup-btn-bk-1');
       await remove.click();
       await page.getByTestId('delete-backup-cancel').click();
@@ -12604,7 +12594,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore listing the backup a Sync run kept of what it wrote over, said to be its', async ({
+    test('DataOps Backups listing the backup a Sync run kept of what it wrote over, said to be its', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12640,22 +12630,17 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('page-tab-backup').click();
       await expect(page.getByTestId('restore-sync-badge-sync-before-run-1')).toHaveText('Sync run');
       await expect(page.getByTestId('restore-sync-sync-before-run-1')).toContainText(
         'Removing that run in Sync puts them back too.',
       );
       await expect(page.getByTestId('restore-sync-bk-1')).toHaveCount(0);
-      await page
-        .getByTestId('restore-backup-sync-before-run-1')
-        .getByRole('button')
-        .first()
-        .click();
       await expect(page.getByTestId('restore-btn-sync-before-run-1')).toBeVisible();
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore of a Sync run’s backup cut short, asked whether to delete it', async ({
+    test('DataOps Backups with a Sync run’s backup cut short, asked whether to delete it', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12684,13 +12669,8 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('page-tab-backup').click();
       await expect(page.getByTestId('restore-sync-partial-sync-before-run-cut')).toBeVisible();
-      await page
-        .getByTestId('restore-backup-sync-before-run-cut')
-        .getByRole('button')
-        .first()
-        .click();
       await page.getByTestId('delete-backup-btn-sync-before-run-cut').click();
       await expect(page.getByTestId('delete-backup-question')).toContainText(
         'will no longer put these values back',
@@ -12698,7 +12678,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps Restore of a Sync run’s backup that left what changed since the run as it is', async ({
+    test('DataOps restore of a Sync run’s backup that left what changed since the run as it is', async ({
       page,
     }) => {
       await openPanel(bridge, page, 'dataops', theme);
@@ -12725,18 +12705,14 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-restore').click();
-      await page
-        .getByTestId('restore-backup-sync-before-run-1')
-        .getByRole('button')
-        .first()
-        .click();
+      await page.getByTestId('page-tab-backup').click();
+      await page.getByTestId('restore-btn-sync-before-run-1').click();
+      // Asked in the question, unticked.
       const includeChanged = page.getByTestId('restore-include-changed-sync-before-run-1');
       await expect(includeChanged).not.toBeChecked();
       await expect(
         page.getByLabel('Also restore the records changed or deleted since the run'),
       ).toBeVisible();
-      await page.getByTestId('restore-btn-sync-before-run-1').click();
       // Asked first: what changed since the run is left as it is.
       await expect(page.getByRole('dialog')).toContainText(
         'those changed or deleted since the run are left as they are',
@@ -14654,7 +14630,9 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('DataOps quality scan results, with every note a scan can carry', async ({ page }) => {
+    test('DataOps cleanup scan of how filled each field is, with every note a scan can carry', async ({
+      page,
+    }) => {
       await openPanel(bridge, page, 'dataops', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
@@ -14666,7 +14644,7 @@ for (const theme of STATE_THEMES) {
         'dataops:anonymization-templates:response',
         { templates: [] },
       );
-      await page.getByTestId('page-tab-quality').click();
+      await page.getByTestId('page-tab-cleanup').click();
       await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
       await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
         objects: [
@@ -14674,17 +14652,18 @@ for (const theme of STATE_THEMES) {
           { apiName: 'Contact', label: 'Contact' },
         ],
       });
-      await page.getByTestId('quality-object-option-Contact').check();
-      await page.getByTestId('quality-object-option-Account').check();
-      await page.getByTestId('quality-scan-btn').click();
-      await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
+      await page.getByTestId('cleanup-object-option-Contact').check();
+      await page.getByTestId('cleanup-object-option-Account').check();
+      await page.getByTestId('cleanup-scan-btn').click();
+      await bridge.waitForMessage('dataops:cleanup:scan', { timeout: 10_000 });
       // One object with every section a scan can fill — a required field left
       // empty, a search that reached its limit, fields of each kind not counted,
       // a refused check — and one the org would not describe.
-      await answerAll(page, 'dataops:quality-scan', 'dataops:quality-scan:response', {
+      await answerAll(page, 'dataops:cleanup:scan', 'dataops:cleanup:scan:response', {
         orgId: DEV_SANDBOX.id,
         staleDays: 365,
         scannedAt: '2026-09-01T10:00:00.000Z',
+        orphanThreshold: 0.9,
         bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
         objects: [
           {
@@ -14715,6 +14694,7 @@ for (const theme of STATE_THEMES) {
               truncated: true,
             },
             stale: { days: 365, records: 1300 },
+            orphans: [],
             keyFields: [
               { fieldApiName: 'Email', label: 'Email' },
               { fieldApiName: 'Title', label: 'Title' },
@@ -14725,6 +14705,7 @@ for (const theme of STATE_THEMES) {
                 message: 'QUERY_TIMEOUT: Your query request was running for too long.',
               },
             ],
+            deletable: true,
           },
           {
             status: 'failed',
@@ -14733,9 +14714,10 @@ for (const theme of STATE_THEMES) {
           },
         ],
       });
-      const contact = page.getByTestId('quality-object-Contact');
+      const contact = page.getByTestId('cleanup-object-Contact');
       await contact.waitFor({ state: 'visible', timeout: 10_000 });
-      await expect(contact.getByTestId('quality-duplicates-truncated')).toBeVisible();
+      await expect(contact.getByTestId('quality-duplicate-table')).toBeVisible();
+      await expect(contact.getByTestId('quality-unmeasured-refused')).toBeVisible();
       await contact.getByTestId('quality-all-fields').locator('summary').click();
       await expect(contact.getByTestId('quality-all-fields-table')).toBeVisible();
 

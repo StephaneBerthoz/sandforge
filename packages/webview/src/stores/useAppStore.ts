@@ -120,7 +120,8 @@ export interface NavigationIntent {
   /**
    * The DataOps tab to open on, by the id the page names it with: Back into
    * service opens Masking (`anonymize`). `emptying` names Empty objects and
-   * Empty the org, taken out of Cleanup into a tab of their own.
+   * Empty the org, taken out of Cleanup into a tab of their own. `restore`
+   * opens Backups and `quality` Cleanup, the tabs that took them in.
    */
   dataopsTab?: 'backup' | 'restore' | 'anonymize' | 'gdpr' | 'cleanup' | 'quality' | 'emptying';
   /**

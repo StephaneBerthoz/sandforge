@@ -470,6 +470,13 @@ export interface CleanupObjectScan {
   objectApiName: ApiName;
   label: string;
   totalRecords: number;
+  /**
+   * The fields a person or an integration fills in, emptiest first, as a
+   * data-quality scan counts them. Absent from a scan that did not count them.
+   */
+  fields?: DataQualityFieldFill[];
+  /** Such fields the scan could not count, named so their absence is not read as full. */
+  unmeasured?: DataQualityUnmeasuredField[];
   /** Null when the object has no `LastModifiedDate` to filter on. */
   stale: DataQualityStaleness | null;
   /** Lookups the business relies on that some records leave empty. */
@@ -490,9 +497,10 @@ export interface CleanupObjectScan {
 export type CleanupObjectResult = CleanupObjectScan | DataQualityObjectFailure;
 
 /**
- * What `dataops:cleanup:scan` answers: per object, the records nobody has
- * modified for `staleDays`, the orphans of each lookup the business relies
- * on, and the values of a key more than one record carries. Counts only.
+ * What `dataops:cleanup:scan` answers: per object, how filled each field a
+ * person fills in is, the records nobody has modified for `staleDays`, the
+ * orphans of each lookup the business relies on, and the values of a key more
+ * than one record carries. Counts only.
  */
 export interface CleanupScanResult {
   orgId: string;

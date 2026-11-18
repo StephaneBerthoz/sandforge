@@ -267,13 +267,18 @@ vi.mock('../../stores/useAppStore', () => ({
     }),
 }));
 
+/** Open a tab of the page by the id its `page-tab-*` names it with. */
+function openTab(id: string): void {
+  fireEvent.click(screen.getByTestId(`page-tab-${id}`));
+}
+
 /**
- * Open the Anonymize tab, and wait for its panel: a chunk of its own, fetched
- * the first time the tab is opened (dataOpsParts.tsx), so it is drawn a moment
- * after the click rather than with it.
+ * Open the Masking tab, the one the page opens on, and wait for its panel: a
+ * chunk of its own, fetched the first time the tab is drawn (dataOpsParts.tsx),
+ * so it is drawn a moment after the page rather than with it.
  */
 async function openAnonymizeTab(): Promise<void> {
-  fireEvent.click(screen.getByText('Anonymize'));
+  openTab('anonymize');
   await screen.findByTestId('anonymize-panel');
 }
 
@@ -393,7 +398,7 @@ describe('DataOpsPage', () => {
     // A backup reads only what the templates mask: it is no way back from a
     // run on any other object, as "before any risky operation" said.
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
-      'Back up the fields a template masks before you anonymize',
+      'Back up the fields a template masks before you mask them',
     );
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
@@ -435,13 +440,14 @@ describe('DataOpsPage', () => {
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     });
 
-    it('stops a backup by the id of its request, as Live Operations does, and holds Create meanwhile', () => {
+    it('stops a backup by the id of its request, as Live Operations does, and holds Create meanwhile', async () => {
       mockBackupMutationState = {
         ...mockBackupMutationState,
         loading: true,
         requestId: 'req-backup-1',
       } as typeof mockBackupMutationState;
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       expect(screen.getByTestId('create-backup-btn').hasAttribute('disabled')).toBe(true);
       fireEvent.click(screen.getByTestId('backup-stop'));
@@ -457,17 +463,18 @@ describe('DataOpsPage', () => {
         requestId: 'req-restore-1',
       } as typeof mockRollbackMutationState;
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
+      openTab('backup');
 
       fireEvent.click(screen.getByTestId('restore-stop'));
 
       expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-restore-1' });
     });
 
-    it('offers no Stop while nothing runs', () => {
+    it('offers no Stop while nothing runs', async () => {
       render(<DataOpsPage />);
+      await openAnonymizeTab();
       expect(screen.queryByTestId('backup-stop')).toBeNull();
-      fireEvent.click(screen.getByText('Restore'));
+      openTab('backup');
       expect(screen.queryByTestId('restore-stop')).toBeNull();
     });
   });
@@ -490,9 +497,10 @@ describe('DataOpsPage', () => {
     /** A second org, so "first in the list" and "selected" are different. */
     const secondOrg: SalesforceOrg = { ...mockOrgs[0], id: 'org-2', alias: 'prod-copy' };
 
-    it('should back up the SELECTED org, not the first in the list', () => {
+    it('should back up the SELECTED org, not the first in the list', async () => {
       useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: 'org-2' });
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       fireEvent.click(screen.getByTestId('create-backup-btn'));
 
@@ -501,7 +509,7 @@ describe('DataOpsPage', () => {
       expect(mockBackupMutate).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-2' }));
     });
 
-    it('backs up every object the templates mask, Lead and Opportunity included, when none is picked', () => {
+    it('backs up every object the templates mask, Lead and Opportunity included, when none is picked', async () => {
       mockTemplatesQueryState = {
         data: {
           templates: [
@@ -533,9 +541,10 @@ describe('DataOpsPage', () => {
       };
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       expect(screen.getByTestId('backup-objects').textContent).toBe(
-        'Backs up Contact, Lead, Opportunity: the objects the anonymization templates mask.',
+        'Backs up Contact, Lead, Opportunity: the objects the masking templates mask.',
       );
       fireEvent.click(screen.getByTestId('create-backup-btn'));
 
@@ -546,7 +555,7 @@ describe('DataOpsPage', () => {
       });
     });
 
-    it('backs up the objects of the template picked on the Anonymize tab', async () => {
+    it('backs up the objects of the template picked, beside it on the Masking tab', async () => {
       mockTemplatesQueryState = {
         data: {
           templates: [
@@ -576,7 +585,6 @@ describe('DataOpsPage', () => {
       render(<DataOpsPage />);
       await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
-      fireEvent.click(screen.getByText('Backup'));
 
       expect(screen.getByTestId('backup-objects').textContent).toBe(
         'Backs up Lead: the objects GDPR Template masks.',
@@ -610,10 +618,11 @@ describe('DataOpsPage', () => {
       mockBackupObjectsData = { objects: ['Contact', 'Lead', 'Account'] };
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       expect(backupObjectsAsked).toEqual({ payload: { orgId: 'org-1' }, skip: false });
       expect(screen.getByTestId('backup-objects').textContent).toBe(
-        'Backs up Contact, Lead, Account: the objects the anonymization templates mask.',
+        'Backs up Contact, Lead, Account: the objects the masking templates mask.',
       );
       fireEvent.click(screen.getByTestId('create-backup-btn'));
       expect(mockBackupMutate).toHaveBeenCalledWith({
@@ -621,19 +630,18 @@ describe('DataOpsPage', () => {
         objects: ['Contact', 'Lead', 'Account'],
       });
 
-      await openAnonymizeTab();
       fireEvent.change(screen.getByTestId('template-select'), {
         target: { value: 'tpl-ccpa' },
       });
       expect(backupObjectsAsked?.payload).toEqual({ orgId: 'org-1', templateId: 'tpl-ccpa' });
     });
 
-    it('should not run a backup when no org is selected', () => {
+    it('offers no backup when no org is selected', async () => {
       useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: null });
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
-      fireEvent.click(screen.getByTestId('create-backup-btn'));
-
+      expect(screen.queryByTestId('create-backup-btn')).toBeNull();
       expect(mockBackupMutate).not.toHaveBeenCalled();
       expect(screen.getByTestId('dataops-no-org')).toBeDefined();
     });
@@ -654,42 +662,95 @@ describe('DataOpsPage', () => {
     expect(screen.getByText('DataOps')).toBeDefined();
   });
 
-  it('should show tabs', () => {
+  it('names its tabs in the order of the work, Masking first, by the ids they always had', () => {
+    // Six tabs opened on Backup, a list of what Masking wrote over; Restore
+    // listed the same backups again, and Quality counted what Cleanup counted.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    expect(screen.getByRole('tablist')).toBeDefined();
-    expect(screen.getAllByRole('tab').length).toBe(6);
+    expect(screen.getAllByRole('tab').map((tab) => [tab.dataset.testid, tab.textContent])).toEqual([
+      ['page-tab-anonymize', 'Masking'],
+      ['page-tab-backup', 'Backups'],
+      ['page-tab-gdpr', 'Personal data'],
+      ['page-tab-cleanup', 'Cleanup'],
+      ['page-tab-emptying', 'Emptying'],
+    ]);
   });
 
-  it('should start on backup tab', () => {
+  it('opens on Masking', async () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
+    expect(screen.getByTestId('page-tab-anonymize').getAttribute('aria-selected')).toBe('true');
+    expect(await screen.findByTestId('anonymize-panel')).toBeDefined();
+  });
+
+  it('lists the backups once, on Backups', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<DataOpsPage />);
+    openTab('backup');
     expect(screen.getByTestId('backup-panel')).toBeDefined();
   });
 
-  it('should switch to restore tab', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
+  it('counts the org’s backups on the Backups tab, a set of slices as one', () => {
+    // Three cards of counts stood above every tab and pushed their work down.
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    mockBackupsQueryState = {
+      ...mockBackupsQueryState,
+      data: {
+        backups: [0, 1].map((i) => ({
+          operationId: `op-${i}`,
+          orgId: 'org-1',
+          timestamp: '2026-10-01T00:00:00Z',
+          status: 'completed',
+          objectResults: [],
+          totalRecords: 10,
+          totalSize: 0,
+        })),
+        sets: [{ setId: 'set-1', totalRecords: 9, slices: [] }],
+      },
+    };
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Restore'));
-    expect(screen.getByTestId('restore-panel')).toBeDefined();
+
+    expect(screen.getByTestId('page-tab-badge-backup').textContent).toBe('3');
+    expect(screen.queryByTestId('dataops-kpi-row')).toBeNull();
+    expect(screen.queryAllByTestId('kpi-card')).toEqual([]);
   });
 
-  it('should switch to anonymize tab', async () => {
-    useOrgStore.setState({ orgs: mockOrgs });
+  it('counts no backup while no org is selected: what it counts is an org’s', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
     render(<DataOpsPage />);
-    await openAnonymizeTab();
-    expect(screen.getByTestId('anonymize-panel')).toBeDefined();
+    expect(screen.queryByTestId('page-tab-badge-backup')).toBeNull();
+  });
+
+  it('opens on the tab the navigation names, and on Backups for Restore, Cleanup for Quality', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    for (const [asked, opened] of [
+      ['gdpr', 'gdpr'],
+      ['restore', 'backup'],
+      ['quality', 'cleanup'],
+      ['emptying', 'emptying'],
+    ]) {
+      mockNavigationIntent = { route: 'dataops', dataopsTab: asked };
+      try {
+        const { unmount } = render(<DataOpsPage />);
+        expect(screen.getByTestId(`page-tab-${opened}`).getAttribute('aria-selected')).toBe('true');
+        unmount();
+      } finally {
+        mockNavigationIntent = null;
+      }
+    }
   });
 
   // Forge's Review of a clone of the whole org sends the target here, the
   // objects it already holds records of to be emptied first.
-  it('opens on Cleanup for the org a whole-org clone asked to empty first, that once', async () => {
+  it('opens on Emptying for the org a whole-org clone asked to empty first, that once, and nothing of Cleanup above it', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     mockNavigationIntent = { route: 'dataops', targetOrgId: 'org-1', emptyObjects: ['Contact'] };
     try {
       render(<DataOpsPage />);
 
-      expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
+      expect(screen.getByTestId('page-tab-emptying').getAttribute('aria-selected')).toBe('true');
+      expect(await screen.findByTestId('empty-panel')).toBeDefined();
+      expect(screen.queryByTestId('cleanup-panel')).toBeNull();
       expect(mockClearNavigationIntent).toHaveBeenCalled();
     } finally {
       mockNavigationIntent = null;
@@ -702,16 +763,121 @@ describe('DataOpsPage', () => {
     try {
       render(<DataOpsPage />);
 
-      expect(screen.queryByTestId('cleanup-panel')).toBeNull();
+      expect(screen.getByTestId('page-tab-anonymize').getAttribute('aria-selected')).toBe('true');
     } finally {
       mockNavigationIntent = null;
     }
   });
 
+  describe('the objects Back into service asks to mask', () => {
+    const templates = {
+      templates: [
+        {
+          id: 'tpl-all',
+          name: 'Everyone',
+          description: '',
+          complianceFramework: 'gdpr',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+            { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+            { fieldPattern: 'Account.Phone', ruleType: 'mask', description: '' },
+          ],
+        },
+        {
+          id: 'tpl-people',
+          name: 'People',
+          description: '',
+          complianceFramework: 'gdpr',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+            { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+          ],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      mockTemplatesQueryState = { ...mockTemplatesQueryState, data: templates };
+    });
+
+    it('opens Masking on the template that masks them, says so, and backs up what it masks', async () => {
+      mockNavigationIntent = {
+        route: 'dataops',
+        dataopsTab: 'anonymize',
+        targetOrgId: 'org-1',
+        maskObjects: ['Lead', 'Contact'],
+      };
+      try {
+        render(<DataOpsPage />);
+        await screen.findByTestId('anonymize-panel');
+
+        expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe(
+          'tpl-people',
+        );
+        expect(screen.getByTestId('mask-asked').textContent).toBe(
+          'Asked to mask on dev1: Lead, Contact.',
+        );
+        expect(screen.queryByTestId('mask-asked-left')).toBeNull();
+        expect(screen.getByTestId('backup-objects').textContent).toBe(
+          'Backs up Contact, Lead: the objects People masks.',
+        );
+      } finally {
+        mockNavigationIntent = null;
+      }
+    });
+
+    it('names the objects the template picked leaves unmasked, and lets another be picked', async () => {
+      mockNavigationIntent = { route: 'dataops', maskObjects: ['Lead', 'Case'] };
+      try {
+        render(<DataOpsPage />);
+        await screen.findByTestId('anonymize-panel');
+
+        expect(screen.getByTestId('mask-asked-left').textContent).toBe(
+          'People does not mask Case: pick another template, or create one with Create template.',
+        );
+        fireEvent.change(screen.getByTestId('template-select'), {
+          target: { value: 'tpl-all' },
+        });
+        expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe('tpl-all');
+      } finally {
+        mockNavigationIntent = null;
+      }
+    });
+
+    it('says when no template masks them', async () => {
+      mockNavigationIntent = { route: 'dataops', maskObjects: ['Case'] };
+      try {
+        render(<DataOpsPage />);
+        await screen.findByTestId('anonymize-panel');
+
+        expect(screen.getByTestId('mask-asked-left').textContent).toBe(
+          'No template masks Case: create one with Create template.',
+        );
+        expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe('');
+      } finally {
+        mockNavigationIntent = null;
+      }
+    });
+
+    it('asks nothing of another org than the one selected', async () => {
+      mockNavigationIntent = { route: 'dataops', targetOrgId: 'org-9', maskObjects: ['Lead'] };
+      try {
+        render(<DataOpsPage />);
+        await screen.findByTestId('anonymize-panel');
+
+        expect(screen.queryByTestId('mask-asked')).toBeNull();
+        expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe('');
+      } finally {
+        mockNavigationIntent = null;
+      }
+    });
+  });
+
   it('should open the cleanup scan on the cleanup tab, for the selected org', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Cleanup'));
+    openTab('cleanup');
     // A coming-soon notice stood here while no scan produced a recommendation.
     expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
     expect(screen.queryByTestId('dataops-cleanup-soon')).toBeNull();
@@ -720,38 +886,35 @@ describe('DataOpsPage', () => {
   it('should open the inventory and the subject requests on the compliance tab', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Compliance' }));
+    openTab('gdpr');
     // A coming-soon notice stood here while nothing handled a data subject request.
     expect(await screen.findByTestId('compliance-panel')).toBeDefined();
     expect(screen.getByTestId('dsr-section')).toBeDefined();
     expect(screen.queryByTestId('dataops-gdpr-soon')).toBeNull();
   });
 
-  it('should offer no compliance or cleanup work while no org is selected', () => {
+  it('should offer no compliance, cleanup or emptying work while no org is selected', () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Compliance' }));
+    openTab('gdpr');
     expect(screen.queryByTestId('compliance-panel')).toBeNull();
-    fireEvent.click(screen.getByText('Cleanup'));
+    openTab('cleanup');
     expect(screen.queryByTestId('cleanup-panel')).toBeNull();
+    openTab('emptying');
+    expect(screen.queryByTestId('empty-panel')).toBeNull();
     expect(screen.getByTestId('dataops-no-org')).toBeDefined();
   });
 
-  it('should open the quality scan on the quality tab, for the selected org', async () => {
+  it('opens Emptying on a tab of its own, Cleanup’s scan not above it', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Quality'));
-    // A coming-soon notice stood here while nothing produced a quality result.
-    expect(await screen.findByTestId('quality-panel')).toBeDefined();
-    expect(screen.queryByTestId('dataops-quality-soon')).toBeNull();
-  });
+    openTab('cleanup');
+    expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
+    expect(screen.queryByTestId('empty-panel')).toBeNull();
 
-  it('should offer no quality scan while no org is selected', () => {
-    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
-    render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Quality'));
-    expect(screen.queryByTestId('quality-panel')).toBeNull();
-    expect(screen.getByTestId('dataops-no-org')).toBeDefined();
+    openTab('emptying');
+    expect(await screen.findByTestId('empty-panel')).toBeDefined();
+    expect(screen.queryByTestId('cleanup-panel')).toBeNull();
   });
 
   it('should display error from bridge hook', () => {
@@ -834,13 +997,12 @@ describe('DataOpsPage', () => {
       ],
     };
 
-    it('deletes the backup picked on the Restore tab, and every one of the selected org', () => {
+    it('deletes a backup from its row on Backups, and every one of the selected org', () => {
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       mockBackupsQueryState = { ...mockBackupsQueryState, data: listed };
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
+      openTab('backup');
 
-      fireEvent.click(screen.getByTestId('restore-backup-op-1').querySelector('[role="button"]')!);
       fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
       fireEvent.click(screen.getByTestId('delete-backup-confirm'));
       expect(mockDeleteBackupsMutationState.mutate).toHaveBeenLastCalledWith({
@@ -889,61 +1051,6 @@ describe('DataOpsPage', () => {
     expect(screen.getByText('Backup too large to export')).toBeDefined();
   });
 
-  it('should render KPI summary row', () => {
-    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
-    render(<DataOpsPage />);
-    expect(screen.getByTestId('dataops-kpi-row')).toBeDefined();
-    expect(screen.getAllByTestId('kpi-card').length).toBe(3);
-  });
-
-  describe('the KPI row', () => {
-    /** Three backups: one whole, one a cap stopped short, one whose read failed. */
-    const listed = {
-      backups: [
-        { status: 'completed', totalRecords: 1_500, objectResults: [] },
-        { status: 'completed', partial: true, totalRecords: 700, objectResults: [] },
-        { status: 'failed', partial: true, totalRecords: 300, objectResults: [] },
-      ].map((backup, i) => ({
-        ...backup,
-        operationId: `op-${i}`,
-        orgId: 'org-1',
-        timestamp: '2026-10-01T00:00:00Z',
-        totalSize: 0,
-      })),
-    };
-
-    it('counts what its labels say: the org’s backups and their records, those partial or failed, and the templates', () => {
-      // The cards read "Records Processed" for the records the backups held,
-      // "Error Rate" for failed backups over objects backed up — 0.0% beside
-      // a backup whose read had failed — and "Anonymized Templates".
-      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
-      mockBackupsQueryState = { ...mockBackupsQueryState, data: listed };
-      mockTemplatesQueryState = {
-        ...mockTemplatesQueryState,
-        data: { templates: [{ id: 'tpl-1', name: 'A', rules: [] }] },
-      };
-      render(<DataOpsPage />);
-
-      const cards = screen.getAllByTestId('kpi-card').map((card) => card.textContent);
-      expect(cards[0]).toContain('Backups of dev1');
-      expect(cards[0]).toContain('3');
-      expect(cards[0]).toContain('2,500 records');
-      expect(cards[1]).toContain('Partial or failed backups');
-      expect(cards[1]).toContain('2');
-      expect(cards[2]).toContain('Anonymization templates');
-      expect(cards[2]).toContain('1');
-      const row = screen.getByTestId('dataops-kpi-row').textContent ?? '';
-      expect(row).not.toContain('Error Rate');
-      expect(row).not.toContain('%');
-    });
-
-    it('shows none while no org is selected: what it counts is an org’s', () => {
-      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
-      render(<DataOpsPage />);
-      expect(screen.queryByTestId('dataops-kpi-row')).toBeNull();
-    });
-  });
-
   describe('the org picker in the header', () => {
     const secondOrg: SalesforceOrg = {
       ...mockOrgs[0],
@@ -979,10 +1086,11 @@ describe('DataOpsPage', () => {
     });
   });
 
-  describe('a checkpoint offered on the Backup tab', () => {
+  describe('a checkpoint offered on the Backups tab', () => {
     it('opens Checkpoints on a take of the org selected', () => {
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
+      openTab('backup');
 
       fireEvent.click(screen.getByTestId('backup-checkpoint-take'));
       expect(mockNavigate).toHaveBeenCalledWith('checkpoint', {
@@ -1003,25 +1111,27 @@ describe('DataOpsPage', () => {
         selectedOrgId: 'org-1',
       });
       render(<DataOpsPage />);
+      openTab('backup');
       expect(screen.queryByTestId('backup-checkpoint')).toBeNull();
     });
   });
 
-  it('opens the Backup tab from the Restore tab of an org with no backup', () => {
+  it('opens Masking, where Create backup is, from Backups of an org with no backup', async () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     mockBackupsQueryState = { ...mockBackupsQueryState, data: { backups: [] } };
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('Restore'));
+    openTab('backup');
 
     expect(screen.getByText('No backup of dev1 yet')).toBeDefined();
     fireEvent.click(screen.getByTestId('empty-action-button'));
-    expect(screen.getByTestId('backup-panel')).toBeDefined();
+    expect(screen.getByTestId('page-tab-anonymize').getAttribute('aria-selected')).toBe('true');
+    await screen.findByTestId('anonymize-panel');
+    expect(screen.getByTestId('backup-create')).toBeDefined();
   });
 
-  it('should render BentoGrid and BentoTile wrappers', () => {
+  it('should render the BentoTile wrapper', () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
-    expect(screen.getByTestId('dataops-kpi-row')).toBeDefined();
     expect(screen.getAllByTestId('bento-tile').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -1056,8 +1166,9 @@ describe('DataOpsPage', () => {
       };
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
+      openTab('backup');
 
-      // The Backup tab never reads dataops:anonymization-templates, so that
+      // The Backups tab never reads dataops:anonymization-templates, so that
       // query's latency must not paint anything over its data.
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(screen.getByTestId('backup-panel')).toBeDefined();
@@ -1079,7 +1190,7 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('anonymize-panel')).toBeDefined();
     });
 
-    it('keeps the Restore panel and the control the keyboard is on drawn while the backups are read again', () => {
+    it('keeps the Backups panel and the control the keyboard is on drawn while the backups are read again', () => {
       // A deletion reads the list again, and the skeleton took the panel's
       // place: the Delete button the confirmation hands focus back to went
       // with it, and the keyboard was left on nothing.
@@ -1090,8 +1201,7 @@ describe('DataOpsPage', () => {
         refetch: vi.fn(),
       };
       const { rerender } = render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
-      fireEvent.click(screen.getByTestId('restore-backup-op-1').querySelector('[role="button"]')!);
+      openTab('backup');
       const deleteButton = screen.getByTestId('delete-backup-btn-op-1');
       deleteButton.focus();
 
@@ -1099,7 +1209,7 @@ describe('DataOpsPage', () => {
       rerender(<DataOpsPage />);
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
-      expect(screen.getByTestId('restore-panel')).toBeDefined();
+      expect(screen.getByTestId('backup-panel')).toBeDefined();
       expect(screen.getByTestId('delete-backup-btn-op-1')).toBe(deleteButton);
       expect(document.activeElement).toBe(deleteButton);
       expect(screen.getByTestId('dataops-content').getAttribute('aria-busy')).toBe('true');
@@ -1109,7 +1219,7 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('dataops-content').hasAttribute('aria-busy')).toBe(false);
     });
 
-    it('keeps the Anonymize panel drawn while its templates are read again after a save', async () => {
+    it('keeps the Masking panel drawn while its templates are read again after a save', async () => {
       mockTemplatesQueryState = {
         data: { templates: [] },
         loading: false,
@@ -1130,26 +1240,15 @@ describe('DataOpsPage', () => {
     it('should show the skeleton alone on the backup tab while its own query loads', () => {
       mockBackupsQueryState = loading();
       render(<DataOpsPage />);
+      openTab('backup');
 
       expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
       expect(screen.queryByTestId('backup-panel')).toBeNull();
     });
 
-    it('should show the skeleton alone on the restore tab while the backups query loads', () => {
-      mockBackupsQueryState = loading();
-      render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
-
-      // Restore reads the same backup list; it used to render its panel
-      // underneath the skeleton, showing both states at once.
-      expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
-      expect(screen.queryByTestId('restore-panel')).toBeNull();
-    });
-
-    it('should show the skeleton alone on the anonymize tab while the templates query loads', () => {
+    it('should show the skeleton alone on the masking tab while the templates query loads', () => {
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Anonymize'));
 
       expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
       expect(screen.queryByTestId('anonymize-panel')).toBeNull();
@@ -1159,24 +1258,24 @@ describe('DataOpsPage', () => {
       mockBackupsQueryState = loading();
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Cleanup'));
+      openTab('cleanup');
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(await screen.findByTestId('cleanup-panel')).toBeDefined();
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Compliance' }));
+      openTab('gdpr');
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(await screen.findByTestId('compliance-panel')).toBeDefined();
     });
 
-    it('should not skeleton the quality tab on the backup or template queries', async () => {
+    it('should not skeleton the emptying tab on the backup or template queries', async () => {
       mockBackupsQueryState = loading();
       mockTemplatesQueryState = loading();
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Quality'));
+      openTab('emptying');
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
-      expect(await screen.findByTestId('quality-panel')).toBeDefined();
+      expect(await screen.findByTestId('empty-panel')).toBeDefined();
     });
   });
   describe('anonymize safety', () => {
@@ -1299,7 +1398,7 @@ describe('DataOpsPage', () => {
       expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-mask-1' });
     });
 
-    it('opens Restore on the snapshot a masking run took, listed with the backups', async () => {
+    it('opens Backups on the snapshot a masking run took, listed with the backups', async () => {
       mockAnonymizeMutationState = {
         ...mockAnonymizeMutationState,
         data: {
@@ -1314,7 +1413,8 @@ describe('DataOpsPage', () => {
 
       fireEvent.click(screen.getByTestId('anonymize-open-restore'));
 
-      expect(screen.getByTestId('restore-panel')).toBeDefined();
+      expect(screen.getByTestId('backup-panel')).toBeDefined();
+      expect(screen.getByTestId('page-tab-backup').getAttribute('aria-selected')).toBe('true');
     });
 
     it('says a run refused for its snapshot masked nothing, and how to mask without one', async () => {
@@ -1384,7 +1484,7 @@ describe('DataOpsPage', () => {
       expect(mockCoverageRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('asks nothing until a template is picked on the Anonymize tab', () => {
+    it('asks nothing until a template is picked on the Masking tab', () => {
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
       render(<DataOpsPage />);
 
@@ -1518,12 +1618,10 @@ describe('DataOpsPage', () => {
       useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     });
 
-    /** Open the restore tab with the single backup selected. */
+    /** Open Backups, where each backup is listed with its Restore…. */
     const selectBackup = () => {
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
-      const wrapper = screen.getByTestId('restore-backup-op-1');
-      fireEvent.click(wrapper.querySelector('[role="button"]')!);
+      openTab('backup');
     };
 
     it('should surface a failed rollback instead of failing silently', () => {
@@ -1543,8 +1641,8 @@ describe('DataOpsPage', () => {
       mockRollbackMutationState = { ...mockRollbackMutationState, loading: true };
       selectBackup();
 
-      const restoreBtn = screen.getByTestId('restore-btn-op-1') as HTMLButtonElement;
-      expect(restoreBtn.disabled).toBe(true);
+      const restoreBtn = screen.getByTestId('restore-btn-op-1');
+      expect(restoreBtn.getAttribute('aria-disabled')).toBe('true');
 
       fireEvent.click(restoreBtn);
       expect(mockRollbackMutate).not.toHaveBeenCalled();
@@ -1578,11 +1676,11 @@ describe('DataOpsPage', () => {
       expect(mockRollbackMutate).not.toHaveBeenCalled();
     });
 
-    it('asks the restore to write every row back once the box says so', () => {
+    it('asks the restore to write every row back once the box in its question says so', () => {
       selectBackup();
 
-      fireEvent.click(screen.getByTestId('restore-rewrite-all'));
       fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+      fireEvent.click(screen.getByTestId('restore-rewrite-all'));
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockRollbackMutate).toHaveBeenCalledWith({
@@ -1604,11 +1702,11 @@ describe('DataOpsPage', () => {
         };
       });
 
-      it('asks the restore to include the records changed since the run once the box says so', () => {
+      it('asks the restore to include the records changed since the run once the box in its question says so', () => {
         selectBackup();
 
-        fireEvent.click(screen.getByTestId('restore-include-changed-op-1'));
         fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+        fireEvent.click(screen.getByTestId('restore-include-changed-op-1'));
         fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
         expect(mockRollbackMutate).toHaveBeenCalledWith({
@@ -1650,7 +1748,7 @@ describe('DataOpsPage', () => {
     });
 
     it('offers a backup whose read failed part-way, marked partial, and restores it', () => {
-      // Listed on the Backup tab, it could be restored from the command line only.
+      // Listed on the Backup tab alone, it could be restored from the command line only.
       mockBackupsQueryState = {
         ...mockBackupsQueryState,
         data: {
@@ -1678,14 +1776,12 @@ describe('DataOpsPage', () => {
         },
       };
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
+      openTab('backup');
 
-      expect(screen.getByTestId('restore-partial-badge-op-failed').textContent).toBe('Partial');
-      expect(screen.getByTestId('restore-partial-op-failed').textContent).toContain(
+      expect(screen.getByTestId('backup-status-op-failed').textContent).toBe('Partial');
+      expect(screen.getByTestId('backup-partial-op-failed').textContent).toContain(
         'Contact: 1,000 of 1,234 rows read — the read failed there.',
       );
-      const card = screen.getByTestId('restore-backup-op-failed');
-      fireEvent.click(card.querySelector('[role="button"]')!);
       fireEvent.click(screen.getByTestId('restore-btn-op-failed'));
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
@@ -1766,7 +1862,7 @@ describe('DataOpsPage', () => {
       useNotificationStore.setState({ notifications: [] });
     });
 
-    /** Open the Anonymize tab on the template, the coverage answering `coverage`. */
+    /** Open the Masking tab on the template, the coverage answering `coverage`. */
     const openTemplate = async (coverage: Record<string, unknown>) => {
       mockCoverageData = coverage;
       const view = render(<DataOpsPage />);
@@ -1878,12 +1974,12 @@ describe('DataOpsPage', () => {
           level: 'warning',
           message:
             'Masking in slices stopped with slices left: 2 of 2 masked. Resume, on the ' +
-            'Anonymize tab, carries on.',
+            'Masking tab, carries on.',
         }),
       ]);
     });
 
-    it('lists the org’s sets in Restore, and restores one slice of one by its set', () => {
+    it('lists the org’s sets in Backups, and restores one slice of one by its set', () => {
       mockBackupsQueryState = {
         data: { backups: [], sets: [set] },
         loading: false,
@@ -1891,7 +1987,7 @@ describe('DataOpsPage', () => {
         refetch: vi.fn(),
       };
       render(<DataOpsPage />);
-      fireEvent.click(screen.getByText('Restore'));
+      openTab('backup');
 
       fireEvent.click(screen.getByTestId('restore-set-set-1-toggle'));
       fireEvent.click(screen.getByTestId('restore-set-set-1-slices-2-restore'));
@@ -1917,11 +2013,10 @@ describe('DataOpsPage', () => {
       };
       render(<DataOpsPage />);
 
-      const row = screen.getByTestId('dataops-kpi-row');
-      expect(row.textContent).toContain('2,000 records');
+      expect(screen.getByTestId('page-tab-badge-backup').textContent).toBe('1');
     });
 
-    it('offers a backup in slices of an object the last backup stopped at the cap for, and takes it so', () => {
+    it('offers a backup in slices of an object the last backup stopped at the cap for, and takes it so', async () => {
       mockBackupObjectsData = { objects: ['Contact'] };
       mockBackupsQueryState = {
         data: {
@@ -1951,6 +2046,7 @@ describe('DataOpsPage', () => {
         refetch: vi.fn(),
       };
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       fireEvent.click(screen.getByTestId('create-backup-btn'));
       expect(mockBackupMutate).toHaveBeenLastCalledWith({ orgId: 'org-1', objects: ['Contact'] });
@@ -1964,9 +2060,10 @@ describe('DataOpsPage', () => {
       });
     });
 
-    it('offers no backup in slices while every object fits one', () => {
+    it('offers no backup in slices while every object fits one', async () => {
       mockBackupObjectsData = { objects: ['Contact'] };
       render(<DataOpsPage />);
+      await openAnonymizeTab();
 
       expect(screen.queryByTestId('backup-slices-toggle')).toBeNull();
     });
