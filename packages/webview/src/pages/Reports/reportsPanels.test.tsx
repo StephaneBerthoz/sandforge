@@ -3,9 +3,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 /**
- * Which of the Reports tabs' libraries a panel loads. Each stand-in notes when
- * its module is evaluated: the page imported both up front, so the charts and
- * the graph library were parsed before Executions, the tab it opens on.
+ * Which of the Reports tabs' libraries a panel loads. The stand-in notes when
+ * its module is evaluated: the page imported it up front, so the graph
+ * library was parsed before Executions, the tab it opens on.
  */
 const evaluated = vi.hoisted(() => new Set<string>());
 
@@ -14,13 +14,12 @@ function stand(name: string) {
   return { [name]: () => <div data-testid={`panel-${name}`}>{name}</div> };
 }
 
-vi.mock('./AnalyticsDashboard', () => stand('AnalyticsDashboard'));
 vi.mock('./LineageGraph', () => stand('LineageGraph'));
 
 import * as panels from './reportsPanels';
 
 describe('reportsPanels', () => {
-  it('loads no panel until its tab shows it, then that panel only', async () => {
+  it('loads no panel until its tab shows it, then under its own name', async () => {
     expect([...evaluated]).toEqual([]);
 
     const { LineageGraph } = panels as unknown as Record<string, React.FC>;
@@ -35,13 +34,7 @@ describe('reportsPanels', () => {
     expect([...evaluated]).toEqual(['LineageGraph']);
   });
 
-  it('loads each panel under its own name', async () => {
-    const { AnalyticsDashboard } = panels as unknown as Record<string, React.FC>;
-    render(
-      <Suspense fallback={null}>
-        <AnalyticsDashboard />
-      </Suspense>,
-    );
-    expect(await screen.findByTestId('panel-AnalyticsDashboard')).toBeDefined();
+  it('offers the Lineage graph alone: Reports has no charts tab any more', () => {
+    expect(Object.keys(panels)).toEqual(['LineageGraph']);
   });
 });

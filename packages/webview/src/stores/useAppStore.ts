@@ -155,6 +155,12 @@ export interface NavigationIntent {
    * "Automate after each refresh" opens Sandbox Refresh Post-Processing.
    */
   automationTemplateId?: string;
+  /**
+   * The Reports tab to open on, by the id the page names it with: Sync's
+   * history opens Executions, where its runs are listed, and Automation's the
+   * Audit trail, where the writes of its steps are.
+   */
+  reportsTab?: 'executions' | 'audit' | 'lineage';
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

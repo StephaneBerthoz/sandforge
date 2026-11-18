@@ -172,7 +172,8 @@
       "notHeld": "Uma org que esta máquina não tem mais"
     },
     "objectCountFormatted_one": "{{formatted}} objeto",
-    "objectCountFormatted_other": "{{formatted}} objetos"
+    "objectCountFormatted_other": "{{formatted}} objetos",
+    "seeInReports": "Ver em Relatórios"
   },
   "status": {
     "apiUsage": "Uso de API"
@@ -278,7 +279,6 @@
         "csv": "Importação CSV"
       }
     },
-    "jobs": "Jobs",
     "alerts": "Alertas",
     "health": "Pontuação de saúde",
     "trends": "Tendências",
@@ -288,6 +288,7 @@
     "acknowledge": "Confirmar recebimento",
     "dismiss": "Dispensar",
     "selectOrg": "Selecione uma org para monitorar",
+    "orgPicker": "Org cuja saúde é exibida",
     "viewFullReport": "Ver relatório completo",
     "healthReport": "Relatório de saúde",
     "limitReachedIn": "Limite atingido em ~{{hours}}h",
@@ -323,7 +324,7 @@
     "anomalyScanFailed": "A varredura de anomalias falhou",
     "governorLimits": "Limites de governor",
     "noLimits": "Nenhum dado de limites disponível",
-    "exportCsv": "Exportar CSV",
+    "exportCsv": "Exportar para CSV",
     "release": "Release",
     "nextRelease": "Próxima release",
     "instance": "Instância",
@@ -368,7 +369,7 @@
       "empty": "Nenhum dado de uso de API disponível"
     },
     "export": {
-      "button": "Exportar CSV",
+      "button": "Exportar para CSV",
       "noHistory": "Nenhum dado histórico",
       "noHistoryDetail": "Nenhum carimbo de data/hora de tendência disponível para a exportação histórica",
       "buttonHistorical": "Exportar histórico",
@@ -454,6 +455,11 @@
         "byProduction": "Informado pelo histórico de atualizações de {{org}}",
         "orgChanged": "Era a org {{from}}, agora a org {{to}}",
         "instanceChanged": "Passou da instância {{from}} para {{to}}"
+      },
+      "recovery": {
+        "banner": "{{alias}} foi atualizada {{age}}: o que havia sido gravado nela antes da atualização não existe mais.",
+        "bringBack": "Colocar de volta em serviço…",
+        "automate": "Automatizar após cada atualização…"
       }
     },
     "sessions": {
@@ -479,7 +485,15 @@
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs",
     "apiCallsHint": "O Salesforce conta as solicitações de API em uma janela móvel de 24 horas.",
-    "jobInsightsUnknown": "Análises de jobs Apex: ainda não lidas. Elas aparecem após uma atualização que lê os jobs Apex da org."
+    "jobInsightsUnknown": "Análises de jobs Apex: ainda não lidas. Elas aparecem após uma atualização que lê os jobs Apex da org.",
+    "trendNames": {
+      "dailyApiRequests": "Solicitações de API diárias",
+      "dataStorage": "Armazenamento de dados",
+      "fileStorage": "Armazenamento de arquivos",
+      "dailyBulkApiBatches": "Lotes da Bulk API diários",
+      "dailyBulkV2QueryJobs": "Jobs de consulta da Bulk API 2.0 diários",
+      "dailyAsyncApexExecutions": "Execuções assíncronas de Apex diárias"
+    }
   },
   "compare": {
     "title": "Comparação",
@@ -3187,14 +3201,12 @@
     "title": "Notificações"
   },
   "reports": {
-    "title": "Relatórios e análises",
+    "title": "Relatórios",
     "executions": "Execuções",
-    "analytics": "Análises",
     "audit": "Registro de auditoria",
     "lineage": "Linhagem de dados",
     "noReports": "Nenhum relatório gerado",
     "reportsUnreadable": "Não foi possível ler os relatórios: {{error}}",
-    "analyticsUnreadable": "Não foi possível carregar as análises: elas vêm com os relatórios, que não puderam ser lidos.",
     "generateReport": "Gerar relatório",
     "exportReport": "Exportar relatório",
     "reportType": "Tipo de relatório",
@@ -3205,11 +3217,8 @@
     "module": "Módulo",
     "duration": "Duração",
     "recordCount": "Quantidade de registros",
-    "totalOperations": "Total de operações",
     "successRate": "Taxa de sucesso",
     "avgDuration": "Duração média",
-    "operationsOverTime": "Operações ao longo do tempo",
-    "errorRate": "Taxa de erro",
     "auditActions": {
       "org_connect": "Conectar Org",
       "org_disconnect": "Desconectar Org",
@@ -3261,7 +3270,7 @@
     "destination": "Destino",
     "noLineageData": "Sem dados de linhagem disponíveis",
     "recordsProcessed": "Registros processados",
-    "totalReports": "Total de relatórios",
+    "runs": "Execuções",
     "auditEntries": "Entradas de auditoria",
     "filterByOrg": "Filtrar por org",
     "allOrgs": "Todas as orgs",
@@ -3989,7 +3998,7 @@
     "startTour": "Iniciar tour guiado",
     "autopilotContent": "Em três etapas:\n1. Escolha a org de origem e a de destino\n2. Selecione os objetos a copiar\n3. Revise o plano (ondas, registros, chamadas de API, campos PII) e execute-o. E-mails e números de telefone são neutralizados, a menos que você desmarque — cada endereço sob .invalid, cada número fictício — e Avançado escolhe um framework de conformidade que anonimiza mais (GDPR, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "A Importação SFDMU converte um export.json do SFDMU em uma configuração do Sync:\n- A importação lê o arquivo e não altera nada em nenhuma org\n- Salva como configuração do Sync, com as orgs de origem e destino e um nome, ela abre com Abrir no Sync: Simular a verifica ali, e Executar a sincronização a grava\n- Um arquivo CSV de registros vai para o Upload CSV do Seed, que carrega as linhas dele",
-    "reportsContent": "Relatórios mostra o que as execuções do SandForge fizeram:\n- Execuções: cada execução do Forge e do Sync com status, duração e número de registros, exportável em JSON\n- Análises: taxas de sucesso calculadas a partir dessas execuções\n- Registro de auditoria: cada execução que grava em uma org — uma clonagem Forge, uma sincronização, um seed, uma importação CSV, uma clonagem de registros, uma execução do Autopilot, uma restauração, um mascaramento ou uma carga de dataset congelado — com o que gravou em cada objeto e o que o Production Guard decidiu\n- Linhagem de dados: de onde vieram os registros que uma execução gravou — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos de cada objeto",
+    "reportsContent": "Relatórios mostra o que as execuções do SandForge fizeram:\n- Acima das abas: quantas execuções estão listadas, sua taxa de sucesso e duração média, e quantas entradas o registro de auditoria contém\n- Execuções: cada execução do Forge e do Sync com status, duração e número de registros, exportável em JSON\n- Registro de auditoria: cada execução que grava em uma org — uma clonagem Forge, uma sincronização, um seed, uma importação CSV, uma clonagem de registros, uma execução do Autopilot, uma restauração, um mascaramento ou uma carga de dataset congelado — com o que gravou em cada objeto e o que o Production Guard decidiu\n- Linhagem de dados: de onde vieram os registros que uma execução gravou — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos de cada objeto",
     "orgsContent": "Conecte uma org de uma de duas formas, ambas pela Salesforce CLI (sf):\n- Importar da Salesforce CLI adiciona cada org que a CLI já tem. Uma CLI que ainda não tem nenhuma org é indicada como informação, não como erro: entre pelo navegador em vez disso.\n- Entrar pelo navegador abre a página de login do Salesforce; o alias é opcional.\n- URL de login: Produção / Desenvolvedor ou Sandbox; para uma org que bloqueia as duas, Domínio personalizado (My Domain)… recebe a URL de login dela como Configuração → Meu domínio a mostra.\n- Usuário / Senha não precisa da CLI; JWT Bearer e OAuth (dispositivo) ficam em Mais métodos.\n\nO Forge, as cargas do Dataset congelado, os Pontos de verificação e a implantação da Comparação recusam uma org de produção; as exclusões também são recusadas ali; qualquer outra gravação ali pergunta antes, e nenhuma configuração desativa isso. Uma sandbox com dados reais (cópia completa, UAT): abra a caixa Editar Org dela na página Organizações e marque Staging, e o Production Guard passa a perguntar antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros.\n\nUma org que não conecta: veja Solução de problemas.",
     "fullGuide": "Guia completo: {{section}}",
     "notFoundFaq": "Não encontrou aqui? Leia as perguntas frequentes completas",

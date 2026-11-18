@@ -3,7 +3,7 @@ import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../../theme';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Card, CardBody } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -214,28 +214,28 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
 
   return (
     <Card className={cn('border-0 bg-transparent shadow-none', className)}>
-      <CardHeader
-        title={t('monitor.recentJobs', 'Recent Apex Jobs')}
-        subtitle={t('monitor.activeJobs', { count: activeCount })}
-        action={
-          jobs.length > 0 ? (
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded-sm text-xs',
-                'text-text-secondary hover:text-text-primary hover:bg-surface-1',
-                'transition-colors',
-              )}
-              data-testid="export-csv-btn"
-              title={t('monitor.exportCsv', 'Export CSV')}
-            >
-              <Download className="w-3.5 h-3.5" />
-              CSV
-            </button>
-          ) : undefined
-        }
-      />
+      {/* No title of its own: the card it sits in is titled Recent Apex Jobs,
+          and this one said it a second time under "Jobs". */}
+      <div className="flex items-center justify-between gap-2 px-4 pb-2">
+        <p className="text-xs text-text-secondary">
+          {t('monitor.activeJobs', { count: activeCount })}
+        </p>
+        {jobs.length > 0 && (
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-sm text-xs',
+              'text-text-secondary hover:text-text-primary hover:bg-surface-1',
+              'transition-colors',
+            )}
+            data-testid="export-csv-btn"
+          >
+            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+            {t('monitor.exportCsv')}
+          </button>
+        )}
+      </div>
       <CardBody>
         {/* Filter buttons */}
         <div

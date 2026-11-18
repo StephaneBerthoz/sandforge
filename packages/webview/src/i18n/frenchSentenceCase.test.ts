@@ -21,6 +21,7 @@ const NAMESPACES = ['autopilot', 'monitor', 'reports', 'grappe'] as const;
 const PROPER_NAMES = new Set([
   'Apex',
   'Autopilot',
+  'Bulk',
   'Flow',
   'Flows',
   'Forge',

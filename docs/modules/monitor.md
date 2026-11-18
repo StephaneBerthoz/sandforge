@@ -19,7 +19,8 @@ Track your Salesforce org health, read when the dashboard opens, on each refresh
 ## Quick Start
 
 1. Navigate to **Monitor** from the sidebar
-2. Select a connected org from the org selector (or click an org card in the empty state)
+2. Click the card of a connected org in the empty state; once an org is shown,
+   the org picker in the header switches to another one
 3. The dashboard loads with KPIs, trends, jobs, and governor limits; the header
    says how long ago the data was read, in the interface language, and past two
    minutes a badge says it again with Refresh now
@@ -108,13 +109,17 @@ Record counts per object, not megabytes, and not data storage:
 ### Trends and Charts
 
 - Trend charts for the key limits: daily API requests, data and file storage,
-  daily Bulk API batches, Bulk API 2.0 query jobs and async Apex executions
+  daily Bulk API batches, Bulk API 2.0 query jobs and async Apex executions,
+  each named in the interface language; a limit SandForge does not name keeps
+  the API name Salesforce gives it
 - One snapshot of those limits every 15 minutes while the dashboard refreshes,
   kept for 7 days; the chart shows the last 24 hours or the whole week
 - Direction, change and the predictions tile read the last 24 hours only, since
   most of those limits are daily counters that reset every day
 
 ### Jobs Table
+
+Titled Recent Apex Jobs, with how many are active and **Export as CSV**:
 
 - Active Apex jobs, Bulk API jobs, and scheduled tasks
 - Status badges (running, completed, failed)
@@ -147,8 +152,10 @@ An expandable section listing all Salesforce governor limits:
   `Invoice__c`: the scan button stays disabled until the name starts with a
   letter and holds only letters, digits and underscores, 80 characters at most,
   and says why under the button when it does not. Selecting another org puts
-  it back on Account, clears the name typed and drops the previous report. A
-  scan that finds nothing, or that fails, says so under the button. A finished
+  it back on Account, clears the name typed and drops the previous report. What
+  a scan finds is listed under the button, folded limits or not, each finding
+  with its field, its kind and its severity; a scan that finds nothing, or that
+  fails, says so there too. A finished
   scan says how many records it read and the most a scan reads: 500, or 200 on
   an object with too many fields to name them all in the query. What it found,
   or did not, is about those records, not the whole object. Rules only -- no
@@ -218,13 +225,24 @@ it answers with another org id under the same username. SandForge reads the org
 id each registered sandbox answers with — on every new connection, and from the
 `Organization` row when this panel opens or the dashboard refreshes — and keeps
 the last one. When it changes, the panel lists the refresh under "Refreshes
-SandForge noticed", VS Code shows a warning, and SandForge drops what it held
+SandForge noticed", VS Code shows a warning with a **Bring back into service**
+button, which opens Back into service on that sandbox, and SandForge drops what it held
 about the old org: the pooled connection, object describes, Forge discovery
 graphs, and the Monitor's org info, limits and trend history. A Frozen Dataset
 verification refuses to run against a target refreshed since its last load. A
 refresh a production org's history shows completing is recorded the same way on
 the registered sandbox it names. A saved pipeline whose Sandbox Refresh trigger
 names that sandbox is started then (see [Automation](automation.md#triggers)).
+
+The newest refresh noticed carries two buttons: **Bring back into service…**
+opens Back into service on the sandbox, the steps that make it usable again
+(its users, the masking of production's data, the checkpoint to replay); and
+**Automate after each refresh…** opens Automation on its Sandbox Refresh
+Post-Processing template, a pipeline that runs those steps after each refresh.
+An older refresh carries neither: the one after it replaced what it copied.
+While that newest refresh was noticed within the last 7 days, a band at the
+top of the dashboard says which sandbox was refreshed and when, with the same
+two buttons.
 
 ### Org Health Check
 

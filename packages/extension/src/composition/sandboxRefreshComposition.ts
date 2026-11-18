@@ -60,26 +60,39 @@ export function sandboxRefreshNotice(
  * @param checkpointsKept - How many checkpoints this machine keeps of the org
  *   a sandbox was before its refresh, which the notice names; not asked
  *   without it. One that cannot be counted names none.
+ * @param openRecovery - Opens Back into service on the sandbox refreshed: the
+ *   notice's button, which it carries only when given. The notice said what
+ *   was gone and stopped there; the way back was a page to find.
  * @returns What stops both the observing and the notices.
  */
 export function wireSandboxRefreshDetection(
   detector: SandboxRefreshDetector,
   orgManager: OrgManager,
   checkpointsKept?: (refresh: DetectedSandboxRefresh) => Promise<number>,
+  openRecovery?: (orgId: string) => void,
 ): { dispose(): void } {
   observeValidatedIdentities((orgId, identity) => {
     detector.observe(orgId, { organizationId: identity.organizationId }, 'connection');
   });
+  const announce = (refresh: DetectedSandboxRefresh, kept?: number): void => {
+    const notice = sandboxRefreshNotice(refresh, orgManager, kept);
+    if (!openRecovery) {
+      void vscode.window.showWarningMessage(notice);
+      return;
+    }
+    const bringBack = vscode.l10n.t('Bring back into service');
+    void Promise.resolve(vscode.window.showWarningMessage(notice, bringBack)).then((choice) => {
+      if (choice === bringBack) openRecovery(refresh.orgId);
+    });
+  };
   const stop = detector.onRefreshDetected((refresh) => {
     if (!checkpointsKept) {
-      void vscode.window.showWarningMessage(sandboxRefreshNotice(refresh, orgManager));
+      announce(refresh);
       return;
     }
     void checkpointsKept(refresh)
       .catch(() => 0)
-      .then((kept) =>
-        vscode.window.showWarningMessage(sandboxRefreshNotice(refresh, orgManager, kept)),
-      );
+      .then((kept) => announce(refresh, kept));
   });
   return {
     dispose: () => {

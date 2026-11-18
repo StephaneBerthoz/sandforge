@@ -1,21 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { RefreshPanel } from './RefreshPanel';
+import type { SandboxRefreshData } from './RefreshPanel';
 
 let mockData: Record<string, unknown> | null = null;
 let mockLoading = false;
 
-vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => {
-    if (type === 'monitor:sandbox-refresh') {
-      return { data: mockData, loading: mockLoading, error: null, refetch: vi.fn() };
-    }
-    return { data: null, loading: false, error: null, refetch: vi.fn() };
-  },
-}));
+/** The panel as the page renders it, with the answer it read for the org shown. */
+function Panel() {
+  return <RefreshPanel data={mockData as SandboxRefreshData | null} loading={mockLoading} />;
+}
 
 describe('RefreshPanel', () => {
   beforeEach(() => {
@@ -26,13 +23,13 @@ describe('RefreshPanel', () => {
 
   it('renders loading skeleton when loading', () => {
     mockLoading = true;
-    render(<RefreshPanel />);
+    render(<Panel />);
     expect(screen.getByTestId('refresh-panel-loading')).toBeDefined();
   });
 
   it('renders empty state when no refreshes', () => {
     mockData = { success: true, supported: true, refreshes: [], inProgress: false };
-    render(<RefreshPanel />);
+    render(<Panel />);
     expect(screen.getByTestId('refresh-panel-empty')).toBeDefined();
     expect(screen.getByText('Sandbox Refreshes')).toBeDefined();
   });
@@ -41,7 +38,7 @@ describe('RefreshPanel', () => {
     // A sandbox org has no SandboxProcess to query: the same empty list used
     // to read as "this org has had no refresh".
     mockData = { success: true, supported: false, refreshes: [], inProgress: false };
-    render(<RefreshPanel />);
+    render(<Panel />);
     expect(screen.queryByTestId('refresh-panel-empty')).toBeNull();
     expect(screen.getByTestId('refresh-panel-unsupported').textContent).toMatch(
       /manages sandboxes/i,
@@ -53,7 +50,7 @@ describe('RefreshPanel', () => {
     const navigate = vi.fn();
     useAppStore.setState({ navigate });
     mockData = { success: true, supported: false, refreshes: [], inProgress: false };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     expect(screen.getByTestId('refresh-panel-unsupported').textContent).toContain(
       'Only the production org that manages sandboxes keeps their refresh history: connect it ' +
@@ -83,7 +80,7 @@ describe('RefreshPanel', () => {
       ],
       inProgress: false,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     expect(screen.getByTestId('refresh-panel')).toBeDefined();
     expect(screen.getByTestId('refresh-row-DevSandbox')).toBeDefined();
@@ -106,7 +103,7 @@ describe('RefreshPanel', () => {
       ],
       inProgress: false,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
     expect(screen.getByTestId('refresh-row-DevSandbox').textContent).toContain('unknown');
   });
 
@@ -137,7 +134,7 @@ describe('RefreshPanel', () => {
       })),
       inProgress: true,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     const styleOf = (status: string): string => {
       const className = screen.getByText(status, { selector: 'span' }).className;
@@ -178,7 +175,7 @@ describe('RefreshPanel', () => {
         inProgress: false,
         detected: [noticed],
       };
-      render(<RefreshPanel />);
+      render(<Panel />);
 
       expect(screen.getByTestId('refresh-panel-unsupported')).toBeDefined();
       const row = screen.getByTestId('refresh-detected-row').textContent ?? '';
@@ -195,7 +192,7 @@ describe('RefreshPanel', () => {
         inProgress: false,
         detected: [{ ...noticed, detectedAt: 'not a date' }],
       };
-      render(<RefreshPanel />);
+      render(<Panel />);
       expect(screen.getByTestId('refresh-detected-row').textContent).toContain('unknown');
     });
 
@@ -217,7 +214,7 @@ describe('RefreshPanel', () => {
           },
         ],
       };
-      render(<RefreshPanel />);
+      render(<Panel />);
 
       const row = screen.getByTestId('refresh-detected-row').textContent ?? '';
       expect(row).toContain('Reported by the refresh history of PROD');
@@ -233,10 +230,38 @@ describe('RefreshPanel', () => {
         inProgress: false,
         detected: [noticed],
       };
-      render(<RefreshPanel />);
+      render(<Panel />);
 
       expect(screen.getByTestId('refresh-panel-empty')).toBeDefined();
       expect(screen.getByTestId('refresh-detected')).toBeDefined();
+    });
+
+    it('offers on the newest refresh noticed the ways on, and on no older one', () => {
+      // The row said the data was gone, and offered nothing after it.
+      const navigate = vi.fn();
+      useAppStore.setState({ navigate });
+      mockData = {
+        success: true,
+        supported: false,
+        refreshes: [],
+        inProgress: false,
+        detected: [noticed, { ...noticed, detectedAt: '2026-08-01T09:00:00.000Z' }],
+      };
+      render(<Panel />);
+
+      const [newest, older] = screen.getAllByTestId('refresh-detected-row');
+      expect(within(newest).getByTestId('refresh-detected-bring-back').textContent).toBe(
+        'Bring back into service…',
+      );
+      expect(within(older).queryByTestId('refresh-detected-bring-back')).toBeNull();
+      expect(within(older).queryByTestId('refresh-detected-automate')).toBeNull();
+
+      fireEvent.click(within(newest).getByTestId('refresh-detected-bring-back'));
+      expect(navigate).toHaveBeenLastCalledWith('recovery');
+      fireEvent.click(within(newest).getByTestId('refresh-detected-automate'));
+      expect(navigate).toHaveBeenLastCalledWith('automation', {
+        automationTemplateId: 'tpl-sandbox-refresh',
+      });
     });
 
     it('adds nothing when no refresh was noticed', () => {
@@ -247,7 +272,7 @@ describe('RefreshPanel', () => {
         inProgress: false,
         detected: [],
       };
-      render(<RefreshPanel />);
+      render(<Panel />);
 
       expect(screen.queryByTestId('refresh-detected')).toBeNull();
     });
@@ -266,7 +291,7 @@ describe('RefreshPanel', () => {
       ],
       inProgress: true,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     expect(screen.getByTestId('refresh-in-progress')).toBeDefined();
     expect(screen.getByText('Refresh in progress')).toBeDefined();
@@ -287,7 +312,7 @@ describe('RefreshPanel', () => {
       inProgress: false,
       truncated: true,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     expect(screen.getByTestId('refresh-list-cap').textContent).toBe(
       'Only the 1 most recent are read here: the list and its counts stop there.',
@@ -302,7 +327,7 @@ describe('RefreshPanel', () => {
       inProgress: false,
       truncated: false,
     };
-    render(<RefreshPanel />);
+    render(<Panel />);
 
     expect(screen.queryByTestId('refresh-list-cap')).toBeNull();
   });

@@ -378,9 +378,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // validated connection says which org it reached, the startup check of
   // each org included, so this is wired before that check runs (step 10b).
   // Its notice names the checkpoints kept of the org the sandbox was before.
+  // Its button opens Back into service on the sandbox, selected first as the
+  // launcher's hero selects it: `selectOrg` is declared further down, and the
+  // button is pressed long after activation has run past it.
   context.subscriptions.push(
-    wireSandboxRefreshDetection(handlers.sandboxRefreshes, orgManager, (refresh) =>
-      handlers.checkpointsKeptBefore(refresh),
+    wireSandboxRefreshDetection(
+      handlers.sandboxRefreshes,
+      orgManager,
+      (refresh) => handlers.checkpointsKeptBefore(refresh),
+      (orgId) => {
+        selectOrg(orgId);
+        void vscode.commands.executeCommand('sandforge.openRecovery');
+      },
     ),
   );
 

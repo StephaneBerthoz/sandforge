@@ -48,6 +48,9 @@ let mockOpenApexJobsState = {
   error: null as string | null,
 };
 
+/** What `monitor:sandbox-refresh` answers in the current test. */
+let mockSandboxRefreshData: Record<string, unknown> | null = null;
+
 /** `monitor:alerts` messages sent by mounted, non-skipped queries. */
 const alertQueries = vi.hoisted(() => ({ sent: 0 }));
 
@@ -78,6 +81,9 @@ function bridgeQueryAnswer(type: string) {
   }
   if (type === 'monitor:alerts') {
     return { data: mockAlertsData, loading: false, error: null, refetch: vi.fn() };
+  }
+  if (type === 'monitor:sandbox-refresh') {
+    return { data: mockSandboxRefreshData, loading: false, error: null, refetch: vi.fn() };
   }
   // New panels — return empty data by default
   if (type === 'monitor:storage') {
@@ -204,6 +210,65 @@ describe('MonitorPage', () => {
     mockAnomalyScanData = null;
     alertQueries.sent = 0;
     mockAlertsData = { alerts: [], history: [] };
+    mockSandboxRefreshData = null;
+    mockNavigate.mockClear();
+  });
+
+  describe('after a refresh of the org shown', () => {
+    /** The dashboard of a sandbox whose newest refresh was noticed `ago` ms before now. */
+    function renderRefreshedSandbox(ago: number): void {
+      mockSandboxRefreshData = {
+        success: true,
+        supported: false,
+        refreshes: [],
+        inProgress: false,
+        detected: [
+          {
+            detectedAt: new Date(Date.now() - ago).toISOString(),
+            evidence: 'connection',
+            previousOrganizationId: '00Dxx0000000001',
+            organizationId: '00Dxx0000000002',
+          },
+        ],
+      };
+      mockMonitorQueryState = {
+        data: standardMonitorPayload,
+        loading: false,
+        error: null,
+        refetch: mockRefetch,
+      };
+      useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+      render(<MonitorPage />);
+    }
+
+    it('leads the dashboard with a refresh noticed this week, and the ways on from it', () => {
+      // The refresh was said in the fourteenth panel of the page, below the
+      // fold, and nothing led from it.
+      renderRefreshedSandbox(2 * 86_400_000);
+
+      const banner = screen.getByTestId('monitor-after-refresh');
+      expect(banner.textContent).toContain('DevSandbox was refreshed 2 days ago');
+      // Above the job insights and the KPIs: the first thing under the header.
+      expect(
+        banner.compareDocumentPosition(screen.getByTestId('monitor-job-insights-unknown')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      fireEvent.click(within(banner).getByTestId('monitor-after-refresh-bring-back'));
+      expect(mockNavigate).toHaveBeenLastCalledWith('recovery');
+      fireEvent.click(within(banner).getByTestId('monitor-after-refresh-automate'));
+      expect(mockNavigate).toHaveBeenLastCalledWith('automation', {
+        automationTemplateId: 'tpl-sandbox-refresh',
+      });
+    });
+
+    it('leads with nothing once the newest refresh is more than a week old', () => {
+      renderRefreshedSandbox(8 * 86_400_000);
+
+      expect(screen.queryByTestId('monitor-after-refresh')).toBeNull();
+      // The panel still lists it, with the ways on.
+      expect(screen.getByTestId('refresh-detected-bring-back')).toBeDefined();
+    });
   });
 
   it('says, above the anomalies a scan found, the sample they come from', () => {
@@ -352,7 +417,7 @@ describe('MonitorPage', () => {
 
     expect(screen.getByTestId('monitor-page')).toBeDefined();
     // Header shows org name and refresh button
-    expect(screen.getByText('DevSandbox')).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: 'DevSandbox' })).toBeDefined();
     expect(screen.getByTestId('refresh-btn')).toBeDefined();
     // KPI row is rendered
     expect(screen.getByTestId('kpi-row')).toBeDefined();
@@ -559,7 +624,7 @@ describe('MonitorPage', () => {
     // Trends section header and no-data fallback message
     expect(screen.getByText('Trends')).toBeDefined();
     // Jobs section header
-    expect(screen.getByText('Jobs')).toBeDefined();
+    expect(screen.getByText('Recent Apex Jobs')).toBeDefined();
   });
 
   // 6. Governor Limits section (collapsed by default, expand to see rows)
@@ -871,13 +936,41 @@ describe('MonitorPage', () => {
     });
     const { rerender } = render(<MonitorPage />);
 
-    expect(screen.getByText('DevSandbox')).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: 'DevSandbox' })).toBeDefined();
 
     // Simulate switching org via store
     useOrgStore.setState({ selectedOrgId: 'org-2' });
     rerender(<MonitorPage />);
-    expect(screen.getByText('QASandbox')).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: 'QASandbox' })).toBeDefined();
     expect(useOrgStore.getState().selectedOrgId).toBe('org-2');
+  });
+
+  it('switches the org watched from the picker in its header, without going back to the list', () => {
+    // The only way to watch another org was the launcher or the status bar:
+    // DataOps and Checkpoints had a picker in their header, Monitor none.
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [
+        createMockOrg({ id: 'org-1', alias: 'DevSandbox' }),
+        createMockOrg({ id: 'org-2', alias: 'QASandbox' }),
+      ],
+    });
+    render(<MonitorPage />);
+
+    const picker = screen.getByTestId('monitor-org');
+    expect(picker.getAttribute('aria-label') ?? picker.textContent).toBeTruthy();
+    expect(picker.textContent).toContain('DevSandbox');
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByTestId('monitor-org-option-org-2'));
+
+    expect(useOrgStore.getState().selectedOrgId).toBe('org-2');
+    expect(screen.getByRole('heading', { level: 1, name: 'QASandbox' })).toBeDefined();
   });
 
   // 12. Auto-refresh toggle
@@ -952,7 +1045,7 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     // Header shows the org alias and org type badge
-    expect(screen.getByText('DevSandbox')).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: 'DevSandbox' })).toBeDefined();
     expect(screen.getByText('SANDBOX')).toBeDefined();
   });
 
@@ -1367,7 +1460,24 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     expect(screen.getByTestId('limit-export-btn')).toBeDefined();
-    expect(screen.getByText('Export CSV')).toBeDefined();
+    expect(screen.getByTestId('limit-export-btn').textContent).toContain('Export as CSV');
+  });
+
+  it('titles the Trends and jobs cards once each, with no title inside repeating it', () => {
+    // "Trends" stood over "Trends", and "Jobs" over "Recent Apex Jobs".
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
+    expect(headings.filter((h) => h === 'Trends')).toHaveLength(1);
+    expect(headings.filter((h) => h === 'Recent Apex Jobs')).toHaveLength(1);
+    expect(headings).not.toContain('Jobs');
   });
 
   /* ---------------------------------------------------------------- */

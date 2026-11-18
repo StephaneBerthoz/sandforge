@@ -9,7 +9,7 @@ import type {
 import { AUDIT_TRAIL_LIMIT } from '@sandforge/shared';
 
 import { ReportsPage } from './ReportsPage';
-import type { AnalyticsSummary } from './AnalyticsDashboard';
+import type { RunsSummary } from './ReportsPage';
 import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
 import { auditTrailCsv, auditTrailJson } from './auditTrailExport';
 import type { AuditExportFilter } from './auditTrailExport';
@@ -22,7 +22,7 @@ import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 /** What `reports:list:response` carries. */
 interface ReportsPayload {
   reports: GeneratedReport[];
-  summary: AnalyticsSummary;
+  summary: RunsSummary;
 }
 
 /** What `reports:audit:response` carries. */
@@ -180,9 +180,8 @@ export const ReportsContainer: React.FC = () => {
 
   // A failed read is not an absent producer, nor a read that found nothing:
   // given an empty list, the executions tab said "No reports generated yet"
-  // and the tiles counted 0 reports, and the analytics tab, given no
-  // summary, was taken away. Both tabs say the read failed, with a retry,
-  // and nothing of an earlier answer is shown as this one's.
+  // and the tiles counted 0 reports. The tab says the read failed, with a
+  // retry, and nothing of an earlier answer is shown as this one's.
   if (error) {
     return <ReportsPage reportsError={error} onRetryReports={readReportsAgain} {...auditProps} />;
   }

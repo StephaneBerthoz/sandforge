@@ -403,7 +403,7 @@ Every run of the panel that writes, or that a check stops before it writes, is l
 - the decisions its configuration held, kind by kind, with the rows each kind changed;
 - the user it wrote as: `sha256:` and the first twelve characters of the SHA-256 of that user's username in lower case, never the username. Whoever knows the username can tell it from the entry. The entries of the other modules name their user the same way.
 
-**Export CSV** and **Export JSON**, beside the filters, save the trail as filtered — the module, the org and the action picked — every entry they match, not only the page on screen, up to the 2 000 entries the trail keeps. The CSV has a row per entry and a column per thing it says, every cell quoted, and a cell that would start a formula in a spreadsheet written after a quote mark; the JSON keeps each entry as the trail holds it, with the filters and when the file was made.
+**Export as CSV** and **Export as JSON**, beside the filters, save the trail as filtered — the module, the org and the action picked — every entry they match, not only the page on screen, up to the 2 000 entries the trail keeps. The CSV has a row per entry and a column per thing it says, every cell quoted, and a cell that would start a formula in a spreadsheet written after a quote mark; the JSON keeps each entry as the trail holds it, with the filters and when the file was made.
 
 ## Refusals the run answers itself
 

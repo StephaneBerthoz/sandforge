@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import de from '../../i18n/locales/de.json';
+import en from '../../i18n/locales/en.json';
 import es from '../../i18n/locales/es.json';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import ptBR from '../../i18n/locales/pt-BR.json';
 import { ReportsPage } from './ReportsPage';
+import type { RunsSummary } from './ReportsPage';
+import { useAppStore } from '../../stores/useAppStore';
 import type { GeneratedReport, AuditLogEntry, DataLineageGraph } from '@sandforge/shared';
-import type { AnalyticsSummary } from './AnalyticsDashboard';
 
 /* Mock ReactFlow */
 vi.mock('@xyflow/react', () => ({
@@ -17,36 +21,19 @@ vi.mock('@xyflow/react', () => ({
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
 }));
 
-/* Mock Recharts */
-vi.mock('recharts', () => ({
-  BarChart: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="mock-barchart">{children}</div>
-  ),
-  Bar: () => <div />,
-  XAxis: () => <div />,
-  YAxis: () => <div />,
-  Tooltip: () => <div />,
-  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  LineChart: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="mock-linechart">{children}</div>
-  ),
-  Line: () => <div />,
-  CartesianGrid: () => <div />,
-}));
-
-/** The Analytics tab's chunk could not be fetched, as on a remote window that dropped. */
-const analyticsUnreadable = vi.hoisted(() => ({ value: false }));
-vi.mock('./AnalyticsDashboard', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./AnalyticsDashboard')>();
+/** The Lineage tab's chunk could not be fetched, as on a remote window that dropped. */
+const lineageUnreadable = vi.hoisted(() => ({ value: false }));
+vi.mock('./LineageGraph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./LineageGraph')>();
   return {
     ...actual,
-    AnalyticsDashboard: (props: React.ComponentProps<typeof actual.AnalyticsDashboard>) => {
-      if (analyticsUnreadable.value) {
+    LineageGraph: (props: React.ComponentProps<typeof actual.LineageGraph>) => {
+      if (lineageUnreadable.value) {
         throw new TypeError(
-          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/AnalyticsDashboard-a1.js',
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/LineageGraph-a1.js',
         );
       }
-      return <actual.AnalyticsDashboard {...props} />;
+      return <actual.LineageGraph {...props} />;
     },
   };
 });
@@ -90,7 +77,7 @@ const reports: GeneratedReport[] = [
   },
 ];
 
-const summary: AnalyticsSummary = {
+const summary: RunsSummary = {
   totalOperations: 100,
   successRate: 95.0,
   avgDuration: 5000,
@@ -120,6 +107,7 @@ const lineageData: DataLineageGraph = {
 describe('ReportsPage', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
+    useAppStore.setState({ navigationIntent: null });
   });
 
   it('should render the page', () => {
@@ -127,20 +115,23 @@ describe('ReportsPage', () => {
     expect(screen.getByTestId('reports-page')).toBeDefined();
   });
 
-  it('should show page title', () => {
+  it('titles the page Reports in the header every module page has', () => {
+    // A bare h1 read "Reports and analytics" over an Analytics tab that
+    // repeated two of the four figures above it.
     render(<ReportsPage />);
-    expect(screen.getByText('Reports and analytics')).toBeDefined();
+    const header = screen.getByTestId('page-header');
+    expect(within(header).getByRole('heading', { level: 1 }).textContent).toBe('Reports');
   });
 
-  it('names the page and its analytics in words of the language, not in calques of the English', () => {
-    // "Berichte & Analysen", "Analíticas", "Analíticos": the English ampersand
-    // and adjectives standing as nouns, where each language says analyses.
-    expect(de.reports.title).toBe('Berichte und Analysen');
-    for (const { reports: strings } of [es, ptBR]) {
-      expect(`${strings.title} ${strings.analytics} ${strings.analyticsUnreadable}`).not.toMatch(
-        /analític/i,
-      );
+  it('names the page after its module in every language, as the launcher does', () => {
+    for (const catalogue of [en, fr, de, es, ptBR, ja]) {
+      expect(catalogue.reports.title).toBe(catalogue.nav.reports);
     }
+  });
+
+  it('calls the data lineage « lignage » in French, the word the trade uses', () => {
+    expect(fr.reports.lineage).toBe('Lignage des données');
+    expect(JSON.stringify(fr.reports)).not.toMatch(/lignée/i);
   });
 
   it('should show a tab for each producer', () => {
@@ -154,10 +145,25 @@ describe('ReportsPage', () => {
     );
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Executions',
-      'Analytics',
       'Audit trail',
       'Data lineage',
     ]);
+    // The module pages' tab bar, each tab with its icon.
+    expect(screen.getByTestId('page-tabs')).toBeDefined();
+    for (const tab of screen.getAllByRole('tab')) {
+      expect(tab.querySelector('svg')).not.toBeNull();
+    }
+  });
+
+  it('opens on the tab another page asked for, once', () => {
+    // Sync's and Automation's histories open Reports where their runs are.
+    useAppStore.setState({ navigationIntent: { route: 'reports', reportsTab: 'audit' } });
+    render(<ReportsPage reports={reports} auditEntries={auditEntries} />);
+
+    expect(screen.getByRole('tab', { name: 'Audit trail' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(useAppStore.getState().navigationIntent).toBeNull();
   });
 
   it('should show executions tab by default', () => {
@@ -165,28 +171,26 @@ describe('ReportsPage', () => {
     expect(screen.getByTestId('execution-report-view')).toBeDefined();
   });
 
-  it('should switch to analytics tab', async () => {
-    render(<ReportsPage analyticsSummary={summary} />);
-    fireEvent.click(screen.getByText('Analytics'));
-    // The charts come in a chunk of their own, the first time the tab opens.
-    expect(await screen.findByTestId('analytics-dashboard')).toBeDefined();
+  it('offers no Analytics tab: its figures are the ones above the tabs', () => {
+    render(<ReportsPage reports={reports} analyticsSummary={summary} />);
+    expect(screen.queryByRole('tab', { name: 'Analytics' })).toBeNull();
   });
 
-  it('keeps an Analytics tab whose chunk could not be fetched to its tab, and the other tabs work', () => {
+  it('keeps a Lineage tab whose chunk could not be fetched to its tab, and the other tabs work', async () => {
     // The page's boundary caught it: the Executions tab went with it.
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    analyticsUnreadable.value = true;
+    lineageUnreadable.value = true;
     try {
-      render(<ReportsPage reports={reports} analyticsSummary={summary} />);
-      fireEvent.click(screen.getByText('Analytics'));
+      render(<ReportsPage reports={reports} lineageData={lineageData} />);
+      fireEvent.click(screen.getByRole('tab', { name: 'Data lineage' }));
 
-      expect(screen.getByTestId('reports-analytics-failed').textContent).toContain(
+      expect((await screen.findByTestId('reports-lineage-failed')).textContent).toContain(
         'This part did not load',
       );
-      fireEvent.click(screen.getByText('Executions'));
+      fireEvent.click(screen.getByRole('tab', { name: 'Executions' }));
       expect(screen.getByTestId('execution-report-view')).toBeDefined();
     } finally {
-      analyticsUnreadable.value = false;
+      lineageUnreadable.value = false;
     }
   });
 
@@ -263,17 +267,12 @@ describe('ReportsPage', () => {
   });
 
   describe('while a producer reads', () => {
-    it('says the executions and analytics tabs are loading, not coming', () => {
+    it('says the executions tab is loading, not coming', () => {
       render(<ReportsPage reportsLoading />);
 
-      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Executions',
-        'Analytics',
-      ]);
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Executions']);
       expect(screen.getByTestId('reports-executions-loading').textContent).toContain('Loading');
       expect(screen.queryByTestId('execution-report-view')).toBeNull();
-      fireEvent.click(screen.getByText('Analytics'));
-      expect(screen.getByTestId('reports-analytics-loading')).toBeDefined();
       expect(screen.queryByText('Coming soon')).toBeNull();
     });
 
@@ -409,12 +408,16 @@ describe('ReportsPage', () => {
     });
   });
 
-  it('should render KPI summary row', () => {
+  it('sums the runs up in four figures, none of them twice', () => {
+    // "Total reports" and "Total operations" counted the same runs, and the
+    // Analytics tab printed two of the figures again with the error rate,
+    // a hundred minus the success rate.
     render(
       <ReportsPage reports={reports} analyticsSummary={summary} auditEntries={auditEntries} />,
     );
     expect(screen.getByTestId('reports-kpi-row')).toBeDefined();
-    expect(screen.getAllByTestId('kpi-card').length).toBe(4);
+    const tiles = screen.getAllByTestId('kpi-card').map((tile) => tile.textContent);
+    expect(tiles).toEqual(['Runs1', 'Success rate95.0%', 'Average duration5s', 'Audit entries1']);
   });
 
   it('should render BentoTile content wrapper', () => {

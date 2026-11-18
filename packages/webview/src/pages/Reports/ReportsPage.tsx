@@ -1,16 +1,17 @@
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
   GeneratedReport,
-  AnalyticsTimeSeries,
   AuditAction,
   AuditFacets,
   AuditLogEntry,
   DataLineageGraph,
   LineageRunSummary,
 } from '@sandforge/shared';
-import { Tabs } from '../../components/ui/Tabs';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { PageTabs } from '../../components/ui/PageTabs';
+import type { PageTab } from '../../components/ui/PageTabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -20,16 +21,26 @@ import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
-import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
-import { AnalyticsDashboard, LineageGraph } from './reportsPanels';
+import { LineageGraph } from './reportsPanels';
 import { moduleName } from './moduleName';
 import { PartBoundary } from '../../components/ui/PartBoundary';
-import { uiLocale } from '../../utils/formatters';
+import { formatDuration } from '../../utils/formatters';
 import { useHeldFailure } from '../../hooks/useHeldFailure';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { useAppStore } from '../../stores/useAppStore';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+
+/** The figures `reports:list` computes from the runs it lists. */
+export interface RunsSummary {
+  totalOperations: number;
+  /** Percentage of the runs that fully succeeded. */
+  successRate: number;
+  /** Milliseconds. */
+  avgDuration: number;
+  errorRate: number;
+}
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
@@ -41,9 +52,7 @@ export interface ReportsPageProps {
   reportsError?: string;
   /** Read the reports and their summary again. */
   onRetryReports?: () => void;
-  analyticsSummary?: AnalyticsSummary;
-  operationsOverTime?: AnalyticsTimeSeries;
-  errorTimeSeries?: AnalyticsTimeSeries;
+  analyticsSummary?: RunsSummary;
   auditEntries?: AuditLogEntry[];
   /** Entries the trail holds for the current filter, the page shown or not. */
   auditTotal?: number;
@@ -116,7 +125,7 @@ const Unreadable: React.FC<{
 };
 
 /**
- * Main reports and analytics page with tabbed navigation.
+ * Main reports page with tabbed navigation.
  *
  * Presentational only: every datum arrives through props, from
  * ReportsContainer. It used to fire `reports:list` / `reports:export` on the
@@ -139,8 +148,6 @@ const Unreadable: React.FC<{
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
   analyticsSummary,
-  operationsOverTime,
-  errorTimeSeries,
   auditEntries,
   auditTotal,
   auditFacets,
@@ -175,6 +182,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     undefined,
   );
 
+  /*
+   * The tab another page opened Reports on: Sync's history asks for
+   * Executions, where its runs are listed, Automation's for the Audit trail.
+   * Read once, as the page opens, so a later visit opens where it was left.
+   */
+  useEffect(() => {
+    const { navigationIntent, clearNavigationIntent } = useAppStore.getState();
+    if (navigationIntent?.route !== 'reports') return;
+    if (navigationIntent.reportsTab) setActiveTab(navigationIntent.reportsTab);
+    clearNavigationIntent();
+  }, [setActiveTab]);
+
   const handleSelectReport = (id: string): void => {
     setSelectedReportId(id);
     onSelectReport?.(id);
@@ -198,11 +217,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const handleOpenRun = (operationId: string): void => {
     onSelectLineageRun?.(operationId);
     setActiveTab('lineage');
-    document.getElementById('tab-lineage')?.focus();
+    document.getElementById('page-tab-btn-lineage')?.focus();
   };
 
   const reportCount = reports?.length ?? 0;
-  const totalOps = analyticsSummary?.totalOperations ?? 0;
   const successRate = analyticsSummary?.successRate ?? 0;
   const auditCount = auditTotal ?? auditEntries?.length ?? 0;
 
@@ -212,10 +230,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
    * a measured "nothing to report" and still renders the real view.
    */
   const hasReports = reports !== undefined;
-  const hasAnalytics =
-    analyticsSummary !== undefined ||
-    operationsOverTime !== undefined ||
-    errorTimeSeries !== undefined;
   const hasAudit = auditEntries !== undefined;
   const hasLineage = lineageData !== undefined;
   /**
@@ -228,39 +242,39 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
   /**
    * The tabs a producer feeds: one that has answered, is reading, or said why
-   * it could not. The reports and their summary come in one answer, so the
-   * executions and analytics tabs wait on the same read, and both say when it
-   * failed: the executions tab said "No reports generated yet", and the
-   * analytics tab was taken away.
+   * it could not. The reports and their summary come in one answer: the
+   * executions tab says when it failed, where it said "No reports generated
+   * yet". The summary has no tab of its own: an Analytics tab printed two of
+   * the figures above the tabs again, and the error rate, a hundred minus
+   * the success rate.
    */
   // Held while Retry reads them again: the tab said "Loading" as Retry was
   // pressed, and the keyboard went with the button.
   const reportsFailure = useHeldFailure(reportsError ?? null, reportsLoading);
   const reportsFailed = reportsFailure !== null;
-  const tabs = [
+  const fedTabs: Array<PageTab & { fed: boolean }> = [
     {
       id: 'executions',
       label: t('reports.executions'),
+      icon: 'history',
       fed: hasReports || reportsLoading || reportsFailed,
-    },
-    {
-      id: 'analytics',
-      label: t('reports.analytics'),
-      fed: hasAnalytics || reportsLoading || reportsFailed,
     },
     {
       id: 'audit',
       label: t('reports.audit'),
+      icon: 'shield',
       fed: hasAudit || auditLoading || auditError !== undefined,
     },
     {
       id: 'lineage',
       label: t('reports.lineage'),
+      icon: 'project',
       fed: hasLineage || lineageLoading || lineageError !== undefined,
     },
-  ]
+  ];
+  const tabs: PageTab[] = fedTabs
     .filter((tab) => tab.fed)
-    .map(({ id, label }) => ({ id, label }));
+    .map(({ id, label, icon }) => ({ id, label, icon }));
   /** The tab picked, or the first one offered when the one picked is gone. */
   const shownTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? '');
 
@@ -282,9 +296,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       initial="hidden"
       animate="visible"
     >
-      <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
-        {t('reports.title')}
-      </h1>
+      <PageHeader title={t('reports.title')} icon="graph" />
       <ModuleHowTo module="reports" />
 
       {/* KPI summary row — omitted entirely when nothing feeds it. */}
@@ -299,19 +311,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             {hasReports && (
               <m.div variants={slideUp}>
                 <KPICard
-                  icon="file"
-                  label={t('reports.totalReports')}
+                  icon="history"
+                  label={t('reports.runs')}
                   value={reportCount}
-                  variant="default"
-                />
-              </m.div>
-            )}
-            {analyticsSummary !== undefined && (
-              <m.div variants={slideUp}>
-                <KPICard
-                  icon="pulse"
-                  label={t('reports.totalOperations')}
-                  value={totalOps.toLocaleString(uiLocale())}
                   variant="default"
                 />
               </m.div>
@@ -323,6 +325,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                   label={t('reports.successRate')}
                   value={`${successRate.toFixed(1)}%`}
                   variant={successRate >= 90 ? 'success' : 'warning'}
+                />
+              </m.div>
+            )}
+            {analyticsSummary !== undefined && (
+              <m.div variants={slideUp}>
+                <KPICard
+                  icon="clock"
+                  label={t('reports.avgDuration')}
+                  value={formatDuration(analyticsSummary.avgDuration)}
+                  variant="default"
                 />
               </m.div>
             )}
@@ -340,7 +352,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </m.div>
       )}
 
-      {tabs.length > 0 && <Tabs tabs={tabs} activeTab={shownTab} onTabChange={setActiveTab} />}
+      {tabs.length > 0 && <PageTabs tabs={tabs} activeTab={shownTab} onTabChange={setActiveTab} />}
 
       <BentoTile className="p-0" hover={false}>
         {tabs.map((tab) => (
@@ -348,7 +360,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             key={tab.id}
             id={`tabpanel-${tab.id}`}
             role="tabpanel"
-            aria-labelledby={`tab-${tab.id}`}
+            aria-labelledby={`page-tab-btn-${tab.id}`}
             hidden={shownTab !== tab.id}
           >
             {shownTab === tab.id && (
@@ -373,27 +385,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     />
                   ) : (
                     <Loading testId="reports-executions-loading" />
-                  ))}
-                {tab.id === 'analytics' &&
-                  (reportsFailed ? (
-                    <Unreadable
-                      testId="reports-analytics-error"
-                      message={t('reports.analyticsUnreadable')}
-                      onRetry={onRetryReports}
-                      reading={reportsLoading}
-                    />
-                  ) : hasAnalytics ? (
-                    <PartBoundary data-testid="reports-analytics-failed">
-                      <Suspense fallback={<Loading testId="reports-analytics-loading" />}>
-                        <AnalyticsDashboard
-                          summary={analyticsSummary}
-                          operationsOverTime={operationsOverTime}
-                          errorTimeSeries={errorTimeSeries}
-                        />
-                      </Suspense>
-                    </PartBoundary>
-                  ) : (
-                    <Loading testId="reports-analytics-loading" />
                   ))}
                 {tab.id === 'audit' &&
                   (auditError ? (

@@ -154,6 +154,13 @@ describe('JobsTable', () => {
     expect(screen.getByText(/42 err/)).toBeDefined();
   });
 
+  it('says what its export button does, not a bare CSV, and carries no title of its own', () => {
+    // The card it sits in is titled Recent Apex Jobs: the table repeated it.
+    render(<JobsTable jobs={[createJob({ status: 'Completed' })]} />);
+    expect(screen.getByTestId('export-csv-btn').textContent).toBe('Export as CSV');
+    expect(screen.queryByText('Recent Apex Jobs')).toBeNull();
+  });
+
   it('should show active count in header', () => {
     const jobs = [
       createJob({ status: 'Processing' }),

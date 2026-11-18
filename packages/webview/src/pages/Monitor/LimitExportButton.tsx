@@ -130,7 +130,7 @@ export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, tr
       >
         <Download className="w-3.5 h-3.5 mr-1" />
         {exportMode === 'current'
-          ? t('monitor.export.button', 'Export CSV')
+          ? t('monitor.export.button', 'Export as CSV')
           : t('monitor.export.buttonHistorical', 'Export History')}
       </Button>
       <select

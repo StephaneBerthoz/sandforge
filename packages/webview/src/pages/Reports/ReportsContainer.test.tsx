@@ -161,12 +161,12 @@ describe('ReportsContainer', () => {
 
   it('says each tab is loading while nothing has answered, not that it is coming', () => {
     // An answer not in yet left every prop undefined, which the page read as
-    // "no producer": all four tabs said "Coming soon" about features it had.
+    // "no producer": every tab said "Coming soon" about features it had.
     render(<ReportsContainer />);
 
     expect(screen.getByTestId('reports-page')).toBeDefined();
     expect(screen.queryByTestId('reports-kpi-row')).toBeNull();
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.getByTestId('reports-executions-loading')).toBeDefined();
     expect(screen.queryByText('Coming soon')).toBeNull();
   });
@@ -180,7 +180,7 @@ describe('ReportsContainer', () => {
 
     render(<ReportsContainer />);
 
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.getByTestId('reports-executions-loading')).toBeDefined();
   });
 
@@ -225,7 +225,7 @@ describe('ReportsContainer', () => {
 
   it('says the reports could not be read, with a retry, rather than that none were generated', () => {
     // Given an empty list, the tab said "No reports generated yet" and the
-    // tiles counted 0 reports; the analytics tab, given no summary, was gone.
+    // tiles counted 0 reports.
     queries['reports:list'] = { data: null, loading: false, error: 'timed out' };
 
     render(<ReportsContainer />);
@@ -234,16 +234,9 @@ describe('ReportsContainer', () => {
       'The reports could not be read: timed out',
     );
     expect(screen.queryByText('No reports generated yet')).toBeNull();
-    expect(screen.queryByText('Total reports')).toBeNull();
+    expect(screen.queryByText('Runs')).toBeNull();
     fireEvent.click(screen.getByTestId('reports-executions-error-retry'));
     expect(refetches['reports:list']).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
-    expect(screen.getByTestId('reports-analytics-error-message').textContent).toBe(
-      'The analytics could not be loaded: they come with the reports, which could not be read.',
-    );
-    fireEvent.click(screen.getByTestId('reports-analytics-error-retry'));
-    expect(refetches['reports:list']).toHaveBeenCalledTimes(2);
   });
 
   it('keeps what failed and its Retry, with the keyboard on it, while the reports are read again', () => {

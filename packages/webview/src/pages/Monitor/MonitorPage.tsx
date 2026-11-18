@@ -21,6 +21,7 @@ import { cn } from '../../theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from '../../theme/orgStyles';
 import { orgTypeLabel } from '../../utils/orgFormatters';
 import { Badge } from '../../components/ui/Badge';
+import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { SkeletonTable } from '../../components/ui/SkeletonTable';
@@ -36,10 +37,11 @@ import { ErrorLogsPanel } from './ErrorLogsPanel';
 import { SessionsPanel } from './SessionsPanel';
 import { ApexInsightsPanel } from './ApexInsightsPanel';
 import { RefreshPanel } from './RefreshPanel';
+import type { SandboxRefreshData } from './RefreshPanel';
+import { AfterRefreshBanner, recentRefreshOf } from './RefreshRecovery';
 import { HealthCheckPanel } from './HealthCheckPanel';
 import { AlertHistoryPanel } from './AlertHistoryPanel';
 import { GovernancePanelConnected } from './GovernancePanel';
-import { SectionHeader } from './SectionHeader';
 import { MonitorKpiRow } from './MonitorKpiRow';
 import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
 import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
@@ -230,6 +232,17 @@ export const MonitorPage: React.FC = () => {
   useMessageListener<LiveOperationsChanged>('monitor:live-operations:changed', (msg) =>
     setPushedLiveOps(msg.payload.operations),
   );
+  /*
+   * The refreshes of the org shown, read here for the panel that lists them
+   * and for the band that leads the dashboard after a recent one: each read
+   * asks the org who it is, and the two used to ask it apart.
+   */
+  const sandboxRefreshQuery = useBridgeQuery<SandboxRefreshData>(
+    'monitor:sandbox-refresh',
+    selectedOrgId ? { orgId: selectedOrgId } : undefined,
+    { responseType: 'monitor:sandbox-refresh:response', skip: !selectedOrgId },
+  );
+  const recentRefresh = recentRefreshOf(sandboxRefreshQuery.data?.detected ?? []);
   const queriedLiveOps = liveOpsQuery.data;
   useEffect(() => {
     setPushedLiveOps(null);
@@ -452,8 +465,20 @@ export const MonitorPage: React.FC = () => {
           )}
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Actions. They wrap under the org's name in a narrow panel: the
+            picker alone takes most of the width of a side column. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Another org is picked here, as on DataOps and Checkpoints: the
+              list of orgs showed only while none was selected, and watching
+              another meant going through the launcher. */}
+          <OrgDropdown
+            value={selectedOrgId}
+            onChange={selectOrg}
+            orgs={orgs}
+            ariaLabel={t('monitor.orgPicker')}
+            testId="monitor-org"
+            className="min-w-48"
+          />
           {/* No countdown to a reset here: it counted down to midnight
               Pacific beside the API calls, which Salesforce counts over a
               rolling 24 hours, and nothing resets at that moment. */}
@@ -488,6 +513,13 @@ export const MonitorPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* A sandbox refreshed this week leads the dashboard with the way back
+          into service: its data is gone, and every figure below is the new
+          org's. */}
+      {currentOrg && recentRefresh && (
+        <AfterRefreshBanner alias={orgDisplayName(currentOrg)} refresh={recentRefresh} />
+      )}
 
       <ModuleHowTo module="monitor" />
 
@@ -775,63 +807,9 @@ export const MonitorPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ApexInsightsPanel />
-            <RefreshPanel />
+            <RefreshPanel data={sandboxRefreshQuery.data} loading={sandboxRefreshQuery.loading} />
           </div>
           <HealthCheckPanel orgHealthStatus={orgHealthStatus} />
-
-          {/* ── Anomaly results (if any) ── */}
-          {anomalyScan.data?.success &&
-            anomalyScan.data.anomalies &&
-            anomalyScan.data.anomalies.length > 0 && (
-              <div
-                className="rounded-lg border border-status-warning/30 bg-surface-1 p-4"
-                data-testid="anomaly-scan-results"
-              >
-                <SectionHeader
-                  title={t('monitor.anomaliesFound', 'Anomalies Found')}
-                  count={anomalyScan.data.anomalies.length}
-                />
-                {/* The findings are the sample's, not the object's. */}
-                {anomalyScan.data.sample && (
-                  <p
-                    className="text-[11px] text-text-secondary mb-2"
-                    data-testid="anomaly-scan-sample"
-                  >
-                    {t('monitor.anomalyScanSample', {
-                      count: anomalyScan.data.sample.read,
-                      limit: anomalyScan.data.sample.limit,
-                    })}
-                  </p>
-                )}
-                <div className="flex flex-col gap-2">
-                  {anomalyScan.data.anomalies.map((anomaly, idx) => (
-                    <div
-                      key={`${anomaly.field}-${idx}`}
-                      className="flex items-start gap-2 p-2 rounded-sm bg-surface-2"
-                    >
-                      <Badge
-                        variant={
-                          anomaly.severity === 'high'
-                            ? 'error'
-                            : anomaly.severity === 'medium'
-                              ? 'warning'
-                              : 'info'
-                        }
-                      >
-                        {anomaly.severity}
-                      </Badge>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-semibold text-text-primary">
-                          {anomaly.field}
-                        </span>
-                        <span className="text-xs text-text-secondary ml-1">({anomaly.type})</span>
-                        <p className="text-xs text-text-secondary mt-0.5">{anomaly.description}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
           {/* ── Bottom row: Predictions + Alerts ── */}
           {(predictions.length > 0 || activeAlertsCount > 0) && (

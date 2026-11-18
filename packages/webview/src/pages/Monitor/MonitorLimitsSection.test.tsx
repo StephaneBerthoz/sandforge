@@ -387,18 +387,30 @@ describe('MonitorLimitsSection scan outcome', () => {
     );
   });
 
-  it('stays quiet when the scan found anomalies — the page lists them', () => {
+  it('lists the anomalies a scan found under its button, with the sample they come from', () => {
+    // "Nothing found" was said under the button, and what was found some 900
+    // pixels lower, under four other panels.
     renderSection({
       data: {
         success: true,
         anomalies: [
           { field: 'Name', type: 'duplicate', description: 'two identical', severity: 'medium' },
         ],
+        sample: { read: 120, limit: 500 },
       },
     });
 
     expect(screen.queryByTestId('anomaly-scan-empty')).toBeNull();
     expect(screen.queryByTestId('anomaly-scan-error')).toBeNull();
+    const results = screen.getByTestId('anomaly-scan-results');
+    expect(results.textContent).toContain('Name');
+    expect(results.textContent).toContain('two identical');
+    expect(results.textContent).toContain('Scanned 120 records; a scan reads at most 500.');
+    // Under the button, the governor limits folded or not.
+    expect(
+      screen.getByTestId('anomaly-scan-btn').compareDocumentPosition(results) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 

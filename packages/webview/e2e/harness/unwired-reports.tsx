@@ -1,11 +1,10 @@
 /**
- * The Reports components a page scan cannot reach with every state, rendered
+ * The Reports component a page scan cannot reach with every state, rendered
  * with data.
  *
- * ReportsContainer passes no time series, so the charts never render in the
- * shipped panel. The lineage graph does, but only with the node kinds a run
+ * The shipped panel draws the lineage graph only with the node kinds a run
  * records — source, objects, destination — while this graph draws every kind
- * it can. This page mounts both with the product stylesheet, for the contrast
+ * it can. This page mounts it with the product stylesheet, for the contrast
  * scans in axe-accessibility.spec.ts.
  */
 import React from 'react';
@@ -14,40 +13,16 @@ import '@xyflow/react/dist/style.css';
 import '../../src/index.css';
 import { i18nReady } from '../../src/i18n';
 import { loadEnglishNamespaces } from '../../src/i18n/englishNamespaces';
-import { AnalyticsDashboard } from '../../src/pages/Reports/AnalyticsDashboard';
 import { LineageGraph } from '../../src/pages/Reports/LineageGraph';
-
-const points = (metric: string, values: readonly number[]) =>
-  values.map((value, day) => ({
-    metric,
-    value,
-    timestamp: `2026-09-1${day}T00:00:00.000Z`,
-    dimensions: {},
-  }));
 
 const root = document.getElementById('root');
 if (root) {
-  // Mounted outside the router, the components bring Reports' English as its
-  // page does.
+  // Mounted outside the router, the graph brings Reports' English as its page
+  // does.
   void Promise.all([i18nReady, loadEnglishNamespaces(['reports'])]).then(() => {
     ReactDOM.createRoot(root).render(
       <React.StrictMode>
         <main className="flex flex-col gap-4 p-4">
-          <AnalyticsDashboard
-            summary={{ totalOperations: 42, successRate: 95.2, avgDuration: 3400, errorRate: 4.8 }}
-            operationsOverTime={{
-              metric: 'operations',
-              points: points('operations', [12, 18, 12]),
-              aggregation: 'count',
-              interval: 'day',
-            }}
-            errorTimeSeries={{
-              metric: 'errors',
-              points: points('errors', [1, 3, 2]),
-              aggregation: 'count',
-              interval: 'day',
-            }}
-          />
           <LineageGraph
             lineage={{
               operationId: 'op-lineage',

@@ -172,7 +172,8 @@
       "notHeld": "Eine Org, die dieser Rechner nicht mehr kennt"
     },
     "objectCountFormatted_one": "{{formatted}} Objekt",
-    "objectCountFormatted_other": "{{formatted}} Objekte"
+    "objectCountFormatted_other": "{{formatted}} Objekte",
+    "seeInReports": "In Berichten ansehen"
   },
   "status": {
     "apiUsage": "API-Nutzung"
@@ -278,7 +279,6 @@
         "csv": "CSV-Import"
       }
     },
-    "jobs": "Jobs",
     "alerts": "Warnungen",
     "health": "Gesundheitswert",
     "trends": "Trends",
@@ -288,6 +288,7 @@
     "acknowledge": "Bestätigen",
     "dismiss": "Verwerfen",
     "selectOrg": "Org zum Überwachen auswählen",
+    "orgPicker": "Org, deren Zustand angezeigt wird",
     "viewFullReport": "Vollständigen Bericht anzeigen",
     "healthReport": "Gesundheitsbericht",
     "limitReachedIn": "Limit erreicht in ~{{hours}}h",
@@ -323,7 +324,7 @@
     "anomalyScanFailed": "Anomalie-Scan fehlgeschlagen",
     "governorLimits": "Governor-Limits",
     "noLimits": "Keine Limit-Daten verfügbar",
-    "exportCsv": "CSV exportieren",
+    "exportCsv": "Als CSV exportieren",
     "release": "Release",
     "nextRelease": "Nächstes Release",
     "instance": "Instanz",
@@ -368,7 +369,7 @@
       "empty": "Keine API-Nutzungsdaten verfügbar"
     },
     "export": {
-      "button": "CSV exportieren",
+      "button": "Als CSV exportieren",
       "noHistory": "Keine historischen Daten",
       "noHistoryDetail": "Keine Trend-Zeitstempel für den historischen Export verfügbar",
       "buttonHistorical": "Verlauf exportieren",
@@ -454,6 +455,11 @@
         "byProduction": "Gemeldet von der Refresh-Historie von {{org}}",
         "orgChanged": "War Org {{from}}, jetzt Org {{to}}",
         "instanceChanged": "Von Instanz {{from}} nach {{to}} umgezogen"
+      },
+      "recovery": {
+        "banner": "{{alias}} wurde {{age}} aktualisiert: Was vor der Aktualisierung darin geschrieben wurde, ist weg.",
+        "bringBack": "Wieder in Betrieb nehmen…",
+        "automate": "Nach jeder Aktualisierung automatisieren…"
       }
     },
     "sessions": {
@@ -479,7 +485,15 @@
     "jobCount_one": "{{count}} Job",
     "jobCount_other": "{{count}} Jobs",
     "apiCallsHint": "Salesforce zählt API-Anfragen über ein gleitendes 24-Stunden-Fenster.",
-    "jobInsightsUnknown": "Apex-Job-Analysen: noch nicht gelesen. Sie erscheinen nach einer Aktualisierung, die die Apex-Jobs der Org liest."
+    "jobInsightsUnknown": "Apex-Job-Analysen: noch nicht gelesen. Sie erscheinen nach einer Aktualisierung, die die Apex-Jobs der Org liest.",
+    "trendNames": {
+      "dailyApiRequests": "Tägliche API-Anfragen",
+      "dataStorage": "Datenspeicher",
+      "fileStorage": "Dateispeicher",
+      "dailyBulkApiBatches": "Tägliche Batches der Bulk API",
+      "dailyBulkV2QueryJobs": "Tägliche Abfragejobs der Bulk API 2.0",
+      "dailyAsyncApexExecutions": "Tägliche asynchrone Apex-Ausführungen"
+    }
   },
   "compare": {
     "title": "Vergleich",
@@ -3187,14 +3201,12 @@
     "title": "Benachrichtigungen"
   },
   "reports": {
-    "title": "Berichte und Analysen",
+    "title": "Berichte",
     "executions": "Ausführungen",
-    "analytics": "Analysen",
     "audit": "Audit-Protokoll",
     "lineage": "Datenherkunft",
     "noReports": "Noch keine Berichte erstellt",
     "reportsUnreadable": "Die Berichte konnten nicht gelesen werden: {{error}}",
-    "analyticsUnreadable": "Die Analysen konnten nicht geladen werden: Sie kommen mit den Berichten, die nicht gelesen werden konnten.",
     "generateReport": "Bericht erstellen",
     "exportReport": "Bericht exportieren",
     "reportType": "Berichtstyp",
@@ -3205,11 +3217,8 @@
     "module": "Modul",
     "duration": "Dauer",
     "recordCount": "Datensatzanzahl",
-    "totalOperations": "Operationen gesamt",
     "successRate": "Erfolgsrate",
     "avgDuration": "Durchschn. Dauer",
-    "operationsOverTime": "Operationen im Zeitverlauf",
-    "errorRate": "Fehlerrate",
     "auditActions": {
       "org_connect": "Org verbinden",
       "org_disconnect": "Org trennen",
@@ -3261,7 +3270,7 @@
     "destination": "Ziel",
     "noLineageData": "Keine Datenherkunftsinformationen verfügbar",
     "recordsProcessed": "Verarbeitete Datensätze",
-    "totalReports": "Berichte gesamt",
+    "runs": "Ausführungen",
     "auditEntries": "Audit-Einträge",
     "filterByOrg": "Nach Org filtern",
     "allOrgs": "Alle Orgs",
@@ -3989,7 +3998,7 @@
     "startTour": "Geführte Tour starten",
     "autopilotContent": "In drei Schritten:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
     "migrationContent": "SFDMU-Import wandelt eine SFDMU-export.json in eine Sync-Konfiguration um:\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Als Sync-Konfiguration gespeichert, mit ihrer Quell- und Ziel-Org und einem Namen, öffnet sie sich mit In Sync öffnen: Simulieren prüft sie dort, und Synchronisierung starten schreibt sie\n- Eine CSV-Datei mit Datensätzen gehört in den CSV-Upload von Seed, der ihre Zeilen lädt",
-    "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele je Objekt",
+    "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Über den Registerkarten: wie viele Läufe aufgeführt sind, ihre Erfolgsquote und durchschnittliche Dauer, und wie viele Einträge das Audit-Protokoll enthält\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele je Objekt",
     "orgsContent": "Verbinden Sie eine Org auf einem von zwei Wegen, die beide über die Salesforce CLI (sf) laufen:\n- Aus der Salesforce CLI importieren fügt jede Org hinzu, die die CLI schon kennt. Eine CLI, die noch keine Org enthält, wird als Hinweis gemeldet, nicht als Fehler: Melden Sie sich stattdessen im Browser an.\n- Im Browser anmelden öffnet die Salesforce-Anmeldeseite; der Alias ist optional.\n- Login-URL: Produktion / Entwickler oder Sandbox; für eine Org, die beide sperrt, nimmt Eigene Domäne (My Domain)… ihre Login-URL, wie Setup → Meine Domäne sie zeigt.\n- Benutzername / Passwort braucht keine CLI; JWT Bearer und OAuth (Gerät) stehen unter Weitere Methoden.\n\nForge, das Laden des eingefrorenen Datasets, Prüfpunkte und das Bereitstellen des Vergleichs lehnen eine Produktions-Org ab; Löschungen werden dort ebenfalls abgelehnt; jeder andere Schreibvorgang dort fragt vorher, und keine Einstellung schaltet das ab. Eine Sandbox mit echten Daten (Full Copy, UAT): Öffnen Sie ihren Dialog „Org bearbeiten“ auf der Seite Organisationen und aktivieren Sie Staging; Production Guard fragt dann vor jedem Löschen, jeder Bereitstellung und jedem Schreiben von mehr als 10.000 Datensätzen.\n\nEine Org, die sich nicht verbindet: siehe Fehlerbehebung.",
     "fullGuide": "Vollständige Anleitung: {{section}}",
     "notFoundFaq": "Nicht gefunden? Lesen Sie die vollständige FAQ",

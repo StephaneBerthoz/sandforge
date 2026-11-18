@@ -172,7 +172,8 @@
       "notHeld": "Une org que cette machine ne détient plus"
     },
     "objectCountFormatted_one": "{{formatted}} objet",
-    "objectCountFormatted_other": "{{formatted}} objets"
+    "objectCountFormatted_other": "{{formatted}} objets",
+    "seeInReports": "Voir dans Rapports"
   },
   "status": {
     "apiUsage": "Utilisation API"
@@ -278,7 +279,6 @@
         "csv": "Import CSV"
       }
     },
-    "jobs": "Jobs",
     "alerts": "Alertes",
     "health": "Score de santé",
     "trends": "Tendances",
@@ -288,6 +288,7 @@
     "acknowledge": "Accuser réception",
     "dismiss": "Ignorer",
     "selectOrg": "Sélectionnez une org à surveiller",
+    "orgPicker": "Org dont la santé est affichée",
     "viewFullReport": "Voir le rapport complet",
     "healthReport": "Rapport de santé",
     "limitReachedIn": "Limite atteinte dans ~{{hours}}h",
@@ -323,7 +324,7 @@
     "anomalyScanFailed": "Échec de l'analyse d'anomalies",
     "governorLimits": "Limites governor",
     "noLimits": "Aucune donnée de limite disponible",
-    "exportCsv": "Exporter CSV",
+    "exportCsv": "Exporter en CSV",
     "release": "Release",
     "nextRelease": "Prochaine release",
     "instance": "Instance",
@@ -368,7 +369,7 @@
       "empty": "Aucune donnée d'utilisation API disponible"
     },
     "export": {
-      "button": "Exporter CSV",
+      "button": "Exporter en CSV",
       "noHistory": "Aucune donnée historique",
       "noHistoryDetail": "Aucun horodatage de tendance disponible pour l'export historique",
       "buttonHistorical": "Exporter l'historique",
@@ -454,6 +455,11 @@
         "byProduction": "Signalé par l'historique de rafraîchissement de {{org}}",
         "orgChanged": "Était l'org {{from}}, désormais l'org {{to}}",
         "instanceChanged": "Passée de l'instance {{from}} à {{to}}"
+      },
+      "recovery": {
+        "banner": "{{alias}} a été rafraîchie {{age}} : ce qui y avait été écrit avant le rafraîchissement a disparu.",
+        "bringBack": "Remettre en service…",
+        "automate": "Automatiser après chaque rafraîchissement…"
       }
     },
     "sessions": {
@@ -479,7 +485,15 @@
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs",
     "apiCallsHint": "Salesforce compte les requêtes API sur une fenêtre glissante de 24 heures.",
-    "jobInsightsUnknown": "Analyses des jobs Apex : pas encore lues. Elles apparaissent après une actualisation qui lit les jobs Apex de l'org."
+    "jobInsightsUnknown": "Analyses des jobs Apex : pas encore lues. Elles apparaissent après une actualisation qui lit les jobs Apex de l'org.",
+    "trendNames": {
+      "dailyApiRequests": "Requêtes API quotidiennes",
+      "dataStorage": "Stockage de données",
+      "fileStorage": "Stockage de fichiers",
+      "dailyBulkApiBatches": "Lots Bulk API quotidiens",
+      "dailyBulkV2QueryJobs": "Jobs de requête Bulk API 2.0 quotidiens",
+      "dailyAsyncApexExecutions": "Exécutions Apex asynchrones quotidiennes"
+    }
   },
   "compare": {
     "title": "Comparaison",
@@ -3187,14 +3201,12 @@
     "title": "Notifications"
   },
   "reports": {
-    "title": "Rapports et analyses",
+    "title": "Rapports",
     "executions": "Exécutions",
-    "analytics": "Analytiques",
     "audit": "Journal d'audit",
-    "lineage": "Lignée de données",
+    "lineage": "Lignage des données",
     "noReports": "Aucun rapport généré",
     "reportsUnreadable": "Les rapports n’ont pas pu être lus : {{error}}",
-    "analyticsUnreadable": "Les analytiques n’ont pas pu être chargées : elles viennent avec les rapports, qui n’ont pas pu être lus.",
     "generateReport": "Générer un rapport",
     "exportReport": "Exporter le rapport",
     "reportType": "Type de rapport",
@@ -3205,11 +3217,8 @@
     "module": "Module",
     "duration": "Durée",
     "recordCount": "Nombre d'enregistrements",
-    "totalOperations": "Total opérations",
     "successRate": "Taux de réussite",
     "avgDuration": "Durée moyenne",
-    "operationsOverTime": "Opérations dans le temps",
-    "errorRate": "Taux d'erreur",
     "auditActions": {
       "org_connect": "Connexion org",
       "org_disconnect": "Déconnexion org",
@@ -3259,9 +3268,9 @@
     "transform": "Transformation",
     "filter": "Filtre",
     "destination": "Destination",
-    "noLineageData": "Aucune donnée de lignée disponible",
+    "noLineageData": "Aucune donnée de lignage disponible",
     "recordsProcessed": "Enregistrements traités",
-    "totalReports": "Total des rapports",
+    "runs": "Exécutions",
     "auditEntries": "Entrées d'audit",
     "filterByOrg": "Filtrer par org",
     "allOrgs": "Toutes les orgs",
@@ -3316,7 +3325,7 @@
     "auditUnreadable": "Le journal d’audit n’a pas pu être lu : {{error}}",
     "lineageEmptyTitle": "Aucune exécution tracée pour l’instant",
     "lineageEmptyDesc": "Quand une exécution écrit des enregistrements dans une org, cet onglet montre d’où ils venaient — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu de données figé — et combien d’enregistrements de chaque objet y sont arrivés.",
-    "lineageUnreadable": "La lignée de données n’a pas pu être lue : {{error}}",
+    "lineageUnreadable": "Le lignage des données n’a pas pu être lu : {{error}}",
     "lineageRun": "Exécution",
     "viewRun": "Voir l’exécution",
     "lineageOrigin": {
@@ -3492,7 +3501,7 @@
         "schedule": "planification",
         "event": "événement",
         "webhook": "webhook",
-        "sandbox_refresh": "actualisation d'une sandbox",
+        "sandbox_refresh": "rafraîchissement d'une sandbox",
         "deployment_complete": "déploiement terminé"
       }
     }
@@ -3956,7 +3965,7 @@
     "gettingStarted": "Premiers pas",
     "gettingStartedDesc": "Apprenez les bases de SandForge",
     "gettingStartedContent": "1. Connectez une org sur la page Organisations : Importer depuis la Salesforce CLI, ou Se connecter dans le navigateur.\n2. Remplissez-la avec Seed : le Kit de démarrage CRM, marqué Commencez ici, écrit des comptes, contacts, opportunités et requêtes liés après avoir vérifié le stockage de l'org, sans seconde org ni clé d'IA.\n3. Clonez avec Forge : copiez un enregistrement réel et tout ce qui l'entoure depuis une autre org.\n4. Avant une exécution risquée sur une sandbox, créez un point de contrôle (Points de contrôle → Créer un point de contrôle) : Revenir à ce point… y ramène les données de l'org.\n5. Ouvrez le Moniteur pour vérifier la santé, les limites et les jobs de l'org.\n6. Explorez Sync, Autopilot, le Jeu de données figé, la Comparaison, DataOps et l'Automatisation quand vous en avez besoin.\n\nRendre muettes les automatisations de la cible pour cette exécution : une case à côté des automatisations que déclencherait une exécution de Seed, Forge, Sync, Autopilot ou du Jeu de données figé, un retour arrière ou un retrait. Pour cette seule exécution, elle attribue à l'utilisateur sous lequel l'exécution écrit les ensembles d'autorisations qui portent les contournements que testent les Flows, processus et règles de workflow de la cible, et les lui retire à la fin, même après un échec. Rien n'est désactivé ; ce qui s'exécute quand même est listé avec sa raison. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien.",
-    "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org, lue à l'ouverture de la page et à chaque clic sur Actualiser :\n- Jauge de score de santé avec facteurs contributifs\n- Opérations en cours, tant qu'une exécution tourne : son module, sa progression et son étape en cours\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Scanner les anomalies, dans Limites governor : examine jusqu'à 500 enregistrements de l'objet choisi à la recherche de valeurs inhabituelles\n- Alertes pour les seuils critiques\n- Gouvernance Org : des politiques de règles de seuil, vérifiées sur l'org quand vous cliquez sur Évaluer\n\nAstuce : Actualisation automatique, le bouton horloge, est désactivée par défaut ; cliquez dessus pour relire l'org toutes les 30 secondes tant que le panneau est visible.",
+    "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org, lue à l'ouverture de la page et à chaque clic sur Actualiser :\n- Jauge de score de santé avec facteurs contributifs\n- Opérations en cours, tant qu'une exécution tourne : son module, sa progression et son étape en cours\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Scanner les anomalies, dans Limites governor : examine jusqu'à 500 enregistrements de l'objet choisi à la recherche de valeurs inhabituelles\n- Alertes pour les seuils critiques\n- Gouvernance de l'org : des politiques de règles de seuil, vérifiées sur l'org quand vous cliquez sur Évaluer\n\nAstuce : Actualisation automatique, le bouton horloge, est désactivée par défaut ; cliquez dessus pour relire l'org toutes les 30 secondes tant que le panneau est visible.",
     "seedContent": "Sous les modèles, quatre autres façons d'alimenter une org :\n- Générer des données : un assistant pour les objets, le nombre d'enregistrements et les règles de champs de votre choix (IA, Faker, statique, séquence...) ; un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n- Import CSV : des enregistrements tirés d'un fichier CSV, ses colonnes associées aux champs\n- Cloner depuis une org : des enregistrements copiés depuis une autre org\n- Données de test pour un agent Agentforce : choisissez un pack ou Rédiger depuis votre propre texte, relisez-le, Lancer le seed du scénario, puis Écrire le fichier de test. Les packs ne demandent aucune clé d'IA ; un brouillon utilise votre clé Anthropic. Ses articles Knowledge sont publiés ; SandForge ne lance jamais les tests.",
     "checkpointContent": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur. Son aperçu compte, objet par objet, les enregistrements à Supprimer, à qui Rendre les valeurs et à Rétablir. Une sauvegarde DataOps est une copie de certains objets : sa restauration ne supprime jamais ce qui a été ajouté.\n- Le retour arrière défait le travail de tous depuis le point de contrôle, pas seulement les exécutions de SandForge : n'importe quel utilisateur, Flow ou intégration. L'aperçu indique qui a modifié quoi en dernier avant que rien ne soit écrit.\n- Jamais sur une org de production : les points de contrôle sont réservés aux sandboxes, aux scratch orgs et aux orgs Developer Edition, et aucun paramètre ni option ne lève ce refus.\n- Les données seulement : champs, Flows, règles de validation, présentations, autorisations, utilisateurs et configuration restent tels quels, et ce qui est déjà sorti de l'org (e-mails, callouts, événements de plateforme) reste envoyé.\n- Les fichiers ne sont couverts qu'en partie : un retour arrière supprime les fichiers joints depuis à ses enregistrements et rétablit ceux supprimés depuis, mais un fichier qui a reçu une nouvelle version conserve son nouveau contenu.\n- Un point de contrôle contient en clair les valeurs des enregistrements, dont des données personnelles, sur cette machine, lisibles par vous seul, pendant 30 jours sauf si vous le conservez.",
     "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Enregistrées ouvre une configuration enregistrée, ou la lance selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente sous Conflits, dans le même onglet.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
@@ -3989,7 +3998,7 @@
     "startTour": "Démarrer la visite guidée",
     "autopilotContent": "En trois étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le. Les e-mails et les numéros de téléphone sont neutralisés sauf si vous décochez la case — chaque adresse sous .invalid, chaque numéro fictif — et Avancé choisit un référentiel de conformité qui anonymise davantage (RGPD, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "Import SFDMU convertit un export.json SFDMU en configuration Sync :\n- L'import lit le fichier et ne modifie aucune org\n- Enregistrée comme configuration Sync, avec ses orgs source et cible et un nom, elle s'ouvre par Ouvrir dans Sync : Simuler la vérifie là, et Lancer la synchronisation l'écrit\n- Un fichier CSV d'enregistrements va à l'Import CSV de Seed, qui charge ses lignes",
-    "reportsContent": "Rapports montre ce que les exécutions de SandForge ont fait :\n- Exécutions : chaque exécution Forge et Sync avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Analytiques : taux de réussite calculés à partir de ces exécutions\n- Journal d'audit : chaque exécution qui écrit dans une org — un clonage Forge, une synchronisation, un seed, un import CSV, un clonage d'enregistrements, une exécution Autopilot, une restauration, un masquage ou un chargement de jeu de données figé — avec ce qu'elle a écrit dans chaque objet et ce que Production Guard a décidé\n- Lignée de données : d'où viennent les enregistrements qu'une exécution a écrits — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu de données figé — et combien de chaque objet",
+    "reportsContent": "Rapports montre ce que les exécutions de SandForge ont fait :\n- Au-dessus des onglets : le nombre d'exécutions listées, leur taux de réussite et leur durée moyenne, et le nombre d'entrées du journal d'audit\n- Exécutions : chaque exécution Forge et Sync avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Journal d'audit : chaque exécution qui écrit dans une org — un clonage Forge, une synchronisation, un seed, un import CSV, un clonage d'enregistrements, une exécution Autopilot, une restauration, un masquage ou un chargement de jeu de données figé — avec ce qu'elle a écrit dans chaque objet et ce que Production Guard a décidé\n- Lignage des données : d'où viennent les enregistrements qu'une exécution a écrits — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu de données figé — et combien de chaque objet",
     "orgsContent": "Connectez une org de l'une de deux façons, qui passent toutes deux par la Salesforce CLI (sf) :\n- Importer depuis la Salesforce CLI ajoute chaque org que la CLI détient déjà. Une CLI qui ne détient encore aucune org est signalée comme une information, pas comme une erreur : connectez-vous plutôt dans le navigateur.\n- Se connecter dans le navigateur ouvre la page de connexion Salesforce ; l'alias est facultatif.\n- URL de connexion : Production / Développeur ou Sandbox ; pour une org qui bloque les deux, Domaine personnalisé (My Domain)… prend son URL de connexion telle que Configuration → Mon domaine l'affiche.\n- Nom d'utilisateur / Mot de passe se passe de la CLI ; JWT Bearer et OAuth (Appareil) sont sous Plus de méthodes.\n\nForge, les chargements du Jeu de données figé, les Points de contrôle et le déploiement de la Comparaison refusent une org de production ; les suppressions y sont refusées aussi ; toute autre écriture y demande d'abord, et aucun paramètre ne le désactive. Une sandbox qui contient des données réelles (copie complète, recette) : ouvrez sa boîte Modifier sur la page Organisations et cochez Préproduction, et Production Guard demande alors avant chaque suppression, chaque déploiement et chaque écriture de plus de 10 000 enregistrements.\n\nUne org qui ne se connecte pas : voir Dépannage.",
     "fullGuide": "Guide complet : {{section}}",
     "notFoundFaq": "Pas trouvé ici ? Lisez la FAQ complète",
@@ -4106,7 +4115,7 @@
       "step1": "Dans Exécutions, cliquez sur une exécution Forge ou Sync pour lire son détail sous la liste.",
       "step2": "Ouvrez Journal d'audit pour voir chaque exécution qui écrit dans une org, la plus récente d'abord.",
       "step3": "Affinez la liste avec Filtrer par action, Filtrer par module ou Filtrer par org.",
-      "step4": "Cliquez sur Voir l’exécution d'une entrée pour afficher dans Lignée de données d'où viennent ses enregistrements.",
+      "step4": "Cliquez sur Voir l’exécution d'une entrée pour afficher dans Lignage des données d'où viennent ses enregistrements.",
       "step5": "Cliquez sur Exporter en CSV ou Exporter en JSON pour enregistrer le journal tel qu'il est filtré.",
       "tip": "Rapports n'écrit dans aucune org ; Exporter en CSV et Exporter en JSON enregistrent toutes les entrées que retiennent les filtres, pas seulement celles affichées."
     },
@@ -7401,7 +7410,7 @@
     }
   },
   "governance": {
-    "title": "Gouvernance Org",
+    "title": "Gouvernance de l'org",
     "addPolicy": "Ajouter une politique",
     "evaluate": "Évaluer",
     "complianceScore": "Score de conformité",

@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCcw } from 'lucide-react';
 import { isSandboxRefreshInProgress, orgDisplayName } from '@sandforge/shared';
-import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { Button } from '../../components/ui/Button';
@@ -11,6 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Spinner } from '../../components/ui/Spinner';
 import { ListCapNote } from './ListCapNote';
+import { RefreshRecoveryActions } from './RefreshRecovery';
 import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** How SandForge came to notice a refresh of the org itself. */
@@ -20,7 +20,7 @@ type RefreshEvidence = 'connection' | 'monitor' | 'production';
  * A refresh SandForge noticed on the org it shows: the org answered with
  * another org id than the one it answered with before.
  */
-interface DetectedRefresh {
+export interface DetectedRefresh {
   detectedAt: string;
   evidence: RefreshEvidence;
   previousOrganizationId?: string;
@@ -32,7 +32,7 @@ interface DetectedRefresh {
 }
 
 /** Response shape from monitor:sandbox-refresh. */
-interface SandboxRefreshData {
+export interface SandboxRefreshData {
   success: boolean;
   /** False when the org has no SandboxProcess to query at all. */
   supported?: boolean;
@@ -84,6 +84,10 @@ function statusVariant(status: string): BadgeVariant {
  * A sandbox cannot list its own refreshes — only the org that manages it can
  * — so on a sandbox this is the only refresh the panel can show. It is shown
  * whatever the org's own history says.
+ *
+ * The newest carries the ways on: bringing the sandbox back into service, or
+ * automating that after each refresh. An older one does not: the refresh
+ * after it replaced what it copied, and Back into service works on the newest.
  */
 const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refreshes }) => {
   const { t } = useTranslation();
@@ -104,7 +108,7 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
         {t('monitor.sandboxRefresh.detected.note')}
       </p>
       <ul className="flex flex-col gap-1.5">
-        {refreshes.map((refresh) => (
+        {refreshes.map((refresh, index) => (
           <li
             key={refresh.detectedAt}
             className="flex flex-col gap-0.5 px-2 py-1.5 rounded-sm bg-surface-2"
@@ -142,6 +146,11 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
                   })}
                 </span>
               )}
+            {index === 0 && (
+              <span className="mt-1">
+                <RefreshRecoveryActions testIdPrefix="refresh-detected" />
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -149,23 +158,28 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
   );
 };
 
+/** Props for the RefreshPanel. */
+export interface RefreshPanelProps {
+  /** The `monitor:sandbox-refresh` answer for the org shown, until it is read none. */
+  data: SandboxRefreshData | null | undefined;
+  /** Whether that answer is being read. */
+  loading: boolean;
+}
+
 /**
- * Panel displaying sandbox refresh events fetched via the monitor:sandbox-refresh bridge query.
+ * Panel displaying sandbox refresh events, as `monitor:sandbox-refresh` answers
+ * them for the org shown.
  *
  * Renders three states: loading skeleton, empty message, or a table of refresh
  * events with status badges and an in-progress indicator. Under each, the
  * refreshes SandForge noticed on the org itself.
+ *
+ * The answer is read by the page, which leads with a recent refresh above the
+ * fold: read here as well, each opening of the page asked the org twice.
  */
-export const RefreshPanel: React.FC = () => {
+export const RefreshPanel: React.FC<RefreshPanelProps> = ({ data, loading }) => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
-  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
-
-  const { data, loading } = useBridgeQuery<SandboxRefreshData>(
-    'monitor:sandbox-refresh',
-    selectedOrgId ? { orgId: selectedOrgId } : undefined,
-    { responseType: 'monitor:sandbox-refresh:response', skip: !selectedOrgId },
-  );
 
   const refreshes = useMemo(() => data?.refreshes ?? [], [data?.refreshes]);
   const detected = useMemo(() => data?.detected ?? [], [data?.detected]);

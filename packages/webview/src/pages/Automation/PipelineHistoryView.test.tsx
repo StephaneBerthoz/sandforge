@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { dateTimeFormat } from '../../utils/formatters';
 import { PipelineHistoryView } from './PipelineHistoryView';
+import { useAppStore } from '../../stores/useAppStore';
 import type { PipelineHistoryEntry } from '@sandforge/shared';
 
 const entries: PipelineHistoryEntry[] = [
@@ -34,6 +35,15 @@ describe('PipelineHistoryView', () => {
   it('should render the history view', () => {
     render(<PipelineHistoryView />);
     expect(screen.getByTestId('pipeline-history')).toBeDefined();
+  });
+
+  it('opens Reports on the Audit trail, where the writes of each step are', () => {
+    const navigate = vi.fn();
+    useAppStore.setState({ navigate });
+    render(<PipelineHistoryView entries={entries} />);
+
+    fireEvent.click(screen.getByTestId('pipeline-history-reports'));
+    expect(navigate).toHaveBeenCalledWith('reports', { reportsTab: 'audit' });
   });
 
   it('says, with no run yet, what puts one here', () => {

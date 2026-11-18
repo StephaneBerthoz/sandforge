@@ -112,7 +112,7 @@ type ScannedTheme = (typeof SCANNED_THEMES)[number];
  * is held to the bar or to the theme's own contrast for its colour
  * (helpers/theme-contrast.ts), since Light+ and Quiet Light write description
  * text under 4.5:1 on their own surfaces. The full axe scan runs on the four
- * above as well. Two of the states come from Reports components a page scan
+ * above as well. One of the states comes from a Reports component a page scan
  * cannot reach in every state, mounted with data by harness/unwired-reports.html.
  */
 const STATE_THEMES = [...SCANNED_THEMES, 'Light+', 'Quiet Light', 'Dark+'] as const;
@@ -6273,9 +6273,9 @@ for (const theme of SCANNED_THEMES) {
 
     test('Reports page', async ({ page }) => {
       await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
-      // Nothing has answered yet: each tab says it is loading. All four said
+      // Nothing has answered yet: each tab says it is loading. Every one said
       // "Coming soon" until the host answered, about features it already had.
-      await expect(page.getByRole('tab')).toHaveCount(4);
+      await expect(page.getByRole('tab')).toHaveCount(3);
       await expect(page.getByTestId('reports-executions-loading')).toBeVisible();
       await expect(page.getByTestId('reports-page')).not.toContainText('Coming soon');
       const results = await checkAccessibility(page);
@@ -6370,11 +6370,9 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
-    test('Reports whose read failed, saying so on Executions and Analytics, with a retry', async ({
-      page,
-    }) => {
+    test('Reports whose read failed, saying so on Executions, with a retry', async ({ page }) => {
       await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
-      // The Executions tab said "No reports generated yet", and Analytics was gone.
+      // The Executions tab said "No reports generated yet".
       await answerAll(page, 'reports:list', 'reports:error', {
         message: 'timed out',
         code: 'UNKNOWN',
@@ -6391,19 +6389,13 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, executions, '[data-testid="reports-executions-error"]'),
       ).toBeGreaterThan(0);
 
-      await page.getByRole('tab', { name: 'Analytics' }).click();
-      await expect(page.getByTestId('reports-analytics-error-message')).toContainText(
-        'The analytics could not be loaded',
-      );
-      expectNoViolations(await checkAccessibility(page));
-
       // Read again: what failed stays said, with its Retry busy, until the answer.
-      await page.getByTestId('reports-analytics-error-retry').click();
-      await expect(page.getByTestId('reports-analytics-error-retry')).toHaveAttribute(
+      await page.getByTestId('reports-executions-error-retry').click();
+      await expect(page.getByTestId('reports-executions-error-retry')).toHaveAttribute(
         'aria-busy',
         'true',
       );
-      await expect(page.getByTestId('reports-analytics-error-message')).toBeVisible();
+      await expect(page.getByTestId('reports-executions-error-message')).toBeVisible();
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -7018,6 +7010,47 @@ for (const theme of SCANNED_THEMES) {
         .flatMap((rule) => rule.nodes)
         .some((node) => node.html.includes('Was org'));
       expect(measured, 'axe did not measure the noticed refresh').toBe(true);
+    });
+
+    test('Monitor dashboard led by a sandbox refreshed this week, with its ways on', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('monitor:sandbox-refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', {
+        success: true,
+        supported: false,
+        refreshes: [],
+        inProgress: false,
+        detected: [
+          {
+            detectedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+            evidence: 'connection',
+            previousOrganizationId: '00D000000000001',
+            organizationId: '00D000000000002',
+          },
+        ],
+      });
+      await page
+        .getByTestId('monitor-after-refresh')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="monitor-after-refresh"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Automation schedule and sandbox refresh triggers saying what they will do, and a saved webhook trigger why it starts nothing', async ({
@@ -15236,24 +15269,6 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('removal-plan-uncounted')).toBeVisible();
 
       await expectReadable(page, theme);
-    });
-
-    test('Analytics chart tooltips, on the Reports charts the panel does not feed yet', async ({
-      page,
-    }) => {
-      await bridge.setup(page);
-      await paintHostTheme(page, theme);
-      await page.goto('/e2e/harness/unwired-reports.html');
-      for (const chart of ['ops-chart', 'error-chart']) {
-        const surface = page.getByTestId(chart).locator('.recharts-surface');
-        await surface.scrollIntoViewIfNeeded();
-        const box = await surface.boundingBox();
-        if (!box) throw new Error(`${chart} has no box`);
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await expect(page.getByTestId(chart).locator('.recharts-default-tooltip')).toBeVisible();
-
-        await expectReadable(page, theme, `[data-testid="${chart}"]`);
-      }
     });
 
     test('Lineage legend and edge labels, on every kind of node the Reports graph draws', async ({

@@ -27,9 +27,11 @@ const baseSeries: TrendSeries[] = [
 ];
 
 describe('TrendCharts', () => {
-  it('should render the trends card', () => {
+  it('carries no title of its own: the card it sits in is titled Trends already', () => {
+    // The card read "Trends", then "Trends" again over the chart.
     render(<TrendCharts series={baseSeries} />);
-    expect(screen.getByText('Trends')).toBeDefined();
+    expect(screen.queryByText('Trends')).toBeNull();
+    expect(screen.queryByRole('heading')).toBeNull();
   });
 
   it('should render chart container', () => {

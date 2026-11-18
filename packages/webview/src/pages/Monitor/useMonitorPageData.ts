@@ -52,6 +52,16 @@ function findLimit(limits: ApiLimit[], name: string): ApiLimit {
   return limits.find((l) => l.name === name) ?? { name, max: 0, remaining: 0, usedPercent: 0 };
 }
 
+/** The catalogue key of each trended limit's name (`MONITOR_KEY_LIMITS`). */
+const TREND_NAME_KEYS: Readonly<Record<string, string>> = {
+  DailyApiRequests: 'monitor.trendNames.dailyApiRequests',
+  DataStorageMB: 'monitor.trendNames.dataStorage',
+  FileStorageMB: 'monitor.trendNames.fileStorage',
+  DailyBulkApiBatches: 'monitor.trendNames.dailyBulkApiBatches',
+  DailyBulkV2QueryJobs: 'monitor.trendNames.dailyBulkV2QueryJobs',
+  DailyAsyncApexExecutions: 'monitor.trendNames.dailyAsyncApexExecutions',
+};
+
 /**
  * How long ago the data was read, in the interface language and in one unit
  * picked by its size: seconds, minutes, hours, then days. The header wrote
@@ -290,7 +300,10 @@ export function useMonitorPageData(): MonitorPageData {
       .filter(([, td]) => td.sparklineData.length >= 2)
       .map(([key, td]) => ({
         id: key,
-        name: key.replace(/([A-Z])/g, ' $1').trim(),
+        // Cut at its capitals, an API name read "Data Storage M B", in every
+        // language: the trended limits are named by the catalogue, and one
+        // it does not name keeps the name Salesforce gives it.
+        name: TREND_NAME_KEYS[key] ? t(TREND_NAME_KEYS[key]) : key,
         color: colorMap[key] ?? 'var(--sf-accent)',
         data: td.sparklineData.map((value, i) => ({
           timestamp:
@@ -299,7 +312,7 @@ export function useMonitorPageData(): MonitorPageData {
           value,
         })),
       }));
-  }, [trends]);
+  }, [trends, t]);
 
   const predictions = useMemo(() => {
     return Object.entries(trends)

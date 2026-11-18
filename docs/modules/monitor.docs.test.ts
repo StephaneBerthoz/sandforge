@@ -125,6 +125,27 @@ describe('docs/modules/monitor.md', () => {
     expect(limits).toContain(`the most a scan reads: ${bound?.[1]}, or 200`);
   });
 
+  it('names the ways on from a refresh as the dashboard and the warning name them', () => {
+    // A refresh was told in the panel and the warning, and nothing led from
+    // either: the page says where each button goes, by the words on it.
+    const en = JSON.parse(source('packages/webview/src/i18n/locales/en.json')) as {
+      monitor: { sandboxRefresh: { recovery: { bringBack: string; automate: string } } };
+    };
+    const { bringBack, automate } = en.monitor.sandboxRefresh.recovery;
+    const refreshes = prose('Sandbox Refreshes');
+    expect(refreshes).toContain(`**${bringBack}**`);
+    expect(refreshes).toContain(`**${automate}**`);
+    expect(refreshes).toContain('Sandbox Refresh Post-Processing');
+    expect(refreshes).toContain('within the last 7 days');
+    expect(source('packages/webview/src/pages/Monitor/RefreshRecovery.tsx')).toContain(
+      'export const RECENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;',
+    );
+    expect(source('packages/extension/l10n/bundle.l10n.json')).toContain(
+      '"Bring back into service"',
+    );
+    expect(refreshes).toContain('a warning with a **Bring back into service** button');
+  });
+
   it.each(PANELS)(
     'says the $component panel reads $reads, which the extension still reads',
     ({ heading, reads }) => {

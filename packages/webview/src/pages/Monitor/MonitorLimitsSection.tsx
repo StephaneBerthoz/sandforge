@@ -138,8 +138,8 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
         anomalyScan.data?.error ??
         t('monitor.anomalyScanFailed', 'Anomaly scan failed'))
       : null;
-    const scanFoundNothing =
-      anomalyScan.data?.success === true && (anomalyScan.data.anomalies?.length ?? 0) === 0;
+    const anomalies = anomalyScan.data?.success === true ? (anomalyScan.data.anomalies ?? []) : [];
+    const scanFoundNothing = anomalyScan.data?.success === true && anomalies.length === 0;
 
     return (
       <PanelOverlay isRefreshing={isRefreshing}>
@@ -249,6 +249,59 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
                   })}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* What a scan found, under the button that ran it: listed at the foot
+              of the page, it came some 900 pixels below "nothing found". */}
+          {anomalies.length > 0 && (
+            <div
+              className="mt-2 mb-3 rounded-md border border-status-warning/30 p-3"
+              data-testid="anomaly-scan-results"
+            >
+              <SectionHeader
+                title={t('monitor.anomaliesFound', 'Anomalies Found')}
+                count={anomalies.length}
+              />
+              {/* The findings are the sample's, not the object's. */}
+              {anomalyScan.data?.sample && (
+                <p
+                  className="text-[11px] text-text-secondary mb-2"
+                  data-testid="anomaly-scan-sample"
+                >
+                  {t('monitor.anomalyScanSample', {
+                    count: anomalyScan.data.sample.read,
+                    limit: anomalyScan.data.sample.limit,
+                  })}
+                </p>
+              )}
+              <div className="flex flex-col gap-2">
+                {anomalies.map((anomaly, idx) => (
+                  <div
+                    key={`${anomaly.field}-${idx}`}
+                    className="flex items-start gap-2 p-2 rounded-sm bg-surface-2"
+                  >
+                    <Badge
+                      variant={
+                        anomaly.severity === 'high'
+                          ? 'error'
+                          : anomaly.severity === 'medium'
+                            ? 'warning'
+                            : 'info'
+                      }
+                    >
+                      {anomaly.severity}
+                    </Badge>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-semibold text-text-primary">
+                        {anomaly.field}
+                      </span>
+                      <span className="text-xs text-text-secondary ml-1">({anomaly.type})</span>
+                      <p className="text-xs text-text-secondary mt-0.5">{anomaly.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

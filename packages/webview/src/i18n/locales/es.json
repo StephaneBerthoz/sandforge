@@ -172,7 +172,8 @@
       "notHeld": "Una org que esta máquina ya no tiene"
     },
     "objectCountFormatted_one": "{{formatted}} objeto",
-    "objectCountFormatted_other": "{{formatted}} objetos"
+    "objectCountFormatted_other": "{{formatted}} objetos",
+    "seeInReports": "Ver en Informes"
   },
   "status": {
     "apiUsage": "Uso de API"
@@ -278,7 +279,6 @@
         "csv": "Importación CSV"
       }
     },
-    "jobs": "Jobs",
     "alerts": "Alertas",
     "health": "Puntaje de salud",
     "trends": "Tendencias",
@@ -288,6 +288,7 @@
     "acknowledge": "Confirmar recepción",
     "dismiss": "Descartar",
     "selectOrg": "Seleccione una org para vigilar",
+    "orgPicker": "Org cuyo estado se muestra",
     "viewFullReport": "Ver informe completo",
     "healthReport": "Informe de salud",
     "limitReachedIn": "Límite alcanzado en ~{{hours}}h",
@@ -323,7 +324,7 @@
     "anomalyScanFailed": "El análisis de anomalías ha fallado",
     "governorLimits": "Límites governor",
     "noLimits": "Sin datos de límites disponibles",
-    "exportCsv": "Exportar CSV",
+    "exportCsv": "Exportar a CSV",
     "release": "Versión",
     "nextRelease": "Próxima versión",
     "instance": "Instancia",
@@ -368,7 +369,7 @@
       "empty": "Sin datos de uso de API disponibles"
     },
     "export": {
-      "button": "Exportar CSV",
+      "button": "Exportar a CSV",
       "noHistory": "No hay datos históricos",
       "noHistoryDetail": "No hay marcas de tiempo de tendencia disponibles para la exportación histórica",
       "buttonHistorical": "Exportar historial",
@@ -454,6 +455,11 @@
         "byProduction": "Informado por el historial de actualizaciones de {{org}}",
         "orgChanged": "Era la org {{from}}, ahora la org {{to}}",
         "instanceChanged": "Pasó de la instancia {{from}} a {{to}}"
+      },
+      "recovery": {
+        "banner": "{{alias}} se actualizó {{age}}: lo que se había escrito en ella antes de la actualización ya no está.",
+        "bringBack": "Volver a poner en servicio…",
+        "automate": "Automatizar después de cada actualización…"
       }
     },
     "sessions": {
@@ -479,7 +485,15 @@
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs",
     "apiCallsHint": "Salesforce cuenta las solicitudes de API en una ventana móvil de 24 horas.",
-    "jobInsightsUnknown": "Análisis de jobs de Apex: aún no leídos. Aparecen tras una actualización que lee los jobs de Apex de la org."
+    "jobInsightsUnknown": "Análisis de jobs de Apex: aún no leídos. Aparecen tras una actualización que lee los jobs de Apex de la org.",
+    "trendNames": {
+      "dailyApiRequests": "Solicitudes de API diarias",
+      "dataStorage": "Almacenamiento de datos",
+      "fileStorage": "Almacenamiento de archivos",
+      "dailyBulkApiBatches": "Lotes de Bulk API diarios",
+      "dailyBulkV2QueryJobs": "Jobs de consulta de Bulk API 2.0 diarios",
+      "dailyAsyncApexExecutions": "Ejecuciones de Apex asíncronas diarias"
+    }
   },
   "compare": {
     "title": "Comparación",
@@ -3187,14 +3201,12 @@
     "title": "Notificaciones"
   },
   "reports": {
-    "title": "Informes y análisis",
+    "title": "Informes",
     "executions": "Ejecuciones",
-    "analytics": "Análisis",
     "audit": "Registro de auditoría",
     "lineage": "Linaje de datos",
     "noReports": "Sin informes generados",
     "reportsUnreadable": "No se pudieron leer los informes: {{error}}",
-    "analyticsUnreadable": "No se pudieron cargar los análisis: llegan con los informes, que no se pudieron leer.",
     "generateReport": "Generar informe",
     "exportReport": "Exportar informe",
     "reportType": "Tipo de informe",
@@ -3205,11 +3217,8 @@
     "module": "Módulo",
     "duration": "Duración",
     "recordCount": "Cantidad de registros",
-    "totalOperations": "Total de operaciones",
     "successRate": "Tasa de éxito",
     "avgDuration": "Duración prom.",
-    "operationsOverTime": "Operaciones en el tiempo",
-    "errorRate": "Tasa de error",
     "auditActions": {
       "org_connect": "Conectar Org",
       "org_disconnect": "Desconectar Org",
@@ -3261,7 +3270,7 @@
     "destination": "Destino",
     "noLineageData": "Sin datos de linaje disponibles",
     "recordsProcessed": "Registros procesados",
-    "totalReports": "Total de informes",
+    "runs": "Ejecuciones",
     "auditEntries": "Entradas de auditoría",
     "filterByOrg": "Filtrar por org",
     "allOrgs": "Todas las orgs",
@@ -3989,7 +3998,7 @@
     "startTour": "Iniciar tour guiado",
     "autopilotContent": "En tres pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo. Los correos y los números de teléfono se neutralizan salvo que lo desmarque — cada dirección bajo .invalid, cada número ficticio — y Avanzado elige un marco de cumplimiento que anonimiza más (RGPD, CCPA, HIPAA o PCI-DSS)",
     "migrationContent": "Importación SFDMU convierte un export.json de SFDMU en una configuración de Sync:\n- La importación lee el archivo y no cambia nada en ninguna org\n- Guardada como configuración de Sync, con sus orgs de origen y destino y un nombre, se abre con Abrir en Sync: Simular la comprueba allí, y Ejecutar la sincronización la escribe\n- Un archivo CSV de registros va a Subir CSV de Seed, que carga sus filas",
-    "reportsContent": "Informes muestra lo que hicieron las ejecuciones de SandForge:\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto",
+    "reportsContent": "Informes muestra lo que hicieron las ejecuciones de SandForge:\n- Sobre las pestañas: cuántas ejecuciones se listan, su tasa de éxito y su duración media, y cuántas entradas tiene el registro de auditoría\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto",
     "orgsContent": "Conecte una org de una de dos formas, ambas a través de la Salesforce CLI (sf):\n- Importar desde la Salesforce CLI añade cada org que la CLI ya tiene. Una CLI que aún no tiene ninguna org se indica como información, no como error: inicie sesión en el navegador en su lugar.\n- Iniciar sesión en el navegador abre la página de inicio de sesión de Salesforce; el alias es opcional.\n- URL de inicio de sesión: Producción / Desarrollador o Sandbox; para una org que bloquea ambas, Dominio personalizado (My Domain)… toma su URL de inicio de sesión tal como la muestra Configuración → Mi dominio.\n- Usuario / Contraseña no necesita la CLI; JWT Bearer y OAuth (Dispositivo) están en Más métodos.\n\nForge, las cargas del Dataset congelado, los Puntos de control y el despliegue de Comparación rechazan una org de producción; allí también se rechazan las eliminaciones; cualquier otra escritura allí pregunta antes, y ningún ajuste lo desactiva. Un sandbox con datos reales (copia completa, UAT): abra su cuadro Editar Org en la página Organizaciones y marque Staging, y Production Guard preguntará entonces antes de cada eliminación, cada despliegue y cada escritura de más de 10.000 registros.\n\nUna org que no se conecta: vea Solución de problemas.",
     "fullGuide": "Guía completa: {{section}}",
     "notFoundFaq": "¿No lo encuentra aquí? Lea las preguntas frecuentes completas",

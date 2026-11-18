@@ -72,7 +72,7 @@ export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.m
           {/* Active Jobs */}
           <div className="rounded-lg border border-subtle bg-surface-1 p-4">
             <SectionHeader
-              title={t('monitor.jobs', 'Jobs')}
+              title={t('monitor.recentJobs')}
               count={jobs.length > 0 ? jobs.length : undefined}
             />
             {jobsTruncated && <ListCapNote shown={jobs.length} testId="jobs-list-cap" />}

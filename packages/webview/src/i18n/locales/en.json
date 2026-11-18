@@ -172,7 +172,8 @@
       "notHeld": "An org this machine no longer holds"
     },
     "objectCountFormatted_one": "{{formatted}} object",
-    "objectCountFormatted_other": "{{formatted}} objects"
+    "objectCountFormatted_other": "{{formatted}} objects",
+    "seeInReports": "See in Reports"
   },
   "status": {
     "apiUsage": "API usage"
@@ -278,7 +279,6 @@
         "csv": "CSV Import"
       }
     },
-    "jobs": "Jobs",
     "alerts": "Alerts",
     "health": "Health Score",
     "trends": "Trends",
@@ -288,6 +288,7 @@
     "acknowledge": "Acknowledge",
     "dismiss": "Dismiss",
     "selectOrg": "Select an org to monitor",
+    "orgPicker": "Org whose health is shown",
     "viewFullReport": "View Full Report",
     "healthReport": "Health Report",
     "limitReachedIn": "Limit reached in ~{{hours}}h",
@@ -323,7 +324,7 @@
     "anomalyScanFailed": "Anomaly scan failed",
     "governorLimits": "Governor Limits",
     "noLimits": "No limits data available",
-    "exportCsv": "Export CSV",
+    "exportCsv": "Export as CSV",
     "release": "Release",
     "nextRelease": "Next Release",
     "instance": "Instance",
@@ -368,7 +369,7 @@
       "empty": "No API usage data available"
     },
     "export": {
-      "button": "Export CSV",
+      "button": "Export as CSV",
       "noHistory": "No historical data",
       "noHistoryDetail": "No trend timestamps available for historical export",
       "buttonHistorical": "Export History",
@@ -454,6 +455,11 @@
         "byProduction": "Reported by the refresh history of {{org}}",
         "orgChanged": "Was org {{from}}, now org {{to}}",
         "instanceChanged": "Moved from instance {{from}} to {{to}}"
+      },
+      "recovery": {
+        "banner": "{{alias}} was refreshed {{age}}: what was written to it before the refresh is gone.",
+        "bringBack": "Bring back into service…",
+        "automate": "Automate after each refresh…"
       }
     },
     "sessions": {
@@ -479,7 +485,15 @@
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs",
     "apiCallsHint": "Salesforce counts API requests over a rolling 24-hour window.",
-    "jobInsightsUnknown": "Apex job insights: not read yet. They appear after a refresh that reads the org's Apex jobs."
+    "jobInsightsUnknown": "Apex job insights: not read yet. They appear after a refresh that reads the org's Apex jobs.",
+    "trendNames": {
+      "dailyApiRequests": "Daily API requests",
+      "dataStorage": "Data storage",
+      "fileStorage": "File storage",
+      "dailyBulkApiBatches": "Daily Bulk API batches",
+      "dailyBulkV2QueryJobs": "Daily Bulk API 2.0 query jobs",
+      "dailyAsyncApexExecutions": "Daily async Apex executions"
+    }
   },
   "compare": {
     "title": "Compare Org",
@@ -3187,14 +3201,12 @@
     "title": "Notifications"
   },
   "reports": {
-    "title": "Reports and analytics",
+    "title": "Reports",
     "executions": "Executions",
-    "analytics": "Analytics",
     "audit": "Audit trail",
     "lineage": "Data lineage",
     "noReports": "No reports generated yet",
     "reportsUnreadable": "The reports could not be read: {{error}}",
-    "analyticsUnreadable": "The analytics could not be loaded: they come with the reports, which could not be read.",
     "generateReport": "Generate report",
     "exportReport": "Export report",
     "reportType": "Report type",
@@ -3205,11 +3217,8 @@
     "module": "Module",
     "duration": "Duration",
     "recordCount": "Record count",
-    "totalOperations": "Total operations",
     "successRate": "Success rate",
     "avgDuration": "Average duration",
-    "operationsOverTime": "Operations over time",
-    "errorRate": "Error rate",
     "auditActions": {
       "org_connect": "Org connected",
       "org_disconnect": "Org disconnected",
@@ -3261,7 +3270,7 @@
     "destination": "Destination",
     "noLineageData": "No lineage data available",
     "recordsProcessed": "Records processed",
-    "totalReports": "Total reports",
+    "runs": "Runs",
     "auditEntries": "Audit entries",
     "filterByOrg": "Filter by org",
     "allOrgs": "All orgs",
@@ -3332,8 +3341,8 @@
     "nodeCount_other": "{{count}} nodes",
     "edgeCount_one": "{{count}} edge",
     "edgeCount_other": "{{count}} edges",
-    "exportCsv": "Export CSV",
-    "exportJson": "Export JSON",
+    "exportCsv": "Export as CSV",
+    "exportJson": "Export as JSON",
     "auditExportUnreadable": "The audit trail could not be read for the export: {{error}}",
     "context": {
       "anonymized": "Anonymized",
@@ -3989,7 +3998,7 @@
     "startTour": "Start Guided Tour",
     "autopilotContent": "In three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
     "migrationContent": "SFDMU Import turns an SFDMU export.json into a Sync configuration:\n- Importing reads the file and changes nothing in any org\n- Saved as a Sync configuration, with its source and target orgs and a name, it opens with Open in Sync: Simulate checks it there, and Run the sync writes it\n- A CSV file of records goes to Seed's CSV Upload, which loads its rows",
-    "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object",
+    "reportsContent": "Reports shows what SandForge's runs did:\n- Above the tabs: how many runs are listed, their success rate and average duration, and how many entries the audit trail holds\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Audit trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object",
     "orgsContent": "Connect an org in one of two ways, both run on the Salesforce CLI (sf):\n- Import from Salesforce CLI adds every org the CLI already holds. A CLI that holds no org yet is said as information, not an error: log in with your browser instead.\n- Log in with your browser opens the Salesforce login page; the alias is optional.\n- Login URL: Production / Developer or Sandbox; for an org that blocks both, Custom domain (My Domain)… takes its login URL as Setup → My Domain shows it.\n- Username / Password needs no CLI; JWT Bearer and OAuth (Device) are under More methods.\n\nForge, Frozen Dataset loads, Checkpoints and Compare's deploy refuse a production org; deletes are refused there too; every other write there asks first, and no setting turns that off. A sandbox holding real data (full copy, UAT): open its Edit dialog on Organizations and tick Staging, and Production Guard then asks before every delete, deployment and write over 10,000 records.\n\nAn org that will not connect: see Troubleshooting.",
     "fullGuide": "Full guide: {{section}}",
     "notFoundFaq": "Not found here? Read the full FAQ",
@@ -4107,8 +4116,8 @@
       "step2": "Open Audit trail to see every run that writes to an org, newest first.",
       "step3": "Narrow the list with Filter by action, Filter by module or Filter by org.",
       "step4": "Press View run on an entry to see on Data lineage where its records came from.",
-      "step5": "Press Export CSV or Export JSON to save the trail as filtered.",
-      "tip": "Reports writes nothing to any org; Export CSV and Export JSON save every entry the filters match, not only those shown."
+      "step5": "Press Export as CSV or Export as JSON to save the trail as filtered.",
+      "tip": "Reports writes nothing to any org; Export as CSV and Export as JSON save every entry the filters match, not only those shown."
     },
     "grappe": {
       "step1": "Click Open the Grappe setting and turn on sandforge.grappe.enabled.",

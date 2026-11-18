@@ -346,6 +346,45 @@ describe('useMonitorPageData', () => {
     expect(result.current.trendSeries[0].data[2].timestamp).toBe(realTimestamps[2]);
   });
 
+  it('names each trend in the interface language, not by its API name cut at the capitals', async () => {
+    // The tabs read "Data Storage M B" and "Daily Bulk Api Batches", in every language.
+    const trend = (limitName: string) => ({
+      limitName,
+      direction: 'stable' as const,
+      changePercent: 0,
+      sparklineData: [50, 60],
+    });
+    mockMonitorQueryState = {
+      data: {
+        ...standardPayload,
+        trends: {
+          DataStorageMB: trend('DataStorageMB'),
+          DailyBulkApiBatches: trend('DailyBulkApiBatches'),
+          SomeLimitNotNamedHere: trend('SomeLimitNotNamedHere'),
+        },
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.trendSeries.map((series) => series.name)).toEqual([
+      'Data storage',
+      'Daily Bulk API batches',
+      // A limit the catalogue does not name keeps the name Salesforce gives it.
+      'SomeLimitNotNamedHere',
+    ]);
+
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    try {
+      const { result: french } = renderHook(() => useMonitorPageData());
+      expect(french.current.trendSeries[0].name).toBe('Stockage de données');
+    } finally {
+      await act(() => i18n.changeLanguage('en'));
+    }
+  });
+
   it('should fall back to synthetic timestamps in trendSeries when timestamps is absent', () => {
     mockMonitorQueryState = {
       data: {

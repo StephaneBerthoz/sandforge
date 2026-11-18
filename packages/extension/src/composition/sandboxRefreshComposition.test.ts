@@ -142,6 +142,55 @@ describe('sandbox refresh detection wiring', () => {
     }
   });
 
+  it('offers, in the editor language, to bring the refreshed sandbox back into service, and opens the page on it', async () => {
+    // The notice said the data was gone and stopped there: the way back was
+    // a page the person had to find.
+    const opened: string[] = [];
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(
+      'Remettre en service' as unknown as vscode.MessageItem,
+    );
+    wireSandboxRefreshDetection(detector, orgManager, undefined, (orgId) => opened.push(orgId));
+
+    identityObservers.current?.(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID });
+
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+    const [shown, ...actions] = vi.mocked(vscode.window.showWarningMessage).mock.calls[0];
+    expect(String(shown)).toContain('la sandbox UAT a été rafraîchie');
+    expect(actions).toEqual(['Remettre en service']);
+    await vi.waitFor(() => expect(opened).toEqual([REGISTERED_ORG_ID]));
+  });
+
+  it('opens nothing when the notice is closed without its button', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined);
+    const opened: string[] = [];
+    wireSandboxRefreshDetection(
+      detector,
+      orgManager,
+      () => Promise.resolve(1),
+      (orgId) => opened.push(orgId),
+    );
+
+    identityObservers.current?.(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID });
+
+    await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1));
+    const [, ...actions] = vi.mocked(vscode.window.showWarningMessage).mock.calls[0];
+    expect(actions).toEqual(['Remettre en service']);
+    await Promise.resolve();
+    expect(opened).toEqual([]);
+  });
+
+  it('carries the button in every bundle the editor reads, translated', () => {
+    const source = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(source['Bring back into service']).toBe('Bring back into service');
+    for (const locale of ['de', 'es', 'fr', 'ja', 'pt-br']) {
+      const translated = bundle(locale)['Bring back into service'];
+      expect(translated, locale).toBeTruthy();
+      expect(translated, locale).not.toBe('Bring back into service');
+    }
+  });
+
   it('says nothing of a sandbox that still answers as the org it was registered with', () => {
     wireSandboxRefreshDetection(detector, orgManager);
 

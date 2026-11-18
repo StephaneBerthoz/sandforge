@@ -39,7 +39,7 @@ describe('LimitExportButton', () => {
   it('renders the export button', () => {
     render(<LimitExportButton limits={mockLimits} />);
     expect(screen.getByTestId('limit-export-btn')).toBeDefined();
-    expect(screen.getByText('Export CSV')).toBeDefined();
+    expect(screen.getByText('Export as CSV')).toBeDefined();
   });
 
   it('is disabled when limits are empty', () => {

@@ -161,7 +161,8 @@
       "notChosen": "未選択",
       "notHeld": "このマシンにもう登録されていない組織"
     },
-    "objectCountFormatted_other": "{{formatted}}個のオブジェクト"
+    "objectCountFormatted_other": "{{formatted}}個のオブジェクト",
+    "seeInReports": "レポートで表示"
   },
   "status": {
     "apiUsage": "API 使用量"
@@ -263,7 +264,6 @@
         "csv": "CSV インポート"
       }
     },
-    "jobs": "ジョブ",
     "alerts": "アラート",
     "health": "健全性スコア",
     "trends": "トレンド",
@@ -272,6 +272,7 @@
     "acknowledge": "確認済みにする",
     "dismiss": "非表示にする",
     "selectOrg": "監視する組織を選択",
+    "orgPicker": "正常性を表示する組織",
     "viewFullReport": "完全なレポートを表示",
     "healthReport": "健全性レポート",
     "limitReachedIn": "制限到達まで約{{hours}}時間",
@@ -304,7 +305,7 @@
     "anomalyScanFailed": "異常スキャンに失敗しました",
     "governorLimits": "ガバナ制限",
     "noLimits": "制限データがありません",
-    "exportCsv": "CSV をエクスポート",
+    "exportCsv": "CSV にエクスポート",
     "release": "リリース",
     "nextRelease": "次のリリース",
     "instance": "インスタンス",
@@ -346,7 +347,7 @@
       "empty": "API 使用量データがありません"
     },
     "export": {
-      "button": "CSV をエクスポート",
+      "button": "CSV にエクスポート",
       "noHistory": "履歴データがありません",
       "noHistoryDetail": "履歴エクスポートに使用できるトレンドのタイムスタンプがありません",
       "buttonHistorical": "履歴をエクスポート",
@@ -429,6 +430,11 @@
         "byProduction": "{{org}} のリフレッシュ履歴による報告",
         "orgChanged": "組織 {{from}} から組織 {{to}} に変わりました",
         "instanceChanged": "インスタンスが {{from}} から {{to}} に移動しました"
+      },
+      "recovery": {
+        "banner": "{{alias}} は{{age}}にリフレッシュされました: リフレッシュ前に書き込まれた内容は失われています。",
+        "bringBack": "運用を再開…",
+        "automate": "リフレッシュのたびに自動化…"
       }
     },
     "sessions": {
@@ -447,7 +453,15 @@
     "flowCount_other": "{{formatted}}フロー",
     "jobCount_other": "{{count}}件のジョブ",
     "apiCallsHint": "Salesforce は API リクエストを直近 24 時間の移動枠で数えます。",
-    "jobInsightsUnknown": "Apex ジョブの分析: まだ読み込まれていません。組織の Apex ジョブを読み込む更新の後に表示されます。"
+    "jobInsightsUnknown": "Apex ジョブの分析: まだ読み込まれていません。組織の Apex ジョブを読み込む更新の後に表示されます。",
+    "trendNames": {
+      "dailyApiRequests": "1 日の API リクエスト",
+      "dataStorage": "データストレージ",
+      "fileStorage": "ファイルストレージ",
+      "dailyBulkApiBatches": "1 日の Bulk API バッチ",
+      "dailyBulkV2QueryJobs": "1 日の Bulk API 2.0 クエリジョブ",
+      "dailyAsyncApexExecutions": "1 日の非同期 Apex 実行"
+    }
   },
   "compare": {
     "title": "組織比較",
@@ -3000,14 +3014,12 @@
     "title": "通知"
   },
   "reports": {
-    "title": "レポートとアナリティクス",
+    "title": "レポート",
     "executions": "実行",
-    "analytics": "アナリティクス",
     "audit": "監査ログ",
     "lineage": "データリネージ",
     "noReports": "レポートはまだ生成されていません",
     "reportsUnreadable": "レポートを読み込めませんでした: {{error}}",
-    "analyticsUnreadable": "アナリティクスを読み込めませんでした。アナリティクスはレポートと一緒に読み込まれますが、レポートを読み込めませんでした。",
     "generateReport": "レポートを生成",
     "exportReport": "レポートをエクスポート",
     "reportType": "レポートタイプ",
@@ -3018,11 +3030,8 @@
     "module": "モジュール",
     "duration": "所要時間",
     "recordCount": "レコード数",
-    "totalOperations": "操作合計",
     "successRate": "成功率",
     "avgDuration": "平均所要時間",
-    "operationsOverTime": "時系列操作",
-    "errorRate": "エラー率",
     "auditActions": {
       "org_connect": "組織接続",
       "org_disconnect": "組織切断",
@@ -3074,7 +3083,7 @@
     "destination": "出力先",
     "noLineageData": "リネージデータはありません",
     "recordsProcessed": "処理レコード数",
-    "totalReports": "合計レポート",
+    "runs": "実行",
     "auditEntries": "監査エントリ",
     "filterByOrg": "組織でフィルター",
     "allOrgs": "すべての組織",
@@ -3782,7 +3791,7 @@
     "startTour": "ガイドツアーを開始",
     "autopilotContent": "3 つのステップで：\n1. ソース組織とターゲット組織を選択します\n2. コピーするオブジェクトを選択します\n3. 計画（ウェーブ、レコード数、API コール数、PII 項目）を確認して実行します。チェックを外さない限り、メールアドレスと電話番号は無効化されます（アドレスは .invalid の下に、番号は架空の番号に）。詳細設定では、さらに匿名化するコンプライアンスフレームワーク（GDPR、CCPA、HIPAA、PCI-DSS）を選べます",
     "migrationContent": "SFDMU インポートは、SFDMU の export.json を Sync 設定に変換します：\n- インポートはファイルを読み込むだけで、どの組織も変更しません\n- ソース組織、ターゲット組織、名前を指定して Sync 設定として保存すると、「Sync で開く」で開けます。そこで「シミュレーション」が確認し、「同期を実行」が書き込みます\n- レコードの CSV ファイルは、行を読み込む Seed の「CSV アップロード」で扱います",
-    "reportsContent": "レポートには、SandForge の実行が何をしたかが表示されます：\n- 実行：Forge と Sync の各実行のステータス、所要時間、レコード数。JSON でエクスポートできます\n- アナリティクス：これらの実行から算出した成功率\n- 監査ログ：組織に書き込む各実行（Forge クローン、Sync、Seed、CSV インポート、レコードクローン、Autopilot 実行、リストア、マスキング、凍結データセットの読み込み）と、オブジェクトごとに書き込んだ内容、Production Guard の判定\n- データリネージ：実行が書き込んだレコードの出所（別の組織、生成データ、CSV ファイル、バックアップ、凍結データセット）と、オブジェクトごとの件数",
+    "reportsContent": "レポートには、SandForge の実行が何をしたかが表示されます：\n- タブの上：一覧にある実行の数、その成功率と平均所要時間、監査ログのエントリー数\n- 実行：Forge と Sync の各実行のステータス、所要時間、レコード数。JSON でエクスポートできます\n- 監査ログ：組織に書き込む各実行（Forge クローン、Sync、Seed、CSV インポート、レコードクローン、Autopilot 実行、リストア、マスキング、凍結データセットの読み込み）と、オブジェクトごとに書き込んだ内容、Production Guard の判定\n- データリネージ：実行が書き込んだレコードの出所（別の組織、生成データ、CSV ファイル、バックアップ、凍結データセット）と、オブジェクトごとの件数",
     "orgsContent": "組織の接続方法は 2 つあり、どちらも Salesforce CLI (sf) を使います：\n- 「Salesforce CLI からインポート」は、CLI がすでに保持しているすべての組織を追加します。CLI にまだ組織がない場合はエラーではなくお知らせとして表示されます。代わりにブラウザでログインしてください。\n- 「ブラウザでログイン」は Salesforce のログイン画面を開きます。別名は省略できます。\n- ログイン URL：「本番 / Developer」または「Sandbox」。両方をブロックしている組織では、「カスタムドメイン（私のドメイン）…」に、［設定］→［私のドメイン］に表示されるログイン URL を入力します。\n- 「ユーザー名 / パスワード」は CLI を使いません。「JWT Bearer」と「OAuth（デバイス）」は「その他の方法」にあります。\n\nForge、凍結データセットのロード、チェックポイント、組織比較のデプロイは本番組織を拒否します。本番組織では削除も拒否され、それ以外の書き込みはすべて事前に確認を求めます。これを無効にする設定はありません。実データを持つ Sandbox (フルコピー、UAT) は、組織ページでその「組織を編集」ダイアログを開いて「ステージング」をオンにしてください。Production Guard が、削除、デプロイ、10,000 件を超える書き込みの前に毎回確認を求めるようになります。\n\n接続できない組織については、トラブルシューティングを参照してください。",
     "fullGuide": "完全なガイド：{{section}}",
     "notFoundFaq": "見つかりませんか？ 完全な FAQ をお読みください",

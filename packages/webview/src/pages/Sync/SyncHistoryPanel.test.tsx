@@ -1,12 +1,13 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useAppStore } from '../../stores/useAppStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 
 const { mockPostMessage } = vi.hoisted(() => ({ mockPostMessage: vi.fn() }));
@@ -132,6 +133,16 @@ describe('SyncHistoryPanel', () => {
         await i18n.changeLanguage('en');
       });
     }
+  });
+
+  it('opens Reports on Executions, where its runs are listed beside Forge’s', () => {
+    const navigate = vi.fn();
+    useAppStore.setState({ navigate });
+    useSyncHistoryStore.setState({ entries: [makeMockEntry('h-1')], loading: false });
+    render(<SyncHistoryPanel />);
+
+    fireEvent.click(screen.getByTestId('sync-history-reports'));
+    expect(navigate).toHaveBeenCalledWith('reports', { reportsTab: 'executions' });
   });
 
   it('lists a run a cancel stopped as cancelled, not as partial', () => {

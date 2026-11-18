@@ -16,6 +16,7 @@ import { formatDuration, formatRelativeTime, formatStoredDate } from '../../util
 import type { RewoundRun, SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 import { SyncUnfinishedRuns } from './syncRemovalParts';
+import { SeeInReportsButton } from '../Reports/SeeInReportsButton';
 
 /** Row type compatible with DataTable's Record<string, unknown> constraint. */
 type HistoryRow = SyncHistoryEntry & Record<string, unknown>;
@@ -180,6 +181,7 @@ export const SyncHistoryPanel: React.FC = () => {
               {t('sync.history.title')}
             </h3>
             <div className="flex items-center gap-(--sf-space-2)">
+              <SeeInReportsButton tab="executions" testId="sync-history-reports" />
               <button
                 type="button"
                 className="text-xs px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"

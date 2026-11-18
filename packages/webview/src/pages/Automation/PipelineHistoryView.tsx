@@ -15,6 +15,7 @@ import { Icon } from '../../components/ui/Icon';
 import { formatDuration } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
 import { historyOutsideLine } from './pipelineOutside';
+import { SeeInReportsButton } from '../Reports/SeeInReportsButton';
 
 /** A saved pipeline a launcher starts since an export, as History names it. */
 export interface HistoryOutsidePipeline {
@@ -190,7 +191,12 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
 
   return (
     <div className="flex flex-col gap-2" data-testid="pipeline-history">
-      <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.history')}</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold text-(--sf-text-primary)">
+          {t('automation.history')}
+        </h3>
+        <SeeInReportsButton tab="audit" testId="pipeline-history-reports" />
+      </div>
       {outsideNote}
       {entries.map((entry) => (
         <div key={entry.runId} data-testid={`history-${entry.runId}`}>

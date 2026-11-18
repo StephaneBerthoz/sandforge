@@ -21,6 +21,7 @@
   "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.": "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.",
   "Its {0} checkpoint(s) kept on this machine are of the org before the refresh: they no longer bring it back, but each can still be exported, or replayed into another org, where its records are made anew with new ids.": "Its {0} checkpoint(s) kept on this machine are of the org before the refresh: they no longer bring it back, but each can still be exported, or replayed into another org, where its records are made anew with new ids.",
   "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.": "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.",
+  "Bring back into service": "Bring back into service",
   "Select the org to open in the browser": "Select the org to open in the browser",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: cannot open \"{0}\" — invalid instance URL: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".",

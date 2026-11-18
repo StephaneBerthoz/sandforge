@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Card, CardBody } from '../../components/ui/Card';
 import { Tabs } from '../../components/ui/Tabs';
 import { Sparkline } from '../../components/ui/Sparkline';
 import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
@@ -167,7 +167,6 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
 
   return (
     <Card className={cn('border-0 bg-transparent shadow-none', className)}>
-      <CardHeader title={t('monitor.trends', 'Trends')} />
       <CardBody>
         {series.length === 0 ? (
           <p className="text-xs text-text-secondary text-center py-4">

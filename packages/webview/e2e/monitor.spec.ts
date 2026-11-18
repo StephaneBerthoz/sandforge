@@ -461,6 +461,85 @@ test.describe('Monitor — dashboard', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   });
+
+  test('the header picker watches another org without going back to the list', async ({ page }) => {
+    await loadDashboard(page, bridge);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('DevSandbox');
+
+    await page.getByTestId('monitor-org').click();
+    await page.getByTestId(`monitor-org-option-${QA_SANDBOX.id}`).click();
+
+    // Told to the extension, which selects it in every view, and read anew.
+    const selections = await outgoing(page, 'org:select');
+    expect(selections.at(-1)?.payload).toEqual({ orgId: QA_SANDBOX.id });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('QASandbox');
+  });
+});
+
+test.describe('Monitor — after a sandbox refresh', () => {
+  /** The answer of a sandbox whose refresh SandForge noticed `ago` ms before now. */
+  const refreshedAgo = (ago: number) => ({
+    success: true,
+    supported: false,
+    refreshes: [],
+    inProgress: false,
+    detected: [
+      {
+        detectedAt: new Date(Date.now() - ago).toISOString(),
+        evidence: 'connection',
+        previousOrganizationId: '00D000000000001',
+        organizationId: '00D000000000009',
+      },
+    ],
+  });
+
+  test('a refresh noticed this week leads the dashboard, and opens Back into service', async ({
+    page,
+  }) => {
+    // The refresh was told in the fourteenth panel, below the fold, and
+    // nothing led from it.
+    const bridge = await openMonitorOnSelectedOrg(page);
+    await loadDashboard(page, bridge);
+    await bridge.waitForMessage('monitor:sandbox-refresh', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'monitor:sandbox-refresh',
+      'monitor:sandbox-refresh:response',
+      refreshedAgo(2 * 86_400_000),
+    );
+
+    const banner = page.getByTestId('monitor-after-refresh');
+    await expect(banner).toContainText('DevSandbox was refreshed 2 days ago');
+    await expect(banner).toBeInViewport();
+    // The panel's row of the refresh carries the same two ways on.
+    await expect(page.getByTestId('refresh-detected-bring-back')).toHaveText(
+      'Bring back into service…',
+    );
+    await expect(page.getByTestId('refresh-detected-automate')).toHaveText(
+      'Automate after each refresh…',
+    );
+
+    await banner.getByTestId('monitor-after-refresh-bring-back').click();
+    await expect(page.getByTestId('recovery-page')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Bring DevSandbox back into service',
+    );
+  });
+
+  test('a refresh older than a week leaves the dashboard as it is', async ({ page }) => {
+    const bridge = await openMonitorOnSelectedOrg(page);
+    await loadDashboard(page, bridge);
+    await bridge.waitForMessage('monitor:sandbox-refresh', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'monitor:sandbox-refresh',
+      'monitor:sandbox-refresh:response',
+      refreshedAgo(10 * 86_400_000),
+    );
+
+    await expect(page.getByTestId('refresh-detected-bring-back')).toBeVisible();
+    await expect(page.getByTestId('monitor-after-refresh')).toHaveCount(0);
+  });
 });
 
 test.describe('Monitor — trend chart', () => {
