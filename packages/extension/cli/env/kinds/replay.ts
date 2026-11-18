@@ -58,6 +58,7 @@ import {
   type ReplayGuardTarget,
 } from '../../../src/modules/checkpoint/replay/replaySourceGuard.js';
 import { countedStorageBytes } from '../../../src/modules/forge/ForgeRunGate.js';
+import { replayRefusedWords } from '../../checkpointReplay.js';
 import { commandOf } from '../../invocation.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
@@ -687,8 +688,26 @@ const replaySummarySchema = z
     records: z.object({ toCreate: countSchema }).loose(),
     owners: z.object({ kept: countSchema, toRunningUser: countSchema }).loose().optional(),
     filesLeft: z.array(z.object({ objectApiName: z.string() }).loose()),
+    /** Per object and reason, the records it refuses before anything is written, and the way out. */
+    refused: z
+      .array(
+        z
+          .object({
+            object: z.string().min(1),
+            records: countSchema,
+            reason: z.string().min(1),
+            path: z.string().optional(),
+          })
+          .loose(),
+      )
+      .optional(),
     requests: countSchema,
   })
+  .loose();
+
+/** The requests a load's gate estimated, its reads of the org among them, as its plan carries them. */
+const planApiRequestsSchema = z
+  .object({ apiRequests: z.object({ estimate: countSchema }).loose() })
   .loose();
 
 /**
@@ -923,7 +942,14 @@ function replayEmailsOf(plan: Record<string, unknown> | undefined): EnvDryRunCou
  * the replay's own words, with their codes. One that would create nothing is
  * refused: a run held to no count is held to nothing. What it leaves out
  * without refusing — the files a checkpoint keeps no content of, the records
- * that go to the user connected — is said beside.
+ * that go to the user connected — is said beside; so are, per object, the
+ * records it refuses before anything is written, with its way out, which
+ * leave a run of the others partial (exit 3). Its API requests are those
+ * its gate estimated, its reads of the org among them.
+ *
+ * Live, a dry run that refused 4 accounts in a currency the org had not
+ * activated and estimated 40 requests was planned "Account 113 to write",
+ * "0 blocked", nothing said of the 4, and its requests "not counted".
  */
 export function replayDryRunCount(answer: ReplayDryRunAnswer): EnvDryRunCount {
   const said = [
@@ -966,7 +992,13 @@ export function replayDryRunCount(answer: ReplayDryRunAnswer): EnvDryRunCount {
             'not an active user of the org',
         ]
       : []),
+    ...refusedBeforeWrite(summary).map(
+      (refused) =>
+        `${refused.object}: ${refused.records} record(s) refused before anything is written, ` +
+        `which leave a run partial — ${replayRefusedWords(refused)}`,
+    ),
   ];
+  const estimated = planApiRequestsSchema.safeParse(answer.plan);
   return {
     objects: objects.map((object) => ({
       object: object.objectApiName,
@@ -974,6 +1006,7 @@ export function replayDryRunCount(answer: ReplayDryRunAnswer): EnvDryRunCount {
     })),
     total,
     created: total,
+    ...(estimated.success ? { apiRequests: estimated.data.apiRequests.estimate } : {}),
     storageBytes: objects.reduce(
       (sum, object) => sum + countedStorageBytes(object.objectApiName, { rows: object.toInsert }),
       0,
@@ -985,7 +1018,19 @@ export function replayDryRunCount(answer: ReplayDryRunAnswer): EnvDryRunCount {
   };
 }
 
-/** What a replay wrote, per object, from its answer: the records it created, and those refused. */
+/** The records a replay refuses before anything is written, per object and reason, as it counts them. */
+function refusedBeforeWrite(
+  summary: z.infer<typeof replaySummarySchema> | undefined,
+): NonNullable<z.infer<typeof replaySummarySchema>['refused']> {
+  return (summary?.refused ?? []).filter((refused) => refused.records > 0);
+}
+
+/**
+ * What a replay wrote, per object, from its answer: the records it created,
+ * and those refused — by the org as they were written, and by the replay
+ * before anything was, each with its way out. The replay ends partial for
+ * the latter (exit 3), its load whole.
+ */
 export function replayRunCount(answer: ReplayRunAnswer): EnvRunCount {
   const objects = (answer.objects ?? []).map((object) => ({
     object: object.objectApiName,
@@ -995,6 +1040,21 @@ export function replayRunCount(answer: ReplayRunAnswer): EnvRunCount {
   }));
   if (objects.length === 0 && answer.refused !== undefined) {
     return { objects: [], created: 0, refusal: answer.refused.message };
+  }
+  for (const refused of refusedBeforeWrite(answer.replay)) {
+    const said = `${refused.records} refused before anything is written — ${replayRefusedWords(refused)}`;
+    const at = objects.find((object) => object.object === refused.object);
+    if (at !== undefined) {
+      at.refused += refused.records;
+      at.errors.push(said);
+    } else {
+      objects.push({
+        object: refused.object,
+        created: 0,
+        refused: refused.records,
+        errors: [said],
+      });
+    }
   }
   return { objects, created: objects.reduce((sum, object) => sum + object.created, 0) };
 }

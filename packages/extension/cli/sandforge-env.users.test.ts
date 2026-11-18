@@ -325,9 +325,17 @@ class UsersScript {
 
 // ─── sandforge checkpoint replay, as this test answers it ───────────────────
 
+/**
+ * What the replay refuses before anything is written, and the requests its
+ * gate estimates, as a test sets them: none unless told. A replay that wrote
+ * the rest exits 3.
+ */
+let replayRefuses: { refused: unknown[]; estimate: number } | undefined;
+
 /** `sandforge checkpoint replay`: its dry run, its run held to a count, and its removal. */
 function replayAnswer(args: readonly string[]): CommandRun {
   const value = (flag: string): string => args[args.indexOf(flag) + 1] ?? '';
+  const refuses = replayRefuses;
   const base = {
     command: 'replay',
     checkpoint: { id: value('--checkpoint'), organizationId: value('--from') },
@@ -339,6 +347,7 @@ function replayAnswer(args: readonly string[]): CommandRun {
     owners: { kept: 9, toRunningUser: 0 },
     filesLeft: [],
     requests: 4,
+    ...(refuses !== undefined ? { refused: refuses.refused } : {}),
   };
   if (args.includes('--remove')) {
     const object = (objectApiName: string, n: number) => ({
@@ -377,6 +386,9 @@ function replayAnswer(args: readonly string[]): CommandRun {
         ...base,
         action: 'dryRun',
         objects: [object('Account', 3), object('Contact', 6)],
+        ...(refuses !== undefined
+          ? { plan: { apiRequests: { verdict: 'fits', estimate: refuses.estimate } } }
+          : {}),
         replay,
       }),
       stderr: '',
@@ -388,10 +400,12 @@ function replayAnswer(args: readonly string[]): CommandRun {
     inserted: n,
     failed: 0,
   });
+  const code = refuses !== undefined ? 3 : 0;
   return {
-    code: 0,
+    code,
     stdout: JSON.stringify({
       ...base,
+      exit: code,
       action: 'replay',
       status: 'success',
       objects: [object('Account', 3), object('Contact', 6)],
@@ -486,6 +500,7 @@ beforeEach(() => {
   worldOf();
   users = new UsersScript(() => journalDir);
   replays = [];
+  replayRefuses = undefined;
   calls = [];
   stdout = [];
   stderr = [];
@@ -976,6 +991,48 @@ describe('a replay resource', () => {
     expect(replays.at(-1)).toEqual(
       expect.arrayContaining(['--checkpoint', CHECKPOINT, '--remove', '--yes', '--json']),
     );
+  });
+
+  it('names per object what the replay refuses before anything is written, with its way out, counts the requests its dry run estimates, and ends the apply partial: exit 3', async () => {
+    // A real apply said "Account 113 to write", "0 blocked", "API requests:
+    // about 0 … not counted: the requests of the run of test-data, which its
+    // script does not estimate", then "exit 0, applied Account 113 created",
+    // of a replay that had refused 4 accounts and estimated 40 requests.
+    await kept();
+    writeFile(replayFile({ id: CHECKPOINT }));
+    replayRefuses = {
+      refused: [
+        {
+          object: 'Account',
+          records: 4,
+          reason: 'inactiveCurrency',
+          path: 'activate GBP in TGT, or leave Account out',
+        },
+      ],
+      estimate: 40,
+    };
+    const refusedWords =
+      'their currency is not active in the other org: activate GBP in TGT, or leave Account out';
+
+    const planned = await run(['plan', '--org', 'TGT']);
+
+    expect(planned.code, planned.said).toBe(0);
+    expect(planned.out).toContain(
+      `Account: 4 record(s) refused before anything is written, which leave a run partial — ${refusedWords}`,
+    );
+    expect(planned.out).toContain('\nAPI requests: about 40, ');
+    expect(planned.out).not.toContain('the requests of the run of test-data');
+
+    const applied = await apply();
+
+    expect(applied.code, applied.said).toBe(3);
+    expect(applied.result.status).toBe('partial');
+    expect(applied.said).toContain(
+      '  test-data replay 1: exit 3, partial  Account 3, Contact 6 created, 4 refused; 9 ' +
+        'records kept their owner, 0 went to you\n' +
+        `      Account: 4 refused before anything is written — ${refusedWords}\n`,
+    );
+    expect((await stateOf()).state?.resources['test-data']?.status).toBe('partial');
   });
 });
 

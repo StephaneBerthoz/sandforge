@@ -615,6 +615,18 @@ const REFUSED_WORDS: Readonly<Record<CheckpointReplayRefusedReason, string>> = {
   recordTypeUnavailable: 'their record type is one the user who replays may not create',
 };
 
+/**
+ * Why records of a replay are refused before anything is written, and the
+ * way out the replay names, in its words: what an environment says of them
+ * too. A reason it does not know is said by its code.
+ */
+export function replayRefusedWords(refused: { reason: string; path?: string }): string {
+  const words = Object.hasOwn(REFUSED_WORDS, refused.reason)
+    ? REFUSED_WORDS[refused.reason as CheckpointReplayRefusedReason]
+    : refused.reason;
+  return `${words}${refused.path ? `: ${refused.path}` : ''}`;
+}
+
 const RECORD_TYPE_WORDS: Readonly<
   Record<CheckpointReplaySummary['recordTypes'][number]['outcome'], string>
 > = {
@@ -668,7 +680,7 @@ export function replayDetailLines(info: FrozenReplayInfo): string[] {
   for (const refused of summary.refused) {
     lines.push(
       `refused before anything is written: ${refused.object} ${count(refused.records)} — ` +
-        `${REFUSED_WORDS[refused.reason]}${refused.path ? `: ${refused.path}` : ''}`,
+        replayRefusedWords(refused),
     );
   }
   for (const left of summary.notReplayed) {

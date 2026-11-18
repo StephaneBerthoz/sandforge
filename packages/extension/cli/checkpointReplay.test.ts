@@ -601,6 +601,61 @@ describe('sandforge checkpoint replay', () => {
     );
   });
 
+  it('writes the records it does not refuse and ends partial, exit 3, when it refused others of the checkpoint before anything was written, each said with its way out', async () => {
+    // A real replay refused 4 accounts in a currency the other org had not
+    // activated, wrote the 113 others, and exited 0: a pipeline gated on it
+    // went on as if the checkpoint were all there.
+    const spec = replayCheckpointSpec({ accounts: 3, perAccount: 2, mark: 'currency' });
+    const currencies = ['USD', 'GBP', 'USD'];
+    const world = await made({
+      spec: {
+        objects: spec.objects.map((object) =>
+          object.objectApiName === 'Account'
+            ? {
+                ...object,
+                rows: object.rows.map((row, at) => ({ ...row, CurrencyIsoCode: currencies[at] })),
+              }
+            : object,
+        ),
+      },
+      target: { currencies: ['USD', 'EUR'] },
+    });
+
+    expect(await run(world, ...of(world, '--dry-run', '--json'))).toBe(0);
+    const dry = JSON.parse(stdout) as { replay: Record<string, unknown>; exit: number };
+    expect(dry.exit).toBe(0);
+    expect(dry.replay['refused']).toEqual([
+      {
+        object: 'Account',
+        records: 1,
+        reason: 'inactiveCurrency',
+        path: 'activate GBP in DEV2, or leave Account out',
+      },
+      {
+        object: 'Contact',
+        records: 2,
+        reason: 'parentRefused',
+        path: 'its Account is refused: lift that first',
+      },
+    ]);
+
+    const code = await run(world, ...of(world, '--yes', '--json'));
+
+    expect(code).toBe(3);
+    expect(held(world)).toEqual({ accounts: 2, contacts: 4 });
+    const answer = JSON.parse(stdout) as {
+      exit: number;
+      objects: Array<{ objectApiName: string; inserted: number; failed: number }>;
+      replay: { refused: unknown[] };
+    };
+    expect(answer.exit).toBe(3);
+    expect(answer.replay.refused).toHaveLength(2);
+    expect(stderr).toContain(
+      'refused before anything is written: Account 1 — their currency is not active in the ' +
+        'other org: activate GBP in DEV2, or leave Account out',
+    );
+  });
+
   it('stops at its question with no terminal, its plan said and nothing written: exit 2', async () => {
     const world = await made();
 

@@ -768,7 +768,8 @@ A replay resource replays a [checkpoint](modules/checkpoint.md) into the org thr
 
 - **One checkpoint, in one of three forms.** `checkpoint.id` names one kept on this machine; `checkpoint.name`, the newest of that name taken of this sandbox before its refresh -- the same username, or the same My Domain host -- or, with `from`, of the org that role names; `checkpoint.file`, a `.sfcheckpoint` an export wrote, from the root or `{ env: NAME }`, opened with the key held by the variable `keyEnv` names, which the file never holds. The plan resolves it to one checkpoint of this machine, by its files alone: no org is reached, no key is read. One it does not find blocks the apply before its first write (`REPLAY_CHECKPOINT_NOT_FOUND`), with the line that takes one before the next refresh.
 - **The replay's own choices, and its guards.** `objects`, `excludeObjects`, `owners` (`same` or `me`), `customSettings`, `mask`, `keepContactPoints` and `maxRecords` are handed to the replay as the flags of their names, and every guard of the replay holds: what it refuses blocks the resource, in its own words.
-- **Planned by its dry run, held to it.** The plan dry-runs the replay and shows what it would create; the run is held to that count. A record the org holds under the same Id -- a sandbox copied again from the same production -- is linked, not changed.
+- **Planned by its dry run, held to it.** The plan dry-runs the replay and shows what it would create; the run is held to that count. A record the org holds under the same Id -- a sandbox copied again from the same production -- is linked, not changed. Its API requests are those the replay's dry run estimates, its reads of the org among them.
+- **What it refuses, named.** A record the replay refuses before anything is written -- in a currency the org has not activated, a person account where it has none, under a parent refused -- is named per object by the plan and the apply, with the replay's way out (`activate GBP in uat, or leave Account out`): the run writes the others, and the resource is partial, exit `3`.
 - **Replaced, and taken back, by the replay itself.** A newer checkpoint of the name, or other choices, replace the resource: the replay runs again, its purge taking back first what the replays before it created there. `destroy` takes it back by the replay's own removal.
 
 [After a sandbox refresh](#after-a-sandbox-refresh) has a replay resource applied.
@@ -1424,7 +1425,7 @@ state: none for this Organization Id; uat was refreshed since the last apply, wh
   create   test-data  Account 2 to write; Contact 2 to write
            not applied to this org yet
 totals: 3 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 63, 14000 left; not counted: the requests of the run of customers, which its script does not estimate, the requests of the run of test-data, which its script does not estimate
+API requests: about 80, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0.01 MB, 5 MB left
 emails to people: 2, which the line accepts with --accept-user-emails
 checkpoint once applied: 'uat-baseline', about 11 records, 19 API requests, 6 s, 0.01 MB on this machine
@@ -1457,7 +1458,7 @@ state: none for this Organization Id; uat was refreshed since the last apply, wh
   create   test-data  Account 2 to write; Contact 2 to write
            not applied to this org yet
 totals: 3 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 63, 14000 left; not counted: the requests of the run of customers, which its script does not estimate, the requests of the run of test-data, which its script does not estimate
+API requests: about 80, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0.01 MB, 5 MB left
 emails to people: 2, accepted by the line (--accept-user-emails)
 checkpoint once applied: 'uat-baseline', about 11 records, 19 API requests, 6 s, 0.01 MB on this machine

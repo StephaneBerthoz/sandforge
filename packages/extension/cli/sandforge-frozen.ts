@@ -1320,8 +1320,9 @@ export function commandLineOtherRuns(
 /**
  * The exit code of a step that ran through, from what it posted: `verify` by
  * its verdict — FAILED 1, PARTIAL 3, UNSTABLE 4 —, `load` 3 when it completed
- * with errors or partial, `remove` 3 when it left records of the load or its
- * sweep did not take all it was asked to, which its status says. A load is
+ * with errors or partial, or replayed a checkpoint some of whose records it
+ * refused before anything was written, `remove` 3 when it left records of the
+ * load or its sweep did not take all it was asked to, which its status says. A load is
  * judged by its own report, which the verification it chains ends partial when
  * it is FAILED or PARTIAL; `verify` gives every verdict a code. Exported so it
  * can be tested.
@@ -1341,8 +1342,15 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
         // to, left in the org what the automation made for a load it
         // replaced: partial, as the removal its sweep belongs to ends.
         const report = p.report as { status?: unknown; sweeps?: FrozenReloadSweep[] } | undefined;
+        // A replay that refused records of its checkpoint before anything was
+        // written loads the others whole: partial all the same. Live, one
+        // refused 4 accounts in a currency the other org had not activated,
+        // wrote the 113 others, and exited 0.
+        const refused = (p.replay as FrozenReplayInfo | undefined)?.summary.records
+          .refusedBeforeWrite;
         return report?.status === 'completed' &&
-          (report.sweeps ?? []).every((swept) => swept.result.status === 'success')
+          (report.sweeps ?? []).every((swept) => swept.result.status === 'success') &&
+          (refused ?? 0) === 0
           ? DONE_EXIT
           : PARTIAL_EXIT;
       }

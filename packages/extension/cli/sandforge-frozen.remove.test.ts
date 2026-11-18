@@ -499,6 +499,18 @@ describe('the exit code of a step', () => {
     expect(frozenStepExit('load', [load('completed'), verdict('unstable')])).toBe(0);
   });
 
+  it('gives a replay that refused records of its checkpoint before anything was written 3, its load whole', () => {
+    const replayed = (refusedBeforeWrite: number) => ({
+      type: 'frozen:load:response',
+      payload: {
+        report: { status: 'completed' },
+        replay: { summary: { records: { toCreate: 113, refusedBeforeWrite } } },
+      },
+    });
+    expect(frozenStepExit('load', [replayed(0), verdict('passed')])).toBe(0);
+    expect(frozenStepExit('load', [replayed(4), verdict('passed')])).toBe(3);
+  });
+
   it('gives a reload whose sweep did not take all it was to 3, as the removal its sweep belongs to', () => {
     const reload = (...statuses: string[]) => ({
       type: 'frozen:load:response',

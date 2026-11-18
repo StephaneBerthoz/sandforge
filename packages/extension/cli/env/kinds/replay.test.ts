@@ -584,6 +584,66 @@ describe('what the replay answers', () => {
     expect(count.refusal).toBeUndefined();
   });
 
+  /**
+   * As a real dry run answered: its reads of the org took 27 requests, its
+   * gate counted 40 with them, and it refused 4 accounts in a currency the
+   * org had not activated before anything was written, the 113 others to
+   * create. The plan said "Account 113 to write", "0 blocked", nothing of
+   * the 4, and that the script estimated no request.
+   */
+  const refusing = {
+    ...base,
+    action: 'dryRun',
+    objects: [dryObject('Account', 113)],
+    plan: { apiRequests: { verdict: 'fits', estimate: 40, remaining: 4_961_845, max: 5_000_000 } },
+    replay: {
+      records: { toCreate: 113, linkedById: 0, linkedByKey: 0, refusedBeforeWrite: 10 },
+      owners: { kept: 0, toRunningUser: 0 },
+      filesLeft: [],
+      requests: 27,
+      refused: [
+        {
+          object: 'Account',
+          records: 4,
+          reason: 'inactiveCurrency',
+          path: 'activate GBP in uat, or leave Account out',
+        },
+        {
+          object: 'Contact',
+          records: 6,
+          reason: 'parentRefused',
+          path: 'its Account is refused: lift that first',
+        },
+      ],
+    },
+  };
+
+  it('counts the API requests its dry run estimates, its reads of the org among them', () => {
+    expect(replayDryRunCount(readReplayDryRun(JSON.stringify(refusing))).apiRequests).toBe(40);
+    // A dry run that gave no estimate is one the plan says it does not count.
+    expect(
+      replayDryRunCount(
+        readReplayDryRun(
+          JSON.stringify({ ...base, action: 'dryRun', objects: [dryObject('Account', 1)] }),
+        ),
+      ).apiRequests,
+    ).toBeUndefined();
+  });
+
+  it('names per object the records it refuses before anything is written, with its way out, and that a run of the others ends partial', () => {
+    const count = replayDryRunCount(readReplayDryRun(JSON.stringify(refusing)));
+
+    expect(count.refusal).toBeUndefined();
+    expect(count.objects).toEqual([{ object: 'Account', wouldCreate: 113 }]);
+    expect(count.notes).toEqual([
+      'Account: 4 record(s) refused before anything is written, which leave a run partial — ' +
+        'their currency is not active in the other org: activate GBP in uat, or leave Account out',
+      'Contact: 6 record(s) refused before anything is written, which leave a run partial — a ' +
+        'parent of theirs is refused, and no orphan is written: its Account is refused: lift ' +
+        'that first',
+    ]);
+  });
+
   it('refuses a dry run that creates nothing, says nothing, or is refused, in the replay’s own words and codes', () => {
     const read = (over: Record<string, unknown>) =>
       replayDryRunCount(readReplayDryRun(JSON.stringify({ ...base, action: 'dryRun', ...over })));
@@ -632,6 +692,44 @@ describe('what the replay answers', () => {
     expect(
       replayRunCount({ ...run, objects: undefined, refused: { code: 'X', message: 'refused' } }),
     ).toEqual({ objects: [], created: 0, refusal: 'refused' });
+  });
+
+  it('counts per object the records a run refused before anything is written, with its way out, beside those the org refused', () => {
+    const run = readReplayRun(
+      JSON.stringify({
+        ...base,
+        exit: 3,
+        action: 'replay',
+        objects: [{ objectApiName: 'Account', fromFiles: 113, inserted: 112, failed: 1 }],
+        replay: refusing.replay,
+      }),
+    );
+
+    expect(replayRunCount(run)).toEqual({
+      objects: [
+        {
+          object: 'Account',
+          created: 112,
+          refused: 5,
+          errors: [
+            '1 refused by the org',
+            '4 refused before anything is written — their currency is not active in the other ' +
+              'org: activate GBP in uat, or leave Account out',
+          ],
+        },
+        // Every record of it refused: the load counted none of it to write.
+        {
+          object: 'Contact',
+          created: 0,
+          refused: 6,
+          errors: [
+            '6 refused before anything is written — a parent of theirs is refused, and no ' +
+              'orphan is written: its Account is refused: lift that first',
+          ],
+        },
+      ],
+      created: 112,
+    });
   });
 
   it('reads a preview of its removal, nothing to take when it took all already', () => {
