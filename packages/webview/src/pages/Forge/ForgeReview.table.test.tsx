@@ -98,7 +98,7 @@ describe('ForgeReview — the table of a wide graph', () => {
         }),
       );
     });
-    fireEvent.click(screen.getByTestId('tab-compliance'));
+    fireEvent.click(screen.getByTestId('tab-anonymization'));
 
     expect(tableDraws.count).toBe(0);
   });

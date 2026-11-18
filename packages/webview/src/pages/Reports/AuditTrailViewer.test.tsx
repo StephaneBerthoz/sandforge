@@ -607,13 +607,15 @@ describe('AuditTrailViewer', () => {
   });
 
   it.each([
-    ['fr', fr, /Répét/],
-    ['de', de, /Probe\b|geprobt/],
+    ['fr', fr, 'dans la cible', /Essai à blanc/],
+    ['de', de, 'im Ziel', /Probe\b|geprobt|Probelauf/],
   ] as const)(
-    'names a rehearsal in %s with the word its button says, not the old one',
-    async (lng, catalogue, old) => {
-      // Forge's button became « Essai à blanc » and „Probelauf“; the trail
-      // still said « Répétition Forge », « Répété 2 min avant », „Forge-Probe“.
+    'names a rehearsal in %s with the words its button says, not the old ones',
+    async (lng, catalogue, where, old) => {
+      // Forge's button became « Essai à blanc » and „Probelauf“, the trail
+      // still saying « Répétition Forge », « Répété 2 min avant », „Forge-Probe“.
+      // Those were Automation's dry run, which writes nothing: the button now
+      // says the rehearsal happens in the target, and so does the trail.
       const rehearsal: AuditLogEntry = {
         ...forgeRun,
         action: 'forge_rehearse',
@@ -629,12 +631,12 @@ describe('AuditTrailViewer', () => {
       try {
         render(<AuditTrailViewer entries={[rehearsal]} />);
 
-        const word = catalogue.forgeRun.rehearsal.action;
         const row = screen.getByTestId('audit-aud-forge');
         const badge = catalogue.reports.auditActions.forge_rehearse;
-        expect(badge).toContain(word);
+        expect(catalogue.forgeRun.rehearsal.action).toContain(where);
+        expect(badge).toContain(where);
         expect(within(row).getByText(badge)).toBeDefined();
-        expect(screen.getByTestId('audit-context-aud-forge').textContent).toContain(`${word} 2 `);
+        expect(screen.getByTestId('audit-context-aud-forge').textContent).toContain(`${where} 2 `);
         expect(row.textContent).not.toMatch(old);
       } finally {
         await i18n.changeLanguage('en');

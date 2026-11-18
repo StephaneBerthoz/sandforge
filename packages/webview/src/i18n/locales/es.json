@@ -3971,7 +3971,7 @@
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Presencia de permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Objetos: los objetos de ambas orgs, leídos en vivo al abrir la pestaña\n- Desvío de ajustes de la org: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Desplegar desde diff: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox, una scratch org o una org Developer Edition",
     "dataopsContent": "Operaciones de datos en la org elegida arriba de la página:\n- Respaldo: una copia de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en este equipo. No es un punto de control: antes de una ejecución arriesgada en un sandbox, cree un punto de control. Respaldar por tramos supera el tamaño de un respaldo; detenido, queda parcial.\n- Restaurar pregunta antes, nombrando la org y cada objeto del respaldo, y luego devuelve el respaldo a la org de la que se tomó; salvo que esté marcada Volver a escribir cada fila del respaldo, solo escribe las filas que cambiaron desde entonces.\n- Anonimizar enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA, o una propia de Crear plantilla; salvo que desmarque Conservar primero los valores, respalda lo que enmascara, para que Restaurar pueda devolverlo.\n- Cumplimiento encuentra los campos con datos personales y luego los registros de una persona por correo, nombre o teléfono, para exportarlos, anonimizarlos o eliminarlos tras una revisión y una confirmación escrita.\n- Limpieza cuenta registros inactivos, búsquedas vacías y valores repetidos, para exportarlos o eliminarlos tras una revisión y una confirmación escrita, 1.000 a la vez.\n- Calidad cuenta con qué frecuencia se rellena cada campo, los valores de clave compartidos y los registros inactivos, y no escribe nada.",
     "automationContent": "Constructor visual de pipelines:\n- En Pasos, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o, si no tiene alias, su nombre o su ID de organización. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
-    "forgeContent": "Forge copia un registro y lo que se relaciona con él, desde la org seleccionada en el panel lateral a un sandbox, una scratch org o una org Developer Edition; rechaza cualquier otra org. Los ID se reasignan al escribir.\n- Antes de Ejecutar Forge, en la revisión: Simular comprueba aquí cada registro, no envía nada; Ensayar: el destino prueba una muestra, revertida; consume llamadas a la API.\n- Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están. Anonimizar PII enmascara nombres, direcciones y otros campos personales.\n- Guardar como plantilla, en los resultados de una ejecución, conserva su registro o su consulta, su profundidad, sus opciones y sus decisiones; la pestaña Plantilla la vuelve a ejecutar, e Importar una plantilla lee una desde un archivo.\n- Clonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación sin detenerse en el grafo ni en la revisión; Production Guard juzga esa ejecución como cualquier otra.\n- Grafo o tabla: hasta 25 objetos se dibujan como grafo, más como tabla, igual que cualquier grafo en un panel de menos de 560 píxeles; Vista de grafo / Vista de tabla, o el ajuste sandforge.forge.graphView, elige la vista.\n- Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
+    "forgeContent": "Forge copia un registro y lo que se relaciona con él, desde la org seleccionada en el panel lateral a un sandbox, una scratch org o una org Developer Edition; rechaza cualquier otra org. Los ID se reasignan al escribir.\n- Antes de Ejecutar Forge, en la revisión: Simular comprueba aquí cada registro, no envía nada; Ensayar: el destino prueba una muestra, revertida; consume llamadas a la API.\n- Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están. Anonimizar PII enmascara nombres, direcciones y otros campos personales.\n- Guardar como plantilla, en los resultados de una ejecución, conserva su registro o su consulta, su profundidad, sus opciones y sus decisiones; la pestaña Plantilla la vuelve a ejecutar, e Importar una plantilla lee una desde un archivo.\n- Clonar directamente, en Otras formas de empezar, ejecuta el descubrimiento y luego la clonación sin detenerse en el grafo ni en la revisión; Production Guard juzga esa ejecución como cualquier otra.\n- Grafo o tabla: hasta 25 objetos se dibujan como grafo, más como tabla, igual que cualquier grafo en un panel de menos de 560 píxeles; Vista de grafo / Vista de tabla, o el ajuste sandforge.forge.graphView, elige la vista.\n- Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
     "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Archivo de reglas: Ejecutar extracción necesita uno, en ~/.sandforge-sas/rules.json salvo que la configuración lo mueva. Crear archivo de reglas escribe uno vacío, que vacía cada campo sin regla; una regla nombra su campo como Objeto.Campo y un generador como email, firstName, clear o keep (aprobado), y Formato de las reglas los lista todos\n- Seudonimización determinista, con SANDFORGE_FROZEN_SALT donde está definida o, en su defecto, con la sal guardada en el almacenamiento secreto de VS Code, que la primera extracción crea si aún no hay ninguna\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: en un sandbox, una scratch org o una org Developer Edition, nunca en una org de producción ni en un sandbox marcado como Staging, con un Piloto opcional sobre primero un registro raíz, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
     "aiContent": "Asistente IA, con su propia clave de Anthropic:\n- El chat; la pestaña IA de Forge, que redacta una consulta SOQL a partir de su pregunta; las personas personalizadas, las reglas de campo IA y Redactar a partir de su propio texto en Seed\n- Borradores de pipeline en Automatización\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su equipo, con la IA activada o desactivada, y no envía nada\n- No se envía nada para una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni para ningún fallo mientras no hay una vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automatización envía su mensaje de error, con sus Id de Salesforce sustituidos por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- El escaneo de anomalías del Monitor se basa en reglas: funciona con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
@@ -4021,7 +4021,7 @@
     "forge": {
       "step1": "Elija la Org de destino; la Org de origen ya es la org seleccionada en el panel lateral.",
       "step2": "Pegue un ID de registro o una consulta en la pestaña SOQL, o elija ALL para copiar toda la org, y haga clic en Descubrir grafo.",
-      "step3": "Cuando termine el descubrimiento, haga clic en Revisar y ejecutar.",
+      "step3": "Cuando termine el descubrimiento, haga clic en Continuar a la revisión.",
       "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
       "tip": "Simular no escribe nada; Ensayar escribe una muestra y la revierte; Eliminar los registros que creó esta ejecución, en Ejecuciones recientes, los borra."
     },
@@ -4410,6 +4410,7 @@
     "reuseLastGraphHint": "Omita el descubrimiento de más de 30 s y reutilice el grafo de su última ejecución.",
     "quickStartTemplate": "Inicio rápido ({{name}})",
     "quickStartTemplateHint": "Omita el descubrimiento y use el conjunto de objetos conocido de la plantilla inicial. Las cantidades de registros se consultarán durante la ejecución.",
+    "otherWaysToStart": "Otras formas de empezar",
     "emptyState": {
       "title": "Rellene su sandbox a partir de un registro real",
       "step1Select": "Seleccione una org de origen",
@@ -4471,6 +4472,7 @@
       "execution": "Ejecución",
       "results": "Resultados"
     },
+    "phaseSkipped": "omitida",
     "rootRecordSummary_one": "Registro raíz · {{object}} · {{formatted}} campo",
     "rootRecordSummary_other": "Registro raíz · {{object}} · {{formatted}} campos",
     "anonymizeHint": "Anonimizar PII enmascara nombres, direcciones y otros campos personales.",
@@ -4624,7 +4626,7 @@
     "paused": "EN PAUSA",
     "finishing": "FINALIZANDO...",
     "finishingNote": "Todos los objetos del grafo están resueltos. La ejecución está terminando; sus resultados llegarán en cuanto acabe.",
-    "aborted": "CANCELADO",
+    "aborted": "DETENCIÓN SOLICITADA",
     "stopping": "DETENIENDO...",
     "stoppingNote": "Detención solicitada: la ejecución se detiene en cuanto termina el paso en curso y luego dice lo que escribió.",
     "stopUnanswered": "La ejecución aún no ha respondido a la detención. Puede que todavía esté terminando un paso: lo que escriba se queda en la org de destino, y aparece en «Ejecuciones recientes» en cuanto la ejecución responda.",
@@ -4642,12 +4644,12 @@
     "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
     "executeForge": "Ejecutar Forge",
     "runStoppedOn": "La ejecución se detuvo antes de terminar: {{message}}",
-    "runCancelled": "Canceló la ejecución antes de que terminara.",
+    "runCancelled": "Detuvo la ejecución antes de que terminara.",
     "runStoppedWrote_one": "Antes de detenerse, había creado {{count}} registro en la org de destino.",
     "runStoppedWrote_other": "Antes de detenerse, había creado {{count}} registros en la org de destino.",
     "seeStoppedRun": "Ver lo que escribió",
     "backToReview": "Volver a la revisión",
-    "reviewAndExecute": "Revisar y ejecutar",
+    "reviewAndExecute": "Continuar a la revisión",
     "records": "Registros",
     "recordsInSourceTables": "Registros en las tablas de origen",
     "estDuration": "Duración est.",
@@ -4676,6 +4678,8 @@
     "saveTemplate": "Guardar como plantilla",
     "copyReport": "Copiar informe",
     "forgeAgain": "Forjar de nuevo",
+    "nextSteps": "Próximos pasos",
+    "exportMenu": "Exportar…",
     "object": "Objeto",
     "status": "Estado",
     "errors": "Errores",
@@ -4956,7 +4960,7 @@
         }
       },
       "planTab": "Plan",
-      "anonymizationTab": "Anonimización",
+      "anonymizationTab": "Datos personales",
       "anonymizeTheseFields_one": "Anonimizar el {{count}} campo personal que encontró el descubrimiento",
       "anonymizeTheseFields_other": "Anonimizar los {{count}} campos personales que encontró el descubrimiento",
       "anonymizationOff": "Desactivado: la ejecución escribe estos campos tal como los tiene el origen. Las direcciones de correo y los números de teléfono se neutralizan igualmente, salvo que el formulario los conserve.",
@@ -5164,7 +5168,6 @@
           "off_other": "{{count}} campos personales encontrados, escritos tal como los tiene el origen."
         },
         "compliance": {
-          "none": "Ningún marco seleccionado.",
           "failed": "No se pudo generar el informe de cumplimiento.",
           "report": "{{framework}}: {{verdict}}"
         },

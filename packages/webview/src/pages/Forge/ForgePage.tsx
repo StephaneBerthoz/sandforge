@@ -22,6 +22,7 @@ import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { ForgePhaseSteps } from './ForgePhaseSteps';
 
 /** Forge phase variants for AnimatePresence transitions. */
 const variants = pageTransition(1);
@@ -55,6 +56,7 @@ export const ForgePage: React.FC = () => {
   const { t } = useTranslation();
   const phase = useForgeStore((s) => s.phase);
   const stoppedAt = useForgeStore((s) => s.stoppedAt);
+  const reviewSkipped = useForgeStore((s) => s.reviewSkipped);
   const sourceOrgId = useForgeStore((s) => s.config?.sourceOrgId);
   const targetOrgId = useForgeStore((s) => s.config?.targetOrgId);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
@@ -93,7 +95,7 @@ export const ForgePage: React.FC = () => {
 
   /*
    * Each phase is drawn in place of the last, and the button that moved on —
-   * Discover, Review & Execute, Execute, Back — goes with it: the keyboard is
+   * Discover, Continue to Review, Execute, Back — goes with it: the keyboard is
    * handed to the phase, named after it, as the wizard hands it its step. Only
    * from nowhere or from inside the page: a dialog keeps it.
    */
@@ -124,6 +126,7 @@ export const ForgePage: React.FC = () => {
   return (
     <div ref={pageRef} className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('moduleSummary.forge')} icon="flame" />
+      <ForgePhaseSteps phase={phase} reviewSkipped={reviewSkipped} />
       {/* From Review on the two orgs are settled, and the discovery's pickers
           gone: where the run copies from, and where it writes, stays said,
           over the How to as on Sync and Autopilot. Under it, the ribbon came

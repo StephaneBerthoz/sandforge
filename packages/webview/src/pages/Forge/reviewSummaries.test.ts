@@ -14,6 +14,7 @@ import {
   gapsRowSaid,
   leftToDecide,
   metadataRowSaid,
+  personalDataRowSaid,
   runSentence,
 } from './reviewSummaries';
 
@@ -276,7 +277,6 @@ describe('the line of each row', () => {
   });
 
   it('Compliance: says the verdict of the framework chosen', () => {
-    expect(complianceRowSaid(i18n.t as TFunction, { step: 'none' }).state).toBe('ready');
     expect(
       complianceRowSaid(i18n.t as TFunction, {
         step: 'report',
@@ -296,6 +296,47 @@ describe('the line of each row', () => {
         passed: true,
       }).state,
     ).toBe('ready');
+  });
+
+  it('Personal data: says the anonymization alone while no framework is chosen', () => {
+    // A framework of None was a row of its own: "No framework selected", Ready.
+    const t = i18n.t as TFunction;
+    expect(
+      personalDataRowSaid(t, { personalFields: 3, anonymizes: true }, { step: 'none' }),
+    ).toEqual(anonymizationRowSaid(t, { personalFields: 3, anonymizes: true }));
+    expect(
+      personalDataRowSaid(t, { personalFields: 2, anonymizes: false }, { step: 'none' }).state,
+    ).toBe('toRead');
+  });
+
+  it('Personal data: adds the verdict of the framework chosen, its row standing where the more pressing part stands', () => {
+    const t = i18n.t as TFunction;
+    const anonymized = { personalFields: 3, anonymizes: true };
+    expect(
+      personalDataRowSaid(t, anonymized, {
+        step: 'report',
+        framework: 'GDPR',
+        verdict: 'Partial',
+        passed: false,
+      }),
+    ).toEqual({
+      summary: '3 personal fields found, anonymized as the run writes them. GDPR: Partial',
+      state: 'toRead',
+    });
+    expect(personalDataRowSaid(t, anonymized, { step: 'loading', framework: 'GDPR' }).state).toBe(
+      'working',
+    );
+    expect(personalDataRowSaid(t, anonymized, { step: 'failed', framework: 'GDPR' }).state).toBe(
+      'failed',
+    );
+    // Fields written as the source holds them stay to read, whatever the report says.
+    expect(
+      personalDataRowSaid(
+        t,
+        { personalFields: 3, anonymizes: false },
+        { step: 'report', framework: 'GDPR', verdict: 'Pass', passed: true },
+      ).state,
+    ).toBe('toRead');
   });
 
   it('Metadata: never says "no difference" before the comparison answered', async () => {

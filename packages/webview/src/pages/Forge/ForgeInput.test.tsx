@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { BaseMessage } from '@sandforge/shared';
 import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { useAppStore } from '../../stores/useAppStore';
 import { ForgeInput } from './ForgeInput';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -950,6 +951,39 @@ describe('ForgeInput', () => {
 
   /* ---- Clone directly ---- */
   describe('Clone directly', () => {
+    it('leaves Discover Graph the one way to start in sight, the others folded under Other ways to start', () => {
+      // Clone directly took the whole width under Discover Graph, though it
+      // skips Review and its gaps.
+      render(<ForgeInput />);
+      const toggle = screen.getByTestId('forge-other-ways-toggle');
+      expect(toggle.textContent).toBe('Other ways to start');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      const folded = screen.getByTestId('forge-other-ways-list');
+      expect(toggle.getAttribute('aria-controls')).toBe(folded.id);
+      expect(folded.hidden).toBe(true);
+      expect(folded.contains(screen.getByTestId('forge-clone-directly-btn'))).toBe(true);
+      expect(folded.contains(screen.getByTestId('forge-clone-directly-hint'))).toBe(true);
+      expect(folded.contains(screen.getByTestId('forge-discover-btn'))).toBe(false);
+      // Discover Graph comes first, then the fold.
+      expect(
+        screen.getByTestId('forge-discover-btn').compareDocumentPosition(toggle) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(folded.hidden).toBe(false);
+      fireEvent.click(toggle);
+      expect(folded.hidden).toBe(true);
+    });
+
+    it('says the folded ways to start in French with no English left in them', () => {
+      // « (skip discovery) » and « counts » stayed in English.
+      expect(fr.forge.otherWaysToStart).toBe('Autres façons de lancer');
+      expect(fr.forge.reuseLastGraph).not.toMatch(/skip|discovery/i);
+      expect(fr.forge.quickStartTemplateHint).not.toMatch(/\bcounts?\b/);
+    });
+
     it('says, where it is chosen, that it stops on neither screen and runs no metadata diff, though what fires on insert is still put to the user', () => {
       render(<ForgeInput />);
 

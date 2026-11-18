@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import {
   ArrowLeft,
-  Play,
+  ArrowRight,
   Box,
   Database,
   HardDrive,
@@ -615,11 +615,13 @@ export const ForgeDiscovery: React.FC = () => {
               {t('forgeRun.deselectAll')}
             </Button>
           </div>
+          {/* It opens Review, where nothing is written before Execute Forge:
+              it read Review & Execute, under a run's Play. */}
           <Button
             data-testid="forge-execute-btn"
             variant="primary"
             onClick={handleExecute}
-            icon={<Play size={14} />}
+            icon={<ArrowRight size={14} />}
           >
             {t('forgeRun.reviewAndExecute')}
           </Button>

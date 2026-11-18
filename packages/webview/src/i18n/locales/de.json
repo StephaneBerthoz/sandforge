@@ -3233,7 +3233,7 @@
       "template_delete": "Vorlage löschen",
       "forge_execute": "Forge-Klon",
       "forge_verify": "Forge-Prüfung",
-      "forge_rehearse": "Forge-Probelauf",
+      "forge_rehearse": "Forge-Testlauf im Ziel",
       "seed_csv_import": "CSV-Import",
       "seed_clone": "Datensatz-Klon",
       "autopilot_execute": "Autopilot-Lauf",
@@ -3349,7 +3349,7 @@
       },
       "reviewSkipped": "Überprüfung übersprungen",
       "simulatedBefore": "{{minutes}} Min. vorher simuliert",
-      "rehearsedBefore": "Probelauf {{minutes}} Min. vorher",
+      "rehearsedBefore": "Testlauf im Ziel {{minutes}} Min. vorher",
       "firedOnInsert": "Wird beim Einfügen ausgelöst: {{list}}",
       "firedOnUpdate": "Wird beim Aktualisieren ausgelöst: {{list}}",
       "nothingFired": "Beim Einfügen wird nichts ausgelöst",
@@ -3450,7 +3450,7 @@
       "notJudged": "Nicht beurteilt",
       "updatesJudged": "Aktualisierungen beurteilt",
       "updatesRefused": "Aktualisierungen abgelehnt",
-      "updatesNotRehearsed": "Aktualisierungen nicht geprobt",
+      "updatesNotRehearsed": "Aktualisierungen nicht im Testlauf",
       "calls": "API-Aufrufe",
       "recordsLeft": "In der Org verbliebene Datensätze",
       "reason": "Grund",
@@ -3645,7 +3645,7 @@
       "fixRound1420": "Jede Zeile anonymisiert, niemand erreicht",
       "fixRound1420Desc": "DataOps-Anonymisierung maskiert jede Zeile eines Objekts. Seed schreibt reservierte E-Mail-Domains und fiktive Telefonnummern. Forge-Schreibvorgänge überstehen vorübergehende Fehler, und Sync lässt sich simulieren, pausieren und abbrechen.",
       "gaps1430": "Wissen, was das Ziel ablehnen würde, bevor geschrieben wird",
-      "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Probelauf fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
+      "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Testlauf im Ziel fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Ziel-Org, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
       "sweepAutomation1540": "Entfernen, was die Automatisierung des Ziels erstellt hat",
@@ -3971,7 +3971,7 @@
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Vorhandene Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Objekte: die Objekte beider Orgs, live gelesen beim Öffnen des Tabs\n- Abweichung der Org-Einstellungen: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Aus Diff bereitstellen: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie die Validierung dann in einer Sandbox, einer Scratch-Org oder einer Developer-Edition-Org bereit",
     "dataopsContent": "Datenoperationen in der oben auf der Seite gewählten Org:\n- Sicherung: eine Kopie der Objekte, die die Anonymisierungsvorlagen maskieren, oder derer, die die gewählte Vorlage maskiert, auf diesem Rechner abgelegt. Sie ist kein Prüfpunkt: Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt. „In Abschnitten sichern“ geht über die Größe einer Sicherung hinaus; angehalten, ist sie unvollständig.\n- Wiederherstellen fragt zuerst und nennt die Org und jedes Objekt der Sicherung, dann spielt es die Sicherung in die Org zurück, aus der sie stammt; sofern „Jede Zeile der Sicherung zurückschreiben“ nicht angehakt ist, schreibt es nur die seitdem geänderten Zeilen.\n- Anonymisieren maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA oder mit einer eigenen aus „Vorlage erstellen“; sofern Sie „Die Werte vorher aufbewahren“ nicht abwählen, sichert es, was es maskiert, damit „Wiederherstellen“ es zurückschreiben kann.\n- Compliance findet die Felder mit personenbezogenen Daten, dann die Datensätze einer Person über E-Mail, Name oder Telefon, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren, zu anonymisieren oder zu löschen.\n- Bereinigung zählt veraltete Datensätze, leere Lookups und wiederholte Werte, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren oder zu löschen, 1.000 auf einmal.\n- Qualität zählt, wie oft jedes Feld gefüllt ist, geteilte Schlüsselwerte und veraltete Datensätze, und schreibt nichts.",
     "automationContent": "Visueller Pipeline-Builder:\n- Unter „Schritte“ bietet die Seite die Schritttypen an, die eine Pipeline ausführt: Sync, Seed, Anonymisierung, Sicherung, Prüfpunkt, Zurücksetzen, Vergleich, Vorabprüfung, Bedingung, Verzögerung, Genehmigung und Benachrichtigung. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus, und schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor. Seed und Anonymisierung führen eine Vorlage ihrer Seite aus, nie in einer Produktions-Org, in einer als Staging markierten Sandbox nach einem Genehmigungsschritt, und werden nie wiederholt. Ein Zurücksetzen-Schritt setzt eine Org auf einen auf diesem Rechner aufbewahrten Prüfpunkt zurück, höchstens so viele Datensätze wie eingestellt, sobald Sie ihn unter seiner Vorschau mit dem Alias der Org bestätigt haben, oder, wenn sie keinen hat, mit ihrem Namen oder ihrer Organisations-ID. Wiederherstellung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite: Eine Pipeline mit einem dieser Schritte oder mit einem Skript-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
-    "forgeContent": "Forge kopiert einen Datensatz und das, was mit ihm verbunden ist, aus der im Seitenpanel gewählten Org in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org; jede andere Org lehnt es ab. Die IDs werden beim Schreiben neu zugeordnet.\n- Vor Forge ausführen, in der Überprüfung: Simulieren prüft hier jeden Datensatz, sendet nichts; Probelauf: Das Ziel testet eine Stichprobe, zurückgesetzt; kostet API-Aufrufe.\n- E-Mails und Telefonnummern werden neutralisiert (.invalid, fiktive Nummern), es sei denn, Sie aktivieren „E-Mails und Telefonnummern unverändert lassen“. PII anonymisieren maskiert Namen, Adressen und andere personenbezogene Felder.\n- Als Vorlage speichern, in den Ergebnissen eines Laufs, behält seinen Datensatz oder seine Abfrage, seine Tiefe, seine Optionen und seine Entscheidungen; der Tab Vorlage führt ihn erneut aus, und Vorlage importieren liest eine aus einer Datei.\n- Direkt klonen, unter Graph ermitteln, führt die Ermittlung und dann das Klonen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten; Production Guard beurteilt diesen Lauf wie jeden anderen.\n- Graph oder Tabelle: Bis zu 25 Objekte werden als Graph gezeichnet, mehr als Tabelle, ebenso jeder Graph in einem Panel unter 560 Pixel Breite; Graph-Ansicht / Tabellenansicht oder die Einstellung sandforge.forge.graphView wählt die Ansicht.\n- Ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.",
+    "forgeContent": "Forge kopiert einen Datensatz und das, was mit ihm verbunden ist, aus der im Seitenpanel gewählten Org in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org; jede andere Org lehnt es ab. Die IDs werden beim Schreiben neu zugeordnet.\n- Vor Forge ausführen, in der Überprüfung: Simulieren prüft hier jeden Datensatz, sendet nichts; Testlauf im Ziel: Das Ziel testet eine Stichprobe, zurückgesetzt; kostet API-Aufrufe.\n- E-Mails und Telefonnummern werden neutralisiert (.invalid, fiktive Nummern), es sei denn, Sie aktivieren „E-Mails und Telefonnummern unverändert lassen“. PII anonymisieren maskiert Namen, Adressen und andere personenbezogene Felder.\n- Als Vorlage speichern, in den Ergebnissen eines Laufs, behält seinen Datensatz oder seine Abfrage, seine Tiefe, seine Optionen und seine Entscheidungen; der Tab Vorlage führt ihn erneut aus, und Vorlage importieren liest eine aus einer Datei.\n- Direkt klonen, in Weitere Startmöglichkeiten, führt die Ermittlung und dann das Klonen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten; Production Guard beurteilt diesen Lauf wie jeden anderen.\n- Graph oder Tabelle: Bis zu 25 Objekte werden als Graph gezeichnet, mehr als Tabelle, ebenso jeder Graph in einem Panel unter 560 Pixel Breite; Graph-Ansicht / Tabellenansicht oder die Einstellung sandforge.forge.graphView wählt die Ansicht.\n- Ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.",
     "frozenContent": "Das eingefrorene Dataset wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Regeldatei: Extraktion starten braucht eine, unter ~/.sandforge-sas/rules.json, sofern die Konfiguration sie nicht verlegt. Regeldatei erstellen schreibt eine leere, die jedes Feld ohne Regel leert; eine Regel nennt ihr Feld als Objekt.Feld und einen Generator wie email, firstName, clear oder keep (freigegeben), und Regelformat listet sie alle\n- Deterministische Pseudonymisierung mit SANDFORGE_FROZEN_SALT, wo es gesetzt ist, sonst mit dem Salt aus dem geheimen Speicher von VS Code, das die erste Extraktion erstellt, wenn dort noch keines liegt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor das Dataset geschrieben wird\n- Laden: in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org, nie in eine Produktions-Org oder eine als Staging markierte Sandbox, mit einem optionalen Pilot auf zuerst einem Stammdatensatz und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
     "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat; der KI-Tab von Forge, der aus Ihrer Frage eine SOQL-Abfrage entwirft; eigene Personas, KI-Feldregeln und Aus eigenem Text entwerfen in Seed\n- Pipeline-Entwürfe in der Automatisierung\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automatisierungslauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Der Anomalie-Scan des Monitors ist regelbasiert: Er läuft mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
@@ -4021,9 +4021,9 @@
     "forge": {
       "step1": "Wählen Sie die Ziel-Org; die Quell-Org ist bereits die im Seitenpanel ausgewählte Org.",
       "step2": "Fügen Sie eine Datensatz-ID oder auf dem Tab SOQL eine Abfrage ein, oder wählen Sie ALL für die gesamte Org, und klicken Sie auf Graph ermitteln.",
-      "step3": "Klicken Sie nach Abschluss der Ermittlung auf Überprüfen & Ausführen.",
+      "step3": "Klicken Sie nach Abschluss der Ermittlung auf Weiter zur Überprüfung.",
       "step4": "Klicken Sie auf Forge ausführen und lesen Sie nach dem Durchlauf die Karte Eingefügt ab.",
-      "tip": "Simulieren schreibt nichts; Probelauf schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Letzte Durchläufe, löscht sie."
+      "tip": "Simulieren schreibt nichts; Testlauf im Ziel schreibt eine Stichprobe und setzt sie zurück; Die von diesem Durchlauf erstellten Datensätze entfernen, unter Letzte Durchläufe, löscht sie."
     },
     "seed": {
       "step1": "Klicken Sie unter Schnell-Seed aus Vorlage bei CRM-Starter, markiert mit Hier beginnen, auf Diese verwenden.",
@@ -4410,6 +4410,7 @@
     "reuseLastGraphHint": "Überspringen Sie die über 30 Sekunden dauernde Ermittlung und verwenden Sie den Graph Ihrer letzten Ausführung erneut.",
     "quickStartTemplate": "Schnellstart ({{name}})",
     "quickStartTemplateHint": "Ermittlung überspringen und den bekannten Objektsatz der Starter-Vorlage verwenden. Datensatzanzahlen werden während der Ausführung abgefragt.",
+    "otherWaysToStart": "Weitere Startmöglichkeiten",
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
       "step1Select": "Quell-Org auswählen",
@@ -4471,6 +4472,7 @@
       "execution": "Ausführung",
       "results": "Ergebnisse"
     },
+    "phaseSkipped": "übersprungen",
     "rootRecordSummary_one": "Stammdatensatz · {{object}} · {{formatted}} Feld",
     "rootRecordSummary_other": "Stammdatensatz · {{object}} · {{formatted}} Felder",
     "anonymizeHint": "„PII anonymisieren“ maskiert Namen, Adressen und andere personenbezogene Felder.",
@@ -4605,26 +4607,26 @@
   },
   "forgeRun": {
     "rehearsal": {
-      "action": "Probelauf",
+      "action": "Testlauf im Ziel",
       "hint": "Lässt das Ziel eine Stichprobe der Zeilen beurteilen: Sie werden dort angelegt, und jeder Schreibvorgang wird zurückgesetzt. Die Aufrufe, die das kostet, bestätigen Sie zuerst in VS Code.",
-      "reading": "Probelauf: Die Zeilen werden gelesen, wie der Lauf sie liest…",
-      "readingObject": "Probelauf: Die Zeilen werden gelesen, wie der Lauf sie liest ({{object}})…",
-      "confirming_one": "Probelauf: Bestätigen Sie in VS Code den {{count}} Composite-Aufruf, den er kostet.",
-      "confirming_other": "Probelauf: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die er kostet.",
-      "rehearsing": "Probelauf: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
-      "done": "Probelauf beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
-      "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht im Probelauf.",
+      "reading": "Testlauf im Ziel: Die Zeilen werden gelesen, wie der Lauf sie liest…",
+      "readingObject": "Testlauf im Ziel: Die Zeilen werden gelesen, wie der Lauf sie liest ({{object}})…",
+      "confirming_one": "Testlauf im Ziel: Bestätigen Sie in VS Code den {{count}} Composite-Aufruf, den er kostet.",
+      "confirming_other": "Testlauf im Ziel: Bestätigen Sie in VS Code die {{count}} Composite-Aufrufe, die er kostet.",
+      "rehearsing": "Testlauf im Ziel: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
+      "done": "Testlauf beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
+      "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht im Testlauf.",
       "linked": "Mit einem Datensatz verknüpft, den die Ziel-Org bereits enthält, wie der Lauf sie verknüpft: {{linked}}.",
-      "nothing": "Probelauf beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
-      "declined": "Probelauf bei seiner Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
-      "error": "Der Probelauf konnte nicht laufen: {{error}}",
+      "nothing": "Testlauf beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
+      "declined": "Testlauf bei seiner Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
+      "error": "Der Testlauf im Ziel konnte nicht laufen: {{error}}",
       "caption": "Das Ziel testet eine Stichprobe, zurückgesetzt; kostet API-Aufrufe."
     },
     "forging": "SCHMIEDET...",
     "paused": "PAUSIERT",
     "finishing": "WIRD ABGESCHLOSSEN...",
     "finishingNote": "Alle Objekte im Graphen sind abgeschlossen. Der Lauf wird beendet; die Ergebnisse folgen, sobald er fertig ist.",
-    "aborted": "ABGEBROCHEN",
+    "aborted": "STOPP ANGEFORDERT",
     "stopping": "WIRD ANGEHALTEN...",
     "stoppingNote": "Stopp angefordert: Der Lauf hält an, sobald der laufende Schritt beendet ist, und sagt dann, was er geschrieben hat.",
     "stopUnanswered": "Der Lauf hat auf den Stopp noch nicht geantwortet. Vielleicht beendet er noch einen Schritt: Was er schreibt, bleibt in der Ziel-Org und erscheint unter „Letzte Durchläufe“, sobald er antwortet.",
@@ -4642,12 +4644,12 @@
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
     "executeForge": "Forge ausführen",
     "runStoppedOn": "Der Lauf wurde vor seinem Ende angehalten: {{message}}",
-    "runCancelled": "Sie haben den Lauf vor seinem Ende abgebrochen.",
+    "runCancelled": "Sie haben den Lauf vor seinem Ende gestoppt.",
     "runStoppedWrote_one": "Bevor er angehalten wurde, hatte er {{count}} Datensatz in der Ziel-Org erstellt.",
     "runStoppedWrote_other": "Bevor er angehalten wurde, hatte er {{count}} Datensätze in der Ziel-Org erstellt.",
     "seeStoppedRun": "Anzeigen, was er geschrieben hat",
     "backToReview": "Zurück zur Überprüfung",
-    "reviewAndExecute": "Überprüfen & Ausführen",
+    "reviewAndExecute": "Weiter zur Überprüfung",
     "records": "Datensätze",
     "recordsInSourceTables": "Datensätze in den Quelltabellen",
     "estDuration": "Gesch. Dauer",
@@ -4676,6 +4678,8 @@
     "saveTemplate": "Als Vorlage speichern",
     "copyReport": "Bericht kopieren",
     "forgeAgain": "Forge wiederholen",
+    "nextSteps": "Nächste Schritte",
+    "exportMenu": "Exportieren…",
     "object": "Objekt",
     "status": "Status",
     "errors": "Fehler",
@@ -4956,7 +4960,7 @@
         }
       },
       "planTab": "Plan",
-      "anonymizationTab": "Anonymisierung",
+      "anonymizationTab": "Personendaten",
       "anonymizeTheseFields_one": "Das {{count}} von der Ermittlung gefundene personenbezogene Feld anonymisieren",
       "anonymizeTheseFields_other": "Die {{count}} von der Ermittlung gefundenen personenbezogenen Felder anonymisieren",
       "anonymizationOff": "Aus: Der Lauf schreibt diese Felder so, wie die Quelle sie enthält. E-Mail-Adressen und Telefonnummern werden trotzdem neutralisiert, es sei denn, das Formular behält sie.",
@@ -5164,7 +5168,6 @@
           "off_other": "{{count}} personenbezogene Felder gefunden, geschrieben, wie die Quelle sie enthält."
         },
         "compliance": {
-          "none": "Kein Framework ausgewählt.",
           "failed": "Der Compliance-Bericht konnte nicht erstellt werden.",
           "report": "{{framework}}: {{verdict}}"
         },
@@ -5398,12 +5401,12 @@
       "wholeOrg": "Bei einem Klon der gesamten Org hält Simulieren an der Prüfung an: Über die Zählungen hinaus liest es nur, was sie nicht sagen – die IDs der Datensätze, die der Lauf zurückhalten oder beiseitelassen würde, und der Kontaktrollen, die die Plattform selbst schreibt, sowie die Größe der E-Mails und Dateien –, und schreibt nichts, und es sagt, was der Lauf schreiben, beiden Orgs abverlangen und auslassen würde. Probelauf wird nicht angeboten: Er hält jede vorbereitete Zeile im Speicher."
     },
     "gaps": {
-      "notRead": "Noch nichts gelesen. Simulieren Sie den Durchlauf oder starten Sie einen Probelauf, um herauszufinden, was das Ziel in seinen Zeilen ablehnen oder ändern würde.",
+      "notRead": "Noch nichts gelesen. Simulieren Sie den Durchlauf oder starten Sie einen Testlauf im Ziel, um herauszufinden, was das Ziel in seinen Zeilen ablehnen oder ändern würde.",
       "readBy": "Gelesen: {{sources}}.",
       "readName": {
         "metadata": "die Metadaten des Ziels",
         "simulation": "die Simulation",
-        "rehearsal": "der Probelauf"
+        "rehearsal": "der Testlauf im Ziel"
       },
       "none": "Im Gelesenen spricht nichts gegen diese Zeilen.",
       "unread": "Nicht gelesen von {{read}}: {{part}} – {{reason}}",
@@ -5415,7 +5418,7 @@
       "source": {
         "metadata": "Aus den Metadaten des Ziels gelesen",
         "simulation": "Von der Simulation gefunden",
-        "rehearsal": "Von der Plattform im Probelauf abgelehnt"
+        "rehearsal": "Von der Plattform beim Testlauf im Ziel abgelehnt"
       },
       "kind": {
         "picklist_value_refused": "Auswahllistenwert, den der Datensatztyp ablehnt",
@@ -5437,8 +5440,8 @@
         "object_setup_only": "Objekt, das im Ziel kein Benutzer erstellen kann, auch nicht mit Modify All Data: Setup oder Datensätze der Plattform, Ausführen überspringt es",
         "object_feature_off": "Objekt einer Funktion oder Lizenz, die das Ziel für den Benutzer, mit dem der Klon schreibt, nicht aktiviert hat",
         "object_through_parent": "Objekt, für das kein Berechtigungssatz das Erstellrecht gibt: Der Benutzer, mit dem der Klon schreibt, erstellt es über die Datensätze, an denen es hängt, oder kein Benutzer kann es",
-        "rehearsal_refusal": "Im Probelauf abgelehnt",
-        "rehearsal_update_refusal": "Im Probelauf abgelehnte Aktualisierung"
+        "rehearsal_refusal": "Beim Testlauf abgelehnt",
+        "rehearsal_update_refusal": "Beim Testlauf abgelehnte Aktualisierung"
       },
       "rows_one": "{{count}} Zeile",
       "rows_other": "{{count}} Zeilen",
@@ -8035,7 +8038,7 @@
       "action": "Ermitteln Sie die Org und führen Sie den Klon dann in der Überprüfung aus."
     },
     "wholeOrgRehearsal": {
-      "explanation": "Ein Klon der gesamten Org wird nicht geprobt: Ein Probelauf hält jede vorbereitete Zeile im Speicher, was für eine ganze Org kein Speicher fasst. Nichts wurde gelesen oder gesendet.",
+      "explanation": "Ein Klon der gesamten Org wird nicht im Ziel getestet: Ein Testlauf hält jede vorbereitete Zeile im Speicher, was für eine ganze Org kein Speicher fasst. Nichts wurde gelesen oder gesendet.",
       "action": "Simulieren Sie ihn stattdessen: Die Simulation hält an seiner Prüfung an und sagt, was er schreiben, beanspruchen und auslassen würde, und Ausführen fragt, bevor er schreibt."
     },
     "graphWithoutEdges": {

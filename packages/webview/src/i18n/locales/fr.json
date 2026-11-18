@@ -3233,7 +3233,7 @@
       "template_delete": "Suppression modèle",
       "forge_execute": "Clonage Forge",
       "forge_verify": "Vérification Forge",
-      "forge_rehearse": "Essai à blanc Forge",
+      "forge_rehearse": "Répétition Forge dans la cible",
       "seed_csv_import": "Import CSV",
       "seed_clone": "Clonage d'enregistrements",
       "autopilot_execute": "Exécution Autopilot",
@@ -3349,7 +3349,7 @@
       },
       "reviewSkipped": "Revue sautée",
       "simulatedBefore": "Simulé {{minutes}} min avant",
-      "rehearsedBefore": "Essai à blanc {{minutes}} min avant",
+      "rehearsedBefore": "Répété dans la cible {{minutes}} min avant",
       "firedOnInsert": "Se déclenche à l'insertion : {{list}}",
       "firedOnUpdate": "Se déclenche à la mise à jour : {{list}}",
       "nothingFired": "Rien ne se déclenche à l'insertion",
@@ -3450,7 +3450,7 @@
       "notJudged": "Non évalués",
       "updatesJudged": "Mises à jour évaluées",
       "updatesRefused": "Mises à jour refusées",
-      "updatesNotRehearsed": "Mises à jour non essayées",
+      "updatesNotRehearsed": "Mises à jour non répétées",
       "calls": "Appels API",
       "recordsLeft": "Enregistrements restés dans l'org",
       "reason": "Raison",
@@ -3645,7 +3645,7 @@
       "fixRound1420": "Toutes les lignes anonymisées, personne de joint",
       "fixRound1420Desc": "L'anonymisation DataOps masque toutes les lignes d'un objet. Seed écrit des domaines e-mail réservés et des numéros fictifs. Les écritures de Forge résistent aux pannes passagères, et Sync peut être simulé, mis en pause et annulé.",
       "gaps1430": "Savoir ce que la cible refuserait, avant d'écrire",
-      "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Essai à blanc interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
+      "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter dans la cible interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
       "sweepAutomation1540": "Balayer ce que l'automatisation de la cible a créé",
@@ -3971,7 +3971,7 @@
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Présence des permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Objets : les objets des deux orgs, lus en direct à l'ouverture de l'onglet\n- Écarts de paramètres d'org : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déployer depuis le diff : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox, une scratch org ou une org Developer Edition",
     "dataopsContent": "Opérations sur les données de l'org choisie en haut de la page :\n- Sauvegarde : une copie des objets que masquent les modèles d’anonymisation, ou de ceux que masque le modèle choisi, conservée sur cette machine. Ce n'est pas un point de contrôle : avant une exécution risquée sur une sandbox, créez un point de contrôle. Sauvegarder par tranches dépasse la taille d’une sauvegarde ; arrêtée, elle est partielle.\n- Restaurer demande d'abord, en nommant l'org et chaque objet de la sauvegarde, puis remet la sauvegarde dans l'org d'où elle provient ; sauf si Réécrire chaque ligne de la sauvegarde est coché, elle n'écrit que les lignes modifiées depuis.\n- Anonymiser masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA, ou un modèle à vous créé par Créer un modèle ; sauf si vous décochez Conserver d'abord les valeurs, elle sauvegarde ce qu'elle masque, pour que Restaurer puisse le remettre.\n- Conformité trouve les champs qui contiennent des données personnelles, puis les enregistrements d'une personne par e-mail, nom ou téléphone, à exporter, effacer ou supprimer après un examen et une confirmation saisie.\n- Nettoyage compte les enregistrements inactifs, les références vides et les valeurs répétées, à exporter ou supprimer après un examen et une confirmation saisie, 1 000 à la fois.\n- Qualité compte à quelle fréquence chaque champ est rempli, les valeurs de clé partagées et les enregistrements inactifs, et n'écrit rien.",
     "automationContent": "Constructeur visuel de pipelines :\n- Sous Étapes, la page propose les types d'étapes qu'un pipeline exécute : Sync, Seed, Anonymisation, Sauvegarde, Point de contrôle, Retour arrière, Comparaison, Vérification préalable, Condition, Délai, Approbation et Notification. Sync exécute une configuration enregistrée sur la page Sync, et s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, derrière une étape Approbation dans une sandbox marquée Staging, et ne sont jamais retentées. Une étape Retour arrière fait revenir une org à un point de contrôle conservé sur cette machine, au plus le nombre d'enregistrements indiqué, une fois que vous l'avez confirmée avec l'alias de l'org, ou, si elle n'en a pas, son nom ou son ID d'organisation, sous son aperçu. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page : un pipeline qui contient l'une de ces étapes, ou une étape Script, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
-    "forgeContent": "Forge copie un enregistrement et ce qui s'y rattache, depuis l'org sélectionnée dans le panneau latéral vers une sandbox, une scratch org ou une org Developer Edition ; il refuse toute autre org. Les ID sont remappés à l'écriture.\n- Avant Exécuter le Forge, dans la revue : Simuler vérifie ici chaque enregistrement, n'envoie rien ; Essai à blanc : la cible essaie un échantillon, annulé ensuite ; coûte des appels API.\n- Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels. Anonymiser les PII masque les noms, les adresses et les autres champs personnels.\n- Enregistrer comme modèle, sur les résultats d'une exécution, garde son enregistrement ou sa requête, sa profondeur, ses options et ses décisions ; l'onglet Modèle la relance, et Importer un modèle en lit un depuis un fichier.\n- Cloner directement, sous Découvrir le graphe, lance la découverte puis le clonage sans s'arrêter sur le graphe ni sur la revue ; Production Guard juge cette exécution comme toute autre.\n- Graphe ou tableau : jusqu'à 25 objets sont dessinés en graphe, au-delà en tableau, comme tout graphe sur un panneau de moins de 560 pixels ; Vue graphe / Vue tableau, ou le paramètre sandforge.forge.graphView, choisit la vue.\n- Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
+    "forgeContent": "Forge copie un enregistrement et ce qui s'y rattache, depuis l'org sélectionnée dans le panneau latéral vers une sandbox, une scratch org ou une org Developer Edition ; il refuse toute autre org. Les ID sont remappés à l'écriture.\n- Avant Exécuter le Forge, dans la revue : Simuler vérifie ici chaque enregistrement, n'envoie rien ; Répéter dans la cible : la cible essaie un échantillon, annulé ensuite ; coûte des appels API.\n- Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels. Anonymiser les PII masque les noms, les adresses et les autres champs personnels.\n- Enregistrer comme modèle, sur les résultats d'une exécution, garde son enregistrement ou sa requête, sa profondeur, ses options et ses décisions ; l'onglet Modèle la relance, et Importer un modèle en lit un depuis un fichier.\n- Cloner directement, dans Autres façons de lancer, lance la découverte puis le clonage sans s'arrêter sur le graphe ni sur la revue ; Production Guard juge cette exécution comme toute autre.\n- Graphe ou tableau : jusqu'à 25 objets sont dessinés en graphe, au-delà en tableau, comme tout graphe sur un panneau de moins de 560 pixels ; Vue graphe / Vue tableau, ou le paramètre sandforge.forge.graphView, choisit la vue.\n- Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
     "frozenContent": "Le Jeu de données figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Fichier de règles : Lancer l'extraction en demande un, dans ~/.sandforge-sas/rules.json sauf si la configuration le déplace. Créer le fichier de règles en écrit un vide, qui vide chaque champ sans règle ; une règle nomme son champ en Objet.Champ et un générateur comme email, firstName, clear ou keep (approuvé), et Format des règles les liste tous\n- Pseudonymisation déterministe, avec SANDFORGE_FROZEN_SALT là où il est défini, sinon avec le sel gardé dans le stockage secret de VS Code, que la première extraction crée s'il n'y en a pas encore\n- Un contrôle en quatre points doit réussir avant que le jeu de données soit écrit\n- Chargement : dans une sandbox, une scratch org ou une org Developer Edition, jamais dans une org de production ni dans une sandbox marquée en préproduction, avec un Pilote facultatif sur un enregistrement racine d'abord, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
     "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Le chat ; l'onglet IA de Forge, qui rédige une requête SOQL à partir de votre question ; les personas personnalisés, les règles de champ IA et Rédiger depuis votre propre texte dans Seed\n- Brouillons de pipeline dans l'Automatisation\n- Une table intégrée de codes d'erreur Salesforce répond d'abord aux codes qu'elle connaît, sur votre machine, que l'IA soit activée ou non, et n'envoie rien\n- Rien n'est envoyé pour une liste fixe de messages propres à SandForge, comme une confirmation de production refusée, une exécution en double ou un refus CRUD, FLS ou Production Guard, ni pour un échec survenu sans vue SandForge ouverte\n- Quand l'IA est activée, toute autre exécution Seed, Sync, DataOps ou Automatisation en échec envoie son message d'erreur, avec ses Id Salesforce remplacés par <id>, et la suggestion revient en notification VS Code\n- Désactivez cet envoi avec sandforge.ai.errorResolution : le reste de l'assistant continue de fonctionner\n- Le scan d'anomalies du Moniteur repose sur des règles : il fonctionne avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
@@ -4021,9 +4021,9 @@
     "forge": {
       "step1": "Choisissez l'Org cible ; l'Org source est déjà l'org sélectionnée dans le panneau latéral.",
       "step2": "Collez un ID d'enregistrement ou une requête dans l'onglet SOQL, ou choisissez ALL pour copier toute l'org, puis cliquez sur Découvrir le graphe.",
-      "step3": "Une fois la découverte terminée, cliquez sur Revoir et exécuter.",
+      "step3": "Une fois la découverte terminée, cliquez sur Passer à la revue.",
       "step4": "Cliquez sur Exécuter le Forge, puis lisez la carte Insérés une fois l'exécution terminée.",
-      "tip": "Simuler n'écrit rien ; Essai à blanc écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans Exécutions récentes, les efface."
+      "tip": "Simuler n'écrit rien ; Répéter dans la cible écrit un échantillon puis l'annule ; Supprimer les enregistrements créés par cette exécution, dans Exécutions récentes, les efface."
     },
     "seed": {
       "step1": "Sous Seed rapide depuis un modèle, cliquez sur Utiliser dans la carte Kit de démarrage CRM, marquée Commencez ici.",
@@ -4406,10 +4406,11 @@
     },
     "expandOrphanParents": "Récupérer les parents automatiquement",
     "expandOrphanParentsHint": "Copie aussi les parents que le clone ne lit pas de lui-même : derrière une référence pouvant désigner plusieurs objets, au-delà de cinq niveaux ou du plafond. Un clone à partir d'un enregistrement lit déjà par id les parents sans lesquels ses enregistrements ne peuvent pas être écrits.",
-    "reuseLastGraph": "Réutiliser le dernier graphe (skip discovery)",
+    "reuseLastGraph": "Réutiliser le dernier graphe (sans nouvelle découverte)",
     "reuseLastGraphHint": "Saute la découverte (30s+) et réutilise le graphe de la dernière exécution.",
     "quickStartTemplate": "Démarrage rapide ({{name}})",
-    "quickStartTemplateHint": "Saute la découverte et utilise les objets connus du modèle starter. Les counts d'enregistrements seront calculés pendant l'exécution.",
+    "quickStartTemplateHint": "Saute la découverte et utilise les objets connus du modèle starter. Les nombres d'enregistrements seront calculés pendant l'exécution.",
+    "otherWaysToStart": "Autres façons de lancer",
     "emptyState": {
       "title": "Peuplez votre sandbox à partir d'un enregistrement réel",
       "step1Select": "Sélectionnez une org source",
@@ -4471,6 +4472,7 @@
       "execution": "Exécution",
       "results": "Résultats"
     },
+    "phaseSkipped": "sautée",
     "rootRecordSummary_one": "Enregistrement racine · {{object}} · {{formatted}} champ",
     "rootRecordSummary_other": "Enregistrement racine · {{object}} · {{formatted}} champs",
     "anonymizeHint": "Anonymiser les PII masque les noms, les adresses et les autres champs personnels.",
@@ -4605,26 +4607,26 @@
   },
   "forgeRun": {
     "rehearsal": {
-      "action": "Essai à blanc",
+      "action": "Répéter dans la cible",
       "hint": "Fait juger par la cible un échantillon des lignes : elles y sont créées et chaque écriture est annulée. Vous confirmez d'abord dans VS Code les appels que cela coûte.",
-      "reading": "Essai à blanc : lecture des lignes comme le ferait l'exécution…",
-      "readingObject": "Essai à blanc : lecture des lignes comme le ferait l'exécution ({{object}})…",
-      "confirming_one": "Essai à blanc : confirmez dans VS Code le {{count}} appel composite qu'il coûte.",
-      "confirming_other": "Essai à blanc : confirmez dans VS Code les {{count}} appels composites qu'il coûte.",
-      "rehearsing": "Essai à blanc : appel {{call}} sur {{calls}}, annulé à sa fin…",
-      "done": "Essai à blanc terminé, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
-      "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} hors de l'essai à blanc.",
+      "reading": "Répétition dans la cible : lecture des lignes comme le ferait l'exécution…",
+      "readingObject": "Répétition dans la cible : lecture des lignes comme le ferait l'exécution ({{object}})…",
+      "confirming_one": "Répétition dans la cible : confirmez dans VS Code le {{count}} appel composite qu'elle coûte.",
+      "confirming_other": "Répétition dans la cible : confirmez dans VS Code les {{count}} appels composites qu'elle coûte.",
+      "rehearsing": "Répétition dans la cible : appel {{call}} sur {{calls}}, annulé à sa fin…",
+      "done": "Répétition terminée, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
+      "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} hors de la répétition.",
       "linked": "Liées à un enregistrement que l'org cible contient déjà, comme l'exécution les lie : {{linked}}.",
-      "nothing": "Essai à blanc terminé : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
-      "declined": "Essai à blanc annulé à sa confirmation. Rien n'a été envoyé à la cible.",
-      "error": "L'essai à blanc n'a pas pu se faire : {{error}}",
+      "nothing": "Répétition terminée : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
+      "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
+      "error": "La répétition dans la cible n'a pas pu se faire : {{error}}",
       "caption": "La cible essaie un échantillon, annulé ensuite ; coûte des appels API."
     },
     "forging": "FORGEAGE...",
     "paused": "EN PAUSE",
     "finishing": "FINALISATION...",
     "finishingNote": "Tous les objets du graphe sont traités. L'exécution se termine ; ses résultats suivront dès qu'elle aura fini.",
-    "aborted": "ANNULÉ",
+    "aborted": "ARRÊT DEMANDÉ",
     "stopping": "ARRÊT EN COURS...",
     "stoppingNote": "Arrêt demandé : l'exécution s'arrête une fois l'étape en cours terminée, puis dit ce qu'elle a écrit.",
     "stopUnanswered": "L'exécution n'a pas encore répondu à la demande d'arrêt. Elle termine peut-être encore une étape : ce qu'elle écrit reste dans l'org cible, et apparaît dans « Exécutions récentes » dès qu'elle répond.",
@@ -4642,12 +4644,12 @@
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
     "executeForge": "Exécuter le Forge",
     "runStoppedOn": "L'exécution s'est arrêtée avant sa fin : {{message}}",
-    "runCancelled": "Vous avez annulé l'exécution avant sa fin.",
+    "runCancelled": "Vous avez arrêté l'exécution avant sa fin.",
     "runStoppedWrote_one": "Avant de s'arrêter, elle avait créé {{count}} enregistrement dans l'org cible.",
     "runStoppedWrote_other": "Avant de s'arrêter, elle avait créé {{count}} enregistrements dans l'org cible.",
     "seeStoppedRun": "Voir ce qu'elle a écrit",
     "backToReview": "Retour à la revue",
-    "reviewAndExecute": "Revoir et exécuter",
+    "reviewAndExecute": "Passer à la revue",
     "records": "Enregistrements",
     "recordsInSourceTables": "Enregistrements des tables sources",
     "estDuration": "Durée est.",
@@ -4676,6 +4678,8 @@
     "saveTemplate": "Enregistrer comme modèle",
     "copyReport": "Copier le rapport",
     "forgeAgain": "Forger à nouveau",
+    "nextSteps": "Étapes suivantes",
+    "exportMenu": "Exporter…",
     "object": "Objet",
     "status": "Statut",
     "errors": "Erreurs",
@@ -4956,7 +4960,7 @@
         }
       },
       "planTab": "Plan",
-      "anonymizationTab": "Anonymisation",
+      "anonymizationTab": "Données personnelles",
       "anonymizeTheseFields_one": "Anonymiser le {{count}} champ personnel trouvé par la découverte",
       "anonymizeTheseFields_other": "Anonymiser les {{count}} champs personnels trouvés par la découverte",
       "anonymizationOff": "Désactivé : l'exécution écrit ces champs tels que la source les contient. Les adresses e-mail et les numéros de téléphone sont neutralisés malgré tout, sauf si le formulaire les garde.",
@@ -5164,7 +5168,6 @@
           "off_other": "{{count}} champs personnels trouvés, écrits tels que la source les détient."
         },
         "compliance": {
-          "none": "Aucun référentiel sélectionné.",
           "failed": "Le rapport de conformité n'a pas pu être établi.",
           "report": "{{framework}} : {{verdict}}"
         },
@@ -5398,12 +5401,12 @@
       "wholeOrg": "Pour un clonage de toute l'org, Simuler s'arrête au contrôle : au-delà des décomptes, il ne lit que ce qu'ils ne disent pas — les ID des enregistrements que le clonage retiendrait ou laisserait de côté et des rôles de contact que la plateforme écrit elle-même, et la taille des e-mails et des fichiers — et n'écrit rien, et dit ce que le clonage écrirait, ce qu'il prendrait aux deux orgs et ce qu'il écarterait. La répétition n'est pas proposée : elle garde en mémoire chaque ligne qu'elle prépare."
     },
     "gaps": {
-      "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou faites-en un essai à blanc, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
+      "notRead": "Rien n'a encore été lu. Simulez l'exécution, ou répétez-la dans la cible, pour trouver ce que la cible refuserait ou changerait dans ses lignes.",
       "readBy": "Lu : {{sources}}.",
       "readName": {
         "metadata": "les métadonnées de la cible",
         "simulation": "la simulation",
-        "rehearsal": "l'essai à blanc"
+        "rehearsal": "la répétition dans la cible"
       },
       "none": "Ce qui a été lu ne retient rien contre ces lignes.",
       "unread": "Non lu par {{read}} : {{part}} — {{reason}}",
@@ -5415,7 +5418,7 @@
       "source": {
         "metadata": "Lu dans les métadonnées de la cible",
         "simulation": "Trouvé par la simulation",
-        "rehearsal": "Refusé par la plateforme lors de l'essai à blanc"
+        "rehearsal": "Refusé par la plateforme lors de la répétition dans la cible"
       },
       "kind": {
         "picklist_value_refused": "Valeur de liste de sélection que le type d'enregistrement refuse",
@@ -5437,8 +5440,8 @@
         "object_setup_only": "Objet qu'aucun utilisateur ne peut créer dans la cible, même avec Modify All Data : du paramétrage ou les enregistrements de la plateforme, Exécuter le saute",
         "object_feature_off": "Objet d'une fonctionnalité ou d'une licence que la cible n'a pas activée pour l'utilisateur avec lequel le clonage écrit",
         "object_through_parent": "Objet sur lequel aucun ensemble d'autorisations ne donne le droit de création : l'utilisateur avec lequel le clonage écrit le crée par les enregistrements dont il dépend, ou aucun utilisateur ne le peut",
-        "rehearsal_refusal": "Refusé lors de l'essai à blanc",
-        "rehearsal_update_refusal": "Mise à jour refusée lors de l'essai à blanc"
+        "rehearsal_refusal": "Refusé lors de la répétition",
+        "rehearsal_update_refusal": "Mise à jour refusée lors de la répétition"
       },
       "rows_one": "{{count}} ligne",
       "rows_other": "{{count}} lignes",

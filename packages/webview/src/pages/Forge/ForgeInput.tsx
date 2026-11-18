@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
@@ -12,6 +12,7 @@ import {
   FastForward,
   Flame,
   RefreshCw,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -89,6 +90,8 @@ export const ForgeInput: React.FC = () => {
     selectedTemplate: form.selectedTemplate,
     setSelectedTemplate: form.setSelectedTemplate,
   });
+  /** Whether the ways to start other than Discover Graph are shown. */
+  const [otherWaysOpen, setOtherWaysOpen] = useState(false);
 
   /*
    * An id the parser cannot read at all — a half-copied paste, an id with a
@@ -710,84 +713,112 @@ export const ForgeInput: React.FC = () => {
             </p>
           )}
 
-          {/* Clone directly — the discovery, then the run of what it found,
-              sent as Review sends it by default, with no stop on the graph or
-              Review. Gated as Discover is. What it skips is said here, where
-              the path is chosen: the metadata diff and the read of the
-              target's automation run on Review only. */}
-          <button
-            type="button"
-            data-testid="forge-clone-directly-btn"
-            // Never for a clone of the whole org: it is run from Review, which
-            // lists what it leaves out and the personal fields it copies as
-            // they are; the extension refuses one started without it.
-            disabled={!canDiscoverNow || !form.canCloneDirectly}
-            onClick={form.handleCloneDirectly}
-            aria-describedby="forge-clone-directly-hint"
-            className={cn(
-              'w-full py-2 mt-1 rounded-lg text-xs font-medium',
-              'border border-forge/30 bg-forge/5 text-hue-forge',
-              'hover:bg-forge/10 hover:border-forge/50',
-              'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-forge/5',
-              'transition-all flex items-center justify-center gap-2',
-            )}
-          >
-            <FastForward size={12} />
-            {t('forge.direct.action')}
-          </button>
-          <p
-            id="forge-clone-directly-hint"
-            data-testid="forge-clone-directly-hint"
-            className="text-[10px] text-text-secondary text-center"
-          >
-            {t(form.wholeOrg ? 'forge.direct.notAll' : 'forge.direct.hint')}
-          </p>
-
-          {/* Reuse last graph — skip BFS rediscovery (~30s on large orgs) */}
-          {form.canReuseLastGraph && (
+          {/* Discover Graph is the one way to start in sight. Clone directly
+              took the whole width under it, though it skips Review and its
+              gaps; it is folded here with the two shortcuts past the
+              discovery, each still saying what it skips once shown. */}
+          <div className="flex flex-col" data-testid="forge-other-ways">
             <button
               type="button"
-              data-testid="forge-reuse-last-graph-btn"
-              onClick={form.handleReuseLastGraph}
-              className={cn(
-                'w-full py-2 mt-2 rounded-lg text-xs font-medium',
-                'border border-forge/30 bg-forge/5 text-hue-forge',
-                'hover:bg-forge/10 hover:border-forge/50',
-                'transition-all flex items-center justify-center gap-2',
-              )}
-              title={t(
-                'forge.reuseLastGraphHint',
-                'Skip the 30s+ discovery and reuse the graph from your last execution.',
-              )}
+              data-testid="forge-other-ways-toggle"
+              aria-expanded={otherWaysOpen}
+              aria-controls="forge-other-ways-list"
+              onClick={() => setOtherWaysOpen((open) => !open)}
+              className="flex items-center gap-1 self-center rounded-sm px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
             >
-              <RefreshCw size={12} />
-              {t('forge.reuseLastGraph', 'Reuse last graph (skip discovery)')}
+              <ChevronRight
+                size={12}
+                aria-hidden="true"
+                className={cn('transition-transform', otherWaysOpen && 'rotate-90')}
+              />
+              {t('forge.otherWaysToStart')}
             </button>
-          )}
+            <div
+              id="forge-other-ways-list"
+              data-testid="forge-other-ways-list"
+              hidden={!otherWaysOpen}
+              className="flex flex-col"
+            >
+              {/* Clone directly — the discovery, then the run of what it found,
+                sent as Review sends it by default, with no stop on the graph or
+                Review. Gated as Discover is. What it skips is said here, where
+                the path is chosen: the metadata diff and the read of the
+                target's automation run on Review only. */}
+              <button
+                type="button"
+                data-testid="forge-clone-directly-btn"
+                // Never for a clone of the whole org: it is run from Review, which
+                // lists what it leaves out and the personal fields it copies as
+                // they are; the extension refuses one started without it.
+                disabled={!canDiscoverNow || !form.canCloneDirectly}
+                onClick={form.handleCloneDirectly}
+                aria-describedby="forge-clone-directly-hint"
+                className={cn(
+                  'w-full py-2 mt-1 rounded-lg text-xs font-medium',
+                  'border border-forge/30 bg-forge/5 text-hue-forge',
+                  'hover:bg-forge/10 hover:border-forge/50',
+                  'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-forge/5',
+                  'transition-all flex items-center justify-center gap-2',
+                )}
+              >
+                <FastForward size={12} />
+                {t('forge.direct.action')}
+              </button>
+              <p
+                id="forge-clone-directly-hint"
+                data-testid="forge-clone-directly-hint"
+                className="text-[10px] text-text-secondary text-center"
+              >
+                {t(form.wholeOrg ? 'forge.direct.notAll' : 'forge.direct.hint')}
+              </p>
 
-          {/* Quick start (skip-when-template) — synthetic graph, instant Review */}
-          {form.canQuickStartTemplate && form.builtinTplCandidate && (
-            <button
-              type="button"
-              data-testid="forge-quick-start-template-btn"
-              onClick={form.handleQuickStartTemplate}
-              className={cn(
-                'w-full py-2 mt-2 rounded-lg text-xs font-medium',
-                'border border-forge/30 bg-forge/5 text-hue-forge',
-                'hover:bg-forge/10 hover:border-forge/50',
-                'transition-all flex items-center justify-center gap-2',
+              {/* Reuse last graph — skip BFS rediscovery (~30s on large orgs) */}
+              {form.canReuseLastGraph && (
+                <button
+                  type="button"
+                  data-testid="forge-reuse-last-graph-btn"
+                  onClick={form.handleReuseLastGraph}
+                  className={cn(
+                    'w-full py-2 mt-2 rounded-lg text-xs font-medium',
+                    'border border-forge/30 bg-forge/5 text-hue-forge',
+                    'hover:bg-forge/10 hover:border-forge/50',
+                    'transition-all flex items-center justify-center gap-2',
+                  )}
+                  title={t(
+                    'forge.reuseLastGraphHint',
+                    'Skip the 30s+ discovery and reuse the graph from your last execution.',
+                  )}
+                >
+                  <RefreshCw size={12} />
+                  {t('forge.reuseLastGraph', 'Reuse last graph (skip discovery)')}
+                </button>
               )}
-              title={t(
-                'forge.quickStartTemplateHint',
-                "Skip discovery and use the starter template's known object set. Record counts will be queried during execution.",
+
+              {/* Quick start (skip-when-template) — synthetic graph, instant Review */}
+              {form.canQuickStartTemplate && form.builtinTplCandidate && (
+                <button
+                  type="button"
+                  data-testid="forge-quick-start-template-btn"
+                  onClick={form.handleQuickStartTemplate}
+                  className={cn(
+                    'w-full py-2 mt-2 rounded-lg text-xs font-medium',
+                    'border border-forge/30 bg-forge/5 text-hue-forge',
+                    'hover:bg-forge/10 hover:border-forge/50',
+                    'transition-all flex items-center justify-center gap-2',
+                  )}
+                  title={t(
+                    'forge.quickStartTemplateHint',
+                    "Skip discovery and use the starter template's known object set. Record counts will be queried during execution.",
+                  )}
+                >
+                  <Sparkles size={12} />
+                  {t('forge.quickStartTemplate', {
+                    name: starterName(t, form.builtinTplCandidate),
+                  })}
+                </button>
               )}
-            >
-              <Sparkles size={12} />
-              {t('forge.quickStartTemplate', {
-                name: starterName(t, form.builtinTplCandidate),
-              })}
-            </button>
-          )}
+            </div>
+          </div>
 
           {/* Past runs — refill the form from a run the extension kept. Its
               panel, like the template's and the AI's, comes in a chunk of its

@@ -957,6 +957,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const copySampleInstead = useForgeStore((s) => s.copySampleInstead);
   const checkpointAsked = useForgeStore((s) => s.checkpointFirst);
 
+  /** Whether the exports folded under Export… are shown. */
+  const [exportOpen, setExportOpen] = useState(false);
+  /**
+   * Whether the run left anything to do next: take it up or retry it, verify,
+   * keep or take back what it wrote, or rewind to the checkpoint it took
+   * first. A simulation wrote nothing.
+   */
+  const nextStepsShown =
+    !simulated &&
+    (inserted + (result?.updatedCount ?? 0) > 0 ||
+      resumeOffered ||
+      (retryOffered && result !== null) ||
+      wholeOrgAgainOffered ||
+      takenOrDeleted(result?.checkpoint) !== undefined);
+
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
     forgeAgain();
@@ -1666,12 +1681,185 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </m.div>
       )}
 
-      {/* Actions row */}
+      {/* What to do with what the run wrote comes first, under its heading:
+          take the run up or retry what failed, verify it, keep the target as
+          it now is, and take the run back. It came under ten buttons, five
+          of them exports, with Forge again the one primary among them. A
+          simulation wrote nothing: it has none. */}
+      {nextStepsShown && (
+        <section
+          aria-labelledby="forge-next-steps-title"
+          className="flex flex-col gap-3"
+          data-testid="forge-next-steps"
+        >
+          <h3 id="forge-next-steps-title" className="text-sm font-semibold text-text-primary">
+            {t('forgeRun.nextSteps')}
+          </h3>
+          {(resumeOffered ||
+            (retryOffered && result) ||
+            wholeOrgAgainOffered ||
+            missingParents) && (
+            <div className="flex flex-wrap items-center gap-3">
+              {resumeOffered && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<Play size={14} />}
+                  onClick={handleResume}
+                  aria-describedby="forge-resume-hint"
+                  data-testid="forge-resume"
+                >
+                  {t('forgeRun.resumeRun')}
+                </Button>
+              )}
+              {retryOffered && result && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<RefreshCw size={14} />}
+                  onClick={() => handleRetryFailed()}
+                  aria-describedby="forge-retry-failed-hint"
+                  data-testid="forge-retry-failed"
+                >
+                  {t(retryLabel)}
+                </Button>
+              )}
+              {wholeOrgAgainOffered && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<RefreshCw size={14} />}
+                  onClick={handleWholeOrgAgain}
+                  aria-describedby="forge-whole-org-again-hint"
+                  data-testid="forge-whole-org-again"
+                >
+                  {t('forgeRun.wholeOrgAgain')}
+                </Button>
+              )}
+              {missingParents && result && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<RefreshCw size={14} />}
+                  onClick={() => handleRetryFailed({ expandOrphanParents: true })}
+                  aria-describedby="forge-retry-parents-hint"
+                  data-testid="forge-retry-parents"
+                >
+                  {t('forgeRun.retryWithParents')}
+                </Button>
+              )}
+            </div>
+          )}
+          {/* What taking the run up reads, and what it does not write twice. */}
+          {resumeOffered && (
+            <p
+              id="forge-resume-hint"
+              className="text-xs text-text-secondary"
+              data-testid="forge-resume-hint"
+            >
+              {t('forgeRun.resumeRunHint')}
+            </p>
+          )}
+          {/* What the retry writes, and what it does not write twice: a clone run
+              again would otherwise be read as writing everything a second time. */}
+          {retryOffered && result && (
+            <p
+              id="forge-retry-failed-hint"
+              className="text-xs text-text-secondary"
+              data-testid="forge-retry-failed-hint"
+            >
+              {t(retryHint)}
+            </p>
+          )}
+          {/* Why the run is not retried, and what cloning the org again leaves. */}
+          {wholeOrgAgainOffered && (
+            <p
+              id="forge-whole-org-again-hint"
+              className="text-xs text-text-secondary"
+              data-testid="forge-whole-org-again-hint"
+            >
+              {t('forgeRun.wholeOrgAgainHint')}
+            </p>
+          )}
+          {missingParents && result && (
+            <p
+              id="forge-retry-parents-hint"
+              className="text-xs text-text-secondary"
+              data-testid="forge-retry-parents-hint"
+            >
+              {t('forgeRun.retryWithParentsHint')}
+            </p>
+          )}
+          {/* What the run created read back once the target has settled. */}
+          {result && <ForgeResultsVerify run={result} />}
+          {/* The target as the clone filled it, kept before the testers start. */}
+          <TakeCheckpointNow
+            orgId={targetOrgId}
+            wrote={inserted + (result?.updatedCount ?? 0) > 0}
+            testId="forge-results-checkpoint-now"
+          />
+          {/* The removal the history of runs offers, of the run on screen, and
+              what it did said in place. */}
+          {result && (
+            <ForgeResultsRemoval
+              run={result}
+              targetOrgId={config?.targetOrgId}
+              onRemoved={handleRemoved}
+            />
+          )}
+          {/* Under the removal, which takes back what the run wrote alone: the
+              rewind takes back everything since, whoever did it. */}
+          <RewindBeforeRun
+            checkpoint={takenOrDeleted(result?.checkpoint)}
+            orgId={targetOrgId}
+            beside="run"
+            leftByRemoval={(result?.undo?.kept ?? 0) + (result?.undo?.refused ?? 0) > 0}
+            muted={result?.mutedAutomation !== undefined}
+            testId="forge-results-checkpoint"
+          />
+        </section>
+      )}
+
+      {/* Then what is kept of the run, and a new one: the five exports folded
+          under Export…, the template, and Forge again, secondary. */}
       <m.div
         variants={slideUp}
         initial="hidden"
         animate="visible"
         className="flex flex-wrap items-center gap-3"
+        data-testid="forge-results-actions"
+      >
+        <Button
+          variant="secondary"
+          size="md"
+          icon={<Download size={14} />}
+          onClick={() => setExportOpen((open) => !open)}
+          aria-expanded={exportOpen}
+          aria-controls="forge-results-export-list"
+          data-testid="forge-results-export"
+        >
+          {t('forgeRun.exportMenu')}
+          {exportOpen ? (
+            <ChevronUp size={14} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={14} aria-hidden="true" />
+          )}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          icon={<RotateCcw size={14} />}
+          onClick={handleForgeAgain}
+          data-testid="forge-again"
+        >
+          {t('forgeRun.forgeAgain')}
+        </Button>
+      </m.div>
+      <div
+        id="forge-results-export-list"
+        hidden={!exportOpen}
+        className="flex flex-wrap items-center gap-3"
+        data-testid="forge-results-export-list"
       >
         <Button
           variant="secondary"
@@ -1737,64 +1925,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forgeRun.saveResultJson')}
         </Button>
-        {resumeOffered && (
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<Play size={14} />}
-            onClick={handleResume}
-            aria-describedby="forge-resume-hint"
-            data-testid="forge-resume"
-          >
-            {t('forgeRun.resumeRun')}
-          </Button>
-        )}
-        {retryOffered && result && (
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<RefreshCw size={14} />}
-            onClick={() => handleRetryFailed()}
-            aria-describedby="forge-retry-failed-hint"
-            data-testid="forge-retry-failed"
-          >
-            {t(retryLabel)}
-          </Button>
-        )}
-        {wholeOrgAgainOffered && (
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<RefreshCw size={14} />}
-            onClick={handleWholeOrgAgain}
-            aria-describedby="forge-whole-org-again-hint"
-            data-testid="forge-whole-org-again"
-          >
-            {t('forgeRun.wholeOrgAgain')}
-          </Button>
-        )}
-        {missingParents && result && (
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<RefreshCw size={14} />}
-            onClick={() => handleRetryFailed({ expandOrphanParents: true })}
-            aria-describedby="forge-retry-parents-hint"
-            data-testid="forge-retry-parents"
-          >
-            {t('forgeRun.retryWithParents')}
-          </Button>
-        )}
-        <Button
-          variant="primary"
-          size="md"
-          icon={<RotateCcw size={14} />}
-          onClick={handleForgeAgain}
-          data-testid="forge-again"
-        >
-          {t('forgeRun.forgeAgain')}
-        </Button>
-      </m.div>
+      </div>
       {/* The run saved as a template, with the form Review saves one with. */}
       <ForgeSaveTemplate
         idPrefix="forge-save-template"
@@ -1802,77 +1933,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         size="md"
         recordCount={plannedRecords}
       />
-      {/* What taking the run up reads, and what it does not write twice. */}
-      {resumeOffered && (
-        <p
-          id="forge-resume-hint"
-          className="text-xs text-text-secondary"
-          data-testid="forge-resume-hint"
-        >
-          {t('forgeRun.resumeRunHint')}
-        </p>
-      )}
-      {/* What the retry writes, and what it does not write twice: a clone run
-          again would otherwise be read as writing everything a second time. */}
-      {retryOffered && result && (
-        <p
-          id="forge-retry-failed-hint"
-          className="text-xs text-text-secondary"
-          data-testid="forge-retry-failed-hint"
-        >
-          {t(retryHint)}
-        </p>
-      )}
-      {/* Why the run is not retried, and what cloning the org again leaves. */}
-      {wholeOrgAgainOffered && (
-        <p
-          id="forge-whole-org-again-hint"
-          className="text-xs text-text-secondary"
-          data-testid="forge-whole-org-again-hint"
-        >
-          {t('forgeRun.wholeOrgAgainHint')}
-        </p>
-      )}
-      {missingParents && result && (
-        <p
-          id="forge-retry-parents-hint"
-          className="text-xs text-text-secondary"
-          data-testid="forge-retry-parents-hint"
-        >
-          {t('forgeRun.retryWithParentsHint')}
-        </p>
-      )}
-      {/* The target as the clone filled it, kept before the testers start:
-          a simulation wrote nothing there. */}
-      <TakeCheckpointNow
-        orgId={targetOrgId}
-        wrote={!simulated && inserted + (result?.updatedCount ?? 0) > 0}
-        testId="forge-results-checkpoint-now"
-      />
-      {/* What the run created read back once the target has settled: a
-          simulation wrote nothing to verify. */}
-      {result && !simulated && <ForgeResultsVerify run={result} />}
-      {/* The removal the history of runs offers, of the run on screen, and
-          what it did said in place. */}
-      {result && !simulated && (
-        <ForgeResultsRemoval
-          run={result}
-          targetOrgId={config?.targetOrgId}
-          onRemoved={handleRemoved}
-        />
-      )}
-      {/* Under the removal, which takes back what the run wrote alone: the
-          rewind takes back everything since, whoever did it. */}
-      {!simulated && (
-        <RewindBeforeRun
-          checkpoint={takenOrDeleted(result?.checkpoint)}
-          orgId={targetOrgId}
-          beside="run"
-          leftByRemoval={(result?.undo?.kept ?? 0) + (result?.undo?.refused ?? 0) > 0}
-          muted={result?.mutedAutomation !== undefined}
-          testId="forge-results-checkpoint"
-        />
-      )}
     </div>
   );
 };

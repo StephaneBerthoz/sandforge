@@ -158,6 +158,7 @@ for (const theme of THEMES) {
       // Every record, or a sample that fits the target: a choice, never greyed.
       await expect(page.getByTestId('forge-record-limit')).toBeEnabled();
       await expect(page.getByTestId('forge-record-limit')).toHaveValue('every');
+      await page.getByTestId('forge-other-ways-toggle').click();
       await expect(page.getByTestId('forge-clone-directly-btn')).toBeDisabled();
       await expect(page.getByTestId('forge-discover-btn')).toBeEnabled();
       const results = await checkAccessibility(page);

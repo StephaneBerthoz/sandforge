@@ -3660,10 +3660,7 @@ describe('ForgeResults', () => {
     it('offers, under the run’s next steps, a checkpoint of the target the clone filled', () => {
       render(<ForgeResults />);
       const offer = screen.getByTestId('forge-results-checkpoint-now');
-      expect(
-        screen.getByTestId('forge-again').compareDocumentPosition(offer) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
+      expect(screen.getByTestId('forge-next-steps').contains(offer)).toBe(true);
       expect(offer.textContent).toContain('keep QA-SANDBOX as it is now');
       fireEvent.click(within(offer).getByRole('button', { name: 'Take a checkpoint now' }));
       expect(useAppStore.getState().navigationIntent).toEqual({
@@ -3672,6 +3669,78 @@ describe('ForgeResults', () => {
         targetOrgId: 'org-target',
       });
       expect(useOrgStore.getState().selectedOrgId).toBe('org-target');
+    });
+
+    /** A run that created records the history can name: Verify and Remove are offered. */
+    const created = () =>
+      Object.assign(makeMockResult(), {
+        forgeId: 'forge-run-1',
+        createdCount: 1,
+        idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+        idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+      }) as typeof mockResult;
+
+    /** Whether `a` comes before `b` in the page. */
+    const before = (a: HTMLElement, b: HTMLElement): boolean =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    it('puts the next steps first, under their heading: Verify, Take a checkpoint now, then Remove', () => {
+      // They came under ten buttons, five of them exports, with Forge again
+      // the one primary among them.
+      mockResult = created();
+      render(<ForgeResults />);
+      const steps = screen.getByTestId('forge-next-steps');
+      expect(within(steps).getByRole('heading', { name: 'Next steps' })).toBeDefined();
+      expect(steps.getAttribute('aria-labelledby')).toBe(
+        within(steps).getByRole('heading').getAttribute('id'),
+      );
+      const verify = screen.getByTestId('forge-results-verify');
+      const checkpoint = screen.getByTestId('forge-results-checkpoint-now');
+      const removal = screen.getByTestId('forge-results-removal');
+      for (const part of [verify, checkpoint, removal]) expect(steps.contains(part)).toBe(true);
+      expect(before(verify, checkpoint)).toBe(true);
+      expect(before(checkpoint, removal)).toBe(true);
+      // Then the exports and a new run, after them.
+      expect(before(steps, screen.getByTestId('forge-results-export'))).toBe(true);
+      expect(before(steps, screen.getByTestId('forge-again'))).toBe(true);
+    });
+
+    it('folds the exports under Export…, out of sight until it is opened', () => {
+      mockResult = created();
+      render(<ForgeResults />);
+      const opener = screen.getByTestId('forge-results-export');
+      expect(opener.textContent).toBe('Export…');
+      expect(opener.getAttribute('aria-expanded')).toBe('false');
+      const list = screen.getByTestId('forge-results-export-list');
+      expect(opener.getAttribute('aria-controls')).toBe(list.id);
+      expect(list.hidden).toBe(true);
+      for (const testId of [
+        'forge-copy-report',
+        'forge-export-json',
+        'forge-save-id-map',
+        'forge-save-results-csv',
+        'forge-save-result-json',
+      ]) {
+        expect(list.contains(screen.getByTestId(testId)), testId).toBe(true);
+      }
+      fireEvent.click(opener);
+      expect(opener.getAttribute('aria-expanded')).toBe('true');
+      expect(list.hidden).toBe(false);
+    });
+
+    it('draws Forge again as a secondary action beside Export…, no longer the one primary', () => {
+      mockResult = created();
+      render(<ForgeResults />);
+      const again = screen.getByTestId('forge-again');
+      expect(again.className).toContain('secondaryBackground');
+      expect(screen.getByTestId('forge-results-actions').contains(again)).toBe(true);
+    });
+
+    it('draws no next steps for a simulation, which wrote nothing', () => {
+      mockResult = { ...created(), dryRun: true, wouldInsertCount: 7 } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-next-steps')).toBeNull();
+      expect(screen.getByTestId('forge-results-export')).toBeDefined();
     });
 
     it('offers one after a run that only wrote over records an upsert matched', () => {

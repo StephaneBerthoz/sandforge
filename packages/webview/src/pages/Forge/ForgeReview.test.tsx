@@ -245,17 +245,17 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it("lists Gaps, Plan, Anonymization, Compliance, Metadata and Automation, Controls in the run's column", () => {
+  it("lists Gaps, Plan, Personal data, Metadata and Automation, Controls in the run's column", () => {
     render(<ForgeReview />);
     const rows = [...screen.getByTestId('review-tabs').querySelectorAll('button[aria-expanded]')];
     expect(rows.map((row) => row.id)).toEqual([
       'tab-gaps',
       'tab-plan',
       'tab-anonymization',
-      'tab-compliance',
       'tab-metadata',
       'tab-automation',
     ]);
+    expect(screen.getByTestId('tab-anonymization').textContent).toContain('Personal data');
     expect(
       within(screen.getByTestId('review-run-column')).getByTestId('tab-controls'),
     ).toBeDefined();
@@ -277,7 +277,7 @@ describe('ForgeReview', () => {
     render(<ForgeReview />);
     expect(screen.queryAllByRole('tab')).toEqual([]);
     const plan = screen.getByTestId('tab-plan');
-    const compliance = screen.getByTestId('tab-compliance');
+    const compliance = screen.getByTestId('tab-anonymization');
     expect(plan.tagName).toBe('BUTTON');
     expect(plan.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByTestId('plan-loading')).toBeNull();
@@ -1479,19 +1479,28 @@ describe('ForgeReview', () => {
     );
   });
 
-  it('says the framework chosen on its row once closed, and keeps it for when it opens again', () => {
+  it('holds anonymization and the compliance framework in one Personal data row, the framework said only once one is chosen', () => {
+    // Compliance was a row of its own that said "No framework selected" beside
+    // Anonymization, for a select that read None.
     render(<ForgeReview />);
-    expect(screen.getByTestId('review-row-compliance-summary').textContent).toBe(
-      'No framework selected.',
-    );
-    fireEvent.click(screen.getByTestId('tab-compliance'));
-    fireEvent.change(screen.getByTestId('framework-select'), { target: { value: 'gdpr' } });
-    expect(screen.getByTestId('review-row-compliance-summary').textContent).toBe(
-      'Analyzing compliance...',
-    );
+    expect(screen.queryByTestId('tab-compliance')).toBeNull();
+    const summary = () => screen.getByTestId('review-row-anonymization-summary').textContent;
+    expect(summary()).toBe('3 personal fields found, anonymized as the run writes them.');
 
-    fireEvent.click(screen.getByTestId('tab-compliance'));
-    fireEvent.click(screen.getByTestId('tab-compliance'));
+    fireEvent.click(screen.getByTestId('tab-anonymization'));
+    const region = screen.getByRole('region', { name: 'Personal data' });
+    expect(within(region).getByTestId('review-anonymization-tab')).toBeDefined();
+    expect(within(region).getByTestId('review-compliance-tab')).toBeDefined();
+    expect(within(region).getByRole('heading', { name: 'Compliance' })).toBeDefined();
+
+    fireEvent.change(screen.getByTestId('framework-select'), { target: { value: 'gdpr' } });
+    expect(summary()).toBe(
+      '3 personal fields found, anonymized as the run writes them. Analyzing compliance...',
+    );
+    expect(screen.getByTestId('review-row-anonymization-state').textContent).toBe('Working…');
+
+    fireEvent.click(screen.getByTestId('tab-anonymization'));
+    fireEvent.click(screen.getByTestId('tab-anonymization'));
 
     expect(screen.getByTestId('framework-select')).toHaveProperty('value', 'gdpr');
   });

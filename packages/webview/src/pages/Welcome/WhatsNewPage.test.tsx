@@ -270,11 +270,12 @@ describe('WhatsNewPage', () => {
 
   it('names Rehearse as the Review button does in French and German, now that skipped releases show', () => {
     // « Répéter » read "repeat" and „Proben“ "samples"; the button became
-    // « Essai à blanc » and „Probelauf“, and an upgrade from before 1.43 lists
-    // this entry again.
+    // « Essai à blanc » and „Probelauf“, the words of Automation's dry run,
+    // which writes nothing, then « Répéter dans la cible » and „Testlauf im
+    // Ziel“. An upgrade from before 1.43 lists this entry again.
     for (const [catalogue, retired] of [
-      [fr, /Répéter/],
-      [de, /\bProben\b/],
+      [fr, /Essai à blanc|Répéter (?!dans la cible)/],
+      [de, /\bProben\b|Probelauf/],
     ] as const) {
       const entry = catalogue.onboarding.whatsNew.gaps1430Desc;
       expect(entry).toContain(catalogue.forgeRun.rehearsal.action);

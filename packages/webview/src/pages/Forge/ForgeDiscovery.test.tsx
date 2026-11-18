@@ -371,13 +371,13 @@ describe('ForgeDiscovery', () => {
     expect(container.querySelector('[data-testid="metadata-diff-banner"]')).toBeNull();
   });
 
-  it('should render "Review & Execute" label on the execute button', () => {
+  it('names the button by where it goes, Review, and not by an execution it does not start', () => {
+    // It read Review & Execute, and opened Review: nothing is written before
+    // Execute Forge, on Review.
     render(<ForgeDiscovery />);
     const btn = screen.getByTestId('forge-execute-btn');
-    expect(btn.textContent).toContain('Review');
-    expect(btn.textContent).toContain('Execute');
-    // Ensure old label is gone
-    expect(btn.textContent).not.toBe('Execute Forge');
+    expect(btn.textContent).toBe('Continue to Review');
+    expect(btn.textContent).not.toMatch(/Execute/);
   });
 
   it('should call toggleNodeIncluded when include toggle is used', () => {

@@ -557,6 +557,8 @@ describe('where the app explains the Forge flow, Clone directly and the Graph/Ta
     const catalogue = load(locale);
     const help = label(catalogue, 'help.forgeContent');
     expect(help).toContain(label(catalogue, 'forge.direct.action'));
+    // Folded under it, below Discover Graph: the reader is told where to open.
+    expect(help).toContain(label(catalogue, 'forge.otherWaysToStart'));
     expect(help).toContain(label(catalogue, 'forgeRun.graphView'));
     expect(help).toContain(label(catalogue, 'forgeRun.tableView'));
     expect(help).toContain('sandforge.forge.graphView');
@@ -576,6 +578,7 @@ describe('where the app explains the Forge flow, Clone directly and the Graph/Ta
       'utf8',
     );
     expect(body).toContain(label(catalogue, 'forge.direct.action'));
+    expect(body).toContain(`**${label(catalogue, 'forge.otherWaysToStart')}**`);
     expect(body).toContain(label(catalogue, 'forgeRun.graphView'));
     expect(body).toContain(label(catalogue, 'forgeRun.tableView'));
     expect(body).toContain('sandforge.forge.graphView');

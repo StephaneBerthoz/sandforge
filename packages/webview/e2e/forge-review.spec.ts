@@ -503,7 +503,6 @@ const IN_SIGHT_AT_800 = [
   'tab-gaps',
   'tab-plan',
   'tab-anonymization',
-  'tab-compliance',
   'tab-metadata',
   'tab-automation',
   'tab-controls',
@@ -539,7 +538,7 @@ async function scrollPanelTo(page: Page, top: number): Promise<void> {
 
 /** Open every row and Controls, and what the rows and the column fold. */
 async function openEveryRow(page: Page): Promise<void> {
-  for (const row of ['plan', 'anonymization', 'compliance', 'metadata', 'automation', 'controls']) {
+  for (const row of ['plan', 'anonymization', 'metadata', 'automation', 'controls']) {
     await page.getByTestId(`tab-${row}`).click();
     await expect(page.getByTestId(`tab-${row}`)).toHaveAttribute('aria-expanded', 'true');
   }
@@ -653,7 +652,7 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     // Automation went under the fold.
     await openReview(page, { gaps: [REFUSING_GAP] });
     await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-expanded', 'true');
-    for (const row of ['gaps', 'plan', 'anonymization', 'compliance', 'metadata', 'automation']) {
+    for (const row of ['gaps', 'plan', 'anonymization', 'metadata', 'automation']) {
       expect(await inSight(page, `tab-${row}`), row).toBe(true);
     }
     // The gap and its decision, before what serves less.
@@ -821,7 +820,7 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
         .getByTestId('review-gaps-scroll')
         .evaluate((body) => body.scrollHeight > body.clientHeight),
     ).toBe(true);
-    const rows = ['gaps', 'plan', 'anonymization', 'compliance', 'metadata', 'automation'];
+    const rows = ['gaps', 'plan', 'anonymization', 'metadata', 'automation'];
     /** Where each row stands. */
     const layout = async (): Promise<number[]> => {
       const tops: number[] = [];
@@ -875,7 +874,7 @@ test.describe('Forge Review on a 1280 by 800 panel', () => {
     await openReview(page, { gaps: [LIFTED_RULE_GAP], automation: LIFTING_AUTOMATION });
     await page.getByTestId('tab-gaps').click();
     await expect(page.getByTestId('bypass-assistant')).toBeVisible();
-    const rows = ['plan', 'anonymization', 'compliance', 'metadata', 'automation'];
+    const rows = ['plan', 'anonymization', 'metadata', 'automation'];
     const tops = async (): Promise<number[]> => {
       const at: number[] = [];
       for (const row of rows) {
@@ -1118,22 +1117,16 @@ test.describe('Forge Review by keyboard', () => {
     await openReview(page);
     await page.getByTestId('tab-gaps').focus();
     const walked: Array<string | null> = [];
-    for (let stop = 0; stop < 5; stop += 1) {
+    for (let stop = 0; stop < 4; stop += 1) {
       await page.keyboard.press('Tab');
       walked.push(await page.evaluate(() => document.activeElement?.id ?? null));
     }
-    expect(walked).toEqual([
-      'tab-plan',
-      'tab-anonymization',
-      'tab-compliance',
-      'tab-metadata',
-      'tab-automation',
-    ]);
+    expect(walked).toEqual(['tab-plan', 'tab-anonymization', 'tab-metadata', 'tab-automation']);
 
-    await page.getByTestId('tab-compliance').focus();
+    await page.getByTestId('tab-anonymization').focus();
     await page.keyboard.press('Enter');
     await page.keyboard.press('Tab');
-    await expect(page.getByTestId('framework-select')).toBeFocused();
+    await expect(page.getByTestId('anonymization-switch')).toBeFocused();
   });
 
   test('turns the chevron without a transition when the system asks for less motion', async ({

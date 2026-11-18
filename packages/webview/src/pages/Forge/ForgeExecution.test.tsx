@@ -784,14 +784,16 @@ describe('ForgeExecution', () => {
     expect(screen.getByTestId('log-filter-warnings').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('logs the abort in a line of its own', () => {
+  it('logs the stop asked in a line of its own, in the words of Stop the run', () => {
+    // The button and its question said Stop the run; the log said ABORTED.
     render(<ForgeExecution />);
 
+    expect(screen.getByTestId('forge-abort-button').textContent).toBe('Stop the run');
     fireEvent.click(screen.getByTestId('forge-abort-button'));
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(mockAddLog).toHaveBeenCalledWith(
-      expect.objectContaining({ level: 'warn', message: 'ABORTED', id: expect.any(String) }),
+      expect.objectContaining({ level: 'warn', message: 'STOP ASKED', id: expect.any(String) }),
     );
   });
 
@@ -913,7 +915,7 @@ describe('ForgeExecution', () => {
       expect(mockShowStoppedRun).toHaveBeenCalledTimes(1);
     });
 
-    it('says a run the user cancelled was cancelled, not the abort’s words as an error, and shows what it wrote', () => {
+    it('says a run the user stopped was stopped, as Stop the run said, not the abort’s words as an error, and shows what it wrote', () => {
       mockRunError = {
         message: 'Forge execution was aborted by user request.',
         code: 'RUN_CANCELLED',
@@ -926,7 +928,7 @@ describe('ForgeExecution', () => {
       const notice = screen.getByTestId('forge-execution-error');
       expect(notice.getAttribute('role')).toBe('status');
       expect(screen.getByTestId('forge-execution-error-message').textContent).toBe(
-        'You cancelled the run before its end.',
+        'You stopped the run before its end.',
       );
       expect(notice.textContent).not.toContain('aborted by user request');
       expect(screen.queryByTestId('error-hint')).toBeNull();

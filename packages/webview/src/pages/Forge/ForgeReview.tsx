@@ -46,14 +46,13 @@ import { useReviewRoom } from './useReviewRoom';
 import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
 import { ReviewRow } from './ReviewRow';
 import {
-  anonymizationRowSaid,
   automationRowSaid,
-  complianceRowSaid,
   controlsSet,
   forgeRunBuckets,
   gapsRowSaid,
   leftToDecide,
   metadataRowSaid,
+  personalDataRowSaid,
   runSentence,
   type ComplianceRowStatus,
 } from './reviewSummaries';
@@ -63,8 +62,12 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { cn } from '../../theme';
 
-/** The parts of Review that open and close. */
-type ReviewRowId = 'gaps' | 'plan' | 'anonymization' | 'compliance' | 'metadata' | 'automation';
+/**
+ * The parts of Review that open and close. Personal data keeps the id of the
+ * Anonymization row it took over, with the compliance framework, which had a
+ * row of its own.
+ */
+type ReviewRowId = 'gaps' | 'plan' | 'anonymization' | 'metadata' | 'automation';
 
 /**
  * The panel width under which the run's column goes under the rows. Tailwind
@@ -168,7 +171,7 @@ function requestMetadataDiff(config: ForgeConfig, graph: ForgeGraph): void {
  *
  * The run in one sentence and what is left to decide, then its parts as rows
  * that open in place: Gaps, then Plan — with the graph or its table —,
- * Anonymization, Compliance, Metadata and Automation, each saying what it
+ * Personal data, Metadata and Automation, each saying what it
  * comes to and where it stands. Beside them, and held in view, the column of
  * the run: Checkpoint first, the mute, the files, Controls, Rehearse, Simulate
  * and Execute. Seven tabs beside a graph hid everything but the one open: gaps
@@ -401,7 +404,7 @@ export const ForgeReview: React.FC = () => {
     { review: reviewRef, rows: rowsRef, gaps: gapsBodyRef },
     openRows.size === 1 && openRows.has('gaps'),
   );
-  /** Where the Compliance tab stands: it tells its row, which says so once it is closed. */
+  /** Where the compliance framework stands: it tells the Personal data row, which says so once it is closed. */
   const [compliance, setCompliance] = useState<ComplianceRowStatus>({ step: 'none' });
   /** Execute asked about them, and is waiting for the answer. */
   const [askingAboutGaps, setAskingAboutGaps] = useState(false);
@@ -493,11 +496,11 @@ export const ForgeReview: React.FC = () => {
     shown: gapsShown,
     unread: gapsUnread,
   });
-  const anonymizationSaid = anonymizationRowSaid(t, {
-    personalFields: piiFieldCount,
-    anonymizes: config?.anonymizePII === true,
-  });
-  const complianceSaid = complianceRowSaid(t, compliance);
+  const personalDataSaid = personalDataRowSaid(
+    t,
+    { personalFields: piiFieldCount, anonymizes: config?.anonymizePII === true },
+    compliance,
+  );
   const metadataSaid = metadataRowSaid(t, {
     pending: metadataPending,
     failed: metadataError !== null,
@@ -683,25 +686,26 @@ export const ForgeReview: React.FC = () => {
               <ReviewPlanTab error={planError} />
             </div>
           </ReviewRow>
+          {/* Anonymization and the compliance framework, in one row: the
+              framework had a row of its own, which said "No framework
+              selected" for a select that read None. */}
           <ReviewRow
             id="anonymization"
             name={t('forgeRun.review.anonymizationTab')}
-            summary={anonymizationSaid.summary}
-            state={anonymizationSaid.state}
+            summary={personalDataSaid.summary}
+            state={personalDataSaid.state}
             open={openRows.has('anonymization')}
             onToggle={() => toggleRow('anonymization')}
           >
-            <ReviewAnonymizationTab />
-          </ReviewRow>
-          <ReviewRow
-            id="compliance"
-            name={t('forgeRun.review.complianceTab')}
-            summary={complianceSaid.summary}
-            state={complianceSaid.state}
-            open={openRows.has('compliance')}
-            onToggle={() => toggleRow('compliance')}
-          >
-            <ReviewComplianceTab onStatus={setCompliance} />
+            <div className="flex flex-col gap-4">
+              <ReviewAnonymizationTab />
+              <div className="flex flex-col gap-2 border-t border-subtle pt-3">
+                <h4 className="text-xs font-semibold text-text-primary">
+                  {t('forgeRun.review.complianceTab')}
+                </h4>
+                <ReviewComplianceTab onStatus={setCompliance} />
+              </div>
+            </div>
           </ReviewRow>
           <ReviewRow
             id="metadata"

@@ -700,7 +700,8 @@ const stepDescriptions = (id) => {
  * The Forge step never said to pick the Target Org, which Discover Graph waits
  * for, and set Depth, Records per object and Anonymize PII after discovery,
  * though they sit above its button and decide what it reads; it ended on
- * Review & Execute and never named Execute Forge, the button that writes.
+ * Review & Execute (now Continue to Review) and never named Execute Forge, the
+ * button that writes.
  */
 test('the Forge step follows the page: target, record and depth, discovery, then the Review buttons, in six languages', () => {
   const offenders = [];

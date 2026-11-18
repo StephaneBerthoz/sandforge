@@ -2688,6 +2688,8 @@ for (const theme of SCANNED_THEMES) {
         },
       });
       await page.waitForSelector('[data-testid="forge-id-mapping-journal"]', { timeout: 10_000 });
+      // Folded under Export…, with the other saves of the results.
+      await page.getByTestId('forge-results-export').click();
       await expect(page.getByTestId('forge-save-id-map-journal')).toBeVisible();
       const results = await checkAccessibility(page);
       expectNoViolations(results);
@@ -3023,6 +3025,7 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
       await expect(page.getByTestId('forge-id-mapping-open').first()).toBeVisible();
+      await page.getByTestId('forge-results-export').click();
       await expect(page.getByTestId('forge-save-id-map')).toBeVisible();
       await expect(page.getByTestId('forge-retry-parents')).toBeVisible();
       await expect(page.getByTestId('forge-results-remove')).toBeVisible();
@@ -3812,7 +3815,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-execution-see-stopped').click();
       await page.getByTestId('forge-results-stopped').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('forge-results-stopped-message')).toHaveText(
-        'You cancelled the run before its end.',
+        'You stopped the run before its end.',
       );
       // In words: the badge printed the code itself.
       await expect(page.getByTestId('forge-results-status-stopped')).toHaveText('Stopped');
@@ -4021,6 +4024,8 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-target-org').click();
       await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
 
+      // Folded under Other ways to start, below Discover Graph.
+      await page.getByTestId('forge-other-ways-toggle').click();
       // Said where the path is chosen: no metadata diff on it.
       await expect(page.getByTestId('forge-clone-directly-hint')).toContainText('metadata diff');
       const input = await checkAccessibility(page);
@@ -4060,6 +4065,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
       await page.getByTestId('forge-target-org').click();
       await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-other-ways-toggle').click();
       await page.getByTestId('forge-clone-directly-btn').click();
       await page.getByTestId('forge-discovery-direct').waitFor({ timeout: 10_000 });
 
@@ -4501,7 +4507,7 @@ for (const theme of SCANNED_THEMES) {
       await discoverForgeGraph(bridge, page, theme);
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
-      await page.getByTestId('tab-compliance').click();
+      await page.getByTestId('tab-anonymization').click();
       await page.getByTestId('framework-select').selectOption('gdpr');
       const request = await bridge.waitForMessage('forge:compliance:request', { timeout: 10_000 });
       // The report is asked on the run as it stands, its methods included.
@@ -4766,6 +4772,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-template-record-id').fill(fakeId('001', 1));
       await page.getByTestId('forge-target-org').click();
       await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-other-ways-toggle').click();
       await page.getByTestId('forge-quick-start-template-btn').click();
 
       // No discovery counted the template's tables: each is cloned, none is

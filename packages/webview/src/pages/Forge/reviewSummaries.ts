@@ -236,7 +236,7 @@ export function gapsRowSaid(
   return { summary: t('forgeRun.gaps.none'), state: 'ready' };
 }
 
-/** The Anonymization row. */
+/** The anonymization part of the Personal data row. */
 export function anonymizationRowSaid(
   t: TFunction,
   { personalFields, anonymizes }: { personalFields: number; anonymizes: boolean },
@@ -261,11 +261,12 @@ export type ComplianceRowStatus =
   | { step: 'loading' | 'failed' | 'waiting'; framework: string }
   | { step: 'report'; framework: string; verdict: string; passed: boolean };
 
-/** The Compliance row. */
-export function complianceRowSaid(t: TFunction, status: ComplianceRowStatus): ReviewRowSaid {
+/** The compliance part of the Personal data row, once a framework is chosen. */
+export function complianceRowSaid(
+  t: TFunction,
+  status: Exclude<ComplianceRowStatus, { step: 'none' }>,
+): ReviewRowSaid {
   switch (status.step) {
-    case 'none':
-      return { summary: t('forgeRun.review.row.compliance.none'), state: 'ready' };
     case 'loading':
       return { summary: t('forgeRun.review.complianceLoading'), state: 'working' };
     case 'waiting':
@@ -281,6 +282,31 @@ export function complianceRowSaid(t: TFunction, status: ComplianceRowStatus): Re
         state: status.passed ? 'ready' : 'toRead',
       };
   }
+}
+
+/** Which of two states a row that holds both stands at: the one asking more of the reader. */
+const PRESSING: readonly ReviewRowState[] = ['decide', 'failed', 'toRead', 'working', 'ready'];
+
+/**
+ * The Personal data row: the personal fields found and whether the run
+ * anonymizes them, then the verdict of the compliance framework, once one is
+ * chosen. A framework of None was a row of its own, saying so, Ready.
+ */
+export function personalDataRowSaid(
+  t: TFunction,
+  anonymization: { personalFields: number; anonymizes: boolean },
+  compliance: ComplianceRowStatus,
+): ReviewRowSaid {
+  const anonymized = anonymizationRowSaid(t, anonymization);
+  if (compliance.step === 'none') return anonymized;
+  const framed = complianceRowSaid(t, compliance);
+  return {
+    summary: `${anonymized.summary} ${framed.summary}`,
+    state:
+      PRESSING.indexOf(framed.state) < PRESSING.indexOf(anonymized.state)
+        ? framed.state
+        : anonymized.state,
+  };
 }
 
 /** The Metadata row. */

@@ -10,7 +10,7 @@ Forge needs two orgs: one that holds the records, and one to fill. With a single
 
 1. Pick the Target Org; the Source Org is already the org selected in the side panel.
 2. Paste a Record ID, a query on the SOQL tab, or pick ALL to copy the whole org; click Discover Graph.
-3. When discovery ends, click Review & Execute.
+3. When discovery ends, click Continue to Review.
 4. Click Execute Forge, then read the Inserted card once the run ends.
 
 **Tip:** Simulate writes nothing; Rehearse writes a sample and rolls it back; Remove the records this run created, in Recent runs, deletes them.
@@ -62,14 +62,14 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 4. Click "Discover Graph"
      → Forge walks the relationship graph from your root record
        (Account → Contacts, Opportunities, Cases…)
-     → or "Clone directly", to clone as soon as discovery answers,
-       with no stop on the graph or on Review (see below)
-5. Click "Review & Execute", check the plan, then "Simulate" to see first
+     → or "Clone directly", under "Other ways to start", to clone as soon as
+       discovery answers, with no stop on the graph or on Review (see below)
+5. Click "Continue to Review", check the plan, then "Simulate" to see first
    what the run would write and what the target would refuse (see below),
    then "Execute Forge"
      → (Optional) pick an anonymization preset on the Review screen first:
        GDPR — default, GDPR — strict, Healthcare — PHI, Internal test — minimal;
-       its Anonymization row turns anonymization on or off for the run,
+       its Personal data row turns anonymization on or off for the run,
        with no new discovery
      → the "Automation" row says first what the target runs on the
        records: its flows, Apex triggers, processes and workflow rules,
@@ -98,7 +98,7 @@ hints: no total and no audit entry counts it as a failure.
 
 ## Clone directly
 
-**Clone directly**, under **Discover Graph**, runs the discovery and, once it answers, the clone of what it found, without stopping on the graph or on the Review screen: it lands on the execution screen, which says the review was skipped. The run is sent as **Execute Forge** sends it when nothing was changed on Review:
+**Clone directly**, under **Other ways to start** below **Discover Graph**, runs the discovery and, once it answers, the clone of what it found, without stopping on the graph or on the Review screen: it lands on the execution screen, which says the review was skipped. The run is sent as **Execute Forge** sends it when nothing was changed on Review:
 
 - the objects discovery included, but those a template or a past run put back in the form leaves out, and, with **Anonymize PII** on, the personal fields it selected on each — narrowed to the preset a template or an earlier Review in the panel kept, then to the fields a template kept, if any — each anonymized with the method set for its category;
 - the decisions a template or a past run brought ([Gaps](forge-reference.md#gaps-and-their-decisions));

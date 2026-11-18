@@ -239,22 +239,50 @@ describe('ForgeRehearseAction in French and German', () => {
   });
 
   it.each([
-    ['fr', fr, 'Essai à blanc', /^Répéter$/],
-    ['de', de, 'Probelauf', /^Proben$/],
+    ['fr', fr, 'Répéter dans la cible', /^Répéter$/],
+    ['de', de, 'Testlauf im Ziel', /^Proben$/],
   ] as const)(
-    'names the button in %s as a dry run, not as a repeat or as samples',
+    'names the button in %s as a run in the target, neither a repeat nor the dry run of Automation',
     async (lng, catalogue, label, ambiguous) => {
       // Beside Simulate and Execute, "Répéter" read first as "Repeat", and
-      // "Proben" as the plural noun "samples", which its own hint used.
+      // "Proben" as the plural noun "samples", which its own hint used. Then
+      // « Essai à blanc » and „Probelauf“ were Automation's dry run, which
+      // writes nothing, where the rehearsal writes in the target and rolls back.
       i18n.addResourceBundle(lng, 'translation', catalogue, true, true);
       await i18n.changeLanguage(lng);
       render(<ForgeRehearseAction />);
       const button = screen.getByTestId('rehearse-button');
       expect(button.textContent).toBe(label);
       expect(button.textContent).not.toMatch(ambiguous);
+      expect(button.textContent).not.toBe(catalogue.automation.dryRun.button);
       expect(screen.getByTestId('forge-rehearse-caption').textContent).toBe(
         catalogue.forgeRun.rehearsal.caption,
       );
+    },
+  );
+
+  it.each([
+    ['fr', fr, /essai à blanc|essais à blanc/i],
+    ['de', de, /Probelauf|Probeläuf/],
+  ] as const)(
+    'says the rehearsal in %s everywhere it is named with the words of its button, never a dry run',
+    (_lng, catalogue, dryRun) => {
+      const said = [
+        ...Object.values(catalogue.forgeRun.rehearsal),
+        catalogue.forgeRun.gaps.notRead,
+        catalogue.forgeRun.gaps.readName.rehearsal,
+        catalogue.forgeRun.gaps.source.rehearsal,
+        catalogue.forgeRun.gaps.kind.rehearsal_refusal,
+        catalogue.forgeRun.gaps.kind.rehearsal_update_refusal,
+        catalogue.howTo.forge.tip,
+        catalogue.help.forgeContent,
+        catalogue.reports.auditActions.forge_rehearse,
+        catalogue.reports.context.rehearsedBefore,
+        catalogue.reports.detailField.updatesNotRehearsed,
+        catalogue.errors.wholeOrgRehearsal.explanation,
+        catalogue.onboarding.whatsNew.gaps1430Desc,
+      ];
+      expect(said.filter((text) => dryRun.test(text))).toEqual([]);
     },
   );
 });

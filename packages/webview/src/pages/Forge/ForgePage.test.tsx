@@ -10,6 +10,8 @@ let mockPhase = 'input';
 /** Where the last run stopped, as the execution screen recorded it. */
 let mockStoppedAt: number | null = null;
 const mockSetStoppedAt = vi.fn();
+/** Whether the run on screen was sent by Clone directly, past Review. */
+let mockReviewSkipped = false;
 
 // Only the store stands in: the helpers the screens import with it are its own.
 /*
@@ -30,6 +32,9 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     },
     get stoppedAt() {
       return mockStoppedAt;
+    },
+    get reviewSkipped() {
+      return mockReviewSkipped;
     },
     setStoppedAt: (...args: unknown[]) => mockSetStoppedAt(...args),
     config: null,
@@ -254,6 +259,49 @@ describe('ForgePage', () => {
       );
     },
   );
+
+  it.each(['input', 'discovery', 'review', 'execution', 'results'])(
+    'in the %s phase, marks it the current step of the run, over the ribbon and the How to',
+    async (phase) => {
+      // No step was said: from the graph, Review & Execute only opened Review.
+      mockPhase = phase as typeof mockPhase;
+      mockReviewSkipped = false;
+      render(<ForgePage />);
+      const steps = screen.getByTestId('forge-phase-steps');
+      expect(screen.getByTestId(`forge-phase-step-${phase}`).getAttribute('aria-current')).toBe(
+        'step',
+      );
+      expect(steps.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
+      const howTo = screen.getByTestId('how-to-forge');
+      expect(steps.compareDocumentPosition(howTo) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      if (phase === 'input' || phase === 'discovery') return;
+      const ribbon = await screen.findByTestId('org-ribbon');
+      expect(steps.compareDocumentPosition(ribbon) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    },
+  );
+
+  it('says Review skipped on the steps of a run Clone directly sent', () => {
+    mockPhase = 'execution';
+    mockReviewSkipped = true;
+    try {
+      render(<ForgePage />);
+      expect(screen.getByTestId('forge-phase-step-review').getAttribute('data-status')).toBe(
+        'skipped',
+      );
+    } finally {
+      mockReviewSkipped = false;
+    }
+  });
+
+  it('draws no steps over the empty state, which has its own', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<ForgePage />);
+    expect(screen.queryByTestId('forge-phase-steps')).toBeNull();
+  });
 
   it('does not hold a step for the ribbon, whose chunk comes on its own', () => {
     mockPhase = 'review';
