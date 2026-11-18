@@ -136,7 +136,7 @@ A `sandforge.yaml` committed with your project says what records its tests need 
 
 The scripts run from the `sandforge` npm package, as an sf plugin or from a checkout ([Requirements](#requirements)), and an AI agent reaches them as the tools of an [MCP server](docs/mcp.md). [The CI examples](ci-examples/README.md) carry what a pipeline needs.
 
-**In the editor**, with Red Hat's [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml) installed, VS Code checks a `sandforge.yaml` or a `sandforge.yml` as you type it, against a schema generated from the one `sandforge env validate` reads the file with. The YAML extension is what reads that schema; without it, the editor checks nothing. `validate` checks the rest, offline -- each resource against its module's own rules, the order of the resources, the variables the file names.
+**In the editor**, with Red Hat's [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml) installed, VS Code checks a `sandforge.yaml` or a `sandforge.yml` as you type it, against a schema generated from the one `sandforge env validate` reads the file with: an unknown key or a value of the wrong type is underlined, and hovering a key says, in English, what it holds, its default and what it refuses. The YAML extension is what reads that schema; without it, the editor checks nothing. `validate` checks the rest, offline -- each resource against its module's own rules, the order of the resources, the variables the file names.
 
 ---
 
