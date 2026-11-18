@@ -1324,6 +1324,8 @@ $ echo $?
 
 A refresh copies production into the sandbox again: what the testers made there is gone, the users are production's, their addresses under `.invalid`, and what is scheduled or points elsewhere is production's too. One file, applied by one command after each refresh, hands the sandbox back: the users first, the records copied from production masked, what the testers had before the refresh replayed, a checkpoint they start from, then the audits and a note of what is left to do.
 
+In the editor, the page [Back into service](modules/recovery.md) takes the same steps one at a time on the refreshed sandbox, each with where it stands, for a person rather than a CI job.
+
 ```yaml
 # sandforge.yaml: the uat sandbox, refreshed from production, handed back to its testers
 version: 1

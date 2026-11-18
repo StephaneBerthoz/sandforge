@@ -154,6 +154,7 @@ Now that you are up and running, explore the full capabilities of each module:
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking
 - [Compare](modules/compare.md) -- Metadata diff, permission set and profile presence, and five Organization settings
 - [DataOps](modules/dataops.md) -- Backup, restore, anonymization, data subject requests, cleanup and a data-quality scan
+- [Back into service](modules/recovery.md) -- After a sandbox refresh, the steps that bring it back into use: its users, the masking of production's data, the checkpoint of before, and what still names production
 - [Automation](modules/automation.md) -- Visual pipeline builder: backups, comparisons, checks, notifications, started by hand, on a schedule or on a sandbox refresh
 - [AI Assistant](modules/ai-assistant.md) -- Chat, NL2SOQL, pipeline drafts and Seed's AI rules on your own Anthropic key, what each sends, and what works with AI off
 

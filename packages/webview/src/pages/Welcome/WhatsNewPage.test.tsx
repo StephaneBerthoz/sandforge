@@ -268,6 +268,57 @@ describe('WhatsNewPage', () => {
     expect(screen.queryByTestId('try-it-onboarding.whatsNew.branding')).toBeNull();
   });
 
+  it('says where each 1.83.0 highlight is, by the names the panel gives those places in every language', () => {
+    // A highlight says what one can do and where: the page, tab or group it
+    // names is the one the panel shows, and Try it now opens that page.
+    const PLACES: ReadonlyArray<{ key: string; route?: string; names: readonly string[] }> = [
+      { key: 'recovery1830', route: 'recovery', names: ['nav.recovery'] },
+      {
+        key: 'launcher1830',
+        names: ['sidePanel.group.fill', 'sidePanel.group.automate'],
+      },
+      {
+        key: 'dataopsSync1830',
+        route: 'dataops',
+        names: ['dataops.anonymize', 'sync.tabs.schedules'],
+      },
+      { key: 'stagingReplay1830', route: 'checkpoint', names: ['nav.checkpoint', 'org.staging'] },
+      { key: 'home1830', route: 'home', names: ['nav.home'] },
+    ];
+    const listed = WHATS_NEW['1.83.0'] ?? [];
+    expect(listed.map((feature) => feature.titleKey)).toEqual(
+      PLACES.map((place) => `onboarding.whatsNew.${place.key}`),
+    );
+    for (const [feature, place] of listed.map((one, at) => [one, PLACES[at]] as const)) {
+      expect(feature.descKey).toBe(`onboarding.whatsNew.${place?.key}Desc`);
+      expect(feature.navigateTo).toBe(place?.route);
+    }
+    const textOf = (catalogue: unknown, key: string): string =>
+      String(
+        key
+          .split('.')
+          .reduce<unknown>(
+            (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+            catalogue,
+          ),
+      );
+    const unnamed: string[] = [];
+    for (const locale of ['en', 'fr', 'de', 'es', 'pt-BR', 'ja']) {
+      const catalogue: unknown = JSON.parse(
+        readFileSync(resolve(__dirname, '..', '..', 'i18n', 'locales', `${locale}.json`), 'utf8'),
+      );
+      for (const place of PLACES) {
+        const description = textOf(catalogue, `onboarding.whatsNew.${place.key}Desc`);
+        for (const name of place.names) {
+          if (!description.includes(textOf(catalogue, name))) {
+            unnamed.push(`${locale} ${place.key}Desc: ${textOf(catalogue, name)} (${name})`);
+          }
+        }
+      }
+    }
+    expect(unnamed).toEqual([]);
+  });
+
   it('names Rehearse as the Review button does in French and German, now that skipped releases show', () => {
     // « Répéter » read "repeat" and „Proben“ "samples"; the button became
     // « Essai à blanc » and „Probelauf“, the words of Automation's dry run,

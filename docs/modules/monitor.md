@@ -235,7 +235,7 @@ the registered sandbox it names. A saved pipeline whose Sandbox Refresh trigger
 names that sandbox is started then (see [Automation](automation.md#triggers)).
 
 The newest refresh noticed carries two buttons: **Bring back into service…**
-opens Back into service on the sandbox, the steps that make it usable again
+opens [Back into service](recovery.md) on the sandbox, the steps that make it usable again
 (its users, the masking of production's data, the checkpoint to replay); and
 **Automate after each refresh…** opens Automation on its Sandbox Refresh
 Post-Processing template, a pipeline that runs those steps after each refresh.
