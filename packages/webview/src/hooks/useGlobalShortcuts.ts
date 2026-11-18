@@ -12,8 +12,9 @@ const CHORD_TIMEOUT = 500;
  *   n = migratioN (m → monitor), z = froZen (f → forge),
  *   i = ai (intelligence), l = heLp (h → home),
  *   k = checKpoint (c → compare).
+ * Help lists its shortcuts from this map, so a chord added here is said there.
  */
-const CHORD_MAP: Record<string, ModuleRoute> = {
+export const CHORD_MAP: Readonly<Record<string, ModuleRoute>> = {
   h: 'home',
   m: 'monitor',
   f: 'forge',

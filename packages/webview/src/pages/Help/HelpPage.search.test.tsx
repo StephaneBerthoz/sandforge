@@ -126,6 +126,39 @@ describe('Help search, in the English the page renders', () => {
   });
 });
 
+describe('Help’s buttons and shortcuts, in the English the page renders', () => {
+  beforeEach(() => {
+    webviewState.value = undefined;
+  });
+
+  const open = (id: string): void => {
+    fireEvent.click(
+      screen.getByTestId(`help-section-${id}`).querySelector('button') as HTMLElement,
+    );
+  };
+
+  it('names the page each section opens as the launcher does, and the AI settings by their place', () => {
+    render(<HelpPage />);
+    open('seed');
+    expect(screen.getByTestId('help-open-seed').textContent).toBe('Open Seed');
+    open('recovery');
+    expect(screen.getByTestId('help-open-recovery').textContent).toBe('Open Back into service');
+    open('ai');
+    expect(screen.getByTestId('help-open-ai').textContent).toBe('Open AI Assistant');
+    expect(screen.getByTestId('help-open-ai-settings').textContent).toBe('Open AI settings');
+  });
+
+  it('says each G shortcut as G then its letter, and the page it opens by its name', () => {
+    render(<HelpPage />);
+    open('shortcuts');
+    expect(screen.getByTestId('help-chord-f').textContent).toBe('G then F — Forge');
+    expect(screen.getByTestId('help-chord-l').textContent).toBe('G then L — Help');
+    // Found by the search as what the section shows.
+    search('then K');
+    expect(shownSections()).toContain('shortcuts');
+  });
+});
+
 describe('searchPatterns', () => {
   it('matches a short word whole and a longer one at a word’s start, in any case, never inside a word', () => {
     const [cli] = searchPatterns('cli');

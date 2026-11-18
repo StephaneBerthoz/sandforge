@@ -6434,6 +6434,29 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Help after a sandbox refresh, with Open Back into service, and its shortcuts listed', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      await expect(
+        page.getByTestId('help-group-protect').getByRole('heading', { level: 2 }),
+      ).toBeVisible();
+      await page.getByTestId('help-section-recovery').getByRole('button').first().click();
+      await expect(page.getByTestId('help-open-recovery')).toHaveText('Open Back into service');
+      const recovery = await checkAccessibility(page);
+      expectNoViolations(recovery);
+      expect(await contrastMeasuredIn(page, recovery, '#help-content-recovery')).toBeGreaterThan(0);
+
+      await page.getByTestId('help-section-shortcuts').getByRole('button').first().click();
+      await expect(page.getByTestId('help-chord-f')).toHaveText('G then F — Forge');
+      await toMiddle(page, 'help-chords');
+      const shortcuts = await checkAccessibility(page);
+      expectNoViolations(shortcuts);
+      expect(
+        await contrastMeasuredIn(page, shortcuts, '[data-testid="help-chords"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Help on Seed, its how-to above what the section says', async ({ page }) => {
       await navigateToModule(bridge, page, 'help', 'help-page', { theme });
       await page.getByTestId('help-section-seed').getByRole('button').click();

@@ -132,6 +132,8 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'home',
     'howTo',
     'moduleSummary',
+    // The launcher's group names, which head Help's groups of sections.
+    'sidePanel',
   ]),
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { RECOVERY_STEP_IDS } from '@sandforge/shared';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
 import de from '../../i18n/locales/de.json';
@@ -10,6 +11,8 @@ import ja from '../../i18n/locales/ja.json';
 import ptBR from '../../i18n/locales/pt-BR.json';
 import * as lucide from 'lucide-react';
 import { CHANGELOG_URL as WHATS_NEW_CHANGELOG_URL } from '../Welcome/WhatsNewPage';
+import { NAV_GROUPS, TOOL_ITEMS } from '../../navigation/navGroups';
+import { CHORD_MAP } from '../../hooks/useGlobalShortcuts';
 import { CHANGELOG_URL, DOCS_URL, HELP_SECTIONS, HelpPage, REPOSITORY_URL } from './HelpPage';
 
 /** The six bundles, for what the Help sections say rather than which exist. */
@@ -46,10 +49,17 @@ vi.mock('../../hooks/useVSCodeApi', () => {
 const mockNavigate = vi.fn();
 const mockSetShowWelcome = vi.fn();
 const mockSetShowWhatsNew = vi.fn();
+const mockClearNavigationIntent = vi.fn();
+/** What the last `navigate` asked the page to open on, until it reads it. */
+const intent = vi.hoisted(() => ({
+  value: null as { route: string; helpSection?: string } | null,
+}));
 interface MockAppState {
   navigate: typeof mockNavigate;
   setShowWelcome: typeof mockSetShowWelcome;
   setShowWhatsNew: typeof mockSetShowWhatsNew;
+  navigationIntent: typeof intent.value;
+  clearNavigationIntent: typeof mockClearNavigationIntent;
 }
 vi.mock('../../stores/useAppStore', () => {
   // Built on each access: the factory is hoisted above the mock declarations.
@@ -57,6 +67,8 @@ vi.mock('../../stores/useAppStore', () => {
     navigate: mockNavigate,
     setShowWelcome: mockSetShowWelcome,
     setShowWhatsNew: mockSetShowWhatsNew,
+    navigationIntent: intent.value,
+    clearNavigationIntent: mockClearNavigationIntent,
   });
   const useAppStore = (selector: (s: MockAppState) => unknown): unknown => selector(getState());
   useAppStore.getState = getState;
@@ -78,11 +90,25 @@ function sidePanelItems(): Array<{ id: string; icon: string }> {
 /** A caption as a sentence of a Help line says it: lower case first, no full stop. */
 const asSaid = (caption: string): string => caption.replace(/[.。]$/u, '').toLowerCase();
 
+/** The ids of the sections the page shows, in its order. */
+const shownSections = (): string[] =>
+  screen
+    .getAllByTestId(/^help-section-/)
+    .map((section) => (section.getAttribute('data-testid') ?? '').replace('help-section-', ''));
+
+/** Opens a section by its header, unless it is open already. */
+function openSection(id: string): void {
+  const header = screen.getByTestId(`help-section-${id}`).querySelector('button') as HTMLElement;
+  if (header.getAttribute('aria-expanded') !== 'true') fireEvent.click(header);
+}
+
 describe('HelpPage', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockSetShowWelcome.mockClear();
     mockSetShowWhatsNew.mockClear();
+    mockClearNavigationIntent.mockClear();
+    intent.value = null;
     webviewState.value = undefined;
   });
 
@@ -127,17 +153,35 @@ describe('HelpPage', () => {
     expect(screen.getByTestId('help-section-faq')).toBeDefined();
   });
 
-  it('covers Forge, Frozen Dataset and Grappe, which have their own pages', () => {
+  it('covers Forge and Frozen Dataset, which have their own pages', () => {
     render(<HelpPage />);
     for (const [id, title, content] of [
       ['forge', 'nav.forge', 'help.forgeContent'],
       ['frozen', 'nav.frozen', 'help.frozenContent'],
-      ['grappe', 'nav.grappe', 'help.grappeContent'],
     ]) {
       expect(screen.getByTestId(`help-section-${id}`)).toBeDefined();
       fireEvent.click(screen.getByText(title));
       expect(screen.getByText(content)).toBeDefined();
     }
+  });
+
+  it('has no Grappe section, its page retired, and says its panel in the Seed and Sync sections, in every language', () => {
+    // The section sent the reader to a page that no longer exists: Grappe is
+    // the setting, and the panel it adds to the run screens of Seed and Sync.
+    render(<HelpPage />);
+    expect(screen.queryByTestId('help-section-grappe')).toBeNull();
+    expect(HELP_SECTIONS.map((section) => section.id)).not.toContain('grappe');
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      expect('grappeContent' in bundle.help, lng).toBe(false);
+      for (const content of [bundle.help.seedContent, bundle.help.syncContent]) {
+        const line = content.split('\n').find((said) => said.includes('sandforge.grappe.enabled'));
+        expect(line, lng).toBeDefined();
+        expect(line, lng).toContain('Grappe');
+        expect(line, lng).toMatch(/10[,. \u00a0\u202f]000/u);
+      }
+    }
+    expect(en.help.seedContent).toContain('Grappe makes no run faster');
+    expect(en.help.syncContent).toContain('Grappe makes no run faster');
   });
 
   it('covers Autopilot, Migration and Reports, which have their own pages', () => {
@@ -153,13 +197,12 @@ describe('HelpPage', () => {
     }
   });
 
-  it('covers Checkpoints after Seed and Forge, opening on the sentence the side panel and Home say', () => {
-    // The side bar lists it third, after Seed and Forge; Help had no word of it.
+  it('covers Checkpoints under Protect and restore, opening on the sentence the side panel and Home say', () => {
+    // Help had no word of it.
     render(<HelpPage />);
-    const ids = screen
-      .getAllByTestId(/^help-section-/)
-      .map((section) => section.getAttribute('data-testid'));
-    expect(ids.indexOf('help-section-checkpoint')).toBe(ids.indexOf('help-section-forge') + 1);
+    expect(
+      within(screen.getByTestId('help-group-protect')).getByTestId('help-section-checkpoint'),
+    ).toBeDefined();
     fireEvent.click(screen.getByText('nav.checkpoint'));
     expect(screen.getByTestId('help-summary-checkpoint').textContent).toBe(
       'moduleSummary.checkpoint',
@@ -176,13 +219,15 @@ describe('HelpPage', () => {
       });
       // A DataOps backup, told apart from it.
       expect(concept, lng).toContain('DataOps');
-      expect(limits, lng).toHaveLength(5);
+      expect(limits, lng).toHaveLength(6);
       expect(
         limits.every((line) => line.startsWith('- ')),
         lng,
       ).toBe(true);
       expect(limits[1].toLowerCase(), lng).toContain(bundle.nav.checkpoint.toLowerCase());
       expect(limits[4], lng).toContain('30');
+      // The replay into another org, by the name its row gives it.
+      expect(limits[5], lng).toContain(bundle.checkpoint.replay.open);
     }
     // What the guide says before anything else, in its order.
     const english = en.help.checkpointContent.split('\n').slice(1);
@@ -192,6 +237,7 @@ describe('HelpPage', () => {
       [2, 'Data only: fields, flows'],
       [3, 'Files are not covered'],
       [4, "holds the records' values unencrypted, personal data among them, on this machine"],
+      [5, 'never into a production org'],
     ] as const) {
       expect(english[line]).toContain(says);
     }
@@ -210,40 +256,192 @@ describe('HelpPage', () => {
     expect(en.help.checkpointContent).not.toMatch(/Give back|Bring back/);
   });
 
-  it('lists the modules, Seed first, each a row of the side panel, with Organizations after Getting Started', () => {
-    // Help put Forge first, then Monitor, then Seed, under a comment saying the
-    // side panel, the walkthrough and the tour led with Forge: all three lead
-    // a newcomer with one empty org to Seed.
+  it('groups the modules under the launcher’s five headings, in its order, after four sections that lead and before a Reference group', () => {
+    // Twenty sections in one flat list, in an order of their own: a reader
+    // looking for what masks a refreshed sandbox's data read every title.
     render(<HelpPage />);
-    const ids = screen
-      .getAllByTestId(/^help-section-/)
-      .map((section) => (section.getAttribute('data-testid') ?? '').replace('help-section-', ''));
-    expect(ids).toEqual([
-      'getting-started',
-      'orgs',
-      'seed',
-      'forge',
-      'checkpoint',
-      'monitor',
-      'sync',
-      'autopilot',
-      'frozen',
-      'compare',
-      'dataops',
-      'automation',
-      'migration',
-      'ai',
-      'grappe',
-      'reports',
-      'shortcuts',
-      'faq',
-      'troubleshooting',
-      'release-notes',
+    const lead = ['getting-started', 'recovery', 'orgs', 'safety'];
+    const reference = ['shortcuts', 'faq', 'troubleshooting', 'release-notes'];
+    expect(shownSections()).toEqual([
+      ...lead,
+      ...NAV_GROUPS.flatMap((group) =>
+        group.items.map((item) => item.id).filter((id) => !lead.includes(id)),
+      ),
+      ...reference,
     ]);
-    // Each is a row of the list the side panel draws its rows from, Organizations among them.
-    // Grappe's section is not one: its page and its row are retired.
+    // Each group under the launcher's own heading, its sections inside it.
+    const groups = screen.getAllByTestId(/^help-group-/);
+    expect(groups.map((group) => group.getAttribute('data-testid'))).toEqual([
+      'help-group-lead',
+      ...NAV_GROUPS.map((group) => `help-group-${group.id}`),
+      'help-group-reference',
+    ]);
+    expect(within(groups[0]).queryByRole('heading')).toBeNull();
+    for (const group of NAV_GROUPS) {
+      const drawn = screen.getByTestId(`help-group-${group.id}`);
+      expect(within(drawn).getByRole('heading', { level: 2 }).textContent).toBe(group.labelKey);
+      const inside = within(drawn)
+        .getAllByTestId(/^help-section-/)
+        .map((section) => section.getAttribute('data-testid'));
+      expect(inside).toEqual(
+        group.items
+          .filter((item) => !lead.includes(item.id))
+          .map((item) => `help-section-${item.id}`),
+      );
+    }
+    expect(
+      within(screen.getByTestId('help-group-reference')).getByRole('heading', { level: 2 })
+        .textContent,
+    ).toBe('help.group.reference');
+    // Every row of the launcher has its section, Back into service and Organizations among them.
     const rows = sidePanelItems().map(({ id }) => id);
-    expect(ids.filter((id) => rows.includes(id))).toHaveLength(14);
+    expect(rows.filter((id) => !shownSections().includes(id))).toEqual(['settings', 'help']);
+  });
+
+  it('opens each module, Back into service and Organizations from its section, and the AI settings from the AI section', () => {
+    // A section offered only its full guide, a page outside the panel: the
+    // reader who had just learnt what a module does had to find it again.
+    render(<HelpPage />);
+    const opened = [...NAV_GROUPS.flatMap((group) => group.items), TOOL_ITEMS[0]].map(
+      (item) => item.id,
+    );
+    expect(opened).toContain('orgs');
+    for (const id of opened) {
+      openSection(id);
+      mockNavigate.mockClear();
+      const button = screen.getByTestId(`help-open-${id}`);
+      expect(button.textContent, id).toBe('help.openModule');
+      fireEvent.click(button);
+      expect(mockNavigate, id).toHaveBeenCalledWith(id);
+    }
+    openSection('ai');
+    mockNavigate.mockClear();
+    fireEvent.click(screen.getByTestId('help-open-ai-settings'));
+    expect(mockNavigate).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
+    // A section with no page of its own opens none.
+    for (const id of ['getting-started', 'safety', 'shortcuts', 'faq', 'troubleshooting']) {
+      openSection(id);
+      expect(screen.queryByTestId(`help-open-${id}`), id).toBeNull();
+    }
+  });
+
+  it('puts After a sandbox refresh second, which opens Back into service and says its ten steps one sentence each, in their page’s names, in every language', () => {
+    render(<HelpPage />);
+    expect(shownSections()[1]).toBe('recovery');
+    openSection('recovery');
+    expect(screen.getByRole('region', { name: 'help.afterRefresh' })).toBeDefined();
+    expect(screen.getByTestId('help-summary-recovery').textContent).toBe('moduleSummary.recovery');
+    fireEvent.click(screen.getByTestId('help-open-recovery'));
+    expect(mockNavigate).toHaveBeenCalledWith('recovery');
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const text = bundle.help.recoveryContent;
+      const steps = text.split('\n').filter((line) => /^\d+\. /.test(line));
+      expect(steps, lng).toHaveLength(RECOVERY_STEP_IDS.length);
+      RECOVERY_STEP_IDS.forEach((id, index) => {
+        const prefix = `${index + 1}. ${bundle.recovery.step[id]}`;
+        expect({ lng, id, named: steps[index].startsWith(prefix) }).toEqual({
+          lng,
+          id,
+          named: true,
+        });
+        // One sentence: nothing ends one before the line does.
+        const sentence = steps[index].slice(prefix.length).replace(/[.。]$/u, '');
+        expect({ lng, id, sentences: /[.。!?](?:\s|$)/u.test(sentence) ? 2 : 1 }).toEqual({
+          lng,
+          id,
+          sentences: 1,
+        });
+      });
+      for (const says of [
+        bundle.nav.recovery,
+        bundle.recovery.before.title,
+        bundle.recovery.notProven.title,
+      ]) {
+        expect({ lng, says, said: text.includes(says) }).toEqual({ lng, says, said: true });
+      }
+    }
+    expect(en.help.afterRefresh).toBe('After a sandbox refresh');
+    expect(fr.help.afterRefresh).toBe('Après un rafraîchissement de sandbox');
+  });
+
+  it('offers the guided tour and Settings right under the search, above every section', () => {
+    // They sat at the foot of the page, under twenty sections and seven links.
+    render(<HelpPage />);
+    const search = screen.getByTestId('help-search');
+    const tour = screen.getByTestId('help-start-tour');
+    const settings = screen.getByTestId('help-open-settings');
+    const first = screen.getByTestId('help-section-getting-started');
+    for (const [before, after] of [
+      [search, tour],
+      [tour, settings],
+      [settings, first],
+    ]) {
+      expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('lists every G shortcut the panel handles, read from the map it handles them by, each with the page it opens', () => {
+    // Three of seventeen were said, as examples.
+    render(<HelpPage />);
+    openSection('shortcuts');
+    const items = within(screen.getByTestId('help-chords')).getAllByRole('listitem');
+    const chords = Object.entries(CHORD_MAP);
+    expect(items).toHaveLength(chords.length);
+    expect(chords.length).toBeGreaterThanOrEqual(17);
+    for (const [key, route] of chords) {
+      const item = screen.getByTestId(`help-chord-${key}`);
+      expect(item.textContent, key).toContain(`nav.${route}`);
+    }
+  });
+
+  it('opens on the section another page asks for, its search emptied and its header focused, once', () => {
+    webviewState.value = { helpSearch: 'staging', helpOpenSection: 'faq' };
+    intent.value = { route: 'help', helpSection: 'dataops' };
+    const first = render(<HelpPage />);
+    expect((screen.getByTestId('help-search') as HTMLInputElement).value).toBe('');
+    const header = screen.getByTestId('help-section-dataops').querySelector('button');
+    expect(header?.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(header);
+    expect(screen.getAllByRole('region')).toHaveLength(1);
+    expect(mockClearNavigationIntent).toHaveBeenCalled();
+    first.unmount();
+
+    // Read once: the next visit opens on what the reader last left open.
+    intent.value = null;
+    render(<HelpPage />);
+    expect(
+      screen
+        .getByTestId('help-section-dataops')
+        .querySelector('button')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('opens as it was left when asked for a section it does not have, or by an intent for another page', () => {
+    webviewState.value = { helpOpenSection: 'faq' };
+    for (const asked of [
+      { route: 'help', helpSection: 'grappe' },
+      { route: 'settings', helpSection: 'dataops' },
+    ]) {
+      intent.value = asked;
+      const view = render(<HelpPage />);
+      expect(
+        screen
+          .getByTestId('help-section-faq')
+          .querySelector('button')
+          ?.getAttribute('aria-expanded'),
+        JSON.stringify(asked),
+      ).toBe('true');
+      view.unmount();
+    }
+  });
+
+  it('names the Reference group in every language', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      expect(bundle.help.group.reference.length, lng).toBeGreaterThan(0);
+    }
+    expect(en.help.group.reference).toBe('Reference');
+    expect(fr.help.group.reference).toBe('Référence');
   });
 
   it('draws each module and Organizations with the side panel’s icon, where it drew emoji', () => {
@@ -253,7 +451,7 @@ describe('HelpPage', () => {
     const panel = sidePanelItems();
     const drawn = new Map(HELP_SECTIONS.map((section) => [section.id, section.icon]));
     const shared = panel.filter(({ id }) => drawn.has(id));
-    expect(shared).toHaveLength(14);
+    expect(shared).toHaveLength(15);
     for (const { id, icon } of shared) {
       // By the component itself: lucide names one icon several ways (History).
       const component = (lucide as unknown as Record<string, unknown>)[icon];
@@ -294,14 +492,17 @@ describe('HelpPage', () => {
     }
   });
 
-  it('says once, in every language, what muting the target’s automation lifts, for how long, and when it is refused', () => {
+  it('says once, in Safety, in every language, what muting the target’s automation lifts, for how long, and when it is refused', () => {
+    // Getting Started said it, a paragraph after its steps; Safety is where
+    // the other guards are said.
     for (const [lng, bundle] of Object.entries(LOCALES)) {
       const [box] = bundle.automationMute.box.label.split(/\s[—–]\s/u);
-      const mute = bundle.help.gettingStartedContent.split('\n').find((line) => line.includes(box));
+      const mute = bundle.help.safetyContent.split('\n').find((line) => line.includes(box));
       expect(mute, lng).toBeDefined();
       for (const module of ['Seed', 'Forge', 'Sync', 'Autopilot']) {
         expect(mute, lng).toContain(module);
       }
+      expect(bundle.help.gettingStartedContent, lng).not.toContain(box);
     }
     for (const says of [
       "Mute the target's automation for this run",
@@ -313,8 +514,37 @@ describe('HelpPage', () => {
       'what still runs is listed with why',
       "Refused on a production org and for a user who can't assign permission sets: the run then writes nothing",
     ]) {
-      expect(en.help.gettingStartedContent).toContain(says);
+      expect(en.help.safetyContent).toContain(says);
     }
+  });
+
+  it('says in one Safety section what refuses a production org, Staging, where Production Guard’s answers are kept, the mute and the checkpoint to take first, in every language', () => {
+    // Said in pieces across Getting Started, Organizations and the FAQ.
+    render(<HelpPage />);
+    openSection('safety');
+    expect(screen.getByTestId('help-text-safety').textContent).toBe('help.safetyContent');
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const text = bundle.help.safetyContent;
+      // The paragraph Organizations and the FAQ say it in, word for word.
+      const production = bundle.help.orgsContent
+        .split('\n\n')
+        .find((paragraph) => paragraph.includes(bundle.org.staging));
+      expect(production, lng).toBeDefined();
+      expect(text, lng).toContain(production);
+      for (const says of [
+        'Production Guard',
+        bundle.nav.reports,
+        bundle.reports.audit,
+        bundle.dataops.checkpointBeforeRisk,
+      ]) {
+        expect({ lng, says, said: text.includes(says) }).toEqual({ lng, says, said: true });
+      }
+    }
+    expect(en.help.safety).toBe('Safety');
+    expect(fr.help.safety).toBe('Sécurité');
+    expect(en.help.safetyContent).toContain(
+      'Reports → Audit trail records each Production Guard decision with its run.',
+    );
   });
 
   it('has an Organizations section naming the two ways to connect, the Login URL’s My Domain and Staging, in every language', () => {
@@ -337,6 +567,24 @@ describe('HelpPage', () => {
     }
     // A CLI holding no org is how a first run starts, said as information.
     expect(en.help.orgsContent).toContain('said as information, not an error');
+    // Username / Password went under More methods: two ways stand first.
+    expect(en.help.orgsContent).toContain(
+      '- More methods holds Username / Password, which needs no CLI, JWT Bearer and OAuth (Device).',
+    );
+    expect(en.help.orgsContent).not.toContain('are under More methods');
+  });
+
+  it('names a sandbox marked Staging by the badge each language gives it, in every section', () => {
+    // The French and Japanese pipeline text said Staging where the badge says
+    // Préproduction and ステージング.
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      if (bundle.org.staging === 'Staging') continue;
+      const english = Object.entries(bundle.help)
+        .filter(([, text]) => typeof text === 'string' && /Staging/.test(text))
+        .map(([key]) => key);
+      expect({ lng, english }).toEqual({ lng, english: [] });
+      expect(bundle.help.automationContent, lng).toContain(bundle.org.staging);
+    }
   });
 
   it('opens Forge, Seed and Autopilot on the sentence the side panel, Home and their empty state say', () => {
@@ -412,6 +660,7 @@ describe('HelpPage', () => {
       for (const label of [
         bundle.sync.tabs.history,
         bundle.sync.tabs.schedules,
+        bundle.sync.fields,
         bundle.sync.realtime.conflictsTitle,
         bundle.sync.autoMap,
         bundle.sync.files.toggle,
@@ -498,6 +747,17 @@ describe('HelpPage', () => {
     }
   });
 
+  it('says Monitor lists the refreshes SandForge noticed, the newest with Bring back into service…, in every language', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const line = bundle.help.monitorContent
+        .split('\n')
+        .find((said) => said.includes(bundle.monitor.sandboxRefresh.title));
+      expect(line, lng).toBeDefined();
+      expect(line, lng).toContain(bundle.monitor.sandboxRefresh.recovery.bringBack);
+      expect(line, lng).toContain(bundle.monitor.sandboxRefresh.recovery.automate);
+    }
+  });
+
   it('says Reports shows the audit trail and the lineage it renders, not that they are coming', () => {
     for (const [lng, bundle] of Object.entries(LOCALES)) {
       expect(bundle.help.reportsContent, lng).toContain(bundle.reports.audit);
@@ -564,7 +824,9 @@ describe('HelpPage', () => {
 
   it('keeps every English section within 1,200 characters', () => {
     // Sync was one block of 2,314 characters, DataOps of 1,652.
-    const sections = Object.entries(en.help).filter(([key]) => key.endsWith('Content'));
+    const sections = Object.entries(en.help).flatMap(([key, text]) =>
+      key.endsWith('Content') && typeof text === 'string' ? [[key, text] as const] : [],
+    );
     expect(sections.length).toBe(HELP_SECTIONS.length);
     expect(
       sections
@@ -623,8 +885,9 @@ describe('HelpPage', () => {
       `${REPOSITORY_URL}/issues`,
       'help.siteUrl',
     ]);
+    // After the headings of the groups of sections.
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(['help.sandforgeLinks', 'help.sfResources']);
+    expect(headings.slice(-2)).toEqual(['help.sandforgeLinks', 'help.sfResources']);
     const order = screen
       .getByTestId('help-link-site')
       .compareDocumentPosition(screen.getByTestId('sf-link-help.sfDocs'));

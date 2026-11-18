@@ -1,14 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Activity,
+  BookOpen,
   Bot,
   ChartColumn,
   ExternalLink,
   FileUp,
   Flame,
   GitCompare,
-  Grape,
   History,
   Keyboard,
   ListChecks,
@@ -18,6 +18,7 @@ import {
   Rocket,
   ScrollText,
   Shield,
+  ShieldCheck,
   Snowflake,
   Sprout,
   Wrench,
@@ -25,10 +26,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { useAppStore } from '../../stores/useAppStore';
+import { useAppStore, type ModuleRoute } from '../../stores/useAppStore';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { CHORD_MAP } from '../../hooks/useGlobalShortcuts';
 import { HowToSteps } from '../../components/ui/ModuleHowTo';
 import { hasHowTo, howToKeys } from '../../components/ui/howToKeys';
+import { NAV_GROUPS, TOOL_ITEMS } from '../../navigation/navGroups';
 
 /** The repository, where the docs, the full FAQ and the issues are read. */
 export const REPOSITORY_URL = 'https://github.com/StephaneBerthoz/sandforge';
@@ -71,20 +74,26 @@ export interface HelpSection {
 }
 
 /**
- * In the order the side panel lists the modules: Seed, Forge, Checkpoints and
- * Monitor first, then the modules that copy between two orgs, then those it
- * folds under Advanced. Organizations comes right after Getting Started,
- * whose first step is to connect an org. Help put Forge first, then Monitor,
- * then Seed, though the side panel, the walkthrough and the tour lead a
- * newcomer with one empty org to Seed.
+ * Every section, by its id. A module's section has the module's id, the one
+ * its launcher row, its route and its how-to have; its place on the page comes
+ * from {@link HELP_GROUPS}.
  */
-export const HELP_SECTIONS: readonly HelpSection[] = [
+const SECTIONS: readonly HelpSection[] = [
   {
     id: 'getting-started',
     titleKey: 'help.gettingStarted',
     contentKey: 'help.gettingStartedContent',
-    icon: ListChecks,
+    icon: BookOpen,
     guide: 'getting-started.md',
+  },
+  {
+    id: 'recovery',
+    titleKey: 'help.afterRefresh',
+    summaryKey: 'moduleSummary.recovery',
+    contentKey: 'help.recoveryContent',
+    icon: ListChecks,
+    accent: 'text-hue-teal',
+    guide: 'modules/recovery.md',
   },
   {
     id: 'orgs',
@@ -92,6 +101,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     contentKey: 'help.orgsContent',
     icon: Plug,
     guide: 'getting-started.md#connect-your-org',
+  },
+  {
+    id: 'safety',
+    titleKey: 'help.safety',
+    contentKey: 'help.safetyContent',
+    icon: ShieldCheck,
+    guide: 'faq.md#does-sandforge-modify-production-data',
   },
   {
     id: 'seed',
@@ -194,14 +210,6 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     guide: 'modules/ai-assistant.md',
   },
   {
-    id: 'grappe',
-    titleKey: 'nav.grappe',
-    contentKey: 'help.grappeContent',
-    icon: Grape,
-    accent: 'text-hue-indigo',
-    guide: 'modules/grappe.md',
-  },
-  {
     id: 'reports',
     titleKey: 'nav.reports',
     contentKey: 'help.reportsContent',
@@ -235,6 +243,75 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     icon: ScrollText,
   },
 ];
+
+/** A group of sections, under its heading; the sections that lead the page have none. */
+export interface HelpGroup {
+  id: string;
+  labelKey?: string;
+  sections: readonly HelpSection[];
+}
+
+/**
+ * What a reader needs before any module: the first steps, what to do after a
+ * sandbox refresh, connecting an org, and what keeps a run from harming one.
+ * Back into service is said here, second, rather than in its launcher group.
+ */
+const LEAD_IDS: readonly string[] = ['getting-started', 'recovery', 'orgs', 'safety'];
+
+/** What is looked up rather than read through, last. */
+const REFERENCE_IDS: readonly string[] = ['shortcuts', 'faq', 'troubleshooting', 'release-notes'];
+
+const sectionsOf = (ids: readonly string[]): HelpSection[] =>
+  ids.flatMap((id) => SECTIONS.filter((section) => section.id === id));
+
+/**
+ * The page's groups: the sections that lead, then the modules under the
+ * launcher's five headings, in its order, then the reference. Twenty sections
+ * stood in one list of an order of their own, and a reader looking for what
+ * masks a refreshed sandbox's data read every title.
+ */
+export const HELP_GROUPS: readonly HelpGroup[] = [
+  { id: 'lead', sections: sectionsOf(LEAD_IDS) },
+  ...NAV_GROUPS.map((group) => ({
+    id: group.id,
+    labelKey: group.labelKey,
+    sections: sectionsOf(group.items.map((item) => item.id).filter((id) => !LEAD_IDS.includes(id))),
+  })),
+  { id: 'reference', labelKey: 'help.group.reference', sections: sectionsOf(REFERENCE_IDS) },
+];
+
+/** Every section, in the order the page shows them. */
+export const HELP_SECTIONS: readonly HelpSection[] = HELP_GROUPS.flatMap((group) => group.sections);
+
+/**
+ * The pages a section opens with "Open …": the launcher's rows, its tools
+ * among them. A section of another id — Getting Started, Safety, the
+ * reference — has no page of its own.
+ */
+const SECTION_PAGES: ReadonlySet<string> = new Set(
+  [...NAV_GROUPS.flatMap((group) => group.items), ...TOOL_ITEMS].map((item) => item.id),
+);
+
+/** The routes in the launcher's order, Home first: the order the shortcuts are said in. */
+const LAUNCHER_ORDER: readonly ModuleRoute[] = [
+  'home',
+  ...NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id)),
+  ...TOOL_ITEMS.map((item) => item.id),
+];
+
+/** Where a route stands in the launcher's order; one it does not list comes last. */
+const launcherRank = (route: ModuleRoute): number => {
+  const index = LAUNCHER_ORDER.indexOf(route);
+  return index === -1 ? LAUNCHER_ORDER.length : index;
+};
+
+/**
+ * Every G chord the panel handles, from the map it handles them by, in the
+ * launcher's order: Help named three of seventeen, as examples.
+ */
+const CHORDS: readonly (readonly [string, ModuleRoute])[] = Object.entries(CHORD_MAP).sort(
+  ([, a], [, b]) => launcherRank(a) - launcherRank(b),
+);
 
 /** A link of the resources under the sections. */
 interface ResourceLink {
@@ -407,13 +484,175 @@ const ResourceGroup: React.FC<{
   );
 };
 
+/** A section's G chords, each with the page it opens, as the section says them. */
+function chordLines(t: (key: string, options?: Record<string, unknown>) => string): string[] {
+  return CHORDS.map(
+    ([key, route]) => `${t('help.chord', { key: key.toUpperCase() })} — ${t(`nav.${route}`)}`,
+  );
+}
+
+/** One section of the accordion: its header, and while open what it says and opens. */
+const HelpSectionView: React.FC<{
+  section: HelpSection;
+  open: boolean;
+  onToggle: () => void;
+  mark: (text: string) => React.ReactNode;
+}> = ({ section, open, onToggle, mark }) => {
+  const { t } = useTranslation();
+  const navigate = useAppStore((s) => s.navigate);
+  const Glyph = section.icon;
+  const page = SECTION_PAGES.has(section.id) ? (section.id as ModuleRoute) : null;
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        border: '1px solid var(--sf-border)',
+      }}
+      data-testid={`help-section-${section.id}`}
+    >
+      <button
+        id={`help-header-${section.id}`}
+        className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium transition-colors"
+        style={{
+          background: open ? 'var(--sf-bg-active)' : 'var(--sf-bg-card)',
+          color: open ? 'var(--sf-text-active)' : 'var(--sf-text-primary)',
+        }}
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`help-content-${section.id}`}
+      >
+        <span className="flex items-center gap-2">
+          {/* In the header's own colour while open, on the selection's background. */}
+          <Glyph
+            className={`w-4 h-4 shrink-0 ${open ? '' : (section.accent ?? '')}`}
+            aria-hidden="true"
+            data-testid={`help-icon-${section.id}`}
+          />
+          <span>{mark(t(section.titleKey))}</span>
+        </span>
+        <span
+          className="transition-transform"
+          aria-hidden="true"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          {'▼'}
+        </span>
+      </button>
+      {open && (
+        <div
+          id={`help-content-${section.id}`}
+          className="px-4 py-3 text-xs leading-relaxed"
+          role="region"
+          aria-labelledby={`help-header-${section.id}`}
+          style={{
+            background: 'var(--sf-bg-primary)',
+            color: 'var(--sf-text-secondary, #868686)',
+            whiteSpace: 'pre-line',
+          }}
+        >
+          {section.summaryKey && (
+            <p
+              className="mb-2 text-sm font-medium"
+              style={{ color: 'var(--sf-text-primary)', whiteSpace: 'normal' }}
+              data-testid={`help-summary-${section.id}`}
+            >
+              {mark(t(section.summaryKey))}
+            </p>
+          )}
+          {hasHowTo(section.id) && (
+            <div className="mb-3" style={{ whiteSpace: 'normal' }}>
+              <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--sf-text-primary)' }}>
+                {t('howTo.title')}
+              </p>
+              <HowToSteps module={section.id} mark={mark} />
+            </div>
+          )}
+          <div data-testid={`help-text-${section.id}`}>{mark(t(section.contentKey))}</div>
+          {section.id === 'shortcuts' && (
+            <ul
+              className="mt-1 flex flex-col gap-0.5"
+              style={{ whiteSpace: 'normal' }}
+              data-testid="help-chords"
+            >
+              {chordLines(t).map((line, index) => (
+                <li key={CHORDS[index][0]} data-testid={`help-chord-${CHORDS[index][0]}`}>
+                  {mark(line)}
+                </li>
+              ))}
+            </ul>
+          )}
+          {section.id === 'release-notes' && (
+            <div
+              className="flex flex-wrap items-center gap-3 mt-3"
+              style={{ whiteSpace: 'normal' }}
+            >
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  useAppStore.getState().setShowWhatsNew(true, __APP_VERSION__, undefined, true)
+                }
+                data-testid="help-show-whats-new"
+              >
+                {t('help.showWhatsNew')}
+              </Button>
+              <OutLink href={CHANGELOG_URL} testId="help-open-changelog">
+                {t('help.openChangelog')}
+              </OutLink>
+            </div>
+          )}
+          {(page || section.guide) && (
+            <div
+              className="flex flex-wrap items-center gap-3 mt-3"
+              style={{ whiteSpace: 'normal' }}
+            >
+              {/*
+                The page the section is about, a click away: a section offered
+                only its full guide, outside the panel.
+              */}
+              {page && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate(page)}
+                  data-testid={`help-open-${section.id}`}
+                >
+                  {t('help.openModule', { module: t(`nav.${page}`) })}
+                </Button>
+              )}
+              {section.id === 'ai' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate('settings', { settingsTab: 'ai' })}
+                  data-testid="help-open-ai-settings"
+                >
+                  {t('help.openAiSettings')}
+                </Button>
+              )}
+              {section.guide && (
+                <OutLink href={`${DOCS_URL}${section.guide}`} testId={`help-guide-${section.id}`}>
+                  {t('help.fullGuide', { section: t(section.titleKey) })}
+                </OutLink>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /**
- * Help page with full-text search, accordion sections for each module,
- * SandForge's and Salesforce's resources, and troubleshooting.
+ * Help page with full-text search, accordion sections grouped as the launcher
+ * groups the modules, SandForge's and Salesforce's resources, and
+ * troubleshooting.
  */
 export const HelpPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
   /*
    * Kept in the panel's webview state: the Help panel is released while hidden
    * and rebuilt from its shell when shown, and an article being read beside
@@ -431,7 +670,35 @@ export const HelpPage: React.FC = () => {
     ids: [],
   });
 
+  /**
+   * The section another page opened Help on, read once as the page mounts; an
+   * id Help has no section for is ignored, and the page opens as it was left.
+   */
+  const [askedSection] = useState(() => {
+    const asked = navigationIntent?.route === 'help' ? navigationIntent.helpSection : undefined;
+    return HELP_SECTIONS.some((section) => section.id === asked) ? asked : undefined;
+  });
+  /** The asked section's header, until it has taken the focus. */
+  const focusPending = useRef(askedSection);
+  useEffect(() => {
+    if (!askedSection) return;
+    clearNavigationIntent();
+    // A search left in the box would hide the section asked for.
+    setSearchQuery('');
+    setOpenSection(askedSection);
+  }, [askedSection, clearNavigationIntent, setOpenSection, setSearchQuery]);
+
   const searching = searchQuery.trim().length > 0;
+  useEffect(() => {
+    const id = focusPending.current;
+    if (!id || searching || openSection !== id) return;
+    focusPending.current = undefined;
+    // The router leaves the focus on a control the page gave it on mount.
+    const header = document.getElementById(`help-header-${id}`);
+    header?.focus();
+    header?.scrollIntoView?.({ block: 'start' });
+  }, [openSection, searching]);
+
   const patterns = useMemo(() => searchPatterns(searchQuery), [searchQuery]);
   const highlight = useMemo(
     () =>
@@ -460,24 +727,28 @@ export const HelpPage: React.FC = () => {
 
   /**
    * The sections whose title, summary, how-to and text together hold every
-   * word of the query, each found at the start of a word.
+   * word of the query, each found at the start of a word; the shortcuts with
+   * the chords they list.
    */
-  const filteredSections = useMemo(() => {
+  const shownIds = useMemo(() => {
     if (patterns.length === 0) {
-      return HELP_SECTIONS;
+      return new Set(HELP_SECTIONS.map((section) => section.id));
     }
-    return HELP_SECTIONS.filter((section) => {
-      const text = [
-        t(section.titleKey),
-        section.summaryKey ? t(section.summaryKey) : '',
-        ...(hasHowTo(section.id) ? howToKeys(section.id).map((key) => t(key)) : []),
-        t(section.contentKey),
-      ].join('\n');
-      return patterns.every((pattern) => pattern.test(text));
-    });
+    return new Set(
+      HELP_SECTIONS.filter((section) => {
+        const text = [
+          t(section.titleKey),
+          section.summaryKey ? t(section.summaryKey) : '',
+          ...(hasHowTo(section.id) ? howToKeys(section.id).map((key) => t(key)) : []),
+          t(section.contentKey),
+          ...(section.id === 'shortcuts' ? chordLines(t) : []),
+        ].join('\n');
+        return patterns.every((pattern) => pattern.test(text));
+      }).map((section) => section.id),
+    );
   }, [patterns, t]);
 
-  const hasSearchResults = filteredSections.length > 0;
+  const hasSearchResults = shownIds.size > 0;
   const mark = (text: string): React.ReactNode => markMatches(text, highlight);
 
   return (
@@ -494,7 +765,7 @@ export const HelpPage: React.FC = () => {
       </p>
 
       {/* Search input */}
-      <div className="mb-4">
+      <div className="mb-3">
         <input
           type="text"
           value={searchQuery}
@@ -511,6 +782,32 @@ export const HelpPage: React.FC = () => {
         />
       </div>
 
+      {/*
+        Under the search, above the sections: they sat at the foot of the page,
+        under twenty sections and seven links. The welcome wizard is an overlay
+        owned by PanelApp, not a routed page — navigating to it lands on
+        PanelRouter's unknown-module fallback — so the tour raises the overlay
+        flag as `onboarding:show` does.
+      */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => useAppStore.getState().setShowWelcome(true)}
+          data-testid="help-start-tour"
+        >
+          {t('help.startTour')}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => navigate('settings')}
+          data-testid="help-open-settings"
+        >
+          {t('home.openSettings')}
+        </Button>
+      </div>
+
       {/* No search results, and where the rest is said */}
       {!hasSearchResults && searching && (
         <p
@@ -525,119 +822,38 @@ export const HelpPage: React.FC = () => {
         </p>
       )}
 
-      {/* Accordion */}
-      <div className="flex flex-col gap-1">
-        {filteredSections.map((section) => {
-          const open = isOpen(section.id);
-          const Glyph = section.icon;
-          return (
-            <div
-              key={section.id}
-              className="rounded-lg overflow-hidden"
-              style={{
-                border: '1px solid var(--sf-border)',
-              }}
-              data-testid={`help-section-${section.id}`}
-            >
-              <button
-                id={`help-header-${section.id}`}
-                className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium transition-colors"
-                style={{
-                  background: open ? 'var(--sf-bg-active)' : 'var(--sf-bg-card)',
-                  color: open ? 'var(--sf-text-active)' : 'var(--sf-text-primary)',
-                }}
-                onClick={() => toggleSection(section.id)}
-                aria-expanded={open}
-                aria-controls={`help-content-${section.id}`}
+      {/* The groups, a group with no section found left out with its heading */}
+      {HELP_GROUPS.map((group) => {
+        const sections = group.sections.filter((section) => shownIds.has(section.id));
+        if (sections.length === 0) return null;
+        return (
+          <div
+            key={group.id}
+            className={group.labelKey ? 'mt-5' : undefined}
+            data-testid={`help-group-${group.id}`}
+          >
+            {group.labelKey && (
+              <h2
+                className="text-xs font-semibold uppercase tracking-wide mb-2"
+                style={{ color: 'var(--sf-text-secondary)' }}
               >
-                <span className="flex items-center gap-2">
-                  {/* In the header's own colour while open, on the selection's background. */}
-                  <Glyph
-                    className={`w-4 h-4 shrink-0 ${open ? '' : (section.accent ?? '')}`}
-                    aria-hidden="true"
-                    data-testid={`help-icon-${section.id}`}
-                  />
-                  <span>{mark(t(section.titleKey))}</span>
-                </span>
-                <span
-                  className="transition-transform"
-                  aria-hidden="true"
-                  style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                >
-                  {'▼'}
-                </span>
-              </button>
-              {open && (
-                <div
-                  id={`help-content-${section.id}`}
-                  className="px-4 py-3 text-xs leading-relaxed"
-                  role="region"
-                  aria-labelledby={`help-header-${section.id}`}
-                  style={{
-                    background: 'var(--sf-bg-primary)',
-                    color: 'var(--sf-text-secondary, #868686)',
-                    whiteSpace: 'pre-line',
-                  }}
-                >
-                  {section.summaryKey && (
-                    <p
-                      className="mb-2 text-sm font-medium"
-                      style={{ color: 'var(--sf-text-primary)', whiteSpace: 'normal' }}
-                      data-testid={`help-summary-${section.id}`}
-                    >
-                      {mark(t(section.summaryKey))}
-                    </p>
-                  )}
-                  {hasHowTo(section.id) && (
-                    <div className="mb-3" style={{ whiteSpace: 'normal' }}>
-                      <p
-                        className="mb-1 text-xs font-semibold"
-                        style={{ color: 'var(--sf-text-primary)' }}
-                      >
-                        {t('howTo.title')}
-                      </p>
-                      <HowToSteps module={section.id} mark={mark} />
-                    </div>
-                  )}
-                  <div data-testid={`help-text-${section.id}`}>{mark(t(section.contentKey))}</div>
-                  {section.id === 'release-notes' && (
-                    <div
-                      className="flex flex-wrap items-center gap-3 mt-3"
-                      style={{ whiteSpace: 'normal' }}
-                    >
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() =>
-                          useAppStore
-                            .getState()
-                            .setShowWhatsNew(true, __APP_VERSION__, undefined, true)
-                        }
-                        data-testid="help-show-whats-new"
-                      >
-                        {t('help.showWhatsNew')}
-                      </Button>
-                      <OutLink href={CHANGELOG_URL} testId="help-open-changelog">
-                        {t('help.openChangelog')}
-                      </OutLink>
-                    </div>
-                  )}
-                  {section.guide && (
-                    <p className="mt-3" style={{ whiteSpace: 'normal' }}>
-                      <OutLink
-                        href={`${DOCS_URL}${section.guide}`}
-                        testId={`help-guide-${section.id}`}
-                      >
-                        {t('help.fullGuide', { section: t(section.titleKey) })}
-                      </OutLink>
-                    </p>
-                  )}
-                </div>
-              )}
+                {t(group.labelKey)}
+              </h2>
+            )}
+            <div className="flex flex-col gap-1">
+              {sections.map((section) => (
+                <HelpSectionView
+                  key={section.id}
+                  section={section}
+                  open={isOpen(section.id)}
+                  onToggle={() => toggleSection(section.id)}
+                  mark={mark}
+                />
+              ))}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
 
       <ResourceGroup
         heading={t('help.sandforgeLinks')}
@@ -649,31 +865,6 @@ export const HelpPage: React.FC = () => {
         links={SF_DOC_LINKS}
         testIdOf={(link) => `sf-link-${link.titleKey}`}
       />
-
-      {/* Bottom actions */}
-      <div className="flex gap-3 mt-6">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => navigate('settings')}
-          data-testid="help-open-settings"
-        >
-          {t('home.openSettings')}
-        </Button>
-        {/*
-          The welcome wizard is an overlay owned by PanelApp, not a routed
-          page — navigating to it lands on PanelRouter's unknown-module
-          fallback. Raise the overlay flag the way `onboarding:show` does.
-        */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => useAppStore.getState().setShowWelcome(true)}
-          data-testid="help-start-tour"
-        >
-          {t('help.startTour')}
-        </Button>
-      </div>
     </div>
   );
 };
