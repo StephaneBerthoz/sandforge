@@ -1613,9 +1613,10 @@ test('anchor: Migration imports an SFDMU export.json alone, run from Sync, as bo
   for (const relPath of READMES) {
     const lines = read(...relPath.split('/')).split('\n');
     // The feature table row; the module index row left the README with 1.83.0.
-    const rows = [lines.find((line) => line.startsWith('| **Migration**'))];
+    // Named SFDMU Import since 1.83.0, its page the module once called Migration.
+    const rows = [lines.find((line) => line.startsWith('| **SFDMU Import**'))];
     for (const row of rows) {
-      assert.ok(row, `${relPath}: a Migration row is gone`);
+      assert.ok(row, `${relPath}: the SFDMU Import row is gone`);
       assert.match(row, /SFDMU `?export\.json`?/, `${relPath}: a Migration row no longer names it`);
       assert.doesNotMatch(
         row,

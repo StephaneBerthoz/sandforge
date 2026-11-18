@@ -241,12 +241,12 @@ test('the READMEs and the FAQ say which tool copies data, and how each run is ta
     const body = section(read(...relPath.split('/')), '## Which tool copies my data?');
     assert.match(
       body,
-      /\*\*CSV Upload\*\* and \*\*Clone from Org\*\*[^\n]*taken back as a seed is/,
+      /\*\*CSV Upload\*\* and \*\*Copy records from another org\*\*[^\n]*taken back as a seed is/,
       `${relPath}: say that a CSV import and a clone from another org are taken back as a seed is`,
     );
     assert.doesNotMatch(
       body,
-      /\*\*CSV Upload\*\* and \*\*Clone from Org\*\*[^\n]*cannot be taken back/,
+      /\*\*CSV Upload\*\* and \*\*Copy records from another org\*\*[^\n]*cannot be taken back/,
       `${relPath}: still says that a CSV import and a clone cannot be taken back`,
     );
   }
