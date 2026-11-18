@@ -225,7 +225,12 @@ async function contrastMeasuredIn(
  * The page as it is painted now passes axe, and falls short of the theme's
  * own contrast nowhere; with `opened`, axe measured text inside it.
  */
-async function expectReadable(page: Page, theme: Theme, opened?: string): Promise<void> {
+async function expectReadable(
+  page: Page,
+  theme: Theme,
+  opened?: string,
+  over?: string,
+): Promise<void> {
   const results = await checkAccessibility(page);
   expect(results.violations.length, formatViolations(results.violations)).toBe(0);
   if (opened !== undefined) {
@@ -234,7 +239,9 @@ async function expectReadable(page: Page, theme: Theme, opened?: string): Promis
       `axe measured no text inside ${opened}`,
     ).toBeGreaterThan(0);
   }
-  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+  // A menu open over the page (`over`) hides what it covers: the theme's
+  // contrast is held inside it, the texts beneath being out of sight.
+  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme), over);
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 }
 
@@ -340,6 +347,11 @@ for (const theme of THEMES) {
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
 
+      // The way back, over the heading, as over a preview and a replay.
+      await expect(page.getByTestId('checkpoint-take-cancel')).toHaveText('Checkpoints');
+      // The names a refresh asks for are offered beside the others.
+      await expect(page.getByTestId('checkpoint-chip-before-refresh')).toHaveText('Before refresh');
+      await expect(page.getByTestId('checkpoint-chip-testers-start')).toHaveText("Testers' start");
       // A baseline is kept until it is deleted, and its cost says so.
       await page.getByTestId('checkpoint-chip-clean-baseline').click();
       await expect(page.getByTestId('checkpoint-take-name')).toHaveValue('Clean baseline');
@@ -481,6 +493,38 @@ for (const theme of THEMES) {
       expect(await host.sent('checkpoint:take')).toEqual([]);
     });
 
+    test('opens the org menu from the right edge of its picker, as wide as the names and users it lists', async ({
+      page,
+    }) => {
+      await openCheckpoints(page, theme, []);
+      const picker = page.getByTestId('checkpoint-org');
+      await picker.click();
+      const panel = page.getByTestId('checkpoint-org-panel');
+      await expect(panel).toBeVisible();
+      const [pickerBox, panelBox] = [await picker.boundingBox(), await panel.boundingBox()];
+      if (!pickerBox || !panelBox) throw new Error('the org menu is not drawn');
+      // Set at the right of the page's header, it opens from there, inside the window.
+      expect(Math.abs(panelBox.x + panelBox.width - (pickerBox.x + pickerBox.width))).toBeLessThan(
+        1.5,
+      );
+      expect(panelBox.x).toBeGreaterThanOrEqual(0);
+      expect(panelBox.width).toBeGreaterThan(pickerBox.width);
+      // No name nor user cut down to "De…": every text of an option is whole.
+      const cut = await panel.evaluate((menu) =>
+        Array.from(menu.querySelectorAll('button span:not(.sr-only)'))
+          .filter((span) => span.scrollWidth > span.clientWidth + 1)
+          .map((span) => span.textContent),
+      );
+      expect(cut).toEqual([]);
+      await expect(panel).toContainText('dev@sandbox.com');
+      await expectReadable(
+        page,
+        theme,
+        '[data-testid="checkpoint-org-panel"]',
+        '[data-testid="checkpoint-org-panel"]',
+      );
+    });
+
     test('offers nothing on a production org, says why, and reads no checkpoint of it', async ({
       page,
     }) => {
@@ -506,8 +550,11 @@ for (const theme of THEMES) {
       page,
     }) => {
       const host = await openCheckpoints(page, theme, everyListLine());
-      await expect(page.getByTestId('checkpoint-expires-ck-expiring')).toContainText('Expires in');
-      await expect(page.getByTestId('checkpoint-keep-now-ck-expiring')).toHaveText('Keep');
+      // One Keep on a row: the line says the box keeps it, and offers no button of its own.
+      await expect(page.getByTestId('checkpoint-expires-ck-expiring')).toContainText(
+        ': Keep until I delete it keeps it.',
+      );
+      await expect(page.getByTestId('checkpoint-keep-now-ck-expiring')).toHaveCount(0);
       await expect(page.getByTestId('checkpoint-bin-reach-ck-rewound')).toContainText(
         'cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills.',
       );
@@ -527,13 +574,19 @@ for (const theme of THEMES) {
       // Rename, Export… and Stop comparing fields… wait under More: a row put
       // up to six controls on one wrapping line.
       const row = page.getByTestId('checkpoint-row-ck-expiring');
-      await expect(row.getByRole('button')).toHaveText(['Rewind…', 'More', 'Delete', 'Keep']);
+      await expect(row.getByRole('button')).toHaveText(['Rewind…', 'More']);
       const more = page.getByTestId('checkpoint-more-ck-expiring');
       await more.click();
       await expect(more).toHaveAttribute('aria-expanded', 'true');
       await expect(
         page.getByTestId('checkpoint-more-actions-ck-expiring').getByRole('button'),
-      ).toHaveText(['Rename', 'Replay in another org…', 'Export…', 'Stop comparing fields…']);
+      ).toHaveText([
+        'Rename',
+        'Replay into an org…',
+        'Export…',
+        'Stop comparing fields…',
+        'Delete',
+      ]);
       await expectReadable(page, theme, '[data-testid="checkpoint-row-ck-expiring"]');
 
       // Stop comparing fields…: the fields the checkpoint compares, none of its stamps.
@@ -564,7 +617,8 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-rename-input')).toHaveCount(0);
       await expect(rename).toBeFocused();
 
-      // Delete: a plain question, naming the Undo it takes with it.
+      // Delete, last under More: a plain question, naming the Undo it takes with it.
+      await page.getByTestId('checkpoint-more-ck-rewound').click();
       const remove = page.getByTestId('checkpoint-delete-ck-rewound');
       await remove.click();
       await expect(page.getByTestId('danger-title')).toHaveText('Delete “Clean baseline”?');

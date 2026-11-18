@@ -59,6 +59,13 @@ export interface LoadGuardInput {
   mockDetector: CalloutMockDetector;
   /** Configured protected environments (shared orgs the load must refuse). */
   protectedOrgIds?: string[];
+  /**
+   * A replay of a checkpoint the host let into a sandbox marked Staging: a
+   * simulation, a verification, or a replay whose request carried the org's
+   * name typed to confirm it (`FrozenDatasetHandler.replaySourceOf`). The
+   * Staging tier then passes the first guard; a dataset's load never does.
+   */
+  stagingReplay?: true;
 }
 
 /** Total record count of a frozen dataset. */
@@ -122,12 +129,20 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
 /**
  * The first entry guard alone: a sandbox, a scratch org, or a Developer
  * Edition org, which the caller takes for the development org it is — never
- * one marked Staging. What a replay of a checkpoint asks of its target before
+ * one marked Staging, but for a replay of a checkpoint the host let into it
+ * (`stagingReplay`). What a replay of a checkpoint asks of its target before
  * it reads anything of it.
  *
  * @throws {LoadGuardError} `non-sandbox`, of any other org.
  */
-export function assertLoadTier(input: Pick<LoadGuardInput, 'orgId' | 'orgTier'>): void {
+export function assertLoadTier(
+  input: Pick<LoadGuardInput, 'orgId' | 'orgTier' | 'stagingReplay'>,
+): void {
+  // A replay of a checkpoint goes into a sandbox marked Staging once the
+  // person typed its name, as a rewind asks it: without it, a UAT or a Full
+  // sandbox brought back into service after a refresh could not get back the
+  // checkpoint taken of it before. A dataset's load never does.
+  if (input.orgTier === 'staging' && input.stagingReplay === true) return;
   // A sandbox marked Staging is one: it holds real data, which is why a load
   // never goes there. Said "no sandbox", it sent the user looking for an
   // org type it had all along.

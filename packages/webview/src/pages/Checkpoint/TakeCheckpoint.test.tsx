@@ -28,10 +28,10 @@ import { formatNumber } from '../../utils/formatters';
 import { TakeCheckpoint } from './TakeCheckpoint';
 
 /** The take of the Developer Edition org, with spies for what it tells its page. */
-function renderTake() {
+function renderTake(asked: { name?: string; keepDays?: number } = {}) {
   const onClose = vi.fn();
   const onTaken = vi.fn();
-  render(<TakeCheckpoint org={developerOrg()} onClose={onClose} onTaken={onTaken} />);
+  render(<TakeCheckpoint org={developerOrg()} onClose={onClose} onTaken={onTaken} {...asked} />);
   return { onClose, onTaken };
 }
 
@@ -82,6 +82,39 @@ describe('TakeCheckpoint', () => {
     fireEvent.click(screen.getByTestId('checkpoint-chip-clean-baseline'));
     expect(field).toHaveValue('Clean baseline');
     expect(screen.getByTestId('checkpoint-take-keep')).toBeChecked();
+  });
+
+  it('offers the names a sandbox refresh asks for, each kept until it is deleted', () => {
+    renderTake();
+    const field = screen.getByTestId('checkpoint-take-name');
+    fireEvent.click(screen.getByTestId('checkpoint-chip-before-refresh'));
+    expect(field).toHaveValue('Before refresh');
+    expect(screen.getByTestId('checkpoint-take-keep')).toBeChecked();
+    fireEvent.click(screen.getByTestId('checkpoint-take-keep'));
+    fireEvent.click(screen.getByTestId('checkpoint-chip-testers-start'));
+    expect(field).toHaveValue("Testers' start");
+    expect(screen.getByTestId('checkpoint-take-keep')).toBeChecked();
+  });
+
+  it('opens on the name it is asked to, kept until it is deleted when asked for 0 days', () => {
+    renderTake({ name: "Testers' start", keepDays: 0 });
+    answerScope();
+    expect(screen.getByTestId('checkpoint-take-name')).toHaveValue("Testers' start");
+    expect(screen.getByTestId('checkpoint-take-keep')).toBeChecked();
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).toMatchObject({
+      name: "Testers' start",
+      keepDays: 0,
+    });
+  });
+
+  it('keeps a take the days it is asked to, and says until when', () => {
+    renderTake({ keepDays: 7 });
+    answerScope();
+    expect(screen.getByTestId('checkpoint-take-keep')).not.toBeChecked();
+    expect(screen.getByTestId('checkpoint-cost').textContent).toContain('kept until Oct 29, 2026');
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).toMatchObject({ keepDays: 7 });
   });
 
   it('says what everything people work in holds: objects with records, empty ones, a package’s', () => {
@@ -668,11 +701,29 @@ describe('TakeCheckpoint', () => {
     );
   });
 
-  it('leaves on Cancel before anything is taken', () => {
+  it('goes back to the list from ← Checkpoints above its heading, before anything is taken', () => {
     const { onClose } = renderTake();
-    fireEvent.click(screen.getByTestId('checkpoint-take-cancel'));
+    const back = screen.getByTestId('checkpoint-take-cancel');
+    expect(back).toHaveAccessibleName('Checkpoints');
+    // Over the heading, where the preview and the replay put theirs.
+    expect(
+      back.compareDocumentPosition(screen.getByRole('heading', { level: 2 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    fireEvent.click(back);
     expect(onClose).toHaveBeenCalled();
     expect(host.current?.sent('checkpoint:take')).toEqual([]);
+  });
+
+  it('keeps the take in view while it runs: its ← Checkpoints goes nowhere until it ends', () => {
+    const { onClose } = renderTake();
+    answerScope();
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    const back = screen.getByTestId('checkpoint-take-cancel');
+    expect(back).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(back);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 

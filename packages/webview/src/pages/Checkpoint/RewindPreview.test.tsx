@@ -1767,9 +1767,33 @@ describe('RewindPreview', () => {
     expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('8 to delete');
   });
 
-  it('goes back to the checkpoints on Back', () => {
+  it('goes back on Back, under the preview, where a page other than Checkpoints opens it', () => {
     const { onClose } = renderPreview();
-    fireEvent.click(screen.getByTestId('checkpoint-preview-back'));
+    const back = screen.getByTestId('checkpoint-preview-back');
+    expect(back).toHaveAccessibleName('Back');
+    fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes back to the list from ← Checkpoints above its heading, where Checkpoints opens it', () => {
+    const onClose = vi.fn();
+    render(
+      <RewindPreview
+        org={developerOrg()}
+        checkpoint={readyCheckpoint()}
+        onClose={onClose}
+        onRewind={vi.fn()}
+        backLink
+      />,
+    );
+    const back = screen.getByTestId('checkpoint-preview-back');
+    expect(back).toHaveAccessibleName('Checkpoints');
+    expect(
+      back.compareDocumentPosition(screen.getByRole('heading', { level: 2 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+    fireEvent.click(back);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

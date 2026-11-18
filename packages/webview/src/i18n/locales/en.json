@@ -4038,7 +4038,7 @@
       "step2": "Click Take a checkpoint, read Before it runs, click Take the checkpoint, then Done.",
       "step3": "To return the org to it, click Rewind… on the checkpoint's row: the preview writes nothing.",
       "step4": "Tick any box the preview asks for, click the Rewind button naming the org, type its name, Confirm.",
-      "step5": "Org refreshed or expired? Replay in another org… on its row: Simulate, then Replay.",
+      "step5": "Org refreshed or expired? Click Replay into… on its row, then Simulate, then Replay.",
       "tip": "Rewind undoes everyone's changes since the checkpoint, not only yours. Undo this rewind takes it back for up to 15 days."
     },
     "recovery": {
@@ -8122,9 +8122,8 @@
         "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and rewinds nothing any more.",
         "scratchExpired": "This scratch org has expired: its checkpoints rewind nothing any more."
       },
-      "expiresSoon": "Expires {{when}}",
-      "scratchExpiresSoon": "This scratch org expires on {{date}}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay in another org… sets their records up there again, with new Ids.",
-      "keepIt": "Keep",
+      "expiresSoon": "Expires {{when}}: Keep until I delete it keeps it.",
+      "scratchExpiresSoon": "This scratch org expires on {{date}}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay into an org… sets their records up there again, with new Ids.",
       "binReach": "Records deleted before {{date}} cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.",
       "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
       "rewoundUndated": "Rewound: it can be undone until {{until}}, sooner if the recycle bin fills.",
@@ -8159,7 +8158,9 @@
       "chip": {
         "beforeUat": "Before UAT",
         "beforeDemo": "Before demo",
-        "cleanBaseline": "Clean baseline"
+        "cleanBaseline": "Clean baseline",
+        "beforeRefresh": "Before refresh",
+        "testersStart": "Testers' start"
       },
       "whatItKeeps": "What it keeps",
       "everything": "Everything people work in",
@@ -8706,9 +8707,8 @@
       }
     },
     "replay": {
-      "open": "Replay in another org…",
-      "title": "Replay “{{name}}” in another org",
-      "back": "Back to the checkpoints",
+      "open": "Replay into an org…",
+      "title": "Replay “{{name}}” into an org",
       "facts": "Of {{org}}, taken {{age}} · {{records}} records",
       "intro": "Replaying creates in {{target}} a copy of the records of this checkpoint, parents before children, with new Ids. Nothing {{target}} holds is changed or deleted. A checkpoint keeps no file’s content: files do not follow. A replay can be removed.",
       "introNoTarget": "Replaying creates in the org you pick a copy of the records of this checkpoint, parents before children, with new Ids. Nothing that org holds is changed or deleted. A checkpoint keeps no file’s content: files do not follow. A replay can be removed.",
@@ -8720,7 +8720,7 @@
         "refreshedUndated": "{{org}} is the sandbox this checkpoint was taken of, refreshed since: its records come back into it with new Ids.",
         "own": "{{org}} is not offered: this checkpoint is of it, and Rewind brings it back to that moment.",
         "ownNote": "this checkpoint’s own org",
-        "staging": "Sandboxes marked Staging are not offered: they hold real data, and a replay never goes into one."
+        "stagingPicked": "{{org}} is marked Staging and may hold real data: Replay asks you to type its name before it writes."
       },
       "choices": "What the replay sets up",
       "objects": {
@@ -8860,7 +8860,13 @@
         "elsewhere": "It no longer brings its org back, and it replays in another org: its records are created there again, with new Ids.",
         "inPlace": "Replays still in place: {{replays}}.",
         "deleteKeeps": "Its replays stay where they are: {{replays}}. Each is still removed without the checkpoint."
-      }
+      },
+      "openRefreshed": "Replay into {{org}}, refreshed…",
+      "stagingConfirm": {
+        "title": "Replay “{{name}}” into {{target}}, marked Staging?",
+        "description": "{{target}} is marked Staging: it may hold real data. The replay creates {{records}} records there, with new Ids, as its simulation counted them; nothing {{target}} holds is changed or deleted, and the replay can be removed."
+      },
+      "stagingUnconfirmed": "{{target}} is marked Staging, which may hold real data: a replay goes into it once its name is typed to confirm it. Nothing was read or written."
     }
   },
   "recovery": {

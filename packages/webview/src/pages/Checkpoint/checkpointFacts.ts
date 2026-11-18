@@ -17,6 +17,25 @@ import { CHECKPOINT_OBJECT_ROWS_MAX } from '../../utils/checkpointLimits';
  */
 export const CHECKPOINT_KEEP_DAYS = 30;
 
+/** The most days a take may keep a checkpoint, as the extension bounds `keepDays`. */
+const CHECKPOINT_KEEP_DAYS_MAX = 3650;
+
+/**
+ * How a take a page opened keeps its checkpoint, from the days it was asked
+ * for (`checkpointKeepDays`): 0 ticks Keep until I delete it, as the
+ * Back into service page asks of the testers' start; a whole number of days
+ * the store takes keeps it that long; anything else, the store's 30 days.
+ */
+export function takeKeepOf(keepDays: number | undefined): { keep: boolean; days: number } {
+  if (keepDays === 0) return { keep: true, days: CHECKPOINT_KEEP_DAYS };
+  return keepDays !== undefined &&
+    Number.isInteger(keepDays) &&
+    keepDays > 0 &&
+    keepDays <= CHECKPOINT_KEEP_DAYS_MAX
+    ? { keep: false, days: keepDays }
+    : { keep: false, days: CHECKPOINT_KEEP_DAYS };
+}
+
 /**
  * Records a take holds at most, all objects together, unless Records at
  * most says another number: the take's own default (`DEFAULT_MAX_TOTAL` in

@@ -32,6 +32,7 @@ import { FrozenLoadEmails } from '../Frozen/FrozenLoadEmails';
 import { FrozenLoadRemoval } from '../Frozen/FrozenLoadRemoval';
 import { frozenErrorWords } from '../Frozen/frozenErrorWords';
 import { recordsHeld } from './checkpointFacts';
+import { CheckpointsLink } from './CheckpointsLink';
 import {
   defaultReplayChoices,
   plannedRecords,
@@ -92,10 +93,12 @@ interface Simulated {
  * checkpoint keeps no file's content, so files do not follow, each named.
  *
  * The org: a sandbox, a scratch org or a Developer Edition org that is
- * connected, never a production org nor a sandbox marked Staging; the
- * sandbox the checkpoint was of, once refreshed, first. The checkpoint's own
- * org while it still rewinds it is listed and not offered: Rewind brings it
- * back to that moment.
+ * connected, never a production org; the sandbox the checkpoint was of, once
+ * refreshed, first. A sandbox marked Staging, which may hold real data, is
+ * offered with its badge, and its replay asks its name typed once simulated,
+ * which goes with the replay for the extension to compare. The checkpoint's
+ * own org while it still rewinds it is listed and not offered: Rewind brings
+ * it back to that moment.
  *
  * The choices — objects, owners, custom settings, masking, emails and phone
  * numbers, replacing the last replay — are simulated first: Replay waits for
@@ -136,6 +139,7 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
   const [checkpointFirst, setCheckpointFirst] = useState(false);
   const [simulated, setSimulated] = useState<Simulated | null>(null);
   const [confirmingReplace, setConfirmingReplace] = useState(false);
+  const [confirmingStaging, setConfirmingStaging] = useState(false);
   const bridge = useReplayBridge();
   const { preview, load, verify } = bridge;
 
@@ -146,6 +150,7 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
 
   const target = orgs.find((candidate) => candidate.id === targetOrgId);
   const targetName = target ? orgDisplayName(target) : '';
+  const intoStaging = targets.staging.includes(targetOrgId);
   const replayRef: FrozenReplayRef = {
     organizationId: entry.organizationId,
     checkpointId: entry.checkpointId,
@@ -195,7 +200,12 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
       orgId,
     );
   const wordsOf = (payload: ReplayErrorPayload | null, fallback: string | null): string =>
-    (payload ? frozenErrorWords(payload, t, aliasOf, 'replay') : undefined) ?? fallback ?? '';
+    (payload?.code === 'REPLAY_STAGING_UNCONFIRMED'
+      ? t('checkpoint.replay.stagingUnconfirmed', { target: targetName })
+      : undefined) ??
+    (payload ? frozenErrorWords(payload, t, aliasOf, 'replay') : undefined) ??
+    fallback ??
+    '';
   // What else the simulation found the replay would be refused for, beside
   // the fields the other org requires: said with them, as the command line does.
   const refusedBeside = refusedBesideWords(preview.errorPayload, t, aliasOf);
@@ -220,10 +230,20 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
   const replay = (): void => {
     if (!current) return;
     verify.reset();
-    load.run({ ...requestOf(), maxRecords: plannedRecords(current.plan) });
+    // Into a sandbox marked Staging, the name typed goes with the replay:
+    // the extension compares it with the org's, and refuses it otherwise.
+    const asked = requestOf();
+    load.run({
+      ...asked,
+      ...(intoStaging
+        ? { replay: { ...(asked.replay as object), confirmStaging: targetName } }
+        : {}),
+      maxRecords: plannedRecords(current.plan),
+    });
   };
   const askReplay = (): void => {
-    if (replace) setConfirmingReplace(true);
+    if (intoStaging) setConfirmingStaging(true);
+    else if (replace) setConfirmingReplace(true);
     else replay();
   };
 
@@ -283,26 +303,15 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
       aria-labelledby={ids.heading}
       data-testid="checkpoint-replay"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2
-          id={ids.heading}
-          ref={headingRef}
-          tabIndex={-1}
-          className="text-base font-semibold text-text-primary"
-        >
-          {t('checkpoint.replay.title', { name: checkpoint.name })}
-        </h2>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onClose}
-          disabled={load.loading}
-          focusableWhenDisabled
-          data-testid="checkpoint-replay-close"
-        >
-          {t('checkpoint.replay.back')}
-        </Button>
-      </div>
+      <CheckpointsLink onClick={onClose} disabled={load.loading} testId="checkpoint-replay-close" />
+      <h2
+        id={ids.heading}
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-base font-semibold text-text-primary"
+      >
+        {t('checkpoint.replay.title', { name: checkpoint.name })}
+      </h2>
       <p className="text-xs text-text-secondary" data-testid="checkpoint-replay-facts">
         {t('checkpoint.replay.facts', {
           org: orgDisplayName(checkpoint.org),
@@ -327,6 +336,7 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
             orgs={[...targets.offered, ...(targets.own ? [targets.own] : [])]}
             ariaLabel={t('checkpoint.replay.target.label')}
             testId="checkpoint-replay-target"
+            showStaging
             {...(targets.own
               ? {
                   unavailable: {
@@ -353,9 +363,9 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
             {t('checkpoint.replay.target.own', { org: pageOrgName })}
           </p>
         )}
-        {targets.staging > 0 && (
-          <p className="text-xs text-text-secondary" data-testid="checkpoint-replay-staging">
-            {t('checkpoint.replay.target.staging')}
+        {intoStaging && (
+          <p className="text-xs text-text-primary" data-testid="checkpoint-replay-staging">
+            {t('checkpoint.replay.target.stagingPicked', { org: targetName })}
           </p>
         )}
       </div>
@@ -811,6 +821,38 @@ export const ReplayCheckpoint: React.FC<ReplayCheckpointProps> = ({
           </ul>
         </section>
       )}
+
+      {/* Typed, as a rewind's is: a sandbox marked Staging may hold real data.
+          Asked once the simulation said what the replay creates, and of the
+          replacement too when it is ticked. */}
+      <DangerConfirm
+        open={confirmingStaging}
+        onClose={() => setConfirmingStaging(false)}
+        onConfirm={() => {
+          setConfirmingStaging(false);
+          replay();
+        }}
+        title={t('checkpoint.replay.stagingConfirm.title', {
+          name: checkpoint.name,
+          target: targetName,
+        })}
+        description={t('checkpoint.replay.stagingConfirm.description', {
+          target: targetName,
+          records: formatNumber(current ? plannedRecords(current.plan) : 0),
+        })}
+        confirmText={targetName}
+      >
+        {replace && (
+          <p data-testid="checkpoint-replay-staging-replace">
+            {t('checkpoint.replay.replaceConfirm.description', {
+              target: targetName,
+              records: formatNumber(
+                current?.plan.perObject.reduce((sum, object) => sum + object.toPurge, 0) ?? 0,
+              ),
+            })}
+          </p>
+        )}
+      </DangerConfirm>
 
       {/* Typed, as a reload's is: replacing deletes what the last replay created there. */}
       <DangerConfirm

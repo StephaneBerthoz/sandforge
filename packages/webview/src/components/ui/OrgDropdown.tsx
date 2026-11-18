@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { orgDisplayName } from '@sandforge/shared';
+import { guardTierOf, orgDisplayName } from '@sandforge/shared';
+import { OrgTypeBadge } from './OrgBadge';
 
 /** Props for the OrgDropdown component. */
 export interface OrgDropdownProps {
@@ -25,7 +26,15 @@ export interface OrgDropdownProps {
    * it was the first click of the Load tab, and the refusal came in English.
    */
   unavailable?: { orgId: string; note: string };
+  /**
+   * Mark each sandbox marked Staging with its badge, in the panel and once
+   * picked: a picker that offers one where it asks more before it writes.
+   */
+  showStaging?: boolean;
 }
+
+/** The room kept between the panel and the window's left edge, in pixels. */
+const PANEL_MARGIN_PX = 8;
 
 /** CSS class for org status indicator dot. */
 function statusDotColor(status: string): string {
@@ -90,6 +99,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   testId = 'org-dropdown',
   className,
   unavailable,
+  showStaging = false,
 }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -97,8 +107,23 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  // The panel opens from the trigger's right edge, as wide as what it lists:
+  // as wide as the trigger, it named "De…" and "QA…" under a picker set in a
+  // page's header. It grows leftwards no further than the window's edge.
+  const [panelRoom, setPanelRoom] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const rect = triggerRef.current?.getBoundingClientRect();
+    setPanelRoom(
+      rect && rect.right > PANEL_MARGIN_PX
+        ? Math.max(rect.width, rect.right - PANEL_MARGIN_PX)
+        : undefined,
+    );
+  }, [open]);
 
   const selectedOrg = orgs.find((o) => o.id === value);
+  /** Whether an org wears the Staging badge here. */
+  const marked = (org: SalesforceOrg): boolean => showStaging && guardTierOf(org) === 'staging';
 
   /** Sort orgs: connected first, then alphabetically by alias. */
   const sortedOrgs = [...orgs].sort((a, b) => {
@@ -199,7 +224,9 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
           selectedOrg
             ? t('a11y.orgDropdownValue', {
                 label: ariaLabel,
-                org: orgDisplayName(selectedOrg),
+                org: marked(selectedOrg)
+                  ? `${orgDisplayName(selectedOrg)} (${t('common.orgType.staging')})`
+                  : orgDisplayName(selectedOrg),
                 status: t(`common.orgStatus_${selectedOrg.status}`),
               })
             : ariaLabel
@@ -217,6 +244,9 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
         <span className="truncate flex-1 text-left">
           {selectedOrg ? orgDisplayName(selectedOrg) : t('common.selectOrg')}
         </span>
+        {selectedOrg && marked(selectedOrg) && (
+          <OrgTypeBadge org={selectedOrg} testId={`${testId}-staging`} />
+        )}
         <ChevronDown
           size={14}
           className={cn('text-text-secondary shrink-0 transition-transform', open && 'rotate-180')}
@@ -229,10 +259,11 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
           ref={panelRef}
           id={panelId}
           className={cn(
-            'absolute z-50 top-full left-0 right-0 mt-1',
+            'absolute z-50 top-full right-0 mt-1 w-max min-w-full',
             'rounded-md border border-subtle bg-surface-1 shadow-lg',
             'max-h-48 overflow-y-auto py-1',
           )}
+          style={panelRoom !== undefined ? { maxWidth: `${panelRoom}px` } : undefined}
           data-testid={`${testId}-panel`}
         >
           {/* Empty option */}
@@ -267,6 +298,9 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
                 <StatusDot status={org.status} />
                 <span className="truncate">{orgDisplayName(org)}</span>
                 <span className="sr-only">{t(`common.orgStatus_${org.status}`)}</span>
+                {marked(org) && (
+                  <OrgTypeBadge org={org} testId={`${testId}-option-${org.id}-staging`} />
+                )}
                 {note !== undefined && (
                   <span
                     className="text-[10px] shrink-0"

@@ -285,4 +285,78 @@ describe('OrgDropdown status without colour', () => {
     expect(screen.getByTestId('test-dd-option-org-2').textContent).toContain('Session Expired');
     expect(screen.getByTestId('test-dd-option-org-1').textContent).toContain('Connected');
   });
+
+  it('opens its panel from its right edge, as wide as what it lists and no wider than the room to its left', () => {
+    render(
+      <OrgDropdown
+        value="org-1"
+        onChange={vi.fn()}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
+    );
+    const trigger = screen.getByTestId('test-dd');
+    // A picker in a page's header: narrow, at the right of the page. Its
+    // panel took the trigger's width, and cut the names down to "De…".
+    trigger.getBoundingClientRect = () =>
+      ({ left: 1120, right: 1264, width: 144, top: 30, bottom: 50, height: 20 }) as DOMRect;
+    fireEvent.click(trigger);
+    const panel = screen.getByTestId('test-dd-panel');
+    const classes = panel.className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['right-0', 'w-max', 'min-w-full']));
+    expect(classes).not.toContain('left-0');
+    expect(panel.style.maxWidth).toBe('1256px');
+  });
+
+  it('marks a sandbox marked Staging, in its panel and once picked, when asked to', () => {
+    const staging: SalesforceOrg = {
+      ...mockOrgs[0],
+      id: 'org-uat',
+      alias: 'UAT',
+      username: 'qa@test.com.uat',
+      staging: true,
+    };
+    const { rerender } = render(
+      <OrgDropdown
+        value=""
+        onChange={vi.fn()}
+        orgs={[mockOrgs[0], staging]}
+        ariaLabel="Org to replay into"
+        testId="test-dd"
+        showStaging
+      />,
+    );
+    fireEvent.click(screen.getByTestId('test-dd'));
+    expect(screen.getByTestId('test-dd-option-org-uat-staging').textContent).toBe('STAGING');
+    expect(screen.getByTestId('test-dd-option-org-uat').textContent).toContain('STAGING');
+    expect(screen.queryByTestId('test-dd-option-org-1-staging')).toBeNull();
+
+    rerender(
+      <OrgDropdown
+        value="org-uat"
+        onChange={vi.fn()}
+        orgs={[mockOrgs[0], staging]}
+        ariaLabel="Org to replay into"
+        testId="test-dd"
+        showStaging
+      />,
+    );
+    expect(screen.getByTestId('test-dd-staging').textContent).toBe('STAGING');
+    expect(screen.getByTestId('test-dd').getAttribute('aria-label')).toBe(
+      'Org to replay into: UAT (STAGING), status: Connected',
+    );
+
+    // Unasked, a picker says nothing of the mark, as before.
+    rerender(
+      <OrgDropdown
+        value="org-uat"
+        onChange={vi.fn()}
+        orgs={[mockOrgs[0], staging]}
+        ariaLabel="Org to replay into"
+        testId="test-dd"
+      />,
+    );
+    expect(screen.queryByTestId('test-dd-staging')).toBeNull();
+  });
 });

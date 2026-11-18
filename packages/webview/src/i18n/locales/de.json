@@ -4038,7 +4038,7 @@
       "step2": "Klicken Sie auf Prüfpunkt erstellen, lesen Sie Vor dem Start und klicken Sie auf Den Prüfpunkt erstellen, dann auf Fertig.",
       "step3": "Um die Org auf diesen Stand zurückzusetzen, klicken Sie in der Zeile des Prüfpunkts auf Zurücksetzen… Die Vorschau schreibt nichts.",
       "step4": "Setzen Sie die verlangten Häkchen, klicken Sie auf Zurücksetzen mit dem Org-Namen, geben Sie ihn ein und klicken Sie auf Bestätigen.",
-      "step5": "Org aktualisiert oder abgelaufen? In einer anderen Org wiedergeben… in ihrer Zeile: Simulieren, dann Wiedergeben.",
+      "step5": "Org aktualisiert oder abgelaufen? In … wiedergeben… in ihrer Zeile: Simulieren, dann Wiedergeben.",
       "tip": "Zurücksetzen macht alle Änderungen seit dem Prüfpunkt rückgängig, nicht nur Ihre. Mit Dieses Zurücksetzen rückgängig machen nehmen Sie es bis zu 15 Tage lang zurück."
     },
     "recovery": {
@@ -8122,9 +8122,8 @@
         "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und setzt sie nicht mehr zurück.",
         "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte setzen sie nicht mehr zurück."
       },
-      "expiresSoon": "Läuft {{when}} ab",
-      "scratchExpiresSoon": "Diese Scratch-Org läuft am {{date}} ab: Ihre Prüfpunkte setzen sie dann nicht mehr zurück, was Aufbewahren auch sagt. In einer anderen Org lassen sie sich weiter wiedergeben: In einer anderen Org wiedergeben… legt ihre Datensätze dort neu an, mit neuen IDs.",
-      "keepIt": "Aufbewahren",
+      "expiresSoon": "Läuft {{when}} ab: Aufbewahren, bis ich ihn lösche behält ihn.",
+      "scratchExpiresSoon": "Diese Scratch-Org läuft am {{date}} ab: Ihre Prüfpunkte setzen sie dann nicht mehr zurück, was Aufbewahren auch sagt. In einer anderen Org lassen sie sich weiter wiedergeben: In eine Org wiedergeben… legt ihre Datensätze dort neu an, mit neuen IDs.",
       "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr mit ihrer Id zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt. Ein Zurücksetzen legt sie mit neuen Ids neu an.",
       "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
       "rewoundUndated": "Zurückgesetzt: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
@@ -8159,7 +8158,9 @@
       "chip": {
         "beforeUat": "Vor dem UAT",
         "beforeDemo": "Vor der Demo",
-        "cleanBaseline": "Saubere Ausgangsbasis"
+        "cleanBaseline": "Saubere Ausgangsbasis",
+        "beforeRefresh": "Vor der Aktualisierung",
+        "testersStart": "Start der Tester"
       },
       "whatItKeeps": "Was er aufbewahrt",
       "everything": "Alles, womit gearbeitet wird",
@@ -8706,9 +8707,8 @@
       }
     },
     "replay": {
-      "open": "In einer anderen Org wiedergeben…",
-      "title": "„{{name}}“ in einer anderen Org wiedergeben",
-      "back": "Zurück zu den Prüfpunkten",
+      "open": "In eine Org wiedergeben…",
+      "title": "„{{name}}“ in eine Org wiedergeben",
       "facts": "Von {{org}}, erstellt {{age}} · {{records}} Datensätze",
       "intro": "Die Wiedergabe legt in {{target}} eine Kopie der Datensätze dieses Prüfpunkts an, übergeordnete vor untergeordneten, mit neuen IDs. Nichts, was {{target}} enthält, wird geändert oder gelöscht. Ein Prüfpunkt bewahrt keinen Dateiinhalt auf: Dateien kommen nicht mit. Eine Wiedergabe lässt sich entfernen.",
       "introNoTarget": "Die Wiedergabe legt in der gewählten Org eine Kopie der Datensätze dieses Prüfpunkts an, übergeordnete vor untergeordneten, mit neuen IDs. Nichts, was diese Org enthält, wird geändert oder gelöscht. Ein Prüfpunkt bewahrt keinen Dateiinhalt auf: Dateien kommen nicht mit. Eine Wiedergabe lässt sich entfernen.",
@@ -8720,7 +8720,7 @@
         "refreshedUndated": "{{org}} ist die Sandbox, von der dieser Prüfpunkt stammt, seitdem aktualisiert: Ihre Datensätze kommen mit neuen IDs zurück.",
         "own": "{{org}} wird nicht angeboten: Dieser Prüfpunkt stammt von ihr, und Zurücksetzen bringt sie auf diesen Zeitpunkt zurück.",
         "ownNote": "Org dieses Prüfpunkts",
-        "staging": "Als Staging markierte Sandboxes werden nicht angeboten: Sie enthalten echte Daten, und eine Wiedergabe geht nie in eine solche."
+        "stagingPicked": "{{org}} ist als Staging markiert und kann echte Daten enthalten: Wiedergeben verlangt vor dem Schreiben die Eingabe ihres Namens."
       },
       "choices": "Was die Wiedergabe einrichtet",
       "objects": {
@@ -8860,7 +8860,13 @@
         "elsewhere": "Er setzt seine Org nicht mehr zurück, lässt sich aber in einer anderen Org wiedergeben: Seine Datensätze werden dort neu angelegt, mit neuen IDs.",
         "inPlace": "Noch vorhandene Wiedergaben: {{replays}}.",
         "deleteKeeps": "Seine Wiedergaben bleiben, wo sie sind: {{replays}}. Jede lässt sich auch ohne den Prüfpunkt entfernen."
-      }
+      },
+      "openRefreshed": "In {{org}} wiedergeben, aktualisiert…",
+      "stagingConfirm": {
+        "title": "„{{name}}“ in {{target}} wiedergeben, als Staging markiert?",
+        "description": "{{target}} ist als Staging markiert: Sie kann echte Daten enthalten. Die Wiedergabe legt dort {{records}} Datensätze mit neuen IDs an, wie ihre Simulation sie gezählt hat; nichts, was {{target}} enthält, wird geändert oder gelöscht, und die Wiedergabe lässt sich entfernen."
+      },
+      "stagingUnconfirmed": "{{target}} ist als Staging markiert und kann echte Daten enthalten: Eine Wiedergabe geht erst hinein, wenn ihr Name zur Bestätigung eingegeben ist. Nichts wurde gelesen oder geschrieben."
     }
   },
   "recovery": {

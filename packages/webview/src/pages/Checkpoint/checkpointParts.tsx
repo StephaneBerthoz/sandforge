@@ -16,7 +16,7 @@ import type { ReplayCheckpointProps } from './ReplayCheckpoint';
  * the rewind and what it did once it is confirmed, the fields a checkpoint
  * compares once they are to change, the key of an export or the facts of a
  * file to import once Export… or Import… has its answer, and a replay in
- * another org once Replay in another org… is pressed. Their words are loaded
+ * another org once Replay into an org… is pressed. Their words are loaded
  * with each: the page's own namespace is the page's, and what the org runs as
  * a removal writes, what a removal deleted, and what a run checks before it
  * writes come with the preview, the run and the replay that say them, as the

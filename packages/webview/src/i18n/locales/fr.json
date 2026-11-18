@@ -4038,7 +4038,7 @@
       "step2": "Cliquez sur Créer un point de contrôle, lisez Avant le lancement, puis cliquez sur Créer le point de contrôle et sur Terminé.",
       "step3": "Pour y ramener l'org, cliquez sur Revenir à ce point… sur la ligne du point de contrôle : l'aperçu n'écrit rien.",
       "step4": "Cochez les cases demandées, cliquez sur le bouton qui nomme l'org, saisissez son nom et cliquez sur Confirmer.",
-      "step5": "Org rafraîchie ou expirée ? Rejouer dans une autre org… sur sa ligne : Simuler, puis Rejouer.",
+      "step5": "Org rafraîchie ou expirée ? Rejouer dans… sur sa ligne : Simuler, puis Rejouer.",
       "tip": "Le retour arrière défait les modifications de chacun depuis le point de contrôle, pas seulement les vôtres. Annuler ce retour arrière reste possible 15 jours au plus."
     },
     "recovery": {
@@ -8122,9 +8122,8 @@
         "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne la ramène plus en arrière.",
         "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne la ramènent plus en arrière."
       },
-      "expiresSoon": "Expire {{when}}",
-      "scratchExpiresSoon": "Cette scratch org expire le {{date}} : ses points de contrôle ne la ramèneront alors plus en arrière, quoi que dise Conserver. Ils se rejoueront toujours dans une autre org : Rejouer dans une autre org… y recrée leurs enregistrements, avec de nouveaux Id.",
-      "keepIt": "Conserver",
+      "expiresSoon": "Expire {{when}} : Conserver jusqu'à ce que je le supprime le garde.",
+      "scratchExpiresSoon": "Cette scratch org expire le {{date}} : ses points de contrôle ne la ramèneront alors plus en arrière, quoi que dise Conserver. Ils se rejoueront toujours dans une autre org : Rejouer dans une org… y recrée leurs enregistrements, avec de nouveaux Id.",
       "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir avec leur Id : la corbeille les garde 15 jours, moins si elle se remplit. Un retour arrière les recrée, avec de nouveaux Id.",
       "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
       "rewoundUndated": "Retour arrière fait : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
@@ -8159,7 +8158,9 @@
       "chip": {
         "beforeUat": "Avant la recette",
         "beforeDemo": "Avant la démo",
-        "cleanBaseline": "Référence propre"
+        "cleanBaseline": "Référence propre",
+        "beforeRefresh": "Avant le rafraîchissement",
+        "testersStart": "Départ des testeurs"
       },
       "whatItKeeps": "Ce qu'il conserve",
       "everything": "Tout ce sur quoi les utilisateurs travaillent",
@@ -8706,9 +8707,8 @@
       }
     },
     "replay": {
-      "open": "Rejouer dans une autre org…",
-      "title": "Rejouer « {{name}} » dans une autre org",
-      "back": "Retour aux points de contrôle",
+      "open": "Rejouer dans une org…",
+      "title": "Rejouer « {{name}} » dans une org",
       "facts": "De {{org}}, pris {{age}} · {{records}} enregistrements",
       "intro": "Rejouer crée dans {{target}} une copie des enregistrements de ce point de contrôle, parents avant enfants, avec de nouveaux Id. Rien de {{target}} n'est modifié ni supprimé. Un point de contrôle ne garde pas le contenu des fichiers : les fichiers ne suivent pas. Un rejeu se retire.",
       "introNoTarget": "Rejouer crée dans l'org choisie une copie des enregistrements de ce point de contrôle, parents avant enfants, avec de nouveaux Id. Rien de cette org n'est modifié ni supprimé. Un point de contrôle ne garde pas le contenu des fichiers : les fichiers ne suivent pas. Un rejeu se retire.",
@@ -8720,7 +8720,7 @@
         "refreshedUndated": "{{org}} est la sandbox dont ce point de contrôle a été pris, rafraîchie depuis : ses enregistrements y reviennent avec de nouveaux Id.",
         "own": "{{org}} n'est pas proposée : ce point de contrôle est le sien, et Revenir à ce point la ramène à ce moment.",
         "ownNote": "org de ce point de contrôle",
-        "staging": "Les sandboxes marquées Staging ne sont pas proposées : elles contiennent des données réelles, et un rejeu n'y va jamais."
+        "stagingPicked": "{{org}} est marquée Préproduction et peut contenir des données réelles : Rejouer vous demande de saisir son nom avant d'écrire."
       },
       "choices": "Ce que le rejeu remet en place",
       "objects": {
@@ -8860,7 +8860,13 @@
         "elsewhere": "Il ne ramène plus son org en arrière, mais il se rejoue dans une autre org : ses enregistrements y sont recréés, avec de nouveaux Id.",
         "inPlace": "Rejeux encore en place : {{replays}}.",
         "deleteKeeps": "Ses rejeux restent en place : {{replays}}. Chacun se retire encore sans le point de contrôle."
-      }
+      },
+      "openRefreshed": "Rejouer dans {{org}} rafraîchie…",
+      "stagingConfirm": {
+        "title": "Rejouer « {{name}} » dans {{target}}, marquée Préproduction ?",
+        "description": "{{target}} est marquée Préproduction : elle peut contenir des données réelles. Le rejeu y crée {{records}} enregistrements, avec de nouveaux Id, comme sa simulation les a comptés ; rien de ce que {{target}} contient n'est modifié ni supprimé, et le rejeu se retire."
+      },
+      "stagingUnconfirmed": "{{target}} est marquée Préproduction et peut contenir des données réelles : un rejeu n'y va qu'une fois son nom saisi pour le confirmer. Rien n'a été lu ni écrit."
     }
   },
   "recovery": {

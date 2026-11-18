@@ -269,6 +269,8 @@ describe('CheckpointPage', () => {
     const preview = await screen.findByTestId('checkpoint-preview');
     expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
     expect(within(preview).getByRole('heading', { level: 2 })).toHaveFocus();
+    // Its way back is the page's: ← Checkpoints over its heading.
+    expect(screen.getByTestId('checkpoint-preview-back')).toHaveAccessibleName('Checkpoints');
     fireEvent.click(screen.getByTestId('checkpoint-preview-back'));
     expect(screen.getByTestId(`checkpoint-rewind-${ID}`)).toHaveFocus();
   });
@@ -712,6 +714,33 @@ describe('CheckpointPage', () => {
     expect(useAppStore.getState().navigationIntent).toBeNull();
   });
 
+  it('opens on a take named and kept as the Back into service page asked, and clears the ask', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: {
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-dev',
+        checkpointName: "Testers' start",
+        checkpointKeepDays: 0,
+      },
+    });
+    render(<CheckpointPage />);
+    expect(await screen.findByTestId('checkpoint-take-name')).toHaveValue("Testers' start");
+    expect(screen.getByTestId('checkpoint-take-keep')).toBeChecked();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  it('opens on a take when a name or days alone are asked of one', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', checkpointName: 'Before refresh' },
+    });
+    render(<CheckpointPage />);
+    expect(await screen.findByTestId('checkpoint-take-name')).toHaveValue('Before refresh');
+    expect(screen.getByTestId('checkpoint-take-keep')).not.toBeChecked();
+  });
+
   it('opens on the list of the org selected when it is not the org the take was asked for', () => {
     useOrgStore.setState({
       orgs: [developerOrg(), developerOrg({ id: 'org-other', alias: 'OTHER-SB' })],
@@ -905,7 +934,7 @@ describe('CheckpointPage', () => {
       fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
       // Its own chunk, fetched the first time it opens.
       const heading = await screen.findByRole('heading', {
-        name: 'Replay “Before UAT” in another org',
+        name: 'Replay “Before UAT” into an org',
       });
       await waitFor(() => expect(heading).toHaveFocus());
       const lists = host.current?.sent('checkpoint:list').length ?? 0;

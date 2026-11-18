@@ -13,6 +13,7 @@ import {
   recordsHeld,
   refusedBeforeScope,
   roughSeconds,
+  takeKeepOf,
   takeLimitOf,
   takenPerObject,
   undoCannotReasonOf,
@@ -158,6 +159,15 @@ describe('checkpointFacts', () => {
     expect(takeLimitOf('1')).toBe(1);
     for (const typed of ['', '0', '1000001', '12.5', '-3', '1e5', 'ten']) {
       expect(takeLimitOf(typed), typed).toBeUndefined();
+    }
+  });
+
+  it('reads the days a take is asked to keep it: 0 until it is deleted, 1 to 3,650 days, the store’s 30 otherwise', () => {
+    expect(takeKeepOf(0)).toEqual({ keep: true, days: 30 });
+    expect(takeKeepOf(7)).toEqual({ keep: false, days: 7 });
+    expect(takeKeepOf(3650)).toEqual({ keep: false, days: 3650 });
+    for (const asked of [undefined, -1, 2.5, 3651, Number.NaN]) {
+      expect(takeKeepOf(asked), String(asked)).toEqual({ keep: false, days: 30 });
     }
   });
 

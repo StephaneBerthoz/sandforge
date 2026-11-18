@@ -271,6 +271,12 @@ export interface FrozenLoadOptions {
   orgId: string;
   /** Existing safety-tier classification (ProductionGuard). */
   orgTier: SafetyTier;
+  /**
+   * A replay of a checkpoint the host let into a sandbox marked Staging
+   * (`LoadGuardInput.stagingReplay`): the entry guards let its tier through,
+   * and Production Guard still judges it as a Staging org.
+   */
+  stagingReplay?: true;
   dataset: FrozenDataset;
   /** Frozen manifest — its source org is cross-checked by the guards. */
   manifest?: FrozenManifest;
@@ -388,6 +394,7 @@ export type FrozenLoadGateOptions = Pick<
   FrozenLoadOptions,
   | 'orgId'
   | 'orgTier'
+  | 'stagingReplay'
   | 'dataset'
   | 'manifest'
   | 'reload'
@@ -1505,6 +1512,7 @@ export class FrozenDatasetLoader {
     return assertLoadGuards({
       orgId: options.orgId,
       orgTier: options.orgTier,
+      ...(options.stagingReplay ? { stagingReplay: true } : {}),
       dataset: options.dataset,
       manifest: options.manifest,
       mockDetector: this.deps.mockDetector,

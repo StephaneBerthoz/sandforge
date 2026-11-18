@@ -177,21 +177,27 @@ export function replayObjectsOf(checkpoint: Pick<OrgCheckpoint, 'objects'>): Rep
 
 /** The orgs a replay may go into, as the page offers them. */
 export interface ReplayTargets {
-  /** Sandboxes, scratch orgs and Developer Edition orgs that are connected: the refreshed one first. */
+  /**
+   * Sandboxes, scratch orgs and Developer Edition orgs that are connected,
+   * those marked Staging among them: the refreshed one first.
+   */
   offered: SalesforceOrg[];
   /** The checkpoint's own org, listed and not offered: Rewind brings it back instead. */
   own?: SalesforceOrg;
   /** The org the checkpoint's sandbox became once refreshed, when it is offered. */
   refreshed?: SalesforceOrg;
-  /** Connected sandboxes marked Staging, which no replay goes into. */
-  staging: number;
+  /**
+   * The ids of the offered sandboxes marked Staging, which may hold real
+   * data: a replay goes into one once its name is typed to confirm it.
+   */
+  staging: string[];
 }
 
 /**
  * Where a checkpoint listed under `pageOrg` replays: every connected org a
- * load goes into — never a production org nor a sandbox marked Staging —,
- * the page's org first when the checkpoint is of it before a refresh, and
- * set apart when the checkpoint still rewinds it.
+ * load goes into, and the sandboxes marked Staging, set apart by their ids —
+ * never a production org —, the page's org first when the checkpoint is of it
+ * before a refresh, and set apart when the checkpoint still rewinds it.
  */
 export function replayTargetsOf(
   orgs: readonly SalesforceOrg[],
@@ -201,9 +207,8 @@ export function replayTargetsOf(
   const connected = orgs.filter((org) => org.status === 'connected');
   const writable = connected.filter((org) => {
     const tier = guardTierOf(org);
-    return tier === 'development' || tier === 'scratch';
+    return tier === 'development' || tier === 'scratch' || tier === 'staging';
   });
-  const staging = connected.filter((org) => guardTierOf(org) === 'staging').length;
   const ownStill = entry.valid;
   const refreshed =
     entry.why === 'refreshed' ? writable.find((org) => org.id === pageOrg.id) : undefined;
@@ -211,6 +216,7 @@ export function replayTargetsOf(
   if (refreshed)
     offered.sort((a, b) => (a.id === refreshed.id ? -1 : b.id === refreshed.id ? 1 : 0));
   const own = ownStill ? writable.find((org) => org.id === pageOrg.id) : undefined;
+  const staging = offered.filter((org) => guardTierOf(org) === 'staging').map((org) => org.id);
   return { offered, ...(own ? { own } : {}), ...(refreshed ? { refreshed } : {}), staging };
 }
 

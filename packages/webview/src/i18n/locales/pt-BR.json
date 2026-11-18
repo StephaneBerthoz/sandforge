@@ -4038,7 +4038,7 @@
       "step2": "Clique em Criar um ponto de verificação, leia Antes de começar, clique em Criar o ponto de verificação e depois em Concluído.",
       "step3": "Para levar a org de volta a esse ponto, clique em Retroceder… na linha do ponto de verificação: a prévia não grava nada.",
       "step4": "Marque as caixas que a prévia pedir, clique em Retroceder com o nome da org, digite-o e clique em Confirmar.",
-      "step5": "Org atualizada ou expirada? Reproduzir em outra org… na linha dela: Simular e depois Reproduzir.",
+      "step5": "Org atualizada ou expirada? Reproduzir em… na linha dela: Simular e depois Reproduzir.",
       "tip": "Retroceder desfaz as mudanças de todos desde o ponto de verificação, não só as suas. Desfazer este retrocesso fica disponível por até 15 dias."
     },
     "recovery": {
@@ -8122,9 +8122,8 @@
         "refreshedUndated": "{{org}} foi atualizada desde então: este ponto de verificação é da org de antes da atualização, e não a faz mais retroceder.",
         "scratchExpired": "Esta scratch org expirou: seus pontos de verificação não a fazem mais retroceder."
       },
-      "expiresSoon": "Expira {{when}}",
-      "scratchExpiresSoon": "Esta scratch org expira em {{date}}: seus pontos de verificação não a farão mais retroceder, diga o que disser Guardar. Eles continuarão sendo reproduzidos em outra org: Reproduzir em outra org… recria lá os registros deles, com novos Ids.",
-      "keepIt": "Guardar",
+      "expiresSoon": "Expira {{when}}: Guardar até que eu o exclua o mantém.",
+      "scratchExpiresSoon": "Esta scratch org expira em {{date}}: seus pontos de verificação não a farão mais retroceder, diga o que disser Guardar. Eles continuarão sendo reproduzidos em outra org: Reproduzir em uma org… recria lá os registros deles, com novos Ids.",
       "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar com o seu Id: a lixeira os guarda por 15 dias, menos se encher. Um retrocesso os recria, com Ids novos.",
       "rewound": "Retrocesso feito em {{date}}: pode ser desfeito até {{until}}, antes se a lixeira encher.",
       "rewoundUndated": "Retrocesso feito: pode ser desfeito até {{until}}, antes se a lixeira encher.",
@@ -8159,7 +8158,9 @@
       "chip": {
         "beforeUat": "Antes do UAT",
         "beforeDemo": "Antes da demo",
-        "cleanBaseline": "Base limpa"
+        "cleanBaseline": "Base limpa",
+        "beforeRefresh": "Antes da atualização",
+        "testersStart": "Início dos testadores"
       },
       "whatItKeeps": "O que ele guarda",
       "everything": "Tudo aquilo em que as pessoas trabalham",
@@ -8706,9 +8707,8 @@
       }
     },
     "replay": {
-      "open": "Reproduzir em outra org…",
-      "title": "Reproduzir “{{name}}” em outra org",
-      "back": "Voltar aos pontos de verificação",
+      "open": "Reproduzir em uma org…",
+      "title": "Reproduzir “{{name}}” em uma org",
       "facts": "De {{org}}, tirado {{age}} · {{records}} registros",
       "intro": "Reproduzir cria em {{target}} uma cópia dos registros deste ponto de verificação, os pais antes dos filhos, com novos Ids. Nada do que {{target}} contém é alterado ou excluído. Um ponto de verificação não guarda o conteúdo dos arquivos: os arquivos não vão junto. Uma reprodução pode ser removida.",
       "introNoTarget": "Reproduzir cria na org escolhida uma cópia dos registros deste ponto de verificação, os pais antes dos filhos, com novos Ids. Nada do que essa org contém é alterado ou excluído. Um ponto de verificação não guarda o conteúdo dos arquivos: os arquivos não vão junto. Uma reprodução pode ser removida.",
@@ -8720,7 +8720,7 @@
         "refreshedUndated": "{{org}} é a sandbox de que este ponto de verificação foi tirado, atualizada desde então: os registros dele voltam a ela com novos Ids.",
         "own": "{{org}} não é oferecida: este ponto de verificação é dela, e Retroceder a leva de volta a esse momento.",
         "ownNote": "org deste ponto de verificação",
-        "staging": "Sandboxes marcadas como Staging não são oferecidas: elas contêm dados reais, e uma reprodução nunca vai para uma delas."
+        "stagingPicked": "{{org}} está marcada como Staging e pode conter dados reais: Reproduzir pede que você digite o nome dela antes de gravar."
       },
       "choices": "O que a reprodução monta de novo",
       "objects": {
@@ -8860,7 +8860,13 @@
         "elsewhere": "Ele não faz mais a org dele retroceder, mas é reproduzido em outra org: os registros dele são recriados lá, com novos Ids.",
         "inPlace": "Reproduções ainda no lugar: {{replays}}.",
         "deleteKeeps": "As reproduções dele ficam onde estão: {{replays}}. Cada uma continua sendo removida sem o ponto de verificação."
-      }
+      },
+      "openRefreshed": "Reproduzir em {{org}} atualizada…",
+      "stagingConfirm": {
+        "title": "Reproduzir “{{name}}” em {{target}}, marcada como Staging?",
+        "description": "{{target}} está marcada como Staging: ela pode conter dados reais. A reprodução cria lá {{records}} registros, com novos Ids, como a simulação os contou; nada do que {{target}} contém é alterado ou excluído, e a reprodução pode ser removida."
+      },
+      "stagingUnconfirmed": "{{target}} está marcada como Staging e pode conter dados reais: uma reprodução só entra nela depois que o nome dela é digitado para confirmar. Nada foi lido nem gravado."
     }
   },
   "recovery": {

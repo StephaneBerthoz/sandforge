@@ -434,7 +434,9 @@ describe('docs/modules/checkpoint.md', () => {
     );
 
     expect(DOC).toContain('for 30 days unless you keep it');
-    expect(DOC).toContain('three days before its date, with **Keep**');
+    expect(DOC).toContain(
+      "three days before its date, which the row's one **Keep**, **Keep until I delete it**, keeps it past",
+    );
     expect(DOC).toContain('once the checkpoint is more than 15 days old');
     expect(DOC).toContain('It is offered for the last rewind of an org, for 15 days after it');
     // The undo's window is fixed; only what the rewind deleted hangs on the bin.
@@ -552,6 +554,8 @@ describe('docs/modules/checkpoint.md', () => {
       'checkpoint.take.chip.beforeUat',
       'checkpoint.take.chip.beforeDemo',
       'checkpoint.take.chip.cleanBaseline',
+      'checkpoint.take.chip.beforeRefresh',
+      'checkpoint.take.chip.testersStart',
       'checkpoint.keep',
       'checkpoint.take.everything',
       'checkpoint.take.picked',
@@ -562,7 +566,8 @@ describe('docs/modules/checkpoint.md', () => {
       'checkpoint.list.rewind',
       'checkpoint.list.rename',
       'checkpoint.list.stopComparing',
-      'checkpoint.list.keepIt',
+      'checkpoint.replay.open',
+      'checkpoint.replay.openRefreshed',
       'checkpoint.preview.table.caption',
       'checkpoint.preview.cannot.title',
       'checkpoint.preview.undoCannot.title',

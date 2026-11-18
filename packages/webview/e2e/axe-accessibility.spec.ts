@@ -7529,7 +7529,7 @@ for (const theme of SCANNED_THEMES) {
       expect(shortfalls, shortfalls.join('\n')).toEqual([]);
     });
 
-    test('Checkpoints list with a row’s More open: Rename, Replay in another org…, Export… and Stop comparing fields…', async ({
+    test('Checkpoints list with a row’s More open: Rename, Replay into an org…, Export…, Stop comparing fields… and Delete', async ({
       page,
     }) => {
       const checkpoint = readyCheckpoint({ checkpointId: 'ck-axe-more' });
@@ -7545,9 +7545,10 @@ for (const theme of SCANNED_THEMES) {
       const actions = page.getByTestId('checkpoint-more-actions-ck-axe-more');
       await expect(actions.getByRole('button')).toHaveText([
         'Rename',
-        'Replay in another org…',
+        'Replay into an org…',
         'Export…',
         'Stop comparing fields…',
+        'Delete',
       ]);
 
       const results = await checkAccessibility(page);

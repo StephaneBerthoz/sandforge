@@ -11,7 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
-import { MOCK_ORGS } from './fixtures';
+import { MOCK_ORGS, createMockOrg, type MockOrg } from './fixtures';
 import { CHECKPOINT_ORG, daysFromNow, listEntry, readyCheckpoint } from './fixtures/checkpoints';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -115,11 +115,23 @@ class Extension {
   }
 }
 
+/** A sandbox marked Staging, which may hold real data: offered, its replay asks its name typed. */
+const UAT = {
+  ...createMockOrg({
+    id: 'org-uat-1',
+    alias: 'UATSandbox',
+    username: 'uat@sandbox.com',
+    instanceUrl: 'https://uat.salesforce.com',
+  }),
+  staging: true,
+} as MockOrg;
+
 /** Open Checkpoints on the dev sandbox, its checkpoints listed. */
 async function openCheckpoints(
   page: Page,
   theme: Theme,
   checkpoints: CheckpointListEntry[],
+  orgs: readonly MockOrg[] = MOCK_ORGS,
 ): Promise<Extension> {
   const bridge = new MockBridge();
   await bridge.setup(page);
@@ -128,7 +140,7 @@ async function openCheckpoints(
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'checkpoint';
   });
   await page.goto('/');
-  await bridge.seedOrgs(MOCK_ORGS);
+  await bridge.seedOrgs([...orgs]);
   const host = new Extension(bridge);
   await expect(page.getByTestId('checkpoint-page')).toBeVisible();
   await host.answer('checkpoint:list', { checkpoints });
@@ -154,7 +166,12 @@ async function contrastMeasuredIn(
 }
 
 /** The page as painted passes axe and the theme's own contrast; with `opened`, axe measured text in it. */
-async function expectReadable(page: Page, theme: Theme, opened?: string): Promise<void> {
+async function expectReadable(
+  page: Page,
+  theme: Theme,
+  opened?: string,
+  over?: string,
+): Promise<void> {
   const results = await checkAccessibility(page);
   expect(results.violations.length, formatViolations(results.violations)).toBe(0);
   if (opened !== undefined) {
@@ -163,7 +180,9 @@ async function expectReadable(page: Page, theme: Theme, opened?: string): Promis
       `axe measured no text inside ${opened}`,
     ).toBeGreaterThan(0);
   }
-  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+  // A menu open over the page (`over`) hides what it covers: the theme's
+  // contrast is held inside it, the texts beneath being out of sight.
+  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme), over);
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 }
 
@@ -379,10 +398,15 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-rewind-ck-refreshed')).toHaveCount(0);
       await expectReadable(page, theme, '[data-testid="checkpoint-list"]');
 
+      // Of the sandbox before its refresh: the replay goes back into it, and says so.
+      await expect(page.getByTestId('checkpoint-replay-ck-refreshed')).toHaveText(
+        `Replay into ${ORG}, refreshed…`,
+      );
       await page.getByTestId('checkpoint-replay-ck-refreshed').click();
       await expect(
-        page.getByRole('heading', { name: 'Replay “Before the refresh” in another org' }),
+        page.getByRole('heading', { name: 'Replay “Before the refresh” into an org' }),
       ).toBeFocused();
+      await expect(page.getByTestId('checkpoint-replay-close')).toHaveText('Checkpoints');
       await expect(page.getByTestId('checkpoint-replay-refreshed')).toContainText(
         `${ORG} is the sandbox this checkpoint was taken of, refreshed on`,
       );
@@ -501,6 +525,66 @@ for (const theme of THEMES) {
       await host.answer('frozen:remove', { result: REMOVED, operationId: 'op-remove-1' });
       await expect(page.getByTestId('frozen-removal-error')).toHaveCount(0);
       expect(await host.sent('frozen:remove')).toHaveLength(1);
+    });
+
+    test('replays into a sandbox marked Staging, offered with its badge, once its name is typed under the simulation, the name sent with the replay', async ({
+      page,
+    }) => {
+      const host = await openCheckpoints(page, theme, [refreshedEntry()], [...MOCK_ORGS, UAT]);
+      await page.getByTestId('checkpoint-replay-ck-refreshed').click();
+
+      // Offered, marked: its badge in the menu and once picked.
+      await page.getByTestId('checkpoint-replay-target').click();
+      await expect(
+        page.getByTestId('checkpoint-replay-target-option-org-uat-1-staging'),
+      ).toHaveText('STAGING');
+      await expectReadable(
+        page,
+        theme,
+        '[data-testid="checkpoint-replay-target-panel"]',
+        '[data-testid="checkpoint-replay-target-panel"]',
+      );
+      await page.getByTestId('checkpoint-replay-target-option-org-uat-1').click();
+      await expect(page.getByTestId('checkpoint-replay-target-staging')).toHaveText('STAGING');
+      await expect(page.getByTestId('checkpoint-replay-staging')).toHaveText(
+        'UATSandbox is marked Staging and may hold real data: Replay asks you to type its name before it writes.',
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-replay-staging"]');
+
+      // The simulation writes nothing, and goes without the name.
+      await page.getByTestId('checkpoint-replay-simulate').click();
+      const simulated = await host.answer('frozen:load:preview', planAnswer());
+      expect(simulated.payload).toMatchObject({ targetOrgId: 'org-uat-1' });
+      expect((simulated.payload as { replay: Record<string, unknown> }).replay).not.toHaveProperty(
+        'confirmStaging',
+      );
+
+      // Replay asks the name typed first; closed, it sends nothing.
+      await page.getByTestId('checkpoint-replay-run').click();
+      await expect(page.getByTestId('danger-title')).toHaveText(
+        'Replay “Before the refresh” into UATSandbox, marked Staging?',
+      );
+      await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+      await expectReadable(page, theme, '[role="dialog"]');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('danger-title')).toHaveCount(0);
+      expect(await host.sent('frozen:load')).toEqual([]);
+
+      await page.getByTestId('checkpoint-replay-run').click();
+      await page.getByTestId('danger-input').fill('uatsandbox');
+      await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+      await page.getByTestId('danger-input').fill('UATSandbox');
+      await page.getByTestId('danger-confirm-btn').click();
+      const replay = await host.asked('frozen:load');
+      expect(replay.payload).toMatchObject({
+        targetOrgId: 'org-uat-1',
+        replay: {
+          organizationId: SOURCE_ORGANIZATION,
+          checkpointId: 'ck-refreshed',
+          confirmStaging: 'UATSandbox',
+        },
+        maxRecords: 2412,
+      });
     });
   });
 }

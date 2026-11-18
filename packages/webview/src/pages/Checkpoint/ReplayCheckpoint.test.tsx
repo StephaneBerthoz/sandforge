@@ -42,6 +42,15 @@ const QA = developerOrg({
   orgId: '00D000000000022EAA',
 });
 
+/** A sandbox marked Staging, a UAT that may hold real data. */
+const UAT = developerOrg({
+  id: 'org-uat',
+  alias: 'UAT',
+  orgType: 'Sandbox',
+  staging: true,
+  orgId: '00D000000000055EAA',
+});
+
 /** A sandbox's checkpoint, with its data storage, or none before 1.81. */
 function sandboxCheckpoint(dataStorageMaxMB?: number): OrgCheckpoint {
   const base = readyCheckpoint();
@@ -223,9 +232,7 @@ describe('ReplayCheckpoint', () => {
 
   it('opens on the sandbox the checkpoint was of, refreshed since, and says what a replay creates and never touches', () => {
     renderReplay();
-    expect(
-      screen.getByRole('heading', { name: 'Replay “Before UAT” in another org' }),
-    ).toHaveFocus();
+    expect(screen.getByRole('heading', { name: 'Replay “Before UAT” into an org' })).toHaveFocus();
     expect(screen.getByTestId('checkpoint-replay-refreshed').textContent).toBe(
       'DEV-SB is the sandbox this checkpoint was taken of, refreshed on Oct 21, 2026: its records come back into it with new Ids.',
     );
@@ -233,6 +240,95 @@ describe('ReplayCheckpoint', () => {
       'Replaying creates in DEV-SB a copy of the records of this checkpoint, parents before children, with new Ids. Nothing DEV-SB holds is changed or deleted. A checkpoint keeps no file’s content: files do not follow. A replay can be removed.',
     );
     expect(screen.getByTestId('checkpoint-replay-mask')).not.toBeChecked();
+  });
+
+  it('goes back to the list from ← Checkpoints above its heading, held while the replay runs', () => {
+    const { onClose } = renderReplay();
+    const back = screen.getByTestId('checkpoint-replay-close');
+    expect(back).toHaveAccessibleName('Checkpoints');
+    expect(
+      back.compareDocumentPosition(screen.getByRole('heading', { level: 2 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-simulate'));
+    answerPlan();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-run'));
+    expect(back).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(back);
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => host.current?.answer('frozen:load', 'frozen:load:response', reportAnswer()));
+    fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a sandbox marked Staging, marked so, simulates into it, and replays only once its name is typed, which goes with the replay', () => {
+    useOrgStore.setState({ orgs: [DEV, QA, UAT], selectedOrgId: 'org-dev' });
+    renderReplay();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-target'));
+    expect(screen.getByTestId('checkpoint-replay-target-option-org-uat-staging').textContent).toBe(
+      'STAGING',
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-replay-target-option-org-uat'));
+    expect(screen.getByTestId('checkpoint-replay-target-staging').textContent).toBe('STAGING');
+    expect(screen.getByTestId('checkpoint-replay-staging').textContent).toBe(
+      'UAT is marked Staging and may hold real data: Replay asks you to type its name before it writes.',
+    );
+
+    // The simulation writes nothing: it goes without the name.
+    fireEvent.click(screen.getByTestId('checkpoint-replay-simulate'));
+    expect(host.current?.lastPayload('frozen:load:preview')).toMatchObject({
+      targetOrgId: 'org-uat',
+    });
+    expect(
+      (host.current?.lastPayload('frozen:load:preview')?.replay as Record<string, unknown>)
+        .confirmStaging,
+    ).toBeUndefined();
+    answerPlan();
+
+    fireEvent.click(screen.getByTestId('checkpoint-replay-run'));
+    expect(screen.getByTestId('danger-title').textContent).toBe(
+      'Replay “Before UAT” into UAT, marked Staging?',
+    );
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'UAT is marked Staging: it may hold real data. The replay creates 2,412 records there',
+    );
+    // Closed, it replays nothing.
+    fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+    expect(host.current?.sent('frozen:load')).toEqual([]);
+
+    fireEvent.click(screen.getByTestId('checkpoint-replay-run'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'UA' } });
+    expect(screen.getByTestId('danger-confirm-btn')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'UAT' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(host.current?.lastPayload('frozen:load')).toMatchObject({
+      targetOrgId: 'org-uat',
+      replay: { organizationId: SOURCE, checkpointId: ID, confirmStaging: 'UAT' },
+      maxRecords: 2412,
+    });
+  });
+
+  it('says a replay into a sandbox marked Staging refused for want of its name in its own words', () => {
+    useOrgStore.setState({ orgs: [DEV, QA, UAT], selectedOrgId: 'org-dev' });
+    renderReplay();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-target'));
+    fireEvent.click(screen.getByTestId('checkpoint-replay-target-option-org-uat'));
+    fireEvent.click(screen.getByTestId('checkpoint-replay-simulate'));
+    answerPlan();
+    fireEvent.click(screen.getByTestId('checkpoint-replay-run'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'UAT' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    act(() =>
+      host.current?.answer('frozen:load', 'frozen:load:error', {
+        code: 'REPLAY_STAGING_UNCONFIRMED',
+        message: 'host words',
+        retryable: false,
+        params: { target: 'UAT' },
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-replay-error').textContent).toContain(
+      'UAT is marked Staging, which may hold real data: a replay goes into it once its name is typed to confirm it. Nothing was read or written.',
+    );
   });
 
   it('replays only after a simulation of the same choices, and asks for another once one changes', () => {

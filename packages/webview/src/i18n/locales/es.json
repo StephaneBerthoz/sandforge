@@ -4038,7 +4038,7 @@
       "step2": "Haga clic en Crear un punto de control, lea Antes de empezar, haga clic en Crear el punto de control y luego en Hecho.",
       "step3": "Para devolver la org a ese punto, haga clic en Retroceder… en la fila del punto de control: la vista previa no escribe nada.",
       "step4": "Marque las casillas que pida la vista previa, haga clic en Retroceder con el nombre de la org, escríbalo y haga clic en Confirmar.",
-      "step5": "¿Org actualizada o caducada? Reproducir en otra org… en su fila: Simular y luego Reproducir.",
+      "step5": "¿Org actualizada o caducada? Reproducir en… en su fila: Simular y luego Reproducir.",
       "tip": "Retroceder deshace los cambios de todos desde el punto de control, no solo los suyos. Deshacer este retroceso sigue disponible durante 15 días como máximo."
     },
     "recovery": {
@@ -8122,9 +8122,8 @@
         "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y ya no la hace retroceder.",
         "scratchExpired": "Esta scratch org caducó: sus puntos de control ya no la hacen retroceder."
       },
-      "expiresSoon": "Caduca {{when}}",
-      "scratchExpiresSoon": "Esta scratch org caduca el {{date}}: sus puntos de control ya no la harán retroceder entonces, diga lo que diga Conservar. Seguirán reproduciéndose en otra org: Reproducir en otra org… vuelve a crear allí sus registros, con nuevos Id.",
-      "keepIt": "Conservar",
+      "expiresSoon": "Caduca {{when}}: Conservar hasta que yo lo elimine lo conserva.",
+      "scratchExpiresSoon": "Esta scratch org caduca el {{date}}: sus puntos de control ya no la harán retroceder entonces, diga lo que diga Conservar. Seguirán reproduciéndose en otra org: Reproducir en una org… vuelve a crear allí sus registros, con nuevos Id.",
       "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver con su Id: la papelera los guarda 15 días, menos si se llena. Un retroceso los crea de nuevo, con Id nuevos.",
       "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
       "rewoundUndated": "Retroceso hecho: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
@@ -8159,7 +8158,9 @@
       "chip": {
         "beforeUat": "Antes de la UAT",
         "beforeDemo": "Antes de la demo",
-        "cleanBaseline": "Base limpia"
+        "cleanBaseline": "Base limpia",
+        "beforeRefresh": "Antes de la actualización",
+        "testersStart": "Inicio de los testers"
       },
       "whatItKeeps": "Lo que conserva",
       "everything": "Todo aquello con lo que se trabaja",
@@ -8706,9 +8707,8 @@
       }
     },
     "replay": {
-      "open": "Reproducir en otra org…",
-      "title": "Reproducir «{{name}}» en otra org",
-      "back": "Volver a los puntos de control",
+      "open": "Reproducir en una org…",
+      "title": "Reproducir «{{name}}» en una org",
       "facts": "De {{org}}, tomado {{age}} · {{records}} registros",
       "intro": "Reproducir crea en {{target}} una copia de los registros de este punto de control, los padres antes que los hijos, con nuevos Id. Nada de lo que contiene {{target}} se modifica ni se elimina. Un punto de control no guarda el contenido de los archivos: los archivos no se trasladan. Una reproducción se puede quitar.",
       "introNoTarget": "Reproducir crea en la org elegida una copia de los registros de este punto de control, los padres antes que los hijos, con nuevos Id. Nada de lo que contiene esa org se modifica ni se elimina. Un punto de control no guarda el contenido de los archivos: los archivos no se trasladan. Una reproducción se puede quitar.",
@@ -8720,7 +8720,7 @@
         "refreshedUndated": "{{org}} es el sandbox del que se tomó este punto de control, actualizado desde entonces: sus registros vuelven a él con nuevos Id.",
         "own": "{{org}} no se ofrece: este punto de control es suyo, y Retroceder la devuelve a ese momento.",
         "ownNote": "org de este punto de control",
-        "staging": "Los sandboxes marcados como Staging no se ofrecen: contienen datos reales, y una reproducción nunca va a uno de ellos."
+        "stagingPicked": "{{org}} está marcada como Staging y puede contener datos reales: Reproducir le pide escribir su nombre antes de escribir nada."
       },
       "choices": "Lo que la reproducción vuelve a montar",
       "objects": {
@@ -8860,7 +8860,13 @@
         "elsewhere": "Ya no hace retroceder su org, pero se reproduce en otra org: sus registros se vuelven a crear allí, con nuevos Id.",
         "inPlace": "Reproducciones que siguen en su lugar: {{replays}}.",
         "deleteKeeps": "Sus reproducciones se quedan donde están: {{replays}}. Cada una se sigue quitando sin el punto de control."
-      }
+      },
+      "openRefreshed": "Reproducir en {{org}} actualizada…",
+      "stagingConfirm": {
+        "title": "¿Reproducir «{{name}}» en {{target}}, marcada como Staging?",
+        "description": "{{target}} está marcada como Staging: puede contener datos reales. La reproducción crea allí {{records}} registros, con nuevos Id, tal como los contó su simulación; nada de lo que contiene {{target}} se modifica ni se elimina, y la reproducción se puede quitar."
+      },
+      "stagingUnconfirmed": "{{target}} está marcada como Staging y puede contener datos reales: una reproducción solo entra en ella una vez escrito su nombre para confirmarla. No se leyó ni se escribió nada."
     }
   },
   "recovery": {

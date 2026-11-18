@@ -1491,6 +1491,8 @@ const frozenReplayLoadSchema = frozenReplayRefSchema
   .extend({
     choices: checkpointReplayChoicesSchema,
     config: frozenReplayLoadConfigSchema.optional(),
+    // The other org's name, typed to confirm a replay into a sandbox marked Staging.
+    confirmStaging: z.string().min(1).max(255).optional(),
   })
   .strict();
 

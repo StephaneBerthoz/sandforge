@@ -525,13 +525,13 @@ test.describe('Checkpoints of a scratch org about to expire, and of one gone', (
     });
 
     await expect(page.getByTestId('checkpoint-scratch-expires-ck-scratch-soon')).toHaveText(
-      `This scratch org expires on ${said}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay in another org… sets their records up there again, with new Ids.`,
+      `This scratch org expires on ${said}: its checkpoints then rewind nothing, whatever Keep says. They still replay in another org: Replay into an org… sets their records up there again, with new Ids.`,
     );
     await expect(page.getByTestId('checkpoint-elsewhere-ck-scratch-gone')).toHaveText(
       'It no longer brings its org back, and it replays in another org: its records are created there again, with new Ids.',
     );
     await expect(page.getByTestId('checkpoint-replay-ck-scratch-gone')).toHaveText(
-      'Replay in another org…',
+      'Replay into an org…',
     );
     await expect(page.getByTestId('checkpoint-scratch-expires-ck-sandbox')).toHaveCount(0);
     await expect(page.getByTestId('checkpoint-elsewhere-ck-sandbox')).toHaveCount(0);

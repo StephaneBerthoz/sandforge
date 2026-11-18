@@ -3431,7 +3431,8 @@ export const TOOLS: readonly ServedTool[] = [
       'environment by the variable keyEnv names, never given in an argument. verify: true ' +
       'counts what its last replay created there. again replays over what the replays before ' +
       'created there, which goes first. checkpoint_replay_remove takes a replay back. A ' +
-      "production org, a sandbox marked Staging and the checkpoint's own org are refused.",
+      "production org and the checkpoint's own org are refused; the Staging mark the editor " +
+      'gives a sandbox is not seen here.',
     readOnly: false,
     destructive: true,
     args: z

@@ -34,7 +34,6 @@ import {
   formatNumber,
 } from '../../utils/formatters';
 import {
-  CHECKPOINT_KEEP_DAYS,
   CHECKPOINT_MAX_TOTAL,
   CHECKPOINT_NAME_MAX,
   heldPerObject,
@@ -45,8 +44,10 @@ import {
   recordsHeld,
   refusedBeforeScope,
   roughSeconds,
+  takeKeepOf,
   takeLimitOf,
 } from './checkpointFacts';
+import { CheckpointsLink } from './CheckpointsLink';
 import { CHECKPOINT_OBJECT_ROWS_MAX } from '../../utils/checkpointLimits';
 import { orgDisplayName } from '@sandforge/shared';
 
@@ -69,11 +70,18 @@ const PICKS_SETTLE_MS = 600;
 /** Objects listed at once; the filter reaches the others. */
 const LISTED_OBJECTS = 50;
 
-/** The names offered beside the field, and whether one keeps the checkpoint until it is deleted. */
+/**
+ * The names offered beside the field, and whether one keeps the checkpoint
+ * until it is deleted: a baseline, and the two a sandbox refresh asks for —
+ * the one taken before it, which the sandbox refreshed gets back by a replay,
+ * and the one taken as testers start again in it.
+ */
 const NAME_CHIPS: ReadonlyArray<{ key: string; keep: boolean; testId: string }> = [
   { key: 'checkpoint.take.chip.beforeUat', keep: false, testId: 'before-uat' },
   { key: 'checkpoint.take.chip.beforeDemo', keep: false, testId: 'before-demo' },
   { key: 'checkpoint.take.chip.cleanBaseline', keep: true, testId: 'clean-baseline' },
+  { key: 'checkpoint.take.chip.beforeRefresh', keep: true, testId: 'before-refresh' },
+  { key: 'checkpoint.take.chip.testersStart', keep: true, testId: 'testers-start' },
 ];
 
 /** The date and time a checkpoint is called by default, in the panel's language. */
@@ -95,10 +103,14 @@ function useSettled<T>(value: T, ms: number): T {
 export interface TakeCheckpointProps {
   /** The org to take a checkpoint of: a sandbox, a scratch org or a Developer Edition. */
   org: SalesforceOrg;
-  /** Leave the take: Cancel before it runs, Done once it is kept. */
+  /** Leave the take: ← Checkpoints before it runs, Done once it is kept. */
   onClose: () => void;
   /** A checkpoint was kept: the list is read again. */
   onTaken: () => void;
+  /** The name it opens with, in place of the date and time: a page that opened it named one. */
+  name?: string;
+  /** The days it keeps the checkpoint, as a page that opened it asked: 0 until it is deleted. */
+  keepDays?: number;
 }
 
 /**
@@ -125,14 +137,24 @@ export interface TakeCheckpointProps {
  * mode, and the scope of the choice is asked with them, which a user without
  * Customize Application is refused.
  */
-export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, onTaken }) => {
+export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({
+  org,
+  onClose,
+  onTaken,
+  name: askedName,
+  keepDays,
+}) => {
   const { t } = useTranslation();
   const orgName = orgDisplayName(org);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
 
-  const [name, setName] = useState(defaultName);
-  const [keep, setKeep] = useState(false);
+  const [name, setName] = useState(() =>
+    askedName !== undefined && isCheckpointName(askedName) ? askedName.trim() : defaultName(),
+  );
+  // As asked once, then the box's: 0 days ticks it.
+  const [asked] = useState(() => takeKeepOf(keepDays));
+  const [keep, setKeep] = useState(asked.keep);
   const [mode, setMode] = useState<CheckpointScopeMode>('everything');
   const [picked, setPicked] = useState<string[]>([]);
   const settledPicks = useSettled(picked, PICKS_SETTLE_MS);
@@ -252,7 +274,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
       ...(mode === 'picked' ? { objects: picked } : {}),
       ...(settings.length > 0 ? { customSettings: settings } : {}),
       ...withLimit,
-      keepDays: keep ? 0 : CHECKPOINT_KEEP_DAYS,
+      keepDays: keep ? 0 : asked.days,
     });
   };
 
@@ -262,6 +284,9 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
       aria-labelledby={headingId}
       data-testid="checkpoint-take"
     >
+      {/* Kept in view while the take runs: it goes on in the extension, and
+          its progress and Stop are here. */}
+      <CheckpointsLink onClick={onClose} disabled={take.loading} testId="checkpoint-take-cancel" />
       <h2
         id={headingId}
         ref={headingRef}
@@ -384,6 +409,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             limit={askedLimit}
             perObject={perObject}
             keep={keep}
+            days={asked.days}
             reading={
               scopeQuery.loading ||
               (mode === 'picked' && settledPicks !== picked) ||
@@ -403,9 +429,6 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
               data-testid="checkpoint-take-start"
             >
               {t('checkpoint.take.start')}
-            </Button>
-            <Button variant="secondary" onClick={onClose} data-testid="checkpoint-take-cancel">
-              {t('common.cancel')}
             </Button>
           </div>
         </>
@@ -888,6 +911,8 @@ interface BeforeItRunsProps {
   /** Its user has no View All Data and Modify All Data: it holds what they hold whole, per object. */
   perObject: boolean;
   keep: boolean;
+  /** The days it is kept unless Keep until I delete it is ticked. */
+  days: number;
   /** The scope of the current choice is being read. */
   reading: boolean;
   /** "Only the objects I pick", and none picked yet. */
@@ -914,6 +939,7 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
   limit,
   perObject,
   keep,
+  days,
   reading,
   nothingPicked,
   error,
@@ -934,7 +960,7 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
     (sum, object) => sum + object.leftOutFields.filter((field) => field.reason === 'fls').length,
     0,
   );
-  const until = formatDate(new Date(Date.now() + CHECKPOINT_KEEP_DAYS * 86_400_000));
+  const until = formatDate(new Date(Date.now() + days * 86_400_000));
 
   let body: React.ReactNode;
   if (error && !reading) {

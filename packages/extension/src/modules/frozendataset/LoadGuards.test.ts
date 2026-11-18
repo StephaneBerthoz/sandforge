@@ -168,6 +168,26 @@ describe('assertLoadTier', () => {
       });
     }
   });
+
+  it('lets a replay of a checkpoint the host let into a sandbox marked Staging through, and never a production org', () => {
+    expect(() =>
+      assertLoadTier({ orgId: 'org-uat', orgTier: 'staging', stagingReplay: true }),
+    ).not.toThrow();
+    expect(() =>
+      assertLoadTier({ orgId: 'org-prod', orgTier: 'production', stagingReplay: true }),
+    ).toThrow(LoadGuardError);
+  });
+
+  it('passes the entry guards of a replay into a sandbox marked Staging, the others still judged', async () => {
+    await expect(
+      assertLoadGuards(makeInput({ orgTier: 'staging', stagingReplay: true })),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertLoadGuards(
+        makeInput({ orgTier: 'staging', stagingReplay: true, protectedOrgIds: ['00D-target'] }),
+      ),
+    ).rejects.toMatchObject({ code: 'protected-environment' });
+  });
 });
 
 describe('CustomMetadataCalloutMockDetector', () => {

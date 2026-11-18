@@ -58,11 +58,16 @@ const UNDO_CANNOT_RESULT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> 
 };
 
 /**
- * Where the page opens for the org Home named: a take, what a rewind to one
- * checkpoint would do — muted, from the result of a run that muted —, or the
- * replay of one in another org.
+ * Where the page opens for the org Home named: a take — named and kept as
+ * the page that asked for it said, Back into service's "Testers' start" kept
+ * until it is deleted —, what a rewind to one checkpoint would do — muted,
+ * from the result of a run that muted —, or the replay of one in another org.
  */
-type Arrival = { take: true } | { preview: string; muted?: true } | { replay: string } | null;
+type Arrival =
+  | { take: true; name?: string; keepDays?: number }
+  | { preview: string; muted?: true }
+  | { replay: string }
+  | null;
 
 /** A rewind or an undo the page started, with the checkpoint it is of. */
 type PageRun = RunShown & { checkpoint: OrgCheckpoint };
@@ -102,8 +107,18 @@ export const CheckpointPage: React.FC = () => {
     navigationIntent?.route !== 'checkpoint' ||
     (navigationIntent.targetOrgId !== undefined && navigationIntent.targetOrgId !== currentOrg?.id)
       ? null
-      : navigationIntent.takeCheckpoint === true
-        ? { take: true }
+      : navigationIntent.takeCheckpoint === true ||
+          navigationIntent.checkpointName !== undefined ||
+          navigationIntent.checkpointKeepDays !== undefined
+        ? {
+            take: true,
+            ...(navigationIntent.checkpointName !== undefined
+              ? { name: navigationIntent.checkpointName }
+              : {}),
+            ...(navigationIntent.checkpointKeepDays !== undefined
+              ? { keepDays: navigationIntent.checkpointKeepDays }
+              : {}),
+          }
         : navigationIntent.previewCheckpointId !== undefined
           ? {
               preview: navigationIntent.previewCheckpointId,
@@ -225,6 +240,16 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const orgName = orgDisplayName(org);
   const listHeadingRef = useRef<HTMLHeadingElement>(null);
   const [taking, setTaking] = useState(arrival !== null && 'take' in arrival);
+  // The name and the days the take was asked for, that once: a take opened
+  // from the list afterwards starts from the date and the store's days.
+  const [askedTake, setAskedTake] = useState(
+    arrival !== null && 'take' in arrival
+      ? {
+          ...(arrival.name !== undefined ? { name: arrival.name } : {}),
+          ...(arrival.keepDays !== undefined ? { keepDays: arrival.keepDays } : {}),
+        }
+      : {},
+  );
   // The checkpoint whose preview is open, and the one whose Rewind… takes
   // the keyboard back once it is left.
   const [previewing, setPreviewing] = useState<string | null>(
@@ -414,8 +439,12 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     return (
       <TakeCheckpoint
         org={org}
-        onClose={() => setTaking(false)}
+        onClose={() => {
+          setTaking(false);
+          setAskedTake({});
+        }}
         onTaken={() => refetchList.current()}
+        {...askedTake}
       />
     );
   }
@@ -480,6 +509,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           setMutedArrival(null);
         }}
         onRewind={rewind}
+        backLink
         startMuted={mutedArrival === previewed.checkpointId}
         muteBox={(offer, checked, onChange) => (
           <AutomationMuteBox

@@ -313,8 +313,9 @@ replay:
   --keep-days <n>                with --file: when its checkpoint expires here (default: ${DEFAULT_KEEP_DAYS}; 0 keeps
                                  it until deleted)
   --target <alias>               the org the records go into: a sandbox, a scratch org or a
-                                 Developer Edition org; never a production org, a sandbox marked
-                                 Staging, nor the checkpoint's own org, which rewind brings back
+                                 Developer Edition org; never a production org nor the
+                                 checkpoint's own org, which rewind brings back. The Staging mark
+                                 the editor gives a sandbox is not seen here
   --dry-run                      say what it would create, link, leave and refuse, and write
                                  nothing
   --objects <A,B>                replay these objects alone (default: every object it holds);

@@ -125,6 +125,15 @@ export interface FrozenReplayRequest extends FrozenReplayRef {
    */
   choices?: CheckpointReplayChoices;
   config?: FrozenReplayLoadConfig;
+  /**
+   * The name of the other org as the person typed it to confirm a replay
+   * into a sandbox marked Staging, which may hold real data: the extension
+   * compares it with the org's own name before it reads anything of it, and
+   * refuses a replay into such a sandbox without it. Read of a load alone: a
+   * simulation, a verification and a removal write nothing into it, or take
+   * back what a replay wrote.
+   */
+  confirmStaging?: string;
 }
 
 /**

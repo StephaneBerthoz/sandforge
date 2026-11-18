@@ -1516,6 +1516,11 @@ interface ReplayLoad {
   choices?: CheckpointReplayChoices;
   /** The checkpoint converted and the other org as read for it, once read. */
   converted?: { conversion: ReplayConversion; target: ReplayTarget };
+  /**
+   * The other org is a sandbox marked Staging, let in (`LoadGuardInput.stagingReplay`):
+   * a load confirmed by its name typed, or what writes nothing into it.
+   */
+  stagingReplay?: true;
 }
 
 /** The other org of a replay, as the guard knows it once connected, and as its conversion reads it. */
@@ -2757,16 +2762,16 @@ export class FrozenDatasetHandler implements DomainHandler {
    * error channel, and undefined, when there is none: no configuration saved,
    * or a replay refused.
    *
-   * @param reads - What a replay is read for: its checkpoint, to be loaded,
-   *   previewed or verified; or the mapping of its loads alone, to be removed
-   *   — the checkpoint perhaps deleted since.
+   * @param reads - What a replay is read for: its checkpoint, to be loaded
+   *   (`load`), previewed or verified; or the mapping of its loads alone, to
+   *   be removed — the checkpoint perhaps deleted since.
    * @param onRefused - Told the code of a replay refused, for a load to record.
    */
   private async sourceOf(
     msg: InboundRequest,
     request: { targetOrgId: string; replay?: FrozenReplayRequest; pilot?: boolean },
     errorType: string,
-    reads: 'checkpoint' | 'mapping',
+    reads: 'load' | 'checkpoint' | 'mapping',
     onRefused?: (code: string) => void,
   ): Promise<LoadSource | undefined> {
     if (request.replay === undefined) {
@@ -2812,8 +2817,11 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   /**
    * A checkpoint replayed into the org a request names, its own org never
-   * asked: the target's tier first — never a production org nor a sandbox
-   * marked Staging, before anything of it is read —, then which org it is,
+   * asked: the target's tier first — never a production org, and a sandbox
+   * marked Staging only for a load whose request carries its name as the
+   * person typed it, or for what writes nothing into it (a simulation, a
+   * verification) or takes back what a replay wrote there, before anything of
+   * it is read ({@link stagingReplayOf}) —, then which org it is,
    * then, to be loaded, previewed or verified, the checkpoint as this machine
    * keeps it and the replay's guards (`replaySourceRefusal`): the
    * checkpoint's own org, real data unmasked, too many records. Its
@@ -2825,9 +2833,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   private async replaySourceOf(
     targetOrgId: string,
     request: FrozenReplayRequest,
-    reads: 'checkpoint' | 'mapping',
+    reads: 'load' | 'checkpoint' | 'mapping',
   ): Promise<LoadSource> {
-    assertLoadTier({ orgId: targetOrgId, orgTier: this.targetTier(targetOrgId) });
+    const orgTier = this.targetTier(targetOrgId);
+    const stagingReplay =
+      orgTier === 'staging' ? this.stagingReplayOf(targetOrgId, request, reads) : undefined;
+    assertLoadTier({ orgId: targetOrgId, orgTier, ...(stagingReplay ? { stagingReplay } : {}) });
     const stores = this.replayStoresInUse();
     const folder = stores.replays.folderOf(request.organizationId, request.checkpointId);
     const target = await this.replayTargetOf(targetOrgId);
@@ -2836,6 +2847,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       folder,
       target,
       contractPath: stores.replays.contractPathOf(folder, targetKey),
+      ...(stagingReplay ? { stagingReplay } : {}),
     };
     const mappingStore = (guard: SasPathGuard): SasReferenceIdMappingStore =>
       new ReplayMappingStore(
@@ -2889,6 +2901,33 @@ export class FrozenDatasetHandler implements DomainHandler {
       },
       replay,
     };
+  }
+
+  /**
+   * Whether a replay goes into a sandbox marked Staging, which may hold real
+   * data: a load once its request carries the org's name as the person typed
+   * it under the simulation — compared here with the name the panel gives the
+   * org, never on the page's word alone —; a simulation and a verification,
+   * which write nothing into it; and a removal, which takes back what a replay
+   * wrote there. Its masking is the replay guard's as for any other org.
+   *
+   * @throws ReplayRefused `REPLAY_STAGING_UNCONFIRMED`, of a load without the
+   *   name or with another, before anything of the org is read.
+   */
+  private stagingReplayOf(
+    targetOrgId: string,
+    request: FrozenReplayRequest,
+    reads: 'load' | 'checkpoint' | 'mapping',
+  ): true {
+    if (reads !== 'load') return true;
+    const name = this.orgNameOf(targetOrgId);
+    if (request.confirmStaging === name) return true;
+    throw new ReplayRefused(
+      'REPLAY_STAGING_UNCONFIRMED',
+      `${name} is a sandbox marked Staging, which may hold real data: a replay goes into it ` +
+        'once its name is typed to confirm it. Nothing was read or written.',
+      { target: name },
+    );
   }
 
   /**
@@ -3781,7 +3820,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!parsed) return;
     // A replay refused before it started — its checkpoint, its target, the
     // data it holds — is recorded as one a check of its own stopped.
-    const source = await this.sourceOf(msg, parsed, 'frozen:load:error', 'checkpoint', (code) =>
+    const source = await this.sourceOf(msg, parsed, 'frozen:load:error', 'load', (code) =>
       recordWriteRun(this.deps, {
         action: 'checkpoint_replay',
         module: 'checkpoint',
@@ -3931,6 +3970,8 @@ export class FrozenDatasetHandler implements DomainHandler {
           ? {
               replayCheckpoint: replay.checkpoint.checkpoint.checkpointId,
               ...replayAuditDetails(replay.checkpoint.checkpoint, replay.choices, replay.target),
+              // Into a sandbox marked Staging, on the name the person typed.
+              ...(replay.stagingReplay ? { replayIntoStaging: true } : {}),
             }
           : {};
       const details = {
@@ -4098,6 +4139,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const answer = await loader.gateLoad({
         orgId: parsed.targetOrgId,
         orgTier,
+        ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
         dataset,
         manifest,
         reload: parsed.reload,
@@ -4254,6 +4296,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         loader.load({
           orgId: parsed.targetOrgId,
           orgTier,
+          ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
           dataset,
           manifest,
           sasDir,
@@ -4917,6 +4960,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         .planLoad({
           orgId: parsed.targetOrgId,
           orgTier: this.targetTier(parsed.targetOrgId),
+          ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
           dataset,
           manifest,
           sasDir,

@@ -187,19 +187,26 @@ describe('the orgs a replay goes into', () => {
   const gone = developerOrg({ id: 'org-gone', alias: 'GONE', status: 'expired' });
   const orgs = [qa, page, staging, productionOrg(), gone];
 
-  it('offers the sandbox a checkpoint was of, refreshed since, first, and never a production org, a Staging one or a disconnected one', () => {
+  it('offers the sandbox a checkpoint was of, refreshed since, first, a sandbox marked Staging marked so, and never a production org or a disconnected one', () => {
     const targets = replayTargetsOf(orgs, page, { valid: false, why: 'refreshed' });
-    expect(targets.offered.map((org) => org.id)).toEqual(['org-dev', 'org-qa']);
+    expect(targets.offered.map((org) => org.id)).toEqual(['org-dev', 'org-qa', 'org-uat']);
     expect(targets.refreshed?.id).toBe('org-dev');
     expect(targets.own).toBeUndefined();
-    expect(targets.staging).toBe(1);
+    expect(targets.staging).toEqual(['org-uat']);
   });
 
   it('sets apart the org a checkpoint still rewinds: Rewind brings it back instead', () => {
     const targets = replayTargetsOf(orgs, page, { valid: true });
-    expect(targets.offered.map((org) => org.id)).toEqual(['org-qa']);
+    expect(targets.offered.map((org) => org.id)).toEqual(['org-qa', 'org-uat']);
     expect(targets.own?.id).toBe('org-dev');
     expect(targets.refreshed).toBeUndefined();
+  });
+
+  it('offers a sandbox marked Staging refreshed since first, as the sandbox the checkpoint was of, still marked', () => {
+    const targets = replayTargetsOf(orgs, staging, { valid: false, why: 'refreshed' });
+    expect(targets.offered.map((org) => org.id)).toEqual(['org-uat', 'org-qa', 'org-dev']);
+    expect(targets.refreshed?.id).toBe('org-uat');
+    expect(targets.staging).toEqual(['org-uat']);
   });
 
   it('finds a checkpoint’s replay into a registered org', () => {

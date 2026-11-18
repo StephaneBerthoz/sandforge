@@ -405,16 +405,27 @@ describe('frozen:load:preview of a checkpoint replayed', () => {
     expect(answers('frozen:load:preview:response')).toEqual([]);
   });
 
-  it('refuses a production org and a sandbox marked Staging before connecting to it', async () => {
-    for (const org of [{ orgType: 'Production' }, { orgType: 'Sandbox', staging: true }]) {
-      const world = await worldOf(org);
+  it('refuses a production org before connecting to it, whatever name the request says was typed', async () => {
+    const world = await worldOf({ orgType: 'Production' });
 
-      const answers = await send(world, 'frozen:load:preview', { replay: replayOf() });
+    for (const replay of [replayOf(), { ...replayOf(), confirmStaging: 'TARGET' }]) {
+      const answers = await send(world, 'frozen:load:preview', { replay });
 
       expect(answers('frozen:load:preview:error')[0].payload.code).toBe('GUARD_REFUSED');
-      expect(getJsforceConnection).not.toHaveBeenCalled();
-      vi.clearAllMocks();
     }
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+
+  it('simulates a replay into a sandbox marked Staging, which writes nothing, without its name typed', async () => {
+    const world = await worldOf({ orgType: 'Sandbox', staging: true });
+
+    const answers = await send(world, 'frozen:load:preview', { replay: replayOf() });
+
+    expect(answers('frozen:load:preview:error').map((error) => error.payload.message)).toEqual([]);
+    const [response] = answers('frozen:load:preview:response');
+    expect((response.payload.replay as FrozenReplayInfo).summary.records.toCreate).toBe(6);
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+    expect(trail(world)).toEqual([]);
   });
 
   it('counts the requests its reads of the other org took in the requests its replay would take', async () => {
@@ -568,6 +579,62 @@ describe('frozen:load of a checkpoint replayed', () => {
     // Its name and its chip in the list say what wrote: "Before checkpoint replay".
     expect(asked).toEqual(['replay', 'replay']);
     expect(answers('frozen:load:error')).toHaveLength(1);
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+  });
+
+  it('refuses a replay into a sandbox marked Staging whose request does not carry its name as typed, before connecting to it, and records it stopped', async () => {
+    const world = await worldOf({ orgType: 'Sandbox', staging: true });
+
+    for (const confirmed of [{}, { confirmStaging: 'OTHER' }, { confirmStaging: 'target' }]) {
+      const answers = await send(world, 'frozen:load', {
+        replay: { ...replayOf(), ...confirmed },
+        maxRecords: 6,
+      });
+
+      const [error] = answers('frozen:load:error');
+      expect(error.payload.code).toBe('REPLAY_STAGING_UNCONFIRMED');
+      expect(String(error.payload.message)).toContain(
+        'TARGET is a sandbox marked Staging, which may hold real data: a replay goes into it ' +
+          'once its name is typed to confirm it. Nothing was read or written.',
+      );
+      expect(error.payload.params).toEqual({ target: 'TARGET' });
+    }
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+    expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
+    expect(trail(world).map((entry) => entry.details?.code)).toEqual([
+      'REPLAY_STAGING_UNCONFIRMED',
+      'REPLAY_STAGING_UNCONFIRMED',
+      'REPLAY_STAGING_UNCONFIRMED',
+    ]);
+  });
+
+  it('replays into a sandbox marked Staging once its request carries the name typed to confirm it, and the audit trail says so', async () => {
+    const world = await worldOf({ orgType: 'Sandbox', staging: true });
+
+    const answers = await send(world, 'frozen:load', {
+      replay: { ...replayOf(), confirmStaging: 'TARGET' },
+      maxRecords: 6,
+    });
+
+    expect(answers('frozen:load:error').map((error) => error.payload.message)).toEqual([]);
+    const [response] = answers('frozen:load:response');
+    expect((response.payload.report as FrozenLoadReportInfo).status).toBe('completed');
+    expect(held(world)).toEqual({ accounts: 2, contacts: 4 });
+    expect(trail(world)).toMatchObject([
+      {
+        module: 'checkpoint',
+        outcome: 'success',
+        details: { replayCheckpoint: CHECKPOINT_ID, replayIntoStaging: true },
+      },
+    ]);
+    // What it wrote is verified and taken back as from any other org.
+    const [verified] = answers('frozen:verify:result');
+    expect((verified.payload.verdict as { status: string }).status).toBe('passed');
+    const removed = await send(world, 'frozen:remove', {
+      loadedAt: await loadedAtOf(world),
+      replay: { organizationId: SOURCE_ORG_ID, checkpointId: CHECKPOINT_ID },
+    });
+    expect(removed('frozen:remove:error').map((error) => error.payload.message)).toEqual([]);
     expect(held(world)).toEqual({ accounts: 0, contacts: 0 });
   });
 

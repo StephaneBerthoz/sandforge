@@ -50,6 +50,7 @@ import {
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
 import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
+import { CheckpointsLink } from './CheckpointsLink';
 import { RewindDeliverability, rewindEmailsAskOf } from './RewindDeliverability';
 import {
   FILE_LINK_OBJECT,
@@ -281,6 +282,12 @@ export interface RewindPreviewProps {
    * what it is limited to is not changed here. Absent, every object.
    */
   limitedTo?: RewindLimit;
+  /**
+   * Its way out is "← Checkpoints" over its heading, as the take's and the
+   * replay's are on the Checkpoints page; without it, Back under it, for the
+   * page that opened it elsewhere.
+   */
+  backLink?: boolean;
 }
 
 /** What a rewind is limited to: see {@link RewindPreviewProps.limitedTo}. */
@@ -368,6 +375,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   muteBox,
   startMuted = false,
   limitedTo,
+  backLink = false,
 }) => {
   const { t } = useTranslation();
   const orgName = orgDisplayName(org);
@@ -459,6 +467,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
       aria-labelledby={headingId}
       data-testid="checkpoint-preview"
     >
+      {backLink && <CheckpointsLink onClick={onClose} testId="checkpoint-preview-back" />}
       <h2
         id={headingId}
         ref={headingRef}
@@ -486,11 +495,13 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
         </div>
       )}
       {body}
-      <div>
-        <Button variant="secondary" onClick={onClose} data-testid="checkpoint-preview-back">
-          {t('common.back')}
-        </Button>
-      </div>
+      {!backLink && (
+        <div>
+          <Button variant="secondary" onClick={onClose} data-testid="checkpoint-preview-back">
+            {t('common.back')}
+          </Button>
+        </div>
+      )}
     </section>
   );
 };

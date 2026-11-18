@@ -125,7 +125,7 @@ function replaysInPlace(entry: CheckpointListEntry): string {
  * would do, and Export…, which saves it encrypted for a teammate who rewinds
  * the same org. Beneath, what the store says of it: that it was taken with View
  * All and Modify All per object, its user having no View All Data and Modify
- * All Data; that it expires within days, with Keep; that records deleted
+ * All Data; that it expires within days, which its Keep keeps it past; that records deleted
  * before a date can no longer come back once it is older than the recycle
  * bin keeps them; and, on the checkpoint of the org's last rewind, when that
  * rewind was made and until when Undo can take it back. One that cannot be
@@ -288,6 +288,17 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
       ? t('checkpoint.list.why.refreshed', { org: orgName, date: refreshedOn })
       : t(WHY_KEYS[entry.why ?? 'damaged'], { org: orgName })
     : null;
+  const deleteButton = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onDelete}
+      aria-describedby={nameId}
+      data-testid={`checkpoint-delete-${entry.checkpointId}`}
+    >
+      {t('common.delete')}
+    </Button>
+  );
 
   return (
     <li
@@ -347,7 +358,12 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               aria-describedby={nameId}
               data-testid={`checkpoint-replay-${entry.checkpointId}`}
             >
-              {t('checkpoint.replay.open')}
+              {/* Of the sandbox before its refresh, it goes back into that
+                  sandbox, refreshed, as a rule: "another org" sent the eye
+                  elsewhere. */}
+              {entry.why === 'refreshed'
+                ? t('checkpoint.replay.openRefreshed', { org: orgName })
+                : t('checkpoint.replay.open')}
             </Button>
           )}
           {kept && (
@@ -378,15 +394,8 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               <Icon name={moreShown ? 'chevron-up' : 'chevron-down'} className="ml-1" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDelete}
-            aria-describedby={nameId}
-            data-testid={`checkpoint-delete-${entry.checkpointId}`}
-          >
-            {t('common.delete')}
-          </Button>
+          {/* What can only be deleted offers Delete alone, in sight. */}
+          {!kept && deleteButton}
         </div>
       </div>
       {kept && (
@@ -448,6 +457,8 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               {t('checkpoint.list.stopComparing')}
             </Button>
           )}
+          {/* Last, under More: it stood beside Rewind…, and Rename waited here. */}
+          {deleteButton}
         </div>
       )}
       {why && (
@@ -474,14 +485,7 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           {t('checkpoint.replay.list.inPlace', { replays: inPlace })}
         </p>
       )}
-      {usable && (
-        <RowLines
-          entry={{ ...entry, checkpoint }}
-          nameId={nameId}
-          onKeep={onKeep}
-          onUndo={onUndo}
-        />
-      )}
+      {usable && <RowLines entry={{ ...entry, checkpoint }} nameId={nameId} onUndo={onUndo} />}
     </li>
   );
 };
@@ -491,22 +495,21 @@ interface RowLinesProps {
   entry: CheckpointListEntry & { checkpoint: OrgCheckpoint };
   /** The id of the row's name, which its buttons are described by. */
   nameId: string;
-  onKeep: (keep: boolean) => void;
   onUndo: CheckpointListProps['onUndo'];
 }
 
 /**
  * The lines beneath a checkpoint that can be rewound to, only those that
  * apply, each with what it offers: it was taken object by object, holding
- * only what its user saw whole; it expires within days, and Keep keeps
- * it; its scratch org expires within days, which no Keep outlives, and a
+ * only what its user saw whole; it expires within days, which the row's
+ * Keep keeps it past; its scratch org expires within days, which no Keep outlives, and a
  * Frozen Dataset keeps its data for another org; records deleted before a date can no longer come back with their Id,
  * once it is older than the recycle bin's fifteen days; the org's last
  * rewind was made to it, and Undo takes it back until a date, sooner if the
  * bin fills. Every date is the store's, so the list, Home and the command
  * line say the same.
  */
-const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) => {
+const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onUndo }) => {
   const { t } = useTranslation();
   const { checkpoint, checkpointId } = entry;
   const expiresIn =
@@ -546,6 +549,8 @@ const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) =>
           {t('checkpoint.list.access.perObject')}
         </p>
       )}
+      {/* Kept by the row's one Keep: a button of its own here made two
+          controls of one act on the same row. */}
       {expiresIn !== null && (
         <p
           className="flex flex-wrap items-center gap-2"
@@ -553,15 +558,6 @@ const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) =>
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-status-warning" aria-hidden="true" />
           <span>{t('checkpoint.list.expiresSoon', { when: expiresIn })}</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onKeep(true)}
-            aria-describedby={nameId}
-            data-testid={`checkpoint-keep-now-${checkpointId}`}
-          >
-            {t('checkpoint.list.keepIt')}
-          </Button>
         </p>
       )}
       {scratchGoes !== null && (

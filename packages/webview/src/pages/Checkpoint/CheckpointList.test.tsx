@@ -142,16 +142,17 @@ describe('CheckpointList', () => {
     expect(screen.getByTestId(`checkpoint-export-${ID}`)).toHaveAccessibleDescription('Before UAT');
   });
 
-  it('shows Rewind…, Keep and Delete on the row, and Rename, Replay in another org…, Export… and Stop comparing fields… under More', () => {
+  it('shows Rewind…, Keep and More on the row, and Rename, Replay into an org…, Export…, Stop comparing fields… and Delete under More', () => {
     // Each row put up to six controls on one wrapping line, the expert fix
-    // that matters only after a rewind met automation among them.
+    // that matters only after a rewind met automation among them; Delete
+    // stood beside Rewind… while Rename waited under More.
     renderList();
     const row = screen.getByTestId(`checkpoint-row-${ID}`);
     const shown = (): string[] =>
       within(row)
         .getAllByRole('button')
         .map((button) => button.textContent ?? '');
-    expect(shown()).toEqual(['Rewind…', 'More', 'Delete']);
+    expect(shown()).toEqual(['Rewind…', 'More']);
     expect(within(row).getByRole('checkbox', { name: 'Keep until I delete it' })).toBeVisible();
 
     const more = screen.getByTestId(`checkpoint-more-${ID}`);
@@ -166,15 +167,16 @@ describe('CheckpointList', () => {
     expect(shown()).toEqual([
       'Rewind…',
       'More',
-      'Delete',
       'Rename',
-      'Replay in another org…',
+      'Replay into an org…',
       'Export…',
       'Stop comparing fields…',
+      'Delete',
     ]);
+    expect(screen.getByTestId(`checkpoint-delete-${ID}`)).toHaveAccessibleDescription('Before UAT');
 
     fireEvent.click(more);
-    expect(shown()).toEqual(['Rewind…', 'More', 'Delete']);
+    expect(shown()).toEqual(['Rewind…', 'More']);
   });
 
   it('keeps Export… in sight while its export runs, for the keyboard to come back to', () => {
@@ -244,6 +246,7 @@ describe('CheckpointList', () => {
 
   it('deletes a checkpoint once its deletion is confirmed, saying the org is not touched', () => {
     const { onDelete } = renderList();
+    fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
     fireEvent.click(screen.getByTestId(`checkpoint-delete-${ID}`));
     expect(screen.getByTestId('danger-title').textContent).toBe('Delete “Before UAT”?');
     expect(
@@ -312,15 +315,20 @@ describe('CheckpointList', () => {
     ).toBeInTheDocument();
   });
 
-  it('says a checkpoint expires within days, and keeps it from that line', () => {
+  it('says a checkpoint expires within days, and that its one Keep keeps it', () => {
+    // The box, and a Keep button on this line: two controls for one act.
     const { onKeep } = renderList([
       listEntry(readyCheckpoint({ expiresAt: '2026-10-24T14:06:03.000Z' }), {
         expiresSoon: true,
       }),
     ]);
     const line = screen.getByTestId(`checkpoint-expires-${ID}`);
-    expect(line.textContent).toBe('Expires in 2 days' + 'Keep');
-    fireEvent.click(within(line).getByRole('button', { name: 'Keep' }));
+    expect(line.textContent).toBe('Expires in 2 days: Keep until I delete it keeps it.');
+    expect(within(line).queryByRole('button')).toBeNull();
+    const row = screen.getByTestId(`checkpoint-row-${ID}`);
+    expect(within(row).getAllByRole('checkbox', { name: /Keep/ })).toHaveLength(1);
+    expect(within(row).queryByRole('button', { name: /Keep/ })).toBeNull();
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Keep until I delete it' }));
     expect(onKeep).toHaveBeenCalledWith(ID, true);
   });
 
@@ -335,17 +343,19 @@ describe('CheckpointList', () => {
     ]);
     expect(screen.getByTestId(`checkpoint-scratch-expires-${ID}`).textContent).toBe(
       'This scratch org expires on Oct 24, 2026: its checkpoints then rewind nothing, whatever ' +
-        'Keep says. They still replay in another org: Replay in another org… sets their records ' +
+        'Keep says. They still replay in another org: Replay into an org… sets their records ' +
         'up there again, with new Ids.',
     );
   });
 
   it.each([
-    ['refreshed', { refreshedAt: '2026-10-15T12:00:00.000Z' }],
-    ['scratchExpired', {}],
+    // Of the sandbox before its refresh: the replay goes back into that
+    // sandbox, refreshed, as a rule, and "another org" sent the eye elsewhere.
+    ['refreshed', { refreshedAt: '2026-10-15T12:00:00.000Z' }, 'Replay into DEV-SB, refreshed…'],
+    ['scratchExpired', {}, 'Replay into an org…'],
   ] as const)(
     'offers a %s checkpoint, which rewinds nothing, to replay in another org, to keep, rename and export, and no Rewind…',
-    (why, more) => {
+    (why, more, label) => {
       const entry = listEntry(readyCheckpoint(), { valid: false, why, ...more });
       const { onReplay, onKeep, onExport } = renderList([entry]);
       expect(screen.getByTestId(`checkpoint-elsewhere-${ID}`).textContent).toBe(
@@ -355,12 +365,14 @@ describe('CheckpointList', () => {
       expect(screen.queryByTestId(`checkpoint-frozen-${ID}`)).toBeNull();
       expect(screen.queryByTestId(`checkpoint-rewind-${ID}`)).toBeNull();
       expect(screen.queryByTestId(`checkpoint-stop-comparing-${ID}`)).toBeNull();
+      expect(screen.getByTestId(`checkpoint-replay-${ID}`).textContent).toBe(label);
       fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
       expect(onReplay).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByTestId(`checkpoint-keep-${ID}`));
       expect(onKeep).toHaveBeenCalledWith(ID, true);
       fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
       expect(screen.getByTestId(`checkpoint-rename-${ID}`)).toBeVisible();
+      expect(screen.getByTestId(`checkpoint-delete-${ID}`)).toBeVisible();
       fireEvent.click(screen.getByTestId(`checkpoint-export-${ID}`));
       expect(onExport).toHaveBeenCalledWith(ID);
     },
@@ -370,6 +382,7 @@ describe('CheckpointList', () => {
     const { onReplay } = renderList();
     expect(screen.getByTestId(`checkpoint-replay-${ID}`)).not.toBeVisible();
     fireEvent.click(screen.getByTestId(`checkpoint-more-${ID}`));
+    expect(screen.getByTestId(`checkpoint-replay-${ID}`).textContent).toBe('Replay into an org…');
     fireEvent.click(screen.getByTestId(`checkpoint-replay-${ID}`));
     expect(onReplay).toHaveBeenCalledTimes(1);
   });
