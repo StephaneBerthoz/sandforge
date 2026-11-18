@@ -19,6 +19,11 @@ export interface OrgCardProps {
   onReconnect?: (org: SalesforceOrg) => void;
   /** Opens the org in the system browser, at its instance URL. */
   onOpenInBrowser?: (org: SalesforceOrg) => void;
+  /**
+   * Given for a sandbox whose refresh SandForge noticed and whose recovery is
+   * not finished: opens Back into service on it.
+   */
+  onBringBack?: (org: SalesforceOrg) => void;
 }
 
 const statusBadgeVariant: Record<string, BadgeVariant> = {
@@ -45,6 +50,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
   onDisconnect,
   onReconnect,
   onOpenInBrowser,
+  onBringBack,
 }) => {
   const { t } = useTranslation();
   const typeStyle = ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT;
@@ -100,6 +106,13 @@ export const OrgCard: React.FC<OrgCardProps> = ({
         >
           {orgDisplayName(org)}
         </button>
+        {/* A click on a card changes the org of every panel: said in words
+            on the card it chose, where the outline alone said it. */}
+        {selected && (
+          <Badge variant="info" className="shrink-0" data-testid={`org-current-${org.id}`}>
+            {t('org.current')}
+          </Badge>
+        )}
         <div className="flex items-center gap-1.5 shrink-0">
           <span
             className={cn(
@@ -146,7 +159,21 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       )}
 
       {/* Row 4: Actions */}
-      <div className="mt-2 flex gap-2 justify-end">
+      <div className="mt-2 flex flex-wrap gap-2 justify-end">
+        {/* A refreshed sandbox showed Session Expired and Try Reconnect, and
+            nothing of what follows a refresh. */}
+        {onBringBack && (
+          <button
+            className="text-xs font-semibold text-(--sf-text-link) hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onBringBack(org);
+            }}
+            data-testid={`org-bring-back-${org.id}`}
+          >
+            {t('org.bringBack')}
+          </button>
+        )}
         {canReconnect && (
           <button
             className="text-xs text-(--sf-text-link) hover:underline"

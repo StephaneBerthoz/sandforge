@@ -1,7 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
-import { Check, Download, Upload, FileCheck, AlertTriangle, CheckCircle } from 'lucide-react';
+import {
+  Check,
+  Download,
+  Upload,
+  FileCheck,
+  FileUp,
+  AlertTriangle,
+  CheckCircle,
+} from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -25,7 +33,20 @@ const CONFIG_CATEGORIES = [
 
 type CategoryKey = (typeof CONFIG_CATEGORIES)[number]['key'];
 
-/** Panel for exporting and importing SandForge configuration profiles. */
+/** The text of a file the user picked. */
+function fileText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('unreadable'));
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * The Share setup section's body: export what SandForge saved, and import an
+ * export, from a file or pasted in. Its heading is the section's.
+ */
 export const ConfigProfilePanel: React.FC = () => {
   const { save } = useFileSave();
   const { t } = useTranslation();
@@ -33,6 +54,9 @@ export const ConfigProfilePanel: React.FC = () => {
     () => new Set(CONFIG_CATEGORIES.map((cat) => cat.key)),
   );
   const [importJson, setImportJson] = useState('');
+  /** The file the import was read from, or why it could not be: until the text changes. */
+  const [importFile, setImportFile] = useState<{ name: string; read: boolean } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [overwrite, setOverwrite] = useState(true);
   const [validationResult, setValidationResult] = useState<{
     valid: boolean;
@@ -119,6 +143,27 @@ export const ConfigProfilePanel: React.FC = () => {
     validateMutation.mutate({ json: importJson });
   }, [importJson, validateMutation]);
 
+  /**
+   * Read an export from a file, as Forge reads a template, and check it at
+   * once: an export came in only pasted into the box, where Forge, and the
+   * export's own Download JSON, deal in files.
+   */
+  const validateMutate = validateMutation.mutate;
+  const handleImportFile = useCallback(
+    (file: File) => {
+      setValidationResult(null);
+      fileText(file).then(
+        (text) => {
+          setImportJson(text);
+          setImportFile({ name: file.name, read: true });
+          if (text.trim()) validateMutate({ json: text });
+        },
+        () => setImportFile({ name: file.name, read: false }),
+      );
+    },
+    [validateMutate],
+  );
+
   /** Handle import action. */
   const handleImport = useCallback(() => {
     if (!importJson.trim()) return;
@@ -134,7 +179,6 @@ export const ConfigProfilePanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4" data-testid="config-profile-panel">
-      <h2 className="text-sm font-semibold text-text-primary">{t('config.profiles.title')}</h2>
       <p className="text-xs text-text-secondary">{t('config.profiles.description')}</p>
 
       {/* ── Export Section ── */}
@@ -239,6 +283,46 @@ export const ConfigProfilePanel: React.FC = () => {
           </h3>
         </div>
 
+        <div className="flex flex-col items-start gap-2 mb-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            data-testid="import-file-btn"
+          >
+            <FileUp className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+            {t('config.profiles.importFile')}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            tabIndex={-1}
+            data-testid="import-file-input"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              // The same file picked again is read again.
+              e.target.value = '';
+            }}
+          />
+          {importFile && (
+            <p
+              role={importFile.read ? 'status' : 'alert'}
+              className={cn(
+                'text-xs',
+                importFile.read ? 'text-text-secondary' : 'text-status-error',
+              )}
+              data-testid="import-file-read"
+            >
+              {importFile.read
+                ? t('config.profiles.fileRead', { name: importFile.name })
+                : t('config.profiles.fileUnreadable', { name: importFile.name })}
+            </p>
+          )}
+        </div>
+
         <textarea
           className={cn(
             'w-full h-32 rounded-md border border-subtle bg-surface-2 p-3',
@@ -249,6 +333,7 @@ export const ConfigProfilePanel: React.FC = () => {
           value={importJson}
           onChange={(e) => {
             setImportJson(e.target.value);
+            setImportFile(null);
             setValidationResult(null);
           }}
           data-testid="import-textarea"

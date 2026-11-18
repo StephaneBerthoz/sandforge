@@ -375,9 +375,9 @@ export const AIPage: React.FC = () => {
               'ai.notConfigured.description',
               'To use AI features, configure your API key in Settings.',
             )}
-            actionLabel={t('ai.notConfigured.configureButton', 'Go to Settings')}
-            // On the AI tab, its key field focused: General, which it opened,
-            // holds the language alone.
+            actionLabel={t('ai.notConfigured.configureButton', 'Open AI settings')}
+            // At the AI section, its key field focused: General, where it
+            // opened, holds the language alone.
             onAction={() => navigate('settings', { settingsTab: 'ai' })}
           />
         </div>

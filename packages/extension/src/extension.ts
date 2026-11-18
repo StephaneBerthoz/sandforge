@@ -307,6 +307,8 @@ export function activate(context: vscode.ExtensionContext): void {
     services,
     // The workbench:reload handler needs the commands API.
     executeCommand: (cmd, ...args) => vscode.commands.executeCommand(cmd, ...args),
+    // Settings' Diagnostics opens the log its errors are written to.
+    showLog: () => outputChannel.show(true),
     localesDir,
   });
   // Backup record payloads go to files under the extension's own storage

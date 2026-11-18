@@ -41,6 +41,7 @@ import { DeviceCodePanel } from './DeviceCodePanel';
 import { DisconnectBackups, DisconnectCheckpoints } from './DisconnectBackups';
 import { canFill, orgToFill } from '../../utils/orgToFill';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
+import { useRecoveryLeads } from '../Home/useRecoveryLeads';
 
 /** What the inline connect form submits for a new org. */
 interface ConnectOrgPayload {
@@ -147,7 +148,8 @@ interface AuthMethodCard {
   needsForm: boolean;
   /**
    * Behind "More methods": JWT and the device flow need a connected app of the
-   * user's own, and sat at the weight of the two that need nothing.
+   * user's own, and sat at the weight of the two that need nothing, as did
+   * Username / Password, where Help names two ways to connect.
    */
   more?: boolean;
 }
@@ -174,6 +176,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.usernamePassword',
     descKey: 'auth.usernamePasswordDesc',
     needsForm: true,
+    more: true,
   },
   {
     method: 'jwt',
@@ -305,6 +308,22 @@ export const OrgManagerPage: React.FC = () => {
     [selectOrgLocal],
   );
   const removeOrg = useOrgStore((s) => s.removeOrg);
+  const navigate = useAppStore((s) => s.navigate);
+
+  /**
+   * The sandboxes whose refresh SandForge noticed and whose recovery is not
+   * finished, asked of the extension as Home asks: their cards offer Bring
+   * back into service, which opens that page on them, selected first.
+   */
+  const recovery = useRecoveryLeads(orgs);
+  const refreshedIds = new Set(recovery.afterRefresh.map((lead) => lead.orgId));
+  const handleBringBack = useCallback(
+    (org: SalesforceOrg) => {
+      if (org.id !== useOrgStore.getState().selectedOrgId) selectOrg(org.id);
+      navigate('recovery');
+    },
+    [navigate, selectOrg],
+  );
 
   const [activeMethod, setActiveMethod] = useState<AuthMethod | null>(null);
   /** Whether JWT and the device flow are shown, folded under "More methods" until asked for. */
@@ -719,7 +738,7 @@ export const OrgManagerPage: React.FC = () => {
   const disconnectMutate = disconnectMutation.mutate;
 
   // Disconnect drops the registry entry host-side, so the alias, tags, colour
-  // and safety tier typed here are gone for good — a re-connect starts from
+  // and Staging mark set here are gone for good — a re-connect starts from
   // defaults. Too destructive for a bare click, hence the typed confirmation.
   const handleDisconnect = useCallback(
     (orgId: string) => {
@@ -1132,6 +1151,7 @@ export const OrgManagerPage: React.FC = () => {
                   onDisconnect={handleDisconnect}
                   onReconnect={handleReconnect}
                   onOpenInBrowser={handleOpenInBrowser}
+                  onBringBack={refreshedIds.has(org.id) ? handleBringBack : undefined}
                 />
               ))}
             </div>

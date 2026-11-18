@@ -102,6 +102,47 @@ describe('OrgCard', () => {
     expect(card.className).toContain('ring-1');
   });
 
+  it('says in words which org is the current one, the org every panel works on', () => {
+    // A click on a card changes the org of every panel, and the card said so
+    // with a coloured outline alone.
+    const { rerender } = render(<OrgCard {...defaultProps} selected />);
+    expect(screen.getByTestId('org-current-org-1').textContent).toBe('Current org');
+
+    rerender(<OrgCard {...defaultProps} selected={false} />);
+    expect(screen.queryByTestId('org-current-org-1')).toBeNull();
+    expect(screen.getByTestId('org-card-org-1').textContent).not.toContain('Current org');
+  });
+
+  it('offers to bring a refreshed sandbox back into service, without selecting the card itself', () => {
+    // A refreshed sandbox read Session Expired and Try Reconnect, and nothing
+    // more, though SandForge had noticed the refresh.
+    const onBringBack = vi.fn();
+    const onSelect = vi.fn();
+    const refreshed = { ...mockOrg, status: 'expired' as const };
+    render(
+      <OrgCard
+        {...defaultProps}
+        org={refreshed}
+        onSelect={onSelect}
+        onReconnect={vi.fn()}
+        onBringBack={onBringBack}
+      />,
+    );
+
+    const button = screen.getByTestId('org-bring-back-org-1');
+    expect(button.textContent).toBe('Bring back into service');
+    fireEvent.click(button);
+    expect(onBringBack).toHaveBeenCalledWith(refreshed);
+    expect(onSelect).not.toHaveBeenCalled();
+    // The reconnect it needs first stays beside it.
+    expect(screen.getByTestId('org-reconnect-org-1')).toBeDefined();
+  });
+
+  it('offers no Bring back into service where the page gives no refresh to recover from', () => {
+    render(<OrgCard {...defaultProps} />);
+    expect(screen.queryByTestId('org-bring-back-org-1')).toBeNull();
+  });
+
   it('should call onEdit when Edit is clicked', () => {
     const onEdit = vi.fn();
     render(<OrgCard {...defaultProps} onEdit={onEdit} />);

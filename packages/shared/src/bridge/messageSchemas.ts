@@ -629,6 +629,8 @@ const SettingsMessages = [
   msg('navigation:intent'),
   msg('workbench:reload'),
   msg('workbench:open-setting'),
+  // Settings' Diagnostics opens the SandForge log.
+  msg('workbench:open-log'),
   msg('error:boundary'),
 ] as const;
 export const SettingsMessageSchema = z.discriminatedUnion('type', SettingsMessages);

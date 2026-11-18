@@ -1,8 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
-import { Tabs } from '../../components/ui/Tabs';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Card, CardBody } from '../../components/ui/Card';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
@@ -70,13 +69,51 @@ const AI_SENDS = [
  */
 const VSCODE_SETTINGS_GROUP = 'sandforge.safety';
 
+/** The page's sections, in their order: each a heading over one card. */
+type SectionId = 'general' | 'ai' | 'profiles' | 'telemetry';
+
+/** SettingsSection props. */
+interface SettingsSectionProps {
+  id: SectionId;
+  title: string;
+  children: React.ReactNode;
+  sectionRef?: React.Ref<HTMLElement>;
+}
+
+/**
+ * One section of the page: a region named by its heading, which reads as the
+ * card headers do. The page's four tabs held some 1,300 pixels between them,
+ * each three-quarters empty, and hid what the others held.
+ */
+const SettingsSection: React.FC<SettingsSectionProps> = ({ id, title, children, sectionRef }) => (
+  <section
+    ref={sectionRef}
+    id={`settings-${id}`}
+    aria-labelledby={`settings-${id}-title`}
+    data-testid={`${id}-settings`}
+    className="scroll-mt-4"
+  >
+    <Card>
+      <div className="px-4 py-3 border-b border-(--vscode-panel-border,#3c3c3c)">
+        <h2
+          id={`settings-${id}-title`}
+          className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4)"
+        >
+          {title}
+        </h2>
+      </div>
+      <CardBody>{children}</CardBody>
+    </Card>
+  </section>
+);
+
 /** SettingsPage component props. */
 export interface SettingsPageProps {
   settings?: SettingsValues;
   onSave?: (settings: SettingsValues) => void;
 }
 
-/** Settings page with tabbed configuration panels. */
+/** Settings page: General, AI, Share setup and Diagnostics, one section under the other. */
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   settings: initialSettings,
   onSave,
@@ -84,20 +121,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const { t, i18n } = useTranslation();
   const navigationIntent = useAppStore((s) => s.navigationIntent);
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
-  // The tour's "Open AI settings", and every "Go to Settings" shown because
-  // no key is set (the AI page, Forge's AI tab, Seed's scenario draft),
-  // opened General, a click away from the key.
-  const [askedTab] = useState(() =>
+  // Every "Open AI settings" shown because no key is set (the AI page,
+  // Forge's AI tab, Seed's scenario draft) opened the page at General, a
+  // click away from the key: it opens at the AI section now, read once.
+  const [askedSection] = useState(() =>
     navigationIntent?.route === 'settings' ? navigationIntent.settingsTab : undefined,
   );
-  const [activeTab, setActiveTab] = useState<string>(askedTab ?? 'general');
+  /** The AI section, brought into view when the page is opened for it. */
+  const aiSection = useRef<HTMLElement>(null);
   /** The key field, which takes the focus when the page is opened for it. */
   const apiKeyInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!askedTab) return;
+    if (!askedSection) return;
     clearNavigationIntent();
-    apiKeyInput.current?.focus();
-  }, [askedTab, clearNavigationIntent]);
+    // Its heading in view, then the field: the focus alone scrolled the
+    // field to the bottom edge, the heading out of sight above it.
+    aiSection.current?.scrollIntoView?.({ block: 'start' });
+    apiKeyInput.current?.focus({ preventScroll: true });
+  }, [askedSection, clearNavigationIntent]);
   /** Why the last language change did not apply, until the next change. */
   const [languageError, setLanguageError] = useState<string | null>(null);
   /**
@@ -179,375 +220,317 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setLanguageError(t('settings.languageLoadFailed', { language: label }));
   };
 
-  // No Advanced tab: its one button, "Reset to Defaults", put the interface
-  // back in English — language is the page's only setting — under a Confirm
-  // that never said so.
-  const tabs = [
-    { id: 'general', label: t('settings.general') },
-    { id: 'ai', label: t('settings.ai') },
-    { id: 'profiles', label: t('settings.profiles') },
-    { id: 'telemetry', label: t('settings.telemetry') },
-  ];
-
+  // No Advanced section: its one button, "Reset to Defaults", put the
+  // interface back in English — language is the page's only setting — under
+  // a Confirm that never said so.
   return (
     <div data-testid="settings-page" className="flex flex-col gap-3 p-4">
       <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
         {t('settings.title')}
       </h1>
 
-      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
-
-      <div className="mt-2">
-        {activeTab === 'general' && (
-          <div
-            data-testid="general-settings"
-            id="tabpanel-general"
-            role="tabpanel"
-            aria-labelledby="tab-general"
-            className="flex flex-col gap-3"
-          >
-            <Card>
-              <CardHeader title={t('settings.general')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {/* Language — Select renders and binds its own caption. */}
-                  <Select
-                    data-testid="language-select"
-                    label={t('settings.language')}
-                    options={LANGUAGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                    value={settings.language}
-                    onChange={(e) => {
-                      const language = e.target.value as SupportedLanguage;
-                      updateSetting('language', language);
-                      // Apply immediately — loads the locale bundle over
-                      // the bridge when needed; the i18n module persists
-                      // the choice to the webview state on every change.
-                      void applyLanguage(language);
-                    }}
-                  />
-                  {languageError && (
-                    <ErrorBanner
-                      data-testid="language-error"
-                      message={languageError}
-                      onDismiss={() => setLanguageError(null)}
-                    />
-                  )}
-                  {/* The walkthrough's "Tune your settings" names batch sizes,
+      <div className="mt-2 flex flex-col gap-4">
+        <SettingsSection id="general" title={t('settings.general')}>
+          <div className="flex flex-col gap-3">
+            {/* Language — Select renders and binds its own caption. */}
+            <Select
+              data-testid="language-select"
+              label={t('settings.language')}
+              options={LANGUAGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              value={settings.language}
+              onChange={(e) => {
+                const language = e.target.value as SupportedLanguage;
+                updateSetting('language', language);
+                // Apply immediately — loads the locale bundle over
+                // the bridge when needed; the i18n module persists
+                // the choice to the webview state on every change.
+                void applyLanguage(language);
+              }}
+            />
+            {languageError && (
+              <ErrorBanner
+                data-testid="language-error"
+                message={languageError}
+                onDismiss={() => setLanguageError(null)}
+              />
+            )}
+            {/* The walkthrough's "Tune your settings" names batch sizes,
                       Production Guard and Forge's graph view, then opened this
                       page, where none of them is and nothing led to them. */}
-                  <div
-                    className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
-                    data-testid="vscode-settings"
-                  >
-                    <p className="text-xs text-text-secondary">
-                      {t('settings.vscodeSettingsDesc')}
-                    </p>
-                    <Button
-                      data-testid="open-vscode-settings"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() =>
-                        sendBridgeMessage<{ setting: string }>('workbench:open-setting', {
-                          setting: VSCODE_SETTINGS_GROUP,
-                        })
-                      }
-                    >
-                      {t('settings.vscodeSettingsOpen')}
-                    </Button>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+            <div
+              className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
+              data-testid="vscode-settings"
+            >
+              <p className="text-xs text-text-secondary">{t('settings.vscodeSettingsDesc')}</p>
+              <Button
+                data-testid="open-vscode-settings"
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  sendBridgeMessage<{ setting: string }>('workbench:open-setting', {
+                    setting: VSCODE_SETTINGS_GROUP,
+                  })
+                }
+              >
+                {t('settings.vscodeSettingsOpen')}
+              </Button>
+            </div>
           </div>
-        )}
+        </SettingsSection>
 
-        {activeTab === 'ai' && (
-          <div
-            data-testid="ai-settings"
-            id="tabpanel-ai"
-            role="tabpanel"
-            aria-labelledby="tab-ai"
-            className="flex flex-col gap-3"
-          >
-            <Card>
-              <CardHeader title={t('settings.ai')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {/* Status */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-primary">{t('settings.aiStatus')}</span>
-                    <Badge variant={aiStatus?.enabled ? 'success' : 'default'}>
-                      {aiStatus?.enabled ? t('settings.aiEnabled') : t('settings.aiDisabled')}
-                    </Badge>
-                  </div>
+        <SettingsSection id="ai" title={t('settings.ai')} sectionRef={aiSection}>
+          <div className="flex flex-col gap-3">
+            {/* Status */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-primary">{t('settings.aiStatus')}</span>
+              <Badge variant={aiStatus?.enabled ? 'success' : 'default'}>
+                {aiStatus?.enabled ? t('settings.aiEnabled') : t('settings.aiDisabled')}
+              </Badge>
+            </div>
 
-                  {aiStatus?.enabled && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-text-secondary">{t('settings.aiModel')}</span>
-                      <span className="text-xs text-text-primary font-mono">{aiStatus!.model}</span>
-                    </div>
-                  )}
+            {aiStatus?.enabled && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-text-secondary">{t('settings.aiModel')}</span>
+                <span className="text-xs text-text-primary font-mono">{aiStatus!.model}</span>
+              </div>
+            )}
 
-                  {/* What each feature sends, and to whom, said where the key is
+            {/* What each feature sends, and to whom, said where the key is
                       stored: the card said only where the key is kept. */}
-                  <div className="flex flex-col gap-1" data-testid="ai-what-is-sent">
-                    <p className="text-xs text-text-secondary">{t('settings.aiSendsIntro')}</p>
-                    <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-text-secondary">
-                      {AI_SENDS.map((key) => (
-                        <li key={key}>{t(key)}</li>
-                      ))}
-                    </ul>
-                  </div>
+            <div className="flex flex-col gap-1" data-testid="ai-what-is-sent">
+              <p className="text-xs text-text-secondary">{t('settings.aiSendsIntro')}</p>
+              <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-text-secondary">
+                {AI_SENDS.map((key) => (
+                  <li key={key}>{t(key)}</li>
+                ))}
+              </ul>
+            </div>
 
-                  {/* The failures are sent with nobody pressing anything: a switch
+            {/* The failures are sent with nobody pressing anything: a switch
                       of their own, beside the others, while AI is on. */}
-                  {aiStatus?.enabled && (
-                    <label className="flex items-start gap-2 text-xs text-text-primary">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        checked={aiStatus.errorResolution ?? true}
-                        disabled={aiSettingsSaving}
-                        onChange={(e) => updateAiSettings({ errorResolution: e.target.checked })}
-                        data-testid="ai-error-resolution-toggle"
-                      />
-                      <span>{t('settings.aiErrorResolution')}</span>
-                    </label>
-                  )}
+            {aiStatus?.enabled && (
+              <label className="flex items-start gap-2 text-xs text-text-primary">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={aiStatus.errorResolution ?? true}
+                  disabled={aiSettingsSaving}
+                  onChange={(e) => updateAiSettings({ errorResolution: e.target.checked })}
+                  data-testid="ai-error-resolution-toggle"
+                />
+                <span>{t('settings.aiErrorResolution')}</span>
+              </label>
+            )}
 
-                  {/* API Key — Input renders and binds its own caption, so the
+            {/* API Key — Input renders and binds its own caption, so the
                       Save button aligns on the bottom edge of the field. */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex gap-2 items-end">
-                      <div className="flex-1">
-                        <Input
-                          ref={apiKeyInput}
-                          data-testid="ai-api-key-input"
-                          label={t('settings.aiApiKey')}
-                          type="password"
-                          placeholder={hasKey ? t('settings.aiKeyConfigured') : 'sk-ant-...'}
-                          value={aiApiKey}
-                          onChange={(e) => {
-                            setAiApiKey(e.target.value);
-                            setAiKeySaved(false);
-                          }}
-                        />
-                      </div>
-                      <Button
-                        data-testid="ai-save-key-btn"
-                        variant="primary"
-                        size="sm"
-                        disabled={!aiApiKey.trim()}
-                        loading={aiKeySaving}
-                        onClick={() =>
-                          saveAiKey(aiApiKey.trim(), hasKey ? undefined : resolveFailures)
-                        }
-                      >
-                        {hasKey ? t('common.save') : t('settings.aiSaveAndTurnOn')}
-                      </Button>
-                    </div>
-                    {/* Asked once, with the first key: saving it turned the
+            <div className="flex flex-col gap-1">
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Input
+                    ref={apiKeyInput}
+                    data-testid="ai-api-key-input"
+                    label={t('settings.aiApiKey')}
+                    type="password"
+                    placeholder={hasKey ? t('settings.aiKeyConfigured') : 'sk-ant-...'}
+                    value={aiApiKey}
+                    onChange={(e) => {
+                      setAiApiKey(e.target.value);
+                      setAiKeySaved(false);
+                    }}
+                  />
+                </div>
+                <Button
+                  data-testid="ai-save-key-btn"
+                  variant="primary"
+                  size="sm"
+                  disabled={!aiApiKey.trim()}
+                  loading={aiKeySaving}
+                  onClick={() => saveAiKey(aiApiKey.trim(), hasKey ? undefined : resolveFailures)}
+                >
+                  {hasKey ? t('common.save') : t('settings.aiSaveAndTurnOn')}
+                </Button>
+              </div>
+              {/* Asked once, with the first key: saving it turned the
                         sending of failures on with AI, and nothing said so. */}
-                    {!hasKey && (
-                      <label className="flex items-start gap-2 text-xs text-text-primary">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={resolveFailures}
-                          onChange={(e) => setResolveFailures(e.target.checked)}
-                          data-testid="ai-first-key-error-resolution"
-                        />
-                        <span>{t('settings.aiErrorResolution')}</span>
-                      </label>
-                    )}
-                    {aiKeySaved && (
-                      <span className="text-xs text-status-success" data-testid="ai-key-saved">
-                        {t('settings.aiKeySaved')}
-                      </span>
-                    )}
-                    {aiKeyError && <span className="text-xs text-status-error">{aiKeyError}</span>}
-                  </div>
+              {!hasKey && (
+                <label className="flex items-start gap-2 text-xs text-text-primary">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={resolveFailures}
+                    onChange={(e) => setResolveFailures(e.target.checked)}
+                    data-testid="ai-first-key-error-resolution"
+                  />
+                  <span>{t('settings.aiErrorResolution')}</span>
+                </label>
+              )}
+              {aiKeySaved && (
+                <span className="text-xs text-status-success" data-testid="ai-key-saved">
+                  {t('settings.aiKeySaved')}
+                </span>
+              )}
+              {aiKeyError && <span className="text-xs text-status-error">{aiKeyError}</span>}
+            </div>
 
-                  {/* Turning AI off, and taking the key back, were only in the
+            {/* Turning AI off, and taking the key back, were only in the
                       settings editor, and nothing removed the key at all. The
                       removal's question came under its buttons, its red Confirm
                       right beside Turn AI off: the two are apart now, the
                       question above the answer to it. */}
-                  {hasKey && (
-                    <div className="flex flex-col gap-3" data-testid="ai-key-actions">
-                      <div>
-                        <Button
-                          data-testid="ai-toggle-btn"
-                          variant="secondary"
-                          size="sm"
-                          loading={aiSettingsSaving}
-                          disabled={aiKeyRemoving}
-                          onClick={() => updateAiSettings({ enabled: !aiStatus?.enabled })}
-                        >
-                          {aiStatus?.enabled ? t('settings.aiTurnOff') : t('settings.aiTurnOn')}
-                        </Button>
-                      </div>
-                      <div
-                        className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
-                        data-testid="ai-key-removal"
-                      >
-                        {confirmingKeyRemoval ? (
-                          <>
-                            <p
-                              id={keyRemovalId}
-                              className="text-xs text-text-primary"
-                              data-testid="ai-remove-key-question"
-                            >
-                              {t('settings.aiRemoveKeyConfirm')}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                data-testid="ai-remove-key-confirm-btn"
-                                variant="danger"
-                                size="sm"
-                                loading={aiKeyRemoving}
-                                aria-describedby={keyRemovalId}
-                                onClick={() => {
-                                  setConfirmingKeyRemoval(false);
-                                  removeAiKey();
-                                }}
-                              >
-                                {t('settings.aiRemoveKey')}
-                              </Button>
-                              <Button
-                                ref={cancelKeyRemovalRef}
-                                data-testid="ai-remove-key-cancel-btn"
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => {
-                                  keyRemovalCancelled.current = true;
-                                  setConfirmingKeyRemoval(false);
-                                }}
-                              >
-                                {t('common.cancel')}
-                              </Button>
-                            </div>
-                          </>
-                        ) : (
-                          <Button
-                            ref={removeKeyRef}
-                            data-testid="ai-remove-key-btn"
-                            variant="secondary"
-                            size="sm"
-                            disabled={aiKeyRemoving || aiSettingsSaving}
-                            onClick={() => setConfirmingKeyRemoval(true)}
-                          >
-                            {t('settings.aiRemoveKey')}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {aiKeyRemoved !== null && !hasKey && (
-                    <span
-                      className="text-xs text-status-success"
-                      role="status"
-                      data-testid="ai-key-removed"
-                    >
-                      {t('settings.aiKeyRemoved', { count: aiKeyRemoved })}
-                    </span>
-                  )}
-                  {(aiSettingsError || aiKeyRemoveError) && (
-                    <span className="text-xs text-status-error" data-testid="ai-settings-error">
-                      {aiSettingsError ?? aiKeyRemoveError}
-                    </span>
-                  )}
-
-                  <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
-        )}
-
-        {activeTab === 'profiles' && (
-          <div
-            data-testid="profiles-settings"
-            id="tabpanel-profiles"
-            role="tabpanel"
-            aria-labelledby="tab-profiles"
-            className="flex flex-col gap-3"
-          >
-            <ConfigProfilePanel />
-          </div>
-        )}
-
-        {activeTab === 'telemetry' && (
-          <div
-            data-testid="telemetry-settings"
-            id="tabpanel-telemetry"
-            role="tabpanel"
-            aria-labelledby="tab-telemetry"
-            className="flex flex-col gap-3"
-          >
-            <Card>
-              <CardHeader title={t('settings.telemetry')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {/* What is recorded and where it goes, said before the switch:
-                      "Telemetry" read as data leaving the machine, and nothing
-                      said it only writes extension errors to a local log. */}
-                  <p className="text-xs text-text-secondary" data-testid="telemetry-description">
-                    {t('settings.telemetryDesc')}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-primary">
-                      {t('settings.telemetryStatus')}
-                    </span>
-                    {telemetryStatusLoading && !telemetryStatus ? (
-                      <span className="text-xs text-text-secondary">{t('common.loading')}</span>
-                    ) : telemetryUnavailable ? (
-                      <span
-                        className="text-xs font-medium text-text-secondary"
-                        data-testid="telemetry-unavailable"
-                      >
-                        {t('settings.telemetryUnavailable')}
-                      </span>
-                    ) : (
-                      <span
-                        className={`text-xs font-medium ${telemetryEnabled ? 'text-status-success' : 'text-text-secondary'}`}
-                      >
-                        {telemetryEnabled
-                          ? t('settings.telemetryEnabled')
-                          : t('settings.telemetryDisabled')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-primary">
-                      {t('settings.telemetryEventCount')}
-                    </span>
-                    <span className="text-xs text-text-secondary" data-testid="telemetry-events">
-                      {telemetryStatus ? telemetryStatus.eventCount : '—'}
-                    </span>
-                  </div>
-                  {telemetryToggleError && (
-                    <span className="text-xs text-status-error" data-testid="telemetry-error">
-                      {telemetryToggleError}
-                    </span>
-                  )}
+            {hasKey && (
+              <div className="flex flex-col gap-3" data-testid="ai-key-actions">
+                <div>
                   <Button
-                    data-testid="telemetry-toggle-btn"
+                    data-testid="ai-toggle-btn"
                     variant="secondary"
                     size="sm"
-                    loading={telemetryToggling}
-                    disabled={telemetryUnavailable || telemetryToggling}
-                    onClick={toggleTelemetry}
+                    loading={aiSettingsSaving}
+                    disabled={aiKeyRemoving}
+                    onClick={() => updateAiSettings({ enabled: !aiStatus?.enabled })}
                   >
-                    {telemetryEnabled
-                      ? t('settings.telemetryDisable')
-                      : t('settings.telemetryEnable')}
+                    {aiStatus?.enabled ? t('settings.aiTurnOff') : t('settings.aiTurnOn')}
                   </Button>
                 </div>
-              </CardBody>
-            </Card>
+                <div
+                  className="flex flex-col items-start gap-2 border-t border-subtle pt-3"
+                  data-testid="ai-key-removal"
+                >
+                  {confirmingKeyRemoval ? (
+                    <>
+                      <p
+                        id={keyRemovalId}
+                        className="text-xs text-text-primary"
+                        data-testid="ai-remove-key-question"
+                      >
+                        {t('settings.aiRemoveKeyConfirm')}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          data-testid="ai-remove-key-confirm-btn"
+                          variant="danger"
+                          size="sm"
+                          loading={aiKeyRemoving}
+                          aria-describedby={keyRemovalId}
+                          onClick={() => {
+                            setConfirmingKeyRemoval(false);
+                            removeAiKey();
+                          }}
+                        >
+                          {t('settings.aiRemoveKey')}
+                        </Button>
+                        <Button
+                          ref={cancelKeyRemovalRef}
+                          data-testid="ai-remove-key-cancel-btn"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            keyRemovalCancelled.current = true;
+                            setConfirmingKeyRemoval(false);
+                          }}
+                        >
+                          {t('common.cancel')}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <Button
+                      ref={removeKeyRef}
+                      data-testid="ai-remove-key-btn"
+                      variant="secondary"
+                      size="sm"
+                      disabled={aiKeyRemoving || aiSettingsSaving}
+                      onClick={() => setConfirmingKeyRemoval(true)}
+                    >
+                      {t('settings.aiRemoveKey')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+            {aiKeyRemoved !== null && !hasKey && (
+              <span
+                className="text-xs text-status-success"
+                role="status"
+                data-testid="ai-key-removed"
+              >
+                {t('settings.aiKeyRemoved', { count: aiKeyRemoved })}
+              </span>
+            )}
+            {(aiSettingsError || aiKeyRemoveError) && (
+              <span className="text-xs text-status-error" data-testid="ai-settings-error">
+                {aiSettingsError ?? aiKeyRemoveError}
+              </span>
+            )}
+
+            <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
           </div>
-        )}
+        </SettingsSection>
+
+        <SettingsSection id="profiles" title={t('config.profiles.title')}>
+          <ConfigProfilePanel />
+        </SettingsSection>
+
+        <SettingsSection id="telemetry" title={t('settings.telemetry')}>
+          <div className="flex flex-col gap-3">
+            {/* What is recorded and where it goes, said before the switch:
+                      "Telemetry" read as data leaving the machine, and nothing
+                      said it only writes extension errors to a local log. */}
+            <p className="text-xs text-text-secondary" data-testid="telemetry-description">
+              {t('settings.telemetryDesc')}
+            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-primary">{t('settings.telemetryStatus')}</span>
+              {telemetryStatusLoading && !telemetryStatus ? (
+                <span className="text-xs text-text-secondary">{t('common.loading')}</span>
+              ) : telemetryUnavailable ? (
+                <span
+                  className="text-xs font-medium text-text-secondary"
+                  data-testid="telemetry-unavailable"
+                >
+                  {t('settings.telemetryUnavailable')}
+                </span>
+              ) : (
+                <span
+                  className={`text-xs font-medium ${telemetryEnabled ? 'text-status-success' : 'text-text-secondary'}`}
+                >
+                  {telemetryEnabled
+                    ? t('settings.telemetryEnabled')
+                    : t('settings.telemetryDisabled')}
+                </span>
+              )}
+            </div>
+            {telemetryToggleError && (
+              <span className="text-xs text-status-error" data-testid="telemetry-error">
+                {telemetryToggleError}
+              </span>
+            )}
+            {/* The log the errors are written to, SandForge's output
+                      channel: a count of "events recorded" stood here, which
+                      counted breadcrumbs that log leaves out, and nothing on
+                      the page opened it. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                data-testid="telemetry-toggle-btn"
+                variant="secondary"
+                size="sm"
+                loading={telemetryToggling}
+                disabled={telemetryUnavailable || telemetryToggling}
+                onClick={toggleTelemetry}
+              >
+                {telemetryEnabled ? t('settings.telemetryDisable') : t('settings.telemetryEnable')}
+              </Button>
+              <Button
+                data-testid="telemetry-open-log-btn"
+                variant="secondary"
+                size="sm"
+                onClick={() => sendBridgeMessage('workbench:open-log')}
+              >
+                {t('settings.telemetryOpenLog')}
+              </Button>
+            </div>
+          </div>
+        </SettingsSection>
       </div>
     </div>
   );

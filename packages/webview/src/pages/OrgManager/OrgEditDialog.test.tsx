@@ -4,6 +4,7 @@ import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgEditDialog } from './OrgEditDialog';
+import fr from '../../i18n/locales/fr.json';
 
 const mockOrg: SalesforceOrg = {
   id: 'org-1',
@@ -141,5 +142,35 @@ describe('OrgEditDialog', () => {
     render(<OrgEditDialog {...defaultProps} />);
     const tagsInput = screen.getByTestId('edit-tags-input') as HTMLInputElement;
     expect(tagsInput.value).toBe('dev');
+  });
+
+  it('is titled Modifier l’org in French, as Connecter l’org names its button', () => {
+    // "Modifier Org" and "Connecter Org" read as English title case.
+    expect(fr.org.edit).toBe("Modifier l'org");
+    expect(fr.org.connect).toBe("Connecter l'org");
+  });
+
+  it('names the mark Préproduction in French, as its box does, wherever the warnings about it are', () => {
+    // The box said Préproduction and the badge PRÉPROD, while the warnings a
+    // marked sandbox brings read "une sandbox marquée Staging".
+    expect(fr.org.staging).toBe('Préproduction');
+    for (const text of [
+      fr.org.disconnectConfirm,
+      fr.forge.allPreviewRealData,
+      fr.dataopsEmpty.objects.staging,
+      fr.dataopsEmpty.org.staging,
+      fr.onboarding.whatsNew.replay1810Desc,
+      fr.automation.runnability.paletteNote,
+      fr.automation.runnability.syncNeedsApproval,
+      fr.automation.runnability.writeNeedsApproval,
+      fr.automation.export.note.staging,
+      fr.automation.export.orgs.staging,
+      fr.checkpoint.replay.mask.staging,
+      fr.frozen.replay.refusal.realDataStaging,
+      fr.frozen.replay.refusal.staging,
+    ]) {
+      expect(text).toContain('Préproduction');
+      expect(text).not.toMatch(/Staging/);
+    }
   });
 });

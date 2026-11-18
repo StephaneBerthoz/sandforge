@@ -144,10 +144,29 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Settings')).toBeDefined();
   });
 
-  it('should show tabs, and no Advanced tab', () => {
+  it('lays its four sections out on one page, each under a heading, with no tab to open', () => {
+    // Four tabs held some 1,300 pixels between them, each three-quarters
+    // empty, and what a tab held was out of sight until it was opened.
     render(<SettingsPage />);
-    expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('tab')).toEqual([]);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'General',
+      'AI',
+      'Share setup',
+      'Diagnostics',
+    ]);
+    for (const [testId, heading] of [
+      ['general-settings', 'General'],
+      ['ai-settings', 'AI'],
+      ['profiles-settings', 'Share setup'],
+      ['telemetry-settings', 'Diagnostics'],
+    ]) {
+      const section = screen.getByTestId(testId);
+      expect(section.tagName).toBe('SECTION');
+      expect(screen.getByRole('region', { name: heading })).toBe(section);
+    }
     expect(screen.queryByText('Advanced')).toBeNull();
+    expect(screen.queryByText('Export / Import')).toBeNull();
   });
 
   it('should show general settings by default', () => {
@@ -160,21 +179,28 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('language-select')).toBeDefined();
   });
 
-  it('opens on the AI tab, its key field focused, when a caller asks for it, once', () => {
-    // The tour's button, and every "Go to Settings" shown for want of a key,
-    // landed on General, a click away from the key.
-    useAppStore.getState().navigate('settings', { settingsTab: 'ai' });
-    const { unmount } = render(<SettingsPage />);
-    expect(screen.getByTestId('ai-settings')).toBeDefined();
-    expect(screen.queryByTestId('general-settings')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId('ai-api-key-input'));
-    expect(useAppStore.getState().navigationIntent).toBeNull();
-    unmount();
+  it('opens on the AI section, its key field focused, when a caller asks for it, once', () => {
+    // Every "Open AI settings" shown for want of a key landed on General, a
+    // click away from the key.
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+      scrolled.push(this);
+    });
+    try {
+      useAppStore.getState().navigate('settings', { settingsTab: 'ai' });
+      const { unmount } = render(<SettingsPage />);
+      expect(scrolled).toEqual([screen.getByTestId('ai-settings')]);
+      expect(document.activeElement).toBe(screen.getByTestId('ai-api-key-input'));
+      expect(useAppStore.getState().navigationIntent).toBeNull();
+      unmount();
 
-    // Read once: a later visit opens on General, and moves no focus.
-    render(<SettingsPage />);
-    expect(screen.getByTestId('general-settings')).toBeDefined();
-    expect(document.activeElement).toBe(document.body);
+      // Read once: a later visit opens at the top, and moves no focus.
+      render(<SettingsPage />);
+      expect(scrolled).toHaveLength(1);
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   it('keeps a language as soon as it applies, with no Save button to press', async () => {
@@ -197,29 +223,27 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(i18n.language).toBe('en'));
   });
 
-  it('has no Save button on any tab, beside controls that keep what they change', () => {
+  it('has no Save button in any section, beside controls that keep what they change', () => {
     render(<SettingsPage />);
-    for (const tab of ['General', 'AI', 'Export / Import', 'Diagnostics']) {
-      fireEvent.click(screen.getAllByText(tab)[0]);
-      expect(screen.queryByTestId('save-settings-btn')).toBeNull();
-    }
+    expect(screen.queryByTestId('save-settings-btn')).toBeNull();
     // AI: the key is committed by the button inside the field row, and says
     // it turns AI on as well while no key is stored.
-    fireEvent.click(screen.getByText('AI'));
     expect(screen.getAllByRole('button', { name: /^Save/ })).toEqual([
       screen.getByTestId('ai-save-key-btn'),
     ]);
   });
 
-  it("opens VS Code's Settings on Production Guard, saying the other settings are there", () => {
+  it("opens VS Code's Settings on Production Guard, by a button that says so", () => {
     // The walkthrough named batch sizes, Production Guard and Forge's graph
-    // view, then opened this page, where none of them is and nothing led there.
+    // view, then opened this page, where none of them is and nothing led
+    // there; its button read More settings in VS Code, and opened on
+    // Production Guard without a word.
     render(<SettingsPage />);
     expect(screen.getByTestId('vscode-settings').textContent).toContain(
       en.settings.vscodeSettingsDesc,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: en.settings.vscodeSettingsOpen }));
+    fireEvent.click(screen.getByRole('button', { name: 'Production Guard and other settings' }));
 
     expect(sent('workbench:open-setting')).toEqual([{ setting: 'sandforge.safety' }]);
   });
@@ -253,63 +277,46 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('plugins-settings')).toBeNull();
   });
 
-  it('should offer the implemented tabs and no plugins tab', () => {
+  it('shares the saved setup in a section of its own, named for what it does', () => {
+    // Its tab read Export / Import, beside an Export that exported no setting.
     render(<SettingsPage />);
-    const tabLabels = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabLabels).toEqual(['General', 'AI', 'Export / Import', 'Diagnostics']);
-    expect(tabLabels).not.toContain('Plugins');
-  });
 
-  it('should mount the config profile panel on the profiles tab', () => {
-    render(<SettingsPage />);
-    expect(screen.queryByTestId('config-profile-panel')).toBeNull();
-
-    fireEvent.click(screen.getByText('Export / Import'));
-
-    const panel = screen.getByTestId('profiles-settings');
-    expect(panel.getAttribute('role')).toBe('tabpanel');
-    expect(panel.getAttribute('aria-labelledby')).toBe('tab-profiles');
-    expect(screen.getByTestId('config-profile-panel')).toBeDefined();
+    const section = screen.getByTestId('profiles-settings');
+    expect(within(section).getByRole('heading', { level: 2 }).textContent).toBe(
+      en.config.profiles.title,
+    );
+    expect(within(section).getByTestId('config-profile-panel')).toBeDefined();
     expect(screen.getByTestId('config-export-section')).toBeDefined();
     expect(screen.getByTestId('config-import-section')).toBeDefined();
-  });
-
-  it('should request config:categories once the profiles tab is opened', () => {
-    render(<SettingsPage />);
-    expect(bridgeQueryTypes).not.toContain('config:categories');
-
-    fireEvent.click(screen.getByText('Export / Import'));
-
     expect(bridgeQueryTypes).toContain('config:categories');
   });
 
-  it('should show telemetry tab with disabled status', () => {
+  it('should show Diagnostics with its disabled status', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
-    expect(screen.getByTestId('telemetry-settings')).toBeDefined();
-    expect(screen.getByText('Disabled')).toBeDefined();
+    expect(
+      within(screen.getByTestId('telemetry-settings')).getByText(en.settings.telemetryDisabled),
+    ).toBeDefined();
     expect(screen.getByTestId('telemetry-toggle-btn')).toBeDefined();
   });
 
-  it('describes the telemetry counter as local logging, with no buffer row', () => {
+  it('opens the log Diagnostics writes to, and counts no event that log does not show', () => {
+    // It counted "Diagnostic events recorded", breadcrumbs among them, which
+    // the log leaves out, and nothing on the page opened that log.
     mockTelemetryStatus.data = { enabled: true, eventCount: 3 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
     const panel = screen.getByTestId('telemetry-settings');
-    // The adapter writes to a local log and has no transport: nothing is
-    // sent, and no buffer exists for the extension to measure (it sent 0).
-    const counter = screen.getByText(en.settings.telemetryEventCount);
-    expect(counter.textContent).not.toMatch(/sent/i);
-    expect(counter.textContent).toMatch(/recorded/i);
-    expect(panel.textContent).not.toMatch(/buffer/i);
+    expect(screen.queryByTestId('telemetry-events')).toBeNull();
+    expect(panel.textContent).not.toMatch(/recorded|buffer/i);
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Open log' }));
+
+    expect(sent('workbench:open-log')).toHaveLength(1);
   });
 
   it('says what Diagnostics records and that nothing leaves the machine, before its switch', () => {
     // "Telemetry", a status and an Enable button, and nothing said what was
     // recorded or where it went: read as data leaving the machine.
     render(<SettingsPage />);
-    expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeDefined();
-    fireEvent.click(screen.getByText('Diagnostics'));
 
     const description = screen.getByTestId('telemetry-description');
     expect(description.textContent).toBe(en.settings.telemetryDesc);
@@ -324,17 +331,16 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('should display the mocked telemetry status and real event count', () => {
+  it('should display the telemetry status the extension reports', () => {
     mockTelemetryStatus.data = { enabled: true, eventCount: 42 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
-    expect(screen.getByText('Enabled')).toBeDefined();
-    expect(screen.getByTestId('telemetry-events').textContent).toBe('42');
+    expect(
+      within(screen.getByTestId('telemetry-settings')).getByText(en.settings.telemetryEnabled),
+    ).toBeDefined();
   });
 
   it('should dispatch the telemetry:toggle mutation when toggle clicked', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
     fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
     expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: true });
   });
@@ -342,7 +348,6 @@ describe('SettingsPage', () => {
   it('should dispatch enabled:false when telemetry is currently on', () => {
     mockTelemetryStatus.data = { enabled: true, eventCount: 7 };
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
     fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
     expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: false });
   });
@@ -350,17 +355,17 @@ describe('SettingsPage', () => {
   it('should show an honest unavailable state when the extension does not answer', () => {
     mockTelemetryStatus.error = "Bridge query 'telemetry:status' timed out after 5000ms";
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Diagnostics'));
     expect(screen.getByTestId('telemetry-unavailable')).toBeDefined();
-    expect(screen.queryByText('Disabled')).toBeNull();
+    expect(
+      within(screen.getByTestId('telemetry-settings')).queryByText(en.settings.telemetryDisabled),
+    ).toBeNull();
     const toggleBtn = screen.getByTestId('telemetry-toggle-btn') as HTMLButtonElement;
     expect(toggleBtn.disabled).toBe(true);
   });
 
-  describe('the AI tab', () => {
+  describe('the AI section', () => {
     const openAiTab = (): void => {
       render(<SettingsPage />);
-      fireEvent.click(screen.getByText('AI'));
     };
 
     it('says what each feature sends, and to whom, before any key is stored', () => {

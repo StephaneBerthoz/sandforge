@@ -157,6 +157,12 @@ export interface ExtensionHandlersDeps {
    */
   executeCommand?: CommandExecutor;
   /**
+   * Shows the SandForge output channel, which Settings' Diagnostics opens:
+   * the errors it records are written there. Absent in tests that do not
+   * give one; the request then does nothing.
+   */
+  showLog?: () => void;
+  /**
    * Directory holding the packaged webview locale JSONs
    * (`<extension>/webview-dist/locales`), served by the I18nHandler for lazy
    * i18n loading. Optional so tests that construct ExtensionHandlers with the
@@ -176,6 +182,8 @@ export interface ExtensionHandlersDeps {
 export class ExtensionHandlers {
   private readonly handlerDeps: HandlerDeps;
   private readonly executeCommand: CommandExecutor;
+  /** Shows the SandForge log: see {@link ExtensionHandlersDeps.showLog}. */
+  private readonly showLog: () => void;
   /** Told of each `panel:route`: see {@link setPanelRouteListener}. */
   private panelRouteListener: ((msg: BaseMessage) => void) | undefined;
   /** Told of each `panel:reload`: see {@link setPanelReloadListener}. */
@@ -238,6 +246,7 @@ export class ExtensionHandlers {
     // Default to a no-op executor so tests that don't care about the reload
     // command can still construct ExtensionHandlers without wiring vscode.
     this.executeCommand = deps.executeCommand ?? (() => Promise.resolve());
+    this.showLog = deps.showLog ?? (() => {});
     this.refreshDetector = new SandboxRefreshDetector({
       configStore: deps.configStore,
       orgManager: deps.orgManager,
@@ -1468,6 +1477,11 @@ export class ExtensionHandlers {
         return;
       }
       void this.executeCommand('workbench.action.openSettings', parsed.data.setting);
+    });
+
+    // Diagnostics counted events in a log nothing on the page opened.
+    router.route('workbench:open-log', () => {
+      this.showLog();
     });
 
     // Webview crash reports (React ErrorBoundary). Fire-and-forget: logged

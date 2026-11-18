@@ -50,6 +50,7 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
   let router: MessageRouter;
   let handlers: ExtensionHandlers;
   let executeCommand: Mock<CommandExecutor>;
+  let showLog: Mock<() => void>;
 
   beforeEach(() => {
     broker = new MessageBroker();
@@ -65,6 +66,7 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
     const sfdxBridge = createMockSfdxBridge();
 
     executeCommand = vi.fn<CommandExecutor>().mockResolvedValue(undefined);
+    showLog = vi.fn<() => void>();
 
     const deps: ExtensionHandlersDeps = {
       log: () => {},
@@ -77,6 +79,7 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
       authProvider,
       sfdxBridge,
       executeCommand,
+      showLog,
     };
     handlers = new ExtensionHandlers(deps);
     handlers.registerAll(router);
@@ -192,6 +195,27 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
       type: 'panel:reload',
       payload: { moduleId: 'forge' },
     });
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('shows the SandForge log when Diagnostics asks for it, and runs no command', () => {
+    // Diagnostics counted events in a log nothing on the page opened.
+    const panel = {
+      webview: {
+        onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+        postMessage: vi.fn(),
+      },
+    };
+    broker.registerPanel(panel as never);
+    const receive = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+
+    receive({
+      protocolVersion: PROTOCOL_VERSION,
+      payload: { id: 'open-log-1', type: 'workbench:open-log', timestamp: Date.now() },
+    });
+
+    expect(showLog).toHaveBeenCalledOnce();
+    expect(executeCommand).not.toHaveBeenCalled();
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
   });
 

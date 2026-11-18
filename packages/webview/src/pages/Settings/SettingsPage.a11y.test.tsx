@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { SettingsPage } from './SettingsPage';
 import { stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
@@ -64,8 +64,19 @@ describe('SettingsPage accessible names', () => {
 
   it('should name the AI api key input', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('AI'));
     expect(accessibleName(screen.getByTestId('ai-api-key-input'))).not.toBe('');
     expect(orphanLabels(screen.getByTestId('ai-settings'))).toEqual([]);
+  });
+
+  it('names every field and every section of the one page', () => {
+    render(<SettingsPage />);
+    const page = screen.getByTestId('settings-page');
+    expect(orphanLabels(page)).toEqual([]);
+    for (const section of page.querySelectorAll('section')) {
+      const heading = document.getElementById(section.getAttribute('aria-labelledby') ?? '');
+      expect(heading?.tagName).toBe('H2');
+      expect(section.contains(heading)).toBe(true);
+    }
+    expect(page.querySelectorAll('section')).toHaveLength(4);
   });
 });

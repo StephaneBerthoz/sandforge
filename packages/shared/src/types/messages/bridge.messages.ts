@@ -106,6 +106,15 @@ export interface WorkbenchOpenSettingRequest extends BaseMessage {
 }
 
 /**
+ * Sent by Settings' Diagnostics: the extension shows its log, the SandForge
+ * output channel, where the errors Diagnostics records are written. No
+ * payload.
+ */
+export interface WorkbenchOpenLogRequest extends BaseMessage {
+  type: 'workbench:open-log';
+}
+
+/**
  * Crash report posted by the webview's ErrorBoundary when a render throws.
  * The extension logs it to the output channel — before the broker envelope
  * existed this fire-and-forget message was silently dropped.

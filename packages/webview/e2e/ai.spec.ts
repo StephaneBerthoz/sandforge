@@ -138,20 +138,23 @@ test.describe('AI Module — availability gate', () => {
     await expect(page.getByTestId('ai-not-configured')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'AI Assistant not configured' })).toBeVisible();
     // The guidance is only useful if it points somewhere.
-    await expect(page.getByRole('button', { name: 'Go to Settings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open AI settings' })).toBeVisible();
     await expect(page.getByTestId('ai-chat-panel')).toHaveCount(0);
   });
 
-  test('sends Go to Settings to the AI tab, its key field focused', async ({ page }) => {
+  test('sends Open AI settings to the AI section, its heading in view and its key field focused', async ({
+    page,
+  }) => {
     // It opened General, which holds the language alone, and the how-to made
     // up for it with "then the AI tab".
     await openAIPanelDisabled(page);
 
-    await page.getByRole('button', { name: 'Go to Settings' }).click();
+    await page.getByRole('button', { name: 'Open AI settings' }).click();
 
     await expect(page.getByTestId('ai-settings')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#tab-ai')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { level: 2, name: 'AI', exact: true })).toBeInViewport();
     await expect(page.getByTestId('ai-api-key-input')).toBeFocused();
+    await expect(page.getByRole('tab')).toHaveCount(0);
   });
 
   test('mounts the chat panel once the host reports AI enabled', async ({ page }) => {

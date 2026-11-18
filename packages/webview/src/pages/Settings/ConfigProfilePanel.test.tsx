@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { ConfigProfilePanel } from './ConfigProfilePanel';
@@ -92,9 +92,10 @@ describe('ConfigProfilePanel', () => {
 
   it('names what it shares as the Forge page names it, under a heading that is no "profile"', () => {
     // "Profiles" reads as Salesforce Profiles to a consultant, and "Forge
-    // Plans" named what the Forge page calls templates.
+    // Plans" named what the Forge page calls templates. The heading is the
+    // Settings section's, Share setup, where the tab said Export / Import.
     render(<ConfigProfilePanel />);
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(en.config.profiles.title);
+    expect(en.config.profiles.title).toBe('Share setup');
     expect(screen.getByTestId('cat-toggle-forgePlans').textContent).toBe(
       en.config.categories.forgePlans,
     );
@@ -121,5 +122,46 @@ describe('ConfigProfilePanel', () => {
   it('renders overwrite checkbox', () => {
     render(<ConfigProfilePanel />);
     expect(screen.getByTestId('overwrite-checkbox')).toBeTruthy();
+  });
+
+  describe('importing a file', () => {
+    beforeEach(() => mutations.clear());
+
+    /** Pick `file` in the panel's file field. */
+    const pick = (file: File): void => {
+      fireEvent.change(screen.getByTestId('import-file-input'), { target: { files: [file] } });
+    };
+
+    it('reads an export from a file, as Forge reads a template, and checks it at once', async () => {
+      // An export came in only pasted into a box, where Forge imports a file.
+      render(<ConfigProfilePanel />);
+      const button = screen.getByRole('button', { name: 'Import from file…' });
+      const input = screen.getByTestId('import-file-input') as HTMLInputElement;
+      expect(input.type).toBe('file');
+      expect(input.accept).toBe('.json,application/json');
+      const opened = vi.spyOn(input, 'click');
+      fireEvent.click(button);
+      expect(opened).toHaveBeenCalledOnce();
+
+      const json = '{"version":1,"categories":{}}';
+      pick(new File([json], 'team-setup.json', { type: 'application/json' }));
+
+      await waitFor(() => expect(mutations.get('config:validate')).toHaveBeenCalledWith({ json }));
+      expect((screen.getByTestId('import-textarea') as HTMLTextAreaElement).value).toBe(json);
+      expect(screen.getByTestId('import-file-read').textContent).toBe(
+        'Read from team-setup.json: check what it holds below, then Import.',
+      );
+      expect(mutations.get('config:import')).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('import-btn'));
+      expect(mutations.get('config:import')).toHaveBeenCalledWith({ json, overwrite: true });
+    });
+
+    it('still takes an export pasted in, the file being one way of two', () => {
+      render(<ConfigProfilePanel />);
+      const pasted = screen.getByTestId('import-textarea') as HTMLTextAreaElement;
+      expect(pasted.placeholder).toBe(en.config.profiles.importPlaceholder);
+      expect(en.config.profiles.importPlaceholder).toMatch(/^Or paste/);
+    });
   });
 });

@@ -204,9 +204,11 @@
     "title": "Organizations",
     "connect": "Connect Org",
     "disconnect": "Disconnect",
+    "current": "Current org",
+    "bringBack": "Bring back into service",
     "scratchExpiredBadge": "Expired on {{date}}",
     "scratchExpired": "This scratch org expired on {{date}}: Salesforce deletes a scratch org when it expires, and no reconnect brings it back. Create a new one and import it, then disconnect this one.",
-    "disconnectConfirm": "Disconnect {{alias}}? SandForge forgets this org: its alias, tags, colour and safety tier are deleted, and reconnecting starts from defaults.",
+    "disconnectConfirm": "Disconnect {{alias}}? SandForge forgets this org: its alias, tags, colour and Staging mark are deleted, and reconnecting starts from defaults.",
     "edit": "Edit Org",
     "noOrgs": "No organizations connected",
     "alias": "Alias",
@@ -1260,7 +1262,7 @@
         "written": "Written",
         "incomplete": "Incomplete",
         "notConfigured": "AI is not set up: store an Anthropic key in Settings > AI.",
-        "openSettings": "Go to Settings"
+        "openSettings": "Open AI settings"
       },
       "review": {
         "title": "Review {{name}}",
@@ -3192,7 +3194,7 @@
     "notConfigured": {
       "title": "AI Assistant not configured",
       "description": "To use AI features, configure your API key in Settings.",
-      "configureButton": "Go to Settings"
+      "configureButton": "Open AI settings"
     },
     "error": {
       "overloaded": "AI provider temporarily overloaded. Retrying in {{countdown}}.",
@@ -3528,16 +3530,15 @@
   "settings": {
     "title": "Settings",
     "general": "General",
-    "profiles": "Export / Import",
     "language": "Language",
     "languageLoadFailed": "{{language}} could not be loaded, so the interface stays in its current language.",
     "telemetry": "Diagnostics",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Enabled",
     "telemetryDisabled": "Disabled",
-    "telemetryEventCount": "Diagnostic events recorded",
     "telemetryEnable": "Turn diagnostics on",
     "telemetryDisable": "Turn diagnostics off",
+    "telemetryOpenLog": "Open log",
     "telemetryUnavailable": "Unavailable",
     "ai": "AI",
     "aiStatus": "Status",
@@ -3565,7 +3566,7 @@
     "aiSendsSeed": "Seed, custom personas and AI field rules: their description, or the field's name and its instruction",
     "aiSendsScenario": "Seed, Draft from your own text: your text with its email addresses and phone numbers masked, its language, the org's Case picklist values and the chosen agent's topic and action names, never a record",
     "vscodeSettingsDesc": "Batch sizes, Production Guard and the record of its decisions, and Forge's graph view are VS Code settings. The button opens them on Production Guard: search for “sandforge” there to see the others.",
-    "vscodeSettingsOpen": "More settings in VS Code"
+    "vscodeSettingsOpen": "Production Guard and other settings"
   },
   "bridge": {
     "protocolMismatch": {
@@ -4139,7 +4140,7 @@
       "tip": "Reports writes nothing to any org; Export as CSV and Export as JSON save every entry the filters match, not only those shown."
     },
     "ai": {
-      "step1": "If the page says AI Assistant not configured, click Go to Settings.",
+      "step1": "If the page says AI Assistant not configured, click Open AI settings.",
       "step2": "Paste your Anthropic key into API key and click Save key and turn on AI.",
       "step3": "Back in AI Assistant, click New conversation.",
       "step4": "Type your question in the message box and press Enter, or click Send.",
@@ -7384,13 +7385,16 @@
       "anonymizationTemplates": "Anonymization templates"
     },
     "profiles": {
-      "title": "Share your SandForge setup",
+      "title": "Share setup",
       "description": "Export what you saved in SandForge as JSON, to share it with your team or keep a copy, and import an export here.",
       "export": "Export",
       "import": "Import",
       "exportBtn": "Export selected",
       "importBtn": "Import",
-      "importPlaceholder": "Paste the JSON of an export here…",
+      "importFile": "Import from file…",
+      "fileRead": "Read from {{name}}: check what it holds below, then Import.",
+      "fileUnreadable": "{{name}} could not be read: nothing was imported.",
+      "importPlaceholder": "Or paste the JSON of an export here…",
       "overwrite": "Overwrite existing entries",
       "validate": "Validate",
       "download": "Download JSON",

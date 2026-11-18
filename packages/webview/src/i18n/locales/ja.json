@@ -193,9 +193,11 @@
     "title": "組織",
     "connect": "組織を接続",
     "disconnect": "切断",
+    "current": "現在の組織",
+    "bringBack": "運用を再開",
     "scratchExpiredBadge": "{{date}} に期限切れ",
     "scratchExpired": "このスクラッチ組織は {{date}} に期限切れになりました。Salesforce は期限切れのスクラッチ組織を削除するため、再接続しても戻りません。新しい組織を作成してインポートし、この組織を切断してください。",
-    "disconnectConfirm": "{{alias}} を切断しますか？SandForge はこの組織を忘れます。エイリアス、タグ、色、安全レベルは削除され、再接続時は既定値から始まります。",
+    "disconnectConfirm": "{{alias}} を切断しますか？SandForge はこの組織を忘れます。エイリアス、タグ、色、ステージングの指定は削除され、再接続時は既定値から始まります。",
     "edit": "組織を編集",
     "noOrgs": "接続されている組織はありません",
     "alias": "エイリアス",
@@ -1182,7 +1184,7 @@
         "written": "作成済み",
         "incomplete": "未完了",
         "notConfigured": "AI が設定されていません。設定 > AI で Anthropic キーを保存してください。",
-        "openSettings": "設定を開く"
+        "openSettings": "AI の設定を開く"
       },
       "review": {
         "title": "{{name}} を確認",
@@ -3005,7 +3007,7 @@
     "notConfigured": {
       "title": "AI アシスタントが未設定です",
       "description": "AI 機能を使用するには、設定で API キーを構成してください。",
-      "configureButton": "設定を開く"
+      "configureButton": "AI の設定を開く"
     },
     "error": {
       "overloaded": "AI プロバイダーが一時的に過負荷です。{{countdown}}後に再試行します。",
@@ -3321,16 +3323,15 @@
   "settings": {
     "title": "設定",
     "general": "一般",
-    "profiles": "エクスポート / インポート",
     "language": "言語",
     "languageLoadFailed": "{{language}} を読み込めなかったため、画面は現在の言語のままです。",
     "telemetry": "診断",
     "telemetryStatus": "ステータス",
     "telemetryEnabled": "有効",
     "telemetryDisabled": "無効",
-    "telemetryEventCount": "記録された診断イベント",
     "telemetryEnable": "診断をオンにする",
     "telemetryDisable": "診断をオフにする",
+    "telemetryOpenLog": "ログを開く",
     "telemetryUnavailable": "利用不可",
     "ai": "AI",
     "aiStatus": "ステータス",
@@ -3357,7 +3358,7 @@
     "aiSendsSeed": "Seed のカスタムペルソナと AI 項目ルール: その説明、または項目名と指示",
     "aiSendsScenario": "Seed の「自分のテキストから下書き」: テキスト (メールアドレスと電話番号はマスク済み)、その言語、組織のケースの選択リスト値、選択したエージェントのトピック名とアクション名。レコードは決して送信しません",
     "vscodeSettingsDesc": "バッチサイズ、Production Guard とその判断の記録、Forge のグラフ表示は VS Code の設定です。ボタンを押すと Production Guard の設定が開きます。その他の設定はそこで「sandforge」を検索してください。",
-    "vscodeSettingsOpen": "VS Code のその他の設定"
+    "vscodeSettingsOpen": "Production Guard とその他の設定"
   },
   "bridge": {
     "protocolMismatch": {
@@ -3931,7 +3932,7 @@
       "tip": "レポート は組織に何も書き込みません。CSV にエクスポート と JSON にエクスポート は、表示中の分だけでなく、フィルターに一致するすべてのエントリーを保存します。"
     },
     "ai": {
-      "step1": "ページに AI アシスタントが未設定です と表示されたら、設定を開く をクリックします。",
+      "step1": "ページに AI アシスタントが未設定です と表示されたら、AI の設定を開く をクリックします。",
       "step2": "Anthropic のキーを API キー に貼り付け、キーを保存して AI をオンにする をクリックします。",
       "step3": "AI アシスタント に戻り、新規会話 をクリックします。",
       "step4": "メッセージ欄に質問を入力して Enter キーを押すか、送信 をクリックします。",
@@ -6914,13 +6915,16 @@
       "anonymizationTemplates": "匿名化テンプレート"
     },
     "profiles": {
-      "title": "SandForge の構成を共有",
+      "title": "構成を共有",
       "description": "SandForge に保存した内容を JSON でエクスポートして、チームと共有したりコピーを保管したりできます。エクスポートしたものはここでインポートできます。",
       "export": "エクスポート",
       "import": "インポート",
       "exportBtn": "選択したものをエクスポート",
       "importBtn": "インポート",
-      "importPlaceholder": "エクスポートした JSON をここに貼り付けてください…",
+      "importFile": "ファイルからインポート…",
+      "fileRead": "{{name}} から読み込みました。下で内容を確認してから「インポート」を押してください。",
+      "fileUnreadable": "{{name}} を読み込めませんでした。何もインポートされていません。",
+      "importPlaceholder": "または、エクスポートした JSON をここに貼り付けてください…",
       "overwrite": "既存のエントリを上書き",
       "validate": "検証",
       "download": "JSON をダウンロード",

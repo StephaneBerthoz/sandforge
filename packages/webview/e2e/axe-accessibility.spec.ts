@@ -2156,6 +2156,25 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Organizations with the current org said in words and a refreshed sandbox to bring back into service', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme, orgs: true });
+      const status = recoveryStatus();
+      await bridge.waitForMessage('recovery:status', { timeout: 10_000 });
+      await answerAll(page, 'recovery:status', 'recovery:status:response', { status });
+      const card = page.getByTestId(`org-card-${status.orgId}`);
+      await card.getByTestId(`org-select-${status.orgId}`).click();
+      await expect(page.getByTestId(`org-current-${status.orgId}`)).toBeVisible();
+      await expect(page.getByTestId(`org-bring-back-${status.orgId}`)).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, `[data-testid="org-card-${status.orgId}"]`),
+      ).toBeGreaterThan(2);
+    });
+
     test('Back into service, a refreshed sandbox with its how-to open', async ({ page }) => {
       await navigateToModule(bridge, page, 'recovery', 'recovery-page', {
         theme,
@@ -8863,7 +8882,7 @@ for (const theme of SCANNED_THEMES) {
       expect(measured, 'axe did not measure the status of the cancelled run').toBe(true);
     });
 
-    test('Settings page with tabs', async ({ page }) => {
+    test('Settings page', async ({ page }) => {
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
 
       // Scan initial state
@@ -8871,26 +8890,24 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(initial);
     });
 
-    test('Settings, each tab open', async ({ page }) => {
-      // The page scan only ever saw the General tab: the others were never
-      // rendered while axe looked.
+    test('Settings, each section in view', async ({ page }) => {
+      // One page of four sections: each is brought to the middle of the
+      // window and measured there, the text below the fold left unmeasured
+      // by a scan from the top.
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
-      for (const tab of ['general', 'ai', 'profiles', 'telemetry']) {
-        await page.locator(`#tab-${tab}`).click();
-        const panel = page.locator(`#tabpanel-${tab}`);
-        await panel.waitFor({ state: 'visible', timeout: 5000 });
-        await expect(page.locator(`#tab-${tab}`)).toHaveAttribute('aria-selected', 'true');
+      for (const section of ['general', 'ai', 'profiles', 'telemetry']) {
+        await toMiddle(page, `${section}-settings`);
 
         const results = await checkAccessibility(page);
         expectNoViolations(results);
         expect(
-          await contrastMeasuredIn(page, results, `#tabpanel-${tab}`),
-          `axe measured no text of the ${tab} tab`,
+          await contrastMeasuredIn(page, results, `[data-testid="${section}-settings"]`),
+          `axe measured no text of the ${section} section`,
         ).toBeGreaterThan(0);
       }
-      // What lives in VS Code's Settings, on General, and what Diagnostics
-      // records, on its tab, were both measured.
-      await page.locator('#tab-general').click();
+      // What lives in VS Code's Settings, in General, and what Diagnostics
+      // records, with its Open log, were both measured.
+      await toMiddle(page, 'vscode-settings');
       expect(
         await contrastMeasuredIn(
           page,
@@ -8898,7 +8915,7 @@ for (const theme of SCANNED_THEMES) {
           '[data-testid="vscode-settings"]',
         ),
       ).toBeGreaterThan(1);
-      await page.locator('#tab-telemetry').click();
+      await toMiddle(page, 'telemetry-settings');
       expect(
         await contrastMeasuredIn(
           page,
@@ -8908,11 +8925,27 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
-    test('Settings AI tab with a key stored and AI on: what is sent, its switches, and the removal of the key asked', async ({
+    test('Settings, Share setup with an export read from a file', async ({ page }) => {
+      await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
+      await page.getByTestId('import-file-input').setInputFiles({
+        name: 'team-setup.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from('{"version":1,"categories":{}}'),
+      });
+      await expect(page.getByTestId('import-file-read')).toBeVisible();
+      await toMiddle(page, 'config-import-section');
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="config-import-section"]'),
+      ).toBeGreaterThan(1);
+    });
+
+    test('Settings AI section with a key stored and AI on: what is sent, its switches, and the removal of the key asked', async ({
       page,
     }) => {
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
-      await page.locator('#tab-ai').click();
       await bridge.waitForMessage('ai:status', { timeout: 10_000 });
       await answerAll(page, 'ai:status', 'ai:status:response', {
         enabled: true,
@@ -8924,6 +8957,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('ai-error-resolution-toggle')).toBeChecked();
       await page.getByTestId('ai-remove-key-btn').click();
       await expect(page.getByTestId('ai-remove-key-question')).toBeVisible();
+      await toMiddle(page, 'ai-settings');
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);

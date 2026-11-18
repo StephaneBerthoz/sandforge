@@ -4,7 +4,17 @@ import '../../i18n';
 import { OrgSafetyTier, SF_CLI_INSTALL_URL, SF_CLI_MISSING_MESSAGE } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { OrgManagerPage } from './OrgManagerPage';
+import de from '../../i18n/locales/de.json';
+import en from '../../i18n/locales/en.json';
+import es from '../../i18n/locales/es.json';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+
+/** The six catalogues, by language. */
+const LOCALES = { de, en, es, fr, ja, 'pt-BR': ptBR };
 
 /**
  * Mock the bridge hooks so tests do not depend on the real VSCode API.
@@ -236,8 +246,21 @@ describe('OrgManagerPage', () => {
     fireEvent.click(screen.getByText('Disconnect'));
     // The alias also appears on the card behind the dialog, so scope the query.
     const dialog = screen.getByTestId('danger-title').parentElement as HTMLElement;
-    expect(within(dialog).getByText(/Dev Sandbox/).textContent).toContain('safety tier');
+    expect(within(dialog).getByText(/Dev Sandbox/).textContent).toContain('Staging mark');
   });
+
+  it.each(Object.entries(LOCALES))(
+    'names the Staging mark the disconnection deletes by the name of its box, in %s',
+    (lng, bundle) => {
+      // It said "safety tier", a term the extension shows nowhere else: the
+      // Edit dialog's box is Staging, Préproduction in French.
+      expect({ lng, text: bundle.org.disconnectConfirm }).toEqual({
+        lng,
+        text: expect.stringContaining(bundle.org.staging),
+      });
+      expect(bundle.org.disconnectConfirm).not.toMatch(/safety tier|niveau de sûreté/i);
+    },
+  );
 
   it('should remove org once the disconnect is confirmed', () => {
     useOrgStore.setState({ orgs: [mockOrg] });
@@ -375,6 +398,7 @@ describe('OrgManagerPage', () => {
 
   it('should keep the inline form open, with what was typed, when the connect fails', () => {
     const { rerender } = render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-more'));
     fireEvent.click(screen.getByTestId('org-auth-usernamePassword'));
     fireEvent.change(screen.getByTestId('inline-alias-input'), {
       target: { value: 'my-sandbox' },
@@ -447,6 +471,7 @@ describe('OrgManagerPage', () => {
 
   it('should collapse the inline form when the connect succeeds', () => {
     const { rerender } = render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-more'));
     fireEvent.click(screen.getByTestId('org-auth-usernamePassword'));
     fireEvent.change(screen.getByTestId('inline-alias-input'), {
       target: { value: 'my-sandbox' },
@@ -541,22 +566,41 @@ describe('OrgManagerPage', () => {
   });
 
   describe('JWT and device flow cards', () => {
-    it('keeps JWT and the device flow under More methods until asked for', () => {
-      // Both need a connected app of the user's own, and sat at the weight of
-      // the two ways that need nothing.
+    it('offers two ways to connect, Username / Password, JWT and the device flow under More methods', () => {
+      // JWT and the device flow need a connected app of the user's own, and
+      // Username / Password sat at the weight of the two ways that need
+      // nothing, where Help names two ways to connect.
       render(<OrgManagerPage />);
-      expect(screen.queryByTestId('org-auth-jwt')).toBeNull();
-      expect(screen.queryByTestId('org-auth-oauth_device')).toBeNull();
-      expect(screen.getByTestId('org-auth-sfdx_import')).toBeDefined();
-      expect(screen.getByTestId('org-auth-oauth_web')).toBeDefined();
+      expect(
+        within(screen.getByTestId('org-auth-methods'))
+          .getAllByRole('button')
+          .map((button) => button.getAttribute('data-testid')),
+      ).toEqual(['org-auth-sfdx_import', 'org-auth-oauth_web', 'org-auth-more']);
 
       const more = screen.getByTestId('org-auth-more');
       expect(more.getAttribute('aria-expanded')).toBe('false');
       fireEvent.click(more);
 
       expect(more.getAttribute('aria-expanded')).toBe('true');
+      expect(screen.getByTestId('org-auth-usernamePassword')).toBeDefined();
       expect(screen.getByTestId('org-auth-jwt')).toBeDefined();
       expect(screen.getByTestId('org-auth-oauth_device')).toBeDefined();
+    });
+
+    it('opens the Username / Password form of an org to reconnect, folded or not', () => {
+      useOrgStore.setState({
+        orgs: [{ ...mockOrg, status: 'expired', authMethod: 'usernamePassword' }],
+      });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+
+      expect(screen.getByTestId('org-auth-usernamePassword').className).toContain(
+        'bg-(--sf-button-bg)',
+      );
+      expect((screen.getByTestId('inline-username-input') as HTMLInputElement).value).toBe(
+        mockOrg.username,
+      );
     });
 
     it.each([
@@ -866,6 +910,104 @@ describe('OrgManagerPage', () => {
       mockOpenState = { ...mockOpenState, data: { status: 'opened' } };
       render(<OrgManagerPage />);
       expect(screen.queryByTestId('org-open-error')).toBeNull();
+    });
+  });
+
+  describe('a sandbox whose refresh SandForge noticed', () => {
+    /** What `recovery:status` answers for org-1: refreshed, three of eight steps done. */
+    const statusOf = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+      orgId: 'org-1',
+      alias: 'Dev Sandbox',
+      tier: 'development',
+      refresh: {
+        detectedAt: '2026-11-17T09:00:00.000Z',
+        evidence: 'connection',
+        cachesForgotten: true,
+      },
+      steps: [],
+      beforeNextRefresh: [],
+      done: 3,
+      total: 8,
+      ...overrides,
+    });
+
+    /** The extension answering the page's `recovery:status` for org-1. */
+    const answerStatus = (status: Record<string, unknown>): void => {
+      const index = sentToHost.findIndex(
+        (message) =>
+          message.type === 'recovery:status' &&
+          (message.payload as { orgId?: string }).orgId === 'org-1',
+      );
+      expect(index).toBeGreaterThanOrEqual(0);
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              type: 'recovery:status:response',
+              id: 'status-answer',
+              correlationId: `sent-${index + 1}`,
+              payload: { status },
+            },
+          }),
+        );
+      });
+    };
+
+    beforeEach(() => {
+      sentToHost.length = 0;
+      useAppStore.setState({ currentRoute: 'orgs', navigationIntent: null });
+    });
+
+    it('opens Back into service on it, selected first, from its card', () => {
+      // A refreshed sandbox showed Session Expired and Try Reconnect, and
+      // nothing on Organizations led to what follows a refresh.
+      useOrgStore.setState({
+        orgs: [
+          { ...mockOrg, status: 'expired' },
+          { ...mockOrg, id: 'org-2', alias: 'QA' },
+        ],
+        selectedOrgId: 'org-2',
+      });
+      render(<OrgManagerPage />);
+      expect(screen.queryByTestId('org-bring-back-org-1')).toBeNull();
+
+      answerStatus(statusOf());
+      fireEvent.click(screen.getByTestId('org-bring-back-org-1'));
+
+      expect(useOrgStore.getState().selectedOrgId).toBe('org-1');
+      expect(sentToHost).toContainEqual({ type: 'org:select', payload: { orgId: 'org-1' } });
+      expect(useAppStore.getState().currentRoute).toBe('recovery');
+      expect(screen.queryByTestId('org-bring-back-org-2')).toBeNull();
+    });
+
+    it('offers it no more once the recovery is finished, nor without a refresh noticed', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      const { unmount } = render(<OrgManagerPage />);
+      answerStatus(statusOf({ finishedAt: '2026-11-17T12:00:00.000Z' }));
+      expect(screen.queryByTestId('org-bring-back-org-1')).toBeNull();
+      unmount();
+
+      sentToHost.length = 0;
+      render(<OrgManagerPage />);
+      answerStatus(statusOf({ refresh: undefined }));
+      expect(screen.queryByTestId('org-bring-back-org-1')).toBeNull();
+    });
+
+    it('asks of the sandboxes alone', () => {
+      useOrgStore.setState({
+        orgs: [
+          mockOrg,
+          { ...mockOrg, id: 'prod', orgType: 'Production' },
+          { ...mockOrg, id: 'scratch', orgType: 'Scratch' },
+        ],
+      });
+      render(<OrgManagerPage />);
+
+      expect(
+        sentToHost
+          .filter((message) => message.type === 'recovery:status')
+          .map((message) => message.payload),
+      ).toEqual([{ orgId: 'org-1' }]);
     });
   });
 

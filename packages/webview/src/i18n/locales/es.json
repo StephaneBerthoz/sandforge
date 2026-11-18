@@ -204,9 +204,11 @@
     "title": "Organizaciones",
     "connect": "Conectar Org",
     "disconnect": "Desconectar",
+    "current": "Org actual",
+    "bringBack": "Volver a poner en servicio",
     "scratchExpiredBadge": "Caducada el {{date}}",
     "scratchExpired": "Esta scratch org caducó el {{date}}: Salesforce elimina una scratch org cuando caduca, y ninguna reconexión la recupera. Cree una nueva e impórtela, y luego desconecte esta.",
-    "disconnectConfirm": "¿Desconectar {{alias}}? SandForge olvida esta organización: su alias, etiquetas, color y nivel de seguridad se eliminan, y al reconectar se parte de los valores predeterminados.",
+    "disconnectConfirm": "¿Desconectar {{alias}}? SandForge olvida esta organización: su alias, etiquetas, color y la marca Staging se eliminan, y al reconectar se parte de los valores predeterminados.",
     "edit": "Editar Org",
     "noOrgs": "No hay organizaciones conectadas",
     "alias": "Alias",
@@ -1260,7 +1262,7 @@
         "written": "Redactado",
         "incomplete": "Incompleto",
         "notConfigured": "La IA no está configurada: guarde una clave de Anthropic en Configuración > IA.",
-        "openSettings": "Ir a Configuración"
+        "openSettings": "Abrir la configuración de IA"
       },
       "review": {
         "title": "Revisar {{name}}",
@@ -3192,7 +3194,7 @@
     "notConfigured": {
       "title": "Asistente IA no configurado",
       "description": "Para usar las funciones de IA, configure su clave API en Configuración.",
-      "configureButton": "Ir a Configuración"
+      "configureButton": "Abrir la configuración de IA"
     },
     "error": {
       "overloaded": "Proveedor de IA temporalmente sobrecargado. Reintentando en {{countdown}}.",
@@ -3528,16 +3530,15 @@
   "settings": {
     "title": "Configuración",
     "general": "General",
-    "profiles": "Exportar / Importar",
     "language": "Idioma",
     "languageLoadFailed": "No se pudo cargar {{language}}; la interfaz se mantiene en su idioma actual.",
     "telemetry": "Diagnóstico",
     "telemetryStatus": "Estado",
     "telemetryEnabled": "Habilitada",
     "telemetryDisabled": "Deshabilitada",
-    "telemetryEventCount": "Eventos de diagnóstico registrados",
     "telemetryEnable": "Activar el diagnóstico",
     "telemetryDisable": "Desactivar el diagnóstico",
+    "telemetryOpenLog": "Abrir el registro",
     "telemetryUnavailable": "No disponible",
     "ai": "IA",
     "aiStatus": "Estado",
@@ -3565,7 +3566,7 @@
     "aiSendsSeed": "Seed, personas personalizadas y reglas de campo IA: su descripción, o el nombre del campo y su instrucción",
     "aiSendsScenario": "Seed, Redactar a partir de su propio texto: su texto con sus direcciones de correo y números de teléfono enmascarados, su idioma, los valores de las listas de selección de caso de la org y los nombres de los temas y acciones del agente elegido, nunca un registro",
     "vscodeSettingsDesc": "Los tamaños de lote, Production Guard con el registro de sus decisiones y la vista en grafo de Forge son configuraciones de VS Code. El botón las abre en Production Guard: busque «sandforge» allí para ver las demás.",
-    "vscodeSettingsOpen": "Más configuraciones en VS Code"
+    "vscodeSettingsOpen": "Production Guard y otras configuraciones"
   },
   "bridge": {
     "protocolMismatch": {
@@ -4139,7 +4140,7 @@
       "tip": "Informes no escribe en ninguna org; Exportar a CSV y Exportar a JSON guardan todas las entradas que cumplen los filtros, no solo las mostradas."
     },
     "ai": {
-      "step1": "Si la página dice Asistente IA no configurado, haga clic en Ir a Configuración.",
+      "step1": "Si la página dice Asistente IA no configurado, haga clic en Abrir la configuración de IA.",
       "step2": "Pegue su clave de Anthropic en Clave de API y haga clic en Guardar la clave y activar la IA.",
       "step3": "De vuelta en Asistente IA, haga clic en Nueva conversación.",
       "step4": "Escriba su pregunta en el cuadro de mensaje y pulse Enter, o haga clic en Enviar.",
@@ -7384,13 +7385,16 @@
       "anonymizationTemplates": "Plantillas de anonimización"
     },
     "profiles": {
-      "title": "Compartir su configuración de SandForge",
+      "title": "Compartir la configuración",
       "description": "Exporte en JSON lo que ha guardado en SandForge, para compartirlo con su equipo o guardar una copia, e importe aquí una exportación.",
       "export": "Exportar",
       "import": "Importar",
       "exportBtn": "Exportar la selección",
       "importBtn": "Importar",
-      "importPlaceholder": "Pegue aquí el JSON de una exportación…",
+      "importFile": "Importar desde un archivo…",
+      "fileRead": "Leído de {{name}}: revise abajo lo que contiene y luego Importar.",
+      "fileUnreadable": "No se pudo leer {{name}}: no se importó nada.",
+      "importPlaceholder": "O pegue aquí el JSON de una exportación…",
       "overwrite": "Sobrescribir entradas existentes",
       "validate": "Validar",
       "download": "Descargar JSON",

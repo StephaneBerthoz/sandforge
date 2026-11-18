@@ -26,7 +26,7 @@ That said, SandForge is designed primarily for sandbox and scratch org workflows
 
 AI features use an external LLM provider to generate context-aware, realistic data values. SandForge currently supports **Anthropic** (Claude models) via API key; additional providers are planned.
 
-Enter your API key in the AI tab of the SandForge Settings page. The key is stored in VSCode SecretStorage, never in settings files. AI features are optional -- SandForge works fully without them using Faker profiles and templates.
+Enter your API key in the AI section of the SandForge Settings page. The key is stored in VSCode SecretStorage, never in settings files. AI features are optional -- SandForge works fully without them using Faker profiles and templates.
 
 ### Can I use SandForge without AI features?
 

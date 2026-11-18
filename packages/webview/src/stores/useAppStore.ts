@@ -106,7 +106,7 @@ export interface NavigationIntent {
    * Simulate, run, results and removal then apply to it.
    */
   syncConfig?: { id: string; name: string };
-  /** The Settings tab to open on: the tour's "Open AI settings" asks for the AI tab. */
+  /** The Settings section to open at: every "Open AI settings" asks for the AI section. */
   settingsTab?: 'ai';
   /**
    * Open DataOps on Cleanup, its Empty objects section with these objects

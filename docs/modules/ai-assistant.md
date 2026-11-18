@@ -6,7 +6,7 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## How to
 
-1. If the page says AI Assistant not configured, click Go to Settings.
+1. If the page says AI Assistant not configured, click Open AI settings.
 2. Paste your Anthropic key into API key and click Save key and turn on AI.
 3. Back in AI Assistant, click New conversation.
 4. Type your question in the message box and press Enter, or click Send.
@@ -17,7 +17,7 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## Quick Start
 
-1. In the AI tab of the SandForge Settings page, read what each feature sends, then store your Anthropic API key with **Save key and turn on AI**. The key is kept in VS Code Secret Storage, never in a settings file. Tick **Suggest fixes for failed runs, sending their error messages** beside it only if a failed run may send its error message (see Error resolution)
+1. In the AI section of the SandForge Settings page, which **Open AI settings** opens at its key field, read what each feature sends, then store your Anthropic API key with **Save key and turn on AI**. The key is kept in VS Code Secret Storage, never in a settings file. Tick **Suggest fixes for failed runs, sending their error messages** beside it only if a failed run may send its error message (see Error resolution)
 2. Open **AI Assistant** from the launcher's **Automate** group and start a conversation
 
 The same card turns AI off and on again, and **Remove key** takes the key out of Secret Storage, turns AI off and deletes the conversations kept on this machine.

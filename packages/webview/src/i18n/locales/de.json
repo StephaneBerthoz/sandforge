@@ -204,9 +204,11 @@
     "title": "Organisationen",
     "connect": "Org verbinden",
     "disconnect": "Trennen",
+    "current": "Aktuelle Org",
+    "bringBack": "Wieder in Betrieb nehmen",
     "scratchExpiredBadge": "Abgelaufen am {{date}}",
     "scratchExpired": "Diese Scratch-Org ist am {{date}} abgelaufen: Salesforce löscht eine Scratch-Org, wenn sie abläuft, und kein erneutes Verbinden bringt sie zurück. Erstellen Sie eine neue und importieren Sie sie, und trennen Sie dann diese.",
-    "disconnectConfirm": "{{alias}} trennen? SandForge vergisst diese Org: Alias, Tags, Farbe und Sicherheitsstufe werden gelöscht, und eine erneute Verbindung beginnt mit den Standardwerten.",
+    "disconnectConfirm": "{{alias}} trennen? SandForge vergisst diese Org: Alias, Tags, Farbe und die Markierung als Staging werden gelöscht, und eine erneute Verbindung beginnt mit den Standardwerten.",
     "edit": "Org bearbeiten",
     "noOrgs": "Keine Organisationen verbunden",
     "alias": "Alias",
@@ -1260,7 +1262,7 @@
         "written": "Geschrieben",
         "incomplete": "Unvollständig",
         "notConfigured": "KI ist nicht eingerichtet: Speichern Sie einen Anthropic-Schlüssel unter Einstellungen > KI.",
-        "openSettings": "Zu den Einstellungen"
+        "openSettings": "KI-Einstellungen öffnen"
       },
       "review": {
         "title": "{{name}} prüfen",
@@ -3192,7 +3194,7 @@
     "notConfigured": {
       "title": "KI-Assistent nicht konfiguriert",
       "description": "Um KI-Funktionen zu nutzen, konfigurieren Sie Ihren API-Schlüssel in den Einstellungen.",
-      "configureButton": "Zu den Einstellungen"
+      "configureButton": "KI-Einstellungen öffnen"
     },
     "error": {
       "overloaded": "KI-Anbieter vorübergehend überlastet. Neuer Versuch in {{countdown}}.",
@@ -3528,16 +3530,15 @@
   "settings": {
     "title": "Einstellungen",
     "general": "Allgemein",
-    "profiles": "Exportieren / Importieren",
     "language": "Sprache",
     "languageLoadFailed": "{{language}} konnte nicht geladen werden; die Oberfläche bleibt in der aktuellen Sprache.",
     "telemetry": "Diagnose",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Aktiviert",
     "telemetryDisabled": "Deaktiviert",
-    "telemetryEventCount": "Aufgezeichnete Diagnoseereignisse",
     "telemetryEnable": "Diagnose aktivieren",
     "telemetryDisable": "Diagnose deaktivieren",
+    "telemetryOpenLog": "Protokoll öffnen",
     "telemetryUnavailable": "Nicht verfügbar",
     "ai": "KI",
     "aiStatus": "Status",
@@ -3565,7 +3566,7 @@
     "aiSendsSeed": "Seed, eigene Personas und KI-Feldregeln: ihre Beschreibung bzw. der Name des Felds und seine Anweisung",
     "aiSendsScenario": "Seed, Aus eigenem Text entwerfen: Ihr Text mit maskierten E-Mail-Adressen und Telefonnummern, seine Sprache, die Auswahllistenwerte von Kundenvorgängen der Org und die Themen- und Aktionsnamen des gewählten Agenten, nie ein Datensatz",
     "vscodeSettingsDesc": "Batchgrößen, Production Guard mit dem Protokoll seiner Entscheidungen und die Graphansicht von Forge sind VS Code-Einstellungen. Die Schaltfläche öffnet sie bei Production Guard: Suchen Sie dort nach „sandforge“, um die anderen zu sehen.",
-    "vscodeSettingsOpen": "Weitere Einstellungen in VS Code"
+    "vscodeSettingsOpen": "Production Guard und weitere Einstellungen"
   },
   "bridge": {
     "protocolMismatch": {
@@ -4139,7 +4140,7 @@
       "tip": "Berichte schreibt in keine Org; Als CSV exportieren und Als JSON exportieren speichern jeden Eintrag, den die Filter treffen, nicht nur die angezeigten."
     },
     "ai": {
-      "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf Zu den Einstellungen.",
+      "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf KI-Einstellungen öffnen.",
       "step2": "Fügen Sie Ihren Anthropic-Schlüssel unter API-Schlüssel ein und klicken Sie auf Schlüssel speichern und KI aktivieren.",
       "step3": "Öffnen Sie wieder die Seite KI-Assistent und klicken Sie auf Neue Unterhaltung.",
       "step4": "Geben Sie Ihre Frage in das Nachrichtenfeld ein und drücken Sie Enter oder klicken Sie auf Senden.",
@@ -7384,13 +7385,16 @@
       "anonymizationTemplates": "Anonymisierungsvorlagen"
     },
     "profiles": {
-      "title": "Ihr SandForge-Setup teilen",
+      "title": "Setup teilen",
       "description": "Exportieren Sie, was Sie in SandForge gespeichert haben, als JSON, um es mit Ihrem Team zu teilen oder eine Kopie zu behalten, und importieren Sie hier einen Export.",
       "export": "Exportieren",
       "import": "Importieren",
       "exportBtn": "Auswahl exportieren",
       "importBtn": "Importieren",
-      "importPlaceholder": "JSON eines Exports hier einfügen…",
+      "importFile": "Aus Datei importieren…",
+      "fileRead": "Aus {{name}} gelesen: Inhalt unten prüfen, dann Importieren.",
+      "fileUnreadable": "{{name}} konnte nicht gelesen werden: Es wurde nichts importiert.",
+      "importPlaceholder": "Oder JSON eines Exports hier einfügen…",
       "overwrite": "Vorhandene Einträge überschreiben",
       "validate": "Validieren",
       "download": "JSON herunterladen",

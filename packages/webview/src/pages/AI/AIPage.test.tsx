@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
+import de from '../../i18n/locales/de.json';
 import en from '../../i18n/locales/en.json';
+import es from '../../i18n/locales/es.json';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import { AIPage } from './AIPage';
+
+/** The six catalogues, by language. */
+const LOCALES = { de, en, es, fr, ja, 'pt-BR': ptBR };
 import { useAppStore } from '../../stores/useAppStore';
 
 /** Captured bus: lets a test push a host message to the listener under test. */
@@ -123,14 +131,23 @@ describe('AIPage', () => {
       expect(screen.getByText(/configure your API key in Settings/i)).toBeDefined();
     });
 
-    it('should show a button to navigate to settings', () => {
+    it('names the button by where it goes, as every way to the AI settings is named', () => {
+      // One destination had three names: Go to Settings here, in Forge's AI
+      // tab and in Seed's scenario draft, Open AI settings in the tour.
       render(<AIPage />);
       const button = screen.getByTestId('empty-action-button');
-      expect(button).toBeDefined();
-      expect(button.textContent).toMatch(/Go to Settings/i);
+      expect(button.textContent).toBe('Open AI settings');
+      for (const [lng, bundle] of Object.entries(LOCALES)) {
+        expect({ lng, seed: bundle.seed.scenario.draft.openSettings }).toEqual({
+          lng,
+          seed: bundle.ai.notConfigured.configureButton,
+        });
+        expect(bundle.howTo.ai.step1, lng).toContain(bundle.ai.notConfigured.configureButton);
+      }
+      expect(fr.ai.notConfigured.configureButton).toBe("Ouvrir les paramètres de l'IA");
     });
 
-    it('opens Settings on its AI tab, where the key is set', () => {
+    it('opens Settings at its AI section, where the key is set', () => {
       // It opened General, which holds the language alone.
       const navigateSpy = vi.fn();
       useAppStore.setState({ aiAvailable: false, navigate: navigateSpy });

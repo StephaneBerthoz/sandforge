@@ -76,13 +76,18 @@ test('both READMEs describe the telemetry setting as the manifest does', () => {
   }
 });
 
-test('the Settings page shows no send counter and no buffer it cannot measure', () => {
+test('the Settings page shows no counter and no buffer it cannot measure, and opens the log', () => {
+  // The counter that replaced "Events sent" counted breadcrumbs too, which
+  // the log, written at info level, leaves out: Diagnostics opens the log.
   const en = JSON.parse(read('packages', 'webview', 'src', 'i18n', 'locales', 'en.json'));
-  assert.doesNotMatch(en.settings.telemetryEventCount, /sent/i);
+  assert.equal(en.settings.telemetryEventCount, undefined);
   assert.equal(en.settings.telemetryBufferSize, undefined);
+  assert.equal(en.settings.telemetryOpenLog, 'Open log');
 
   const page = read('packages', 'webview', 'src', 'pages', 'Settings', 'SettingsPage.tsx');
   assert.doesNotMatch(page, /bufferSize/, 'SettingsPage renders a buffer row again');
+  assert.doesNotMatch(page, /eventCount/, 'SettingsPage renders an event counter again');
+  assert.match(page, /'workbench:open-log'/, 'Diagnostics no longer opens the log');
   const handler = read('packages', 'extension', 'src', 'bridge', 'handlers', 'SettingsHandler.ts');
   assert.doesNotMatch(handler, /bufferSize/, 'SettingsHandler reports a buffer size again');
 });

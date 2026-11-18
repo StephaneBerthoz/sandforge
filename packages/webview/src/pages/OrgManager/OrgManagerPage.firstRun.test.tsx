@@ -228,6 +228,7 @@ describe('a login URL on a My Domain', () => {
 
   it('serves every method that asks for a login URL', () => {
     render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-more'));
     fireEvent.click(screen.getByTestId('org-auth-usernamePassword'));
     fireEvent.change(screen.getByTestId('inline-login-url-select'), {
       target: { value: 'custom' },

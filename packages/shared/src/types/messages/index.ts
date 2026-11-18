@@ -61,6 +61,7 @@ import type {
   NavigationIntentMessage,
   WorkbenchReloadRequest,
   WorkbenchOpenSettingRequest,
+  WorkbenchOpenLogRequest,
   ErrorBoundaryReport,
 } from './bridge.messages.js';
 import type { FileSaveRequest, FileSaveResponse } from './file.messages.js';
@@ -881,6 +882,7 @@ export type WebViewToExtensionMessage =
   | PanelRouteMessage
   | PanelReloadRequest
   | WorkbenchOpenSettingRequest
+  | WorkbenchOpenLogRequest
   | ErrorBoundaryReport
   // Realtime (CDC)
   | RealTimeStartRequest
