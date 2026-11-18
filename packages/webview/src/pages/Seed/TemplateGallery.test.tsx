@@ -69,6 +69,7 @@ const mockRefresh = vi.fn();
 let mockGalleryState = {
   items: mockItems,
   loading: false,
+  listed: true,
   error: null as string | null,
   loadFullTemplate: mockLoadFullTemplate,
   refresh: mockRefresh,
@@ -85,6 +86,7 @@ describe('TemplateGallery', () => {
     mockGalleryState = {
       items: mockItems,
       loading: false,
+      listed: true,
       error: null,
       loadFullTemplate: mockLoadFullTemplate,
       refresh: mockRefresh,
@@ -144,6 +146,60 @@ describe('TemplateGallery', () => {
       expect(mockLoadFullTemplate).toHaveBeenCalledWith('prebuilt-minimal-demo');
     });
     expect(onSelectTemplate).not.toHaveBeenCalled();
+  });
+
+  describe('the template a link names', () => {
+    // Back into service, and any page that knows the template, opens Seed on
+    // it: the gallery opened, and the template was to be found by hand.
+
+    it('opens its confirmation once the gallery lists it, and once only', async () => {
+      const salesTemplate = mockItems[0].template;
+      mockLoadFullTemplate.mockResolvedValue(salesTemplate);
+      const onSelectTemplate = vi.fn();
+      const onOpenSettled = vi.fn();
+      const gallery = () => (
+        <TemplateGallery
+          onSelectTemplate={onSelectTemplate}
+          openTemplateId="prebuilt-sales-cloud-starter"
+          onOpenSettled={onOpenSettled}
+        />
+      );
+
+      const { rerender } = render(gallery());
+      await waitFor(() => {
+        expect(onSelectTemplate).toHaveBeenCalledWith(salesTemplate);
+      });
+      rerender(gallery());
+
+      expect(mockLoadFullTemplate).toHaveBeenCalledTimes(1);
+      expect(onOpenSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for the saved templates before it says the one named is gone', () => {
+      const onSelectTemplate = vi.fn();
+      const onOpenSettled = vi.fn();
+      const gallery = () => (
+        <TemplateGallery
+          onSelectTemplate={onSelectTemplate}
+          openTemplateId="saved-uat-refresh"
+          onOpenSettled={onOpenSettled}
+        />
+      );
+      mockGalleryState = { ...mockGalleryState, loading: true, listed: false };
+      const { rerender } = render(gallery());
+      expect(screen.queryByTestId('gallery-error')).toBeNull();
+      expect(onOpenSettled).not.toHaveBeenCalled();
+
+      mockGalleryState = { ...mockGalleryState, loading: false, listed: true };
+      rerender(gallery());
+
+      expect(screen.getByTestId('gallery-error').textContent).toContain(
+        'This saved template no longer exists.',
+      );
+      expect(onOpenSettled).toHaveBeenCalledTimes(1);
+      expect(onSelectTemplate).not.toHaveBeenCalled();
+      expect(mockLoadFullTemplate).not.toHaveBeenCalled();
+    });
   });
 
   it('renders gallery title and subtitle', () => {

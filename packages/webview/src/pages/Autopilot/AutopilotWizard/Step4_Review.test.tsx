@@ -162,6 +162,26 @@ describe('Step4_Review', () => {
     expect(screen.getByTestId('execute-button').textContent).toBe('Copy into QASandbox');
   });
 
+  it('draws the step’s footer: its Back beside the button that starts the run', () => {
+    // The wizard's footer is not drawn under the review: its Confirm started
+    // the run as Copy into the target did.
+    const onBack = vi.fn();
+    const { rerender } = render(<Step4Review {...defaultProps} onBack={onBack} />);
+
+    const back = screen.getByTestId('step4-back');
+    expect(back.textContent).toBe('Back');
+    expect(back.parentElement).toBe(screen.getByTestId('execute-button').parentElement);
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
+
+    // Held while the plan is built, as the wizard's Back was, and still
+    // where the keyboard is.
+    rerender(<Step4Review {...defaultProps} onBack={onBack} canGoBack={false} />);
+    expect(screen.getByTestId('step4-back').getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(screen.getByTestId('step4-back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it('says what becomes of the personal data from both choices, in one tile', () => {
     // The tile followed the framework alone: "No anonymization" under the
     // ticked box that neutralizes every email and phone number.

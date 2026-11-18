@@ -417,8 +417,30 @@ test.describe('Autopilot — Wizard Flow', () => {
       expect(cut).toBe(false);
     }
     await expect(page.getByTestId('seed-step-indicator')).toHaveText(
-      '1Connect source and target2Select objects3Review plan',
+      '1Choose the two orgs2Select objects3Review plan',
     );
+    // Headed Autopilot, as the running view is: it read Autopilot Setup.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Autopilot');
+  });
+
+  test('has one button that writes on its review, Copy into the target, beside the review’s one Back', async ({
+    page,
+  }) => {
+    // The wizard's Confirm started the run under the review's own Copy into
+    // the target: two buttons that wrote, one under the other.
+    await advanceToObjects(page, bridge);
+    await advanceToPlan(page, bridge);
+    await advanceToReview(page, bridge);
+
+    await expect(page.getByTestId('seed-wizard-finish')).toHaveCount(0);
+    await expect(page.getByTestId('seed-wizard-back')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+    await expect(page.getByTestId('execute-button')).toHaveText('Copy into QASandbox');
+
+    await page.getByTestId('step4-back').click();
+    await expect(page.getByTestId('step2-objects')).toBeVisible();
+    expect(await outgoing(page, 'autopilot:execute')).toEqual([]);
   });
 
   test('back button navigates to previous step', async ({ page }) => {
@@ -570,6 +592,24 @@ test.describe('Autopilot — Execution UI', () => {
     await expect(page.getByTestId('control-tabs')).toBeVisible();
     await expect(page.getByTestId('control-tab-stats')).toBeVisible();
     await expect(page.getByTestId('control-tab-node')).toBeVisible();
+  });
+
+  test('has two tabs, Progress and Selected object, and skips the object picked', async ({
+    page,
+  }) => {
+    // Four tabs, two of which said "Select a node to view details" alike,
+    // and Compliance said NONE beside zeros for a run with no framework.
+    await enterExecutionState(page);
+
+    await expect(page.getByTestId('control-tabs').getByRole('tab')).toHaveText([
+      'Progress',
+      'Selected object',
+    ]);
+    await expect(page.getByTestId('control-skip')).toHaveText('Skip this object');
+    await page.getByRole('tab', { name: 'Selected object' }).click();
+    await expect(page.getByTestId('node-detail-empty')).toHaveText(
+      'Select an object on the graph to see its details',
+    );
   });
 
   test('displays action buttons during execution', async ({ page }) => {

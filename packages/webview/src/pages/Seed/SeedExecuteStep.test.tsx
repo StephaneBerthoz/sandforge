@@ -53,9 +53,6 @@ const ACCOUNT: ObjectFieldConfig = {
 function renderStep(overrides: Partial<SeedExecuteStepProps> = {}): SeedExecuteStepProps {
   const props: SeedExecuteStepProps = {
     isRunning: false,
-    objectProgress: [],
-    overallPercent: 0,
-    elapsedMs: 0,
     configSkipped: true,
     onCustomize: vi.fn(),
     fieldsReady: true,
@@ -161,9 +158,6 @@ describe('SeedExecuteStep', () => {
     // keyboard with it.
     const base = {
       isRunning: false,
-      objectProgress: [],
-      overallPercent: 0,
-      elapsedMs: 0,
       configSkipped: true,
       onCustomize: vi.fn(),
       onRetryFields: vi.fn(),
@@ -202,6 +196,16 @@ describe('SeedExecuteStep', () => {
     rerender(<SeedExecuteStep {...base} fieldsReady fieldsError={null} />);
     rerender(<SeedExecuteStep {...base} fieldsReady={false} fieldsError={null} />);
     expect(screen.queryByTestId('seed-fields-retry')).toBeNull();
+  });
+
+  it('draws no progress bar: nothing runs on this step, which sets how the run writes', () => {
+    // A bar at 0 % stood under the relations, the locale and Checkpoint
+    // first, on a step named Execute that ran nothing.
+    renderStep({ configSkipped: false });
+
+    expect(screen.queryByTestId('step-execute')).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByTestId('seed-locale')).toBeDefined();
   });
 
   it('says the run waits for the fields after the configure step too, without offering to customize', () => {

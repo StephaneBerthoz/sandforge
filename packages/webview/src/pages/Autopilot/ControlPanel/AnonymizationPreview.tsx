@@ -2,38 +2,27 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 
-/** Placeholder preview of anonymized data for the selected node. */
+/**
+ * How the fields of the object picked on the graph are anonymized, under its
+ * details. Nothing when no object is picked, or none of its fields is: the
+ * details above say the first, and it was a tab of its own that said "Select
+ * a node to view details" as the details did.
+ */
 export const AnonymizationPreview: React.FC = () => {
   const { t } = useTranslation();
   const selectedNode = useAutopilotStore((s) => s.selectedNode());
   const rules = useAutopilotStore((s) => s.rules);
 
-  if (!selectedNode) {
-    return (
-      <div
-        className="flex items-center justify-center py-8 text-sm text-(--sf-text-secondary)"
-        data-testid="anonymization-preview-empty"
-      >
-        {t('autopilot.control.noNodeSelected')}
-      </div>
-    );
-  }
-
-  const nodeRules = rules.filter((r) => r.objectApiName === selectedNode.objectApiName);
-
-  if (nodeRules.length === 0) {
-    return (
-      <div
-        className="flex items-center justify-center py-8 text-sm text-(--sf-text-secondary)"
-        data-testid="anonymization-preview-no-rules"
-      >
-        {t('autopilot.step3.none')}
-      </div>
-    );
-  }
+  const nodeRules = selectedNode
+    ? rules.filter((r) => r.objectApiName === selectedNode.objectApiName)
+    : [];
+  if (nodeRules.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2" data-testid="anonymization-preview">
+    <section className="flex flex-col gap-2" data-testid="anonymization-preview">
+      <h4 className="text-xs font-semibold text-(--sf-text-primary)">
+        {t('autopilot.control.anonymization')}
+      </h4>
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-(--sf-text-secondary)">
@@ -55,6 +44,6 @@ export const AnonymizationPreview: React.FC = () => {
           ))}
         </tbody>
       </table>
-    </div>
+    </section>
   );
 };

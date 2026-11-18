@@ -155,7 +155,7 @@ test.describe('Keyboard and screen reader — moving between pages', () => {
   test('Autopilot has a heading of its own, as every module has', async ({ page }) => {
     await openModule(page, 'autopilot');
     await page.getByTestId('step1-connect').waitFor({ timeout: 10_000 });
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Autopilot Setup');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Autopilot');
   });
 });
 
@@ -621,15 +621,15 @@ test.describe('Keyboard and screen reader — the Autopilot run', () => {
     await expect(account).toBeFocused();
     await page.keyboard.press('Enter');
 
-    const nodeTab = page.getByRole('tab', { name: 'Node Detail' });
+    const nodeTab = page.getByRole('tab', { name: 'Selected object' });
     await expect(nodeTab).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('control-skip')).toHaveText('Skip Account');
     await expect(page.getByTestId('control-skip')).toBeEnabled();
 
     await nodeTab.focus();
-    await page.keyboard.press('ArrowRight');
-    await expect(page.getByRole('tab', { name: 'Anonymization Preview' })).toBeFocused();
-    await expect(page.getByRole('tabpanel', { name: 'Anonymization Preview' })).toBeVisible();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByRole('tab', { name: 'Progress' })).toBeFocused();
+    await expect(page.getByRole('tabpanel', { name: 'Progress' })).toBeVisible();
   });
 });
 
@@ -766,7 +766,7 @@ test.describe('Keyboard and screen reader — the other ways to seed', () => {
   for (const way of [
     { name: 'Generate', mode: 'generate', step: 'seed-step-content' },
     { name: 'Import CSV', mode: 'csv', step: 'csv-step-content' },
-    { name: 'Clone from Org', mode: 'clone', step: 'clone-step-content' },
+    { name: 'Copy records from another org', mode: 'clone', step: 'clone-step-content' },
   ]) {
     test(`${way.name} takes the keyboard on its step, and Back gives it to its card`, async ({
       page,

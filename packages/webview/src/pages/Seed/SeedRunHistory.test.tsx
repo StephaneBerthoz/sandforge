@@ -360,7 +360,7 @@ describe('SeedRunHistory', () => {
 
     expect(screen.getByTestId('seed-run-history-origin-op-csv').textContent).toBe('CSV Upload');
     expect(screen.getByTestId('seed-run-history-origin-op-clone').textContent).toBe(
-      'Clone from Org',
+      'Copy records from another org',
     );
     expect(screen.getByTestId('seed-run-history-state-op-clone').textContent).toBe(
       'can be removed',

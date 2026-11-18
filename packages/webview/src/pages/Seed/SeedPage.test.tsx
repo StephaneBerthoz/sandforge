@@ -321,8 +321,47 @@ vi.mock('../../components/ui/VirtualList', () => ({
 /* Mock TemplateGallery: picking a template is the only part exercised here, and
    the real gallery loads its catalogue over the bridge. */
 vi.mock('./TemplateGallery', () => ({
-  TemplateGallery: ({ onSelectTemplate }: { onSelectTemplate: (template: unknown) => void }) => (
-    <div data-testid="template-gallery">
+  TemplateGallery: ({
+    onSelectTemplate,
+    openTemplateId,
+    onOpenSettled,
+  }: {
+    onSelectTemplate: (template: unknown) => void;
+    openTemplateId?: string;
+    onOpenSettled?: () => void;
+  }) => (
+    <div data-testid="template-gallery" data-open-template={openTemplateId ?? ''}>
+      {/* The template a link names, opened as the real gallery opens it. */}
+      {openTemplateId && (
+        <button
+          data-testid="mock-open-named"
+          onClick={() => {
+            onSelectTemplate({
+              id: openTemplateId,
+              name: 'UAT refresh set',
+              description: 'Saved',
+              version: 1,
+              strategy: 'faker',
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 5,
+                  fieldRules: [],
+                  excludedFields: [],
+                  insertOrder: 0,
+                  batchSize: 200,
+                },
+              ],
+              tags: [],
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            });
+            onOpenSettled?.();
+          }}
+        >
+          Open the named template
+        </button>
+      )}
       {/* A card as the real gallery draws one: its button is what the
           keyboard comes back to. */}
       <div data-testid="template-card-prebuilt-minimal-demo">
@@ -498,7 +537,7 @@ describe('SeedPage', () => {
     // It said "a mode: AI, CSV, Clone", and no way to seed is called AI.
     render(<SeedPage />);
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
-      'Pick a template, or Generate data, CSV Upload or Clone from Org',
+      'Pick a template, or Generate data, CSV Upload or Copy records from another org',
     );
 
     for (const [language, catalogue] of Object.entries(SEED_LOCALES)) {
@@ -567,6 +606,28 @@ describe('SeedPage', () => {
     fireEvent.click(screen.getByTestId('mode-card-csv'));
     expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
     expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+  });
+
+  it('names the copy of real records for what it is, and points to Forge and Autopilot, which do more of it', () => {
+    // "Clone from Org", on the page of test data, stood beside Forge and
+    // Autopilot with nothing said of either.
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+    render(<SeedPage />);
+
+    expect(screen.getByTestId('mode-card-clone').textContent).toContain(
+      'Copy records from another org',
+    );
+    expect(screen.queryByText('Clone from Org')).toBeNull();
+    const elsewhere = screen.getByTestId('seed-copy-elsewhere');
+    expect(elsewhere.textContent).toContain(en.seed.start.copyElsewhere);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Forge' }));
+    expect(useAppStore.getState().currentRoute).toBe('forge');
+
+    useAppStore.setState({ currentRoute: 'seed' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open Autopilot' }));
+    expect(useAppStore.getState().currentRoute).toBe('autopilot');
   });
 
   it('should show CloneWizard when clicking Clone card', () => {
@@ -768,6 +829,39 @@ describe('SeedPage', () => {
 
     expect(screen.getByTestId('template-gallery')).toBeDefined();
     expect(screen.queryByTestId('clone-wizard-container')).toBeNull();
+  });
+
+  it('hands the gallery the template a link names, on the org it names, and forgets it once opened', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({
+      navigationIntent: {
+        route: 'seed',
+        seedMode: 'quick-seed',
+        seedTemplateId: 'saved-uat-refresh',
+        targetOrgId: 'org-2',
+      },
+    });
+
+    render(<SeedPage />);
+    expect(screen.getByTestId('template-gallery').dataset.openTemplate).toBe('saved-uat-refresh');
+    fireEvent.click(screen.getByTestId('mock-open-named'));
+
+    expect(screen.getByTestId('quick-seed-confirm').textContent).toContain('UAT refresh set');
+    expect((screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement).value).toBe(
+      'org-2',
+    );
+    // Back on the gallery, it opens the template no second time.
+    fireEvent.click(screen.getByTestId('btn-quick-seed-back'));
+    expect(screen.getByTestId('template-gallery').dataset.openTemplate).toBe('');
+  });
+
+  it('names no template to open when the link names none', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({ navigationIntent: { route: 'seed', seedMode: 'quick-seed' } });
+
+    render(<SeedPage />);
+
+    expect(screen.getByTestId('template-gallery').dataset.openTemplate).toBe('');
   });
 
   it('opens CSV Upload when Migration sends a CSV file of records here', () => {

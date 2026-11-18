@@ -173,7 +173,8 @@
     },
     "objectCountFormatted_one": "{{formatted}} Objekt",
     "objectCountFormatted_other": "{{formatted}} Objekte",
-    "seeInReports": "In Berichten ansehen"
+    "seeInReports": "In Berichten ansehen",
+    "stepSkipped": "Übersprungen"
   },
   "status": {
     "apiUsage": "API-Nutzung"
@@ -717,7 +718,7 @@
       "orgDefault": "Das Gebietsschema der Org (Standard)",
       "hint": "Die Personen, Firmen, Adressen und Telefonnummern, die der Seed schreibt, werden für dieses Gebietsschema erzeugt."
     },
-    "title": "Daten generieren",
+    "title": "Seed: Testdaten",
     "selectOrg": "Ziel-Org auswählen",
     "selectOrgDesc": "Wählen Sie die Org, in der Daten generiert werden sollen",
     "selectObjects": "Objekte auswählen",
@@ -798,10 +799,10 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Generieren...",
     "csvColumnPlaceholder": "spaltenname",
-    "stepSelect": "Auswählen",
-    "stepConfigure": "Konfigurieren",
-    "stepExecute": "Ausführen",
-    "stepResults": "Ergebnisse",
+    "stepSelect": "Objekte",
+    "stepConfigure": "Felder",
+    "stepExecute": "Optionen",
+    "stepResults": "Ausführung",
     "advancedSettings": "Erweiterte Einstellungen",
     "exportCsv": "CSV exportieren",
     "seedAgain": "Seed wiederholen…",
@@ -914,8 +915,8 @@
       "generateDesc": "Objekte, Anzahlen und Feldregeln selbst wählen",
       "csv": "CSV-Upload",
       "csvDesc": "Daten aus einer CSV-Datei importieren",
-      "clone": "Von Org klonen",
-      "cloneDesc": "Datensätze aus einer anderen Org klonen"
+      "clone": "Datensätze aus einer anderen Org kopieren",
+      "cloneDesc": "Echte Datensätze der gewählten Objekte, einmal kopiert"
     },
     "persona": {
       "title": "KI-Personas",
@@ -1088,7 +1089,7 @@
     },
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox mit realistischen Testdaten",
-      "step2": "Eine Vorlage wählen, oder Daten generieren, CSV-Upload oder Von Org klonen",
+      "step2": "Eine Vorlage wählen, oder Daten generieren, CSV-Upload oder Datensätze aus einer anderen Org kopieren",
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
     },
@@ -1099,7 +1100,8 @@
       "writtenByThePlatform_other": "{{count}} Kontaktrollen mit denen verknüpft, die die Plattform mit ihrer Opportunity für deren Kontakt geschrieben hat, nicht geschrieben; um die für sie generierten Felder ergänzt: {{given}}.",
       "writtenByThePlatformRefused": "Die übrigen bleiben, wie die Plattform sie geschrieben hat. Die Worte des Ziels:",
       "openRecord": "Ersten erstellten Datensatz ({{object}}) in {{org}} öffnen",
-      "notRun": "Noch wurde nichts geschrieben: Bestätigen startet den Seed."
+      "notRun": "Noch wurde nichts geschrieben: Seed starten startet den Seed.",
+      "title": "Ergebnisse"
     },
     "sampleRecordCount_one": "{{count}} Beispieldatensatz",
     "sampleRecordCount_other": "{{count}} Beispieldatensätze",
@@ -1139,7 +1141,9 @@
     },
     "start": {
       "subtitle": "Eine Org mit realistischen Daten füllen",
-      "otherWays": "Weitere Wege, eine Org zu befüllen"
+      "otherWays": "Weitere Wege, eine Org zu befüllen",
+      "copyElsewhere": "Für einen Datensatz mit allem, was daran hängt, Forge; für ganze Objekte mit ihren übergeordneten Datensätzen, Autopilot.",
+      "openModule": "{{module}} öffnen"
     },
     "objectSearch": "Objekte suchen",
     "commonObjects": "Häufige Objekte",
@@ -1188,7 +1192,7 @@
     "stepHelp": {
       "selectObjects": "Wählen Sie, welche Salesforce-Objekte mit Daten gefüllt werden sollen",
       "configureFields": "Passen Sie an, wie jedes Feld generiert wird — Regeln, Bereiche und Muster",
-      "execute": "Überprüfen Sie die Datengenerierung und führen Sie sie aus. Die Ergebnisse erscheinen hier nach Abschluss"
+      "execute": "Legen Sie fest, wie der Lauf schreibt: Namen und Adressen, die Automatisierung der Org, zuerst ein Prüfpunkt. Seed starten, im nächsten Schritt, führt ihn aus"
     },
     "configure": {
       "filterFields": "Ein Feld von {{object}} finden",
@@ -3981,7 +3985,7 @@
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
     "gettingStartedContent": "1. Verbinden Sie eine Org auf der Seite Organisationen: Aus der Salesforce CLI importieren oder Im Browser anmelden.\n2. Füllen Sie sie mit Seed: CRM-Starter, markiert mit Hier beginnen, schreibt verknüpfte Accounts, Kontakte, Opportunities und Kundenvorgänge, nachdem es den Speicher der Org geprüft hat, ohne zweite Org und ohne KI-Schlüssel.\n3. Klonen Sie mit Forge: Kopieren Sie einen echten Datensatz mit allem, was dazugehört, aus einer anderen Org.\n4. Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt (Prüfpunkte → Prüfpunkt erstellen): Zurücksetzen… bringt die Daten der Org dorthin zurück.\n5. Öffnen Sie den Monitor, um Gesundheit, Limits und Jobs der Org zu prüfen.\n6. Entdecken Sie Sync, Autopilot, das eingefrorene Dataset, den Vergleich, DataOps und die Automatisierung, wenn Sie sie brauchen.\n\nAutomatisierungen der Ziel-Org für diesen Durchlauf stummschalten: ein Kästchen neben den Automatisierungen, die ein Lauf von Seed, Forge, Sync, Autopilot oder dem eingefrorenen Dataset, ein Zurücksetzen oder ein Entfernen auslösen würde. Nur für diesen Durchlauf weist es dem Benutzer, als der der Durchlauf schreibt, die Berechtigungssätze mit den Bypässen zu, die die Flows, Prozesse und Workflow-Regeln der Ziel-Org prüfen, und entzieht sie wieder, wenn er endet, auch nach einem Fehler. Nichts wird deaktiviert; was trotzdem läuft, wird mit dem Grund genannt. Abgelehnt in einer Produktions-Org und für einen Benutzer, der keine Berechtigungssätze zuweisen darf: Der Durchlauf schreibt dann nichts.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Gesundheit der Org, gelesen beim Öffnen der Seite und bei jedem Klick auf Aktualisieren:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- Live-Operationen, solange ein Lauf aktiv ist: sein Modul, sein Fortschritt und sein aktueller Schritt\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Anomalien scannen, unter Governor-Limits: prüft bis zu 500 Datensätze des gewählten Objekts auf ungewöhnliche Werte\n- Warnmeldungen für kritische Schwellenwerte\n- Org-Governance: Richtlinien aus Schwellenwertregeln, gegen die Org geprüft, wenn Sie auf Auswerten klicken\n\nTipp: Automatisch aktualisieren, die Uhr-Schaltfläche, ist standardmäßig aus; klicken Sie darauf, damit die Org alle 30 Sekunden neu gelesen wird, solange das Panel sichtbar ist.",
-    "seedContent": "Unter den Vorlagen stehen vier weitere Wege bereit:\n- Daten generieren: ein Assistent für die Objekte, die Datensatzanzahl und die Feldregeln Ihrer Wahl (KI, Faker, statisch, Sequenz...); ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n- CSV-Upload: Datensätze aus einer CSV-Datei, deren Spalten den Feldern zugeordnet werden\n- Von Org klonen: Datensätze, die aus einer anderen Org kopiert werden\n- Testdaten für einen Agentforce-Agenten: Wählen Sie ein Paket oder Aus eigenem Text entwerfen, prüfen Sie es, Seed des Szenarios starten, dann Testdatei schreiben. Die Pakete brauchen keinen KI-Schlüssel; ein Entwurf nutzt Ihren Anthropic-Schlüssel. Seine Knowledge-Artikel werden veröffentlicht; SandForge führt die Tests nie aus.",
+    "seedContent": "Unter den Vorlagen stehen vier weitere Wege bereit:\n- Daten generieren: ein Assistent für die Objekte, die Datensatzanzahl und die Feldregeln Ihrer Wahl (KI, Faker, statisch, Sequenz...); ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n- CSV-Upload: Datensätze aus einer CSV-Datei, deren Spalten den Feldern zugeordnet werden\n- Datensätze aus einer anderen Org kopieren: echte Datensätze der gewählten Objekte, einmal kopiert; Forge und Autopilot kopieren mehr\n- Testdaten für einen Agentforce-Agenten: Wählen Sie ein Paket oder Aus eigenem Text entwerfen, prüfen Sie es, Seed des Szenarios starten, dann Testdatei schreiben. Die Pakete brauchen keinen KI-Schlüssel; ein Entwurf nutzt Ihren Anthropic-Schlüssel. Seine Knowledge-Artikel werden veröffentlicht; SandForge führt die Tests nie aus.",
     "checkpointContent": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat. Seine Vorschau zählt Objekt für Objekt die Datensätze unter Löschen, Werte zurückgeben und Zurückholen. Eine DataOps-Sicherung ist eine Kopie einiger Objekte: Ihre Wiederherstellung löscht nie, was hinzugefügt wurde.\n- Das Zurücksetzen macht die Arbeit aller seit dem Prüfpunkt ungeschehen, nicht nur die Läufe von SandForge: ob von Benutzern, Flows oder Integrationen. Die Vorschau zeigt, wer was zuletzt geändert hat, bevor etwas geschrieben wird.\n- Nie in einer Produktions-Org: Prüfpunkte sind für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht, und keine Einstellung und keine Option hebt diese Ablehnung auf.\n- Nur Daten: Felder, Flows, Validierungsregeln, Layouts, Berechtigungen, Benutzer und Setup bleiben, wie sie sind, und was die Org schon verlassen hat (E-Mails, Callouts, Plattformereignisse), bleibt gesendet.\n- Dateien sind nur zum Teil abgedeckt: Das Zurücksetzen löscht die seitdem an seine Datensätze angehängten Dateien und holt die seitdem gelöschten zurück, doch eine Datei, die eine neue Version erhalten hat, behält ihren neuen Inhalt.\n- Ein Prüfpunkt enthält die Werte der Datensätze im Klartext, darunter personenbezogene Daten, auf diesem Rechner, nur für Sie lesbar, 30 Tage lang, sofern Sie ihn nicht aufbewahren.",
     "syncContent": "Sync kopiert Objekte von einer Org in eine andere, Feld für Feld; der Tab Verlauf listet jeden Lauf, und der Tab Gespeichert öffnet eine gespeicherte Konfiguration oder führt sie nach Zeitplan aus.\n- Ein Delta-Lauf einer gespeicherten Konfiguration liest, was sich seit ihrem letzten erfolgreichen Lauf geändert hat, und kann im Ziel löschen, was die Quelle gelöscht hat.\n- Auto-Zuordnung verbindet Felder mit demselben API-Namen. Eine Transformationsregel ändert ein einziges Feld in jedem geschriebenen Datensatz; eine Regel ohne Feld wird abgelehnt, bevor etwas gelesen oder gespeichert wird. Wertzuordnungen kommen aus einer importierten SFDMU-Konfiguration.\n- „E-Mail-Adressen und Telefonnummern neutralisieren“ ist an, sofern Sie es nicht abwählen; „Die Dateien dieser Datensätze kopieren“ bringt ihre Dateien mit.\n- Tab Echtzeit: schreibt jede Änderung, die die Quelle veröffentlicht (Change Data Capture), sobald sie kommt; einen Konflikt entscheidet die Strategie, oder er wird unter Konflikte auf demselben Tab zurückgehalten.\n- „Entfernen, was dieser Lauf erstellt hat“, in den Ergebnissen oder im Verlaufseintrag des Laufs, löscht, was er eingefügt hat, und seine Dateien, gibt den Datensätzen, die er überschrieben hat, ihre vorherigen Werte zurück, aufbewahrt für sandforge.backup.maxAgeDays, und holt zurück, was ein Delta-Lauf gelöscht hat. Production Guard verweigert es in einer Produktions-Org.\n- Eine Echtzeit-Sitzung wird ebenso entfernt, unter „Frühere Sitzungen“, sobald sie gestoppt ist.",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Unterschiede: was eine Org enthält und die andere nicht oder anders enthält, gruppiert nach Kategorie und Risikostufe\n- Aus Diff bereitstellen: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie die Validierung dann in einer Sandbox, einer Scratch-Org oder einer Developer-Edition-Org bereit\n- Org-Übersicht, ohne dass ein Vergleich laufen muss, in drei Abschnitten:\n- Objekte: die Objekte beider Orgs, live gelesen beim Öffnen des Tabs\n- Berechtigungssätze und Profile: welche auf jeder Seite existieren, nach Namen\n- Organisationseinstellungen: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)",
@@ -4043,7 +4047,7 @@
     },
     "seed": {
       "step1": "Klicken Sie unter Schnell-Seed aus Vorlage bei CRM-Starter, markiert mit Hier beginnen, auf Diese verwenden.",
-      "step2": "Prüfen Sie die Anzahlen unter Datensatzanzahl und wählen Sie die Org unter Ziel-Org auswählen.",
+      "step2": "Wählen Sie die Org unter Ziel-Org auswählen, und prüfen Sie dann die Anzahlen unter Datensatzanzahl.",
       "step3": "Klicken Sie auf Seed starten und verfolgen Sie den Fortschritt jedes Objekts bis zu den Ergebnissen.",
       "step4": "Klicken Sie in den Ergebnissen auf Ersten erstellten Datensatz (Account) in Ihrer Org öffnen, um die Daten zu sehen.",
       "tip": "Vor Seed starten wird nichts geschrieben; danach macht Entfernen, was dieser Lauf erstellt hat (in den Ergebnissen oder unter Frühere Seeds), den Seed rückgängig."
@@ -4075,7 +4079,7 @@
       "step1": "Wählen Sie eine Org unter Quell-Org und eine andere unter Ziel-Org, dann klicken Sie auf Weiter.",
       "step2": "Markieren Sie jedes Objekt, das kopiert werden soll, dann klicken Sie auf Weiter.",
       "step3": "Prüfen Sie im Schritt Plan überprüfen die beiden Orgs und die Angaben Datensätze gesamt und Was der Plan kopiert.",
-      "step4": "Klicken Sie auf In … kopieren, das die Ziel-Org nennt, und verfolgen Sie jede Welle unter Live-Statistiken in der Steuerung.",
+      "step4": "Klicken Sie auf In … kopieren, das die Ziel-Org nennt, und verfolgen Sie jede Welle unter Fortschritt in der Steuerung.",
       "tip": "SandForge kann nicht entfernen, was ein Autopilot-Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können."
     },
     "frozen": {
@@ -5886,11 +5890,8 @@
   },
   "autopilot": {
     "title": "Autopilot",
-    "wizard": {
-      "title": "Autopilot-Einrichtung"
-    },
     "step1": {
-      "title": "Quelle & Ziel verbinden",
+      "title": "Die zwei Orgs wählen",
       "sourceOrg": "Quell-Org",
       "targetOrg": "Ziel-Org",
       "description": "Wählen Sie eine Quell- und Ziel-Org, um den Autopilot-Prozess zu starten.",
@@ -6000,14 +6001,12 @@
     },
     "control": {
       "title": "Steuerung",
-      "liveStats": "Live-Statistiken",
-      "nodeDetail": "Knotendetails",
+      "nodeDetail": "Ausgewähltes Objekt",
       "anonymization": "Anonymisierungs-Vorschau",
       "compliance": "Compliance",
       "pause": "Pause",
       "resume": "Fortsetzen",
-      "skip": "Knoten überspringen",
-      "stop": "Stoppen",
+      "skip": "Dieses Objekt überspringen",
       "stopping": "Wird gestoppt…",
       "stoppedNotWritten": "Lauf gestoppt: Nach dem Stopp wurde nichts mehr geschrieben. Nicht oder nicht vollständig geschrieben: {{list}}.",
       "stoppedAllWritten": "Lauf gestoppt, nachdem jedes Objekt geschrieben war: Die folgenden Aktualisierungen wurden nicht gesendet.",
@@ -6015,7 +6014,7 @@
       "apiCalls": "API-Aufrufe",
       "elapsed": "Vergangene Zeit",
       "currentWave": "Aktuelle Welle",
-      "noNodeSelected": "Wählen Sie einen Knoten, um Details anzuzeigen",
+      "noNodeSelected": "Wählen Sie ein Objekt im Graphen, um seine Details zu sehen",
       "errors": "Fehler",
       "piiFields": "PII-Felder",
       "linked": "Mit vorhandenen Datensätzen verknüpft",

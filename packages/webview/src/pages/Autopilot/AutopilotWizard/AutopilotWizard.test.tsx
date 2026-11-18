@@ -397,6 +397,16 @@ describe('AutopilotWizard', () => {
     expect(useAutopilotStore.getState().selectedObjects).toEqual(['Contact']);
   });
 
+  it('is headed Autopilot, as its running view is, and its first step asks to choose the two orgs', () => {
+    // "Autopilot Setup" over the wizard, "Autopilot" over the run; and
+    // "Connect source and target" read as signing in, where the step only
+    // picks two orgs already connected.
+    render(wizard());
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(en.autopilot.title);
+    expect(screen.getByTestId('seed-step-connect').textContent).toBe('1Choose the two orgs');
+  });
+
   it('has three steps: the compliance framework is an advanced choice of the review', () => {
     render(wizard());
     expect(screen.queryByText(en.autopilot.step4.title)).not.toBeNull();
@@ -472,6 +482,25 @@ describe('AutopilotWizard', () => {
     expect(screen.getByTestId('step4-review')).toBeDefined();
     expect(screen.getByTestId('stat-waves').textContent).toContain('2');
     expect(screen.getByTestId('stat-records').textContent).toContain('180');
+  });
+
+  it('has one button that writes on its review, Copy into the target, beside the review’s one Back', () => {
+    // The wizard's Confirm started the run under the review's own Copy into
+    // the target: two buttons that wrote, one under the other.
+    const { rerender } = render(wizard());
+    toReview(rerender);
+
+    expect(screen.queryByTestId('seed-wizard-finish')).toBeNull();
+    expect(screen.queryByTestId('seed-wizard-back')).toBeNull();
+    expect(screen.getAllByRole('button', { name: en.common.back })).toHaveLength(1);
+    expect(screen.getByTestId('execute-button').textContent).toBe(
+      en.autopilot.step4.copyInto.replace('{{target}}', 'QASandbox'),
+    );
+
+    fireEvent.click(screen.getByTestId('step4-back'));
+
+    expect(useAutopilotStore.getState().step).toBe('objects');
+    expect(onExecute).not.toHaveBeenCalled();
   });
 
   it('should call onExecute when the execute button is clicked', () => {

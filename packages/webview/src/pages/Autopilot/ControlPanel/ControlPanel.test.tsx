@@ -290,7 +290,8 @@ describe('ControlPanel', () => {
 
     it('is offered while the run goes or stands paused, and not once it has ended', () => {
       const { rerender } = render(<ControlPanel runOperationId="exec-1" />);
-      expect(screen.getByTestId('control-stop').textContent).toBe('Stop');
+      // Named as every run's stop is.
+      expect(screen.getByTestId('control-stop').textContent).toBe('Stop the run');
 
       mockStoreState.executionStatus = 'paused';
       rerender(<ControlPanel runOperationId="exec-1" />);
@@ -478,25 +479,27 @@ describe('ControlPanel', () => {
     it('are tabs with the open one selected, one stop in the Tab order, its panel named after it', () => {
       // Plain buttons, the open one told by its underline alone.
       render(<ControlPanel />);
-      const stats = screen.getByRole('tab', { name: 'Live Stats' });
-      const node = screen.getByRole('tab', { name: 'Node Detail' });
+      const stats = screen.getByRole('tab', { name: 'Progress' });
+      const node = screen.getByRole('tab', { name: 'Selected object' });
       expect(stats.getAttribute('aria-selected')).toBe('true');
       expect(node.getAttribute('aria-selected')).toBe('false');
       expect(stats.tabIndex).toBe(0);
       expect(node.tabIndex).toBe(-1);
-      expect(screen.getByRole('tabpanel', { name: 'Live Stats' })).toBeDefined();
+      expect(screen.getByRole('tabpanel', { name: 'Progress' })).toBeDefined();
     });
 
     it('walk with the arrows, Home and End, the focus following the tab selected', () => {
       render(<ControlPanel />);
-      const stats = screen.getByRole('tab', { name: 'Live Stats' });
+      const stats = screen.getByRole('tab', { name: 'Progress' });
       stats.focus();
       fireEvent.keyDown(stats, { key: 'ArrowRight' });
-      const node = screen.getByRole('tab', { name: 'Node Detail' });
+      const node = screen.getByRole('tab', { name: 'Selected object' });
       expect(node.getAttribute('aria-selected')).toBe('true');
       expect(document.activeElement).toBe(node);
-      fireEvent.keyDown(node, { key: 'End' });
-      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Compliance' }));
+      fireEvent.keyDown(node, { key: 'Home' });
+      expect(document.activeElement).toBe(stats);
+      fireEvent.keyDown(stats, { key: 'End' });
+      expect(document.activeElement).toBe(node);
       fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' });
       expect(document.activeElement).toBe(stats);
     });
@@ -505,9 +508,83 @@ describe('ControlPanel', () => {
       const { rerender } = render(<ControlPanel />);
       mockStoreState = { ...mockStoreState, selectedNodeName: 'Account' };
       rerender(<ControlPanel />);
-      expect(screen.getByRole('tab', { name: 'Node Detail' }).getAttribute('aria-selected')).toBe(
-        'true',
+      expect(
+        screen.getByRole('tab', { name: 'Selected object' }).getAttribute('aria-selected'),
+      ).toBe('true');
+    });
+  });
+
+  describe('its two tabs, Progress and Selected object', () => {
+    // Four tabs: two said "Select a node to view details" alike, and
+    // Compliance said NONE beside three zeros for a run with no framework.
+
+    const ACCOUNT = {
+      objectApiName: 'Account',
+      status: 'loading',
+      progress: 40,
+      recordCount: 10,
+      successCount: 4,
+      failureCount: 0,
+      errors: [],
+    };
+
+    it('are two, the object picked on the graph named as an object, not a node', () => {
+      render(<ControlPanel />);
+
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'Progress',
+        'Selected object',
+      ]);
+      fireEvent.click(screen.getByTestId('control-tab-node'));
+      expect(screen.getByTestId('node-detail-empty').textContent).toBe(
+        en.autopilot.control.noNodeSelected,
       );
+      expect(en.autopilot.control.noNodeSelected).not.toMatch(/node/i);
+      expect(screen.queryByTestId('anonymization-preview-empty')).toBeNull();
+    });
+
+    it('say under Progress the framework the plan anonymizes by, and nothing for a run with none', () => {
+      const { rerender } = render(<ControlPanel />);
+      expect(screen.queryByTestId('compliance-status')).toBeNull();
+
+      mockStoreState = {
+        ...mockStoreState,
+        complianceFramework: 'gdpr',
+        rules: [
+          {
+            objectApiName: 'Contact',
+            fieldApiName: 'Email',
+            method: 'fake',
+            piiCategory: 'email',
+          },
+        ],
+      };
+      rerender(<ControlPanel />);
+      const tabpanel = screen.getByRole('tabpanel', { name: 'Progress' });
+      expect(within(tabpanel).getByTestId('live-stats')).toBeDefined();
+      expect(within(tabpanel).getByTestId('framework-badge').textContent).toBe('GDPR');
+    });
+
+    it('say under Selected object how its fields are anonymized, beside its details', () => {
+      mockStoreState = {
+        ...mockStoreState,
+        selectedNodeName: 'Account',
+        selectedNode: () => ACCOUNT,
+        rules: [
+          { objectApiName: 'Account', fieldApiName: 'Phone', method: 'fake', piiCategory: 'phone' },
+        ],
+      };
+      render(<ControlPanel />);
+      fireEvent.click(screen.getByTestId('control-tab-node'));
+
+      const tabpanel = screen.getByRole('tabpanel', { name: 'Selected object' });
+      expect(within(tabpanel).getByTestId('node-detail')).toBeDefined();
+      expect(within(tabpanel).getByTestId('anonymization-preview').textContent).toContain('Phone');
+    });
+
+    it('says on Skip, with nothing picked, that it skips the object picked', () => {
+      render(<ControlPanel />);
+      expect(screen.getByTestId('control-skip').textContent).toBe('Skip this object');
     });
   });
 

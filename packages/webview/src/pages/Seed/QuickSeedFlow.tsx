@@ -140,6 +140,20 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
           />
           <CardBody>
             <div className="flex flex-col gap-3">
+              {/* The org first: the counts are what it has room for, and
+                  what the notices under them read in it. */}
+              <Select
+                label={t('seed.quickSeed.selectOrg')}
+                options={orgs.map((org) => ({
+                  value: org.id,
+                  label: orgOptionLabel(org, t),
+                }))}
+                value={quickSeed.selectedOrgId}
+                onChange={(e) => quickSeed.selectOrg(e.target.value)}
+                placeholder={t('seed.quickSeed.selectOrg')}
+                data-testid="quick-seed-org-selector"
+              />
+
               <div className="flex flex-col gap-1" data-testid="quick-seed-counts">
                 <span className="text-xs font-medium text-(--sf-text-primary)">
                   {t('common.recordCountLabel')}
@@ -163,18 +177,6 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   </div>
                 ))}
               </div>
-
-              <Select
-                label={t('seed.quickSeed.selectOrg')}
-                options={orgs.map((org) => ({
-                  value: org.id,
-                  label: orgOptionLabel(org, t),
-                }))}
-                value={quickSeed.selectedOrgId}
-                onChange={(e) => quickSeed.selectOrg(e.target.value)}
-                placeholder={t('seed.quickSeed.selectOrg')}
-                data-testid="quick-seed-org-selector"
-              />
 
               <SeedLocalePicker
                 value={quickSeed.locale}
@@ -290,7 +292,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 onClick={() => setShowCancelConfirm(true)}
                 data-testid="btn-quick-seed-cancel"
               >
-                {t('common.cancelRun')}
+                {t('common.stopRun')}
               </Button>
             </div>
           )}
@@ -307,7 +309,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 ref={showsPhase}
                 tabIndex={-1}
                 role="group"
-                aria-label={t('seed.stepResults')}
+                aria-label={t('seed.results.title')}
                 className="flex items-center gap-3 text-xs"
                 data-testid="quick-seed-result-summary"
               >
@@ -437,7 +439,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
           setShowCancelConfirm(false);
           quickSeed.cancel();
         }}
-        title={t('common.cancelRun')}
+        title={t('common.stopRun')}
         description={t('seed.cancelRunConfirm')}
         // Stopping writes nothing: a question, not a word to type.
         confirmLabel={t('common.stopRun')}

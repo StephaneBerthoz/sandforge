@@ -79,6 +79,72 @@ describe('Wizard', () => {
     expect(onFinish).toHaveBeenCalled();
   });
 
+  it('names its last button after what it does, and Confirm when it is not told', () => {
+    // Seed's last button read Confirm over the step that starts the seed.
+    const wizard = (finishLabel?: string) => (
+      <Wizard steps={steps} currentStep={2} onStepChange={vi.fn()} finishLabel={finishLabel}>
+        <div>Content</div>
+      </Wizard>
+    );
+    const { rerender } = render(wizard(en.seed.quickSeed.startSeeding));
+    expect(screen.getByTestId('wizard-wizard-finish').textContent).toBe(
+      en.seed.quickSeed.startSeeding,
+    );
+
+    rerender(wizard());
+    expect(screen.getByTestId('wizard-wizard-finish').textContent).toBe(en.common.confirm);
+  });
+
+  it('draws no footer under a step that has its own, so no second button does what its button does', () => {
+    // Under Seed Clone's preview, the wizard's Next ran the clone beside the
+    // preview's own Execute Clone, and its Back sat under the preview's Back.
+    const onStepChange = vi.fn();
+    const onFinish = vi.fn();
+    const wizard = (currentStep: number, stepOwnsFooter: boolean) => (
+      <Wizard
+        steps={steps}
+        currentStep={currentStep}
+        onStepChange={onStepChange}
+        onFinish={onFinish}
+        onCancel={vi.fn()}
+        stepOwnsFooter={stepOwnsFooter}
+      >
+        <div>Content</div>
+      </Wizard>
+    );
+    const { rerender } = render(wizard(1, true));
+
+    for (const control of ['back', 'next', 'finish', 'cancel']) {
+      expect(screen.queryByTestId(`wizard-wizard-${control}`)).toBeNull();
+    }
+    rerender(wizard(2, true));
+    expect(screen.queryByTestId('wizard-wizard-finish')).toBeNull();
+
+    // A step without one has the wizard's, as before.
+    rerender(wizard(1, false));
+    expect(screen.getByTestId('wizard-wizard-next')).toBeDefined();
+    expect(screen.getByTestId('wizard-wizard-back')).toBeDefined();
+  });
+
+  it('says a step it went past was skipped, and does not tick it as done', () => {
+    // Seed's Fields step, passed over below five objects, was ticked as done.
+    const withSkipped: WizardStep[] = steps.map((step) =>
+      step.id === 'beta' ? { ...step, skipped: true } : step,
+    );
+    render(
+      <Wizard steps={withSkipped} currentStep={2} onStepChange={vi.fn()}>
+        <div>Content</div>
+      </Wizard>,
+    );
+
+    expect(screen.getByTestId('wizard-check-alpha')).toBeDefined();
+    expect(screen.queryByTestId('wizard-check-beta')).toBeNull();
+    expect(screen.getByTestId('wizard-skipped-beta').textContent).toBe(en.common.stepSkipped);
+    expect(screen.getByTestId('wizard-step-beta').textContent).toContain(en.common.stepSkipped);
+    // Still a step to go back to, as any passed.
+    expect(screen.getByTestId('wizard-step-beta')).toHaveProperty('disabled', false);
+  });
+
   it('should show checkmark for completed steps', () => {
     render(
       <Wizard steps={steps} currentStep={2} onStepChange={vi.fn()}>
@@ -400,6 +466,29 @@ describe('Wizard', () => {
 
       rerender(wizard(true));
 
+      expect(document.activeElement).toBe(stepNamed(en.seed.selectObjects));
+    });
+
+    it('goes to the step when its footer goes while it held the keyboard', () => {
+      // Seed Clone's preview comes with its own Back and Execute Clone, and
+      // the wizard's Next the keyboard waited on went with the footer.
+      const wizard = (stepOwnsFooter: boolean) => (
+        <Wizard
+          steps={steps}
+          currentStep={1}
+          onStepChange={vi.fn()}
+          canGoNext={stepOwnsFooter}
+          stepOwnsFooter={stepOwnsFooter}
+        >
+          <div>Content</div>
+        </Wizard>
+      );
+      const { rerender } = render(wizard(false));
+      screen.getByTestId('wizard-wizard-next').focus();
+
+      rerender(wizard(true));
+
+      expect(screen.queryByTestId('wizard-wizard-next')).toBeNull();
       expect(document.activeElement).toBe(stepNamed(en.seed.selectObjects));
     });
 

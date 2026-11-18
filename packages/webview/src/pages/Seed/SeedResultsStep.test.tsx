@@ -158,10 +158,10 @@ describe('SeedResultsStep', () => {
         />,
       );
 
-    it('says what Confirm does, where it said no data was available', () => {
+    it('says what Start seeding does, where it said no data was available', () => {
       shown({});
       expect(screen.getByTestId('seed-results-waiting').textContent).toBe(
-        'Nothing has been written yet: Confirm starts the seed.',
+        'Nothing has been written yet: Start seeding starts the seed.',
       );
       expect(screen.queryByText('No data available')).toBeNull();
     });

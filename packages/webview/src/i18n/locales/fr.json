@@ -173,7 +173,8 @@
     },
     "objectCountFormatted_one": "{{formatted}} objet",
     "objectCountFormatted_other": "{{formatted}} objets",
-    "seeInReports": "Voir dans Rapports"
+    "seeInReports": "Voir dans Rapports",
+    "stepSkipped": "Sautée"
   },
   "status": {
     "apiUsage": "Utilisation API"
@@ -717,7 +718,7 @@
       "orgDefault": "Les paramètres régionaux de l'org (par défaut)",
       "hint": "Les personnes, sociétés, adresses et numéros de téléphone que le seed écrit sont tirés pour ces paramètres régionaux."
     },
-    "title": "Générer des données",
+    "title": "Seed : données de test",
     "selectOrg": "Sélectionner l'org cible",
     "selectOrgDesc": "Choisissez l'org où les données seront générées",
     "selectObjects": "Sélectionner les objets",
@@ -798,10 +799,10 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Générer...",
     "csvColumnPlaceholder": "nom_colonne",
-    "stepSelect": "Sélection",
-    "stepConfigure": "Configuration",
-    "stepExecute": "Exécution",
-    "stepResults": "Résultats",
+    "stepSelect": "Objets",
+    "stepConfigure": "Champs",
+    "stepExecute": "Options",
+    "stepResults": "Exécution",
     "advancedSettings": "Paramètres avancés",
     "exportCsv": "Exporter CSV",
     "seedAgain": "Relancer le Seed…",
@@ -914,8 +915,8 @@
       "generateDesc": "Choisissez vous-même les objets, les volumes et les règles des champs",
       "csv": "Import CSV",
       "csvDesc": "Importez des données depuis un fichier CSV",
-      "clone": "Cloner depuis une org",
-      "cloneDesc": "Clonez des enregistrements depuis une autre org"
+      "clone": "Copier des enregistrements d'une autre org",
+      "cloneDesc": "Les vrais enregistrements des objets choisis, copiés une fois"
     },
     "persona": {
       "title": "Personas IA",
@@ -1088,7 +1089,7 @@
     },
     "emptyState": {
       "title": "Remplissez votre sandbox de données de test réalistes",
-      "step2": "Choisissez un modèle, ou Générer des données, Import CSV ou Cloner depuis une org",
+      "step2": "Choisissez un modèle, ou Générer des données, Import CSV ou Copier des enregistrements d'une autre org",
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
     },
@@ -1099,7 +1100,8 @@
       "writtenByThePlatform_other": "{{count}} rôles de contact rattachés à ceux que la plateforme a écrits avec leur opportunité, pour le contact avec lequel chacune est entrée, non écrits ; ayant reçu les champs générés pour eux : {{given}}.",
       "writtenByThePlatformRefused": "Les autres restent tels que la plateforme les a écrits. Les mots de la cible :",
       "openRecord": "Ouvrir le premier enregistrement créé ({{object}}) dans {{org}}",
-      "notRun": "Rien n'a encore été écrit : Confirmer lance le seed."
+      "notRun": "Rien n'a encore été écrit : Lancer le seed démarre l'exécution.",
+      "title": "Résultats"
     },
     "sampleRecordCount_one": "{{count}} enregistrement d'exemple",
     "sampleRecordCount_other": "{{count}} enregistrements d'exemple",
@@ -1139,7 +1141,9 @@
     },
     "start": {
       "subtitle": "Remplir une org de données réalistes",
-      "otherWays": "Autres façons d'alimenter une org"
+      "otherWays": "Autres façons d'alimenter une org",
+      "copyElsewhere": "Pour un enregistrement avec tout ce qui s'y rattache, Forge ; pour des objets entiers avec leurs parents, Autopilot.",
+      "openModule": "Ouvrir {{module}}"
     },
     "objectSearch": "Rechercher des objets",
     "commonObjects": "Objets courants",
@@ -1188,7 +1192,7 @@
     "stepHelp": {
       "selectObjects": "Choisissez les objets Salesforce à remplir avec des données",
       "configureFields": "Personnalisez la génération de chaque champ — règles, plages et patterns",
-      "execute": "Vérifiez et lancez la génération. Les résultats apparaissent ici"
+      "execute": "Choisissez comment l'exécution écrit : noms et adresses, automatisation de l'org, point de contrôle d'abord. Lancer le seed, à l'étape suivante, l'exécute"
     },
     "configure": {
       "filterFields": "Trouver un champ de {{object}}",
@@ -3981,7 +3985,7 @@
     "gettingStartedDesc": "Apprenez les bases de SandForge",
     "gettingStartedContent": "1. Connectez une org sur la page Organisations : Importer depuis la Salesforce CLI, ou Se connecter dans le navigateur.\n2. Remplissez-la avec Seed : le Kit de démarrage CRM, marqué Commencez ici, écrit des comptes, contacts, opportunités et requêtes liés après avoir vérifié le stockage de l'org, sans seconde org ni clé d'IA.\n3. Clonez avec Forge : copiez un enregistrement réel et tout ce qui l'entoure depuis une autre org.\n4. Avant une exécution risquée sur une sandbox, créez un point de contrôle (Points de contrôle → Créer un point de contrôle) : Revenir à ce point… y ramène les données de l'org.\n5. Ouvrez le Moniteur pour vérifier la santé, les limites et les jobs de l'org.\n6. Explorez Sync, Autopilot, le Jeu de données figé, la Comparaison, DataOps et l'Automatisation quand vous en avez besoin.\n\nRendre muettes les automatisations de la cible pour cette exécution : une case à côté des automatisations que déclencherait une exécution de Seed, Forge, Sync, Autopilot ou du Jeu de données figé, un retour arrière ou un retrait. Pour cette seule exécution, elle attribue à l'utilisateur sous lequel l'exécution écrit les ensembles d'autorisations qui portent les contournements que testent les Flows, processus et règles de workflow de la cible, et les lui retire à la fin, même après un échec. Rien n'est désactivé ; ce qui s'exécute quand même est listé avec sa raison. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien.",
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org, lue à l'ouverture de la page et à chaque clic sur Actualiser :\n- Jauge de score de santé avec facteurs contributifs\n- Opérations en cours, tant qu'une exécution tourne : son module, sa progression et son étape en cours\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Scanner les anomalies, dans Limites governor : examine jusqu'à 500 enregistrements de l'objet choisi à la recherche de valeurs inhabituelles\n- Alertes pour les seuils critiques\n- Gouvernance de l'org : des politiques de règles de seuil, vérifiées sur l'org quand vous cliquez sur Évaluer\n\nAstuce : Actualisation automatique, le bouton horloge, est désactivée par défaut ; cliquez dessus pour relire l'org toutes les 30 secondes tant que le panneau est visible.",
-    "seedContent": "Sous les modèles, quatre autres façons d'alimenter une org :\n- Générer des données : un assistant pour les objets, le nombre d'enregistrements et les règles de champs de votre choix (IA, Faker, statique, séquence...) ; un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n- Import CSV : des enregistrements tirés d'un fichier CSV, ses colonnes associées aux champs\n- Cloner depuis une org : des enregistrements copiés depuis une autre org\n- Données de test pour un agent Agentforce : choisissez un pack ou Rédiger depuis votre propre texte, relisez-le, Lancer le seed du scénario, puis Écrire le fichier de test. Les packs ne demandent aucune clé d'IA ; un brouillon utilise votre clé Anthropic. Ses articles Knowledge sont publiés ; SandForge ne lance jamais les tests.",
+    "seedContent": "Sous les modèles, quatre autres façons d'alimenter une org :\n- Générer des données : un assistant pour les objets, le nombre d'enregistrements et les règles de champs de votre choix (IA, Faker, statique, séquence...) ; un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n- Import CSV : des enregistrements tirés d'un fichier CSV, ses colonnes associées aux champs\n- Copier des enregistrements d'une autre org : les vrais enregistrements des objets choisis, copiés une fois ; Forge et Autopilot copient davantage\n- Données de test pour un agent Agentforce : choisissez un pack ou Rédiger depuis votre propre texte, relisez-le, Lancer le seed du scénario, puis Écrire le fichier de test. Les packs ne demandent aucune clé d'IA ; un brouillon utilise votre clé Anthropic. Ses articles Knowledge sont publiés ; SandForge ne lance jamais les tests.",
     "checkpointContent": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur. Son aperçu compte, objet par objet, les enregistrements à Supprimer, à qui Rendre les valeurs et à Rétablir. Une sauvegarde DataOps est une copie de certains objets : sa restauration ne supprime jamais ce qui a été ajouté.\n- Le retour arrière défait le travail de tous depuis le point de contrôle, pas seulement les exécutions de SandForge : n'importe quel utilisateur, Flow ou intégration. L'aperçu indique qui a modifié quoi en dernier avant que rien ne soit écrit.\n- Jamais sur une org de production : les points de contrôle sont réservés aux sandboxes, aux scratch orgs et aux orgs Developer Edition, et aucun paramètre ni option ne lève ce refus.\n- Les données seulement : champs, Flows, règles de validation, présentations, autorisations, utilisateurs et configuration restent tels quels, et ce qui est déjà sorti de l'org (e-mails, callouts, événements de plateforme) reste envoyé.\n- Les fichiers ne sont couverts qu'en partie : un retour arrière supprime les fichiers joints depuis à ses enregistrements et rétablit ceux supprimés depuis, mais un fichier qui a reçu une nouvelle version conserve son nouveau contenu.\n- Un point de contrôle contient en clair les valeurs des enregistrements, dont des données personnelles, sur cette machine, lisibles par vous seul, pendant 30 jours sauf si vous le conservez.",
     "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Enregistrées ouvre une configuration enregistrée, ou la lance selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente sous Conflits, dans le même onglet.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Différences : ce qu'une org contient et que l'autre n'a pas, ou contient autrement, groupé par catégorie et niveau de risque\n- Déployer depuis le diff : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox, une scratch org ou une org Developer Edition\n- Aperçu des orgs, sans comparaison à lancer, en trois sections :\n- Objets : les objets des deux orgs, lus en direct à l'ouverture de l'onglet\n- Ensembles d'autorisations et profils : ceux présents de chaque côté, par leur nom\n- Paramètres de l'organisation : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)",
@@ -4043,7 +4047,7 @@
     },
     "seed": {
       "step1": "Sous Seed rapide depuis un modèle, cliquez sur Utiliser dans la carte Kit de démarrage CRM, marquée Commencez ici.",
-      "step2": "Vérifiez les volumes sous Nombre d'enregistrements, puis choisissez l'org sous Choisir l'org cible.",
+      "step2": "Choisissez l'org sous Choisir l'org cible, puis vérifiez les volumes sous Nombre d'enregistrements.",
       "step3": "Cliquez sur Lancer le seed et suivez la progression de chaque objet jusqu'aux résultats.",
       "step4": "Dans les résultats, cliquez sur Ouvrir le premier enregistrement créé (Account) dans votre org pour voir les données.",
       "tip": "Rien n'est écrit avant Lancer le seed ; ensuite, Retirer ce que cette exécution a créé, dans les résultats ou sous Seeds précédents, défait le seed."
@@ -4075,7 +4079,7 @@
       "step1": "Choisissez une org sous Org source et une autre sous Org cible, puis cliquez sur Suivant.",
       "step2": "Cochez chaque objet à copier, puis cliquez sur Suivant.",
       "step3": "À l'étape Vérifier le plan, contrôlez les deux orgs, Total des enregistrements et Ce que le plan copie.",
-      "step4": "Cliquez sur Copier dans, qui nomme l'org cible, puis suivez chaque vague dans l'onglet Stats en direct du Panneau de contrôle.",
+      "step4": "Cliquez sur Copier dans, qui nomme l'org cible, puis suivez chaque vague dans l'onglet Progression du Panneau de contrôle.",
       "tip": "SandForge ne peut pas retirer ce qu'une exécution d'Autopilot écrit : essayez-la sur une scratch org ou une sandbox que vous pouvez rafraîchir."
     },
     "frozen": {
@@ -5886,11 +5890,8 @@
   },
   "autopilot": {
     "title": "Autopilot",
-    "wizard": {
-      "title": "Configuration Autopilot"
-    },
     "step1": {
-      "title": "Connecter la source et la cible",
+      "title": "Choisir les deux orgs",
       "sourceOrg": "Org source",
       "targetOrg": "Org cible",
       "description": "Sélectionnez une org source et une org cible pour lancer le processus autopilot.",
@@ -6000,14 +6001,12 @@
     },
     "control": {
       "title": "Panneau de contrôle",
-      "liveStats": "Stats en direct",
-      "nodeDetail": "Détail de l'objet",
+      "nodeDetail": "Objet sélectionné",
       "anonymization": "Aperçu de l'anonymisation",
       "compliance": "Conformité",
       "pause": "Pause",
       "resume": "Reprendre",
-      "skip": "Ignorer l'objet",
-      "stop": "Arrêter",
+      "skip": "Ignorer cet objet",
       "stopping": "Arrêt en cours…",
       "stoppedNotWritten": "Exécution arrêtée : rien n'a été écrit après l'arrêt. Objets non écrits, ou pas en entier : {{list}}.",
       "stoppedAllWritten": "Exécution arrêtée une fois chaque objet écrit : les mises à jour qui suivent n'ont pas été envoyées.",
@@ -6015,7 +6014,7 @@
       "apiCalls": "Appels API",
       "elapsed": "Temps écoulé",
       "currentWave": "Vague actuelle",
-      "noNodeSelected": "Sélectionnez un nœud pour voir les détails",
+      "noNodeSelected": "Sélectionnez un objet sur le graphe pour voir son détail",
       "errors": "Erreurs",
       "piiFields": "Champs PII",
       "linked": "Liés à des enregistrements existants",

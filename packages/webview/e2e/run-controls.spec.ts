@@ -435,7 +435,7 @@ for (const theme of THEMES) {
       });
       await expect(page.getByTestId('seed-run-history-origin-op-csv')).toHaveText('CSV Upload');
       await expect(page.getByTestId('seed-run-history-origin-op-clone')).toHaveText(
-        'Clone from Org',
+        'Copy records from another org',
       );
       // The cards no longer say their runs cannot be removed: Earlier seeds takes them back.
       await expect(page.getByTestId('mode-card-csv-not-removable')).toHaveCount(0);

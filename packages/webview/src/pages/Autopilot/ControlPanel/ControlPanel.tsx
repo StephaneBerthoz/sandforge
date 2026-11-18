@@ -23,8 +23,13 @@ import { useOrgStore } from '../../../stores/useOrgStore';
 import { AutopilotFitResultLine } from '../AutopilotWizard/AutopilotFitPanel';
 import { orgDisplayName } from '@sandforge/shared';
 
-/** Tab identifiers for the control panel. */
-type ControlTab = 'stats' | 'node' | 'anonymization' | 'compliance';
+/**
+ * Tab identifiers for the control panel: the run's progress, and the object
+ * picked on the graph. Four tabs were two too many: Anonymization Preview
+ * said "Select a node to view details" as Node Detail did, and Compliance
+ * said NONE beside three zeros for a run with no framework.
+ */
+type ControlTab = 'stats' | 'node';
 
 /** ControlPanel component props. */
 export interface ControlPanelProps {
@@ -97,6 +102,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const executionStatus = useAutopilotStore((s) => s.executionStatus);
   const setExecutionStatus = useAutopilotStore((s) => s.setExecutionStatus);
   const selectedNodeName = useAutopilotStore((s) => s.selectedNodeName);
+  const complianceFramework = useAutopilotStore((s) => s.complianceFramework);
+  const rules = useAutopilotStore((s) => s.rules);
+  /** Whether the plan anonymizes by a framework, or by rules: said under the progress. */
+  const anonymizes = complianceFramework !== 'none' || rules.length > 0;
   const updateNodeStatus = useAutopilotStore((s) => s.updateNodeStatus);
   const sendMessage = useSendMessage();
 
@@ -104,10 +113,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const isExecuting = executionStatus === 'executing' || executionStatus === 'paused';
 
   const tabs: { id: ControlTab; label: string }[] = [
-    { id: 'stats', label: t('autopilot.control.liveStats') },
+    { id: 'stats', label: t('common.progress') },
     { id: 'node', label: t('autopilot.control.nodeDetail') },
-    { id: 'anonymization', label: t('autopilot.control.anonymization') },
-    { id: 'compliance', label: t('autopilot.control.compliance') },
   ];
   const tabIds = tabs.map((tab) => tab.id);
 
@@ -353,10 +360,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the panel scrolls, and Live stats holds no control to reach it by: it takes the focus itself so the keyboard can scroll it, as the tab pattern gives a panel with no control (axe scrollable-region-focusable).
         tabIndex={0}
       >
-        {activeTab === 'stats' && <LiveStats />}
-        {activeTab === 'node' && <NodeDetail />}
-        {activeTab === 'anonymization' && <AnonymizationPreview />}
-        {activeTab === 'compliance' && <ComplianceStatus />}
+        {activeTab === 'stats' && (
+          <div className="flex flex-col gap-4">
+            <LiveStats />
+            {anonymizes && (
+              <section className="flex flex-col gap-2">
+                <h4 className="text-xs font-semibold text-text-primary">
+                  {t('autopilot.control.compliance')}
+                </h4>
+                <ComplianceStatus />
+              </section>
+            )}
+          </div>
+        )}
+        {activeTab === 'node' && (
+          <div className="flex flex-col gap-4">
+            <NodeDetail />
+            <AnonymizationPreview />
+          </div>
+        )}
       </div>
 
       {/* Action Buttons */}
@@ -390,7 +412,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               disabled={stopping}
               data-testid="control-stop"
             >
-              {stopping ? t('autopilot.control.stopping') : t('autopilot.control.stop')}
+              {stopping ? t('autopilot.control.stopping') : t('common.stopRun')}
             </button>
           )}
         </div>

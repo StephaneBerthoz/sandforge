@@ -173,7 +173,8 @@
     },
     "objectCountFormatted_one": "{{formatted}} object",
     "objectCountFormatted_other": "{{formatted}} objects",
-    "seeInReports": "See in Reports"
+    "seeInReports": "See in Reports",
+    "stepSkipped": "Skipped"
   },
   "status": {
     "apiUsage": "API usage"
@@ -798,10 +799,10 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Generate...",
     "csvColumnPlaceholder": "column_name",
-    "stepSelect": "Select",
-    "stepConfigure": "Configure",
-    "stepExecute": "Execute",
-    "stepResults": "Results",
+    "stepSelect": "Objects",
+    "stepConfigure": "Fields",
+    "stepExecute": "Options",
+    "stepResults": "Run",
     "advancedSettings": "Advanced Settings",
     "exportCsv": "Export CSV",
     "seedAgain": "Seed again…",
@@ -914,8 +915,8 @@
       "generateDesc": "Pick the objects, the counts and the field rules yourself",
       "csv": "CSV Upload",
       "csvDesc": "Import data from a CSV file",
-      "clone": "Clone from Org",
-      "cloneDesc": "Clone records from another org"
+      "clone": "Copy records from another org",
+      "cloneDesc": "Real records of the objects you pick, copied once"
     },
     "persona": {
       "title": "AI Personas",
@@ -1088,7 +1089,7 @@
     },
     "emptyState": {
       "title": "Fill your sandbox with realistic test data",
-      "step2": "Pick a template, or Generate data, CSV Upload or Clone from Org",
+      "step2": "Pick a template, or Generate data, CSV Upload or Copy records from another org",
       "step3": "Choose objects and record volumes",
       "step4": "Execute and review the results"
     },
@@ -1099,7 +1100,8 @@
       "writtenByThePlatform_other": "{{count}} contact roles linked to the ones the platform wrote with their opportunity, for the contact each went in with, not written; given the fields generated for them: {{given}}.",
       "writtenByThePlatformRefused": "The others stay as the platform wrote them. The target's words:",
       "openRecord": "Open a created {{object}} in {{org}}",
-      "notRun": "Nothing has been written yet: Confirm starts the seed."
+      "notRun": "Nothing has been written yet: Start seeding starts the seed.",
+      "title": "Results"
     },
     "sampleRecordCount_one": "{{count}} sample record",
     "sampleRecordCount_other": "{{count}} sample records",
@@ -1139,7 +1141,9 @@
     },
     "start": {
       "subtitle": "Fill an org with realistic data",
-      "otherWays": "Other ways to seed"
+      "otherWays": "Other ways to seed",
+      "copyElsewhere": "For a record with everything linked to it, Forge; for whole objects with their parents, Autopilot.",
+      "openModule": "Open {{module}}"
     },
     "objectSearch": "Search objects",
     "commonObjects": "Common objects",
@@ -1188,7 +1192,7 @@
     "stepHelp": {
       "selectObjects": "Choose which Salesforce objects to populate with data",
       "configureFields": "Customize how each field is generated — rules, ranges, and patterns",
-      "execute": "Review and run the data generation. Results appear here when complete"
+      "execute": "Choose how the run writes: names and addresses, the org's automation, a checkpoint first. Start seeding, on the next step, runs it"
     },
     "configure": {
       "filterFields": "Find a field of {{object}}",
@@ -3981,7 +3985,7 @@
     "gettingStartedDesc": "Learn the basics of SandForge",
     "gettingStartedContent": "1. Connect an org on the Organizations page: Import from Salesforce CLI, or Log in with your browser.\n2. Fill it with Seed: CRM Starter, marked Start here, writes linked accounts, contacts, opportunities and cases after checking the org's storage, with no second org and no AI key.\n3. Clone with Forge: copy a real record and everything around it from another org.\n4. Before a risky run on a sandbox, take a checkpoint (Checkpoints → Take a checkpoint): Rewind… returns the org's data to it.\n5. Open the Monitor to check the org's health, limits and jobs.\n6. Explore Sync, Autopilot, Frozen Dataset, Compare Org, DataOps and Automation when you need them.\n\nMute the target's automation for this run: a box beside the automation a Seed, Forge, Sync, Autopilot or Frozen Dataset run, a rewind or a removal would fire. For the run alone, it assigns the user the run writes as the permission sets holding the bypasses the target's flows, processes and workflow rules test, and takes them back as it ends, even after a failure. Nothing is deactivated; what still runs is listed with why. Refused on a production org and for a user who can't assign permission sets: the run then writes nothing.",
     "monitorContent": "The Monitor dashboard shows the org's health, read when the page opens and on each Refresh:\n- Health Score gauge with contributing factors\n- Live Operations, while a run is in progress: its module, progress and current step\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Scan anomalies, in Governor Limits: checks up to 500 records of the object you pick for unusual values\n- Alert notifications for critical thresholds\n- Org Governance: policies of threshold rules, checked against the org when you click Evaluate\n\nTip: Auto-refresh, the clock button, is off by default; turn it on to read the org again every 30 seconds while the panel is visible.",
-    "seedContent": "Under the templates, four other ways to seed:\n- Generate data: a wizard for the objects, record counts and field rules you choose (AI, Faker, static, sequence...); a lookup field is filled from the records the same run inserted earlier\n- CSV Upload: records from a CSV file, its columns mapped to fields\n- Clone from Org: records copied from another org\n- Test data for an Agentforce agent: pick a pack or Draft from your own text, review it, Seed the scenario, then Write the test file. The packs need no AI key; a draft uses your Anthropic key. Its Knowledge articles are published; SandForge never runs the tests.",
+    "seedContent": "Under the templates, four other ways to seed:\n- Generate data: a wizard for the objects, record counts and field rules you choose (AI, Faker, static, sequence...); a lookup field is filled from the records the same run inserted earlier\n- CSV Upload: records from a CSV file, its columns mapped to fields\n- Copy records from another org: real records of the objects you pick, copied once; Forge and Autopilot copy more\n- Test data for an Agentforce agent: pick a pack or Draft from your own text, review it, Seed the scenario, then Write the test file. The packs need no AI key; a draft uses your Anthropic key. Its Knowledge articles are published; SandForge never runs the tests.",
     "checkpointContent": "A checkpoint is the state of an org's data at a moment. Rewind then deletes what was added since, gives back what changed and brings back what was deleted, whoever did it. Its preview counts, object by object, the records to Delete, Restore values and Undelete. A DataOps backup is a copy of some objects: its Restore never deletes what was added.\n- It undoes everyone's work since the checkpoint, not only SandForge's runs: any user, flow or integration. The preview says who last changed what before anything is written.\n- Never on a production org: checkpoints are for sandboxes, scratch orgs and Developer Edition orgs, and no setting or flag lifts the refusal.\n- Data only: fields, flows, validation rules, layouts, permissions, users and setup stay as they are, and what already left the org (emails, callouts, platform events) stays sent.\n- Files are not covered in full: a rewind deletes the files attached to its records since and brings back those deleted since, but a file given a new version keeps its new content.\n- A checkpoint holds the records' values unencrypted, personal data among them, on this machine, readable by you alone, for 30 days unless you keep it.",
     "syncContent": "Sync copies objects from one org to another, field by field; the History tab lists each run, and the Saved tab opens or schedules a saved configuration.\n- A delta run of a saved configuration reads what changed since its last good run, and can delete in the target what the source deleted.\n- Auto Map pairs fields of the same API name. A transform rule changes one field in every record written; a rule with no field is refused before anything is read or saved. Value mappings come from an imported SFDMU configuration.\n- Neutralize emails and phone numbers is on unless unticked; Copy the files of these records brings their files.\n- Real-Time tab: writes each change the source publishes (Change Data Capture) as it comes; a conflict is settled by the strategy or held under Conflicts, on the same tab.\n- Remove what this run created, on the results or the run's history entry, deletes what it inserted and its files, gives the records it wrote over their values from before, kept for sandforge.backup.maxAgeDays, and brings back what a delta run deleted. Production Guard refuses it on a production org.\n- A Real-Time session is taken back the same way under Earlier sessions, once it has stopped.",
     "compareContent": "Compare metadata between two orgs:\n- Differences: what one org holds and the other does not, or holds differently, grouped by category and risk level\n- Deploy from Diff: pick what differs, validate it in the target first, then deploy the validation to a sandbox, a scratch org or a Developer Edition org\n- Org overview, with no comparison to run, in three sections:\n- Objects: the objects of both orgs, read live when you open the tab\n- Permission sets & profiles: which ones exist on each side, by name\n- Organization settings: five Organization settings side by side (name, language, locale, time zone, fiscal year start)",
@@ -4043,7 +4047,7 @@
     },
     "seed": {
       "step1": "Under Quick Seed from Template, press Use this on CRM Starter, marked Start here.",
-      "step2": "Check the counts under Record Count, and pick the org under Select target org.",
+      "step2": "Pick the org under Select target org, then check the counts under Record Count.",
       "step3": "Press Start seeding and follow each object's progress until the results show.",
       "step4": "On the results, press Open a created Account in your org to see the records.",
       "tip": "Nothing is written before Start seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back."
@@ -4075,7 +4079,7 @@
       "step1": "Pick an org under Source Org and another under Target Org, then click Next.",
       "step2": "Tick each object to copy, then click Next.",
       "step3": "On Review plan, check the two orgs, Total records and What the plan copies.",
-      "step4": "Click Copy into, which names the target org, then follow each wave under Live Stats.",
+      "step4": "Click Copy into, which names the target org, then follow each wave under Progress.",
       "tip": "SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh."
     },
     "frozen": {
@@ -5886,11 +5890,8 @@
   },
   "autopilot": {
     "title": "Autopilot",
-    "wizard": {
-      "title": "Autopilot Setup"
-    },
     "step1": {
-      "title": "Connect source and target",
+      "title": "Choose the two orgs",
       "sourceOrg": "Source Org",
       "targetOrg": "Target Org",
       "description": "Select a source and target org to begin the autopilot process.",
@@ -6000,14 +6001,12 @@
     },
     "control": {
       "title": "Control Panel",
-      "liveStats": "Live Stats",
-      "nodeDetail": "Node Detail",
+      "nodeDetail": "Selected object",
       "anonymization": "Anonymization Preview",
       "compliance": "Compliance",
       "pause": "Pause",
       "resume": "Resume",
-      "skip": "Skip Node",
-      "stop": "Stop",
+      "skip": "Skip this object",
       "stopping": "Stopping…",
       "stoppedNotWritten": "Run stopped: nothing was written after the stop. Not written, or not whole: {{list}}.",
       "stoppedAllWritten": "Run stopped once every object was written: the updates that follow were not sent.",
@@ -6015,7 +6014,7 @@
       "apiCalls": "API Calls",
       "elapsed": "Elapsed Time",
       "currentWave": "Current Wave",
-      "noNodeSelected": "Select a node to view details",
+      "noNodeSelected": "Select an object on the graph to see its details",
       "errors": "Errors",
       "piiFields": "PII Fields",
       "linked": "Linked to existing records",

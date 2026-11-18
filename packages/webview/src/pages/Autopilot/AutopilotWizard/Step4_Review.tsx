@@ -68,6 +68,13 @@ export interface Step4ReviewProps {
   readonly fit?: Omit<AutopilotFitSectionProps, 'org' | 'selectedObjects' | 'disabled'>;
   /** Callback to start execution */
   readonly onExecute: () => void;
+  /**
+   * Back to the objects, drawn beside the button that starts the run: the
+   * review draws the step's footer, the wizard none under it. No Back without.
+   */
+  readonly onBack?: () => void;
+  /** Whether Back may be used: not while the plan is built. Defaults to true. */
+  readonly canGoBack?: boolean;
 }
 
 /**
@@ -96,6 +103,8 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   notCovered,
   fit,
   onExecute,
+  onBack,
+  canGoBack = true,
 }) => {
   const { t } = useTranslation();
   const contactPointsHintId = React.useId();
@@ -448,7 +457,24 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
       >
         {checkpointFirst ? t('runResults.checkpoint.option.wayBack') : t('common.noWayBack')}
       </p>
-      <div className="flex justify-end pt-2">
+      {/* The step's footer, in place of the wizard's, whose Confirm started
+          the run beside this button: one Back, and the one button that
+          writes. */}
+      <div className="flex justify-between items-center pt-2 border-t border-(--vscode-panel-border,#3c3c3c)">
+        {onBack ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onBack}
+            disabled={!canGoBack}
+            focusableWhenDisabled
+            data-testid="step4-back"
+          >
+            {t('common.back')}
+          </Button>
+        ) : (
+          <span />
+        )}
         <Button
           variant="primary"
           size="md"

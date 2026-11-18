@@ -242,4 +242,19 @@ describe('useTemplateGallery', () => {
 
     expect(result.current.error).toBe('Network error');
   });
+
+  it('says the saved templates are listed once the host answered, or its listing failed', () => {
+    // Until then, a saved template missing from the gallery says nothing of
+    // whether it still exists.
+    const { result, rerender } = renderHook(() => useTemplateGallery());
+    expect(result.current.listed).toBe(false);
+
+    mockQueryState = { ...mockQueryState, data: { templates: [] } };
+    rerender();
+    expect(result.current.listed).toBe(true);
+
+    mockQueryState = { ...mockQueryState, data: null, error: 'Network error' };
+    rerender();
+    expect(result.current.listed).toBe(true);
+  });
 });

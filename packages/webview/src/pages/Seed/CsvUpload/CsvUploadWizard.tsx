@@ -357,7 +357,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                     onClick={stopImport}
                     data-testid="csv-stop"
                   >
-                    {t('common.cancelRun')}
+                    {t('common.stopRun')}
                   </Button>
                 )}
                 {stopRequested && (

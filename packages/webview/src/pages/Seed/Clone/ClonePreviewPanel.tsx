@@ -27,6 +27,12 @@ export interface ClonePreviewPanelProps {
   onKeepContactPointsChange?: (keep: boolean) => void;
   /** Whether the clone takes a checkpoint first, its toggle, and the org it writes to; absent, no box. */
   checkpoint?: { checked: boolean; onChange: (first: boolean) => void; orgId: string };
+  /**
+   * Whether the panel draws its Back and Execute Clone, the wizard's step
+   * footer. Not on the preview of a clone that ended: the wizard's own Next
+   * shows that run again, and nothing there clones a second time.
+   */
+  showActions?: boolean;
 }
 
 /**
@@ -48,6 +54,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   keepContactPoints = false,
   onKeepContactPointsChange,
   checkpoint,
+  showActions = true,
 }) => {
   const { t } = useTranslation();
   const requiredWarningId = useId();
@@ -288,21 +295,24 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
         />
       )}
 
-      {/* Actions */}
-      <div className="flex justify-between items-center pt-2">
-        <Button variant="secondary" size="sm" onClick={onBack} data-testid="clone-preview-back">
-          {t('common.back')}
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onExecute}
-          aria-describedby={targetOnlyRequired.length > 0 ? requiredWarningId : undefined}
-          data-testid="clone-preview-execute"
-        >
-          {t('seed.clone.preview.execute')}
-        </Button>
-      </div>
+      {/* The step's footer, in place of the wizard's: one Back, and the one
+          button that runs the clone. */}
+      {showActions && (
+        <div className="flex justify-between items-center pt-2 border-t border-(--vscode-panel-border,#3c3c3c)">
+          <Button variant="secondary" size="sm" onClick={onBack} data-testid="clone-preview-back">
+            {t('common.back')}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onExecute}
+            aria-describedby={targetOnlyRequired.length > 0 ? requiredWarningId : undefined}
+            data-testid="clone-preview-execute"
+          >
+            {t('seed.clone.preview.execute')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

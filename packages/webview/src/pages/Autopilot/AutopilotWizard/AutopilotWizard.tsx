@@ -411,7 +411,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       {/* The page's heading, as every module has one: the panel hands it the
           focus when it moves to Autopilot. */}
       <PageHeader
-        title={t('autopilot.wizard.title')}
+        title={t('autopilot.title')}
         subtitle={t('moduleSummary.autopilot')}
         icon="rocket"
       />
@@ -429,6 +429,9 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         canGoBack={!isPending}
         isFinished={isExecuting}
         onFinish={onExecute}
+        // The review draws its own Back and Copy into the target: the
+        // wizard's Confirm under it started the same run.
+        stepOwnsFooter={currentStep === 2}
         focusStepOnMount={returnedFromRun}
       >
         {currentStep === 0 && (
@@ -542,6 +545,8 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               onOpen: resetFit,
             }}
             onExecute={onExecute}
+            onBack={() => handleStepChange(1)}
+            canGoBack={!isPending}
           />
         )}
       </SeedWizard>

@@ -13366,6 +13366,20 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
     });
 
+    test('Seed wizard on its Run step, Fields said skipped, the objects to write and Start seeding', async ({
+      page,
+    }) => {
+      // Fields, passed over below five objects, was ticked as done; the run
+      // started on a Confirm from Results.
+      await openSeedExecuteSkipped(bridge, page, theme);
+      await page.getByTestId('seed-wizard-next').click();
+      await expect(page.getByTestId('seed-skipped-configure')).toHaveText('Skipped');
+      await expect(page.getByTestId('seed-wizard-finish')).toHaveText('Start seeding');
+      await page.getByTestId('step-execute').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-wizard"]');
+    });
+
     test('Seed select step saying by its field a count past what the host takes, its Next held', async ({
       page,
     }) => {
@@ -13866,9 +13880,9 @@ for (const theme of STATE_THEMES) {
       const operationId = await openQuickSeedRunning(bridge, page, theme);
       await page.getByTestId('btn-quick-seed-cancel').click();
 
-      await expectPlainStopQuestion(page);
+      await expectPlainStopQuestion(page, 'Stop the run');
       await expectReadable(page, theme);
-      await page.getByRole('button', { name: 'Stop the run' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Stop the run' }).click();
       const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
       expect(abort.payload).toEqual({ operationId });
     });
@@ -13877,7 +13891,7 @@ for (const theme of STATE_THEMES) {
       await openSeedWizardRunning(bridge, page, theme);
       await page.getByTestId('seed-wizard-cancel').click();
 
-      await expectPlainStopQuestion(page);
+      await expectPlainStopQuestion(page, 'Stop the run');
       await expectReadable(page, theme);
       // Kept going from the keyboard: Enter on the focused button closes it.
       await page.keyboard.press('Enter');

@@ -85,6 +85,14 @@ export const SeedPage: React.FC = () => {
     if (intent) clearNavigationIntent();
   }, [intent, clearNavigationIntent]);
   const [seedMode, setSeedMode] = useState<SeedMode>(() => modeForIntent(intent));
+  /**
+   * The template a link opens the gallery on, until its confirmation opened
+   * or it was found gone: back on the gallery, it is not opened again.
+   */
+  const [templateToOpen, setTemplateToOpen] = useState<string | undefined>(() =>
+    modeForIntent(intent) === 'start' ? intent?.seedTemplateId : undefined,
+  );
+  const templateOpened = useCallback(() => setTemplateToOpen(undefined), []);
   /** Whether the wizard has been opened: from then on it stays mounted. */
   const [generateOpened, setGenerateOpened] = useState(false);
   useEffect(() => {
@@ -269,7 +277,11 @@ export const SeedPage: React.FC = () => {
           </PartBoundary>
         ) : (
           <>
-            <TemplateGallery onSelectTemplate={handleSelectTemplate} />
+            <TemplateGallery
+              onSelectTemplate={handleSelectTemplate}
+              openTemplateId={templateToOpen}
+              onOpenSettled={templateOpened}
+            />
 
             <ScenarioCards onPick={pickScenario} onDraft={draftScenario} />
 
@@ -324,6 +336,31 @@ export const SeedPage: React.FC = () => {
                   </CardBody>
                 </Card>
               </div>
+              {/* The copy of real records, on a page of test data, says where
+                  a copy goes further: named "Clone from Org", it stood beside
+                  Forge and Autopilot with nothing said of either. */}
+              <p
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-secondary"
+                data-testid="seed-copy-elsewhere"
+              >
+                <span>{t('seed.start.copyElsewhere')}</span>
+                <button
+                  type="button"
+                  className="text-(--sf-text-link) hover:underline"
+                  onClick={() => navigate('forge')}
+                  data-testid="seed-open-forge"
+                >
+                  {t('seed.start.openModule', { module: t('nav.forge') })}
+                </button>
+                <button
+                  type="button"
+                  className="text-(--sf-text-link) hover:underline"
+                  onClick={() => navigate('autopilot')}
+                  data-testid="seed-open-autopilot"
+                >
+                  {t('seed.start.openModule', { module: t('nav.autopilot') })}
+                </button>
+              </p>
             </section>
 
             {/* The seeds kept, which a reload left removable */}

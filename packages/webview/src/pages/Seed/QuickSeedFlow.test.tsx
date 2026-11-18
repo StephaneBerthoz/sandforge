@@ -288,6 +288,21 @@ describe('QuickSeedFlow', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
+    it('asks for the org before the counts, which are the org’s to hold', () => {
+      // The counts came first, the org under them.
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+      };
+
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      const org = screen.getByTestId('quick-seed-org-selector');
+      const counts = screen.getByTestId('quick-seed-counts');
+      expect(org.compareDocumentPosition(counts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('offers the locale the names and addresses are drawn in, the org’s own by default', () => {
       // The run drew in the org's default locale, and the panel offered no other.
       const setLocale = vi.fn();
@@ -709,8 +724,11 @@ describe('QuickSeedFlow', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Keep running' }));
       expect(cancel).not.toHaveBeenCalled();
 
+      // Named as every run's stop is: it read Cancel run.
+      expect(screen.getByTestId('btn-quick-seed-cancel').textContent).toBe('Stop the run');
       fireEvent.click(screen.getByTestId('btn-quick-seed-cancel'));
-      fireEvent.click(screen.getByRole('button', { name: 'Stop the run' }));
+      const question = screen.getByRole('dialog', { name: 'Stop the run' });
+      fireEvent.click(within(question).getByRole('button', { name: 'Stop the run' }));
 
       expect(cancel).toHaveBeenCalledOnce();
     });

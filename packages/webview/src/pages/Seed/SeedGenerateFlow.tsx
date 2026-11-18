@@ -16,6 +16,7 @@ import { SeedSelectStep } from './SeedSelectStep';
 import { SeedConfigureStep } from './SeedConfigureStep';
 import { SeedExecuteStep } from './SeedExecuteStep';
 import { SeedResultsStep } from './SeedResultsStep';
+import { Step7Execute } from './Step7_Execute';
 import { useSeedWizardState } from './useSeedWizardState';
 import { PersonaGallery } from './Persona/PersonaGallery';
 import { personaName } from './Persona/personaText';
@@ -24,12 +25,21 @@ import { objectLabelsOf } from '../../utils/objectLabels';
 import { SeedFitProposalCard, SeedFitResultLine } from './SeedFitProposal';
 import { orgDisplayName } from '@sandforge/shared';
 
+/**
+ * Objects, Fields, Options, Run. The third was Execute and ran nothing, under
+ * a bar at 0 %; the run started from the fourth, Results, on Confirm.
+ */
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
   { id: 'configure', labelKey: 'seed.stepConfigure' },
   { id: 'execute', labelKey: 'seed.stepExecute' },
   { id: 'results', labelKey: 'seed.stepResults' },
 ];
+
+/** The steps with Fields said skipped: passed over, it was ticked as filled in. */
+const SEED_STEPS_FIELDS_SKIPPED: WizardStep[] = SEED_STEPS.map((step) =>
+  step.id === 'configure' ? { ...step, skipped: true } : step,
+);
 
 /** Threshold below which wizard auto-advances past Configure step. */
 const AUTO_ADVANCE_THRESHOLD = 5;
@@ -214,16 +224,17 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
         )}
 
         <SeedWizard
-          steps={SEED_STEPS}
+          steps={configSkipped ? SEED_STEPS_FIELDS_SKIPPED : SEED_STEPS}
           currentStep={state.currentStep}
           onStepChange={handleStepChange}
           canGoNext={state.canGoNext && !wizardRefused}
           isFinished={state.isFinished}
           onFinish={state.handleExecute}
+          finishLabel={t('seed.quickSeed.startSeeding')}
           onCancel={canCancelRun ? () => setShowCancelConfirm(true) : undefined}
-          cancelLabelKey="common.cancelRun"
+          cancelLabelKey="common.stopRun"
         >
-          {/* STEP 1: SELECT */}
+          {/* STEP 1: OBJECTS */}
           {state.currentStep === 0 && (
             <SeedSelectStep
               availableObjects={state.availableObjects}
@@ -233,7 +244,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
             />
           )}
 
-          {/* STEP 2: CONFIGURE */}
+          {/* STEP 2: FIELDS — passed over below five objects, and said so */}
           {state.currentStep === 1 && (
             <SeedConfigureStep
               fieldConfigs={state.fieldConfigs}
@@ -244,13 +255,10 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
             />
           )}
 
-          {/* STEP 3: EXECUTE */}
+          {/* STEP 3: OPTIONS — how the run writes; nothing runs here */}
           {state.currentStep === 2 && (
             <SeedExecuteStep
               isRunning={state.isRunning}
-              objectProgress={state.objectProgress}
-              overallPercent={state.overallPercent}
-              elapsedMs={state.elapsedMs}
               configSkipped={configSkipped}
               onCustomize={handleCustomize}
               fieldsReady={state.fieldsReady}
@@ -269,9 +277,20 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
             />
           )}
 
-          {/* STEP 4: RESULTS — where the run is started, and refused: the
-              counts that fit under the refusal; and, for a run whose counts
-              were fitted, which. */}
+          {/* STEP 4: RUN — where the run is started, on Start seeding, and
+              followed, object by object, until its results; and refused:
+              the counts that fit under the refusal; and, for a run whose
+              counts were fitted, which. */}
+          {state.currentStep === 3 &&
+            !state.executionResult &&
+            state.executionError === undefined && (
+              <Step7Execute
+                isRunning={state.isRunning}
+                objectProgress={state.objectProgress}
+                overallPercent={state.overallPercent}
+                elapsedMs={state.elapsedMs}
+              />
+            )}
           {state.currentStep === 3 &&
             state.fitProposal &&
             !state.isRunning &&
@@ -316,7 +335,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
           open={showCancelConfirm}
           onClose={() => setShowCancelConfirm(false)}
           onConfirm={handleConfirmCancelRun}
-          title={t('common.cancelRun')}
+          title={t('common.stopRun')}
           description={t('seed.cancelRunConfirm')}
           // Stopping writes nothing: a question, not a word to type.
           confirmLabel={t('common.stopRun')}

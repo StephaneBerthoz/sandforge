@@ -98,11 +98,12 @@ export interface SeedResultsStepProps {
 }
 
 /**
- * Step 4 (Results) of the Seed wizard: summary, per-object cards, actions.
+ * Step 4 (Run) of the Seed wizard, once the run has ended: summary,
+ * per-object cards, actions.
  *
- * The run starts from this step, on its Confirm: it said "No data available"
- * before the run, through it, and beside the counts that fit once it was
- * refused, where nothing was missing.
+ * The run starts from this step, on its Start seeding: it said "No data
+ * available" before the run, through it, and beside the counts that fit once
+ * it was refused, where nothing was missing.
  */
 export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,

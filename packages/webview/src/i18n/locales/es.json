@@ -173,7 +173,8 @@
     },
     "objectCountFormatted_one": "{{formatted}} objeto",
     "objectCountFormatted_other": "{{formatted}} objetos",
-    "seeInReports": "Ver en Informes"
+    "seeInReports": "Ver en Informes",
+    "stepSkipped": "Omitido"
   },
   "status": {
     "apiUsage": "Uso de API"
@@ -717,7 +718,7 @@
       "orgDefault": "La configuración regional de la org (predeterminada)",
       "hint": "Las personas, empresas, direcciones y números de teléfono que escribe el seed se generan para esta configuración regional."
     },
-    "title": "Generar datos",
+    "title": "Seed: datos de prueba",
     "selectOrg": "Seleccionar org de destino",
     "selectOrgDesc": "Elija la org donde se generarán los datos",
     "selectObjects": "Seleccionar objetos",
@@ -798,10 +799,10 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Generar...",
     "csvColumnPlaceholder": "nombre_columna",
-    "stepSelect": "Seleccionar",
-    "stepConfigure": "Configurar",
-    "stepExecute": "Ejecutar",
-    "stepResults": "Resultados",
+    "stepSelect": "Objetos",
+    "stepConfigure": "Campos",
+    "stepExecute": "Opciones",
+    "stepResults": "Ejecución",
     "advancedSettings": "Configuración avanzada",
     "exportCsv": "Exportar CSV",
     "seedAgain": "Repetir Seed…",
@@ -914,8 +915,8 @@
       "generateDesc": "Elija usted mismo los objetos, las cantidades y las reglas de los campos",
       "csv": "Subir CSV",
       "csvDesc": "Importar datos desde un archivo CSV",
-      "clone": "Clonar desde Org",
-      "cloneDesc": "Clonar registros desde otra org"
+      "clone": "Copiar registros de otra org",
+      "cloneDesc": "Registros reales de los objetos que elija, copiados una vez"
     },
     "persona": {
       "title": "Personas IA",
@@ -1088,7 +1089,7 @@
     },
     "emptyState": {
       "title": "Llene su sandbox con datos de prueba realistas",
-      "step2": "Elija una plantilla, o Generar datos, Subir CSV o Clonar desde Org",
+      "step2": "Elija una plantilla, o Generar datos, Subir CSV o Copiar registros de otra org",
       "step3": "Elija objetos y volúmenes de registros",
       "step4": "Ejecute y revise los resultados"
     },
@@ -1099,7 +1100,8 @@
       "writtenByThePlatform_other": "{{count}} roles de contacto vinculados a los que la plataforma escribió con su oportunidad, para el contacto con el que entró cada una, no escritos; con los campos generados para ellos: {{given}}.",
       "writtenByThePlatformRefused": "Los demás quedan como la plataforma los escribió. Las palabras del destino:",
       "openRecord": "Abrir el primer registro creado ({{object}}) en {{org}}",
-      "notRun": "Aún no se ha escrito nada: Confirmar inicia el seed."
+      "notRun": "Aún no se ha escrito nada: Iniciar Seed inicia el seed.",
+      "title": "Resultados"
     },
     "sampleRecordCount_one": "{{count}} registro de muestra",
     "sampleRecordCount_other": "{{count}} registros de muestra",
@@ -1139,7 +1141,9 @@
     },
     "start": {
       "subtitle": "Llenar una org con datos realistas",
-      "otherWays": "Otras formas de poblar una org"
+      "otherWays": "Otras formas de poblar una org",
+      "copyElsewhere": "Para un registro con todo lo que cuelga de él, Forge; para objetos enteros con sus padres, Autopilot.",
+      "openModule": "Abrir {{module}}"
     },
     "objectSearch": "Buscar objetos",
     "commonObjects": "Objetos habituales",
@@ -1188,7 +1192,7 @@
     "stepHelp": {
       "selectObjects": "Elija qué objetos de Salesforce poblar con datos",
       "configureFields": "Personalice cómo se genera cada campo — reglas, rangos y patrones",
-      "execute": "Revise y ejecute la generación de datos. Los resultados aparecen aquí al completar"
+      "execute": "Elija cómo escribe la ejecución: nombres y direcciones, la automatización de la org, primero un punto de control. Iniciar Seed, en el paso siguiente, la ejecuta"
     },
     "configure": {
       "filterFields": "Buscar un campo de {{object}}",
@@ -3981,7 +3985,7 @@
     "gettingStartedDesc": "Aprenda los conceptos básicos de SandForge",
     "gettingStartedContent": "1. Conecte una org en la página Organizaciones: Importar desde la Salesforce CLI, o Iniciar sesión en el navegador.\n2. Llénela con Seed: el Kit inicial de CRM, marcado Empiece aquí, escribe cuentas, contactos, oportunidades y casos vinculados tras comprobar el almacenamiento de la org, sin segunda org ni clave de IA.\n3. Clone con Forge: copie un registro real y todo lo que lo rodea desde otra org.\n4. Antes de una ejecución arriesgada en un sandbox, cree un punto de control (Puntos de control → Crear un punto de control): Retroceder… devuelve los datos de la org a ese punto.\n5. Abra el Monitor para comprobar la salud, los límites y los jobs de la org.\n6. Explore Sync, Autopilot, Dataset congelado, Comparación, DataOps y Automatización cuando los necesite.\n\nSilenciar las automatizaciones del destino en esta ejecución: una casilla junto a las automatizaciones que dispararía una ejecución de Seed, Forge, Sync, Autopilot o Dataset congelado, un retroceso o una eliminación. Solo para esa ejecución, asigna al usuario con el que la ejecución escribe los conjuntos de permisos que contienen los bypass que prueban los flujos, procesos y reglas de flujo de trabajo del destino, y se los retira al terminar, incluso tras un fallo. No se desactiva nada; lo que se ejecuta igualmente aparece con su motivo. Se rechaza en una org de producción y para un usuario que no puede asignar conjuntos de permisos: la ejecución no escribe nada entonces.",
     "monitorContent": "El panel de Monitor muestra la salud de la org, leída al abrir la página y con cada clic en Actualizar:\n- Indicador de puntaje de salud con factores contribuyentes\n- Operaciones en vivo, mientras una ejecución está en curso: su módulo, su progreso y su paso actual\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Escanear anomalías, en Límites governor: revisa hasta 500 registros del objeto elegido en busca de valores inusuales\n- Alertas para umbrales críticos\n- Gobernanza de Org: políticas de reglas de umbral, comprobadas en la org cuando hace clic en Evaluar\n\nConsejo: Actualización automática, el botón del reloj, está desactivada por defecto; actívela para volver a leer la org cada 30 segundos mientras el panel está visible.",
-    "seedContent": "Bajo las plantillas, otras cuatro formas de poblar una org:\n- Generar datos: un asistente para los objetos, el número de registros y las reglas de campos que elija (IA, Faker, estático, secuencia...); un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n- Subir CSV: registros de un archivo CSV, con sus columnas asignadas a los campos\n- Clonar desde Org: registros copiados de otra org\n- Datos de prueba para un agente de Agentforce: elija un paquete o Redactar a partir de su propio texto, revíselo, Lanzar el seed del escenario y luego Escribir el archivo de prueba. Los paquetes no necesitan clave de IA; un borrador usa su clave de Anthropic. Sus artículos de Knowledge se publican; SandForge nunca ejecuta las pruebas.",
+    "seedContent": "Bajo las plantillas, otras cuatro formas de poblar una org:\n- Generar datos: un asistente para los objetos, el número de registros y las reglas de campos que elija (IA, Faker, estático, secuencia...); un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n- Subir CSV: registros de un archivo CSV, con sus columnas asignadas a los campos\n- Copiar registros de otra org: registros reales de los objetos que elija, copiados una vez; Forge y Autopilot copian más\n- Datos de prueba para un agente de Agentforce: elija un paquete o Redactar a partir de su propio texto, revíselo, Lanzar el seed del escenario y luego Escribir el archivo de prueba. Los paquetes no necesitan clave de IA; un borrador usa su clave de Anthropic. Sus artículos de Knowledge se publican; SandForge nunca ejecuta las pruebas.",
     "checkpointContent": "Un punto de control es el estado de los datos de una org en un momento dado. Retroceder elimina después lo que se añadió desde entonces, devuelve sus valores a lo que cambió y recupera lo que se eliminó, quienquiera que lo hiciera. Su vista previa cuenta, objeto por objeto, los registros a Eliminar, a los que Devolver valores y a Recuperar. Un respaldo de DataOps es una copia de algunos objetos: su restauración nunca elimina lo que se añadió.\n- Deshace el trabajo de todos desde el punto de control, no solo las ejecuciones de SandForge: cualquier usuario, flujo o integración. La vista previa dice quién cambió qué por última vez antes de escribir nada.\n- Nunca en una org de producción: los puntos de control son para sandboxes, scratch orgs y orgs Developer Edition, y ningún ajuste ni opción levanta el rechazo.\n- Solo datos: campos, flujos, reglas de validación, formatos de página, permisos, usuarios y configuración se quedan como están, y lo que ya salió de la org (correos, callouts, eventos de plataforma) queda enviado.\n- Los archivos no se cubren del todo: retroceder elimina los archivos adjuntados desde entonces a sus registros y recupera los eliminados desde entonces, pero un archivo que recibió una nueva versión conserva su nuevo contenido.\n- Un punto de control guarda sin cifrar los valores de los registros, datos personales incluidos, en este equipo, legibles solo por usted, durante 30 días salvo que lo conserve.",
     "syncContent": "Sync copia objetos de una org a otra, campo por campo; la pestaña Historial lista cada ejecución, y la pestaña Guardadas abre una configuración guardada o la ejecuta según una programación.\n- Una ejecución delta de una configuración guardada lee lo que cambió desde su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó.\n- Mapeo automático empareja los campos con el mismo nombre de API. Una regla de transformación cambia un solo campo en cada registro escrito; una regla sin campo se rechaza antes de leer o guardar nada. Los mapeos de valores vienen de una configuración de SFDMU importada.\n- Neutralizar los correos y los números de teléfono está activado salvo que lo desmarque; Copiar los archivos de estos registros trae sus archivos.\n- Pestaña Tiempo real: escribe cada cambio que publica el origen (Change Data Capture) en cuanto llega; un conflicto lo decide la estrategia, o queda retenido en Conflictos, en la misma pestaña.\n- Quitar lo que creó esta ejecución, en los resultados o en la entrada del historial de la ejecución, elimina lo que insertó y sus archivos, devuelve a los registros que sobrescribió sus valores de antes, conservados durante sandforge.backup.maxAgeDays, y recupera lo que una ejecución delta eliminó. Production Guard lo rechaza en una org de producción.\n- Una sesión de Tiempo real se quita igual, en Sesiones anteriores, una vez detenida.",
     "compareContent": "Compare metadatos entre dos orgs:\n- Diferencias: lo que una org contiene y la otra no, o contiene de otro modo, agrupado por categoría y nivel de riesgo\n- Desplegar desde diff: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox, una scratch org o una org Developer Edition\n- Resumen de las orgs, sin ejecutar ninguna comparación, en tres secciones:\n- Objetos: los objetos de ambas orgs, leídos en vivo al abrir la pestaña\n- Conjuntos de permisos y perfiles: cuáles existen en cada lado, por nombre\n- Configuración de la organización: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)",
@@ -4043,7 +4047,7 @@
     },
     "seed": {
       "step1": "En Seed rápido desde plantilla, pulse Usar esta en la plantilla Kit inicial de CRM, marcada Empiece aquí.",
-      "step2": "Revise las cantidades en Cantidad de registros y elija la org en Seleccionar org de destino.",
+      "step2": "Elija la org en Seleccionar org de destino y luego revise las cantidades en Cantidad de registros.",
       "step3": "Pulse Iniciar Seed y siga el progreso de cada objeto hasta que aparezcan los resultados.",
       "step4": "En los resultados, pulse Abrir el primer registro creado (Account) en su org para ver los datos.",
       "tip": "No se escribe nada antes de Iniciar Seed; después, Quitar lo que creó esta ejecución, en los resultados o en Seeds anteriores, deshace el seed."
@@ -4075,7 +4079,7 @@
       "step1": "Elija una org en Org de origen y otra en Org de destino, y haga clic en Siguiente.",
       "step2": "Marque cada objeto que quiera copiar y haga clic en Siguiente.",
       "step3": "En el paso Revisar plan, compruebe las dos orgs, Total de registros y Lo que copia el plan.",
-      "step4": "Haga clic en Copiar en, que nombra la org de destino, y siga cada ola en Estadísticas en vivo, en el Panel de control.",
+      "step4": "Haga clic en Copiar en, que nombra la org de destino, y siga cada ola en Progreso, en el Panel de control.",
       "tip": "SandForge no puede quitar lo que escribe una ejecución de Autopilot: pruébela en una scratch org o en un sandbox que pueda actualizar."
     },
     "frozen": {
@@ -5886,11 +5890,8 @@
   },
   "autopilot": {
     "title": "Autopilot",
-    "wizard": {
-      "title": "Configuración de Autopilot"
-    },
     "step1": {
-      "title": "Conectar origen y destino",
+      "title": "Elegir las dos orgs",
       "sourceOrg": "Org de origen",
       "targetOrg": "Org de destino",
       "description": "Seleccione una org de origen y una de destino para comenzar el proceso de Autopilot.",
@@ -6000,14 +6001,12 @@
     },
     "control": {
       "title": "Panel de control",
-      "liveStats": "Estadísticas en vivo",
-      "nodeDetail": "Detalle del nodo",
+      "nodeDetail": "Objeto seleccionado",
       "anonymization": "Vista previa de anonimización",
       "compliance": "Cumplimiento",
       "pause": "Pausar",
       "resume": "Reanudar",
-      "skip": "Omitir nodo",
-      "stop": "Detener",
+      "skip": "Omitir este objeto",
       "stopping": "Deteniendo…",
       "stoppedNotWritten": "Ejecución detenida: no se escribió nada después de detenerla. Objetos no escritos, o no por completo: {{list}}.",
       "stoppedAllWritten": "Ejecución detenida una vez escrito cada objeto: las actualizaciones posteriores no se enviaron.",
@@ -6015,7 +6014,7 @@
       "apiCalls": "Llamadas API",
       "elapsed": "Tiempo transcurrido",
       "currentWave": "Ola actual",
-      "noNodeSelected": "Seleccione un nodo para ver detalles",
+      "noNodeSelected": "Seleccione un objeto en el gráfico para ver su detalle",
       "errors": "Errores",
       "piiFields": "Campos PII",
       "linked": "Vinculados a registros existentes",

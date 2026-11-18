@@ -56,6 +56,12 @@ export interface TemplateGalleryState {
   items: TemplateGalleryItem[];
   /** Whether the saved templates are loading. */
   loading: boolean;
+  /**
+   * Whether the host answered the listing of the saved templates, or it
+   * failed: until then, a saved template missing from the items says nothing
+   * of whether it still exists.
+   */
+  listed: boolean;
   /** Error from listing saved templates or from the last saved template load, if any. */
   error: string | null;
   /**
@@ -169,6 +175,7 @@ export function useTemplateGallery(): TemplateGalleryState {
   return {
     items,
     loading: savedQuery.loading,
+    listed: savedQuery.data !== null || savedQuery.error !== null,
     error: savedQuery.error ?? loadError,
     loadFullTemplate,
     refresh,

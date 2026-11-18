@@ -54,12 +54,15 @@ const wizard = vi.hoisted(() => ({
   fitApplied: null as unknown,
   fitProposal: null as unknown,
   seedFitted: vi.fn(),
+  canGoNext: false,
+  running: false,
+  operationId: null as string | null,
 }));
 vi.mock('./useSeedWizardState', () => ({
   useSeedWizardState: () => ({
     currentStep: wizard.step,
     setCurrentStep: vi.fn(),
-    canGoNext: false,
+    canGoNext: wizard.canGoNext,
     isFinished: false,
     selectedOrg: ORG,
     selectedOrgId: 'org-1',
@@ -68,12 +71,20 @@ vi.mock('./useSeedWizardState', () => ({
     fieldConfigs: wizard.fieldConfigs,
     error: wizard.error,
     setError: vi.fn(),
-    isRunning: false,
-    operationId: null,
+    isRunning: wizard.running,
+    operationId: wizard.operationId,
     executionResult: wizard.result,
     handleExecute: vi.fn(),
-    objectProgress: [],
-    overallPercent: 0,
+    objectProgress: [
+      {
+        objectApiName: 'Account',
+        total: 100,
+        completed: wizard.running ? 10 : 0,
+        failed: 0,
+        status: wizard.running ? 'running' : 'pending',
+      },
+    ],
+    overallPercent: wizard.running ? 10 : 0,
     elapsedMs: 0,
     selectedPersona: null,
     fitProposal: wizard.fitProposal,
@@ -92,6 +103,9 @@ describe('SeedGenerateFlow', () => {
     wizard.fitApplied = null;
     wizard.fitProposal = null;
     wizard.seedFitted.mockClear();
+    wizard.canGoNext = false;
+    wizard.running = false;
+    wizard.operationId = null;
     mockPostMessage.mockClear();
   });
 
@@ -150,13 +164,53 @@ describe('SeedGenerateFlow', () => {
     expect(screen.queryByTestId('seed-results-fitted')).toBeNull();
   });
 
+  it('names its steps Objects, Fields, Options and Run, and its last button Start seeding', () => {
+    // Execute ran nothing, and the run started from Results, on Confirm.
+    const { rerender } = render(<SeedGenerateFlow active onBack={vi.fn()} />);
+    expect(screen.getByTestId('seed-step-indicator').textContent).toBe(
+      '1Objects2Fields3Options4Run',
+    );
+
+    wizard.step = 3;
+    rerender(<SeedGenerateFlow active onBack={vi.fn()} />);
+    expect(screen.getByTestId('seed-wizard-finish').textContent).toBe('Start seeding');
+    expect(screen.getByRole('group', { name: 'Run' })).toBeDefined();
+  });
+
+  it('says Fields was skipped when it went past it below five objects, and does not tick it', () => {
+    // Skipped and ticked as done, as a step filled in.
+    wizard.canGoNext = true;
+    const { rerender } = render(<SeedGenerateFlow active onBack={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+
+    wizard.step = 2;
+    rerender(<SeedGenerateFlow active onBack={vi.fn()} />);
+
+    expect(screen.getByTestId('seed-skipped-configure').textContent).toBe('Skipped');
+    expect(screen.queryByTestId('seed-check-configure')).toBeNull();
+    expect(screen.getByTestId('seed-check-select')).toBeDefined();
+  });
+
+  it('shows on Run what the run writes and how far it has gone, and stops it with Stop the run', () => {
+    wizard.step = 3;
+    wizard.running = true;
+    wizard.operationId = 'op-run';
+    render(<SeedGenerateFlow active onBack={vi.fn()} />);
+
+    expect(screen.getByTestId('step-execute')).toBeDefined();
+    expect(screen.getByTestId('progress-Account').textContent).toContain('10/100');
+    fireEvent.click(screen.getByTestId('seed-wizard-cancel'));
+    expect(screen.getByTestId('seed-wizard-cancel').textContent).toBe('Stop the run');
+    expect(screen.getByRole('dialog', { name: 'Stop the run' })).toBeDefined();
+  });
+
   it('heads the wizard with its step and the org it writes to, and goes back on request', () => {
     const onBack = vi.fn();
     render(<SeedGenerateFlow active onBack={onBack} />);
 
     const header = screen.getByTestId('page-header');
     expect(header.textContent).toContain('Seed Data');
-    expect(header.textContent).toContain('Seed DataSelect');
+    expect(header.textContent).toContain('Seed DataObjects');
     expect(header.textContent).toContain('dev1');
     expect(screen.getByTestId('seed-step-select-content')).toBeDefined();
     expect(screen.getByTestId('seed-persona-choice')).toBeDefined();

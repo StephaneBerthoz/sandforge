@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, Minus } from 'lucide-react';
 import { cn } from '../../theme';
 import { pageTransition, SPRING } from '../../motion/presets';
 import { Button } from './Button';
@@ -13,6 +13,12 @@ export interface WizardStep {
   descriptionKey?: string;
   /** Whether the step asks nothing to go on: Next passes it as it stands, and it says so. */
   optional?: boolean;
+  /**
+   * Whether the wizard went past the step without showing it: once passed,
+   * it says it was skipped and is not ticked as done. Seed's Fields, passed
+   * over below five objects, was ticked as a step filled in.
+   */
+  skipped?: boolean;
 }
 
 /** Props for the Wizard component. */
@@ -30,7 +36,20 @@ export interface WizardProps {
    */
   canRevisitSteps?: boolean;
   onFinish?: () => void;
+  /**
+   * What the last step's button says: what it does, as Seed's "Start
+   * seeding". Defaults to Confirm.
+   */
+  finishLabel?: string;
   isFinished?: boolean;
+  /**
+   * Whether the step shown draws its own way back and the button that does
+   * what it is for: the wizard draws no footer under it. Under Seed Clone's
+   * preview, the wizard's Next ran the clone beside the preview's own Execute
+   * Clone, and on Autopilot's review its Confirm started the run beside Copy
+   * into the target: two buttons that wrote, one under the other.
+   */
+  stepOwnsFooter?: boolean;
   /**
    * Escape hatch for a step that started long-running work: Back and Next are
    * both dead while a run is in flight, so without this the footer traps the
@@ -66,7 +85,9 @@ export const Wizard: React.FC<WizardProps> = ({
   canGoBack = true,
   canRevisitSteps = true,
   onFinish,
+  finishLabel,
   isFinished = false,
+  stepOwnsFooter = false,
   onCancel,
   cancelLabelKey = 'common.cancel',
   focusStepOnMount = false,
@@ -118,6 +139,18 @@ export const Wizard: React.FC<WizardProps> = ({
     }
   }, [canGoNext]);
 
+  // The same when the step comes with its own footer and the wizard's goes:
+  // the button the keyboard was on went with it, and the focus fell to the
+  // page.
+  const ownedFooter = useRef(stepOwnsFooter);
+  useEffect(() => {
+    const owned = ownedFooter.current;
+    ownedFooter.current = stepOwnsFooter;
+    if (owned || !stepOwnsFooter) return;
+    const focused = document.activeElement;
+    if (focused === null || focused === document.body) stepRef.current?.focus();
+  }, [stepOwnsFooter]);
+
   return (
     <div
       ref={wizardRef}
@@ -137,6 +170,8 @@ export const Wizard: React.FC<WizardProps> = ({
           const status = i === currentStep ? 'current' : i < currentStep ? 'completed' : 'future';
           /** A completed step the wizard goes back to when it is clicked. */
           const revisitable = status === 'completed' && canRevisitSteps;
+          /** A step passed without being shown: not ticked as one filled in. */
+          const passedOver = status === 'completed' && step.skipped === true;
 
           return (
             <button
@@ -160,12 +195,14 @@ export const Wizard: React.FC<WizardProps> = ({
                   'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5',
                   status === 'current'
                     ? 'bg-(--vscode-button-background,#0e639c) text-(--vscode-button-foreground,#fff)'
-                    : status === 'completed'
+                    : status === 'completed' && !passedOver
                       ? 'bg-status-success text-(--sf-bg-primary)'
                       : 'bg-(--vscode-input-background,#3c3c3c) text-(--vscode-input-foreground,#d4d4d4)',
                 )}
               >
-                {status === 'completed' ? (
+                {passedOver ? (
+                  <Minus size={12} aria-hidden="true" />
+                ) : status === 'completed' ? (
                   <Check size={12} data-testid={tid(testIdPrefix, `check-${step.id}`)} />
                 ) : (
                   i + 1
@@ -200,6 +237,14 @@ export const Wizard: React.FC<WizardProps> = ({
                     data-testid={tid(testIdPrefix, `optional-${step.id}`)}
                   >
                     {t('common.optional')}
+                  </span>
+                )}
+                {passedOver && (
+                  <span
+                    className="text-[11px] text-text-primary"
+                    data-testid={tid(testIdPrefix, `skipped-${step.id}`)}
+                  >
+                    {t('common.stepSkipped')}
                   </span>
                 )}
                 {step.descriptionKey && (
@@ -252,7 +297,7 @@ export const Wizard: React.FC<WizardProps> = ({
             scan or a plan, and a button that takes the `disabled` attribute
             hands the focus to the page, where the keyboard started again from
             the top. */}
-        {!isFinished && (
+        {!isFinished && !stepOwnsFooter && (
           <div className="flex justify-between items-center pt-2 border-t border-(--vscode-panel-border,#3c3c3c)">
             <div className="flex items-center gap-2">
               <Button
@@ -286,7 +331,7 @@ export const Wizard: React.FC<WizardProps> = ({
                 focusableWhenDisabled
                 data-testid={tid(testIdPrefix, 'wizard-finish')}
               >
-                {t('common.confirm')}
+                {finishLabel ?? t('common.confirm')}
               </Button>
             ) : (
               <Button

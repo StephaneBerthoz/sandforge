@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SeedTemplate } from '@sandforge/shared';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -11,6 +11,13 @@ import { TemplateCard } from './TemplateCard';
 export interface TemplateGalleryProps {
   /** Called with the template whose Use This was pressed, loaded whole. */
   onSelectTemplate: (template: SeedTemplate) => void;
+  /**
+   * The template a link opens Seed on, by its id: its confirmation opens as
+   * soon as the gallery lists it, as if its Use this were pressed, once.
+   */
+  openTemplateId?: string;
+  /** Told once the template named was opened, or found gone. */
+  onOpenSettled?: () => void;
 }
 
 /**
@@ -19,9 +26,13 @@ export interface TemplateGalleryProps {
  * are set: a dialog of counts came first, whose own "Start Seeding" started
  * nothing.
  */
-export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTemplate }) => {
+export const TemplateGallery: React.FC<TemplateGalleryProps> = ({
+  onSelectTemplate,
+  openTemplateId,
+  onOpenSettled,
+}) => {
   const { t } = useTranslation();
-  const { items, loading, error, loadFullTemplate } = useTemplateGallery();
+  const { items, loading, listed, error, loadFullTemplate } = useTemplateGallery();
 
   const handleUseThis = useCallback(
     async (item: TemplateGalleryItem) => {
@@ -33,6 +44,29 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
     [loadFullTemplate, onSelectTemplate],
   );
 
+  /*
+   * The template a link names: a built-in one is listed at once, a saved one
+   * once the host has listed them. Gone, it is said so, as a saved template
+   * the host no longer has is when its Use this is pressed.
+   */
+  const [namedGone, setNamedGone] = useState(false);
+  const openSettled = useRef(false);
+  useEffect(() => {
+    if (!openTemplateId || openSettled.current) return;
+    const item = items.find((candidate) => candidate.id === openTemplateId);
+    if (item) {
+      openSettled.current = true;
+      void handleUseThis(item);
+      onOpenSettled?.();
+    } else if (listed && !loading) {
+      openSettled.current = true;
+      setNamedGone(true);
+      onOpenSettled?.();
+    }
+  }, [openTemplateId, items, listed, loading, handleUseThis, onOpenSettled]);
+
+  const shownError = error ?? (namedGone ? t('seed.gallery.templateMissing') : null);
+
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="template-gallery">
       <div>
@@ -42,8 +76,8 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
         <p className="text-xs text-(--sf-text-secondary) mt-0.5">{t('seed.gallery.subtitle')}</p>
       </div>
 
-      {error && (
-        <ErrorBanner message={error} code={null} module="seed" data-testid="gallery-error" />
+      {shownError && (
+        <ErrorBanner message={shownError} code={null} module="seed" data-testid="gallery-error" />
       )}
 
       {/* The built-in templates are drawn while the saved ones load, a

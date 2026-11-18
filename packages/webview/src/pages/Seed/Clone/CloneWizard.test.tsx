@@ -443,7 +443,7 @@ describe('CloneWizard', () => {
       const uat: SalesforceOrg = { ...mockOrgs[1], id: 'org-3', alias: 'uat' };
       useOrgStore.setState({ orgs: [...mockOrgs, uat] });
       previewShown();
-      fireEvent.click(screen.getByTestId('clone-wizard-back'));
+      fireEvent.click(screen.getByTestId('clone-preview-back'));
       fireEvent.click(screen.getByTestId('clone-wizard-back'));
 
       const target = screen.getByTestId('clone-target-select') as HTMLSelectElement;
@@ -469,14 +469,29 @@ describe('CloneWizard', () => {
       expect(mockExecuteMutate).not.toHaveBeenCalled();
     });
 
-    it('runs the clone on Next from its preview, and shows it running', () => {
-      // Next went on to an empty execute step, and nothing was run.
+    it('has one footer under its preview, whose Execute Clone runs the clone: no Next beside it runs it too', () => {
+      // The wizard's Back and Next sat under the preview's Back and Execute
+      // Clone, and Next ran the clone as Execute Clone did.
       previewShown();
 
-      fireEvent.click(screen.getByTestId('clone-wizard-next'));
+      expect(screen.queryByTestId('clone-wizard-next')).toBeNull();
+      expect(screen.queryByTestId('clone-wizard-back')).toBeNull();
+      expect(screen.getAllByRole('button', { name: en.common.back })).toHaveLength(1);
+      expect(screen.getByTestId('clone-preview-back')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('clone-preview-execute'));
 
       expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('clone-executing')).toBeDefined();
+    });
+
+    it('goes back to the objects from its preview’s Back, running nothing', () => {
+      previewShown();
+
+      fireEvent.click(screen.getByTestId('clone-preview-back'));
+
+      expect(screen.getByTestId('clone-obj-check-Account')).toHaveProperty('checked', true);
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
     });
 
     it('hands the keyboard to the running step when the preview’s Execute starts the clone', () => {
@@ -552,6 +567,10 @@ describe('CloneWizard', () => {
 
       fireEvent.click(screen.getByTestId('clone-step-preview'));
       expect(screen.getByTestId('clone-preview-panel')).toBeDefined();
+      // Back on the preview of a run that ended, the one footer is the
+      // wizard's, whose Next shows that run: nothing there clones again.
+      expect(screen.queryByTestId('clone-preview-execute')).toBeNull();
+      expect(screen.getAllByRole('button', { name: en.common.back })).toHaveLength(1);
       fireEvent.click(screen.getByTestId('clone-wizard-next'));
 
       expect(screen.getByTestId('clone-results-panel')).toBeDefined();

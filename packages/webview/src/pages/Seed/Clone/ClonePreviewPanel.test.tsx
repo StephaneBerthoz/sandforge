@@ -251,6 +251,21 @@ describe('ClonePreviewPanel', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('draws no Back and no Execute Clone when told not to: the preview of a run that ended', () => {
+    render(
+      <ClonePreviewPanel
+        previewResult={mockPreview}
+        onExecute={vi.fn()}
+        onBack={vi.fn()}
+        showActions={false}
+      />,
+    );
+
+    expect(screen.getByTestId('clone-insert-order')).toBeDefined();
+    expect(screen.queryByTestId('clone-preview-execute')).toBeNull();
+    expect(screen.queryByTestId('clone-preview-back')).toBeNull();
+  });
+
   describe('the email addresses and phone numbers', () => {
     it('are neutralized unless the box is ticked, which the hint beside it says', () => {
       const onChange = vi.fn();

@@ -118,8 +118,10 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
         return bothOrgs && clone.sourceObjects.length > 0;
       case 'objects':
         return clone.selectedObjects.length > 0 && bothOrgs;
+      // Next on the preview only shows a run of it that ended: the preview's
+      // own Execute Clone runs it.
       case 'preview':
-        return clone.executionStatus !== 'previewing';
+        return clone.executionResult !== null;
       case 'execute':
         return false;
       default:
@@ -142,12 +144,12 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
       return;
     }
 
-    // Next on the preview runs the clone, as Execute does: it went on to an
-    // empty execute step and ran nothing. Back on the preview of a run that
-    // ended, it shows that run again rather than sending another.
+    // The preview's own Execute Clone runs the clone, and the wizard draws no
+    // Next under it: Next ran it too, a second button that wrote. Back on the
+    // preview of a run that ended, the wizard's Next is there again, and
+    // shows that run rather than sending another.
     if (targetStep === 'execute' && clone.step === 'preview') {
       if (clone.executionResult) clone.setStep('execute');
-      else clone.handleExecute();
       return;
     }
 
@@ -162,6 +164,17 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
   };
 
   const isFinished = clone.step === 'execute' && clone.executionResult !== null;
+
+  /**
+   * Whether the preview shown draws the step's footer: its Back and its
+   * Execute Clone, the one button that runs the clone. Not while it is
+   * prepared, when the wizard's Back sets it aside, nor once its run ended.
+   */
+  const previewOwnsFooter =
+    clone.step === 'preview' &&
+    clone.executionStatus !== 'previewing' &&
+    clone.previewResult !== null &&
+    clone.executionResult === null;
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="clone-wizard-container">
@@ -197,6 +210,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
         canRevisitSteps={clone.executionStatus !== 'executing'}
         isFinished={isFinished}
         onFinish={handleFinish}
+        stepOwnsFooter={previewOwnsFooter}
         testIdPrefix="clone"
       >
         {/* Step 1: Orgs */}
@@ -262,6 +276,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
                   onChange: clone.setCheckpointFirst,
                   orgId: targetOrgId,
                 }}
+                showActions={previewOwnsFooter}
               />
             ) : null}
           </>
@@ -293,7 +308,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
                     onClick={stopClone}
                     data-testid="clone-stop"
                   >
-                    {t('common.cancelRun')}
+                    {t('common.stopRun')}
                   </Button>
                 )}
                 {stopRequested && (

@@ -6,8 +6,6 @@ import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
-import { Step7Execute } from './Step7_Execute';
-import type { ObjectProgress } from './Step7_Execute';
 import { SeedRelationsEditor } from './SeedRelationsEditor';
 import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -23,12 +21,6 @@ import { SeedFitProposalCard } from './SeedFitProposal';
 export interface SeedExecuteStepProps {
   /** Whether the seed execution mutation is in flight. */
   isRunning: boolean;
-  /** Per-object progress entries. */
-  objectProgress: ObjectProgress[];
-  /** Overall completion 0-100, from the live operation:progress stream. */
-  overallPercent: number;
-  /** Wall-clock since the run started. */
-  elapsedMs: number;
   /** Whether the configure step was auto-skipped (shows the defaults banner). */
   configSkipped: boolean;
   /** Jump back to the configure step and clear the skipped flag. */
@@ -66,8 +58,11 @@ export interface SeedExecuteStepProps {
 }
 
 /**
- * Step 3 (Execute) of the Seed wizard: execution progress, plus the adaptive
- * banner when Configure was auto-skipped.
+ * Step 3 (Options) of the Seed wizard: how the run writes — the locale, the
+ * org's automation, Checkpoint first — plus the adaptive banner when Fields
+ * was auto-skipped. Nothing runs here: named Execute, the step drew the run's
+ * progress bar at 0 % under its options, and the run went from the next step.
+ * Its progress is drawn there, on Run.
  *
  * The banner says what the run's rules are: the default rule of each field,
  * read from the org, and the persona's patterns when one was picked. It used
@@ -79,9 +74,6 @@ export interface SeedExecuteStepProps {
  */
 export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   isRunning,
-  objectProgress,
-  overallPercent,
-  elapsedMs,
   configSkipped,
   onCustomize,
   fieldsReady,
@@ -242,13 +234,6 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           />
         </div>
       )}
-
-      <Step7Execute
-        isRunning={isRunning}
-        objectProgress={objectProgress}
-        overallPercent={overallPercent}
-        elapsedMs={elapsedMs}
-      />
     </div>
   );
 };

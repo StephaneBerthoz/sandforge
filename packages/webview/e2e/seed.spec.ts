@@ -575,6 +575,38 @@ test.describe('Seed — a wizard run of three objects, which skips the configure
     expect((await bridge.getMessages('seed:execute')).length).toBe(1);
   });
 
+  test('names its steps Objects, Fields, Options and Run, says Fields skipped, and runs on Start seeding', async ({
+    page,
+  }) => {
+    // The third step was Execute and ran nothing, under a bar at 0 %; the run
+    // started from Results, on Confirm; and Configure, skipped, was ticked.
+    const bridge = await pickThreeObjectsAndMoveOn(page);
+
+    await expect(page.getByTestId('seed-step-indicator')).toHaveText(
+      'ObjectsFieldsSkipped3Options4Run',
+    );
+    await expect(page.getByTestId('seed-check-configure')).toHaveCount(0);
+    await expect(
+      page.getByTestId('seed-step-execute-content').getByRole('progressbar'),
+    ).toHaveCount(0);
+
+    await settleDescribes(page);
+    await page.getByTestId('seed-wizard-next').click();
+
+    await expect(page.getByRole('group', { name: 'Run', exact: true })).toBeFocused();
+    await expect(page.getByTestId('progress-Account')).toContainText('0/100');
+    await expect(page.getByTestId('seed-results-waiting')).toHaveText(
+      'Nothing has been written yet: Start seeding starts the seed.',
+    );
+    const start = page.getByTestId('seed-wizard-finish');
+    await expect(start).toHaveText('Start seeding');
+    expect(await outgoing(page, 'seed:execute')).toEqual([]);
+    await start.click();
+
+    await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    expect((await bridge.getMessages('seed:execute')).length).toBe(1);
+  });
+
   test('sets a relation on the execute step and sends it with the run', async ({ page }) => {
     const bridge = await pickThreeObjectsAndMoveOn(page);
     await settleDescribes(page);
@@ -1594,13 +1626,22 @@ test.describe('Seed Clone — the orgs its preview was made for', () => {
       .toEqual([MOCK_ORGS[0].id, UAT_SANDBOX.id]);
   });
 
-  test('runs the clone on Next from its preview, and shows it running', async ({ page }) => {
-    // Next went on to an empty execute step, and nothing was run.
+  test('has one footer under its preview, whose Execute Clone alone runs the clone', async ({
+    page,
+  }) => {
+    // The wizard's Back and Next sat under the preview's Back and Execute
+    // Clone, and Next ran the clone as Execute Clone did.
     await previewAccounts(page);
 
-    await page.getByTestId('clone-wizard-next').click();
+    await expect(page.getByTestId('clone-wizard-next')).toHaveCount(0);
+    await expect(page.getByTestId('clone-wizard-back')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
+
+    await page.getByTestId('clone-preview-execute').click();
 
     await expect(page.getByTestId('clone-executing')).toBeVisible();
+    await expect(page.getByTestId('clone-stop')).toHaveText('Stop the run');
     expect(await outgoing(page, 'seed:clone:execute')).toHaveLength(1);
   });
 

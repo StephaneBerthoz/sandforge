@@ -323,7 +323,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                 onClick={() => setConfirmCancel(true)}
                 data-testid="btn-scenario-cancel"
               >
-                {t('common.cancelRun')}
+                {t('common.stopRun')}
               </Button>
             </div>
           )}
@@ -370,7 +370,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
             ref={showsPhase}
             tabIndex={-1}
             role="group"
-            aria-label={t('seed.stepResults')}
+            aria-label={t('seed.results.title')}
             className="flex items-center gap-3 text-xs"
             data-testid="scenario-result-summary"
           >
@@ -504,7 +504,7 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
           setConfirmCancel(false);
           scenario.cancel();
         }}
-        title={t('common.cancelRun')}
+        title={t('common.stopRun')}
         description={t('seed.cancelRunConfirm')}
         confirmLabel={t('common.stopRun')}
         dismissLabel={t('common.keepRunning')}

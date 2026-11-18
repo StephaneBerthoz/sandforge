@@ -193,10 +193,12 @@ function removability() {
     seedResults: label('runRemoval.sync.title'),
     sync: label('runRemoval.sync.remove'),
     frozen: label('frozen.removal.remove'),
+    // Seed's copy of real records from another org, as its card names it.
+    seedCopy: label('seed.modeSelect.clone'),
   };
 }
 
-test('anchor: Forge, every way of Seed — a template, the wizard, CSV Upload, Clone from Org — Sync and Frozen keep what they create; Autopilot does not', () => {
+test('anchor: Forge, every way of Seed — a template, the wizard, CSV Upload, a copy of records from another org — Sync and Frozen keep what they create; Autopilot does not', () => {
   removability();
 });
 
@@ -257,7 +259,7 @@ test('the FAQ says how to undo a run, module by module, as the code allows', () 
   assert.ok(row(body, 'Sync').includes(`**${labels.sync}**`));
   assert.ok(row(body, 'Frozen Dataset').includes(`**${labels.frozen}**`));
   assert.ok(row(body, 'Seed: a template').includes(`**${labels.seed}**`));
-  for (const way of ['CSV Upload', 'Clone from Org']) {
+  for (const way of ['CSV Upload', labels.seedCopy]) {
     assert.ok(row(body, way).includes(`**${labels.seed}**`), `${way}: Earlier seeds`);
     assert.ok(row(body, way).includes(`**${labels.seedResults}**`), `${way}: its results`);
     assert.doesNotMatch(row(body, way), /Not removable/);
