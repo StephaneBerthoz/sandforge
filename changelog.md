@@ -5,6 +5,48 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.83.0] - 2026-11-18
+
+After a sandbox refresh, Back into service brings it back step by step from the panel; the launcher groups modules by what they are for, and every page's menus were reworked.
+
+### Added
+
+- **Back into service**: a page lists the ten steps after a sandbox refresh, each with its status, what it runs, and Skip or Mark as done.
+- **Back into service**: sets testers up after a simulation of the same list, asking at each run to let Salesforce email those people.
+- **Back into service**: reads deliverability, scheduled jobs and endpoints naming production; opens masking, the replay and the frozen load ready.
+- **Back into service**: keeps the testers' list per sandbox as users.json, writes a handoff note, and leads the launcher, Home, Monitor and Help.
+- **Checkpoints**: a checkpoint replays into a sandbox marked Staging once its name is typed under the simulation; masking stays as before.
+- **Monitor**: an org picker in the header; a sandbox refreshed this week leads with Bring back into service and Automate after each refresh.
+- **Help**: each module's section opens its page; After a sandbox refresh and Safety come first.
+- **Settings**: Share setup imports an export from a file; Diagnostics opens the SandForge log.
+
+### Changed
+
+- **Launcher**: modules sit in five groups by what they are for, none folded; Advanced, the counters and Open Full UI are gone; Home beside the mark.
+- **Launcher, Home**: the hero follows the org: back into service after a refresh, reconnect, the sandbox to add when production alone is connected.
+- **Home**: lists every module in the launcher's five groups; the KPI row keeps the week's runs and Org health; the tour no longer asks what is done.
+- **DataOps**: opens on Masking, tabs in the order of the work; one list of backups; Quality joins Cleanup's scan; Emptying is a tab of its own.
+- **Sync**: Saved lists configurations first, opens one on Simulate & run, deletes one after asking; Mapping and Transforms are one Fields step.
+- **SFDMU Import**: Migration is named SFDMU Import, still found as Migration in the palette.
+- **Compare**: three tabs, Differences, Deploy from Diff and Org overview, which reads objects, permissions and settings with no comparison.
+- **Automation**: Dry run is Simulate; Triggers and Scheduler are one Start tab; Marketplace is Templates, the second tab.
+- **Forge**: shows a run's steps; Continue to Review; results open on Next steps; one Personal data row on Review; Rehearse renamed in French and German.
+- **Seed, Autopilot**: one button writes on the copy preview and the review; Seed's steps read Objects, Fields, Options, Run.
+- **Frozen Dataset**: opens on Load once a dataset is frozen, picks its source org on Extract, and says Simulate and Verify.
+- **Checkpoints**: Replay into an org…; one Keep per row, Delete under More; the take offers Before refresh and Testers' start.
+- **Reports**: no Analytics tab; four figures above the tabs; See in Reports from Sync's and Automation's History.
+- **Organizations, Settings**: Username / Password joins More methods; the current org says so; Settings is one page.
+- **Grappe**: the page is retired; a large run's progress by partition shows in the run screens of Seed, Sync and Autopilot.
+- **Command line and MCP**: `sandforge users plan --json` names the automation that would fire; `sandforge checkpoint replay`'s help no longer claims a Staging refusal.
+
+### Fixed
+
+- **Launcher**: production orgs alone or every session ended no longer get a Forge that could only refuse.
+- **Forge**: a run stopped says it was stopped, in its log and its notice, no longer aborted or cancelled.
+- **Seed**: the Options step no longer shows a progress bar at 0 %, and the title no longer repeats the Generate data card.
+- **Compare, Frozen Dataset**: when the orgs were read and when a dataset was frozen are dates in your language, not raw timestamps.
+- **Organizations**: the disconnect question names the Staging mark it deletes; French says Préproduction for the mark.
+
 ## [1.82.0] - 2026-11-18
 
 A refreshed sandbox goes back to its testers in one apply: users, masked records, a replayed checkpoint, an audit; and SandForge is an sf plugin.
