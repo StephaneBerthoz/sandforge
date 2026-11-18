@@ -47,7 +47,7 @@ import { organizationKey, type OrgCheckpointStore } from '../checkpoint/OrgCheck
 import type { ReplayStore } from '../checkpoint/replay/replayStore.js';
 import { parseManifest } from '../frozendataset/manifest.js';
 import type { DetectedSandboxRefresh } from '../monitor/SandboxRefreshDetector.js';
-import type { UsersRunStore } from '../users/usersRunStore.js';
+import type { UsersRunRecord, UsersRunStore } from '../users/usersRunStore.js';
 import { lastHandoffOf } from './recoveryHandoff.js';
 import { refreshKeyOf } from './recoveryProgress.js';
 import type { RecoveryFacts } from './recoveryStatus.js';
@@ -216,6 +216,15 @@ function maskObjectsOf(
   return chosen !== undefined
     ? { objects: chosen.objects, from: own !== undefined ? 'org' : 'machine' }
     : undefined;
+}
+
+/**
+ * Whether a removal of a users run put back what it set up, as its file
+ * keeps each removal: one that ended a success, or put something back. A
+ * removal the org refused all of leaves the run standing.
+ */
+function takenBack(run: Pick<UsersRunRecord, 'removals'>): boolean {
+  return (run.removals ?? []).some((removal) => removal.status === 'success' || removal.undone > 0);
 }
 
 /** Whether a saved pipeline starts on the refresh of the entry. */
@@ -410,6 +419,7 @@ export async function recoveryFactsOf(
           },
         }
       : {}),
+    ...(lastRun !== undefined && takenBack(lastRun) ? { lastUsersRunTakenBack: true } : {}),
     ...(usersToBringBack !== undefined ? { usersToBringBack } : {}),
     ...(maskedAt !== undefined ? { maskedAt } : {}),
     ...(maskObjects !== undefined ? { maskObjects } : {}),

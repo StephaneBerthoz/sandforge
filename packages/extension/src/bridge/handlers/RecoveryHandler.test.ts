@@ -58,6 +58,8 @@ import {
   usersTestOrg,
   type UsersTestOrg,
 } from '../../modules/users/usersOrg.fixtures.js';
+import { usersOrgOf } from '../../modules/users/usersOrg.js';
+import { removeUsersRun } from '../../modules/users/usersRemoval.js';
 import { UsersRunStore } from '../../modules/users/usersRunStore.js';
 import { RecoveryHandler, type RecoveryFileDialogs } from './RecoveryHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -519,6 +521,38 @@ describe('RecoveryHandler — the users', () => {
     // A second run needs a simulation of its own: the org is not what the first read.
     await handler.handle(request('recovery:users:apply', RESTORE_JANE));
     expect(errorOf(deps)?.code).toBe('ORG_CHANGED');
+  });
+
+  it('takes the users step back to do, and the launcher one step back, once the run is removed', async () => {
+    const org = usersTestOrg(acmeSetup());
+    const { conn } = connectionTo(org);
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn);
+    const deps = depsOf();
+    const handler = handlerOf(deps);
+    await handler.handle(request('recovery:users:plan', RESTORE_JANE));
+    await handler.handle(request('recovery:users:apply', RESTORE_JANE));
+    const applied = usersApplyAnswerSchema.parse(
+      answer<{ applied: unknown }>(deps, 'recovery:users:apply:response').applied,
+    );
+    const ran = await handler.progressCountOf('entry-uat');
+    expect((await statusOf(handler, deps)).steps[1]).toMatchObject({ status: 'done' });
+
+    // `sandforge users remove --run 1`, through the same store.
+    const removed = await removeUsersRun({
+      org: usersOrgOf(conn),
+      organization: applied.org,
+      store: usersStore,
+      run: applied.run,
+    });
+    expect(removed.status).toBe('success');
+
+    const status = await statusOf(handler, deps);
+    expect(status.steps[1]).toEqual({ id: 'users', status: 'todo', reason: 'toDo' });
+    expect(status.lastUsersRun).toMatchObject({ run: 1, status: 'success' });
+    expect(await handler.progressCountOf('entry-uat')).toEqual({
+      done: (ran?.done ?? 0) - 1,
+      total: ran?.total,
+    });
   });
 
   it('keeps no acceptance: a simulation that does not accept the emails again is refused them', async () => {

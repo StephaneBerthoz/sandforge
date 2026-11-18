@@ -51,6 +51,11 @@ export interface RecoveryFacts {
   checkpointsNow: ReadonlyArray<{ takenAt: string; keptUntilDeleted: boolean }>;
   /** The last users run of the org now that ended. */
   lastUsersRun?: NonNullable<RecoveryStatus['lastUsersRun']>;
+  /**
+   * Set when a removal of that run put back what it set up (`sandforge users
+   * remove`): the users are no longer as the run left them.
+   */
+  lastUsersRunTakenBack?: true;
   /** How many users the last list read of the org now found to bring back. */
   usersToBringBack?: number;
   /** When a masking run of the sandbox since the refresh ended a success, the newest. */
@@ -117,7 +122,9 @@ function stepsOf(facts: RecoveryFacts): RecoveryStep[] {
       : ranOrSkipped(
           'users',
           facts,
-          facts.lastUsersRun?.status === 'success' ? facts.lastUsersRun.at : undefined,
+          facts.lastUsersRun?.status === 'success' && facts.lastUsersRunTakenBack !== true
+            ? facts.lastUsersRun.at
+            : undefined,
         ),
     nothingCopied(facts)
       ? stepOf('masking', 'notApplicable', 'nothingCopied')

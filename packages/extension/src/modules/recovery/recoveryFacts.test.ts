@@ -268,6 +268,40 @@ describe('recoveryFactsOf', () => {
     });
   });
 
+  it('takes the last users run as taken back once a removal of it put something back', async () => {
+    const begun = await users.begin(AFTER, {
+      status: 'success',
+      startedAt: '2026-11-18T09:00:00.000Z',
+      endedAt: '2026-11-18T09:02:00.000Z',
+      emailsToPeople: 0,
+      users: [],
+    });
+    expect((await factsOf()).lastUsersRunTakenBack).toBeUndefined();
+
+    // A removal the org refused all of puts nothing back: the run still stands.
+    const refusedAll = {
+      at: '2026-11-18T10:00:00.000Z',
+      status: 'partial' as const,
+      undone: 0,
+      kept: 2,
+      codes: ['CANNOT_UPDATE'],
+    };
+    await users.write({ ...begun, removals: [refusedAll] });
+    expect((await factsOf()).lastUsersRunTakenBack).toBeUndefined();
+
+    // `sandforge users remove --run 1`: what it set up is put back.
+    await users.write({
+      ...begun,
+      removals: [
+        refusedAll,
+        { at: '2026-11-18T11:00:00.000Z', status: 'success', undone: 3, kept: 0, codes: [] },
+      ],
+    });
+    const facts = await factsOf();
+    expect(facts.lastUsersRunTakenBack).toBe(true);
+    expect(facts.lastUsersRun).toMatchObject({ run: 1, status: 'success' });
+  });
+
   it('reads nothing of the org now while only production reported the refresh', async () => {
     // The sandbox has not answered since: the detector still holds the org
     // it was, which is the org before, never the org now.

@@ -115,6 +115,19 @@ describe('recoveryStatusOf', () => {
     ).toMatchObject({ status: 'todo', reason: 'toDo' });
   });
 
+  it('takes the users back to do once the run that set them up was taken back', () => {
+    const lastUsersRun = { run: 1, at: '2026-11-18T09:00:00.000Z', status: 'success' as const };
+    expect(statusOfStep({ lastUsersRun, lastUsersRunTakenBack: true }, 'users')).toEqual({
+      id: 'users',
+      status: 'todo',
+      reason: 'toDo',
+    });
+    // The run is still what the page shows: the last one, and how it ended.
+    expect(
+      recoveryStatusOf(facts({ lastUsersRun, lastUsersRunTakenBack: true })).lastUsersRun,
+    ).toEqual(lastUsersRun);
+  });
+
   it('takes the users as not applicable when the list read found nobody to bring back', () => {
     expect(statusOfStep({ usersToBringBack: 0 }, 'users')).toMatchObject({
       status: 'notApplicable',
