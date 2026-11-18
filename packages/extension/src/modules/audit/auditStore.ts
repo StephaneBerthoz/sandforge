@@ -27,7 +27,7 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import * as z from 'zod';
 import { checkpointOrganizationIdSchema } from '@sandforge/shared';
-import { organizationKey } from '../../../src/modules/checkpoint/OrgCheckpointStore.js';
+import { organizationKey } from '../checkpoint/OrgCheckpointStore.js';
 
 /** What a folder of the inventories is made with: its owner alone lists them. */
 export const AUDIT_DIR_MODE = 0o700;

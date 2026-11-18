@@ -5,14 +5,12 @@ import { join } from 'node:path';
 import { envAuditResultSchema, type EnvAudits } from '@sandforge/shared';
 import { commandOf } from '../../invocation.js';
 import { fakeAuditOrg, sfError, type FakeAuditOrgInit, type FakeAuditRow } from './auditFakeOrg.js';
-import { saveInventory } from './auditStore.js';
+import { saveInventory } from '../../../src/modules/audit/auditStore.js';
 import {
   AUDIT_FLAGS,
   auditPlanLine,
-  auditRequestsOf,
   auditVerb,
   auditsAskedOf,
-  readAudits,
   type AuditOrgInput,
 } from './auditVerb.js';
 
@@ -197,44 +195,12 @@ describe('what env audit reads', () => {
       values: ['--file', '--org', '--alias'],
     });
   });
-
-  it('reads every audit the file does not turn off, the deliverability always', () => {
-    expect(auditsAskedOf(undefined, 'verb')).toEqual({
-      deliverability: true,
-      schedules: true,
-      endpoints: { productionHosts: [], fields: [] },
-    });
-    expect(auditsAskedOf({ schedules: false, endpoints: false }, 'verb')).toEqual({
-      deliverability: true,
-      schedules: false,
-      endpoints: false,
-    });
-  });
-
-  it('once applied, reads only those the file asks, and the deliverability with them', () => {
-    expect(auditsAskedOf(undefined, 'apply')).toBeUndefined();
-    expect(auditsAskedOf({ handoff: true }, 'apply')).toBeUndefined();
-    expect(auditsAskedOf({ endpoints: true }, 'apply')).toEqual({
-      deliverability: true,
-      schedules: false,
-      endpoints: { productionHosts: [], fields: [] },
-    });
-    expect(auditsAskedOf(AUDITS, 'apply')).toEqual({
-      deliverability: true,
-      schedules: true,
-      endpoints: {
-        productionHosts: ['erp.acme.com'],
-        fields: ['Integration_Setting__mdt.Endpoint__c'],
-      },
-    });
-  });
 });
 
 describe('what the audits cost', () => {
   it('is said by a plan beforehand: what is read, and about how many requests', () => {
     const asked = auditsAskedOf(AUDITS, 'apply');
     if (asked === undefined) throw new Error('the file asks audits');
-    expect(auditRequestsOf(asked)).toEqual({ fewest: 5, most: 8 });
     expect(auditPlanLine(asked)).toBe(
       'audits after the apply: deliverability, scheduled jobs, endpoints, about 5 to 8 API requests',
     );
@@ -395,28 +361,6 @@ describe('an audit the org does not answer', () => {
   it('never fails the command, --fail-on-findings included', async () => {
     const { outcome } = await run(refusing(), journal(), { failOnFindings: true });
     expect(outcome.exitCode).toBe(0);
-  });
-
-  it('never throws when no request is answered at all', async () => {
-    const outcome = await readAudits(
-      {
-        transport: { request: () => Promise.reject(new Error('socket hang up')) },
-        journalDir: journal(),
-        now: () => AT,
-      },
-      {
-        org: UAT,
-        asked: {
-          deliverability: true,
-          schedules: true,
-          endpoints: { productionHosts: [], fields: [] },
-        },
-      },
-    );
-    expect(outcome.result.deliverability?.unread).toMatch(/socket hang up/);
-    expect(outcome.result.schedules?.unread).toMatch(/socket hang up/);
-    expect(outcome.result.endpoints?.unread).toMatch(/socket hang up/);
-    expect(outcome.result.apiRequests).toBe(4);
   });
 });
 

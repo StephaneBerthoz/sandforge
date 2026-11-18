@@ -13,6 +13,10 @@
  * usernames: kept as a CI artifact, it is kept a short time, and never
  * committed.
  *
+ * The sections no environment is needed for — the title and the org, what
+ * is left to do, what SandForge does not touch — are the extension's
+ * (`src/modules/audit/handoffSections.ts`), where the panel can reach them.
+ *
  * ```
  * <journal>/handoff/                         0700
  *   <env>/<instant>-<organizationId>.md      0600
@@ -32,11 +36,17 @@ import {
   type UsersAppliedUser,
   type UsersChange,
 } from '@sandforge/shared';
+import {
+  code,
+  handoffTitleOf,
+  notTouchedLines,
+  orgLineOf,
+  secondOf,
+  stillToDoLines,
+} from '../../../src/modules/audit/handoffSections.js';
 import { organizationKey } from '../../../src/modules/checkpoint/OrgCheckpointStore.js';
 import { commandOf } from '../../invocation.js';
 import type { AuditOrgInput } from './auditVerb.js';
-import { sandboxMyDomainOf } from '../envTargetHost.js';
-import { ENDPOINT_SOURCE_WORDS, ENDPOINT_WHY_WORDS } from './endpointsAudit.js';
 
 /** What a folder of the notes is made with: its owner alone lists them. */
 export const HANDOFF_DIR_MODE = 0o700;
@@ -63,21 +73,6 @@ export interface HandoffInput {
   resources?: Readonly<Record<string, EnvResource>>;
   /** The file's sets of masking rules, which a mask resource names. */
   masking?: Readonly<Record<string, EnvMaskingSet>>;
-}
-
-/** A name the note gives, on one line, as code: nothing in it closes the span or breaks the line. */
-function code(name: string): string {
-  return `\`${name.replace(/[`\r\n]+/g, ' ').trim()}\``;
-}
-
-/** Words on one line: nothing in them breaks the note's structure. */
-function plain(words: string): string {
-  return words.replace(/[\r\n]+/g, ' ').trim();
-}
-
-/** An instant to the second. */
-function secondOf(instant: string): string {
-  return instant.replace(/\.\d{3}Z$/, 'Z');
 }
 
 /** Counts by object, in words: `Account 40, Contact 120`. */
@@ -283,97 +278,13 @@ function auditLine(input: HandoffInput): string {
   return `\`${commandOf('env')} audit --file ${input.file} --org ${org}\``;
 }
 
-/** The section of what is left, in the order a refresh's checklist takes it. */
+/** The section of what is left, with the command line that reads an audit the apply did not. */
 function toDoLines(input: HandoffInput): string[] {
-  const audits = input.run.audits;
-  const lines: string[] = ['## Still to do, in this order', ''];
-
-  lines.push('1. Credentials and technical components: point them away from production.');
-  const endpoints = audits?.endpoints;
-  if (endpoints === undefined) {
-    lines.push(`   - Not audited: ${auditLine(input)} lists those that still name production.`);
-  } else {
-    for (const one of endpoints.found) {
-      lines.push(
-        `   - ${ENDPOINT_SOURCE_WORDS[one.source]} ${code(one.name)} names ${code(one.host)}, ${ENDPOINT_WHY_WORDS[one.why]}.`,
-      );
-    }
-    if (endpoints.found.length === 0 && endpoints.unread === undefined) {
-      lines.push('   - None of those read names production.');
-    }
-    if (endpoints.unread !== undefined) {
-      lines.push(
-        '   - Not all read: check the Named Credentials, the Remote Site Settings and the ' +
-          'Custom Metadata in Setup.',
-      );
-    }
-  }
-
-  lines.push(
-    '2. Scheduled jobs: schedule again those gone, and give those stuck a user who can run them.',
-  );
-  const schedules = audits?.schedules;
-  if (schedules === undefined) {
-    lines.push(`   - Not audited: ${auditLine(input)} compares them with their inventory.`);
-  } else {
-    for (const job of schedules.jobs) {
-      if (job.status === 'gone') {
-        lines.push(
-          `   - ${code(job.name)} (${plain(job.type)}) was scheduled in the inventory of ` +
-            `${schedules.against?.savedAt.slice(0, 10) ?? '?'}, and is not now.`,
-        );
-      } else if (job.status === 'frozen' || job.status === 'inactive') {
-        lines.push(
-          `   - ${code(job.name)} (${plain(job.type)}) runs as ${job.owner !== undefined ? code(job.owner) : 'a user not read'}, ` +
-            `who is ${job.status}: its next run fails.`,
-        );
-      }
-    }
-    if (schedules.against === undefined) {
-      lines.push(
-        '   - No inventory from before the refresh was kept on this machine: what is gone is not ' +
-          'known.',
-      );
-    }
-    if (schedules.unread !== undefined)
-      lines.push('   - Not all read: Setup > Scheduled Jobs lists them.');
-    if (!schedules.jobs.some((job) => job.status !== 'new') && schedules.unread === undefined) {
-      lines.push(
-        schedules.against !== undefined ? '   - None gone, none stuck.' : '   - None stuck.',
-      );
-    }
-  }
-
-  lines.push(
-    '3. Automations that send emails — flows, workflow rules, Apex —: turn them on last, once the ' +
-      'addresses and the masking are as the testers need them.',
-  );
-
-  lines.push('4. Deliverability.');
-  const deliverability = audits?.deliverability;
-  if (deliverability?.read === 'closed') {
-    lines.push(
-      '   - Read closed, System email only or No access: leave it so until the masking is done.',
-    );
-  } else if (deliverability?.read === 'open') {
-    lines.push(
-      '   - Read open, All email: what runs there emails whoever its records name. Set it to ' +
-        'System email only in Setup > Deliverability until the masking is done.',
-    );
-  } else {
-    lines.push('   - Not read: Setup > Deliverability shows it.');
-  }
-  return lines;
+  return stillToDoLines(input.run.audits, {
+    endpoints: `${auditLine(input)} lists those that still name production.`,
+    schedules: `${auditLine(input)} compares them with their inventory.`,
+  });
 }
-
-/** What SandForge leaves to others, each with whose it is. */
-const NOT_TOUCHED: readonly string[] = [
-  '- Named and External Credentials: Setup, or a deployment of your project by `sf`.',
-  '- Metadata: your deployment.',
-  '- Single sign-on and DKIM keys: Setup.',
-  '- Deliverability: Setup > Deliverability.',
-  "- Passwords: each user's own, by Forgot your password? on the sandbox's login page.",
-];
 
 /**
  * The note, in Markdown: the environment, the access, the data, what is
@@ -381,20 +292,13 @@ const NOT_TOUCHED: readonly string[] = [
  */
 export function handoffNoteOf(input: HandoffInput): string {
   const { run, org } = input;
-  const myDomain = sandboxMyDomainOf(org.host);
-  const kind =
-    org.kind === 'sandbox'
-      ? `sandbox${myDomain !== undefined ? ` ${code(myDomain)}` : ''}`
-      : org.kind === 'scratch'
-        ? 'scratch org'
-        : 'Developer Edition org';
   const lines: string[] = [
-    `# Handoff: ${code(run.plan.env)} on ${code(org.alias ?? org.organizationId)}`,
+    handoffTitleOf(run.plan.env, org),
     '',
     '## Environment',
     '',
     `- Environment: ${code(run.plan.env)}, state serial ${run.state.serial}.`,
-    `- Org: ${org.alias !== undefined ? `${code(org.alias)}, ` : ''}${kind}, ${code(org.organizationId)}.`,
+    orgLineOf(org),
     `- Applied: ${secondOf(input.at)}, by SandForge ${input.sandforgeVersion}; it ended ${run.status}.`,
     '',
     ...accessLines(input),
@@ -403,9 +307,7 @@ export function handoffNoteOf(input: HandoffInput): string {
     '',
     ...toDoLines(input),
     '',
-    '## Not touched by SandForge',
-    '',
-    ...NOT_TOUCHED,
+    ...notTouchedLines(),
   ];
   return `${lines.join('\n')}\n`;
 }

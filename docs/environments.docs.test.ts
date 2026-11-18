@@ -1865,7 +1865,7 @@ describe('docs/environments.md', () => {
 describe('a refreshed sandbox, on the page', () => {
   const USERS_SCRIPT = source(`${CLI_DIR}/sandforge-users.ts`);
   const HANDOFF = source(`${CLI_DIR}/env/audit/handoffNote.ts`);
-  const AUDIT_STORE = source(`${CLI_DIR}/env/audit/auditStore.ts`);
+  const AUDIT_STORE = source('packages/extension/src/modules/audit/auditStore.ts');
 
   it('says an address asked back awaits its owner, never that it is restored, and that no password is reset', () => {
     // Positive control: what the code says of an address, and of a password.

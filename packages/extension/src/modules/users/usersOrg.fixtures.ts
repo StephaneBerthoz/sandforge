@@ -56,6 +56,8 @@ export interface TestUser {
   frozen?: boolean;
   /** Its `UserLogin`'s id; `null` for a user the org keeps no login of. */
   loginId?: string | null;
+  /** `Standard` unless given: the org's own users are `AutomatedProcess`, `Guest`, `CsnOnly`. */
+  userType?: string;
 }
 
 export interface TestProfile {
@@ -479,7 +481,7 @@ export function usersTestOrg(setup: UsersTestOrgSetup): UsersTestOrg {
           IsActive: user.isActive,
           ProfileId: user.profileId,
           Name: user.name ?? 'Test User',
-          UserType: 'Standard',
+          UserType: user.userType ?? 'Standard',
         }));
       case 'UserLogin':
         return users

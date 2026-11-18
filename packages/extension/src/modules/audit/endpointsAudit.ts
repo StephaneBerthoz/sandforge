@@ -87,7 +87,7 @@ export interface ProductionHosts {
 /**
  * The hosts of production the org's endpoints are compared against: those
  * deduced from a sandbox's host, `login.salesforce.com`, and the file's.
- * Narrower than the My Domain `envTargetHost.ts` names a sandbox by, which
+ * Narrower than the My Domain `orgHost.ts` names a sandbox by, which
  * reads a host before enhanced domains too: production's hosts are deduced
  * from the one form whose production hosts enhanced domains fix.
  *

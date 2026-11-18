@@ -15,14 +15,17 @@
  * - the org typed before anything of it is read, and a production org
  *   refused, whatever the verb: a plan answers of a scratch org, a Developer
  *   Edition org or a sandbox alone, and a production org's users are never
- *   read (`targetKind.ts`);
- * - the deliverability probe (`forge/targetDeliverability.ts`), read only
- *   when a run would ask an address back, its reading handed to the plan,
- *   which holds the gates of the emails: this script passes the line's
- *   acceptances and words none of them;
+ *   read;
+ * - the deliverability probe, read only when a run would ask an address
+ *   back, its reading handed to the plan, which holds the gates of the
+ *   emails: this script passes the line's acceptances and words none of
+ *   them;
  * - what the org runs as a user or a login is written, read as Forge reads
- *   it (`TargetAutomationReader`): `AUTOMATION_NOT_ACCEPTED` unless the line
- *   accepts it, as every other module's command line refuses it;
+ *   it: `AUTOMATION_NOT_ACCEPTED` unless the line accepts it, as every other
+ *   module's command line refuses it;
+ *
+ *   those three the users module's own (`usersGates.ts`), where the panel
+ *   can reach them;
  * - the question before a write, `--yes` in its place;
  * - the requests counted: a plan says what an apply then sends, its own
  *   reads included, and an apply says what it sent.
@@ -43,10 +46,8 @@ import {
   USERS_MAX_GROUPS,
   USERS_MAX_PERMISSION_SET_GROUPS,
   USERS_MAX_PERMISSION_SETS,
-  firedOnWriteOf,
   usersConfigSchema,
   usersWithDefaults,
-  type ForgeTargetAutomation,
   type UsersApplyAnswer,
   type UsersChange,
   type UsersConfigUser,
@@ -55,26 +56,25 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import { automationUnreadOf } from '../src/modules/forge/ForgeRunGate.js';
-import {
-  TargetAutomationReader,
-  targetAutomationQueries,
-} from '../src/modules/forge/TargetAutomationReader.js';
-import {
-  readEmailDeliverability,
-  type DeliverabilityRead,
-} from '../src/modules/forge/targetDeliverability.js';
+import type { DeliverabilityRead } from '../src/modules/forge/targetDeliverability.js';
 import { applyUsers } from '../src/modules/users/usersApply.js';
-import { usersOrgOf, type UsersOrg } from '../src/modules/users/usersOrg.js';
 import {
-  planUsers,
-  usersPlanAnswerOf,
-  type UsersOrgSummary,
-  type UsersPlan,
-  type UsersPlanOptions,
-  type UsersRefusal,
-} from '../src/modules/users/usersPlan.js';
+  automationRequestsOf,
+  firedEntryWords,
+  firedOf,
+  gatedPlanAnswerOf,
+  planUsersGated,
+  reachUsersOrg,
+  readUsersAutomation,
+  unreadPartWords,
+  usersAutomationRefusal,
+  writtenByRemoval,
+  type UsersAutomationRead,
+} from '../src/modules/users/usersGates.js';
+import type { UsersOrg } from '../src/modules/users/usersOrg.js';
+import type { UsersOrgSummary, UsersRefusal } from '../src/modules/users/usersPlan.js';
 import { removeUsersRun } from '../src/modules/users/usersRemoval.js';
-import { ADDRESS_LINK_HOURS, idKey, readUsersState } from '../src/modules/users/usersResolve.js';
+import { ADDRESS_LINK_HOURS } from '../src/modules/users/usersResolve.js';
 import {
   UsersRunStore,
   defaultUsersStoreRoot,
@@ -87,18 +87,10 @@ import { confirm } from './prompt.js';
 import { refusedLine, wouldBeRefusedLine } from './runRefused.js';
 import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
-import {
-  isProductionTarget,
-  typeTarget,
-  untypedTargetRefusal,
-  type TypedTarget,
-} from './targetKind.js';
+import { untypedTargetRefusal, type TypedTarget } from './targetKind.js';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const TOOL = 'sandforge-users';
-
-/** The code an automation the line did not accept refuses a run with, as every module's. */
-export const AUTOMATION_NOT_ACCEPTED = 'AUTOMATION_NOT_ACCEPTED';
 
 /** The code of a run to replace, or to take back, that this machine does not keep for the org. */
 export const USERS_RUN_NOT_FOUND = 'USERS_RUN_NOT_FOUND';
@@ -493,44 +485,29 @@ async function reachOrg(alias: string): Promise<Reached> {
     process.exit(FAILED_EXIT);
   }
   const conn = makeConn(sfOrg);
-  let typingRequests = 0;
-  let typed: TypedTarget;
-  try {
-    typed = await typeTarget({
-      query: ((soql: string) => {
-        typingRequests += 1;
-        return conn.query(soql);
-      }) as Connection['query'],
-    });
-  } catch (err: unknown) {
+  const reached = await reachUsersOrg(conn, { alias, scratch: sfOrg.scratch === true });
+  if (reached.kind === 'untyped') {
     process.stderr.write(
-      `${untypedTargetRefusal(alias, err, { tool: nameOf(TOOL), action: 'write', readOnly: 'plan' })}\n`,
+      `${untypedTargetRefusal(alias, reached.err, { tool: nameOf(TOOL), action: 'write', readOnly: 'plan' })}\n`,
     );
     process.exit(FAILED_EXIT);
   }
-  if (isProductionTarget(typed)) {
-    process.stderr.write(`${usersProductionRefusal(alias, typed)}\n`);
+  if (reached.kind === 'production') {
+    process.stderr.write(`${usersProductionRefusal(alias, reached.typed)}\n`);
     process.exit(FAILED_EXIT);
   }
-  const org = usersOrgOf(conn);
-  const connected = await org.identity();
-  if (idKey(connected.organizationId) !== idKey(typed.id)) {
+  if (reached.kind === 'otherSession') {
     process.stderr.write(
-      `The session sf gave for ${alias} is of ${connected.organizationId}, and its Organization ` +
-        `record says ${typed.id}: nothing was read or written. Sign in to ${alias} again with sf.\n`,
+      `The session sf gave for ${alias} is of ${reached.sessionOrganizationId}, and its Organization ` +
+        `record says ${reached.typed.id}: nothing was read or written. Sign in to ${alias} again with sf.\n`,
     );
     process.exit(FAILED_EXIT);
   }
   return {
     conn,
-    org,
-    organization: {
-      organizationId: typed.id,
-      kind: sfOrg.scratch === true ? 'scratch' : typed.sandbox ? 'sandbox' : 'developer',
-      alias,
-      username: connected.username,
-    },
-    typingRequests,
+    org: reached.org,
+    organization: reached.organization,
+    typingRequests: reached.typingRequests,
   };
 }
 
@@ -546,61 +523,8 @@ function storeOf(): UsersRunStore {
 
 // ─── What the org runs as users are written ──────────────────────────────────
 
-/** What the read of the org's automation came to: read, not read and why, or not asked. */
-type AutomationRead =
-  | { kind: 'read'; automation: ForgeTargetAutomation }
-  | { kind: 'unread'; reason: string }
-  | { kind: 'none' };
-
-/** When what fires on a save runs. */
-const SAVE_WHEN: Readonly<Record<'before' | 'after' | 'beforeAndAfter', string>> = {
-  before: 'before save',
-  after: 'after save',
-  beforeAndAfter: 'before and after save',
-};
-
-const UNREAD_WORDS: Readonly<Record<string, string>> = {
-  flows: 'the flows',
-  triggers: 'the Apex triggers',
-  processes: 'the Process Builder processes',
-  workflowRules: 'the workflow rules',
-};
-
-function firedWords(kind: string, name: string): string {
-  if (kind === 'flow') return `flow "${name}"`;
-  if (kind === 'process') return `process "${name}"`;
-  if (kind === 'workflowRule') return `workflow rule "${name}"`;
-  return `Apex trigger ${name}`;
-}
-
-/**
- * Read what the org runs on `objects` as their records are updated: a user's
- * profile, activation and address are `User` rows, a freeze a `UserLogin`
- * row. A permission set assignment and a group membership run nothing a
- * flow or a trigger can be written on. Never throws: what kept the read from
- * an answer is said.
- */
-async function readAutomation(
-  conn: Connection,
-  alias: string,
-  objects: readonly string[],
-): Promise<AutomationRead> {
-  if (objects.length === 0) return { kind: 'none' };
-  try {
-    const reader = new TargetAutomationReader(targetAutomationQueries(async () => conn));
-    return { kind: 'read', automation: await reader.read(alias, objects) };
-  } catch (err: unknown) {
-    return { kind: 'unread', reason: extractErrorMessage(err) };
-  }
-}
-
-/** What fires, per object, as `objects` are updated. */
-function firedOf(read: AutomationRead) {
-  return read.kind === 'read' ? firedOnWriteOf(read.automation, 'update') : [];
-}
-
 /** The lines a plan, or a removal, says of what the org runs as it writes. */
-function automationLines(read: AutomationRead, alias: string, writes: string): string[] {
+function automationLines(read: UsersAutomationRead, alias: string, writes: string): string[] {
   if (read.kind === 'none') {
     return ['automation: none read: this run writes no user and no login'];
   }
@@ -614,99 +538,14 @@ function automationLines(read: AutomationRead, alias: string, writes: string): s
   }
   return [
     ...(fired.length > 0 ? [`automation: ${alias} runs as ${writes}:`] : []),
-    ...fired.map(
-      (entry) =>
-        `  ${entry.objectApiName}: ${firedWords(entry.kind, entry.name)} (${SAVE_WHEN[entry.when]})`,
-    ),
+    ...fired.map((entry) => `  ${firedEntryWords(entry)}`),
     ...unread.map(
-      ({ part, reason }) =>
-        `  ${UNREAD_WORDS[part] ?? part} of ${alias} could not be read: ${reason}`,
+      ({ part, reason }) => `  ${unreadPartWords(part)} of ${alias} could not be read: ${reason}`,
     ),
   ];
 }
 
-/**
- * Why a run, or a removal, will not write without its automation accepted:
- * what fires, named, or what could not be read. Nothing when nothing fires
- * and everything was read, or when the line accepts it.
- */
-function automationRefusal(
-  read: AutomationRead,
-  alias: string,
-  writes: string,
-  accepted: boolean,
-): UsersRefusal | undefined {
-  if (accepted || read.kind === 'none') return undefined;
-  const lifted =
-    'Nothing was written. Add --accept-automation to write all the same (accept: { automation: ' +
-    `true } on the users resource of sandforge.yaml), or turn that automation off in ${alias} first.`;
-  if (read.kind === 'unread') {
-    return {
-      code: AUTOMATION_NOT_ACCEPTED,
-      message:
-        `What ${alias} runs as ${writes} could not be read (${read.reason}), so what fires is ` +
-        `not known. ${lifted}`,
-    };
-  }
-  const fired = firedOf(read);
-  const unread = automationUnreadOf(read.automation);
-  if (fired.length === 0 && unread.length === 0) return undefined;
-  const parts: string[] = [];
-  if (fired.length > 0) {
-    const named = fired.map(
-      (entry) =>
-        `${entry.objectApiName}: ${firedWords(entry.kind, entry.name)} (${SAVE_WHEN[entry.when]})`,
-    );
-    parts.push(`${alias} runs automation as ${writes}: ${named.join('; ')}.`);
-  }
-  for (const { part, reason } of unread) {
-    parts.push(
-      `${UNREAD_WORDS[part] ?? part} of ${alias} could not be read (${reason}), so what fires ` +
-        `as ${writes} is not known.`,
-    );
-  }
-  parts.push(lifted);
-  return { code: AUTOMATION_NOT_ACCEPTED, message: parts.join(' ') };
-}
-
-/** The requests a read of the automation sent. */
-function automationRequests(read: AutomationRead): number {
-  return read.kind === 'read' ? read.automation.requests : 0;
-}
-
-/** The objects whose rows a run updates: `User` for a profile, an activation or an address; `UserLogin` for a freeze. */
-function writtenByPlan(plan: UsersPlan): string[] {
-  const users = plan.users.some(
-    (one) =>
-      one.writes.profileId !== undefined ||
-      one.writes.isActive !== undefined ||
-      one.writes.email !== undefined,
-  );
-  const logins = plan.users.some((one) => one.writes.isFrozen !== undefined);
-  return [...(users ? ['User'] : []), ...(logins ? ['UserLogin'] : [])];
-}
-
-/** The objects whose rows a removal of `record` may update. */
-function writtenByRemoval(record: UsersRunRecord): string[] {
-  const users = record.users.some(
-    (user) =>
-      user.after.isActive !== user.applied.before.isActive ||
-      idKey(user.after.profileId) !== idKey(user.applied.before.profileId),
-  );
-  const logins = record.users.some((user) => user.after.isFrozen !== user.applied.before.isFrozen);
-  return [...(users ? ['User'] : []), ...(logins ? ['UserLogin'] : [])];
-}
-
 // ─── The deliverability ──────────────────────────────────────────────────────
-
-/** What the plan is told of the probe's reading. */
-function deliverabilityOf(
-  read: DeliverabilityRead,
-): NonNullable<UsersPlanOptions['deliverability']> {
-  const { reading } = read;
-  if ('unread' in reading) return 'unread';
-  return reading.level === 'all' ? 'open' : 'closed';
-}
 
 /** The line a plan says of the probe's reading. */
 function deliverabilityLine(read: DeliverabilityRead, alias: string): string {
@@ -779,7 +618,7 @@ async function replacedRun(
 /** The lines of a plan. */
 function planLines(
   answer: UsersPlanAnswer,
-  extra: { deliverability?: DeliverabilityRead; automation: AutomationRead; sent: number },
+  extra: { deliverability?: DeliverabilityRead; automation: UsersAutomationRead; sent: number },
   args: UsersArgs,
 ): string[] {
   const alias = args.org;
@@ -915,40 +754,22 @@ async function planOrApply(args: UsersArgs, users: readonly UsersConfigUser[]): 
     previous = replaced.record;
   }
 
-  const state = await readUsersState(org, users, {
-    now: new Date(),
-    ...(previous ? { previous } : {}),
-  });
-  const options: UsersPlanOptions = {
+  const gated = await planUsersGated({
+    conn,
+    org,
+    orgName: args.org,
+    users,
     ...(previous ? { previous } : {}),
     acceptUserEmails: args.acceptUserEmails,
     acceptEmails: args.acceptEmails,
-  };
-  let plan = planUsers(state, users, options);
-  // Read only when an address is asked back: what the org delivers matters
-  // to no other write of a run.
-  let deliverability: DeliverabilityRead | undefined;
-  if (plan.emailsToPeople > 0) {
-    deliverability = await readEmailDeliverability(conn);
-    plan = planUsers(state, users, {
-      ...options,
-      deliverability: deliverabilityOf(deliverability),
-    });
-  }
-  const automation = await readAutomation(conn, args.org, writtenByPlan(plan));
-  const refusedAutomation = automationRefusal(
-    automation,
-    args.org,
-    'users are written',
-    args.acceptAutomation,
-  );
-  const outside = (): number => (deliverability?.requests ?? 0) + automationRequests(automation);
-  const sent = sentSoFar(outside());
+    acceptAutomation: args.acceptAutomation,
+  });
+  const { deliverability, automation } = gated;
+  const sent = sentSoFar(gated.outsideRequests);
   // An apply sends all this plan sent, then reads the users again before its
   // first write, then writes: what the plan's answer says it sends.
-  const planned = usersPlanAnswerOf(plan, organization, sent + state.requests);
-  const refusals = [...(planned.refusals ?? []), ...(refusedAutomation ? [refusedAutomation] : [])];
-  const answer: UsersPlanAnswer = { ...planned, ...(refusals.length > 0 ? { refusals } : {}) };
+  const answer = gatedPlanAnswerOf(gated, organization, sent);
+  const refusals = answer.refusals ?? [];
 
   for (const line of planLines(
     answer,
@@ -995,8 +816,7 @@ async function planOrApply(args: UsersArgs, users: readonly UsersConfigUser[]): 
       users,
       store,
       signal: stop.signal,
-      ...options,
-      ...(deliverability ? { deliverability: deliverabilityOf(deliverability) } : {}),
+      ...gated.options,
     });
   } finally {
     stop.release();
@@ -1011,7 +831,10 @@ async function planOrApply(args: UsersArgs, users: readonly UsersConfigUser[]): 
     endWith(FAILED_EXIT);
     return;
   }
-  const applied: UsersApplyAnswer = { ...outcome.answer, apiRequests: sentSoFar(outside()) };
+  const applied: UsersApplyAnswer = {
+    ...outcome.answer,
+    apiRequests: sentSoFar(gated.outsideRequests),
+  };
   for (const line of applyLines(applied, args.org)) say(line);
   if (args.json) printAnswer(applied);
   endWith(statusExit(applied.status, stop.stopped()));
@@ -1024,7 +847,7 @@ async function remove(args: UsersArgs): Promise<void> {
   const reached = await reachOrg(args.org);
   const { conn, org, organization } = reached;
   const store = storeOf();
-  let automation: AutomationRead = { kind: 'none' };
+  let automation: UsersAutomationRead = { kind: 'none' };
 
   // A run this machine keeps, and none has replaced: the question is asked,
   // and what the org runs as it is put back is read. Any other is refused by
@@ -1034,8 +857,8 @@ async function remove(args: UsersArgs): Promise<void> {
     record !== undefined &&
     (await store.list(organization.organizationId)).some((each) => each.replaces === run);
   if (record !== undefined && !replaced) {
-    automation = await readAutomation(conn, args.org, writtenByRemoval(record));
-    const refused = automationRefusal(
+    automation = await readUsersAutomation(conn, args.org, writtenByRemoval(record));
+    const refused = usersAutomationRefusal(
       automation,
       args.org,
       'users are put back',
@@ -1050,7 +873,7 @@ async function remove(args: UsersArgs): Promise<void> {
         run,
         status: 'failure',
         users: [],
-        apiRequests: reached.typingRequests + org.requests() + automationRequests(automation),
+        apiRequests: reached.typingRequests + org.requests() + automationRequestsOf(automation),
         refusals: [refused],
       };
       process.stderr.write(`${refusedLine(refused)}\n`);
@@ -1080,7 +903,7 @@ async function remove(args: UsersArgs): Promise<void> {
   }
   const answer: UsersRemoveAnswer = {
     ...removed,
-    apiRequests: reached.typingRequests + org.requests() + automationRequests(automation),
+    apiRequests: reached.typingRequests + org.requests() + automationRequestsOf(automation),
   };
   for (const line of removeLines(answer, args.org)) say(line);
   if (args.json) printAnswer(answer);

@@ -33,7 +33,8 @@ const KINDS_TABLE = read(...CLI, 'env', 'envKinds.ts');
 const MASK_KIND = read(...CLI, 'env', 'kinds', 'mask.ts');
 const USERS_KIND = read(...CLI, 'env', 'kinds', 'users.ts');
 const REPLAY_KIND = read(...CLI, 'env', 'kinds', 'replay.ts');
-const HANDOFF = read(...CLI, 'env', 'audit', 'handoffNote.ts');
+// What a handoff note leaves to others: a section of the note that needs no environment.
+const HANDOFF = read('packages', 'extension', 'src', 'modules', 'audit', 'handoffSections.ts');
 const USERS_SCHEMA = read('packages', 'shared', 'src', 'schemas', 'users.schema.ts');
 const ENV_SCRIPT = read(...CLI, 'sandforge-env.ts');
 const ENV_FILE = read(...CLI, 'env', 'envFile.ts');

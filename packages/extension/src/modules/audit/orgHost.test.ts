@@ -5,7 +5,7 @@ import {
   myDomainHostOf,
   refreshedSince,
   sandboxMyDomainOf,
-} from './envTargetHost.js';
+} from './orgHost.js';
 
 /*
  * The host an org answers on, and what it says of the org: the My Domain an

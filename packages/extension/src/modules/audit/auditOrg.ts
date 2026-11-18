@@ -13,8 +13,8 @@
  */
 
 import * as z from 'zod';
-import { extractErrorMessage } from '../../../src/core/common/extractErrorMessage.js';
-import { TimeoutError, TimeoutManager } from '../../../src/core/engine/TimeoutManager.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { TimeoutError, TimeoutManager } from '../../core/engine/TimeoutManager.js';
 
 /** The part of a connection the audits need: a GET, answered with the body. */
 export interface AuditTransport {

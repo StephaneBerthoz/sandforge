@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { Connection } from 'jsforce';
-import { TimeoutError } from '../../../src/core/engine/TimeoutManager.js';
+import { TimeoutError } from '../../core/engine/TimeoutManager.js';
 import {
   AuditOrg,
   fieldOf,
