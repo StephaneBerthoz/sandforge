@@ -239,14 +239,19 @@ export const Wizard: React.FC<WizardProps> = ({
                     {t('common.optional')}
                   </span>
                 )}
-                {passedOver && (
-                  <span
-                    className="text-[11px] text-text-primary"
-                    data-testid={tid(testIdPrefix, `skipped-${step.id}`)}
-                  >
-                    {t('common.stepSkipped')}
-                  </span>
-                )}
+                {/* A step passed over is a completed one, said under that
+                    status so its word is read on the completed step's
+                    background, never on the current step's selection. */}
+                {status === 'completed'
+                  ? passedOver && (
+                      <span
+                        className="text-[11px] text-text-primary"
+                        data-testid={tid(testIdPrefix, `skipped-${step.id}`)}
+                      >
+                        {t('common.stepSkipped')}
+                      </span>
+                    )
+                  : null}
                 {step.descriptionKey && (
                   <span
                     className={cn(
