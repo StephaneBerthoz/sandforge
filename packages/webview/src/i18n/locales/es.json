@@ -2635,13 +2635,12 @@
   },
   "automation": {
     "title": "Automatización",
-    "createPipeline": "Crear pipeline",
+    "createPipeline": "Nuevo pipeline",
     "newPipeline": "Nuevo pipeline",
     "steps": "Pasos",
-    "stepsCount": "Pasos de pipeline",
-    "triggersCount": "Disparadores activos",
-    "historyRuns": "Ejecuciones del historial",
-    "triggers": "Disparadores",
+    "addStep": "Añadir un paso",
+    "triggers": "Inicio",
+    "thisPipeline": "Este pipeline",
     "triggerNote": "Una ejecución se inicia con el botón Ejecutar pipeline, con una programación o con la actualización de un sandbox. Las programaciones y las actualizaciones inician el pipeline guardado mientras VS Code está abierto, una ejecución a la vez; un inicio previsto mientras VS Code está cerrado queda en la pestaña Historial como perdido, y nunca se recupera con retraso.",
     "triggerSoon": {
       "event": "No inicia nada: ninguna fuente de eventos alimenta todavía este disparador.",
@@ -2692,7 +2691,7 @@
     },
     "pipelineSchedules": {
       "title": "Programaciones de pipelines",
-      "empty": "Ningún pipeline guardado tiene una programación. Añada una en la pestaña Disparadores y guarde el pipeline."
+      "empty": "Ningún pipeline guardado tiene una programación. Añada una en Este pipeline y guarde el pipeline."
     },
     "addTrigger": "Agregar disparador",
     "run": "Ejecutar pipeline",
@@ -2745,10 +2744,10 @@
       "stopped": "Detenido",
       "missed": "Perdido"
     },
-    "scheduler": "Programador",
+    "scheduler": "Todas las ejecuciones programadas",
     "schedulerIntro": "Las programaciones de sincronización, por el día de su próxima ejecución, y después las programaciones de los pipelines guardados, con la próxima ejecución de cada una.",
+    "manageSyncSchedules": "Gestionar las programaciones de Sync",
     "cronExpression": "Expresión Cron",
-    "canvas": "Canvas del pipeline",
     "continueOnError": "Continuar en caso de error",
     "timeout": "Timeout (minutos, vacío = ninguno propio)",
     "retries": "Reintentos máximos",
@@ -2773,9 +2772,18 @@
     "saving": "Guardando...",
     "pipelineSaved": "Pipeline guardado exitosamente",
     "savedPipelines": "Pipelines guardados",
+    "kpi": {
+      "nextRun": "Próxima ejecución",
+      "lastRun": "Última ejecución",
+      "none": "Ninguna",
+      "noNextRun": "Solo Ejecutar pipeline lo inicia",
+      "onRefresh": "En una actualización",
+      "outside": "Iniciado fuera de VS Code",
+      "noRunYet": "Ninguna aún"
+    },
     "generatePipeline": "Generar con IA",
     "generatePipelinePrompt": "Describa el pipeline que desea crear...",
-    "marketplace": "Marketplace",
+    "marketplace": "Plantillas",
     "marketplaceStepsNote": "Los pasos Respaldo, Punto de control, Comparación, Pre-verificación, Notificación, Retraso, Condición, Aprobación, Sync, Seed, Anonimización y Retroceso se ejecutan en un pipeline; un paso Sync ejecuta una configuración que usted elige, guardada en la página Sync, un paso Seed o Anonimización una plantilla que usted elige, y un paso Retroceso una vez que lo confirma. Restauración y Eliminación escriben en una org, así que solo se ejecutan desde su propia página: una plantilla que contenga uno se instala, pero su pipeline no se inicia.",
     "templateInstalled": "Plantilla instalada como nuevo pipeline",
     "installFailed": "No se pudo instalar la plantilla",
@@ -2845,8 +2853,7 @@
     },
     "emptyState": {
       "title": "Cree su primer pipeline",
-      "description": "Componga pipelines en un lienzo visual, guárdelos y ejecútelos: respalde, llene con datos de prueba, enmascare y compare orgs, cree un punto de control y retroceda a él, compruebe sus límites, muestre una notificación.",
-      "cta": "Seleccionar una org"
+      "description": "Componga pipelines en un lienzo visual, guárdelos y ejecútelos: respalde, llene con datos de prueba, enmascare y compare orgs, cree un punto de control y retroceda a él, compruebe sus límites, muestre una notificación."
     },
     "agenda": {
       "due": "Pendientes ahora",
@@ -2977,9 +2984,10 @@
     "timeoutCounted": "Este paso también cuenta para el límite de la ejecución, sandforge.pipeline.timeout (5 minutos salvo que se configure, una hora como mucho): pasado ese límite, la ejecución se detiene aquí. Los pasos Retraso, Aprobación, Respaldo, Sync, Seed, Anonimización, Punto de control y Retroceso no cuentan.",
     "canvasEmpty": {
       "noPipelineTitle": "Ningún pipeline abierto",
-      "noPipeline": "Haga clic en Crear pipeline o Generar con IA para empezar uno, o haga clic en un paso de Pasos para empezar uno con él.",
+      "noPipeline": "Parta de una plantilla, haga clic en Nuevo pipeline o Generar con IA, o haga clic en un paso de Añadir un paso para empezar uno con él.",
+      "browseTemplates": "Ver las plantillas",
       "noStepsTitle": "Aún no hay pasos",
-      "noSteps": "Haga clic en un paso de Pasos para añadirlo. Los pasos se ejecutan de arriba abajo."
+      "noSteps": "Haga clic en un paso de Añadir un paso para añadirlo. Los pasos se ejecutan de arriba abajo."
     },
     "triggerStartsNothing": "No inicia nada",
     "noTriggers": "Aún no hay disparadores",
@@ -2991,7 +2999,6 @@
     "lifecycle": {
       "pipelineName": "Nombre del pipeline",
       "nameRequired": "Ponga nombre al pipeline para guardarlo o ejecutarlo.",
-      "new": "Nuevo",
       "open": "Abrir…",
       "unsaved": "Cambios sin guardar",
       "noneSaved": "Aún no hay ningún pipeline guardado.",
@@ -3008,13 +3015,13 @@
     "ranFromCommandLine": "Línea de comandos",
     "runRunning": "«{{name}}» ya se está ejecutando en esta máquina, desde otra ventana o desde la línea de comandos: vuelva a ejecutarlo cuando termine esa ejecución.",
     "dryRun": {
-      "button": "Ensayo",
-      "running": "Ensayo…",
-      "badge": "Ensayo",
-      "note": "Un ensayo: cada paso que escribe dice lo que haría, y no se escribe nada en ninguna org. Comparación y Pre-verificación leen las orgs, ningún Retraso espera, no se pide ninguna Aprobación y el historial no guarda nada.",
-      "ended": "El ensayo de «{{name}}» terminó: no se escribió nada.",
-      "stopped": "El ensayo de «{{name}}» se detiene donde se detendría su ejecución, sin escribir nada: {{reason}}",
-      "unavailable": "Un ensayo aún no está disponible y no se ejecutó nada: vuelva a intentarlo cuando SandForge termine de iniciarse.",
+      "button": "Simular",
+      "running": "Simulando…",
+      "badge": "Simulación",
+      "note": "Una simulación: cada paso que escribe dice lo que haría, y no se escribe nada en ninguna org. Comparación y Pre-verificación leen las orgs, ningún Retraso espera, no se pide ninguna Aprobación y el historial no guarda nada.",
+      "ended": "La simulación de «{{name}}» terminó: no se escribió nada.",
+      "stopped": "La simulación de «{{name}}» se detiene donde se detendría su ejecución, sin escribir nada: {{reason}}",
+      "unavailable": "Una simulación aún no está disponible y no se ejecutó nada: vuelva a intentarlo cuando SandForge termine de iniciarse.",
       "stepCompleted": "Se ejecutaría",
       "stepFailed": "Se detendría aquí",
       "stepSkipped": "Se omitiría",
@@ -3099,7 +3106,7 @@
       },
       "handOver": {
         "label": "Dejar que este lanzador inicie el pipeline: desactivar aquí su programación",
-        "help": "Una vez guardado el lanzador junto al archivo, el pipeline se guarda con su programación desactivada en VS Code, y la página dice qué lo inicia. Reanude la programación en la pestaña Disparadores."
+        "help": "Una vez guardado el lanzador junto al archivo, el pipeline se guarda con su programación desactivada en VS Code, y la página dice qué lo inicia. Reanude la programación en la pestaña Inicio."
       },
       "locks": {
         "heading": "Lo que separa dos ejecuciones, y lo que no",
@@ -3971,7 +3978,7 @@
     "syncContent": "Sync copia objetos de una org a otra, campo por campo; la pestaña Historial lista cada ejecución, y la pestaña Guardadas abre una configuración guardada o la ejecuta según una programación.\n- Una ejecución delta de una configuración guardada lee lo que cambió desde su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó.\n- Mapeo automático empareja los campos con el mismo nombre de API. Una regla de transformación cambia un solo campo en cada registro escrito; una regla sin campo se rechaza antes de leer o guardar nada. Los mapeos de valores vienen de una configuración de SFDMU importada.\n- Neutralizar los correos y los números de teléfono está activado salvo que lo desmarque; Copiar los archivos de estos registros trae sus archivos.\n- Pestaña Tiempo real: escribe cada cambio que publica el origen (Change Data Capture) en cuanto llega; un conflicto lo decide la estrategia, o queda retenido en Conflictos, en la misma pestaña.\n- Quitar lo que creó esta ejecución, en los resultados o en la entrada del historial de la ejecución, elimina lo que insertó y sus archivos, devuelve a los registros que sobrescribió sus valores de antes, conservados durante sandforge.backup.maxAgeDays, y recupera lo que una ejecución delta eliminó. Production Guard lo rechaza en una org de producción.\n- Una sesión de Tiempo real se quita igual, en Sesiones anteriores, una vez detenida.",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Presencia de permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Objetos: los objetos de ambas orgs, leídos en vivo al abrir la pestaña\n- Desvío de ajustes de la org: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Desplegar desde diff: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox, una scratch org o una org Developer Edition",
     "dataopsContent": "Operaciones de datos en la org elegida arriba de la página:\n- Enmascaramiento enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA, o una propia de Crear plantilla; salvo que desmarque Conservar primero los valores, respalda lo que enmascara, para que Restaurar… pueda devolverlo. Crear respaldo, junto a la plantilla, copia en este equipo los objetos que enmascara.\n- Respaldos lista cada respaldo de la org, cada uno con Restaurar…, Exportar y Eliminar. Restaurar… pregunta antes, nombrando la org y cada objeto, y si volver a escribir cada fila; sin marcar, solo escribe las filas que cambiaron desde entonces. Un respaldo no es un punto de control: antes de una ejecución arriesgada en un sandbox, cree un punto de control.\n- Datos personales encuentra los campos con datos personales y luego los registros de una persona por correo, nombre o teléfono, para exportarlos, anonimizarlos o eliminarlos tras una revisión y una confirmación escrita.\n- Limpieza cuenta registros inactivos, búsquedas vacías, valores repetidos y con qué frecuencia se rellena cada campo, para exportarlos o eliminarlos tras una revisión y una confirmación escrita, 1.000 a la vez.\n- Vaciado elimina todos los registros de los objetos que elija, o de toda la org, una vez que Simular ha contado lo que se va y ha escrito el nombre de la org.",
-    "automationContent": "Constructor visual de pipelines:\n- En Pasos, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o, si no tiene alias, su nombre o su ID de organización. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
+    "automationContent": "Constructor visual de pipelines:\n- En Añadir un paso, la página ofrece los tipos de pasos que un pipeline ejecuta: Sync, Seed, Anonimización, Respaldo, Punto de control, Retroceso, Comparación, Pre-verificación, Condición, Retraso, Aprobación y Notificación. Sync ejecuta una configuración guardada en la página Sync y, si escribe en una org por la que Production Guard pregunta, necesita un paso Aprobación antes. Seed y Anonimización ejecutan una plantilla de su página, nunca en una org de producción, tras un paso Aprobación en un sandbox marcado como Staging, y nunca se reintentan. Un paso Retroceso devuelve una org a un punto de control conservado en esta máquina, como máximo los registros indicados, una vez que lo confirma bajo su vista previa con el alias de la org, o, si no tiene alias, su nombre o su ID de organización. Restauración y Eliminación escriben en una org y solo se ejecutan desde su propia página: un pipeline que contenga uno de esos pasos, o un paso Script, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline en la pestaña Plantillas",
     "forgeContent": "Forge copia un registro y lo que se relaciona con él, desde la org seleccionada en el panel lateral a un sandbox, una scratch org o una org Developer Edition; rechaza cualquier otra org. Los ID se reasignan al escribir.\n- Antes de Ejecutar Forge, en la revisión: Simular comprueba aquí cada registro, no envía nada; Ensayar: el destino prueba una muestra, revertida; consume llamadas a la API.\n- Los correos y los números de teléfono se neutralizan (.invalid, números ficticios) salvo que marque Mantener los correos y los números de teléfono tal como están. Anonimizar PII enmascara nombres, direcciones y otros campos personales.\n- Guardar como plantilla, en los resultados de una ejecución, conserva su registro o su consulta, su profundidad, sus opciones y sus decisiones; la pestaña Plantilla la vuelve a ejecutar, e Importar una plantilla lee una desde un archivo.\n- Clonar directamente, en Otras formas de empezar, ejecuta el descubrimiento y luego la clonación sin detenerse en el grafo ni en la revisión; Production Guard juzga esa ejecución como cualquier otra.\n- Grafo o tabla: hasta 25 objetos se dibujan como grafo, más como tabla, igual que cualquier grafo en un panel de menos de 560 píxeles; Vista de grafo / Vista de tabla, o el ajuste sandforge.forge.graphView, elige la vista.\n- Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
     "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Archivo de reglas: Ejecutar extracción necesita uno, en ~/.sandforge-sas/rules.json salvo que la configuración lo mueva. Crear archivo de reglas escribe uno vacío, que vacía cada campo sin regla; una regla nombra su campo como Objeto.Campo y un generador como email, firstName, clear o keep (aprobado), y Formato de las reglas los lista todos\n- Seudonimización determinista, con SANDFORGE_FROZEN_SALT donde está definida o, en su defecto, con la sal guardada en el almacenamiento secreto de VS Code, que la primera extracción crea si aún no hay ninguna\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: en un sandbox, una scratch org o una org Developer Edition, nunca en una org de producción ni en un sandbox marcado como Staging, con un Piloto opcional sobre primero un registro raíz, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
@@ -4096,9 +4103,9 @@
       "tip": "Tendencias sigue vacía hasta que SandForge haya guardado dos instantáneas de los límites; guarda como máximo una cada 15 minutos, durante 7 días."
     },
     "automation": {
-      "step1": "Haga clic en Crear pipeline y luego, en Pasos, en un paso como Pre-verificación.",
+      "step1": "Haga clic en Nuevo pipeline o instale una plantilla y luego, en Añadir un paso, en un paso como Pre-verificación.",
       "step2": "Haga clic en el paso en el canvas y complete sus campos en Configuración del paso.",
-      "step3": "Haga clic en Guardar pipeline y luego en Ejecutar pipeline cuando ningún paso esté marcado No ejecutable.",
+      "step3": "Haga clic en Guardar pipeline y Simular, y luego en Ejecutar pipeline cuando ningún paso esté marcado No ejecutable.",
       "step4": "Abra la pestaña Historial para leer lo que hizo cada paso de la ejecución.",
       "step5": "Para ejecutarlo con VS Code cerrado, haga clic en Exportar… y guarde el archivo y su lanzador.",
       "tip": "Los pasos Sync, Seed, Anonimización y Retroceso escriben en una org. Seed y Anonimización nunca en producción; un Retroceso se ejecuta una vez confirmado."

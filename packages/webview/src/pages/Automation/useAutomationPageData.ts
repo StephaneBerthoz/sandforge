@@ -601,10 +601,6 @@ export interface AutomationPageData {
   draftSuggestions: PipelineDraftSuggestion[];
   /** Number of steps in the current pipeline. */
   stepCount: number;
-  /** How many triggers start the current pipeline: schedules and sandbox refreshes, on. */
-  triggerCount: number;
-  /** Number of history entries. */
-  historyCount: number;
   /**
    * The steps of the current pipeline that keep it from running, with the
    * reason for each. Run is refused while this is not empty.
@@ -1557,15 +1553,6 @@ export function useAutomationPageData(): AutomationPageData {
   );
 
   const stepCount = pipeline?.steps.length ?? 0;
-  // The triggers that start the pipeline: a schedule or a sandbox refresh,
-  // switched on. It counted every trigger, the ones switched off and the ones
-  // that start nothing too, and read 3 for a pipeline one trigger starts.
-  const triggerCount =
-    pipeline?.triggers.filter(
-      (trigger) =>
-        trigger.enabled && (trigger.type === 'schedule' || trigger.type === 'sandbox_refresh'),
-    ).length ?? 0;
-  const historyCount = historyEntries.length;
 
   const savedPipeline = pipeline
     ? savedPipelines.find((saved) => saved.id === pipeline.id)
@@ -1630,8 +1617,6 @@ export function useAutomationPageData(): AutomationPageData {
     pipelineGen,
     draftSuggestions: draft && draft.pipelineId === pipeline?.id ? draft.suggestions : [],
     stepCount,
-    triggerCount,
-    historyCount,
     runBlockers,
     activeTab,
     setActiveTab,

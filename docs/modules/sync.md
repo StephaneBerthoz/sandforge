@@ -241,8 +241,9 @@ Before execution, the Review step shows:
   it reported none, a pointer to its entry in the sync history. A run that fails
   in the sync engine is reported as failed, not completed. With no panel open, the
   outcome is in the SandForge output channel and in the schedule's last result.
-- The Automation page's Scheduler tab lists the same schedules by the day each
-  next runs, with the same buttons. Both ask for the list again once the
+- The Automation page's Start tab lists the same schedules under All scheduled
+  runs, by the day each next runs, with the same buttons; its **Manage Sync
+  schedules** leads back here to make one. Both ask for the list again once the
   soonest run is past, so the next run and the last result follow the runs
   while the tab is open.
 - A scheduled run asks nobody. Where the target delivers the emails of what

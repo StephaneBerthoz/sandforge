@@ -12,10 +12,9 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
-import { KPICard } from '../../components/ui/KPICard';
+import { BentoTile } from '../../components/ui/BentoGrid';
 import { Badge } from '../../components/ui/Badge';
-import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
+import { fadeIn } from '../../motion/presets';
 import { PipelineCanvas } from './PipelineCanvas';
 import { StepPalette } from './StepPalette';
 import { StepConfigPanel } from './StepConfigPanel';
@@ -33,6 +32,7 @@ import { blockedSteps, templateBlockers, typeBlocker } from './stepRunnability';
 import { stepTypeLabel } from './stepTypeLabel';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { PipelineHeader } from './PipelineHeader';
+import { PipelineKpis } from './PipelineKpis';
 import { formatTriggerTime } from './TriggerConfigPanel';
 
 /** Main Automation page — wired to extension via bridge hooks. */
@@ -58,13 +58,23 @@ export const AutomationPage: React.FC = () => {
   } | null>(null);
   /** The saved pipeline Export… is open for. */
   const [exporting, setExporting] = useState<PipelineDefinition | null>(null);
+  /**
+   * The template another page asked the page to open on, by its id: Back
+   * into service's "Automate after each refresh…" names Sandbox Refresh
+   * Post-Processing. Marked on its card until the page closes.
+   */
+  const [askedTemplateId, setAskedTemplateId] = useState<string | undefined>(undefined);
+  const templatesId = useId();
 
+  // Templates second: the empty canvas offers them, and the one a refresh
+  // calls for sat on the fifth tab. Start holds what was two tabs, Triggers
+  // and Scheduler: what starts this pipeline, then every run planned. The
+  // ids stay, as every page's tab ids do.
   const AUTOMATION_TABS: PageTab[] = [
-    { id: 'canvas', label: t('automation.canvas'), icon: 'project' },
-    { id: 'triggers', label: t('automation.triggers'), icon: 'zap' },
-    { id: 'scheduler', label: t('automation.scheduler'), icon: 'calendar' },
-    { id: 'history', label: t('automation.history'), icon: 'history' },
+    { id: 'canvas', label: t('automation.steps'), icon: 'project' },
     { id: 'marketplace', label: t('automation.marketplace'), icon: 'package' },
+    { id: 'triggers', label: t('automation.triggers'), icon: 'zap' },
+    { id: 'history', label: t('automation.history'), icon: 'history' },
   ];
 
   const {
@@ -109,8 +119,6 @@ export const AutomationPage: React.FC = () => {
     pipelineGen,
     draftSuggestions,
     stepCount,
-    triggerCount,
-    historyCount,
     runBlockers,
     activeTab,
     setActiveTab,
@@ -154,7 +162,7 @@ export const AutomationPage: React.FC = () => {
     ? orgs.find((org) => org.id === confirmingStep.config['orgId'])
     : undefined;
   // The configuration of the step picked on the canvas comes above the list
-  // under Steps, and into view: below the list and a note of ninety words it
+  // under Add a step, and into view: below the list and a note of ninety words it
   // started under the fold, and a click on a step seemed to do nothing.
   const selectedStep = pipeline?.steps.find((s) => s.id === selectedStepId);
   const stepConfigRef = useRef<HTMLDivElement>(null);
@@ -185,6 +193,32 @@ export const AutomationPage: React.FC = () => {
   }, [pipeline]);
 
   const navigate = useAppStore((s) => s.navigate);
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+
+  // Read once: a later visit opens as the page left it.
+  useEffect(() => {
+    if (navigationIntent?.route !== 'automation') return;
+    if (navigationIntent.automationTemplateId) {
+      setAskedTemplateId(navigationIntent.automationTemplateId);
+      setActiveTab('marketplace');
+    }
+    clearNavigationIntent();
+  }, [navigationIntent, clearNavigationIntent, setActiveTab]);
+
+  // The template asked for, in view with its Install button under the
+  // keyboard, once the list holds it: nothing is installed until that click,
+  // which asks first when the canvas holds unsaved changes.
+  const askedCardRef = useRef<HTMLDivElement>(null);
+  const askedInstallRef = useRef<HTMLButtonElement>(null);
+  const askShown = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (askedTemplateId === undefined || askShown.current === askedTemplateId) return;
+    if (activeTab !== 'marketplace' || !askedInstallRef.current) return;
+    askShown.current = askedTemplateId;
+    askedCardRef.current?.scrollIntoView?.({ block: 'nearest' });
+    askedInstallRef.current.focus();
+  }, [askedTemplateId, activeTab, marketplaceTemplates]);
 
   if (orgs.length === 0) {
     return (
@@ -192,7 +226,7 @@ export const AutomationPage: React.FC = () => {
         module="automation"
         title={t('automation.emptyState.title')}
         description={t('automation.emptyState.description')}
-        actionLabel={t('automation.emptyState.cta')}
+        actionLabel={t('emptyState.connectOrg')}
         onAction={() => navigate('orgs')}
       />
     );
@@ -282,7 +316,7 @@ export const AutomationPage: React.FC = () => {
       )}
 
       {/* Outside the tabs, next to the Run button it disables: a pipeline
-          installed from the Marketplace or drafted by the AI lands here with
+          installed from Templates or drafted by the AI lands here with
           steps the extension refuses, and the reader has to learn which, and
           why, whichever tab is open. */}
       {pipeline && runBlockers.length > 0 && (
@@ -428,40 +462,20 @@ export const AutomationPage: React.FC = () => {
         </section>
       )}
 
-      {/* KPI overview row */}
-      <m.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        data-testid="automation-kpi-row"
-      >
-        <BentoGrid columns={3} gap="md">
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="project"
-              label={t('automation.stepsCount')}
-              value={stepCount}
-              variant="default"
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="zap"
-              label={t('automation.triggersCount')}
-              value={triggerCount}
-              variant="default"
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="history"
-              label={t('automation.historyRuns')}
-              value={historyCount}
-              variant="default"
-            />
-          </m.div>
-        </BentoGrid>
-      </m.div>
+      {/* The pipeline open, and only it: when it next starts, how its last
+          run ended. */}
+      {pipeline && (
+        <PipelineKpis
+          pipelineId={pipeline.id}
+          statuses={triggerStatuses}
+          triggers={savedTriggers ?? []}
+          sandboxes={sandboxes}
+          history={historyEntries}
+          {...(savedPipeline?.runsOutside
+            ? { outsideRunner: savedPipeline.runsOutside.runner }
+            : {})}
+        />
+      )}
 
       <PageTabs tabs={AUTOMATION_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -538,6 +552,7 @@ export const AutomationPage: React.FC = () => {
                           setSelectedStepId(id);
                         }}
                         onRemoveStep={handleRemoveStep}
+                        onBrowseTemplates={() => setActiveTab('marketplace')}
                       />
                     </>
                   )}
@@ -552,24 +567,29 @@ export const AutomationPage: React.FC = () => {
             </div>
           )}
 
+          {/* Start: what starts the pipeline open, then every run planned,
+              the sync schedules with the pipelines'. */}
           {activeTab === 'triggers' && (
-            <TriggerConfigPanel
-              triggers={pipeline?.triggers}
-              statuses={triggerStatuses}
-              savedTriggers={savedTriggers}
-              sandboxes={sandboxes}
-              pipelineBlocked={runBlockers.length > 0}
-              {...(pipeline?.runsOutside ? { runsOutside: pipeline.runsOutside } : {})}
-              onResumeSchedule={handleResumeSchedule}
-              {...(resumedFrom ? { resumedFrom } : {})}
-              onAddTrigger={handleAddTrigger}
-              onRemoveTrigger={handleRemoveTrigger}
-              onToggleTrigger={handleToggleTrigger}
-              onUpdateTriggerConfig={handleUpdateTriggerConfig}
-            />
+            <div className="flex flex-col gap-(--sf-space-6)" data-testid="automation-start">
+              <TriggerConfigPanel
+                triggers={pipeline?.triggers}
+                statuses={triggerStatuses}
+                savedTriggers={savedTriggers}
+                sandboxes={sandboxes}
+                pipelineBlocked={runBlockers.length > 0}
+                {...(pipeline?.runsOutside ? { runsOutside: pipeline.runsOutside } : {})}
+                onResumeSchedule={handleResumeSchedule}
+                {...(resumedFrom ? { resumedFrom } : {})}
+                onAddTrigger={handleAddTrigger}
+                onRemoveTrigger={handleRemoveTrigger}
+                onToggleTrigger={handleToggleTrigger}
+                onUpdateTriggerConfig={handleUpdateTriggerConfig}
+              />
+              <div className="border-t border-subtle pt-(--sf-space-4)">
+                <SchedulerCalendar pipelineSchedules={pipelineSchedules} />
+              </div>
+            </div>
           )}
-
-          {activeTab === 'scheduler' && <SchedulerCalendar pipelineSchedules={pipelineSchedules} />}
 
           {activeTab === 'history' && (
             <PipelineHistoryView entries={historyEntries} outside={historyOutside} />
@@ -627,14 +647,20 @@ export const AutomationPage: React.FC = () => {
                     const stepsBlocked = blocked.filter(
                       (step) => typeBlocker(step.type) === undefined,
                     );
+                    const asked = tpl.id === askedTemplateId;
+                    const nameId = `${templatesId}-name-${tpl.id}`;
                     return (
                       <div
                         key={tpl.id}
-                        className="p-(--sf-space-3) rounded-xl border border-subtle bg-surface-2"
+                        ref={asked ? askedCardRef : undefined}
+                        className={`p-(--sf-space-3) rounded-xl border bg-surface-2 ${asked ? 'border-active' : 'border-subtle'}`}
+                        data-asked={asked ? 'true' : undefined}
                         data-testid={`marketplace-template-${tpl.id}`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-text-primary">{tpl.name}</span>
+                          <span id={nameId} className="text-sm font-medium text-text-primary">
+                            {tpl.name}
+                          </span>
                           <Badge variant="default">{tpl.category}</Badge>
                         </div>
                         <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
@@ -667,10 +693,14 @@ export const AutomationPage: React.FC = () => {
                           <span className="text-xs text-text-secondary">
                             {t('automation.marketplaceAuthor')}: {tpl.author}
                           </span>
+                          {/* Named by its template: nine buttons read
+                              "Install" alike to a screen reader. */}
                           <Button
+                            ref={asked ? askedInstallRef : undefined}
                             variant="secondary"
                             size="sm"
                             onClick={() => handleInstallTemplate(tpl)}
+                            aria-describedby={nameId}
                             data-testid={`install-template-${tpl.id}`}
                           >
                             {t('automation.installTemplate')}

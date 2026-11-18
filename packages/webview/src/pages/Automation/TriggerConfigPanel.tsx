@@ -244,9 +244,11 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="trigger-config">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-(--sf-text-primary)">
-          {t('automation.triggers')}
-        </h3>
+        {/* The first part of the Start tab, what starts the pipeline open;
+            every run planned, the sync schedules too, comes below it. */}
+        <h2 className="text-sm font-semibold text-(--sf-text-primary)">
+          {t('automation.thisPipeline')}
+        </h2>
         <div className="flex items-center gap-2">
           <Select
             value={newTriggerType}

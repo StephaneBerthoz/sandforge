@@ -250,9 +250,9 @@ function canvasSteps(page: Page) {
   return page.locator('[data-testid^="canvas-step-"]');
 }
 
-/** The three KPI values, in render order: steps, triggers, history runs. */
-function kpiValues(page: Page) {
-  return page.getByTestId('automation-kpi-row').getByTestId('kpi-value');
+/** The value of a figure of the pipeline open: its next run, or its last run. */
+function kpiValue(page: Page, which: 'next-run' | 'last-run') {
+  return page.getByTestId(`automation-kpi-${which}`).getByTestId('kpi-value');
 }
 
 /** Answer the queries the page fires on mount, so nothing is left waiting. */
@@ -289,7 +289,7 @@ test.describe('Automation panel — boot', () => {
 
     await expect(page.getByTestId('empty-state')).toBeVisible();
     await expect(page.getByTestId('empty-state')).toContainText('Build Your First Pipeline');
-    await expect(page.getByTestId('empty-action-button')).toHaveText('Select an Org');
+    await expect(page.getByTestId('empty-action-button')).toHaveText('Connect an org');
     await expect(page.getByTestId('automation-page')).toHaveCount(0);
   });
 
@@ -306,33 +306,36 @@ test.describe('Automation panel — boot', () => {
 });
 
 test.describe('Automation page — header and KPIs', () => {
-  test('KPI row reports zero steps, triggers and runs before a pipeline exists', async ({
+  test('shows no figure before a pipeline is open, then the next and the last run of that one', async ({
     page,
   }) => {
+    // It read 0 / 0 / 2 with no pipeline open: steps, triggers, and the runs
+    // of every pipeline.
     await openAutomation(page);
-    await answerMountQueries(page);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES, history: HISTORY_ENTRIES });
+    await expect(page.getByTestId('saved-pipelines')).toBeVisible();
+    await expect(page.getByTestId('automation-kpi-row')).toHaveCount(0);
 
+    await page.getByTestId('saved-pipeline-pipe-2').click();
     await expect(page.getByTestId('automation-kpi-row')).toBeVisible();
-    await expect(kpiValues(page)).toHaveText(['0', '0', '0']);
+    await expect(kpiValue(page, 'next-run')).toHaveText('None');
+    await expect(page.getByTestId('automation-kpi-next-run')).toContainText(
+      'Only Run Pipeline starts it',
+    );
+    // Its own run, not pipe-1's.
+    await expect(kpiValue(page, 'last-run')).toHaveText('Failed');
   });
 
-  test('history KPI counts the runs the host returned', async ({ page }) => {
-    await openAutomation(page);
-    await answerMountQueries(page, { history: HISTORY_ENTRIES });
-
-    await expect(kpiValues(page).nth(2)).toHaveText('2');
-  });
-
-  test('create is the only pipeline action until a pipeline exists', async ({ page }) => {
+  test('New pipeline is the only pipeline action until a pipeline exists', async ({ page }) => {
     await openAutomation(page);
     await answerMountQueries(page);
 
-    await expect(page.getByTestId('create-pipeline-btn')).toBeVisible();
+    await expect(page.getByTestId('create-pipeline-btn')).toHaveText('New pipeline');
     await expect(page.getByTestId('save-pipeline-btn')).toHaveCount(0);
     await expect(page.getByTestId('run-pipeline-btn')).toHaveCount(0);
   });
 
-  test('creating a pipeline swaps create for new, open, save and run, and holds its name in a field', async ({
+  test('creating a pipeline swaps it for New pipeline, Open…, Save, Simulate and Run, and holds its name in a field', async ({
     page,
   }) => {
     await openAutomation(page);
@@ -342,7 +345,8 @@ test.describe('Automation page — header and KPIs', () => {
 
     await expect(page.getByTestId('save-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('run-pipeline-btn')).toBeVisible();
-    await expect(page.getByTestId('new-pipeline-btn')).toBeVisible();
+    await expect(page.getByTestId('new-pipeline-btn')).toHaveText('New pipeline');
+    await expect(page.getByTestId('dry-run-pipeline-btn')).toHaveText('Simulate');
     await expect(page.getByTestId('open-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('create-pipeline-btn')).toHaveCount(0);
     await expect(page.getByLabel('Pipeline name')).toHaveValue('New pipeline');
@@ -351,18 +355,12 @@ test.describe('Automation page — header and KPIs', () => {
 });
 
 test.describe('Automation page — tabs', () => {
-  test('exposes the five module tabs', async ({ page }) => {
+  test('exposes the four module tabs, Templates second', async ({ page }) => {
     await openAutomation(page);
     await answerMountQueries(page);
 
     const tabs = page.getByTestId('page-tabs').getByRole('tab');
-    await expect(tabs).toHaveText([
-      'Pipeline Canvas',
-      'Triggers',
-      'Scheduler',
-      'History',
-      'Marketplace',
-    ]);
+    await expect(tabs).toHaveText(['Steps', 'Templates', 'Start', 'History']);
     await expect(page.getByTestId('page-tab-canvas')).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -380,8 +378,10 @@ test.describe('Automation page — tabs', () => {
     await expect(page.getByTestId('trigger-config')).toBeVisible();
     await expect(page.getByTestId('pipeline-canvas')).toHaveCount(0);
 
-    await page.getByTestId('page-tab-scheduler').click();
+    // Start holds both: what starts this pipeline, then every scheduled run.
     await expect(page.getByTestId('scheduler-calendar')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'This pipeline' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'All scheduled runs' })).toBeVisible();
     // The calendar is the sync schedules: it asks the host for them and lays
     // out what it answers, where a "Coming soon" badge used to sit.
     await respondToAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
@@ -389,6 +389,9 @@ test.describe('Automation page — tabs', () => {
     });
     await expect(page.getByTestId('scheduler-entry-sched-1')).toContainText('Nightly accounts');
     await expect(page.getByTestId('scheduler-coming-soon')).toHaveCount(0);
+    // A sync schedule is made on the Sync page: no New schedule here.
+    await expect(page.getByTestId('new-schedule-btn')).toHaveCount(0);
+    await expect(page.getByTestId('scheduler-manage-sync')).toHaveText('Manage Sync schedules');
 
     await page.getByTestId('page-tab-history').click();
     await expect(page.getByTestId('history-run-1')).toContainText('Nightly Sync');
@@ -397,6 +400,25 @@ test.describe('Automation page — tabs', () => {
     await page.getByTestId('page-tab-marketplace').click();
     await expect(page.getByTestId('marketplace-content')).toBeVisible();
     await expect(page.getByTestId('page-tab-marketplace')).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+test.describe('Automation page — templates from the empty canvas', () => {
+  test('the empty canvas offers the templates, and opens them on Templates', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+
+    await expect(page.getByTestId('pipeline-canvas')).toContainText('Start from a template');
+    await page.getByRole('button', { name: 'Browse templates' }).click();
+    await respondToAll(page, 'marketplace:list', 'marketplace:list:response', {
+      success: true,
+      templates: MARKETPLACE_TEMPLATES,
+    });
+
+    await expect(page.getByTestId('page-tab-marketplace')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('marketplace-template-mkt-1')).toBeVisible();
+    // Nothing installed by the trip: the install waits for its own button.
+    expect(await outgoing(page, 'marketplace:install')).toHaveLength(0);
   });
 });
 
@@ -445,7 +467,7 @@ test.describe('Automation page — saved pipelines', () => {
     await expect(page.getByTestId('canvas-step-step-1')).toContainText('Query Accounts');
     await expect(page.getByTestId('canvas-step-step-2')).toContainText('Mask PII');
     await expect(page.getByTestId('canvas-step-step-3')).toContainText('Load Target');
-    await expect(kpiValues(page)).toHaveText(['3', '1', '0']);
+    await expect(kpiValue(page, 'last-run')).toHaveText('None yet');
     await expect(page.getByLabel('Pipeline name')).toHaveValue('Nightly Sync');
     await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 3 steps');
   });
@@ -719,26 +741,26 @@ test.describe('Automation page — canvas editing', () => {
     // beside a badge that said "delay" again.
     await expect(canvasSteps(page).first()).toContainText('Delay');
     await expect(page.getByTestId('pipeline-canvas')).not.toContainText('delay');
-    await expect(kpiValues(page).nth(0)).toHaveText('1');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 1 step');
 
     await page.getByTestId('palette-delay').click();
     await expect(canvasSteps(page)).toHaveCount(2);
     await expect(canvasSteps(page).nth(1)).toContainText('Delay 2');
-    await expect(kpiValues(page).nth(0)).toHaveText('2');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 2 steps');
 
     const firstStepId = await canvasSteps(page).first().getAttribute('data-testid');
     await page.getByTestId(`remove-step-${firstStepId?.replace('canvas-step-', '') ?? ''}`).click();
     await expect(canvasSteps(page)).toHaveCount(1);
-    await expect(kpiValues(page).nth(0)).toHaveText('1');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 1 step');
   });
 
-  test('a step picked under Steps before any pipeline starts one with it, as the canvas says', async ({
+  test('a step picked under Add a step before any pipeline starts one with it, as the canvas says', async ({
     page,
   }) => {
     await openAutomation(page);
     await answerMountQueries(page);
     // The canvas said "Drag a step to the canvas", and a click on a step did
-    // nothing until Create Pipeline.
+    // nothing until New pipeline.
     await expect(page.getByTestId('pipeline-canvas')).toContainText('No pipeline open');
     await expect(page.getByTestId('pipeline-canvas')).not.toContainText(/drag/i);
 
@@ -754,11 +776,11 @@ test.describe('Automation page — canvas editing', () => {
     );
     await page.getByTestId(`remove-step-${stepId}`).click();
     await expect(page.getByTestId('pipeline-canvas')).toContainText(
-      'Click a step under Steps to add it. Steps run top to bottom.',
+      'Click a step under Add a step to add it. Steps run top to bottom.',
     );
   });
 
-  test('the configuration of the step picked comes above the list under Steps, in view', async ({
+  test('the configuration of the step picked comes above the list under Add a step, in view', async ({
     page,
   }) => {
     await openAutomation(page);
@@ -1159,7 +1181,9 @@ test.describe('Automation page — canvas editing', () => {
     await expect(page.getByTestId('canvas-step-step-2')).toContainText('Scrub PII');
   });
 
-  test('adding a schedule trigger counts it and exposes its cron field', async ({ page }) => {
+  test('adding a schedule trigger exposes its cron field, and plans no run before a save', async ({
+    page,
+  }) => {
     await openAutomation(page);
     await answerMountQueries(page);
     await page.getByTestId('create-pipeline-btn').click();
@@ -1169,7 +1193,8 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId('add-trigger-btn').click();
 
     await expect(page.getByTestId('trigger-config')).toContainText('Schedule');
-    await expect(kpiValues(page).nth(1)).toHaveText('1');
+    // A trigger starts the pipeline as saved: Next run waits for the save.
+    await expect(kpiValue(page, 'next-run')).toHaveText('None');
 
     // The cron row only exists for a schedule trigger — one input, and it is
     // the one the panel just created.
@@ -1178,17 +1203,9 @@ test.describe('Automation page — canvas editing', () => {
     await cronInput.fill('0 4 * * *');
     await expect(cronInput).toHaveValue('0 4 * * *');
 
-    // Switched off, it starts nothing, and Active triggers says so.
-    await page.locator('[data-testid^="toggle-trigger-"]').click();
-    await expect(kpiValues(page).nth(1)).toHaveText('0');
-    await expect(page.getByTestId('automation-kpi-row')).toContainText('Active triggers');
-    await page.locator('[data-testid^="toggle-trigger-"]').click();
-    await expect(kpiValues(page).nth(1)).toHaveText('1');
-
     const removeTrigger = page.locator('[data-testid^="remove-trigger-"]');
     await expect(removeTrigger).toHaveCount(1);
     await removeTrigger.click();
-    await expect(kpiValues(page).nth(1)).toHaveText('0');
     await expect(page.locator('[data-testid^="cron-input-"]')).toHaveCount(0);
   });
 });
@@ -1239,6 +1256,10 @@ test.describe('Automation page — triggers', () => {
     await openAutomation(page);
     await answerMountQueries(page, { pipelines: [TRIGGERED_PIPELINE], triggers: STATUSES });
     await page.getByTestId('saved-pipeline-pipe-3').click();
+    // Above the tabs, the soonest start the saved schedule plans.
+    await expect(
+      page.getByTestId('automation-kpi-next-run').getByTestId('kpi-subtitle'),
+    ).toHaveText('UTC');
     await page.getByTestId('page-tab-triggers').click();
 
     await expect(page.getByTestId('trigger-next-run-trig-s')).toContainText('(UTC)');
@@ -1255,12 +1276,12 @@ test.describe('Automation page — triggers', () => {
     await expect(page.getByTestId('trigger-next-run-trig-s')).toHaveCount(0);
   });
 
-  test('lists the pipeline schedules on the Scheduler tab, with their next run', async ({
+  test('lists the pipeline schedules under All scheduled runs, with their next run', async ({
     page,
   }) => {
     await openAutomation(page);
     await answerMountQueries(page, { pipelines: [TRIGGERED_PIPELINE], triggers: STATUSES });
-    await page.getByTestId('page-tab-scheduler').click();
+    await page.getByTestId('page-tab-triggers').click();
     await respondToAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
       schedules: [],
     });
@@ -1426,7 +1447,7 @@ test.describe('Automation page — marketplace', () => {
     await expect(canvasSteps(page)).toHaveCount(3);
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Query Source');
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Load Target');
-    await expect(kpiValues(page).nth(1)).toHaveText('1');
+    await expect(page.getByTestId('pipeline-meta')).toHaveText('v1 · 3 steps');
     await expect(page.getByTestId('floating-toasts')).toContainText(
       'Template installed as new pipeline',
     );

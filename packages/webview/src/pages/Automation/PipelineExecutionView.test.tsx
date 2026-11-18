@@ -240,10 +240,12 @@ describe('PipelineExecutionView', () => {
       ],
     };
 
-    it('says it is a dry run, that nothing was written, and names each step’s end as what it would be', () => {
+    it('says it is a simulation, that nothing was written, and names each step’s end as what it would be', () => {
       render(<PipelineExecutionView execution={dry} />);
 
-      expect(screen.getByTestId('execution-dry-run').textContent).toBe('Dry run');
+      // Named as the button that starts it, Simulate.
+      expect(screen.getByTestId('execution-dry-run').textContent).toBe('Simulation');
+      expect(screen.getByTestId('execution-dry-run-note').textContent).toMatch(/^A simulation: /);
       expect(screen.getByTestId('execution-dry-run-note').textContent).toContain(
         'nothing is written to any org',
       );

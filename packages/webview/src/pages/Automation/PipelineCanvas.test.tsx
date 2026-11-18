@@ -36,9 +36,21 @@ describe('PipelineCanvas', () => {
     expect(canvas.getAttribute('data-empty')).toBe('no-pipeline');
     expect(canvas.textContent).toContain('No pipeline open');
     expect(canvas.textContent).toContain(
-      'Click Create Pipeline or Generate with AI to start one, or click a step under Steps to start one with it.',
+      'Start from a template, click New pipeline or Generate with AI, or click a step under Add a step to start one with it.',
     );
     expect(canvas.textContent).not.toMatch(/drag|connect/i);
+  });
+
+  it('offers the templates while no pipeline is open', () => {
+    const onBrowseTemplates = vi.fn();
+    render(<PipelineCanvas onBrowseTemplates={onBrowseTemplates} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Browse templates' }));
+    expect(onBrowseTemplates).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no template to a pipeline already open', () => {
+    render(<PipelineCanvas steps={[]} hasPipeline onBrowseTemplates={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Browse templates' })).toBeNull();
   });
 
   it('says how to add a step to an open pipeline with none, and in what order steps run', () => {
@@ -47,7 +59,7 @@ describe('PipelineCanvas', () => {
     expect(canvas.getAttribute('data-empty')).toBe('no-steps');
     expect(canvas.textContent).toContain('No step yet');
     expect(canvas.textContent).toContain(
-      'Click a step under Steps to add it. Steps run top to bottom.',
+      'Click a step under Add a step to add it. Steps run top to bottom.',
     );
   });
 
@@ -139,7 +151,7 @@ describe('PipelineCanvas', () => {
 
   it('lists the steps in the order they run', () => {
     render(<PipelineCanvas steps={steps} />);
-    const list = screen.getByRole('list', { name: 'Pipeline Canvas' });
+    const list = screen.getByRole('list', { name: 'Steps' });
     const items = screen.getAllByRole('listitem');
     expect(items).toHaveLength(3);
     expect(items.map((item) => item.textContent)).toEqual([

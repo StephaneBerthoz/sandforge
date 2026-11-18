@@ -116,16 +116,26 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 }));
 
 const mockNavigate = vi.fn();
+const mockClearIntent = vi.fn();
+/** Where the last navigation asked the page to land, as the app store keeps it. */
+let mockIntent: Record<string, unknown> | null = null;
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ navigate: mockNavigate, currentRoute: 'automation' }),
+    selector({
+      navigate: mockNavigate,
+      currentRoute: 'automation',
+      navigationIntent: mockIntent,
+      clearNavigationIntent: mockClearIntent,
+    }),
 }));
 
 describe('AutomationPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     mockQueryData = {};
+    mockIntent = null;
     mockNavigate.mockClear();
+    mockClearIntent.mockClear();
     mockExecuteMutate.mockClear();
     mockExecuteReset.mockClear();
     mockSaveMutate.mockClear();
@@ -217,6 +227,8 @@ describe('AutomationPage', () => {
   it('should navigate to orgs when empty state CTA clicked', () => {
     useOrgStore.setState({ orgs: [] });
     render(<AutomationPage />);
+    // As every page with no org says it: it read "Select an Org" here.
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
     fireEvent.click(screen.getByTestId('empty-action-button'));
     expect(mockNavigate).toHaveBeenCalledWith('orgs');
   });
@@ -286,11 +298,23 @@ describe('AutomationPage', () => {
     expect(screen.getByTestId('run-pipeline-btn')).toBeDefined();
   });
 
-  it('should show tabs', () => {
+  it('names its four tabs, Templates second, and the triggers and the schedules under one Start', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     expect(screen.getByRole('tablist')).toBeDefined();
-    expect(screen.getAllByRole('tab').length).toBe(5);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Steps',
+      'Templates',
+      'Start',
+      'History',
+    ]);
+    // The ids stay: the end-to-end suites name the tabs by them.
+    expect(screen.getAllByRole('tab').map((tab) => tab.getAttribute('data-testid'))).toEqual([
+      'page-tab-canvas',
+      'page-tab-marketplace',
+      'page-tab-triggers',
+      'page-tab-history',
+    ]);
   });
 
   it('should start on canvas tab', () => {
@@ -300,12 +324,26 @@ describe('AutomationPage', () => {
     expect(screen.getByTestId('pipeline-canvas')).toBeDefined();
   });
 
-  it('should switch to triggers tab', () => {
+  it('says on Start what starts this pipeline, then every scheduled run', async () => {
+    // Two tabs, Triggers and Scheduler, one about the pipeline open and one
+    // about every pipeline and every sync: Scheduler's New schedule made a
+    // sync schedule, under a line about the pipeline's own.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     fireEvent.click(screen.getByTestId('create-pipeline-btn'));
-    fireEvent.click(screen.getByText('Triggers'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Start' }));
+
+    // The schedules come with the tab, a part of the page fetched when shown.
+    await screen.findByTestId('scheduler-calendar');
+    const start = screen.getByTestId('automation-start');
+    const headings = Array.from(start.querySelectorAll('h2, h3'), (h) => h.textContent);
+    expect(headings.indexOf('This pipeline')).toBeGreaterThanOrEqual(0);
+    expect(headings.indexOf('All scheduled runs')).toBeGreaterThan(
+      headings.indexOf('This pipeline'),
+    );
     expect(screen.getByTestId('trigger-config')).toBeDefined();
+    expect(screen.getByTestId('scheduler-calendar')).toBeDefined();
+    expect(screen.queryByTestId('new-schedule-btn')).toBeNull();
   });
 
   it('should switch to history tab', () => {
@@ -348,10 +386,10 @@ describe('AutomationPage', () => {
     expect(screen.queryByText(/Coming soon/)).toBeNull();
   });
 
-  it('says on the Marketplace tab which steps of a template run, and promises none for later', () => {
+  it('says on the Templates tab which steps of a template run, and promises none for later', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
-    fireEvent.click(screen.getByText('Marketplace'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Templates' }));
     const notice = screen.getByTestId('automation-marketplace-steps-note');
     expect(notice.textContent).toContain(
       'Backup, Checkpoint, Compare, Pre-Check, Notification, Delay, Condition, Approval, Sync, Seed, Anonymize and Rewind steps run in a pipeline',
@@ -420,7 +458,7 @@ describe('AutomationPage', () => {
       render(<AutomationPage />);
       fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
 
-      fireEvent.click(screen.getByText('Triggers'));
+      fireEvent.click(screen.getByRole('tab', { name: 'Start' }));
 
       expect(screen.getByTestId('pipeline-blocked')).toBeDefined();
     });
@@ -522,7 +560,7 @@ describe('AutomationPage', () => {
     };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
-    fireEvent.click(screen.getByText('Marketplace'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Templates' }));
 
     // Notification runs now: only the steps that write to an org are named.
     expect(screen.getByTestId('marketplace-template-blocked-tpl-a').textContent).toBe(
@@ -569,7 +607,7 @@ describe('AutomationPage', () => {
     };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
-    fireEvent.click(screen.getByText('Marketplace'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Templates' }));
 
     expect(screen.getByTestId('marketplace-template-blocked-tpl-old').textContent).toBe(
       'Cannot run' +
@@ -587,11 +625,37 @@ describe('AutomationPage', () => {
     expect(emptyState.textContent).not.toMatch(/automated workflows|seed, sync/i);
   });
 
-  it('should render KPI overview row', () => {
+  it('shows no figure while no pipeline is open, then the next and the last run of the one opened', () => {
+    // Steps, triggers and the runs of every pipeline: 0 / 0 / 1 with none
+    // open, and a step count the header already gave.
+    mockQueryData = {
+      'pipeline:history': {
+        history: [
+          {
+            runId: 'r-1',
+            pipelineId: 'p-other',
+            pipelineName: 'Other',
+            status: 'failed',
+            triggeredBy: 'manual',
+            startTime: '2026-11-18T09:00:00.000Z',
+            duration: 1000,
+            stepCount: 1,
+            errorCount: 1,
+          },
+        ],
+      },
+    };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
-    expect(screen.getByTestId('automation-kpi-row')).toBeDefined();
-    expect(screen.getAllByTestId('kpi-card').length).toBe(3);
+    expect(screen.queryByTestId('automation-kpi-row')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('create-pipeline-btn'));
+    const row = screen.getByTestId('automation-kpi-row');
+    expect(row.querySelectorAll('[data-testid="kpi-card"]')).toHaveLength(2);
+    expect(screen.getByTestId('automation-kpi-next-run').textContent).toMatch(/^Next run/);
+    expect(screen.getByTestId('automation-kpi-last-run').textContent).toMatch(/^Last run/);
+    // The run of another pipeline is not this one's.
+    expect(screen.getByTestId('automation-kpi-last-run').textContent).toContain('None yet');
   });
 
   it('should render BentoTile content wrapper', () => {
@@ -609,7 +673,7 @@ describe('AutomationPage', () => {
     expect(side.className).not.toContain('w-48');
   });
 
-  it('puts the configuration of the step picked above the list under Steps, and into view', () => {
+  it('puts the configuration of the step picked above the list under Add a step, and into view', () => {
     // Below the list and its note, the configuration began under the fold:
     // a click on a step seemed to do nothing.
     const scrolled = vi.fn();
@@ -641,10 +705,11 @@ describe('AutomationPage', () => {
     }
   });
 
-  it('starts a pipeline from a click under Steps before Create Pipeline, and says how on the canvas', () => {
+  it('starts a pipeline from a click under Add a step before New pipeline, and says how on the canvas', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     expect(screen.getByTestId('pipeline-canvas').textContent).toContain('No pipeline open');
+    expect(screen.getByTestId('step-palette').querySelector('h3')?.textContent).toBe('Add a step');
     fireEvent.click(screen.getByTestId('palette-delay'));
     expect((screen.getByTestId('pipeline-name-input') as HTMLInputElement).value).toBe(
       'New pipeline',
@@ -654,6 +719,92 @@ describe('AutomationPage', () => {
     const added = screen.getAllByTestId(/^canvas-step-/)[0].textContent ?? '';
     expect(added).toMatch(/^Delay(?!.*Delay)/);
     expect(added).not.toContain('delay');
+  });
+
+  it('offers the templates on the empty canvas, so no pipeline starts from a blank page', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    expect(screen.getByTestId('pipeline-canvas').textContent).toMatch(/template/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse templates' }));
+
+    expect(screen.getByTestId('page-tab-marketplace').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('marketplace-content')).toBeDefined();
+  });
+
+  describe('a template another page asks for', () => {
+    const TEMPLATES = {
+      success: true,
+      templates: [
+        {
+          id: 'tpl-backup',
+          name: 'Nightly Backup',
+          description: 'Back up an org every night.',
+          category: 'backup',
+          author: 'SandForge',
+        },
+        {
+          id: 'tpl-sandbox-refresh',
+          name: 'Sandbox Refresh Post-Processing',
+          description: 'Mask and seed a sandbox after its refresh.',
+          category: 'environment',
+          author: 'SandForge',
+        },
+      ],
+    };
+
+    it('opens Templates on it, marked, its Install button ready, and reads the ask once', () => {
+      // Back into service's "Automate after each refresh…" names the
+      // template: it sat on the fifth tab, behind a blank canvas.
+      const scrolled = vi.fn();
+      const scrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrolled;
+      try {
+        mockQueryData = { 'marketplace:list': TEMPLATES };
+        mockIntent = { route: 'automation', automationTemplateId: 'tpl-sandbox-refresh' };
+        useOrgStore.setState({ orgs: mockOrgs });
+        render(<AutomationPage />);
+
+        expect(screen.getByTestId('page-tab-marketplace').getAttribute('aria-selected')).toBe(
+          'true',
+        );
+        const asked = screen.getByTestId('marketplace-template-tpl-sandbox-refresh');
+        expect(asked.getAttribute('data-asked')).toBe('true');
+        expect(
+          screen.getByTestId('marketplace-template-tpl-backup').getAttribute('data-asked'),
+        ).toBeNull();
+        expect(document.activeElement).toBe(
+          screen.getByTestId('install-template-tpl-sandbox-refresh'),
+        );
+        expect(scrolled).toHaveBeenCalled();
+        // Nothing installed without the click: no pipeline took the canvas.
+        expect(screen.queryByTestId('pipeline-name-input')).toBeNull();
+        expect(mockClearIntent).toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = scrollIntoView;
+      }
+    });
+
+    it('names each Install button by its template', () => {
+      mockQueryData = { 'marketplace:list': TEMPLATES };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByRole('tab', { name: 'Templates' }));
+
+      const install = screen.getByTestId('install-template-tpl-backup');
+      const describedBy = install.getAttribute('aria-describedby') ?? '';
+      expect(document.getElementById(describedBy)?.textContent).toBe('Nightly Backup');
+    });
+
+    it('opens on Steps when the ask is for another page', () => {
+      mockQueryData = { 'marketplace:list': TEMPLATES };
+      mockIntent = { route: 'dataops', automationTemplateId: 'tpl-sandbox-refresh' };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+
+      expect(screen.getByTestId('page-tab-canvas').getAttribute('aria-selected')).toBe('true');
+      expect(mockClearIntent).not.toHaveBeenCalled();
+    });
   });
 
   describe('a pipeline renamed, opened, started and deleted', () => {
@@ -859,11 +1010,11 @@ describe('AutomationPage', () => {
       expect(screen.getByTestId('export-save-first')).toBeDefined();
     });
 
-    it('dry runs the pipeline on the canvas, and keeps what it would do above it once it ends', () => {
+    it('simulates the pipeline on the canvas, and keeps what it would do above it once it ends', () => {
       const { rerender } = render(<AutomationPage />);
       fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
 
-      fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Simulate' }));
       expect(mockExecuteMutate).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
 
       mockExecuteMutationState = {
@@ -886,7 +1037,7 @@ describe('AutomationPage', () => {
       rerender(<AutomationPage />);
 
       const result = screen.getByTestId('dry-run-result');
-      expect(result.textContent).toContain('Dry run');
+      expect(result.textContent).toContain('Simulation');
       expect(result.textContent).toContain('Would wait 5 seconds: a dry run does not wait.');
       // The pipeline stays on the canvas below it.
       expect(screen.getByTestId('pipeline-canvas')).toBeDefined();
@@ -918,7 +1069,7 @@ describe('AutomationPage', () => {
       expect(screen.getByTestId('pipeline-outside-stale').textContent).toMatch(
         /^The file nightly\.sandforge-pipeline\.json, exported on .+, does not hold the changes saved since/,
       );
-      fireEvent.click(screen.getByRole('tab', { name: /Triggers/ }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Start' }));
       expect(screen.getByTestId('pipeline-outside-stale')).toBeDefined();
       expect(screen.getByTestId('trigger-outside')).toBeDefined();
     });

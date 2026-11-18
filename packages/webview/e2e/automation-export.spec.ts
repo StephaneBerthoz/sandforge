@@ -8,7 +8,7 @@ import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
 
 /**
- * Export…, Dry run, and a pipeline a launcher starts, on the Automation page:
+ * Export…, Simulate, and a pipeline a launcher starts, on the Automation page:
  * what the page asks the extension and in which order, then each state
  * scanned on the four themes the page scans run on, with the contrast of what
  * it paints held to the bar.
@@ -273,7 +273,7 @@ test.describe('Export… on the Automation page', () => {
       runsOutside: OUTSIDE,
     };
     await openSaved(page, handedOver, { outside: [{ pipelineId: 'pipe-1', matches: true }] });
-    await page.getByRole('tab', { name: 'Triggers' }).click();
+    await page.getByRole('tab', { name: 'Start' }).click();
     await page.getByTestId('trigger-outside-resume').click();
     // Given back on the canvas alone until it is saved.
     expect(await requestIds(page, 'pipeline:save')).toEqual([]);
@@ -291,10 +291,10 @@ test.describe('Export… on the Automation page', () => {
     expect((saved.config as Record<string, unknown>).runsOutside).toBeUndefined();
   });
 
-  test('runs a dry run of the pipeline on the canvas, asked as a dry run', async ({ page }) => {
+  test('simulates the pipeline on the canvas, asked as a dry run', async ({ page }) => {
     await openSaved(page, SAVED);
 
-    await page.getByRole('button', { name: 'Dry run' }).click();
+    await page.getByRole('button', { name: 'Simulate' }).click();
 
     await expect.poll(async () => (await requestIds(page, 'pipeline:execute')).length).toBe(1);
     const [asked] = await sentPayloads(page, 'pipeline:execute');
@@ -342,7 +342,7 @@ for (const theme of SCANNED_THEMES) {
       await expectReadable(page, theme, '[data-testid="export-refused"]');
     });
 
-    test('Export… held for a save, and the result of a dry run above the canvas', async ({
+    test('Export… held for a save, and the result of a simulation above the canvas', async ({
       page,
     }) => {
       await openSaved(page, SAVED);
@@ -350,7 +350,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('export-save-first')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="pipeline-identity"]');
 
-      await page.getByRole('button', { name: 'Dry run' }).click();
+      await page.getByRole('button', { name: 'Simulate' }).click();
       await answerOnceAsked(page, 'pipeline:execute', 'pipeline:run:response', {
         pipelineId: 'pipe-1',
         pipelineName: 'Nightly reset edited',
@@ -370,7 +370,7 @@ for (const theme of SCANNED_THEMES) {
       // Its end is said in a notification, which floats over the page: read
       // as one, then put away, the page under it is read uncovered.
       const toasts = page.getByTestId('floating-toasts');
-      await expect(toasts).toContainText('The dry run of “Nightly reset edited” stops where');
+      await expect(toasts).toContainText('The simulation of “Nightly reset edited” stops where');
       const covered = await themeContrastShortfalls(
         page,
         vscodeTheme(theme),
@@ -378,7 +378,7 @@ for (const theme of SCANNED_THEMES) {
       );
       expect(covered, covered.join('\n')).toEqual([]);
       await toasts.getByRole('button', { name: 'Dismiss' }).first().click();
-      await expect(toasts.getByText('The dry run of')).toHaveCount(0);
+      await expect(toasts.getByText('The simulation of')).toHaveCount(0);
       await page.getByTestId('dry-run-result').scrollIntoViewIfNeeded();
       await expectReadable(page, theme, '[data-testid="dry-run-result"]');
     });
@@ -435,7 +435,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('pipeline-outside-stale')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="pipeline-outside-stale"]');
 
-      await page.getByRole('tab', { name: 'Triggers' }).click();
+      await page.getByRole('tab', { name: 'Start' }).click();
       await expect(page.getByTestId('trigger-outside')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="trigger-outside"]');
       await page.getByTestId('trigger-outside-resume').click();

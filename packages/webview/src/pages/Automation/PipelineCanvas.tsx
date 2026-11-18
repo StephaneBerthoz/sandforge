@@ -27,6 +27,12 @@ export interface PipelineCanvasProps {
    * Run reads it: the templates, the Rewind steps as saved, the orgs' tiers.
    */
   around?: Omit<StepPlace, 'steps' | 'index'>;
+  /**
+   * Open the templates, offered while no pipeline is open: the empty canvas
+   * was a blank page, and the templates, Sandbox Refresh Post-Processing
+   * among them, sat on the last tab.
+   */
+  onBrowseTemplates?: () => void;
 }
 
 /**
@@ -61,6 +67,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   declared,
   syncConfigs,
   around,
+  onBrowseTemplates,
 }) => {
   const { t } = useTranslation();
 
@@ -81,6 +88,12 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
             icon={<Icon name="project" />}
             title={t('automation.canvasEmpty.noPipelineTitle')}
             description={t('automation.canvasEmpty.noPipeline')}
+            {...(onBrowseTemplates
+              ? {
+                  actionLabel: t('automation.canvasEmpty.browseTemplates'),
+                  onAction: onBrowseTemplates,
+                }
+              : {})}
           />
         )}
       </div>
@@ -90,7 +103,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   return (
     <ol
       className="flex flex-col p-2"
-      aria-label={t('automation.canvas')}
+      aria-label={t('automation.steps')}
       data-testid="pipeline-canvas"
     >
       {steps.map((step, index) => {

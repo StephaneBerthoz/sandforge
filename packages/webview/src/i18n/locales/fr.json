@@ -2635,13 +2635,12 @@
   },
   "automation": {
     "title": "Automatisation",
-    "createPipeline": "Créer un pipeline",
+    "createPipeline": "Nouveau pipeline",
     "newPipeline": "Nouveau pipeline",
     "steps": "Étapes",
-    "stepsCount": "Étapes du pipeline",
-    "triggersCount": "Déclencheurs actifs",
-    "historyRuns": "Historique des exécutions",
-    "triggers": "Déclencheurs",
+    "addStep": "Ajouter une étape",
+    "triggers": "Démarrage",
+    "thisPipeline": "Ce pipeline",
     "triggerNote": "Une exécution part du bouton Exécuter le pipeline, d'une planification ou du rafraîchissement d'une sandbox. Planifications et rafraîchissements lancent le pipeline enregistré tant que VS Code est ouvert, une exécution à la fois ; un démarrage prévu pendant que VS Code est fermé est inscrit à l'historique comme manqué, jamais rattrapé.",
     "triggerSoon": {
       "event": "Ne lance rien : aucune source d'événements n'alimente encore ce déclencheur.",
@@ -2692,7 +2691,7 @@
     },
     "pipelineSchedules": {
       "title": "Planifications des pipelines",
-      "empty": "Aucun pipeline enregistré n'a de planification. Ajoutez-en une dans l'onglet Déclencheurs, puis enregistrez le pipeline."
+      "empty": "Aucun pipeline enregistré n'a de planification. Ajoutez-en une sous Ce pipeline, puis enregistrez le pipeline."
     },
     "addTrigger": "Ajouter un déclencheur",
     "run": "Exécuter le pipeline",
@@ -2729,7 +2728,7 @@
       "schedule": "Planifié",
       "event": "Événement",
       "webhook": "Webhook",
-      "sandbox_refresh": "Actualisation de la sandbox",
+      "sandbox_refresh": "Rafraîchissement de la sandbox",
       "deployment_complete": "Déploiement terminé"
     },
     "runStatuses": {
@@ -2745,10 +2744,10 @@
       "stopped": "Arrêté",
       "missed": "Manqué"
     },
-    "scheduler": "Planificateur",
+    "scheduler": "Toutes les exécutions planifiées",
     "schedulerIntro": "Les planifications de synchronisation, par jour de leur prochaine exécution, puis les planifications des pipelines enregistrés, avec la prochaine exécution de chacune.",
+    "manageSyncSchedules": "Gérer les planifications Sync",
     "cronExpression": "Expression cron",
-    "canvas": "Canvas du pipeline",
     "continueOnError": "Continuer en cas d'erreur",
     "timeout": "Délai d'expiration (minutes, vide = aucun qui lui soit propre)",
     "retries": "Tentatives max",
@@ -2769,13 +2768,22 @@
     "stepConfigDelay": "Délai (secondes)",
     "noExecution": "Aucune exécution active",
     "subtitle": "Composez et enregistrez des pipelines en plusieurs étapes",
-    "savePipeline": "Sauvegarder le pipeline",
-    "saving": "Sauvegarde...",
+    "savePipeline": "Enregistrer le pipeline",
+    "saving": "Enregistrement...",
     "pipelineSaved": "Pipeline enregistré",
     "savedPipelines": "Pipelines enregistrés",
+    "kpi": {
+      "nextRun": "Prochaine exécution",
+      "lastRun": "Dernière exécution",
+      "none": "Aucune",
+      "noNextRun": "Seul Exécuter le pipeline le lance",
+      "onRefresh": "Au rafraîchissement",
+      "outside": "Lancé hors de VS Code",
+      "noRunYet": "Aucune pour l'instant"
+    },
     "generatePipeline": "Générer avec l'IA",
     "generatePipelinePrompt": "Décrivez le pipeline que vous souhaitez créer...",
-    "marketplace": "Marketplace",
+    "marketplace": "Modèles",
     "marketplaceStepsNote": "Les étapes Sauvegarde, Point de contrôle, Comparaison, Vérification préalable, Notification, Délai, Condition, Approbation, Sync, Seed, Anonymisation et Retour arrière s'exécutent dans un pipeline ; une étape Sync exécute une configuration que vous choisissez, enregistrée sur la page Sync, une étape Seed ou Anonymisation un modèle que vous choisissez, et une étape Retour arrière une fois que vous l'avez confirmée. Restauration et Suppression écrivent dans une org : elles ne s'exécutent que depuis leur propre page, et un modèle qui en contient une s'installe, mais son pipeline ne démarre pas.",
     "templateInstalled": "Modèle installé comme nouveau pipeline",
     "installFailed": "Impossible d'installer le modèle",
@@ -2845,8 +2853,7 @@
     },
     "emptyState": {
       "title": "Créez votre premier pipeline",
-      "description": "Composez des pipelines sur un canevas visuel, enregistrez-les et exécutez-les : sauvegardez, générez des données, masquez et comparez des orgs, posez un point de contrôle et revenez-y, vérifiez leurs limites, affichez une notification.",
-      "cta": "Sélectionner une org"
+      "description": "Composez des pipelines sur un canevas visuel, enregistrez-les et exécutez-les : sauvegardez, générez des données, masquez et comparez des orgs, posez un point de contrôle et revenez-y, vérifiez leurs limites, affichez une notification."
     },
     "agenda": {
       "due": "À exécuter maintenant",
@@ -2977,13 +2984,14 @@
     "timeoutCounted": "Cette étape compte aussi dans la limite de l'exécution, sandforge.pipeline.timeout (5 minutes sauf réglage, une heure au plus) : au-delà, l'exécution s'arrête ici. Les étapes Délai, Approbation, Sauvegarde, Sync, Seed, Anonymisation, Point de contrôle et Retour arrière n'y comptent pas.",
     "canvasEmpty": {
       "noPipelineTitle": "Aucun pipeline ouvert",
-      "noPipeline": "Cliquez sur Créer un pipeline ou Générer avec l'IA pour en commencer un, ou cliquez sur une étape sous Étapes pour en commencer un avec elle.",
+      "noPipeline": "Partez d'un modèle, cliquez sur Nouveau pipeline ou Générer avec l'IA, ou cliquez sur une étape sous Ajouter une étape pour en commencer un avec elle.",
+      "browseTemplates": "Parcourir les modèles",
       "noStepsTitle": "Aucune étape pour l'instant",
-      "noSteps": "Cliquez sur une étape sous Étapes pour l'ajouter. Les étapes s'exécutent de haut en bas."
+      "noSteps": "Cliquez sur une étape sous Ajouter une étape pour l'ajouter. Les étapes s'exécutent de haut en bas."
     },
     "triggerStartsNothing": "Ne lance rien",
     "noTriggers": "Aucun déclencheur pour l'instant",
-    "noTriggersDesc": "Le pipeline ne s'exécute que depuis Exécuter le pipeline. Ajoutez un déclencheur Planifié ou Actualisation de la sandbox ci-dessus.",
+    "noTriggersDesc": "Le pipeline ne s'exécute que depuis Exécuter le pipeline. Ajoutez un déclencheur Planifié ou Rafraîchissement de la sandbox ci-dessus.",
     "noHistoryDesc": "Les exécutions apparaissent ici dès qu'Exécuter le pipeline ou un déclencheur lance le pipeline enregistré.",
     "rewindAcceptHeading": "Autoriser des modifications plus risquées (désactivées par défaut)",
     "rewindAcceptCount_one": "{{count}} cochée",
@@ -2991,12 +2999,11 @@
     "lifecycle": {
       "pipelineName": "Nom du pipeline",
       "nameRequired": "Nommez le pipeline pour l’enregistrer ou l’exécuter.",
-      "new": "Nouveau",
       "open": "Ouvrir…",
       "unsaved": "Modifications non enregistrées",
       "noneSaved": "Aucun pipeline n’est encore enregistré.",
       "deleteTitle": "Supprimer « {{name}} » ?",
-      "deleteDescription": "Il est retiré de cette machine : ses planifications et ses déclencheurs d’actualisation de sandbox ne le lancent plus, et les confirmations de ses étapes Rewind sont retirées. Ses exécutions restent dans l’historique.",
+      "deleteDescription": "Il est retiré de cette machine : ses planifications et ses déclencheurs de rafraîchissement de sandbox ne le lancent plus, et les confirmations de ses étapes Rewind sont retirées. Ses exécutions restent dans l’historique.",
       "deleteConfirm": "Supprimer le pipeline",
       "deleted": "« {{name}} » supprimé.",
       "deleteRunning": "« {{name}} » est en cours d’exécution : supprimez-le une fois son exécution terminée.",
@@ -3008,13 +3015,13 @@
     "ranFromCommandLine": "Ligne de commande",
     "runRunning": "« {{name}} » s'exécute déjà sur cette machine, depuis une autre fenêtre ou en ligne de commande : relancez-le une fois cette exécution terminée.",
     "dryRun": {
-      "button": "Essai à blanc",
-      "running": "Essai à blanc…",
-      "badge": "Essai à blanc",
-      "note": "Un essai à blanc : chaque étape qui écrit dit ce qu'elle ferait, et rien n'est écrit dans aucune org. Comparaison et Vérification préalable lisent les orgs, aucun Délai n'attend, aucune Approbation n'est demandée, et l'historique ne garde rien.",
-      "ended": "L'essai à blanc de « {{name}} » est terminé : rien n'a été écrit.",
-      "stopped": "L'essai à blanc de « {{name}} » s'arrête là où son exécution s'arrêterait, sans rien écrire : {{reason}}",
-      "unavailable": "Un essai à blanc n'est pas encore disponible, et rien n'a été lancé : réessayez une fois SandForge entièrement démarré.",
+      "button": "Simuler",
+      "running": "Simulation…",
+      "badge": "Simulation",
+      "note": "Une simulation : chaque étape qui écrit dit ce qu'elle ferait, et rien n'est écrit dans aucune org. Comparaison et Vérification préalable lisent les orgs, aucun Délai n'attend, aucune Approbation n'est demandée, et l'historique ne garde rien.",
+      "ended": "La simulation de « {{name}} » est terminée : rien n'a été écrit.",
+      "stopped": "La simulation de « {{name}} » s'arrête là où son exécution s'arrêterait, sans rien écrire : {{reason}}",
+      "unavailable": "Une simulation n'est pas encore disponible, et rien n'a été lancé : réessayez une fois SandForge entièrement démarré.",
       "stepCompleted": "S'exécuterait",
       "stepFailed": "S'arrêterait ici",
       "stepSkipped": "Serait sautée",
@@ -3099,7 +3106,7 @@
       },
       "handOver": {
         "label": "Laisser ce lanceur démarrer le pipeline : couper sa planification ici",
-        "help": "Une fois le lanceur enregistré à côté du fichier, le pipeline est enregistré avec sa planification coupée dans VS Code, et la page dit ce qui le lance. Reprenez la planification dans l'onglet Déclencheurs."
+        "help": "Une fois le lanceur enregistré à côté du fichier, le pipeline est enregistré avec sa planification coupée dans VS Code, et la page dit ce qui le lance. Reprenez la planification dans l'onglet Démarrage."
       },
       "locks": {
         "heading": "Ce qui sépare deux exécutions, et ce qui ne les sépare pas",
@@ -3971,7 +3978,7 @@
     "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Enregistrées ouvre une configuration enregistrée, ou la lance selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente sous Conflits, dans le même onglet.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Présence des permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Objets : les objets des deux orgs, lus en direct à l'ouverture de l'onglet\n- Écarts de paramètres d'org : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déployer depuis le diff : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox, une scratch org ou une org Developer Edition",
     "dataopsContent": "Opérations sur les données de l'org choisie en haut de la page :\n- Masquage masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA, ou un modèle à vous créé par Créer un modèle ; sauf si vous décochez Conserver d'abord les valeurs, il sauvegarde ce qu'il masque, pour que Restaurer… puisse le remettre. Créer une sauvegarde, à côté du modèle, copie sur cette machine les objets qu'il masque.\n- Sauvegardes liste chaque sauvegarde de l'org, chacune avec Restaurer…, Exporter et Supprimer. Restaurer… demande d'abord, en nommant l'org et chaque objet, et s'il faut réécrire chaque ligne ; décoché, il n'écrit que les lignes modifiées depuis. Une sauvegarde n'est pas un point de contrôle : avant une exécution risquée sur une sandbox, créez un point de contrôle.\n- Données personnelles trouve les champs qui contiennent des données personnelles, puis les enregistrements d'une personne par e-mail, nom ou téléphone, à exporter, effacer ou supprimer après un examen et une confirmation saisie.\n- Nettoyage compte les enregistrements inactifs, les références vides, les valeurs répétées et le remplissage de chaque champ, à exporter ou supprimer après un examen et une confirmation saisie, 1 000 à la fois.\n- Vidage supprime tous les enregistrements des objets choisis, ou de toute l'org, une fois que Simuler a compté ce qui part et que vous avez saisi le nom de l'org.",
-    "automationContent": "Constructeur visuel de pipelines :\n- Sous Étapes, la page propose les types d'étapes qu'un pipeline exécute : Sync, Seed, Anonymisation, Sauvegarde, Point de contrôle, Retour arrière, Comparaison, Vérification préalable, Condition, Délai, Approbation et Notification. Sync exécute une configuration enregistrée sur la page Sync, et s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, derrière une étape Approbation dans une sandbox marquée Staging, et ne sont jamais retentées. Une étape Retour arrière fait revenir une org à un point de contrôle conservé sur cette machine, au plus le nombre d'enregistrements indiqué, une fois que vous l'avez confirmée avec l'alias de l'org, ou, si elle n'en a pas, son nom ou son ID d'organisation, sous son aperçu. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page : un pipeline qui contient l'une de ces étapes, ou une étape Script, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
+    "automationContent": "Constructeur visuel de pipelines :\n- Sous Ajouter une étape, la page propose les types d'étapes qu'un pipeline exécute : Sync, Seed, Anonymisation, Sauvegarde, Point de contrôle, Retour arrière, Comparaison, Vérification préalable, Condition, Délai, Approbation et Notification. Sync exécute une configuration enregistrée sur la page Sync, et s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, derrière une étape Approbation dans une sandbox marquée Staging, et ne sont jamais retentées. Une étape Retour arrière fait revenir une org à un point de contrôle conservé sur cette machine, au plus le nombre d'enregistrements indiqué, une fois que vous l'avez confirmée avec l'alias de l'org, ou, si elle n'en a pas, son nom ou son ID d'organisation, sous son aperçu. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page : un pipeline qui contient l'une de ces étapes, ou une étape Script, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline dans l'onglet Modèles",
     "forgeContent": "Forge copie un enregistrement et ce qui s'y rattache, depuis l'org sélectionnée dans le panneau latéral vers une sandbox, une scratch org ou une org Developer Edition ; il refuse toute autre org. Les ID sont remappés à l'écriture.\n- Avant Exécuter le Forge, dans la revue : Simuler vérifie ici chaque enregistrement, n'envoie rien ; Répéter dans la cible : la cible essaie un échantillon, annulé ensuite ; coûte des appels API.\n- Les e-mails et les numéros de téléphone sont neutralisés (.invalid, numéros fictifs), sauf si vous cochez Conserver les e-mails et les numéros de téléphone tels quels. Anonymiser les PII masque les noms, les adresses et les autres champs personnels.\n- Enregistrer comme modèle, sur les résultats d'une exécution, garde son enregistrement ou sa requête, sa profondeur, ses options et ses décisions ; l'onglet Modèle la relance, et Importer un modèle en lit un depuis un fichier.\n- Cloner directement, dans Autres façons de lancer, lance la découverte puis le clonage sans s'arrêter sur le graphe ni sur la revue ; Production Guard juge cette exécution comme toute autre.\n- Graphe ou tableau : jusqu'à 25 objets sont dessinés en graphe, au-delà en tableau, comme tout graphe sur un panneau de moins de 560 pixels ; Vue graphe / Vue tableau, ou le paramètre sandforge.forge.graphView, choisit la vue.\n- Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
     "frozenContent": "Le Jeu de données figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Fichier de règles : Lancer l'extraction en demande un, dans ~/.sandforge-sas/rules.json sauf si la configuration le déplace. Créer le fichier de règles en écrit un vide, qui vide chaque champ sans règle ; une règle nomme son champ en Objet.Champ et un générateur comme email, firstName, clear ou keep (approuvé), et Format des règles les liste tous\n- Pseudonymisation déterministe, avec SANDFORGE_FROZEN_SALT là où il est défini, sinon avec le sel gardé dans le stockage secret de VS Code, que la première extraction crée s'il n'y en a pas encore\n- Un contrôle en quatre points doit réussir avant que le jeu de données soit écrit\n- Chargement : dans une sandbox, une scratch org ou une org Developer Edition, jamais dans une org de production ni dans une sandbox marquée en préproduction, avec un Pilote facultatif sur un enregistrement racine d'abord, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
@@ -4096,9 +4103,9 @@
       "tip": "Tendances reste vide tant que SandForge n'a pas gardé deux relevés des limites ; il en garde au plus un par 15 minutes, pendant 7 jours."
     },
     "automation": {
-      "step1": "Cliquez sur Créer un pipeline, puis sous Étapes sur une étape comme Vérification préalable.",
+      "step1": "Cliquez sur Nouveau pipeline ou installez un modèle, puis sous Ajouter une étape sur une étape comme Vérification préalable.",
       "step2": "Cliquez sur l'étape dans le canvas, puis remplissez ses champs sous Configuration de l'étape.",
-      "step3": "Cliquez sur Sauvegarder le pipeline, puis sur Exécuter le pipeline dès qu'aucune étape n'est marquée Non exécutable.",
+      "step3": "Cliquez sur Enregistrer le pipeline et Simuler, puis sur Exécuter le pipeline dès qu'aucune étape n'est marquée Non exécutable.",
       "step4": "Ouvrez l'onglet Historique pour lire ce qu'a fait chaque étape de l'exécution.",
       "step5": "Pour le lancer VS Code fermé, cliquez sur Exporter… et enregistrez le fichier et son lanceur.",
       "tip": "Les étapes Sync, Seed, Anonymisation et Retour arrière écrivent dans une org. Seed et Anonymisation jamais en production ; un Retour arrière s'exécute une fois confirmé."

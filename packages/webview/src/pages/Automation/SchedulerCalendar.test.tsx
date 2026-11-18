@@ -4,6 +4,7 @@ import '../../i18n';
 import type { SyncConfigListResponse, SyncScheduleEntry } from '@sandforge/shared';
 import { SchedulerCalendar, groupByNextRun } from './SchedulerCalendar';
 import { useSyncScheduleStore } from '../../stores/useSyncScheduleStore';
+import { useAppStore } from '../../stores/useAppStore';
 
 /** Saved configurations `sync:config:list` answers with. */
 const savedConfigs = vi.hoisted(() => ({
@@ -242,7 +243,9 @@ describe('SchedulerCalendar', () => {
 
   it('says how to give a pipeline a schedule when none has one', () => {
     render(<SchedulerCalendar />);
-    expect(screen.getByTestId('scheduler-pipelines-empty').textContent).toMatch(/Triggers tab/);
+    expect(screen.getByTestId('scheduler-pipelines-empty').textContent).toMatch(
+      /under This pipeline/,
+    );
   });
 
   it('asks the host for the schedules and lays out what it answers by day', () => {
@@ -379,12 +382,34 @@ describe('SchedulerCalendar', () => {
     expect(screen.getByTestId('cron-schedule-builder')).toBeDefined();
   });
 
-  it('offers to create the first schedule when there is none', () => {
+  it('sends a new sync schedule to the Sync page, where its configuration is saved', () => {
+    // "+ New schedule" sat right above the line about the pipeline's own
+    // schedules, and made a sync schedule: it read as one for the pipeline.
+    useAppStore.setState({ currentRoute: 'automation', navigationIntent: null });
+    useSyncScheduleStore.setState({
+      schedules: [schedule('a', { nextRunAt: at('2026-03-02T09:00:00') })],
+    });
+    render(<SchedulerCalendar />);
+
+    expect(screen.queryByTestId('new-schedule-btn')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Sync schedules' }));
+
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'sync',
+      syncTab: 'schedules',
+    });
+  });
+
+  it('offers no schedule of its own to make when there is none, only the way to Sync', () => {
+    useAppStore.setState({ currentRoute: 'automation', navigationIntent: null });
     render(<SchedulerCalendar />);
     fromHost({ id: 'ext-2', type: 'sync:schedule:list:response', payload: { schedules: [] } });
 
     expect(screen.getByText('No schedules yet')).toBeDefined();
-    fireEvent.click(screen.getByText('Create a schedule'));
-    expect(screen.getByTestId('cron-schedule-builder')).toBeDefined();
+    expect(screen.queryByText('Create a schedule')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Sync schedules' }));
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+    expect(screen.queryByTestId('cron-schedule-builder')).toBeNull();
   });
 });

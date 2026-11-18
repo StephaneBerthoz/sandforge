@@ -75,7 +75,9 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-palette">
-      <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.steps')}</h3>
+      {/* Named for what a click on it does: the tab it sits on is Steps, and
+          "Steps" over the list read as the pipeline's own. */}
+      <h3 className="text-xs font-semibold text-(--sf-text-primary)">{t('automation.addStep')}</h3>
       <div className="text-xs text-(--sf-text-secondary)">
         <p data-testid="palette-listed">{t('automation.runnability.paletteListed')}</p>
         <details data-testid="palette-why">

@@ -13,8 +13,9 @@ import type { SchedulerCalendarProps } from './SchedulerCalendar';
  * shows the Checkpoints page's preview of the rewind, and with it the words
  * of the Checkpoints page and of what the org runs as a removal writes,
  * loaded with the part: the page parsed 983 kB before it painted while it
- * held them. The Scheduler tab comes once it is opened, with the Sync page's
- * schedule panel it lays out by day: its words are the page's own, and the
+ * held them. All scheduled runs, under the Start tab, comes once that tab is
+ * opened, with the Sync page's schedule panel it lays out by day: its words
+ * are the page's own, and the
  * room it took went to the canvas's empty states, the Rewind step's riskier
  * boxes and the steps' names. The questions a pipeline's Delete and the loss
  * of its unsaved changes ask come with the first of them: the dialog and what
@@ -47,7 +48,7 @@ const LoadedSchedulerCalendar = lazy(() =>
   })),
 );
 
-/** The Scheduler tab: the sync schedules by the day each next runs, then the pipelines'. */
+/** All scheduled runs, on the Start tab: the sync schedules by the day each next runs, then the pipelines'. */
 export const SchedulerCalendar: FC<SchedulerCalendarProps> = (props) => (
   <PartBoundary>
     <Suspense fallback={null}>

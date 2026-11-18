@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { addDays, format } from 'date-fns';
 import type { PipelineTrigger, PipelineTriggerStatus, SyncScheduleEntry } from '@sandforge/shared';
@@ -6,6 +6,7 @@ import { SyncSchedulePanel, LastResultBadge } from '../Sync/SyncSchedulePanel';
 import type { ScheduleLayoutProps } from '../Sync/SyncSchedulePanel';
 import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
+import { useAppStore } from '../../stores/useAppStore';
 
 /** A schedule trigger of a saved pipeline, with what the extension says of it. */
 export interface PipelineScheduleRow {
@@ -193,7 +194,7 @@ const ScheduleAgenda: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor }
 
 /**
  * The schedules of the saved pipelines, each with its next run or why it has
- * none. They are set on the Triggers tab of their pipeline; this lists them.
+ * none. They are set under This pipeline, above; this lists them.
  */
 const PipelineSchedules: React.FC<{ rows: readonly PipelineScheduleRow[] }> = ({ rows }) => {
   const { t } = useTranslation();
@@ -251,23 +252,45 @@ export interface SchedulerCalendarProps {
 }
 
 /**
- * The Scheduler tab: every sync schedule, by the day it next runs, with the
- * buttons the Sync tab gives it; then the schedules of the saved pipelines,
- * with the next run of each.
+ * All scheduled runs, the second part of the Start tab: every sync schedule,
+ * by the day it next runs, with the buttons the Sync tab gives it; then the
+ * schedules of the saved pipelines, with the next run of each.
  *
  * A saved sync configuration runs on a timer through `sync:schedule:*`, and
- * a saved pipeline through its schedule trigger, which is edited on the
- * Triggers tab of the pipeline.
+ * a saved pipeline through its schedule trigger, which is edited above it,
+ * under This pipeline.
  */
 export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ pipelineSchedules = [] }) => {
   const { t } = useTranslation();
+  const navigate = useAppStore((s) => s.navigate);
+  const headingId = useId();
+  // A sync schedule is made where its configuration is saved, on the Sync
+  // page's Saved tab: a New schedule here, right above the pipelines' own
+  // schedules, made a sync schedule and was read as one for the pipeline.
+  const manageSyncSchedules = (
+    <button
+      type="button"
+      className="text-xs text-(--sf-text-link) hover:underline"
+      onClick={() => navigate('sync', { syncTab: 'schedules' })}
+      data-testid="scheduler-manage-sync"
+    >
+      {t('automation.manageSyncSchedules')}
+    </button>
+  );
   return (
-    <div className="flex flex-col gap-(--sf-space-3)" data-testid="scheduler-calendar">
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-(--sf-space-3)"
+      data-testid="scheduler-calendar"
+    >
+      <h2 id={headingId} className="text-sm font-semibold text-text-primary">
+        {t('automation.scheduler')}
+      </h2>
       <p className="text-xs text-text-secondary" data-testid="scheduler-intro">
         {t('automation.schedulerIntro')}
       </p>
-      <SyncSchedulePanel layout={ScheduleAgenda} />
+      <SyncSchedulePanel layout={ScheduleAgenda} createAction={manageSyncSchedules} />
       <PipelineSchedules rows={pipelineSchedules} />
-    </div>
+    </section>
   );
 };

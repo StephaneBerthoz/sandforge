@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import type { PipelineDefinition } from '@sandforge/shared';
 import { PipelineHeader, PIPELINE_NAME_MAX } from './PipelineHeader';
 import type { PipelineHeaderProps } from './PipelineHeader';
@@ -41,9 +42,16 @@ function renderHeader(overrides: Partial<PipelineHeaderProps> = {}) {
 }
 
 describe('PipelineHeader', () => {
-  it('offers only Create pipeline, and no name, while no pipeline is open', () => {
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage('en'));
+  });
+
+  it('offers only New pipeline, and no name, while no pipeline is open', () => {
     const props = renderHeader({ pipeline: undefined, stepCount: 0 });
 
+    // One name for one action: it read Create Pipeline here and New beside a
+    // pipeline, two buttons that do the same thing.
+    expect(screen.getByTestId('create-pipeline-btn').textContent).toBe('New pipeline');
     fireEvent.click(screen.getByTestId('create-pipeline-btn'));
 
     expect(props.onCreate).toHaveBeenCalledTimes(1);
@@ -71,7 +79,7 @@ describe('PipelineHeader', () => {
   it('puts New, Open…, Save and Run side by side, each to its own handler', () => {
     const props = renderHeader();
 
-    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New pipeline' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open…' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save Pipeline' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run Pipeline' }));
@@ -162,29 +170,31 @@ describe('PipelineHeader', () => {
     expect(exportButton.getAttribute('aria-describedby')).toBe(hint.id);
   });
 
-  it('dry runs the pipeline beside Run, held by what holds Run', () => {
+  it('simulates the pipeline beside Run, held by what holds Run', () => {
+    // Simulate, as Forge, Sync and the replay name a run that writes nothing:
+    // it read "Dry run" here alone.
     const onDryRun = vi.fn();
     renderHeader({ onDryRun });
-    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate' }));
     expect(onDryRun).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps Dry run off for a step that cannot run, saying which, and for a blank name', () => {
+  it('keeps Simulate off for a step that cannot run, saying which, and for a blank name', () => {
     renderHeader({ onDryRun: vi.fn(), runBlocked: true });
     const dry = screen.getByTestId('dry-run-pipeline-btn') as HTMLButtonElement;
     expect(dry.disabled).toBe(true);
     expect(dry.getAttribute('aria-describedby')).toBe('blocked-note');
   });
 
-  it('says a dry run is going on its own button, and keeps Run off meanwhile', () => {
+  it('says a simulation is going on its own button, and keeps Run off meanwhile', () => {
     renderHeader({ onDryRun: vi.fn(), running: true, dryRunning: true });
-    expect(screen.getByTestId('dry-run-pipeline-btn').textContent).toContain('Dry run…');
+    expect(screen.getByTestId('dry-run-pipeline-btn').textContent).toContain('Simulating…');
     const run = screen.getByTestId('run-pipeline-btn') as HTMLButtonElement;
     expect(run.disabled).toBe(true);
     expect(run.textContent).toContain('Run Pipeline');
   });
 
-  it('keeps Dry run off while a run goes', () => {
+  it('keeps Simulate off while a run goes', () => {
     renderHeader({ onDryRun: vi.fn(), running: true });
     expect((screen.getByTestId('dry-run-pipeline-btn') as HTMLButtonElement).disabled).toBe(true);
   });
@@ -195,5 +205,20 @@ describe('PipelineHeader', () => {
     expect((screen.getByTestId('new-pipeline-btn') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('open-pipeline-btn') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('run-pipeline-btn').textContent).toContain('Running pipeline...');
+  });
+
+  it('names its buttons in French as the rest of SandForge does', async () => {
+    // "Sauvegarder" was read as the Backup step, "Sauvegarde"; "Essai à blanc"
+    // had also named Forge's rehearsal, which writes.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(() => i18n.changeLanguage('fr'));
+    renderHeader({ onDryRun: vi.fn() });
+
+    expect(screen.getByTestId('new-pipeline-btn').textContent).toBe('Nouveau pipeline');
+    expect(screen.getByTestId('save-pipeline-btn').textContent).toBe('Enregistrer le pipeline');
+    expect(screen.getByTestId('dry-run-pipeline-btn').textContent).toBe(
+      i18n.t('sync.simulation.start'),
+    );
+    expect(screen.getByTestId('dry-run-pipeline-btn').textContent).toBe('Simuler');
   });
 });

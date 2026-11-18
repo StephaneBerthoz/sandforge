@@ -666,3 +666,52 @@ test('both READMEs name exactly the step types that run, and link the page that 
     );
   }
 });
+
+/** The English labels the page names its tabs by, in the order it shows them. */
+function tabLabels() {
+  const tabs = automationPage.match(/const AUTOMATION_TABS: PageTab\[\] = \[([\s\S]*?)\n {2}\];/);
+  assert.ok(tabs, 'AUTOMATION_TABS not found in AutomationPage.tsx — has the tab list moved?');
+  const en = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json'));
+  return [...tabs[1].matchAll(/label: t\('automation\.([a-zA-Z]+)'\)/g)].map((m) => {
+    const label = en.automation[m[1]];
+    assert.equal(typeof label, 'string', `automation.${m[1]} has no English label`);
+    return label;
+  });
+}
+
+test('the module page has a section per tab, under the label the page gives it, in its order', () => {
+  // The page said Pipeline Canvas, Triggers, Scheduler and Marketplace for a
+  // page whose tabs are named otherwise: a reader looked for tabs that are
+  // not there.
+  const labels = tabLabels();
+  assert.ok(labels.length >= 4, 'fewer than four tabs read: the walk is aimed at nothing');
+  const doc = read(repoRoot, 'docs', 'modules', 'automation.md');
+  const headings = [...doc.matchAll(/^### (.+)$/gm)].map((m) => m[1].trim());
+  const at = labels.map((label) => headings.indexOf(label));
+  assert.deepEqual(
+    labels.filter((_, index) => at[index] === -1),
+    [],
+    'the module page has no section for these tabs',
+  );
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    'the module page orders its tab sections otherwise than the page orders its tabs',
+  );
+});
+
+test('the run that writes nothing is Simulate, as on every other page, and the flag stays --dry-run', () => {
+  for (const locale of ['en', 'fr', 'de', 'es', 'pt-BR', 'ja']) {
+    const catalogue = JSON.parse(read(webviewSrc, 'i18n', 'locales', `${locale}.json`));
+    assert.equal(
+      catalogue.automation.dryRun.button,
+      catalogue.sync.simulation.start,
+      `${locale}: Automation names its simulation otherwise than Sync`,
+    );
+  }
+  const doc = read(repoRoot, 'docs', 'modules', 'automation.md');
+  assert.doesNotMatch(doc, /\*\*Dry run\*\*/, 'the module page still names a Dry run button');
+  assert.match(doc, /\*\*Simulate\*\*/);
+  // The command line keeps its flag: scripts and CI call it by that name.
+  assert.match(doc, /`--dry-run`/);
+});

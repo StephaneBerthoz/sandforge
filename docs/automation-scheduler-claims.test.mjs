@@ -35,6 +35,16 @@ const read = (...parts) => readFileSync(join(repoRoot, ...parts), 'utf8');
 
 const faq = read('docs', 'faq.md');
 const automation = read('docs', 'modules', 'automation.md');
+
+/**
+ * The page's Start tab, and its two parts: what starts the pipeline open
+ * (its triggers), then every run planned, the sync schedules and the pipeline
+ * schedules. They were two tabs, Triggers and Scheduler, and two sections of
+ * the module page under those names.
+ */
+const START = '### Start';
+const THIS_PIPELINE = '#### This pipeline';
+const ALL_SCHEDULED = '#### All scheduled runs';
 const en = JSON.parse(read('packages', 'webview', 'src', 'i18n', 'locales', 'en.json'));
 
 /** Anything that reads as a promise of unattended, time-based execution. */
@@ -122,7 +132,7 @@ test('anchor: the extension fires the schedule and sandbox refresh triggers, and
     starting.filter((type) => ['manual', 'event', 'webhook', 'deployment_complete'].includes(type)),
     [],
     'a manual, event, webhook or deployment trigger fires now — the panel does not offer it, and ' +
-      'the docs below say it starts nothing. Re-read the Triggers section, the FAQ and both ' +
+      'the docs below say it starts nothing. Re-read the This pipeline section, the FAQ and both ' +
       'READMEs before relaxing this.',
   );
 });
@@ -134,36 +144,47 @@ test('the panel offers exactly the trigger types that start a run', () => {
   assert.ok(triggerTypes().length > offeredTriggerTypes().length);
 });
 
-test('the Triggers section lists exactly the trigger types the panel offers', () => {
-  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
+test('the This pipeline section lists exactly the trigger types the panel offers', () => {
+  const listed = [...section(automation, THIS_PIPELINE).matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
   assert.deepEqual(
     listed.map((m) => m[1]),
     offeredTriggerTypes().map(label),
   );
 });
 
-test('the Triggers section calls no trigger coming soon', () => {
-  const triggers = section(automation, '### Triggers');
-  assert.doesNotMatch(triggers, /coming soon/i, 'the Triggers section promises a trigger again');
+test('the This pipeline section calls no trigger coming soon', () => {
+  const triggers = section(automation, THIS_PIPELINE);
+  assert.doesNotMatch(
+    triggers,
+    /coming soon/i,
+    'the This pipeline section promises a trigger again',
+  );
 });
 
-test('the Triggers section names every type that starts nothing, says so, and pins no release', () => {
+test('the This pipeline section names every type that starts nothing, says so, and pins no release', () => {
   const starting = startingTriggerTypes();
-  const triggers = section(automation, '### Triggers');
+  const triggers = section(automation, THIS_PIPELINE);
   const idle = triggerTypes().filter((type) => !starting.includes(type));
   assert.ok(idle.length > 0, 'every trigger type starts a run now — re-read this gate');
   const paragraph = triggers
     .split('\n\n')
     .find((block) => idle.every((type) => block.includes(`**${label(type)}**`)));
-  assert.ok(paragraph, 'no paragraph of the Triggers section names every type that starts nothing');
-  assert.match(paragraph, /start nothing/, 'the Triggers section does not say they start nothing');
+  assert.ok(
+    paragraph,
+    'no paragraph of the This pipeline section names every type that starts nothing',
+  );
+  assert.match(
+    paragraph,
+    /start nothing/,
+    'the This pipeline section does not say they start nothing',
+  );
   // "as of v1.3.0" sat in a banner of a v1.22 product: one that names a
   // version goes stale.
-  assert.doesNotMatch(triggers, /\bv\d+\.\d+/, 'the Triggers section pins a version');
+  assert.doesNotMatch(triggers, /\bv\d+\.\d+/, 'the This pipeline section pins a version');
   assert.doesNotMatch(automation, /\bas of v\d/i);
 });
 
-test('the Triggers section says a start is never made late, and a pipeline runs once at a time', () => {
+test('the This pipeline section says a start is never made late, and a pipeline runs once at a time', () => {
   const scheduler = read(
     'packages',
     'extension',
@@ -177,7 +198,7 @@ test('the Triggers section says a start is never made late, and a pipeline runs 
   assert.match(scheduler, /export const LATE_AFTER_MS = /);
   assert.match(scheduler, /reason: 'busy'/);
 
-  const triggers = section(automation, '### Triggers');
+  const triggers = section(automation, THIS_PIPELINE);
   assert.match(triggers, /is not made late/);
   assert.match(triggers, /written to Execution History as missed/);
   assert.match(triggers, /One run of a pipeline at a time/);
@@ -188,8 +209,8 @@ test('every region that sells a schedule says it runs only while VS Code is open
   const regions = [
     ['the Automation lead', section(automation, '# Automation').split('## Quick Start')[0]],
     ['the Automation quick start', section(automation, '## Quick Start')],
-    ['the Triggers section', section(automation, '### Triggers')],
-    ['the Scheduler section', section(automation, '### Scheduler')],
+    ['the This pipeline section', section(automation, THIS_PIPELINE)],
+    ['the All scheduled runs section', section(automation, ALL_SCHEDULED)],
     ['the Automation tips', section(automation, '## Tips')],
     ['the FAQ answer', section(faq, '### Can I automate recurring operations?')],
     [
@@ -230,7 +251,17 @@ test('the FAQ answers "recurring operations" with what starts a pipeline, and na
   );
 });
 
-test('the Scheduler section describes the tab the page renders: the sync and the pipeline schedules', () => {
+test('the Start tab is one section, what starts this pipeline first, then every scheduled run', () => {
+  const start = section(automation, START);
+  const ours = start.indexOf(THIS_PIPELINE);
+  const all = start.indexOf(ALL_SCHEDULED);
+  assert.ok(ours >= 0, 'This pipeline is not a part of the Start section');
+  assert.ok(all > ours, 'All scheduled runs does not follow This pipeline under Start');
+  // No section is left under the names of the two tabs Start took the place of.
+  assert.doesNotMatch(automation, /^### (?:Triggers|Scheduler)$/m);
+});
+
+test('the All scheduled runs section describes what the page renders: the sync and the pipeline schedules', () => {
   const calendar = read(
     'packages',
     'webview',
@@ -239,26 +270,32 @@ test('the Scheduler section describes the tab the page renders: the sync and the
     'Automation',
     'SchedulerCalendar.tsx',
   );
-  assert.match(calendar, /<SyncSchedulePanel layout=\{ScheduleAgenda\} \/>/);
+  assert.match(calendar, /<SyncSchedulePanel\s+layout=\{ScheduleAgenda\}/);
+  // A sync schedule is made on the Sync page: the calendar leads there,
+  // where its New schedule stood above the pipelines' own schedules.
+  assert.match(calendar, /createAction=\{/);
+  assert.match(calendar, /syncTab: 'schedules'/);
   assert.match(calendar, /<PipelineSchedules rows=\{pipelineSchedules\} \/>/);
   assert.doesNotMatch(calendar, /comingSoon/);
 
-  const scheduler = section(automation, '### Scheduler');
+  const scheduler = section(automation, ALL_SCHEDULED);
+  assert.match(scheduler, /\*\*Manage Sync schedules\*\*/);
+  assert.doesNotMatch(scheduler, /\*\*New schedule\*\*/);
   assert.match(scheduler, /sync schedules/);
   assert.match(scheduler, /pipeline schedules/);
   assert.match(
     scheduler,
     /never made late/,
-    'the Scheduler section must say how a pipeline schedule differs from a sync one',
+    'the All scheduled runs section must say how a pipeline schedule differs from a sync one',
   );
   assert.doesNotMatch(
     scheduler,
     /no pipeline runs on a timer/,
-    'the Scheduler section still says no pipeline runs on a timer',
+    'the All scheduled runs section still says no pipeline runs on a timer',
   );
   assert.doesNotMatch(
     scheduler,
     /exclusion dates|holidays|maintenance windows/i,
-    'the Scheduler section promises calendar features the tab does not have',
+    'the All scheduled runs section promises calendar features the tab does not have',
   );
 });

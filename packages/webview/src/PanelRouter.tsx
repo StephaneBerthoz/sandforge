@@ -106,6 +106,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'ai',
     'automation',
     'compareParts',
+    'emptyState',
     'errors',
     'howTo',
     'syncParts',

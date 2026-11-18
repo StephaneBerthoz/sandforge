@@ -588,25 +588,6 @@ describe('useAutomationPageData — a trigger added with no pipeline open', () =
     act(() => result.current.handleAddTrigger('schedule'));
     expect(result.current.pipeline?.name).toBe('New pipeline');
     expect(result.current.pipeline?.triggers.map((trigger) => trigger.type)).toEqual(['schedule']);
-    expect(result.current.triggerCount).toBe(1);
-  });
-});
-
-describe('useAutomationPageData — the Active triggers count', () => {
-  it('counts only the schedules and sandbox refreshes switched on', () => {
-    // It counted every trigger, the ones switched off and those that start
-    // nothing too, and read 3 for a pipeline one trigger starts.
-    const { result } = renderHook(() => useAutomationPageData());
-    act(() => result.current.handleCreatePipeline());
-    for (const type of ['manual', 'webhook', 'schedule', 'sandbox_refresh', 'schedule'] as const) {
-      act(() => result.current.handleAddTrigger(type));
-    }
-    expect(result.current.triggerCount).toBe(3);
-    const schedules = result.current.pipeline!.triggers.filter(
-      (trigger) => trigger.type === 'schedule',
-    );
-    act(() => result.current.handleToggleTrigger(schedules[0].id, false));
-    expect(result.current.triggerCount).toBe(2);
   });
 });
 
@@ -1571,7 +1552,7 @@ describe('useAutomationPageData — a dry run', () => {
     expect(kept?.status).toBe('completed');
     expect(kept?.steps[0].summary).toBe('Would wait 5 seconds: a dry run does not wait.');
     expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
-    expect(messages('The dry run of “Nightly” ended: nothing was written.')).toHaveLength(1);
+    expect(messages('The simulation of “Nightly” ended: nothing was written.')).toHaveLength(1);
     expect(result.current.error).toBeNull();
 
     act(() => result.current.dismissDryRun());
@@ -1599,10 +1580,10 @@ describe('useAutomationPageData — a dry run', () => {
     });
     rerender();
 
-    const [said] = notifications.filter((n) => n.message.startsWith('The dry run of “Nightly”'));
+    const [said] = notifications.filter((n) => n.message.startsWith('The simulation of “Nightly”'));
     expect(said.level).toBe('warning');
     expect(said.message).toBe(
-      'The dry run of “Nightly” stops where its run would stop, and wrote nothing: Seed "Seed" would be refused: the org has 2 MB left.',
+      'The simulation of “Nightly” stops where its run would stop, and wrote nothing: Seed "Seed" would be refused: the org has 2 MB left.',
     );
     expect(result.current.error).toBeNull();
     expect(result.current.dryRunResult?.steps[0].status).toBe('failed');
@@ -1624,7 +1605,7 @@ describe('useAutomationPageData — a dry run', () => {
     expect(result.current.dryRunResult).toBeUndefined();
   });
 
-  it('says in the reader’s words that a dry run is not available yet', () => {
+  it('says in the reader’s words that a simulation is not available yet', () => {
     const { result, rerender } = startDryRun();
     Object.assign(mutationFor('pipeline:execute'), {
       loading: false,
@@ -1634,7 +1615,7 @@ describe('useAutomationPageData — a dry run', () => {
     rerender();
 
     expect(result.current.error).toBe(
-      'A dry run is not available yet, and nothing ran: try again once SandForge has finished starting.',
+      'A simulation is not available yet, and nothing ran: try again once SandForge has finished starting.',
     );
   });
 

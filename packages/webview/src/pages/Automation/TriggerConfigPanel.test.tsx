@@ -103,8 +103,11 @@ describe('TriggerConfigPanel', () => {
       const select = screen.getByTestId('trigger-type-select') as HTMLSelectElement;
       expect([...select.options].map((option) => option.textContent)).toEqual([
         'Planifié',
-        'Actualisation de la sandbox',
+        // Rafraîchissement, as every other page names a sandbox refresh:
+        // "Actualiser" rereads a view.
+        'Rafraîchissement de la sandbox',
       ]);
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Ce pipeline');
       expect(screen.getByText('Expression cron:')).toBeDefined();
       expect(fr.automation.newPipeline).toBe('Nouveau pipeline');
       expect(fr.automation.savedPipelines).toBe('Pipelines enregistrés');

@@ -5754,7 +5754,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(canvas).toContainText('No step yet');
       expectNoViolations(await checkAccessibility(page));
 
-      await page.getByRole('tab', { name: 'Triggers' }).click();
+      await page.getByRole('tab', { name: 'Start' }).click();
       await expect(page.getByTestId('trigger-config')).toContainText('No trigger yet');
       const triggers = await checkAccessibility(page);
       expectNoViolations(triggers);
@@ -7033,7 +7033,7 @@ for (const theme of SCANNED_THEMES) {
         triggers: [],
       });
       await page.getByTestId(`saved-pipeline-${PIPELINE_WITH_A_WEBHOOK_TRIGGER.id}`).click();
-      await page.getByRole('tab', { name: 'Triggers' }).click();
+      await page.getByRole('tab', { name: 'Start' }).click();
       for (const type of ['schedule', 'sandbox_refresh']) {
         await page.getByTestId('trigger-type-select').selectOption(type);
         await page.getByTestId('add-trigger-btn').click();
@@ -8956,7 +8956,7 @@ for (const theme of SCANNED_THEMES) {
 
     test('Sync schedule builder, in simple and in advanced mode', async ({ page }) => {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
-      await page.getByTestId('page-tab-scheduler').click();
+      await page.getByTestId('page-tab-triggers').click();
       await bridge.waitForMessage('sync:schedule:list', { timeout: 10_000 });
       await answerAll(page, 'sync:config:list', 'sync:config:list:response', {
         configs: [
@@ -8981,7 +8981,8 @@ for (const theme of SCANNED_THEMES) {
           },
         ],
       });
-      await page.getByTestId('new-schedule-btn').click();
+      // Edited where Automation lists it: a new one is made on the Sync page.
+      await page.getByTestId('edit-btn-nightly').click();
       const builder = '[data-testid="cron-schedule-builder"]';
       await page.locator(builder).waitFor({ state: 'visible', timeout: 5000 });
 
@@ -10414,11 +10415,13 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('Automation scheduler laying the sync schedules out by day', async ({ page }) => {
+    test('Automation Start tab laying the sync schedules out by day, with the way to Sync', async ({
+      page,
+    }) => {
       await openPanel(bridge, page, 'automation', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('automation-page').waitFor({ timeout: 10_000 });
-      await page.getByTestId('page-tab-scheduler').click();
+      await page.getByTestId('page-tab-triggers').click();
       await bridge.waitForMessage('sync:schedule:list', { timeout: 10_000 });
       await answerAll(page, 'sync:config:list', 'sync:config:list:response', {
         configs: [
@@ -10475,6 +10478,7 @@ for (const theme of STATE_THEMES) {
       const cancelled = page.getByTestId('scheduler-entry-paused');
       await expect(cancelled).toContainText('Cancelled');
       await expect(cancelled).toContainText('Last run: unknown');
+      await expect(page.getByTestId('scheduler-manage-sync')).toBeVisible();
 
       await expectReadable(page, theme);
     });

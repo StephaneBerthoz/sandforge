@@ -38,14 +38,14 @@ export interface PipelineHeaderProps {
   listId: string;
   /** The name field, which takes the keyboard once another pipeline is opened. */
   nameRef?: React.Ref<HTMLInputElement>;
-  /** Create pipeline, and New: start an empty pipeline. */
+  /** New pipeline: start an empty pipeline. */
   onCreate: () => void;
   /** Open…: show or hide the saved pipelines. */
   onToggleList: () => void;
   onRename: (name: string) => void;
   onSave: () => void;
   onRun: () => void;
-  /** Dry run: the run's own route, each step that writes saying what it would do. */
+  /** Simulate: the run's own route, each step that writes saying what it would do. */
   onDryRun?: () => void;
   /** Export…: the saved pipeline as a file, and a launcher that runs it with VS Code closed. */
   onExport?: () => void;
@@ -123,7 +123,10 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
                   disabled={running}
                   data-testid="new-pipeline-btn"
                 >
-                  {t('automation.lifecycle.new')}
+                  {/* The name the button has while no pipeline is open:
+                      it read Create Pipeline there and New here, for one
+                      action. */}
+                  {t('automation.createPipeline')}
                 </Button>
                 <Button
                   variant="secondary"
@@ -164,7 +167,10 @@ export const PipelineHeader: React.FC<PipelineHeaderProps> = ({
                   </Button>
                 )}
                 {/* The run's own route and checks, nothing written: what
-                    Run would do, before it does it. */}
+                    Run would do, before it does it. Simulate, as Forge, Sync
+                    and the replay name it: "Dry run" was the one name apart,
+                    and its French, "Essai à blanc", had also named Forge's
+                    rehearsal, which writes. */}
                 {onDryRun && (
                   <Button
                     variant="secondary"

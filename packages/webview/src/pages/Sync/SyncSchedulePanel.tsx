@@ -125,6 +125,13 @@ export interface SyncSchedulePanelProps {
   onImportSfdmu?: () => void;
   /** A run or a simulation is under way on the page: nothing else is started. */
   runDisabled?: boolean;
+  /**
+   * What stands in place of New schedule, and of the first schedule's button
+   * when there is none. The Automation calendar puts a way to this page
+   * there: its New schedule, right above the pipelines' own schedules, was
+   * read as one for the pipeline open.
+   */
+  createAction?: React.ReactNode;
 }
 
 /** A saved configuration as the Saved tab lists it. */
@@ -404,6 +411,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   onOpenConfig,
   onImportSfdmu,
   runDisabled = false,
+  createAction,
 }) => {
   const { t } = useTranslation();
   const {
@@ -693,8 +701,15 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
               : t('syncParts.schedules.emptyDesc')
           }
           module="sync"
-          actionLabel={canCreate ? t('syncParts.schedules.createFirst') : undefined}
-          onAction={canCreate ? () => setShowBuilder(true) : undefined}
+          actionLabel={
+            canCreate && createAction === undefined
+              ? t('syncParts.schedules.createFirst')
+              : undefined
+          }
+          onAction={
+            canCreate && createAction === undefined ? () => setShowBuilder(true) : undefined
+          }
+          action={createAction}
         />
       </div>
     );
@@ -714,15 +729,17 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
             {t('syncParts.schedules.noSavedConfig')}
           </p>
         )}
-        <button
-          type="button"
-          className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) disabled:opacity-50"
-          onClick={() => setShowBuilder(true)}
-          disabled={!canCreate}
-          data-testid="new-schedule-btn"
-        >
-          <Icon name="add" /> {t('syncParts.schedules.newSchedule')}
-        </button>
+        {createAction ?? (
+          <button
+            type="button"
+            className="text-xs px-3 py-1.5 rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) disabled:opacity-50"
+            onClick={() => setShowBuilder(true)}
+            disabled={!canCreate}
+            data-testid="new-schedule-btn"
+          >
+            <Icon name="add" /> {t('syncParts.schedules.newSchedule')}
+          </button>
+        )}
       </div>
 
       <Layout schedules={schedules} actionsFor={actionsFor} />

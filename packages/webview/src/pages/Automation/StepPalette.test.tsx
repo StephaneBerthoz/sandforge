@@ -20,6 +20,11 @@ describe('StepPalette', () => {
     expect(screen.getByTestId('step-palette')).toBeDefined();
   });
 
+  it('is headed by what a click on it does, under a Steps tab of its own name', () => {
+    render(<StepPalette />);
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe('Add a step');
+  });
+
   it('offers only the step types a pipeline built here runs, grouped by category', () => {
     // It listed all fifteen, ten of them disabled under "Not in pipelines" or
     // "Coming soon": none of the ten could be added.
