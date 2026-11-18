@@ -64,6 +64,7 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openSync', moduleId: 'sync', title: 'Sync' },
   { command: 'sandforge.openForge', moduleId: 'forge', title: 'Forge' },
   { command: 'sandforge.openCheckpoints', moduleId: 'checkpoint', title: 'Checkpoints' },
+  { command: 'sandforge.openRecovery', moduleId: 'recovery', title: 'Back into service' },
   { command: 'sandforge.openFrozen', moduleId: 'frozen', title: 'Frozen Dataset' },
   { command: 'sandforge.openGrappe', moduleId: 'grappe', title: 'Grappe' },
   { command: 'sandforge.openAutopilot', moduleId: 'autopilot', title: 'Autopilot' },

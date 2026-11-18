@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
  * `sandforge.open*` command, so no reader ever saw it on first click. Nothing
  * failed, because prose is not compiled. This file compiles it: the section is
  * checked against the two sources of truth it paraphrases — the launcher's own
- * nav arrays and the module command table — so the next module added to the
+ * lists and the module command table — so the next module added to the
  * sidebar, or the day `home` finally gets a command, breaks the doc loudly.
  *
  * `docs/` is not a workspace package, so this sits beside the document it
@@ -32,6 +32,7 @@ const read = (relativePath: string): string =>
 
 const GUIDE = read('docs/getting-started.md');
 const SIDE_PANEL = read('packages/webview/src/SidePanel.tsx');
+const NAV_GROUPS_SRC = read('packages/webview/src/navigation/navGroups.tsx');
 const MODULE_COMMANDS_SRC = read('packages/extension/src/composition/moduleCommands.ts');
 const SHORTCUTS_SRC = read('packages/webview/src/hooks/useGlobalShortcuts.ts');
 
@@ -42,21 +43,41 @@ const NAV_LABELS = (
   }
 ).nav;
 
+/** The rows navGroups.tsx declares — those the launcher, Home and Help list — by route id. */
+const NAV_ROWS = [
+  ...NAV_GROUPS_SRC.matchAll(/\bid: '([^']+)',\s*labelKey: '[^']+',\s*icon: </g),
+].map((m) => m[1]);
+
 /**
- * Route ids listed in one of SidePanel's nav arrays.
+ * Route ids of one of the launcher's lists, in its order: the ids SidePanel.tsx
+ * names a section's rows by (`PRIMARY_MODULE_IDS`, `ADVANCED_MODULE_IDS`), or
+ * the rows of a list of navGroups.tsx (`TOOL_ITEMS`). Each is a row
+ * navGroups.tsx declares.
  *
  * Read from the source text rather than imported: this file runs outside the
- * webview package (no JSX transform, no path aliases), and the arrays are
+ * webview package (no JSX transform, no path aliases), and the lists are
  * plain literals whose shape is stable.
  */
-function navIds(arrayName: string): string[] {
-  const block = new RegExp(`const ${arrayName}: NavItem\\[\\] = \\[([\\s\\S]*?)\\n\\];`).exec(
-    SIDE_PANEL,
-  );
-  if (!block) {
-    throw new Error(`${arrayName} not found in SidePanel.tsx — update this test with it`);
+function navIds(listName: string): string[] {
+  const idList = new RegExp(`const ${listName} = \\[([\\s\\S]*?)\\] as const;`).exec(SIDE_PANEL);
+  const rowList = new RegExp(
+    `const ${listName}: readonly NavItem\\[\\] = \\[([\\s\\S]*?)\\n\\];`,
+  ).exec(NAV_GROUPS_SRC);
+  const ids = idList
+    ? [...idList[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    : rowList
+      ? [...rowList[1].matchAll(/\bid: '([^']+)'/g)].map((m) => m[1])
+      : undefined;
+  if (!ids) {
+    throw new Error(
+      `${listName} found neither in SidePanel.tsx nor in navGroups.tsx — update this test with it`,
+    );
   }
-  return [...block[1].matchAll(/\bid: '([^']+)'/g)].map((m) => m[1]);
+  const undeclared = ids.filter((id) => !NAV_ROWS.includes(id));
+  if (undeclared.length > 0) {
+    throw new Error(`${undeclared.join(', ')}, listed by ${listName}, is no row of navGroups.tsx`);
+  }
+  return ids;
 }
 
 /** Labels for a nav array, in the order the launcher shows them. */
@@ -98,7 +119,7 @@ describe('docs/getting-started.md', () => {
 
     it('lists every module the launcher renders, in the launcher order', () => {
       const line = bullet(body, 'Modules');
-      const positions = labelsFor('PRIMARY_MODULES').map((label) => {
+      const positions = labelsFor('PRIMARY_MODULE_IDS').map((label) => {
         expect(line, `module "${label}" missing`).toContain(label);
         return line.indexOf(label);
       });
@@ -107,7 +128,7 @@ describe('docs/getting-started.md', () => {
 
     it('lists every module folded under Advanced, in the launcher order, and Grappe with its setting', () => {
       const line = bullet(body, 'Advanced');
-      const positions = labelsFor('ADVANCED_MODULES').map((label) => {
+      const positions = labelsFor('ADVANCED_MODULE_IDS').map((label) => {
         expect(line, `advanced module "${label}" missing`).toContain(label);
         return line.indexOf(label);
       });

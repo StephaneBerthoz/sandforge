@@ -186,7 +186,8 @@
     "autopilot": "Autopilot",
     "migration": "移行",
     "help": "ヘルプ",
-    "checkpoint": "チェックポイント"
+    "checkpoint": "チェックポイント",
+    "recovery": "運用再開"
   },
   "org": {
     "title": "組織",
@@ -5819,6 +5820,13 @@
       "expired": "セッション期限切れ",
       "error": "接続エラー",
       "refreshing": "更新中"
+    },
+    "group": {
+      "fill": "組織にデータを投入",
+      "copy": "組織間でコピー",
+      "protect": "保護と復元",
+      "watch": "監視と比較",
+      "automate": "自動化"
     }
   },
   "frozen": {
@@ -8231,6 +8239,11 @@
         "deleteKeeps": "リプレイはそのまま残ります: {{replays}}。それぞれチェックポイントなしで削除できます。"
       }
     }
+  },
+  "recovery": {
+    "title": "{{alias}} の運用を再開",
+    "emptyTitle": "Sandbox のリフレッシュ後の手順",
+    "emptyDesc": "ここに一覧表示されます: 戻すユーザー、本番データのマスキング、リプレイするチェックポイント、まだ本番組織を指している設定。"
   },
   "checkpointNotes": {
     "leftOut": {

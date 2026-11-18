@@ -178,7 +178,13 @@ const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
+  {
+    path: 'packages/webview/src/navigation/heroFor.ts',
+    reason:
+      'the hero rule the launcher and Home share, written before either reads it; it leaves this list when the launcher imports it',
+  },
+];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {

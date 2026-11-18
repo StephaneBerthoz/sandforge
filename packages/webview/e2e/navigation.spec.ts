@@ -283,15 +283,16 @@ test.describe('Module launcher', () => {
     }
 
     // And the other direction: a module command the extension registers with
-    // no way to reach it from the launcher. `reports` is the one deliberate
-    // exception — it has no launcher entry and is reached from the command
-    // palette (ALL_ROUTES) or the G+R chord instead. `home` is the page Open
-    // Full UI opens, through `sidebar:openFull` rather than a route.
+    // no way to reach it from the launcher. `reports` has no launcher entry
+    // and is reached from the command palette (ALL_ROUTES) or the G+R chord
+    // instead; `recovery`, Back into service, from the VS Code palette until
+    // the launcher lists it. `home` is the page Open Full UI opens, through
+    // `sidebar:openFull` rather than a route.
     const launcherRoutes = new Set(emitted);
     const unreachable = MODULE_COMMANDS.map((c) => c.moduleId).filter(
       (moduleId) => !launcherRoutes.has(moduleId),
     );
-    expect(unreachable).toEqual(['home', 'reports']);
+    expect(unreachable).toEqual(['home', 'recovery', 'reports']);
     await page.getByTestId('sidepanel-open-full').click();
     expect(await posted(page, 'sidebar:openFull')).toHaveLength(1);
   });

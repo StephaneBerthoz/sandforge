@@ -30,6 +30,7 @@ import type { OfflineManager } from '../../core/connection/OfflineManager.js';
 import type { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
+import type { RecoveryProgressSource } from '../../modules/recovery/recoveryProgress.js';
 import type { Services } from '../../services.js';
 
 /** What a restore asks before writing into an org that is not the one its backup was taken from. */
@@ -186,6 +187,12 @@ export interface HandlerDeps {
    * that do not exercise it.
    */
   sandboxRefreshes?: SandboxRefreshDetector;
+  /**
+   * How far each refreshed sandbox is back into service, n of N steps: what
+   * the launcher's hero shows. Built by `ExtensionHandlers`; absent in
+   * handler tests that do not exercise it.
+   */
+  recoveryProgress?: RecoveryProgressSource;
 }
 
 /**

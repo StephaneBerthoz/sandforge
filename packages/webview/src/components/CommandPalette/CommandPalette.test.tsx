@@ -132,7 +132,7 @@ describe('CommandPalette', () => {
     const rows = screen
       .getByTestId('command-palette-results')
       .querySelectorAll('[data-testid^="command-palette-item-nav-"]');
-    expect(rows.length).toBe(18);
+    expect(rows.length).toBe(19);
     const icons = [...rows].map(
       (row) => row.querySelector('[data-testid^="icon-"]')?.getAttribute('data-testid') ?? 'none',
     );

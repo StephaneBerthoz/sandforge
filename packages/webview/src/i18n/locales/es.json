@@ -197,7 +197,8 @@
     "autopilot": "Autopilot",
     "migration": "Migración",
     "help": "Ayuda",
-    "checkpoint": "Puntos de control"
+    "checkpoint": "Puntos de control",
+    "recovery": "Vuelta al servicio"
   },
   "org": {
     "title": "Organizaciones",
@@ -6161,6 +6162,13 @@
       "expired": "Sesión expirada",
       "error": "Error de conexión",
       "refreshing": "Actualizando"
+    },
+    "group": {
+      "fill": "Llenar una org",
+      "copy": "Copiar entre orgs",
+      "protect": "Proteger y restaurar",
+      "watch": "Supervisar y comparar",
+      "automate": "Automatizar"
     }
   },
   "frozen": {
@@ -8815,6 +8823,11 @@
         "deleteKeeps": "Sus reproducciones se quedan donde están: {{replays}}. Cada una se sigue quitando sin el punto de control."
       }
     }
+  },
+  "recovery": {
+    "title": "Volver a poner {{alias}} en servicio",
+    "emptyTitle": "Los pasos tras una actualización de sandbox",
+    "emptyDesc": "Se listarán aquí: los usuarios que hay que recuperar, el enmascaramiento de los datos de producción, el punto de control que hay que reproducir y lo que aún apunta a producción."
   },
   "checkpointNotes": {
     "leftOut": {

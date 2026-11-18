@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, RECOVERY_STEP_COUNT } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import { MessageBroker } from './MessageBroker';
 import { WebviewStateSync } from './WebviewStateSync';
@@ -18,6 +18,7 @@ import { ForgeHandler } from './handlers/ForgeHandler';
 import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler';
 import { AIHandler } from './handlers/AIHandler';
 import { SmartActionHandler } from './handlers/SmartActionHandler';
+import type { HandlerDeps } from './handlers/HandlerTypes';
 
 const mockPoolRemove = vi.hoisted(() => vi.fn());
 
@@ -131,5 +132,25 @@ describe('ExtensionHandlers — a sandbox refresh', () => {
     expect(forget).not.toHaveBeenCalled();
     await describeCached(REGISTERED_ORG_ID, 'Account', describe);
     expect(describe).toHaveBeenCalledTimes(1);
+  });
+
+  it('says how far the refreshed sandbox is back into service, to the handlers and the launcher', () => {
+    expect(handlers.recoveryProgress.progressOf(REGISTERED_ORG_ID)).toBeUndefined();
+
+    handlers.sandboxRefreshes.observe(
+      REGISTERED_ORG_ID,
+      { organizationId: REFRESHED_ORG_ID },
+      'connection',
+    );
+
+    expect(handlers.recoveryProgress.progressOf(REGISTERED_ORG_ID)).toEqual({
+      orgId: REGISTERED_ORG_ID,
+      alias: 'UAT',
+      detectedAt: expect.any(String),
+      done: 0,
+      total: RECOVERY_STEP_COUNT,
+    });
+    const deps = (handlers as unknown as { handlerDeps: HandlerDeps }).handlerDeps;
+    expect(deps.recoveryProgress).toBe(handlers.recoveryProgress);
   });
 });

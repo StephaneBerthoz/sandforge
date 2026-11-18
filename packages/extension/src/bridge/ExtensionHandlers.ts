@@ -38,6 +38,8 @@ import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
 import { SandboxRefreshDetector } from '../modules/monitor/SandboxRefreshDetector.js';
+import { detectorProgressSource } from '../modules/recovery/recoveryProgress.js';
+import type { RecoveryProgressSource } from '../modules/recovery/recoveryProgress.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
@@ -214,6 +216,8 @@ export class ExtensionHandlers {
   /** Where background runs register; a pipeline's Sync step cancels its run through it. */
   private backgroundRegistry?: BackgroundOperationRegistry;
   private readonly refreshDetector: SandboxRefreshDetector;
+  /** How far each refreshed sandbox is back into service, read from the detector. */
+  private readonly recoveryProgressSource: RecoveryProgressSource;
   /** The store a command line told the checkpoints to be kept in; the default one otherwise. */
   private checkpointStore?: OrgCheckpointStore;
   /**
@@ -232,6 +236,11 @@ export class ExtensionHandlers {
       configStore: deps.configStore,
       orgManager: deps.orgManager,
       log: deps.log,
+    });
+    this.recoveryProgressSource = detectorProgressSource({
+      refreshesOf: (entryId) => this.refreshDetector.refreshesOf(entryId),
+      orgOf: (entryId) => deps.orgManager.getOrg(entryId),
+      configStore: deps.configStore,
     });
     // Shared mutable deps object — infraServices is set later via setInfraServices
     this.handlerDeps = {
@@ -252,6 +261,7 @@ export class ExtensionHandlers {
       bulkManager: new BulkApiManager(DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs),
       nextId: () => this.nextId(),
       sandboxRefreshes: this.refreshDetector,
+      recoveryProgress: this.recoveryProgressSource,
     };
 
     this.orgHandler = new OrgHandler(this.handlerDeps);
@@ -478,6 +488,14 @@ export class ExtensionHandlers {
    */
   get sandboxRefreshes(): SandboxRefreshDetector {
     return this.refreshDetector;
+  }
+
+  /**
+   * How far each refreshed sandbox is back into service: what the launcher's
+   * hero reads, until the sandbox's recovery is finished.
+   */
+  get recoveryProgress(): RecoveryProgressSource {
+    return this.recoveryProgressSource;
   }
 
   /**

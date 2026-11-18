@@ -177,7 +177,7 @@ describe('sidebar entry', () => {
       }
     }
     // Positive control: the walk reads the keys the sidebar is known to render.
-    expect(used.get('nav.seed')).toBe('SidePanel.tsx');
+    expect(used.get('nav.seed')).toBe('navigation/navGroups.tsx');
     expect(used.get('home.opStatus.failed')).toBe('SidePanel.tsx');
     expect(used.get('sidePanel.lastCheckpoint')).toBe('SidePanel.tsx');
     expect(used.get('sidePanel.lastCheckpointTitle')).toBe('SidePanel.tsx');

@@ -16,6 +16,7 @@ import {
   SmartActionMessageSchema,
   FrozenMessageSchema,
   CheckpointMessageSchema,
+  RecoveryMessageSchema,
 } from './messageSchemas.js';
 import { PROTOCOL_VERSION } from './protocolVersion.js';
 
@@ -132,6 +133,15 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(CheckpointMessageSchema.safeParse(baseFields('checkpoint:error')).success).toBe(true);
     expect(CheckpointMessageSchema.safeParse(baseFields('checkpoint:bogus')).success).toBe(false);
     expect(CheckpointMessageSchema.safeParse(baseFields('frozen:status')).success).toBe(false);
+  });
+
+  it('RecoveryMessageSchema accepts the page’s requests, its progress and its error; rejects unknown', () => {
+    for (const type of ['recovery:status', 'recovery:users:apply', 'recovery:users:progress']) {
+      expect(RecoveryMessageSchema.safeParse(baseFields(type)).success).toBe(true);
+    }
+    expect(RecoveryMessageSchema.safeParse(baseFields('recovery:error')).success).toBe(true);
+    expect(RecoveryMessageSchema.safeParse(baseFields('recovery:bogus')).success).toBe(false);
+    expect(RecoveryMessageSchema.safeParse(baseFields('checkpoint:take')).success).toBe(false);
   });
 });
 

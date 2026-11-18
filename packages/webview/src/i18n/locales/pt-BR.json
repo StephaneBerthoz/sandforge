@@ -197,7 +197,8 @@
     "autopilot": "Autopilot",
     "migration": "Migração",
     "help": "Ajuda",
-    "checkpoint": "Pontos de verificação"
+    "checkpoint": "Pontos de verificação",
+    "recovery": "Volta ao serviço"
   },
   "org": {
     "title": "Organizações",
@@ -6161,6 +6162,13 @@
       "expired": "Sessão expirada",
       "error": "Erro de conexão",
       "refreshing": "Atualizando"
+    },
+    "group": {
+      "fill": "Preencher uma org",
+      "copy": "Copiar entre orgs",
+      "protect": "Proteger e restaurar",
+      "watch": "Monitorar e comparar",
+      "automate": "Automatizar"
     }
   },
   "frozen": {
@@ -8815,6 +8823,11 @@
         "deleteKeeps": "As reproduções dele ficam onde estão: {{replays}}. Cada uma continua sendo removida sem o ponto de verificação."
       }
     }
+  },
+  "recovery": {
+    "title": "Colocar {{alias}} de volta em serviço",
+    "emptyTitle": "As etapas após uma atualização de sandbox",
+    "emptyDesc": "Elas serão listadas aqui: os usuários a recuperar, o mascaramento dos dados de produção, o ponto de verificação a reproduzir e o que ainda aponta para a produção."
   },
   "checkpointNotes": {
     "leftOut": {

@@ -8,6 +8,7 @@ export type ModuleRoute =
   | 'forge'
   | 'frozen'
   | 'checkpoint'
+  | 'recovery'
   | 'grappe'
   | 'monitor'
   | 'seed'
@@ -30,6 +31,7 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'forge',
   'frozen',
   'checkpoint',
+  'recovery',
   'grappe',
   'monitor',
   'seed',
@@ -115,6 +117,43 @@ export interface NavigationIntent {
    * of the objects it copies.
    */
   emptyObjects?: string[];
+  /**
+   * The DataOps tab to open on, by the id the page names it with: Back into
+   * service opens Masking (`anonymize`). `emptying` names Empty objects and
+   * Empty the org, taken out of Cleanup into a tab of their own.
+   */
+  dataopsTab?: 'backup' | 'restore' | 'anonymize' | 'gdpr' | 'cleanup' | 'quality' | 'emptying';
+  /**
+   * The objects Masking opens with picked, for the org `targetOrgId` names:
+   * those of the last masking template, after a refresh copied production's
+   * data into a sandbox.
+   */
+  maskObjects?: string[];
+  /** The Frozen Dataset tab to open on: Back into service opens Load. */
+  frozenTab?: 'extract' | 'load';
+  /** The org a Frozen Dataset load is to write to, picked as the page opens. */
+  frozenTargetOrgId?: string;
+  /** The name a checkpoint take opens with, in place of the default one: "Testers' start". */
+  checkpointName?: string;
+  /** The days a checkpoint take keeps it, as `checkpoint:take` reads them: 0 keeps it until deleted. */
+  checkpointKeepDays?: number;
+  /** The org Compare reads from as it opens. */
+  compareSourceOrgId?: string;
+  /** The org Compare compares it with, and deploys to. */
+  compareTargetOrgId?: string;
+  /** The Compare tab to open on, by the id the page names it with. */
+  compareTab?: 'diff' | 'permissions' | 'objects' | 'drift' | 'deploy';
+  /** The Sync tab to open on, by the id the page names it with. */
+  syncTab?: 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
+  /** The Seed template the gallery opens on, by its id: with `seedMode: 'quick-seed'`. */
+  seedTemplateId?: string;
+  /** The Help section to open, by its id: a module's, or a guide's. */
+  helpSection?: string;
+  /**
+   * The pipeline template Automation opens on, by its id: Back into service's
+   * "Automate after each refresh" opens Sandbox Refresh Post-Processing.
+   */
+  automationTemplateId?: string;
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

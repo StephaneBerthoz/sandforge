@@ -64,14 +64,31 @@ vi.mock('../../stores/useAppStore', () => {
 });
 
 /**
- * The side panel's rows in the order it lists them, each with the lucide
- * component it draws, read from its source: the side panel is its own bundle.
+ * The side panel's rows, each with the lucide component it draws, read from
+ * the source of `NAV_GROUPS`, which it lists them from: the side panel is its
+ * own bundle.
  */
 function sidePanelItems(): Array<{ id: string; icon: string }> {
-  const source = readFileSync(join(__dirname, '..', '..', 'SidePanel.tsx'), 'utf-8');
+  const source = readFileSync(join(__dirname, '..', '..', 'navigation', 'navGroups.tsx'), 'utf-8');
   return [...source.matchAll(/id: '([\w-]+)',\s*labelKey: '[^']+',\s*icon: <(\w+)/g)].map(
     ([, id, icon]) => ({ id, icon }),
   );
+}
+
+/**
+ * The modules the side panel lists, in its order: its sections, Modules then
+ * Advanced, as its source names them by id.
+ */
+function sidePanelOrder(): string[] {
+  const source = readFileSync(join(__dirname, '..', '..', 'SidePanel.tsx'), 'utf-8');
+  return ['PRIMARY_MODULE_IDS', 'ADVANCED_MODULE_IDS'].flatMap((name) => {
+    const list = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const;`).exec(source);
+    if (!list)
+      throw new Error(
+        `${name} is not in SidePanel.tsx: read the side panel's order where it is now`,
+      );
+    return [...list[1].matchAll(/'([\w-]+)'/g)].map(([, id]) => id);
+  });
 }
 
 /** A caption as a sentence of a Help line says it: lower case first, no full stop. */
@@ -239,21 +256,22 @@ describe('HelpPage', () => {
       'troubleshooting',
       'release-notes',
     ]);
-    const modules = sidePanelItems()
-      .map(({ id }) => id)
-      .filter((id) => ids.includes(id) && id !== 'orgs');
+    const modules = sidePanelOrder().filter((id) => ids.includes(id));
     expect(modules).toHaveLength(13);
     expect(ids.filter((id) => modules.includes(id))).toEqual(modules);
+    // Each is a row of the list the side panel draws its rows from.
+    const rows = sidePanelItems().map(({ id }) => id);
+    expect(modules.filter((id) => !rows.includes(id))).toEqual([]);
   });
 
   it('draws each module and Organizations with the side panel’s icon, where it drew emoji', () => {
     // A hammer for Forge where the side panel draws a flame, a plane for
     // Autopilot where it draws a rocket, and empty boxes where no colour-emoji
-    // font exists.
+    // font exists. Reports among them, which Help drew before the side panel.
     const panel = sidePanelItems();
     const drawn = new Map(HELP_SECTIONS.map((section) => [section.id, section.icon]));
     const shared = panel.filter(({ id }) => drawn.has(id));
-    expect(shared).toHaveLength(14);
+    expect(shared).toHaveLength(15);
     for (const { id, icon } of shared) {
       // By the component itself: lucide names one icon several ways (History).
       const component = (lucide as unknown as Record<string, unknown>)[icon];

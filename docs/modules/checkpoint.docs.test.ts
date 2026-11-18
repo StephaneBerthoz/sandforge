@@ -50,6 +50,7 @@ const EXTENSION_HANDLERS = source('packages/extension/src/bridge/ExtensionHandle
 const EXTENSION = source('packages/extension/src/extension.ts');
 const TYPES = source('packages/shared/src/types/checkpoint.types.ts');
 const SIDE_PANEL = source('packages/webview/src/SidePanel.tsx');
+const NAV_GROUPS_SRC = source('packages/webview/src/navigation/navGroups.tsx');
 const EN = JSON.parse(source('packages/webview/src/i18n/locales/en.json')) as Record<
   string,
   unknown
@@ -1157,11 +1158,13 @@ describe('docs/modules/checkpoint.md', () => {
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {
-    // Positive control: the side bar's primary modules, in their order.
-    const primary = /const PRIMARY_MODULES: NavItem\[\] = \[([\s\S]*?)\n\];/.exec(SIDE_PANEL)?.[1];
+    // Positive control: the side bar's primary modules, in their order, by
+    // the ids it names the rows of `NAV_GROUPS` by.
+    const primary = /const PRIMARY_MODULE_IDS = \[([\s\S]*?)\] as const;/.exec(SIDE_PANEL)?.[1];
     expect(primary).toBeDefined();
-    const ids = [...(primary ?? '').matchAll(/id: '([a-z]+)'/g)].map((m) => m[1]);
+    const ids = [...(primary ?? '').matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
     expect(ids.slice(0, 3)).toEqual(['seed', 'forge', 'checkpoint']);
+    expect(NAV_GROUPS_SRC).toMatch(/id: 'checkpoint',\s*labelKey: 'nav\.checkpoint',\s*icon: </);
 
     expect(DOC).toContain("third in the launcher's Modules list, after Seed and Forge");
   });

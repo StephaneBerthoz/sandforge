@@ -1,5 +1,5 @@
 import type * as vscode from 'vscode';
-import type { OrgListResponse } from '@sandforge/shared';
+import type { OrgListResponse, RecoveryProgress } from '@sandforge/shared';
 import { sidepanelLocaleSubset } from '@sandforge/shared';
 import { join } from 'node:path';
 import { buildWebviewHtml } from './webviewHtml';
@@ -58,6 +58,15 @@ export type SidebarOutboundMessage =
       type: 'sidebar:lastCheckpoint';
       /** The org asked about, and its latest usable checkpoint: none, no line. */
       payload: { orgId: string; checkpoint?: SidebarLastCheckpoint };
+    }
+  | {
+      type: 'sidebar:afterRefresh';
+      /**
+       * Every registered sandbox whose refresh was noticed and whose way back
+       * into service is not finished, n of N steps: the launcher's hero leads
+       * with the one selected, else the newest.
+       */
+      payload: RecoveryProgress[];
     }
   | {
       id: string;

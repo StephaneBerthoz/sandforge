@@ -765,6 +765,39 @@ const CheckpointMessages = [
 ] as const;
 export const CheckpointMessageSchema = z.discriminatedUnion('type', CheckpointMessages);
 
+// ─── Domain: Back into service ───────────────────────────────────────────────
+const RecoveryMessages = [
+  // Where a sandbox stands after its refresh, each step deduced from the stores.
+  msg('recovery:status'),
+  msg('recovery:status:response'),
+  // The users to bring back: read, simulated, set up, stopped, kept and carried as users.json.
+  msg('recovery:users:list'),
+  msg('recovery:users:list:response'),
+  msg('recovery:users:plan'),
+  msg('recovery:users:plan:response'),
+  msg('recovery:users:apply'),
+  msg('recovery:users:apply:response'),
+  msg('recovery:users:progress'),
+  msg('recovery:users:cancel'),
+  msg('recovery:users:config:save'),
+  msg('recovery:users:config:save:response'),
+  msg('recovery:users:config:export'),
+  msg('recovery:users:config:export:response'),
+  msg('recovery:users:config:import'),
+  msg('recovery:users:config:import:response'),
+  // The deliverability, the scheduled jobs and the endpoints, read only.
+  msg('recovery:audit'),
+  msg('recovery:audit:response'),
+  msg('recovery:handoff'),
+  msg('recovery:handoff:response'),
+  // A step skipped or marked done by hand, or the recovery finished.
+  msg('recovery:ack'),
+  msg('recovery:ack:response'),
+  // Error channel for every recovery request, by a code the page translates.
+  msg('recovery:error'),
+] as const;
+export const RecoveryMessageSchema = z.discriminatedUnion('type', RecoveryMessages);
+
 /**
  * Full bridge message surface — one flattened discriminated union over every
  * domain array (O(1) dispatch at the boundary).
@@ -789,6 +822,7 @@ export const BridgeMessageSchema = z.discriminatedUnion('type', [
   ...SmartActionMessages,
   ...FrozenMessages,
   ...CheckpointMessages,
+  ...RecoveryMessages,
 ]);
 
 /** Inferred TS type of any valid bridge message (after parse). */

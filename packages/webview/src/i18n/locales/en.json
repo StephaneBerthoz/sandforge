@@ -197,7 +197,8 @@
     "autopilot": "Autopilot",
     "migration": "Migration",
     "help": "Help",
-    "checkpoint": "Checkpoints"
+    "checkpoint": "Checkpoints",
+    "recovery": "Back into service"
   },
   "org": {
     "title": "Organizations",
@@ -6161,6 +6162,13 @@
       "expired": "Session expired",
       "error": "Connection error",
       "refreshing": "Refreshing"
+    },
+    "group": {
+      "fill": "Fill an org",
+      "copy": "Copy between orgs",
+      "protect": "Protect and restore",
+      "watch": "Watch and compare",
+      "automate": "Automate"
     }
   },
   "frozen": {
@@ -8815,6 +8823,11 @@
         "deleteKeeps": "Its replays stay where they are: {{replays}}. Each is still removed without the checkpoint."
       }
     }
+  },
+  "recovery": {
+    "title": "Bring {{alias}} back into service",
+    "emptyTitle": "The steps after a sandbox refresh",
+    "emptyDesc": "They will be listed here: the users to bring back, the masking of production's data, the checkpoint to replay, and what still names production."
   },
   "checkpointNotes": {
     "leftOut": {

@@ -32,6 +32,7 @@ const ROUTE_ICONS: Record<Exclude<ModuleRoute, 'welcome'>, IconName> = {
   forge: 'flame',
   frozen: 'snowflake',
   checkpoint: 'history',
+  recovery: 'checklist',
   grappe: 'server',
   monitor: 'pulse',
   seed: 'sprout',

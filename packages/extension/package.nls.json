@@ -10,6 +10,7 @@
   "command.openSync": "SandForge: Open Sync",
   "command.openForge": "SandForge: Open Forge",
   "command.openCheckpoints": "SandForge: Open Checkpoints",
+  "command.openRecovery": "SandForge: Back into service",
   "command.openFrozen": "SandForge: Open Frozen Dataset",
   "command.openGrappe": "SandForge: Open Grappe (partition progress)",
   "command.openAutopilot": "SandForge: Open Autopilot",

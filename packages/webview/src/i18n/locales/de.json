@@ -197,7 +197,8 @@
     "autopilot": "Autopilot",
     "migration": "Migration",
     "help": "Hilfe",
-    "checkpoint": "Prüfpunkte"
+    "checkpoint": "Prüfpunkte",
+    "recovery": "Wieder in Betrieb"
   },
   "org": {
     "title": "Organisationen",
@@ -6161,6 +6162,13 @@
       "expired": "Sitzung abgelaufen",
       "error": "Verbindungsfehler",
       "refreshing": "Aktualisierung"
+    },
+    "group": {
+      "fill": "Org befüllen",
+      "copy": "Zwischen Orgs kopieren",
+      "protect": "Schützen und wiederherstellen",
+      "watch": "Überwachen und vergleichen",
+      "automate": "Automatisieren"
     }
   },
   "frozen": {
@@ -8815,6 +8823,11 @@
         "deleteKeeps": "Seine Wiedergaben bleiben, wo sie sind: {{replays}}. Jede lässt sich auch ohne den Prüfpunkt entfernen."
       }
     }
+  },
+  "recovery": {
+    "title": "{{alias}} wieder in Betrieb nehmen",
+    "emptyTitle": "Die Schritte nach einer Sandbox-Aktualisierung",
+    "emptyDesc": "Sie werden hier aufgeführt: die Benutzer, die zurückkommen, die Maskierung der Produktionsdaten, der Prüfpunkt, der wiedergegeben wird, und was noch auf die Produktion verweist."
   },
   "checkpointNotes": {
     "leftOut": {

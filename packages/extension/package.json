@@ -137,6 +137,11 @@
         "icon": "$(history)"
       },
       {
+        "command": "sandforge.openRecovery",
+        "title": "%command.openRecovery%",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "sandforge.openFrozen",
         "title": "%command.openFrozen%",
         "icon": "$(snowflake)"

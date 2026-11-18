@@ -1316,7 +1316,7 @@ const HOST_NAME =
   /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 
 /** A host name, which an answer names a URL's or an org's host by. */
-const hostSchema = z.string().max(253).regex(HOST_NAME, { error: 'Not a host name' });
+export const hostSchema = z.string().max(253).regex(HOST_NAME, { error: 'Not a host name' });
 
 /** The most production hosts, and the most fields, a file names to the endpoints audit. */
 const AUDIT_MOST_NAMES = 50;
@@ -1386,7 +1386,7 @@ const endpointFieldSchema = z
  * production the sandbox was copied from: its other hosts, and the fields
  * that hold a URL.
  */
-const auditEndpointsSchema = strictObject('endpoints', {
+export const auditEndpointsSchema = strictObject('endpoints', {
   /** Production's hosts beside those deduced from the sandbox's: the ERP, the middleware. */
   productionHosts: z
     .array(productionHostSchema)

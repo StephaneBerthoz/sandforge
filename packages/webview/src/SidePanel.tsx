@@ -3,34 +3,24 @@ import { useTranslation } from 'react-i18next';
 import { syncLanguageFromSettings } from './i18n';
 import {
   Flame,
-  Activity,
-  Bot,
   ExternalLink,
   AlertCircle,
   CheckCircle,
   XCircle,
   Ban,
   Loader,
-  Shield,
-  Zap,
   Plug,
-  Settings,
-  HelpCircle,
-  GitCompare,
   ChevronDown,
   Star,
   ArrowRight,
-  Snowflake,
   Sprout,
-  RefreshCw,
-  Grape,
   Globe,
-  Rocket,
-  FileUp,
   Download,
-  History,
 } from 'lucide-react';
 import { BrandMark } from './components/ui/BrandMark';
+import { MODULE_ITEMS, TOOL_ITEMS, isNavItemShown } from './navigation/navGroups';
+import type { NavItem } from './navigation/navGroups';
+import type { ModuleRoute } from './stores/useAppStore';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
 import { orgTypeLabel } from './utils/orgFormatters';
@@ -118,123 +108,44 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
   }
 };
 
-/** Navigation item definition for the sidebar. */
-interface NavItem {
-  id: string;
-  labelKey: string;
-  icon: React.ReactNode;
-  accent?: string;
+/**
+ * The launcher's sections as 1.82.0 lists them, rows of `NAV_GROUPS` named by
+ * their ids: the modules a newcomer sees first, then those folded under
+ * Advanced, Grappe last while its setting is on. The launcher keeps this
+ * order and this folding until it lists the groups themselves, and this table
+ * goes with them; Back into service and Reports are not listed here.
+ */
+const PRIMARY_MODULE_IDS = [
+  'seed',
+  'forge',
+  'checkpoint',
+  'monitor',
+  'sync',
+  'autopilot',
+  'frozen',
+] as const;
+const ADVANCED_MODULE_IDS = [
+  'compare',
+  'dataops',
+  'automation',
+  'migration',
+  'ai',
+  'grappe',
+] as const;
+
+/** The rows of `NAV_GROUPS` these ids name, in the ids' order. */
+function rowsOf(ids: readonly ModuleRoute[]): NavItem[] {
+  return ids.flatMap((id) => MODULE_ITEMS.filter((item) => item.id === id));
 }
 
-/**
- * The modules a newcomer sees first: filling an org, cloning into one,
- * keeping its data's state to return to, watching it, and the three that
- * copy between two orgs.
- *
- * The launcher listed eleven modules of equal weight, with Grappe, a page
- * that shows nothing until a setting is turned on, fourth: a newcomer read a
- * specialist suite. Forge was reached only through the hero, which now
- * offers Seed to someone with one org, so it has its row here.
- */
-const PRIMARY_MODULES: NavItem[] = [
-  {
-    id: 'seed',
-    labelKey: 'nav.seed',
-    icon: <Sprout className="w-4 h-4" />,
-    accent: 'text-hue-green',
-  },
-  {
-    id: 'forge',
-    labelKey: 'nav.forge',
-    icon: <Flame className="w-4 h-4" />,
-    accent: 'text-hue-orange',
-  },
-  {
-    id: 'checkpoint',
-    labelKey: 'nav.checkpoint',
-    icon: <History className="w-4 h-4" />,
-    accent: 'text-hue-indigo',
-  },
-  {
-    id: 'monitor',
-    labelKey: 'nav.monitor',
-    icon: <Activity className="w-4 h-4" />,
-    accent: 'text-hue-blue',
-  },
-  {
-    id: 'sync',
-    labelKey: 'nav.sync',
-    icon: <RefreshCw className="w-4 h-4" />,
-    accent: 'text-hue-sky',
-  },
-  {
-    id: 'autopilot',
-    labelKey: 'nav.autopilot',
-    icon: <Rocket className="w-4 h-4" />,
-    accent: 'text-hue-rose',
-  },
-  {
-    id: 'frozen',
-    labelKey: 'nav.frozen',
-    icon: <Snowflake className="w-4 h-4" />,
-    accent: 'text-hue-cyan',
-  },
-];
+const PRIMARY_MODULES = rowsOf(PRIMARY_MODULE_IDS);
+const ADVANCED_MODULES = rowsOf(ADVANCED_MODULE_IDS);
 
-/** The modules under "Advanced", folded until opened. */
-const ADVANCED_MODULES: NavItem[] = [
-  {
-    id: 'compare',
-    labelKey: 'nav.compare',
-    icon: <GitCompare className="w-4 h-4" />,
-    accent: 'text-hue-purple',
-  },
-  {
-    id: 'dataops',
-    labelKey: 'nav.dataops',
-    icon: <Shield className="w-4 h-4" />,
-    accent: 'text-hue-yellow',
-  },
-  {
-    id: 'automation',
-    labelKey: 'nav.automation',
-    icon: <Zap className="w-4 h-4" />,
-    accent: 'text-hue-amber',
-  },
-  {
-    id: 'migration',
-    labelKey: 'nav.migration',
-    icon: <FileUp className="w-4 h-4" />,
-    accent: 'text-hue-teal',
-  },
-  {
-    id: 'ai',
-    labelKey: 'nav.ai',
-    icon: <Bot className="w-4 h-4" />,
-    accent: 'text-hue-fuchsia',
-  },
-];
-
-/** Grappe, listed under Advanced only while `sandforge.grappe.enabled` is on: off, its page is empty. */
-const GRAPPE_ITEM: NavItem = {
-  id: 'grappe',
-  labelKey: 'nav.grappe',
-  icon: <Grape className="w-4 h-4" />,
-  accent: 'text-hue-indigo',
-};
-
-/** Every module the launcher can list, favourites included. */
-const MODULE_ITEMS: NavItem[] = [...PRIMARY_MODULES, ...ADVANCED_MODULES, GRAPPE_ITEM];
+/** Every module the launcher lists, in its order: what favourites are picked from. */
+const LISTED_MODULES: readonly NavItem[] = [...PRIMARY_MODULES, ...ADVANCED_MODULES];
 
 /** Webview state key of whether the Advanced section is open. */
 const ADVANCED_OPEN_KEY = 'sf-launcher-advanced-open';
-
-/** Tool navigation items. */
-const TOOL_ITEMS: NavItem[] = [
-  { id: 'orgs', labelKey: 'nav.orgs', icon: <Plug className="w-4 h-4" /> },
-  { id: 'settings', labelKey: 'nav.settings', icon: <Settings className="w-4 h-4" /> },
-  { id: 'help', labelKey: 'nav.help', icon: <HelpCircle className="w-4 h-4" /> },
-];
 
 /**
  * A module's name in the launcher's lists: wrapped on two lines at most rather
@@ -689,7 +600,12 @@ export const SidePanel: React.FC = () => {
   const hero: 'none' | 'seed' | 'forge' =
     !orgsLoaded || noOrgYet ? 'none' : fillTarget ? 'seed' : 'forge';
   const fillAlias = fillTarget ? orgDisplayName(fillTarget) : '';
-  const advancedItems = grappeEnabled ? [...ADVANCED_MODULES, GRAPPE_ITEM] : ADVANCED_MODULES;
+  const advancedItems = ADVANCED_MODULES.filter((item) =>
+    isNavItemShown(item, {
+      sandboxRegistered: orgs.some((org) => org.orgType === 'Sandbox'),
+      grappeEnabled,
+    }),
+  );
 
   return (
     <div
@@ -1094,7 +1010,7 @@ export const SidePanel: React.FC = () => {
             aria-label={t('sidePanel.favorites', 'Favorites')}
             data-testid="sidepanel-favorites"
           >
-            {MODULE_ITEMS.filter((item) => favorites.includes(item.id)).map((item) => (
+            {LISTED_MODULES.filter((item) => favorites.includes(item.id)).map((item) => (
               // The same geometry as the Modules row below. They were a
               // different height and a different corner radius, forty pixels
               // apart, for the same module.

@@ -197,7 +197,8 @@
     "autopilot": "Autopilot",
     "migration": "Migration",
     "help": "Aide",
-    "checkpoint": "Points de contrôle"
+    "checkpoint": "Points de contrôle",
+    "recovery": "Remise en service"
   },
   "org": {
     "title": "Organisations",
@@ -6161,6 +6162,13 @@
       "expired": "Session expirée",
       "error": "Erreur de connexion",
       "refreshing": "Actualisation"
+    },
+    "group": {
+      "fill": "Remplir une org",
+      "copy": "Copier entre orgs",
+      "protect": "Protéger et restaurer",
+      "watch": "Surveiller et comparer",
+      "automate": "Automatiser"
     }
   },
   "frozen": {
@@ -8815,6 +8823,11 @@
         "deleteKeeps": "Ses rejeux restent en place : {{replays}}. Chacun se retire encore sans le point de contrôle."
       }
     }
+  },
+  "recovery": {
+    "title": "Remettre {{alias}} en service",
+    "emptyTitle": "Les étapes après un rafraîchissement de sandbox",
+    "emptyDesc": "Elles seront listées ici : les utilisateurs à remettre, le masquage des données de la production, le point de contrôle à rejouer et ce qui nomme encore la production."
   },
   "checkpointNotes": {
     "leftOut": {

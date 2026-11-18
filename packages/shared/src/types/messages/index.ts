@@ -32,6 +32,7 @@ export * from './realtime.messages.js';
 export * from './smart-action.messages.js';
 export * from './frozen.messages.js';
 export * from './checkpoint.messages.js';
+export * from './recovery.messages.js';
 
 import type {
   OrgListRequest,
@@ -635,6 +636,31 @@ import type {
   CheckpointImportResponse,
   CheckpointErrorResponse,
 } from './checkpoint.messages.js';
+import type {
+  RecoveryStatusRequest,
+  RecoveryUsersListRequest,
+  RecoveryUsersPlanRequest,
+  RecoveryUsersApplyRequest,
+  RecoveryUsersCancelRequest,
+  RecoveryUsersConfigSaveRequest,
+  RecoveryUsersConfigExportRequest,
+  RecoveryUsersConfigImportRequest,
+  RecoveryAuditRequest,
+  RecoveryHandoffRequest,
+  RecoveryAckRequest,
+  RecoveryStatusResponse,
+  RecoveryUsersListResponse,
+  RecoveryUsersPlanResponse,
+  RecoveryUsersApplyResponse,
+  RecoveryUsersProgressEvent,
+  RecoveryUsersConfigSaveResponse,
+  RecoveryUsersConfigExportResponse,
+  RecoveryUsersConfigImportResponse,
+  RecoveryAuditResponse,
+  RecoveryHandoffResponse,
+  RecoveryAckResponse,
+  RecoveryErrorResponse,
+} from './recovery.messages.js';
 
 /** Message from WebView to Extension (requests) */
 export type WebViewToExtensionMessage =
@@ -902,7 +928,19 @@ export type WebViewToExtensionMessage =
   | CheckpointPlanSelectionRequest
   | CheckpointExportRequest
   | CheckpointImportReadRequest
-  | CheckpointImportRequest;
+  | CheckpointImportRequest
+  // Back into service
+  | RecoveryStatusRequest
+  | RecoveryUsersListRequest
+  | RecoveryUsersPlanRequest
+  | RecoveryUsersApplyRequest
+  | RecoveryUsersCancelRequest
+  | RecoveryUsersConfigSaveRequest
+  | RecoveryUsersConfigExportRequest
+  | RecoveryUsersConfigImportRequest
+  | RecoveryAuditRequest
+  | RecoveryHandoffRequest
+  | RecoveryAckRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -1246,4 +1284,17 @@ export type ExtensionToWebViewMessage =
   | CheckpointExportResponse
   | CheckpointImportReadResponse
   | CheckpointImportResponse
-  | CheckpointErrorResponse;
+  | CheckpointErrorResponse
+  // Back into service
+  | RecoveryStatusResponse
+  | RecoveryUsersListResponse
+  | RecoveryUsersPlanResponse
+  | RecoveryUsersApplyResponse
+  | RecoveryUsersProgressEvent
+  | RecoveryUsersConfigSaveResponse
+  | RecoveryUsersConfigExportResponse
+  | RecoveryUsersConfigImportResponse
+  | RecoveryAuditResponse
+  | RecoveryHandoffResponse
+  | RecoveryAckResponse
+  | RecoveryErrorResponse;
