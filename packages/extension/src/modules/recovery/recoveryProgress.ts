@@ -19,6 +19,13 @@ export interface RecoveryProgressSource {
    * finished.
    */
   progressOf(entryId: string): RecoveryProgress | undefined;
+  /**
+   * Called each time a progress may have changed (a step done, skipped or
+   * finished), so the launcher asks again; absent, the launcher asks on its
+   * own occasions alone (a refresh noticed, its view shown). The returned
+   * object stops the calls.
+   */
+  onDidChange?(listener: () => void): { dispose(): void };
 }
 
 /** What {@link detectorProgressSource} reads. */
