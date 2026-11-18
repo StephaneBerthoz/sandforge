@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { CheckpointListEntry, EnvReplayResource } from '@sandforge/shared';
 import { parseArgs as parseCheckpointLine } from '../../sandforge-checkpoint.js';
 import { StepAnswerError } from './common.js';
@@ -414,7 +414,8 @@ describe('the lines of a replay resource', () => {
       ),
     ).toMatchObject({
       command: 'replay',
-      storeRoot: '/journal/checkpoints',
+      // parseArgs resolves the store: a drive letter in front of it on Windows.
+      storeRoot: resolve('/journal/checkpoints'),
       storeNamed: true,
       json: true,
       replay: {
