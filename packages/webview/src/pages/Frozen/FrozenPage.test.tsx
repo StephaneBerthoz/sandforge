@@ -23,9 +23,17 @@ vi.mock('../../stores/useOrgStore', () => ({
 }));
 
 const mockNavigate = vi.fn();
+const mockClearIntent = vi.fn();
+/** Where the navigation that opened the page asked it to land, if anywhere. */
+let mockIntent: Record<string, unknown> | null = null;
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ navigate: mockNavigate, currentRoute: 'frozen' }),
+    selector({
+      navigate: mockNavigate,
+      currentRoute: 'frozen',
+      navigationIntent: mockIntent,
+      clearNavigationIntent: mockClearIntent,
+    }),
 }));
 
 /** Per-request-type mutation spy: records (requestType, payload) calls. */
@@ -45,11 +53,13 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   }),
 }));
 
+/** What a query failed with, by its request type; none fails unless a test says so. */
+const mockQueryErrors: Record<string, string> = {};
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({
+  useBridgeQuery: (requestType: string) => ({
     data: null,
     loading: false,
-    error: null,
+    error: mockQueryErrors[requestType] ?? null,
     refetch: vi.fn(),
   }),
 }));
@@ -91,6 +101,7 @@ function resetStore(): void {
   useFrozenStore.setState({
     tab: 'extract',
     targetOrgId: '',
+    sourceOrgId: '',
     config: null,
     status: null,
     selection: null,
@@ -129,23 +140,129 @@ describe('FrozenPage', () => {
       selectedOrgId: 'org-1',
     };
     mockNavigate.mockClear();
+    mockClearIntent.mockClear();
+    mockIntent = null;
     mockMutate.mockClear();
     mockLoading.clear();
     for (const key of Object.keys(mockData)) delete mockData[key];
+    for (const key of Object.keys(mockQueryErrors)) delete mockQueryErrors[key];
     resetStore();
   });
 
-  it('shows the empty state when no org is selected', () => {
-    mockOrgState = { orgs: [], selectedOrgId: null };
-    render(<FrozenPage />);
-    expect(screen.getByTestId('empty-state')).toBeDefined();
+  describe('with no org to work with', () => {
+    // With orgs registered but none selected, it said "No org connected" and
+    // "Select an Org", which opened Organizations, where nothing was missing.
+    it('says no org is connected when none is, and offers to connect one', () => {
+      mockOrgState = { orgs: [], selectedOrgId: null };
+      render(<FrozenPage />);
+      expect(screen.getByTestId('empty-state').textContent).toContain('No org connected');
+      const action = screen.getByTestId('empty-action-button');
+      expect(action.textContent).toBe('Connect an org');
+      fireEvent.click(action);
+      expect(mockNavigate).toHaveBeenCalledWith('orgs');
+    });
+
+    it('opens the page when orgs are connected but none is selected, the source left to pick', () => {
+      mockOrgState = {
+        orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] }],
+        selectedOrgId: null,
+      };
+      useFrozenStore.setState({ status: statusFixture({ manifest: null }) });
+      render(<FrozenPage />);
+      expect(screen.queryByTestId('empty-state')).toBeNull();
+      expect(screen.getByTestId('frozen-source-pick').textContent).toBe(
+        'Pick the org to extract from.',
+      );
+      expect(screen.getByTestId('frozen-select-run').getAttribute('aria-disabled')).toBe('true');
+    });
   });
 
-  it('navigates to orgs when the empty-state CTA is clicked', () => {
-    mockOrgState = { orgs: [], selectedOrgId: null };
-    render(<FrozenPage />);
-    fireEvent.click(screen.getByTestId('empty-action-button'));
-    expect(mockNavigate).toHaveBeenCalledWith('orgs');
+  describe('where the page opens', () => {
+    beforeEach(() => {
+      useFrozenStore.setState({ tab: null });
+    });
+
+    // After a refresh, the dataset waiting to be loaded was one tab away, and
+    // the page opened on Extract every time.
+    it('opens on Load once the status says a dataset is frozen on this machine', async () => {
+      render(<FrozenPage />);
+      act(() => useFrozenStore.setState({ status: statusFixture() }));
+      await loadTabShown();
+      expect(screen.getByTestId('page-tab-load').getAttribute('aria-selected')).toBe('true');
+      expect(screen.queryByTestId('frozen-extract-tab')).toBeNull();
+    });
+
+    it('opens on Extract once the status says no dataset is frozen yet', () => {
+      render(<FrozenPage />);
+      act(() => useFrozenStore.setState({ status: statusFixture({ manifest: null }) }));
+      expect(screen.getByTestId('frozen-extract-tab')).toBeDefined();
+      expect(screen.getByTestId('page-tab-extract').getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('shows neither tab before the status is read, and Extract when it cannot be', () => {
+      const { rerender } = render(<FrozenPage />);
+      expect(screen.queryByTestId('frozen-extract-tab')).toBeNull();
+      expect(screen.queryByTestId('frozen-load-tab')).toBeNull();
+      for (const id of ['page-tab-extract', 'page-tab-load']) {
+        expect(screen.getByTestId(id).getAttribute('aria-selected')).toBe('false');
+      }
+
+      mockQueryErrors['frozen:status'] = 'Request timed out';
+      rerender(<FrozenPage />);
+      expect(screen.getByTestId('frozen-extract-tab')).toBeDefined();
+    });
+
+    it('keeps the tab picked before the status is read', () => {
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('page-tab-extract'));
+      act(() => useFrozenStore.setState({ status: statusFixture() }));
+      expect(screen.getByTestId('frozen-extract-tab')).toBeDefined();
+    });
+
+    it('stays on Extract once landed there, when the extraction freezes a dataset', () => {
+      render(<FrozenPage />);
+      act(() => useFrozenStore.setState({ status: statusFixture({ manifest: null }) }));
+      act(() => useFrozenStore.setState({ status: statusFixture() }));
+      expect(screen.getByTestId('frozen-extract-tab')).toBeDefined();
+    });
+
+    // Back into service's step 5 asks for the Load tab, the refreshed sandbox picked.
+    it('opens on the tab the navigation asked for, its target picked, before the status is read', async () => {
+      mockOrgState = {
+        orgs: [
+          { id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] },
+          { id: 'org-uat', alias: 'UAT', status: 'connected', orgType: 'Sandbox', tags: [] },
+        ],
+        selectedOrgId: 'org-1',
+      };
+      useFrozenStore.setState({ tab: 'extract', targetOrgId: 'org-1' });
+      mockIntent = { route: 'frozen', frozenTab: 'load', frozenTargetOrgId: 'org-uat' };
+      render(<FrozenPage />);
+
+      await loadTabShown();
+      expect(useFrozenStore.getState().tab).toBe('load');
+      expect(useFrozenStore.getState().targetOrgId).toBe('org-uat');
+      expect(screen.getByTestId('frozen-load-target').textContent).toContain('UAT');
+      expect(mockClearIntent).toHaveBeenCalled();
+
+      // Read once: the status that says no dataset does not move it.
+      act(() => useFrozenStore.setState({ status: statusFixture({ manifest: null }) }));
+      expect(screen.getByTestId('frozen-load-tab')).toBeDefined();
+    });
+
+    it('takes no target the navigation names that this machine does not hold', () => {
+      mockIntent = { route: 'frozen', frozenTab: 'extract', frozenTargetOrgId: 'org-gone' };
+      render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-extract-tab')).toBeDefined();
+      expect(useFrozenStore.getState().targetOrgId).toBe('');
+    });
+
+    it('reads nothing of a navigation to another page', () => {
+      mockIntent = { route: 'dataops', frozenTab: 'load' };
+      render(<FrozenPage />);
+      expect(useFrozenStore.getState().tab).toBeNull();
+      expect(mockClearIntent).not.toHaveBeenCalled();
+    });
   });
 
   it('renders the extract tab by default', () => {
@@ -273,11 +390,85 @@ describe('FrozenPage', () => {
       expect(screen.getByTestId('frozen-config-unsaved')).toBeTruthy();
     });
 
-    it('names the org the runs read on the Selection and Extraction cards', () => {
+    it('names the org the runs read: picked on the root records card, said on the extraction card', () => {
       useFrozenStore.setState({ status: statusFixture() });
       render(<FrozenPage />);
-      expect(screen.getByTestId('frozen-selection-source').textContent).toBe('Source: Dev');
+      expect(screen.getByTestId('frozen-source-org').textContent).toContain('Dev');
+      expect(screen.queryByTestId('frozen-selection-source')).toBeNull();
       expect(screen.getByTestId('frozen-extract-source').textContent).toBe('Source: Dev');
+    });
+
+    // The source was the side panel's org, with no picker here: selecting
+    // another org there between the selection and the extraction read the
+    // second from another org than the first.
+    it('reads the selected org until another is picked here, both runs the one picked, the selected org left as it is', () => {
+      mockOrgState = {
+        orgs: [
+          { id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] },
+          { id: 'org-uat', alias: 'UAT', status: 'connected', orgType: 'Sandbox', tags: [] },
+        ],
+        selectedOrgId: 'org-1',
+      };
+      useFrozenStore.setState({ status: statusFixture(), selection: SELECTION });
+      mockData['frozen:config:save'] = { success: true };
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('frozen-select-run'));
+      expect(mockMutate).toHaveBeenLastCalledWith('frozen:select', { sourceOrgId: 'org-1' });
+
+      fireEvent.click(screen.getByTestId('frozen-source-org'));
+      fireEvent.click(screen.getByTestId('frozen-source-org-option-org-uat'));
+      expect(screen.getByTestId('frozen-extract-source').textContent).toBe('Source: UAT');
+      fireEvent.click(screen.getByTestId('frozen-select-run'));
+      expect(mockMutate).toHaveBeenLastCalledWith('frozen:select', { sourceOrgId: 'org-uat' });
+      fireEvent.click(screen.getByTestId('frozen-extract-run'));
+      expect(mockMutate).toHaveBeenLastCalledWith('frozen:extract', { sourceOrgId: 'org-uat' });
+      expect(mockOrgState.selectedOrgId).toBe('org-1');
+      expect(useFrozenStore.getState().sourceOrgId).toBe('org-uat');
+    });
+
+    it('offers no run with no source, and says to pick one', () => {
+      mockOrgState = {
+        orgs: [{ id: 'org-1', alias: 'Dev', status: 'connected', orgType: 'Sandbox', tags: [] }],
+        selectedOrgId: null,
+      };
+      useFrozenStore.setState({ status: statusFixture(), selection: SELECTION });
+      mockData['frozen:config:save'] = { success: true };
+      render(<FrozenPage />);
+      for (const id of ['frozen-select-run', 'frozen-extract-run']) {
+        expect(screen.getByTestId(id).getAttribute('aria-disabled')).toBe('true');
+        expect(describedBy(screen.getByTestId(id))).toContain('Pick the org to extract from.');
+        fireEvent.click(screen.getByTestId(id));
+      }
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    it('numbers the three cards in the order of the work, each by what it does', () => {
+      render(<FrozenPage />);
+      const headings = within(screen.getByTestId('frozen-extract-tab'))
+        .getAllByRole('heading', { level: 2 })
+        .map((heading) => heading.textContent);
+      expect(headings).toEqual([
+        '1. Dataset settings',
+        '2. Choose root records',
+        '3. Extract and pseudonymize',
+      ]);
+    });
+
+    // Every key the form does not hold, unfolded under the form as a bare "{}".
+    it('folds the advanced JSON away under its name, and opens it when its JSON does not parse', () => {
+      render(<FrozenPage />);
+      const advanced = screen.getByTestId('frozen-config-advanced-section') as HTMLDetailsElement;
+      expect(advanced.tagName).toBe('DETAILS');
+      expect(advanced.open).toBe(false);
+      expect(advanced.querySelector('summary')?.textContent).toBe('Advanced configuration (JSON)');
+      expect(advanced.contains(screen.getByTestId('frozen-config-advanced'))).toBe(true);
+
+      fireEvent.change(screen.getByTestId('frozen-config-advanced'), {
+        target: { value: '{ not json' },
+      });
+      fireEvent.click(screen.getByTestId('frozen-config-save'));
+      expect(advanced.open).toBe(true);
+      expect(mockMutate).not.toHaveBeenCalled();
     });
 
     // The extraction is refused without the file, which nothing made or named.
@@ -561,7 +752,7 @@ describe('FrozenPage', () => {
 
     const badgeOf = (line: RegExp): string =>
       screen.getByText(line).closest('li')?.firstElementChild?.textContent ?? '';
-    expect(badgeOf(/Entry guards passed/)).toBe('Entry guards');
+    expect(badgeOf(/Entry guards passed/)).toBe('Safety checks');
     expect(badgeOf(/Patching cycle FKs/)).toBe('Second pass');
   });
 
@@ -1609,6 +1800,57 @@ describe('FrozenPage', () => {
         expect(verifyButton().getAttribute('aria-disabled')).toBe('true');
         expect(screen.getByTestId('frozen-verify-no-load').textContent).toBe(
           fr.frozen.verify.noLoad.replace('{{org}}', 'UAT'),
+        );
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+  });
+
+  describe('the status strip', () => {
+    /** Each card's label, in the order the strip shows them. */
+    function cardLabels(): string[] {
+      return within(screen.getByTestId('frozen-status-strip'))
+        .getAllByTestId('kpi-card')
+        .map((card) => card.querySelector('.font-medium')?.textContent ?? '');
+    }
+
+    // The salt, which a load never needs, led the strip, and the date the
+    // dataset was frozen was an ISO string under the Extract tab alone.
+    it('leads with the dataset and its date as the panel writes dates, and ends with the salt', () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      render(<FrozenPage />);
+      expect(cardLabels()).toEqual([
+        'Frozen dataset',
+        'Selection',
+        'Last verification',
+        'Salt fingerprint',
+      ]);
+      const dataset = within(screen.getByTestId('frozen-status-strip')).getAllByTestId(
+        'kpi-card',
+      )[0];
+      const day = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }).format(new Date('2026-08-01T10:00:00Z'));
+      expect(within(dataset).getByTestId('kpi-subtitle').textContent).toBe(
+        `42 records, frozen on ${day}`,
+      );
+      expect(screen.getByTestId('frozen-page').textContent).not.toContain('2026-08-01T10:00:00Z');
+    });
+
+    it('says the date in the language the panel is set to', async () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      try {
+        render(<FrozenPage />);
+        const dataset = within(screen.getByTestId('frozen-status-strip')).getAllByTestId(
+          'kpi-card',
+        )[0];
+        expect(within(dataset).getByTestId('kpi-subtitle').textContent).toBe(
+          '42 enregistrements, figés le 1 août 2026',
         );
       } finally {
         await i18n.changeLanguage('en');

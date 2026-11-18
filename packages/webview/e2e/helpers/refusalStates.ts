@@ -315,7 +315,6 @@ export async function refuseCsvForStorage(bridge: MockBridge, page: Page): Promi
 
 /** Load the frozen dataset into the QA sandbox, and have the extension refuse it for its storage. */
 export async function refuseFrozenLoadForStorage(bridge: MockBridge, page: Page): Promise<void> {
-  await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
   await answerOnceAsked(page, 'frozen:status', 'frozen:status:response', {
     status: FROZEN_STATUS_TO_LOAD,
   });

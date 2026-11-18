@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Snowflake } from 'lucide-react';
 import type { FrozenLastVerifyInfo, FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
@@ -16,6 +16,10 @@ import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { withEnglish } from '../../i18n/englishNamespaces';
 import { orgDisplayName } from '@sandforge/shared';
+import type { SalesforceOrg } from '@sandforge/shared';
+import type { NavigationIntent } from '../../stores/useAppStore';
+import type { FrozenTab } from '../../stores/useFrozenStore';
+import { formatDate, formatStoredDate } from '../../utils/formatters';
 
 /*
  * The Load tab, a chunk of its own fetched the first time it is opened, with
@@ -33,20 +37,48 @@ const LoadedFrozenLoadTab = lazy(() =>
 );
 
 /**
+ * Where a navigation asked the page to land: a tab, and on Load the org to
+ * load into, taken only when this machine holds it. Back into service asks
+ * for Load and the sandbox it brings back.
+ */
+function askedLanding(
+  intent: NavigationIntent | null,
+  orgs: readonly SalesforceOrg[],
+): { tab?: FrozenTab; targetOrgId?: string } | null {
+  if (intent?.route !== 'frozen') return null;
+  const target = intent.frozenTargetOrgId;
+  return {
+    ...(intent.frozenTab ? { tab: intent.frozenTab } : {}),
+    ...(target && orgs.some((org) => org.id === target) ? { targetOrgId: target } : {}),
+  };
+}
+
+/**
  * Frozen Reference Dataset page — extract a pseudonymized reference dataset
  * once, replay it identically into refreshed dev sandboxes, verify it.
  */
 export const FrozenPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
-  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  // Read once, before the tab is: the page opens on the tab asked for, with
+  // no other drawn first.
+  const [asked] = useState(() => {
+    const landing = askedLanding(navigationIntent, orgs);
+    if (landing?.tab) useFrozenStore.getState().setTab(landing.tab);
+    if (landing?.targetOrgId) useFrozenStore.getState().setTargetOrgId(landing.targetOrgId);
+    return landing;
+  });
+  useEffect(() => {
+    if (asked) clearNavigationIntent();
+  }, [asked, clearNavigationIntent]);
   const tab = useFrozenStore((s) => s.tab);
   const setTab = useFrozenStore((s) => s.setTab);
   const status = useFrozenStore((s) => s.status);
   const setStatus = useFrozenStore((s) => s.setStatus);
   const setManifest = useFrozenStore((s) => s.setManifest);
-  const manifest = useFrozenStore((s) => s.manifest);
   const targetOrgId = useFrozenStore((s) => s.targetOrgId);
 
   useFrozenPushChannels();
@@ -59,6 +91,19 @@ export const FrozenPage: React.FC = () => {
   useEffect(() => {
     if (statusQuery.data?.status) setStatus(statusQuery.data.status);
   }, [statusQuery.data, setStatus]);
+
+  /*
+   * Landed once, on the first status read: Load when a dataset is frozen on
+   * this machine, the work left after a refresh; Extract when none is, or
+   * when the status cannot be read. A tab picked or asked for first stays.
+   * Until then neither is drawn: drawn first, Extract went as the answer came.
+   */
+  const statusFailed = statusQuery.error !== null;
+  useEffect(() => {
+    if (tab !== null) return;
+    if (status !== null) setTab(status.manifest ? 'load' : 'extract');
+    else if (statusFailed) setTab('extract');
+  }, [tab, status, statusFailed, setTab]);
 
   useEffect(() => {
     if (manifestQuery.data) setManifest(manifestQuery.data.manifest);
@@ -75,7 +120,13 @@ export const FrozenPage: React.FC = () => {
     refetchManifest();
   }, [refetchStatus, refetchManifest]);
 
-  if (!selectedOrgId || orgs.length === 0) {
+  /*
+   * No org at all. With orgs but none selected the page opens: each tab
+   * picks its own org, the source on Extract and the target on Load. It said
+   * "No org connected" and "Select an Org" then, and that opened
+   * Organizations, where nothing was missing.
+   */
+  if (orgs.length === 0) {
     return (
       <EmptyState
         icon={<Snowflake className="w-10 h-10" />}
@@ -91,6 +142,7 @@ export const FrozenPage: React.FC = () => {
     status?.manifest?.volumetry.measured != null
       ? Object.values(status.manifest.volumetry.measured).reduce((sum, n) => sum + n, 0)
       : 0;
+  const frozenOn = formatStoredDate(status?.manifest?.frozenAt, (date) => formatDate(date));
 
   /*
    * The last verification of the org the Load tab loads into, as it picks
@@ -139,34 +191,19 @@ export const FrozenPage: React.FC = () => {
         </div>
       )}
 
-      {/* Status strip */}
+      {/* Status strip: the dataset first, the salt, which a load never
+          needs, last. The day it was frozen is said here, on both tabs: it
+          was an ISO string under the Extract tab alone. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="frozen-status-strip">
-        {/* The salt is made on the first extraction and kept in VS Code's
-            secret storage: none yet is no fault, and a load never needs it.
-            It used to read "Salt missing", in warning colours, until an
-            environment variable was set before VS Code started. */}
-        <KPICard
-          icon="key"
-          label={t('frozen.status.salt')}
-          value={
-            status?.salt.present ? (status.salt.fingerprint ?? '') : t('frozen.status.saltMissing')
-          }
-          subtitle={
-            status?.salt.source === 'environment'
-              ? t('frozen.status.saltFromEnvironment')
-              : status?.salt.present
-                ? t('frozen.status.saltKept')
-                : t('frozen.status.saltMadeOnExtraction')
-          }
-          variant={status?.salt.present ? 'success' : 'default'}
-        />
         <KPICard
           icon="database"
           label={t('frozen.status.dataset')}
           value={status?.manifest ? `v${status.manifest.version}` : '—'}
           subtitle={
             status?.manifest
-              ? t('frozen.status.records', { count: recordCount })
+              ? frozenOn === null
+                ? t('frozen.status.records', { count: recordCount })
+                : t('frozen.status.recordsFrozenOn', { count: recordCount, date: frozenOn })
               : t('frozen.status.noDataset')
           }
           variant={status?.manifest ? 'default' : 'warning'}
@@ -188,6 +225,25 @@ export const FrozenPage: React.FC = () => {
           subtitle={targetAlias}
           variant={lastVerify?.status === 'passed' ? 'success' : lastVerify ? 'error' : 'default'}
         />
+        {/* The salt is made on the first extraction and kept in VS Code's
+            secret storage: none yet is no fault, and a load never needs it.
+            It used to read "Salt missing", in warning colours, until an
+            environment variable was set before VS Code started. */}
+        <KPICard
+          icon="key"
+          label={t('frozen.status.salt')}
+          value={
+            status?.salt.present ? (status.salt.fingerprint ?? '') : t('frozen.status.saltMissing')
+          }
+          subtitle={
+            status?.salt.source === 'environment'
+              ? t('frozen.status.saltFromEnvironment')
+              : status?.salt.present
+                ? t('frozen.status.saltKept')
+                : t('frozen.status.saltMadeOnExtraction')
+          }
+          variant={status?.salt.present ? 'success' : 'default'}
+        />
       </div>
 
       <PageTabs
@@ -195,8 +251,8 @@ export const FrozenPage: React.FC = () => {
           { id: 'extract', label: t('frozen.tabs.extract'), icon: 'export' },
           { id: 'load', label: t('frozen.tabs.load'), icon: 'cloud-upload' },
         ]}
-        activeTab={tab}
-        onTabChange={(id) => setTab(id as 'extract' | 'load')}
+        activeTab={tab ?? ''}
+        onTabChange={(id) => setTab(id as FrozenTab)}
       />
 
       {tab === 'extract' && <FrozenExtractTab onRefetchStatus={refetchStatusAndManifest} />}
@@ -206,11 +262,6 @@ export const FrozenPage: React.FC = () => {
             <LoadedFrozenLoadTab onRefetchStatus={refetchStatus} />
           </Suspense>
         </PartBoundary>
-      )}
-      {manifest && tab === 'extract' && (
-        <p className="text-[10px] text-text-secondary" data-testid="frozen-manifest-footnote">
-          {t('frozen.manifest.version', { version: manifest.version })} — {manifest.frozenAt}
-        </p>
       )}
     </div>
   );

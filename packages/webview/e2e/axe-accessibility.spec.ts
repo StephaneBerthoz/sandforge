@@ -14237,6 +14237,7 @@ for (const theme of STATE_THEMES) {
     test('Frozen dataset extraction form with its placeholders', async ({ page }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('page-tab-extract').click();
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
       await page.getByTestId('frozen-axis-add').click();
       await page.getByTestId('frozen-edge-add').click();
@@ -14252,6 +14253,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('page-tab-extract').click();
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
       await answerFrozenConfig(bridge, page);
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
@@ -14281,7 +14283,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
       });
@@ -14306,7 +14308,7 @@ for (const theme of STATE_THEMES) {
     test('Frozen dataset load report naming what the load did not send', async ({ page }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       // A frozen dataset to load: the run is offered once the status names one.
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
@@ -14365,7 +14367,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
       });
@@ -14410,7 +14412,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
       });
@@ -14501,7 +14503,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
       });
@@ -14526,7 +14528,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
-      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
       await answerAll(page, 'frozen:status', 'frozen:status:response', {
         status: FROZEN_STATUS_WITH_DATASET,
       });
@@ -14574,6 +14576,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('page-tab-extract').click();
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
       // The runs read the saved configuration, and wait for one.
       await answerFrozenConfig(bridge, page);
@@ -14644,6 +14647,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('page-tab-extract').click();
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
       // The runs read the saved configuration, and wait for one.
       await answerFrozenConfig(bridge, page);
@@ -14709,6 +14713,7 @@ for (const theme of STATE_THEMES) {
     }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('page-tab-extract').click();
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
       // The runs read the saved configuration, and wait for one.
       await answerFrozenConfig(bridge, page);

@@ -4080,11 +4080,11 @@
     },
     "frozen": {
       "step1": "Geben Sie auf dem Tab Extrahieren das Stammobjekt ein und klicken Sie auf Konfiguration speichern.",
-      "step2": "Klicken Sie auf Auswahl starten: Die Stammdatensätze werden aus der im Seitenpanel ausgewählten Org gewählt.",
+      "step2": "Wählen Sie die Quell-Org und klicken Sie auf Auswahl starten: Die Stammdatensätze werden aus ihr gewählt.",
       "step3": "Klicken Sie auf Regeldatei erstellen (jedes Feld ohne Regel wird geleert) und dann auf Extraktion starten.",
       "step4": "Wählen Sie auf dem Tab Laden die zu befüllende Ziel-Org (Sandbox) und klicken Sie auf Ladevorgang starten.",
-      "step5": "Lesen Sie die Prüfung nach dem Laden, die auf den Ladevorgang folgt; Erneut prüfen führt sie noch einmal aus.",
-      "tip": "Vorschau schreibt nichts, ein Ladevorgang geht nie in eine Produktions-Org, und Die von diesem Ladevorgang erstellten Datensätze entfernen löscht sie."
+      "step5": "Lesen Sie die Prüfung nach dem Laden, die auf den Ladevorgang folgt; Prüfen führt sie noch einmal aus.",
+      "tip": "Simulieren schreibt nichts, ein Ladevorgang geht nie in eine Produktions-Org, und Die von diesem Ladevorgang erstellten Datensätze entfernen löscht sie."
     },
     "compare": {
       "step1": "Wählen Sie eine Quell-Org und eine andere Ziel-Org; die Org-Übersicht liest dann beide, ohne Vergleich.",
@@ -6213,7 +6213,7 @@
     "emptyState": {
       "title": "Keine Org verbunden",
       "description": "Verbinden Sie eine Salesforce-Org, um ein eingefrorenes Referenz-Dataset zu erstellen oder erneut zu laden.",
-      "cta": "Org auswählen"
+      "cta": "Org verbinden"
     },
     "status": {
       "salt": "Salt-Fingerabdruck",
@@ -6224,6 +6224,8 @@
       "dataset": "Eingefrorenes Dataset",
       "records_one": "{{count}} Datensatz",
       "records_other": "{{count}} Datensätze",
+      "recordsFrozenOn_one": "{{count}} Datensatz, eingefroren am {{date}}",
+      "recordsFrozenOn_other": "{{count}} Datensätze, eingefroren am {{date}}",
       "noDataset": "Noch kein Dataset eingefroren",
       "selection": "Auswahl",
       "noSelection": "Noch keine Auswahl",
@@ -6234,11 +6236,8 @@
       "extract": "Extrahieren",
       "load": "Laden"
     },
-    "manifest": {
-      "version": "Dataset v{{version}}"
-    },
     "config": {
-      "title": "Projektkonfiguration",
+      "title": "Dataset-Einstellungen",
       "rootObject": "Stammobjekt",
       "budget": "Volumenbudget (Datensätze)",
       "axes": "Abdeckungsachsen",
@@ -6267,7 +6266,7 @@
       "saveFirst": "Speichern Sie zuerst die Konfiguration: Die Läufe lesen die gespeicherte."
     },
     "selection": {
-      "title": "Abdeckungsmatrix-Auswahl",
+      "title": "Stammdatensätze auswählen",
       "run": "Auswahl starten",
       "combination": "Kombination",
       "axes": "Achsenwerte",
@@ -6297,8 +6296,10 @@
       "source": "Quelle: {{org}}"
     },
     "extract": {
-      "title": "Extraktion & Pseudonymisierung",
+      "title": "Extrahieren und pseudonymisieren",
       "run": "Extraktion starten",
+      "sourceOrg": "Quell-Org",
+      "pickSource": "Wählen Sie die Org, aus der extrahiert wird.",
       "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des eingefrorenen Datasets kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht.",
       "summary": "{{records}} in {{files}}",
       "summaryRecords_one": "{{count}} Datensatz eingefroren",
@@ -6317,7 +6318,7 @@
       "detail": "Detail"
     },
     "guards": {
-      "title": "Eingangsprüfungen",
+      "title": "Sicherheitsprüfungen",
       "sandboxOnly": "Nie eine Produktions-Org",
       "protectedEnvs_one": "{{count}} geschützte Org",
       "protectedEnvs_other": "{{count}} geschützte Orgs",
@@ -6326,6 +6327,8 @@
     },
     "load": {
       "targetOrg": "Ziel-Org (Sandbox)",
+      "runOptions": "Ausführungsoptionen",
+      "consents": "Zustimmungen für dieses Ziel",
       "pilot": "Pilot (zuerst ein Stammdatensatz)",
       "reload": "Neuladen ohne Refresh",
       "writeEncrypted": "Verschlüsselte Felder so schreiben, wie das Dataset sie enthält",
@@ -6334,7 +6337,7 @@
       "run": "Ladevorgang starten",
       "runPilot": "Pilot starten",
       "progress": "Fortschritt",
-      "preview": "Vorschau",
+      "preview": "Simulieren",
       "stopping": "Wird angehalten: Der Ladevorgang endet vor seinem nächsten Schreibvorgang. Was er geschrieben hat, bleibt in der Org und ist im Mapping für ein Entfernen oder ein Neuladen benannt.",
       "cancelRefused": "Der Ladevorgang konnte nicht abgebrochen werden",
       "cancelRefusedDetail": "Der Ladevorgang läuft nicht mehr, oder er wurde nicht aus diesem Fenster gestartet.",
@@ -6385,13 +6388,13 @@
       "personContacts_other": "{{count}} Kontakte von Personenkonten kommen mit ihrem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigene Kontakte gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
       "recordTypeIssues_one": "{{count}} Datensatztyp-Verweis, den das Ziel nicht auflöst",
       "recordTypeIssues_other": "{{count}} Datensatztyp-Verweise, die das Ziel nicht auflöst",
-      "validationRules_one": "{{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den sie ablehnt, wird als einzufügen gezählt.",
-      "validationRules_other": "{{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den eine von ihnen ablehnt, wird als einzufügen gezählt.",
+      "validationRules_one": "{{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Simulation nicht auswerten kann — ein Datensatz, den sie ablehnt, wird als einzufügen gezählt.",
+      "validationRules_other": "{{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann — ein Datensatz, den eine von ihnen ablehnt, wird als einzufügen gezählt.",
       "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als einzufügen gezählten Datensatz ablehnen.",
       "validationRulesOnChange_one": "{{object}}: {{count}} Regel ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} Regeln ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
-      "placeholderValidationRules_one": "Platzhalter von {{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den sie ablehnt, hält das Laden an.",
-      "placeholderValidationRules_other": "Platzhalter von {{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den eine von ihnen ablehnt, hält das Laden an.",
+      "placeholderValidationRules_one": "Platzhalter von {{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Simulation nicht auswerten kann — ein Platzhalter, den sie ablehnt, hält das Laden an.",
+      "placeholderValidationRules_other": "Platzhalter von {{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann — ein Platzhalter, den eine von ihnen ablehnt, hält das Laden an.",
       "emails": {
         "refused": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben des Ladevorgangs sendet, oder sagt nicht, ob sie sie zustellt: Der Ladevorgang würde abgelehnt, nichts geschrieben, außer Sie haken „Laden, auch wenn {{org}} die E-Mails zustellt“ an.",
         "accepted": "{{org}} stellt die E-Mails zu, die das noch Laufende beim Schreiben des Ladevorgangs sendet, oder sagt nicht, ob sie sie zustellt: Mit angehaktem Kästchen sendet der Ladevorgang sie.",
@@ -6423,10 +6426,10 @@
         "refused": "Der Ladevorgang würde abgelehnt, nichts geschrieben, außer Sie haken „Laden, auch wenn {{org}} beim Eingang der Datensätze Automatisierungen ausführt“ an oder schalten sie stumm.",
         "accepted": "Mit angehaktem Kästchen schreibt der Ladevorgang trotzdem, und diese Automatisierungen laufen."
       },
-      "lookupFilters": "{{object}}: Lookup-Filter des Ziels, die eine Vorschau nicht prüfen kann — ein Datensatz, dessen Lookup ein Filter ablehnt, wird abgelehnt, mit allem, was an ihm hängt: {{fields}}"
+      "lookupFilters": "{{object}}: Lookup-Filter des Ziels, die eine Simulation nicht prüfen kann — ein Datensatz, dessen Lookup ein Filter ablehnt, wird abgelehnt, mit allem, was an ihm hängt: {{fields}}"
     },
     "verify": {
-      "run": "Erneut prüfen",
+      "run": "Prüfen",
       "noLoad": "Für {{org}} ist kein Ladevorgang erfasst: Laden Sie das Dataset dorthin, bevor Sie die Org prüfen.",
       "title": "Prüfung nach dem Laden",
       "attempts_one": "{{count}} Messung",
@@ -6496,9 +6499,9 @@
       "sweptChangedKept": "Behaltene Datensätze, seit diesem Ladevorgang geändert: {{records}}. Ein Neuladen mit angehaktem „Auch mitnehmen, was das Aufräumen seitdem geändert findet“ nimmt sie, ebenso eine Entfernung mit angehaktem Aufräumen und angehakten seitdem geänderten Datensätzen."
     },
     "removal": {
-      "title": "Letzter Ladevorgang",
+      "title": "Letzten Ladevorgang entfernen",
       "loadedInto": "Geladen in {{org}} am {{date}}",
-      "titleEarlier": "Früherer Ladevorgang",
+      "titleEarlier": "Früheren Ladevorgang entfernen",
       "earlierNote": "Ein Ladevorgang vor dem letzten: Die Ladevorgänge danach haben seine Datensätze in {{org}} gelassen.",
       "remove": "Die von diesem Ladevorgang erstellten Datensätze entfernen",
       "removeLeft": "Die verbliebenen Datensätze dieses Ladevorgangs entfernen",
@@ -6553,7 +6556,7 @@
       "failed": "Die Regeldatei wurde nicht geschrieben: {{reason}}"
     },
     "loadPhase": {
-      "guards": "Eingangsprüfungen",
+      "guards": "Sicherheitsprüfungen",
       "mapping": "Zuordnung",
       "pilot": "Pilotumfang",
       "reload": "Neuladen",
@@ -7252,7 +7255,7 @@
         "onMachine": "Er hält die Werte dieser Datensätze von {{org}} auf diesem Rechner, unverschlüsselt und nur für Sie lesbar, so viele Tage, wie {{setting}} festlegt (standardmäßig 7); ein Lauf, der nichts schreibt, löscht ihn.",
         "costAtQuestion": "Was er hält und kostet — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner —, steht in der Frage vor dem ersten Schreibvorgang, wo Sie noch abbrechen können.",
         "costAtSimulation": "Simulieren sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner —, und die Frage vor dem ersten Schreibvorgang sagt es noch einmal, wo Sie noch abbrechen können.",
-        "costAtPreview": "Die Vorschau sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner. Der Ladevorgang erstellt ihn ohne eigene Frage.",
+        "costAtPreview": "Simulieren sagt, was er halten und kosten würde — Datensätze, API-Anfragen, Zeit, Platz auf diesem Rechner. Der Ladevorgang erstellt ihn ohne eigene Frage.",
         "refused": "Ein abgelehnter oder nicht erstellbarer Prüfpunkt lehnt den Lauf ab: Es wird nichts geschrieben. Ein erneuter Versuch oder eine Fortsetzung erstellt keinen: Sie nennt den Prüfpunkt des Laufs, den sie fortsetzt.",
         "notOffered": "Nicht angeboten: SandForge erstellt keinen Prüfpunkt von {{org}}, da nicht bekannt ist, dass es eine Sandbox, eine Scratch-Org oder eine Developer Edition ist.",
         "wayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Der zuerst erstellte Prüfpunkt ist der Weg zurück.",

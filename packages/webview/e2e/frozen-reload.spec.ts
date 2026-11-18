@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { MockBridge } from './helpers';
 import { QA_SANDBOX } from './fixtures';
+import { RECOVERY_ORG, refreshedStatus } from './fixtures/recovery';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
@@ -231,5 +232,88 @@ test.describe('the Frozen page’s Reload, planned', () => {
     const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
     // The panel sends the reload as it always did: the extension makes it a replace.
     expect(load.payload).toEqual({ targetOrgId: QA_SANDBOX.id, reload: true });
+  });
+});
+
+/** The Frozen panel opened on its own, its orgs seeded: the status asked, not answered. */
+async function frozenOpened(page: Page): Promise<MockBridge> {
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await page.addInitScript(() => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'frozen';
+  });
+  await page.goto('/');
+  await bridge.seedOrgs();
+  await page.waitForSelector('[data-testid="frozen-page"]', { timeout: 10_000 });
+  await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
+  return bridge;
+}
+
+test.describe('where the Frozen page opens', () => {
+  // After a refresh the dataset waiting to be loaded was one tab away, and
+  // the page opened on Extract every time.
+  test('on Load once the status says a dataset is frozen, with no tab drawn before', async ({
+    page,
+  }) => {
+    const bridge = await frozenOpened(page);
+    await expect(page.getByTestId('page-tab-extract')).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByTestId('page-tab-load')).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByTestId('frozen-extract-tab')).toHaveCount(0);
+
+    await answerAll(page, 'frozen:status', 'frozen:status:response', { status: STATUS });
+
+    await expect(page.getByTestId('page-tab-load')).toHaveAttribute('aria-selected', 'true');
+    await page.getByTestId('frozen-load-tab').waitFor({ timeout: 10_000 });
+    // Extract was never drawn: it asks for the configuration as it is.
+    expect(await bridge.getMessages('frozen:config:get')).toEqual([]);
+  });
+
+  test('on Extract when no dataset is frozen yet', async ({ page }) => {
+    await frozenOpened(page);
+    await answerAll(page, 'frozen:status', 'frozen:status:response', {
+      status: { ...STATUS, manifest: null, lastLoad: null, lastLoads: [], loadRecords: [] },
+    });
+
+    await expect(page.getByTestId('page-tab-extract')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('frozen-extract-tab')).toBeVisible();
+  });
+
+  test('on Load from Back into service, the sandbox it brings back picked as the target', async ({
+    page,
+  }) => {
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'recovery';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs();
+    await expect(page.getByTestId('recovery-page')).toBeVisible();
+    await bridge.waitForMessage('recovery:status', { timeout: 10_000 });
+    await answerAll(page, 'recovery:status', 'recovery:status:response', {
+      status: refreshedStatus(),
+    });
+
+    await page.getByTestId('recovery-open-load').click();
+    await page.waitForSelector('[data-testid="frozen-page"]', { timeout: 10_000 });
+    // Asked for, the tab is drawn before the status answers.
+    await expect(page.getByTestId('page-tab-load')).toHaveAttribute('aria-selected', 'true');
+    await bridge.waitForMessage('frozen:status', { timeout: 10_000 });
+    // A dataset frozen from another org than the sandbox brought back.
+    await answerAll(page, 'frozen:status', 'frozen:status:response', {
+      status: {
+        ...STATUS,
+        manifest: {
+          ...STATUS.manifest,
+          source: { orgId: 'org-uat-1', decisionDate: '2026-10-24T08:00:00.000Z' },
+        },
+      },
+    });
+
+    await expect(page.getByTestId('frozen-load-target')).toContainText(RECOVERY_ORG.alias);
+    await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId('frozen-load-run').click();
+    const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+    expect(load.payload).toEqual({ targetOrgId: RECOVERY_ORG.id });
   });
 });

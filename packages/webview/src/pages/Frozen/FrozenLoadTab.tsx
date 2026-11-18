@@ -128,6 +128,12 @@ const PROGRESS_VARIANTS: Record<FrozenLoadProgress['status'], BadgeVariant> = {
   stopped: 'warning',
 };
 
+/** A block of the load's options: how it runs, or what it accepts of the target. */
+const optionBlockClass = 'flex min-w-0 flex-col gap-2 rounded-sm border border-subtle p-3';
+
+/** The name of a block of options, read as the name of its group. */
+const optionLegendClass = 'px-1 text-xs font-semibold text-text-primary';
+
 /** What refused a field records went in without, as the report names it. */
 const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
@@ -687,7 +693,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         </Suspense>
       )}
 
-      {/* ── Entry guards ──────────────────────────────────────────────── */}
+      {/* ── Safety checks ─────────────────────────────────────────────── */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-text-primary">{t('frozen.guards.title')}</h2>
@@ -711,44 +717,46 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       </Card>
 
       {/* ── Target + options ──────────────────────────────────────────── */}
+      {/* The target, then the options in two blocks: how the load runs, and
+          what it is to accept of the target, which a refusal names. The
+          seven boxes stood in one flat list, the consents among the rest. */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
-            <div className="flex flex-col gap-1">
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-secondary">
-                  {t('frozen.load.targetOrg')}
-                </span>
-                <OrgDropdown
-                  value={effectiveTarget}
-                  onChange={(orgId) => {
-                    dismissRefusal();
-                    setTargetOrgId(orgId);
-                  }}
-                  orgs={connectedOrgs}
-                  ariaLabel={t('frozen.load.targetOrg')}
-                  testId="frozen-load-target"
-                  // The dataset's source is listed, not offered: a load never goes back into it.
-                  {...(sourceOrgId
-                    ? { unavailable: { orgId: sourceOrgId, note: t('frozen.load.sourceNote') } }
-                    : {})}
-                />
-              </label>
-              {noTarget && (
-                <p
-                  id={ids.pickTarget}
-                  className="text-[11px] text-text-secondary"
-                  data-testid="frozen-load-pick-target"
-                >
-                  {targetIsSource
-                    ? t('frozen.load.targetIsSource', { org: targetName })
-                    : t('frozen.load.pickTarget')}
-                </p>
-              )}
-            </div>
+          <div className="flex flex-col gap-1 sm:max-w-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-text-secondary">{t('frozen.load.targetOrg')}</span>
+              <OrgDropdown
+                value={effectiveTarget}
+                onChange={(orgId) => {
+                  dismissRefusal();
+                  setTargetOrgId(orgId);
+                }}
+                orgs={connectedOrgs}
+                ariaLabel={t('frozen.load.targetOrg')}
+                testId="frozen-load-target"
+                // The dataset's source is listed, not offered: a load never goes back into it.
+                {...(sourceOrgId
+                  ? { unavailable: { orgId: sourceOrgId, note: t('frozen.load.sourceNote') } }
+                  : {})}
+              />
+            </label>
+            {noTarget && (
+              <p
+                id={ids.pickTarget}
+                className="text-[11px] text-text-secondary"
+                data-testid="frozen-load-pick-target"
+              >
+                {targetIsSource
+                  ? t('frozen.load.targetIsSource', { org: targetName })
+                  : t('frozen.load.pickTarget')}
+              </p>
+            )}
+          </div>
+          <fieldset className={optionBlockClass} data-testid="frozen-load-run-options">
+            <legend className={optionLegendClass}>{t('frozen.load.runOptions')}</legend>
             {/* What each box changes, under it: Reload deleted from the target
                 with nothing said, and "1 folder" named no unit anyone knew. */}
-            <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
               <div className="flex flex-col gap-0.5">
                 <label className="flex items-center gap-2 text-xs text-text-secondary">
                   <input
@@ -788,75 +796,83 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 </p>
               </div>
             </div>
-          </div>
-          {encryptedUnchecked && (
-            <div className="flex flex-col gap-1">
-              <label className="flex items-center gap-2 text-xs text-text-secondary">
+            {encryptedUnchecked && (
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center gap-2 text-xs text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={writeEncrypted}
+                    onChange={(e) => setWriteEncrypted(e.target.checked)}
+                    aria-describedby="frozen-load-write-encrypted-hint"
+                    data-testid="frozen-load-write-encrypted"
+                  />
+                  {t('frozen.load.writeEncrypted')}
+                </label>
+                <p
+                  id="frozen-load-write-encrypted-hint"
+                  className="text-[11px] text-text-secondary"
+                >
+                  {t('frozen.load.writeEncryptedHint')}
+                </p>
+              </div>
+            )}
+            {/* The load's gate reads what the target runs as it starts: the box
+                says what muting does, the report what it did. It names the
+                target, so it waits for one. */}
+            {effectiveTarget !== '' && (
+              <AutomationMuteBox
+                offer="atStart"
+                checked={muteAutomation}
+                onChange={setMuteAutomation}
+                org={targetName}
+                testId="frozen-load-mute"
+              />
+            )}
+            {/* A load asks nothing of its own: Simulate says the cost. */}
+            <CheckpointFirstOption
+              checked={checkpointFirst}
+              onChange={setCheckpointFirst}
+              orgId={effectiveTarget}
+              costSaid="preview"
+              testId="frozen-load-checkpoint-first"
+            />
+          </fieldset>
+          {/* What the load is to accept of the target, each never ticked
+              unasked: unticked, a load is refused where the target would do
+              it, nothing written, and the refusal names the box. They name
+              the target, so they wait for one, and are never folded away. */}
+          {effectiveTarget !== '' && (
+            <fieldset className={optionBlockClass} data-testid="frozen-load-consents">
+              <legend className={optionLegendClass}>{t('frozen.load.consents')}</legend>
+              {/* Its own box: an org on All email, or one that would not say,
+                  sends what fires as the load writes, and the mute's box never
+                  lets it. Unticked, the load reads the org as it starts and is
+                  refused where it would, nothing written; Simulate says which. */}
+              <label className="flex items-start gap-2 text-[11px] text-text-primary">
                 <input
                   type="checkbox"
-                  checked={writeEncrypted}
-                  onChange={(e) => setWriteEncrypted(e.target.checked)}
-                  aria-describedby="frozen-load-write-encrypted-hint"
-                  data-testid="frozen-load-write-encrypted"
+                  checked={acceptEmails}
+                  onChange={(event) => setAcceptEmails(event.target.checked)}
+                  data-testid="frozen-load-accept-emails"
                 />
-                {t('frozen.load.writeEncrypted')}
+                <span>{t('frozen.load.acceptEmails', { org: targetName })}</span>
               </label>
-              <p id="frozen-load-write-encrypted-hint" className="text-[11px] text-text-secondary">
-                {t('frozen.load.writeEncryptedHint')}
-              </p>
-            </div>
+              {/* What the target runs as the load inserts and updates, flows that
+                  send nothing among it: unticked, a load where something runs is
+                  refused before it writes, nothing written; Simulate names it. A
+                  load asked nothing of it, and a flow that deleted each record
+                  the second it went in ran unasked. */}
+              <label className="flex items-start gap-2 text-[11px] text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={acceptAutomation}
+                  onChange={(event) => setAcceptAutomation(event.target.checked)}
+                  data-testid="frozen-load-accept-automation"
+                />
+                <span>{t('frozen.load.acceptAutomation', { org: targetName })}</span>
+              </label>
+            </fieldset>
           )}
-          {/* The load's gate reads what the target runs as it starts: the box
-              says what muting does, the report what it did. It names the
-              target, so it waits for one. */}
-          {effectiveTarget !== '' && (
-            <AutomationMuteBox
-              offer="atStart"
-              checked={muteAutomation}
-              onChange={setMuteAutomation}
-              org={targetName}
-              testId="frozen-load-mute"
-            />
-          )}
-          {/* Its own box: an org on All email, or one that would not say,
-              sends what fires as the load writes, and the mute's box never
-              lets it. Unticked, the load reads the org as it starts and is
-              refused where it would, nothing written; Preview says which. */}
-          {effectiveTarget !== '' && (
-            <label className="flex items-start gap-2 text-[11px] text-text-primary">
-              <input
-                type="checkbox"
-                checked={acceptEmails}
-                onChange={(event) => setAcceptEmails(event.target.checked)}
-                data-testid="frozen-load-accept-emails"
-              />
-              <span>{t('frozen.load.acceptEmails', { org: targetName })}</span>
-            </label>
-          )}
-          {/* What the target runs as the load inserts and updates, flows that
-              send nothing among it: unticked, a load where something runs is
-              refused before it writes, nothing written; Preview names it. A
-              load asked nothing of it, and a flow that deleted each record
-              the second it went in ran unasked. */}
-          {effectiveTarget !== '' && (
-            <label className="flex items-start gap-2 text-[11px] text-text-primary">
-              <input
-                type="checkbox"
-                checked={acceptAutomation}
-                onChange={(event) => setAcceptAutomation(event.target.checked)}
-                data-testid="frozen-load-accept-automation"
-              />
-              <span>{t('frozen.load.acceptAutomation', { org: targetName })}</span>
-            </label>
-          )}
-          {/* A load asks nothing of its own: the preview says the cost. */}
-          <CheckpointFirstOption
-            checked={checkpointFirst}
-            onChange={setCheckpointFirst}
-            orgId={effectiveTarget}
-            costSaid="preview"
-            testId="frozen-load-checkpoint-first"
-          />
           {/* The check that writes nothing first, then the write, as Forge
               orders Simulate and its run. */}
           <div className="flex items-center gap-2">

@@ -1261,10 +1261,10 @@ describe('FrozenLoadRemoval', () => {
     });
   });
 
-  it('names a load before the last one as such, and offers to remove what it created', () => {
+  it('titles a load before the last one as one to remove, and offers to remove what it created', () => {
     render(<FrozenLoadRemoval records={{ ...LOADED, earlier: true }} onAnswered={vi.fn()} />);
 
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Earlier load');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Remove an earlier load');
     expect(screen.getByTestId('frozen-removal-earlier').textContent).toBe(
       'A load before the last one: the loads after it left its records in DEV-SANDBOX.',
     );
@@ -1275,10 +1275,10 @@ describe('FrozenLoadRemoval', () => {
     });
   });
 
-  it('names the last load as the last one', () => {
+  it('titles the last load by what the card does with it: "Last load" said nothing of taking it back', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Last load');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Remove the last load');
     expect(screen.queryByTestId('frozen-removal-earlier')).toBeNull();
   });
 

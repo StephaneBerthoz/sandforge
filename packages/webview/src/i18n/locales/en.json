@@ -4080,11 +4080,11 @@
     },
     "frozen": {
       "step1": "On the Extract tab, fill in Root object and click Save configuration.",
-      "step2": "Click Run selection: it picks the root records in the org selected in the side panel.",
+      "step2": "Pick the Source org, then click Run selection: it picks the root records there.",
       "step3": "Click Create rules file (every field without a rule is cleared), then click Run extraction.",
       "step4": "On the Load tab, pick the Target org (sandbox) to fill, then click Run load.",
-      "step5": "Read the Post-load verification that follows the load; Re-verify runs it again.",
-      "tip": "Preview writes nothing, a load never goes into a production org, and Remove the records this load created deletes them."
+      "step5": "Read the Post-load verification that follows the load; Verify runs it again.",
+      "tip": "Simulate writes nothing, a load never goes into a production org, and Remove the records this load created deletes them."
     },
     "compare": {
       "step1": "Pick the Source Org and a different Target Org; Org overview then reads both, with no comparison.",
@@ -6213,7 +6213,7 @@
     "emptyState": {
       "title": "No org connected",
       "description": "Connect a Salesforce org to build or replay a frozen reference dataset.",
-      "cta": "Select an Org"
+      "cta": "Connect an org"
     },
     "status": {
       "salt": "Salt fingerprint",
@@ -6224,6 +6224,8 @@
       "dataset": "Frozen dataset",
       "records_one": "{{count}} record",
       "records_other": "{{count}} records",
+      "recordsFrozenOn_one": "{{count}} record, frozen on {{date}}",
+      "recordsFrozenOn_other": "{{count}} records, frozen on {{date}}",
       "noDataset": "No dataset frozen yet",
       "selection": "Selection",
       "noSelection": "No selection yet",
@@ -6234,11 +6236,8 @@
       "extract": "Extract",
       "load": "Load"
     },
-    "manifest": {
-      "version": "Dataset v{{version}}"
-    },
     "config": {
-      "title": "Project configuration",
+      "title": "Dataset settings",
       "rootObject": "Root object",
       "budget": "Volume budget (records)",
       "axes": "Coverage axes",
@@ -6267,7 +6266,7 @@
       "saveFirst": "Save the configuration first: the runs read the saved one."
     },
     "selection": {
-      "title": "Coverage-matrix selection",
+      "title": "Choose root records",
       "run": "Run selection",
       "combination": "Combination",
       "axes": "Axis values",
@@ -6297,8 +6296,10 @@
       "source": "Source: {{org}}"
     },
     "extract": {
-      "title": "Extraction & pseudonymization",
+      "title": "Extract and pseudonymize",
       "run": "Run extraction",
+      "sourceOrg": "Source org",
+      "pickSource": "Pick the org to extract from.",
       "saltHint": "Every pseudonym is drawn with this editor's salt, made on the first extraction and kept in VS Code's secret storage. To extract the same pseudonyms as a teammate, set theirs with \"SandForge: Use a Frozen Dataset Salt\"; give yours with \"SandForge: Copy Frozen Dataset Salt\". SANDFORGE_FROZEN_SALT, where it is set, wins over both. A load does not need the salt.",
       "summary": "{{records}} across {{files}}",
       "summaryRecords_one": "{{count}} record frozen",
@@ -6317,7 +6318,7 @@
       "detail": "Detail"
     },
     "guards": {
-      "title": "Entry guards",
+      "title": "Safety checks",
       "sandboxOnly": "Never a production org",
       "protectedEnvs_one": "{{count}} protected org",
       "protectedEnvs_other": "{{count}} protected orgs",
@@ -6326,6 +6327,8 @@
     },
     "load": {
       "targetOrg": "Target org (sandbox)",
+      "runOptions": "Run options",
+      "consents": "Consents for this target",
       "pilot": "Pilot (one root record first)",
       "reload": "Reload without refresh",
       "writeEncrypted": "Write encrypted fields as the dataset holds them",
@@ -6334,7 +6337,7 @@
       "run": "Run load",
       "runPilot": "Run pilot",
       "progress": "Progress",
-      "preview": "Preview",
+      "preview": "Simulate",
       "stopping": "Stopping: the load ends before its next write. What it wrote stays in the org, named in the mapping for a removal or a reload.",
       "cancelRefused": "Could not cancel the load",
       "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window.",
@@ -6385,13 +6388,13 @@
       "personContacts_other": "{{count}} person accounts' contacts go in with their account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
       "recordTypeIssues_one": "{{count}} record type reference the target does not resolve",
       "recordTypeIssues_other": "{{count}} record type references the target does not resolve",
-      "validationRules_one": "{{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a record it refuses is counted to insert.",
-      "validationRules_other": "{{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert.",
+      "validationRules_one": "{{object}}: {{count}} active validation rule of the target, which a simulation cannot evaluate — a record it refuses is counted to insert.",
+      "validationRules_other": "{{object}}: {{count}} active validation rules of the target, which a simulation cannot evaluate — a record one of them refuses is counted to insert.",
       "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted to insert.",
       "validationRulesOnChange_one": "{{object}}: {{count}} rule left out — its formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} rules left out — their formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
-      "placeholderValidationRules_one": "Placeholder of {{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.",
-      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load.",
+      "placeholderValidationRules_one": "Placeholder of {{object}}: {{count}} active validation rule of the target, which a simulation cannot evaluate — a placeholder it refuses stops the load.",
+      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a simulation cannot evaluate — a placeholder one of them refuses stops the load.",
       "emails": {
         "refused": "{{org}} delivers every email what still runs sends as the load writes, or would not say whether it does: the load would be refused, nothing written, unless you tick “Load even though {{org}} delivers the emails”.",
         "accepted": "{{org}} delivers the emails what still runs sends as the load writes, or would not say whether it does: with the box ticked, the load sends them.",
@@ -6423,10 +6426,10 @@
         "refused": "A load would be refused, nothing written, unless you tick “Load although {{org}} runs automation as the records go in”, or mute it.",
         "accepted": "With the box ticked, the load writes all the same, and this automation runs."
       },
-      "lookupFilters": "{{object}}: lookup filters of the target, which a preview cannot check — a record whose lookup a filter refuses is refused, and what hangs from it: {{fields}}"
+      "lookupFilters": "{{object}}: lookup filters of the target, which a simulation cannot check — a record whose lookup a filter refuses is refused, and what hangs from it: {{fields}}"
     },
     "verify": {
-      "run": "Re-verify",
+      "run": "Verify",
       "noLoad": "No load into {{org}} is recorded: load the dataset into it before verifying it.",
       "title": "Post-load verification",
       "attempts_one": "{{count}} measurement",
@@ -6496,9 +6499,9 @@
       "sweptChangedKept": "Records kept, changed since that load: {{records}}. A reload with “Also take what the sweep finds changed since” ticked takes them, and so does a removal with its sweep and the records changed since ticked."
     },
     "removal": {
-      "title": "Last load",
+      "title": "Remove the last load",
       "loadedInto": "Loaded into {{org}} on {{date}}",
-      "titleEarlier": "Earlier load",
+      "titleEarlier": "Remove an earlier load",
       "earlierNote": "A load before the last one: the loads after it left its records in {{org}}.",
       "remove": "Remove the records this load created",
       "removeLeft": "Remove what is left of this load's records",
@@ -6553,7 +6556,7 @@
       "failed": "The rules file was not written: {{reason}}"
     },
     "loadPhase": {
-      "guards": "Entry guards",
+      "guards": "Safety checks",
       "mapping": "Mapping",
       "pilot": "Pilot scope",
       "reload": "Reload",
@@ -7252,7 +7255,7 @@
         "onMachine": "It keeps the values of those records of {{org}} on this machine, unencrypted and readable by you alone, for the days {{setting}} sets (7 by default); a run that writes nothing deletes it.",
         "costAtQuestion": "What it holds and costs — records, API requests, time, space on this machine — is said in the question before the first write, where you can still cancel.",
         "costAtSimulation": "Simulate says what it would hold and cost — records, API requests, time, space on this machine —, and the question before the first write says it again, where you can still cancel.",
-        "costAtPreview": "Preview says what it would hold and cost — records, API requests, time, space on this machine. The load takes it with no question of its own.",
+        "costAtPreview": "Simulate says what it would hold and cost — records, API requests, time, space on this machine. The load takes it with no question of its own.",
         "refused": "A checkpoint refused, or that could not be taken, refuses the run: nothing is written. A retry or a resume takes none: it names the checkpoint of the run it takes up.",
         "notOffered": "Not offered: SandForge takes no checkpoint of {{org}}, which it does not know to be a sandbox, a scratch org or a Developer Edition.",
         "wayBack": "SandForge cannot remove what this run writes: the checkpoint taken first is the way back.",

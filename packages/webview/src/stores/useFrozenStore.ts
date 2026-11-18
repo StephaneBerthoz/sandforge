@@ -38,7 +38,14 @@ export interface FrozenExtractSummary {
  * latest operation results so both tabs can render them.
  */
 export interface FrozenState {
-  tab: FrozenTab;
+  /**
+   * The tab shown, or none yet: the page lands on Load once the status says a
+   * dataset is frozen on this machine, on Extract otherwise, or on the tab a
+   * navigation asked for, and keeps the one picked after. It opened on
+   * Extract whatever there was: after a refresh, with a dataset waiting to be
+   * loaded, the work was one tab away and nothing pointed to it.
+   */
+  tab: FrozenTab | null;
   /**
    * The org the Load tab loads into, verifies and removes from, picked in
    * it: empty until one is picked, the selected org standing in. Here rather
@@ -46,6 +53,13 @@ export interface FrozenState {
    * strip shows that org's last verification.
    */
   targetOrgId: string;
+  /**
+   * The org the Extract tab's selection and extraction read, picked in it:
+   * empty until one is picked, the selected org standing in. Both runs read
+   * the same one: read from the side panel, the source changed under a
+   * selection already made when another org was selected there.
+   */
+  sourceOrgId: string;
   /** Last saved/loaded project config. */
   config: FrozenProjectConfig | null;
   /** Module status snapshot (frozen:status). */
@@ -76,6 +90,7 @@ export interface FrozenState {
 
   setTab: (tab: FrozenTab) => void;
   setTargetOrgId: (orgId: string) => void;
+  setSourceOrgId: (orgId: string) => void;
   setConfig: (config: FrozenProjectConfig | null) => void;
   setStatus: (status: FrozenStatusInfo | null) => void;
   setSelection: (selection: FrozenSelectionSummary | null) => void;
@@ -101,8 +116,9 @@ const MAX_ACTIVE_REQUESTS = 20;
 
 /** Zustand store for the Frozen Reference Dataset page. */
 export const useFrozenStore = create<FrozenState>((set) => ({
-  tab: 'extract',
+  tab: null,
   targetOrgId: '',
+  sourceOrgId: '',
   config: null,
   status: null,
   selection: null,
@@ -121,6 +137,9 @@ export const useFrozenStore = create<FrozenState>((set) => ({
   },
   setTargetOrgId(targetOrgId: string): void {
     set({ targetOrgId });
+  },
+  setSourceOrgId(sourceOrgId: string): void {
+    set({ sourceOrgId });
   },
   setConfig(config: FrozenProjectConfig | null): void {
     set({ config });

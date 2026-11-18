@@ -4080,11 +4080,11 @@
     },
     "frozen": {
       "step1": "Na aba Extrair, informe o Objeto raiz e clique em Salvar configuração.",
-      "step2": "Clique em Executar seleção: ela escolhe os registros raiz na org selecionada no painel lateral.",
+      "step2": "Escolha a Org de origem e clique em Executar seleção: ela escolhe ali os registros raiz.",
       "step3": "Clique em Criar arquivo de regras (todo campo sem regra é limpo) e depois em Executar extração.",
       "step4": "Na aba Carregar, escolha a Org de destino (sandbox) a preencher e clique em Executar carga.",
-      "step5": "Leia a Verificação pós-carga, que é executada após a carga; Verificar novamente a repete.",
-      "tip": "Pré-visualizar não grava nada, uma carga nunca vai para uma org de produção e Remover os registros que esta carga criou os apaga."
+      "step5": "Leia a Verificação pós-carga, que é executada após a carga; Verificar a repete.",
+      "tip": "Simular não grava nada, uma carga nunca vai para uma org de produção e Remover os registros que esta carga criou os apaga."
     },
     "compare": {
       "step1": "Escolha a Org de origem e uma Org de destino diferente; a Visão geral das orgs lê então as duas, sem comparação.",
@@ -6213,7 +6213,7 @@
     "emptyState": {
       "title": "Nenhuma org conectada",
       "description": "Conecte uma org Salesforce para criar ou recarregar um dataset de referência congelado.",
-      "cta": "Selecionar uma org"
+      "cta": "Conectar uma org"
     },
     "status": {
       "salt": "Impressão digital do salt",
@@ -6224,6 +6224,8 @@
       "dataset": "Dataset congelado",
       "records_one": "{{count}} registro",
       "records_other": "{{count}} registros",
+      "recordsFrozenOn_one": "{{count}} registro, congelado em {{date}}",
+      "recordsFrozenOn_other": "{{count}} registros, congelados em {{date}}",
       "noDataset": "Nenhum dataset congelado ainda",
       "selection": "Seleção",
       "noSelection": "Nenhuma seleção ainda",
@@ -6234,11 +6236,8 @@
       "extract": "Extrair",
       "load": "Carregar"
     },
-    "manifest": {
-      "version": "Dataset v{{version}}"
-    },
     "config": {
-      "title": "Configuração do projeto",
+      "title": "Configurações do dataset",
       "rootObject": "Objeto raiz",
       "budget": "Orçamento de volume (registros)",
       "axes": "Eixos de cobertura",
@@ -6267,7 +6266,7 @@
       "saveFirst": "Salve a configuração primeiro: as execuções leem a configuração salva."
     },
     "selection": {
-      "title": "Seleção por matriz de cobertura",
+      "title": "Escolher os registros raiz",
       "run": "Executar seleção",
       "combination": "Combinação",
       "axes": "Valores dos eixos",
@@ -6297,8 +6296,10 @@
       "source": "Origem: {{org}}"
     },
     "extract": {
-      "title": "Extração e pseudonimização",
+      "title": "Extrair e pseudonimizar",
       "run": "Executar extração",
+      "sourceOrg": "Org de origem",
+      "pickSource": "Escolha a org da qual extrair.",
       "saltHint": "Cada pseudônimo é tirado com o salt deste editor, criado na primeira extração e guardado no armazenamento secreto do VS Code. Para extrair os mesmos pseudônimos que um colega, defina o dele com \"SandForge: Usar um salt para o dataset congelado\"; passe o seu com \"SandForge: Copiar o salt do dataset congelado\". SANDFORGE_FROZEN_SALT, onde está definido, prevalece sobre ambos. Uma carga não precisa do salt.",
       "summary": "{{records}} em {{files}}",
       "summaryRecords_one": "{{count}} registro congelado",
@@ -6317,7 +6318,7 @@
       "detail": "Detalhe"
     },
     "guards": {
-      "title": "Guardas de entrada",
+      "title": "Verificações de segurança",
       "sandboxOnly": "Nunca uma org de produção",
       "protectedEnvs_one": "{{count}} org protegida",
       "protectedEnvs_other": "{{count}} orgs protegidas",
@@ -6326,6 +6327,8 @@
     },
     "load": {
       "targetOrg": "Org de destino (sandbox)",
+      "runOptions": "Opções de execução",
+      "consents": "Consentimentos para este destino",
       "pilot": "Piloto (primeiro um registro raiz)",
       "reload": "Recarga sem refresh",
       "writeEncrypted": "Gravar os campos criptografados como o dataset os contém",
@@ -6334,7 +6337,7 @@
       "run": "Executar carga",
       "runPilot": "Executar piloto",
       "progress": "Progresso",
-      "preview": "Pré-visualizar",
+      "preview": "Simular",
       "stopping": "Parando: a carga termina antes da próxima gravação. O que ela gravou fica na org, nomeado no mapeamento para uma remoção ou uma recarga.",
       "cancelRefused": "Não foi possível cancelar a carga",
       "cancelRefusedDetail": "A carga não está mais em andamento, ou não foi iniciada a partir desta janela.",
@@ -6385,13 +6388,13 @@
       "personContacts_other": "{{count}} contatos de contas pessoais entram com sua conta, contados à parte: vinculados ao contato que a plataforma grava com ela, ou enviados como contatos próprios onde o destino tem a conta como conta comercial.",
       "recordTypeIssues_one": "{{count}} referência de tipo de registro que o destino não resolve",
       "recordTypeIssues_other": "{{count}} referências de tipo de registro que o destino não resolve",
-      "validationRules_one": "{{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um registro que ela recuse é contado para inserir.",
-      "validationRules_other": "{{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um registro que uma delas recuse é contado para inserir.",
+      "validationRules_one": "{{object}}: {{count}} regra de validação ativa do destino, que uma simulação não consegue avaliar — um registro que ela recuse é contado para inserir.",
+      "validationRules_other": "{{object}}: {{count}} regras de validação ativas do destino, que uma simulação não consegue avaliar — um registro que uma delas recuse é contado para inserir.",
       "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado para inserir.",
       "validationRulesOnChange_one": "{{object}}: {{count}} regra deixada de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
       "validationRulesOnChange_other": "{{object}}: {{count}} regras deixadas de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
-      "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um marcador que ela recuse interrompe o carregamento.",
-      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um marcador que uma delas recuse interrompe o carregamento.",
+      "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regra de validação ativa do destino, que uma simulação não consegue avaliar — um marcador que ela recuse interrompe o carregamento.",
+      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} regras de validação ativas do destino, que uma simulação não consegue avaliar — um marcador que uma delas recuse interrompe o carregamento.",
       "emails": {
         "refused": "{{org}} entrega todos os e-mails que o que ainda roda envia quando a carga grava, ou não diz se os entrega: a carga seria recusada, nada gravado, a menos que você marque “Carregar mesmo que {{org}} entregue os e-mails”.",
         "accepted": "{{org}} entrega os e-mails que o que ainda roda envia quando a carga grava, ou não diz se os entrega: com a caixa marcada, a carga os envia.",
@@ -6423,10 +6426,10 @@
         "refused": "A carga seria recusada, nada gravado, a menos que você marque “Carregar mesmo que {{org}} execute automações na entrada dos registros”, ou a silencie.",
         "accepted": "Com a caixa marcada, a carga grava assim mesmo, e essas automações rodam."
       },
-      "lookupFilters": "{{object}}: filtros de pesquisa do destino, que uma prévia não consegue verificar — um registro cuja pesquisa um filtro recusa é recusado, com o que depende dele: {{fields}}"
+      "lookupFilters": "{{object}}: filtros de pesquisa do destino, que uma simulação não consegue verificar — um registro cuja pesquisa um filtro recusa é recusado, com o que depende dele: {{fields}}"
     },
     "verify": {
-      "run": "Verificar novamente",
+      "run": "Verificar",
       "noLoad": "Nenhuma carga em {{org}} está registrada: carregue nela o dataset antes de verificá-la.",
       "title": "Verificação pós-carga",
       "attempts_one": "{{count}} medição",
@@ -6496,9 +6499,9 @@
       "sweptChangedKept": "Registros mantidos, alterados desde essa carga: {{records}}. Uma recarga com “Levar também o que a varredura encontra alterado” marcado os leva, assim como uma remoção com sua varredura e os registros alterados desde então marcados."
     },
     "removal": {
-      "title": "Última carga",
+      "title": "Remover a última carga",
       "loadedInto": "Carregado em {{org}} em {{date}}",
-      "titleEarlier": "Carga anterior",
+      "titleEarlier": "Remover uma carga anterior",
       "earlierNote": "Uma carga anterior à última: as cargas seguintes deixaram os registros dela em {{org}}.",
       "remove": "Remover os registros que esta carga criou",
       "removeLeft": "Remover o que resta dos registros desta carga",
@@ -6553,7 +6556,7 @@
       "failed": "O arquivo de regras não foi gravado: {{reason}}"
     },
     "loadPhase": {
-      "guards": "Verificações de entrada",
+      "guards": "Verificações de segurança",
       "mapping": "Mapeamento",
       "pilot": "Escopo piloto",
       "reload": "Recarga",
@@ -7252,7 +7255,7 @@
         "onMachine": "Ele guarda os valores desses registros de {{org}} nesta máquina, sem criptografia e legíveis só por você, pelos dias que {{setting}} define (7 por padrão); uma execução que não grava nada o exclui.",
         "costAtQuestion": "O que ele contém e custa — registros, solicitações de API, tempo, espaço nesta máquina — é dito na pergunta antes da primeira gravação, onde você ainda pode cancelar.",
         "costAtSimulation": "Simular diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina —, e a pergunta antes da primeira gravação o repete, onde você ainda pode cancelar.",
-        "costAtPreview": "Pré-visualizar diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina. A carga o cria sem perguntar.",
+        "costAtPreview": "Simular diz o que ele conteria e custaria — registros, solicitações de API, tempo, espaço nesta máquina. A carga o cria sem perguntar.",
         "refused": "Um ponto de verificação recusado, ou que não pôde ser criado, recusa a execução: nada é gravado. Uma nova tentativa ou uma retomada não cria nenhum: ela nomeia o da execução que retoma.",
         "notOffered": "Não disponível: o SandForge não cria ponto de verificação de {{org}}, que ele não sabe se é uma sandbox, uma scratch org ou uma Developer Edition.",
         "wayBack": "O SandForge não pode remover o que esta execução grava: o ponto de verificação criado primeiro é o caminho de volta.",

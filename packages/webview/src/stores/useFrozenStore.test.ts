@@ -75,6 +75,7 @@ const LOAD_REPORT = { status: 'completed', orgId: 'org-1' } as unknown as Frozen
 const EXERCISED_ACTIONS = [
   'setTab',
   'setTargetOrgId',
+  'setSourceOrgId',
   'setConfig',
   'setStatus',
   'setSelection',
@@ -98,10 +99,11 @@ describe('useFrozenStore', () => {
     useFrozenStore.setState(useFrozenStore.getInitialState(), true);
   });
 
-  it('starts on the extract tab with nothing collected', () => {
+  it('starts on no tab, for the page to land on one, with nothing collected', () => {
     const state = useFrozenStore.getState();
-    expect(state.tab).toBe('extract');
+    expect(state.tab).toBeNull();
     expect(state.targetOrgId).toBe('');
+    expect(state.sourceOrgId).toBe('');
     expect(state.config).toBeNull();
     expect(state.status).toBeNull();
     expect(state.selection).toBeNull();
@@ -141,6 +143,13 @@ describe('useFrozenStore', () => {
       expect(useFrozenStore.getState().targetOrgId).toBe('org-2');
       useFrozenStore.getState().setTargetOrgId('');
       expect(useFrozenStore.getState().targetOrgId).toBe('');
+    });
+
+    it('keeps the source org the Extract tab picked, and lets it go', () => {
+      useFrozenStore.getState().setSourceOrgId('org-uat');
+      expect(useFrozenStore.getState().sourceOrgId).toBe('org-uat');
+      useFrozenStore.getState().setSourceOrgId('');
+      expect(useFrozenStore.getState().sourceOrgId).toBe('');
     });
 
     it('stores and clears the project config', () => {

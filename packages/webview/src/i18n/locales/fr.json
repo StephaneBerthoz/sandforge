@@ -4080,11 +4080,11 @@
     },
     "frozen": {
       "step1": "Dans l'onglet Extraire, remplissez le champ Objet racine, puis cliquez sur Enregistrer la configuration.",
-      "step2": "Cliquez sur Lancer la sélection : elle choisit les enregistrements racines de l'org sélectionnée dans le panneau latéral.",
+      "step2": "Choisissez l'Org source, puis cliquez sur Lancer la sélection : elle y choisit les enregistrements racines.",
       "step3": "Cliquez sur Créer le fichier de règles (tout champ sans règle est effacé), puis sur Lancer l'extraction.",
       "step4": "Dans l'onglet Charger, choisissez l'Org cible (sandbox) à remplir, puis cliquez sur Lancer le chargement.",
-      "step5": "Lisez la Vérification post-chargement qui suit le chargement ; Re-vérifier la relance.",
-      "tip": "Aperçu n'écrit rien, un chargement ne va jamais dans une org de production, et Supprimer les enregistrements créés par ce chargement les efface."
+      "step5": "Lisez la Vérification post-chargement qui suit le chargement ; Vérifier la relance.",
+      "tip": "Simuler n'écrit rien, un chargement ne va jamais dans une org de production, et Supprimer les enregistrements créés par ce chargement les efface."
     },
     "compare": {
       "step1": "Choisissez l'Org Source et une Org Cible différente ; l'Aperçu des orgs lit alors les deux, sans comparaison.",
@@ -6209,11 +6209,11 @@
     }
   },
   "frozen": {
-    "subtitle": "Extraire une fois, pseudonymiser de façon déterministe, rejouer à l'identique après chaque refresh de sandbox",
+    "subtitle": "Extraire une fois, pseudonymiser de façon déterministe, rejouer à l'identique après chaque rafraîchissement de sandbox",
     "emptyState": {
       "title": "Aucune org connectée",
       "description": "Connectez une org Salesforce pour construire ou rejouer un jeu de données de référence figé.",
-      "cta": "Sélectionner une org"
+      "cta": "Connecter une org"
     },
     "status": {
       "salt": "Empreinte du sel",
@@ -6224,6 +6224,8 @@
       "dataset": "Jeu de données figé",
       "records_one": "{{count}} enregistrement",
       "records_other": "{{count}} enregistrements",
+      "recordsFrozenOn_one": "{{count}} enregistrement, figé le {{date}}",
+      "recordsFrozenOn_other": "{{count}} enregistrements, figés le {{date}}",
       "noDataset": "Aucun jeu de données figé pour l'instant",
       "selection": "Sélection",
       "noSelection": "Aucune sélection",
@@ -6234,11 +6236,8 @@
       "extract": "Extraire",
       "load": "Charger"
     },
-    "manifest": {
-      "version": "Jeu de données v{{version}}"
-    },
     "config": {
-      "title": "Configuration du projet",
+      "title": "Réglages du jeu",
       "rootObject": "Objet racine",
       "budget": "Budget de volumétrie (enregistrements)",
       "axes": "Axes de couverture",
@@ -6267,7 +6266,7 @@
       "saveFirst": "Enregistrez d'abord la configuration : les exécutions lisent celle qui est enregistrée."
     },
     "selection": {
-      "title": "Sélection par matrice de couverture",
+      "title": "Choisir les enregistrements racines",
       "run": "Lancer la sélection",
       "combination": "Combinaison",
       "axes": "Valeurs d'axes",
@@ -6297,8 +6296,10 @@
       "source": "Source : {{org}}"
     },
     "extract": {
-      "title": "Extraction & pseudonymisation",
+      "title": "Extraire et pseudonymiser",
       "run": "Lancer l'extraction",
+      "sourceOrg": "Org source",
+      "pickSource": "Choisissez l'org à partir de laquelle extraire.",
       "saltHint": "Chaque pseudonyme est tiré avec le sel de cet éditeur, créé à la première extraction et gardé dans le stockage secret de VS Code. Pour extraire les mêmes pseudonymes qu'un collègue, définissez le sien avec « SandForge : Utiliser un sel pour le Jeu de données figé » ; transmettez le vôtre avec « SandForge : Copier le sel du Jeu de données figé ». SANDFORGE_FROZEN_SALT, là où il est défini, l'emporte sur les deux. Un chargement n'a pas besoin du sel.",
       "summary": "{{records}} dans {{files}}",
       "summaryRecords_one": "{{count}} enregistrement figé",
@@ -6317,7 +6318,7 @@
       "detail": "Détail"
     },
     "guards": {
-      "title": "Gardes d'entrée",
+      "title": "Contrôles de sécurité",
       "sandboxOnly": "Jamais une org de production",
       "protectedEnvs_one": "{{count}} org protégée",
       "protectedEnvs_other": "{{count}} orgs protégées",
@@ -6326,15 +6327,17 @@
     },
     "load": {
       "targetOrg": "Org cible (sandbox)",
+      "runOptions": "Options d'exécution",
+      "consents": "Accords pour cette cible",
       "pilot": "Pilote (un enregistrement racine d'abord)",
-      "reload": "Rechargement sans refresh",
+      "reload": "Recharger sans rafraîchissement",
       "writeEncrypted": "Écrire les champs chiffrés tels que le jeu de données les contient",
       "writeEncryptedHint": "Ce jeu de données ne dit pas si son extraction a laissé de côté les champs chiffrés qu'elle lisait masqués : ils peuvent contenir des masques comme ****1234, et sont laissés de côté sauf si cette case est cochée.",
       "mayHoldMasks": "Laissés de côté, chiffrés dans cette org : {{fields}}. Le jeu de données ne dit pas si son extraction a laissé de côté ce qu'elle lisait masqué : ils peuvent donc contenir des masques comme ****1234 ; cochez « Écrire les champs chiffrés tels que le jeu de données les contient » pour les écrire.",
       "run": "Lancer le chargement",
       "runPilot": "Lancer le pilote",
       "progress": "Progression",
-      "preview": "Aperçu",
+      "preview": "Simuler",
       "stopping": "Arrêt en cours : le chargement s'arrête avant sa prochaine écriture. Ce qu'il a écrit reste dans l'org, nommé dans le mapping pour une suppression ou un rechargement.",
       "cancelRefused": "Impossible d'annuler le chargement",
       "cancelRefusedDetail": "Le chargement n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
@@ -6385,13 +6388,13 @@
       "personContacts_other": "{{count}} contacts de comptes personnels entrent avec leur compte, comptés à part : liés au contact que la plateforme écrit avec lui, ou envoyés comme contacts à part entière là où la cible tient le compte pour un compte professionnel.",
       "recordTypeIssues_one": "{{count}} référence de type d'enregistrement que la cible ne résout pas",
       "recordTypeIssues_other": "{{count}} références de type d'enregistrement que la cible ne résout pas",
-      "validationRules_one": "{{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement qu'elle refuse est compté parmi ceux à insérer.",
-      "validationRules_other": "{{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement que l'une d'elles refuse est compté parmi ceux à insérer.",
+      "validationRules_one": "{{object}} : {{count}} règle de validation active de la cible, qu'une simulation ne peut pas évaluer — un enregistrement qu'elle refuse est compté parmi ceux à insérer.",
+      "validationRules_other": "{{object}} : {{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer — un enregistrement que l'une d'elles refuse est compté parmi ceux à insérer.",
       "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté parmi ceux à insérer.",
       "validationRulesOnChange_one": "{{object}} : {{count}} règle laissée de côté — sa formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
       "validationRulesOnChange_other": "{{object}} : {{count}} règles laissées de côté — leur formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
-      "placeholderValidationRules_one": "Placeholder de {{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un placeholder qu'elle refuse arrête le chargement.",
-      "placeholderValidationRules_other": "Placeholder de {{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un placeholder que l'une d'elles refuse arrête le chargement.",
+      "placeholderValidationRules_one": "Placeholder de {{object}} : {{count}} règle de validation active de la cible, qu'une simulation ne peut pas évaluer — un placeholder qu'elle refuse arrête le chargement.",
+      "placeholderValidationRules_other": "Placeholder de {{object}} : {{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer — un placeholder que l'une d'elles refuse arrête le chargement.",
       "emails": {
         "refused": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le chargement écrit, ou ne dit pas s'ils partent : le chargement serait refusé, rien d'écrit, sauf si vous cochez « Charger même si {{org}} délivre les e-mails ».",
         "accepted": "{{org}} délivre les e-mails que ce qui tourne encore envoie quand le chargement écrit, ou ne dit pas s'ils partent : la case cochée, le chargement les envoie.",
@@ -6423,10 +6426,10 @@
         "refused": "Le chargement serait refusé, rien d'écrit, sauf si vous cochez « Charger même si {{org}} exécute des automatisations à l'entrée des enregistrements », ou si vous la coupez.",
         "accepted": "La case cochée, le chargement écrit malgré tout, et ces automatisations tournent."
       },
-      "lookupFilters": "{{object}} : filtres de recherche de la cible, qu'un aperçu ne peut pas vérifier — un enregistrement dont un filtre refuse la recherche est refusé, avec ce qui en dépend : {{fields}}"
+      "lookupFilters": "{{object}} : filtres de recherche de la cible, qu'une simulation ne peut pas vérifier — un enregistrement dont un filtre refuse la recherche est refusé, avec ce qui en dépend : {{fields}}"
     },
     "verify": {
-      "run": "Re-vérifier",
+      "run": "Vérifier",
       "noLoad": "Aucun chargement dans {{org}} n'est enregistré : chargez-y le jeu de données avant de le vérifier.",
       "title": "Vérification post-chargement",
       "attempts_one": "{{count}} relevé",
@@ -6496,9 +6499,9 @@
       "sweptChangedKept": "Enregistrements gardés, modifiés depuis ce chargement : {{records}}. Un rechargement avec « Prendre aussi ce que le balayage trouve modifié depuis » coché les prend, de même qu'un retrait avec son balayage et les enregistrements modifiés depuis cochés."
     },
     "removal": {
-      "title": "Dernier chargement",
+      "title": "Retirer le dernier chargement",
       "loadedInto": "Chargé dans {{org}} le {{date}}",
-      "titleEarlier": "Chargement antérieur",
+      "titleEarlier": "Retirer un chargement antérieur",
       "earlierNote": "Un chargement antérieur au dernier : les chargements suivants ont laissé ses enregistrements dans {{org}}.",
       "remove": "Supprimer les enregistrements créés par ce chargement",
       "removeLeft": "Supprimer ce qui reste des enregistrements de ce chargement",
@@ -6524,7 +6527,7 @@
       "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'elle a supprimé d'ici là est listé ; le reste demeure dans l'org, et une suppression le reprendra plus tard.",
       "cancelRefused": "Impossible d'arrêter la suppression",
       "cancelRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
-      "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici, ni remplacés par un rechargement, qui supprimerait ce que quelqu'un a modifié depuis. Actualisez la sandbox pour repartir de sa copie, ou retrouvez les enregistrements créés ce jour-là par l'utilisateur du chargement et supprimez-les vous-même.",
+      "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici, ni remplacés par un rechargement, qui supprimerait ce que quelqu'un a modifié depuis. Rafraîchissez la sandbox pour repartir de sa copie, ou retrouvez les enregistrements créés ce jour-là par l'utilisateur du chargement et supprimez-les vous-même.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",
       "keptByThePlatform": "Conservés dans {{org}} par toute suppression — la plateforme ne supprime pas ces enregistrements créés par le chargement : {{objects}}"
@@ -6553,7 +6556,7 @@
       "failed": "Le fichier de règles n'a pas été écrit : {{reason}}"
     },
     "loadPhase": {
-      "guards": "Garde-fous",
+      "guards": "Contrôles de sécurité",
       "mapping": "Correspondances",
       "pilot": "Périmètre pilote",
       "reload": "Rechargement",
@@ -6611,7 +6614,7 @@
       },
       "notRecorded": {
         "explanation": "Ce chargement a été enregistré avant que les chargements gardent ce qu'ils créent : ses enregistrements ne se distinguent pas de ceux qu'il a reliés.",
-        "action": "Il ne peut ni être retiré d'ici, ni être remplacé par un rechargement, qui supprimerait ce que quelqu'un a modifié depuis : actualisez la sandbox pour repartir de sa copie, ou retrouvez les enregistrements créés ce jour-là par l'utilisateur du chargement et supprimez-les vous-même."
+        "action": "Il ne peut ni être retiré d'ici, ni être remplacé par un rechargement, qui supprimerait ce que quelqu'un a modifié depuis : rafraîchissez la sandbox pour repartir de sa copie, ou retrouvez les enregistrements créés ce jour-là par l'utilisateur du chargement et supprimez-les vous-même."
       },
       "loadChanged": {
         "explanation": "Un autre chargement a été enregistré depuis l'affichage de celui-ci, et rien n'a été retiré.",
@@ -7252,7 +7255,7 @@
         "onMachine": "Il garde les valeurs de ces enregistrements de {{org}} sur cette machine, non chiffrées et lisibles par vous seul, pendant les jours que fixe {{setting}} (7 par défaut) ; une exécution qui n'écrit rien le supprime.",
         "costAtQuestion": "Ce qu'il tient et coûte — enregistrements, requêtes d'API, temps, place sur cette machine — est dit dans la question posée avant la première écriture, où vous pouvez encore annuler.",
         "costAtSimulation": "Simuler dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine —, et la question posée avant la première écriture le redit, où vous pouvez encore annuler.",
-        "costAtPreview": "Aperçu dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine. Le chargement le prend sans poser de question.",
+        "costAtPreview": "Simuler dit ce qu'il tiendrait et coûterait — enregistrements, requêtes d'API, temps, place sur cette machine. Le chargement le prend sans poser de question.",
         "refused": "Un point de contrôle refusé, ou qui n'a pas pu être pris, refuse l'exécution : rien n'est écrit. Une nouvelle tentative ou une reprise n'en prend aucun : elle nomme celui de l'exécution qu'elle reprend.",
         "notOffered": "Non proposé : SandForge ne prend aucun point de contrôle de {{org}}, dont il ne sait pas que c'est une sandbox, une scratch org ou une Developer Edition.",
         "wayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : le point de contrôle pris d'abord est le chemin du retour.",

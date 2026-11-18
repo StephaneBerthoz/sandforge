@@ -848,7 +848,7 @@ describe('FrozenLoadTab', () => {
       render(tab());
 
       expect(screen.getByTestId('frozen-preview-lookup-filters-Account').textContent).toBe(
-        'Account: lookup filters of the target, which a preview cannot check — a record whose ' +
+        'Account: lookup filters of the target, which a simulation cannot check — a record whose ' +
           'lookup a filter refuses is refused, and what hangs from it: Preferred_Account__c → ' +
           'Account (72)',
       );
@@ -978,7 +978,7 @@ describe('FrozenLoadTab', () => {
 
       const rules = screen.getByTestId('frozen-preview-rules-Account');
       expect(rules.textContent).toContain(
-        'Account: 2 active validation rules of the target, which a preview cannot evaluate',
+        'Account: 2 active validation rules of the target, which a simulation cannot evaluate',
       );
       expect(
         within(rules)
@@ -1021,7 +1021,7 @@ describe('FrozenLoadTab', () => {
       const placeholder = PLAN.placeholders[0].placeholderObjectApiName;
       const rules = screen.getByTestId(`frozen-preview-placeholder-rules-${placeholder}`);
       expect(rules.textContent).toContain(
-        `Placeholder of ${placeholder}: 1 active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.`,
+        `Placeholder of ${placeholder}: 1 active validation rule of the target, which a simulation cannot evaluate — a placeholder it refuses stops the load.`,
       );
       expect(
         within(rules)
@@ -1240,7 +1240,7 @@ describe('FrozenLoadTab', () => {
 
     // It took the side panel's org: the org the Extract tab had just read,
     // so the first click of the tab was a load into the dataset's source.
-    it('is none until one is picked, and Preview and Run load say so instead of running', () => {
+    it('is none until one is picked, and Simulate and Run load say so instead of running', () => {
       useFrozenStore.setState({ targetOrgId: '' });
       render(tab());
 
@@ -1324,7 +1324,44 @@ describe('FrozenLoadTab', () => {
       );
     });
 
-    it('puts Preview, which writes nothing, before the run, and names the run by what it does', () => {
+    // "Preview" and "Re-verify" here, "Simulate" and "Verify" on the replay of
+    // a checkpoint, which runs the same load; and Re-verify before any check.
+    it('calls the check that writes nothing Simulate and the check after a load Verify, as the replay does', () => {
+      render(tab());
+      expect(screen.getByTestId('frozen-load-preview').textContent).toBe('Simulate');
+      expect(screen.getByTestId('frozen-verify-run').textContent).toBe('Verify');
+    });
+
+    it('groups the options in two: how the load runs, and what it accepts of the target', () => {
+      render(tab());
+      const options = screen.getByRole('group', { name: 'Run options' });
+      const consents = screen.getByRole('group', { name: 'Consents for this target' });
+      for (const id of [
+        'frozen-load-pilot',
+        'frozen-load-reload',
+        'frozen-load-mute',
+        'frozen-load-checkpoint-first',
+      ]) {
+        expect(options.contains(screen.getByTestId(id))).toBe(true);
+      }
+      for (const id of ['frozen-load-accept-emails', 'frozen-load-accept-automation']) {
+        expect(consents.contains(screen.getByTestId(id))).toBe(true);
+        expect(options.contains(screen.getByTestId(id))).toBe(false);
+      }
+      // The buttons come after both, the target picked above them.
+      expect(
+        consents.compareDocumentPosition(screen.getByTestId('frozen-load-run')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('names the card of what a load meets before it writes Safety checks', () => {
+      render(tab());
+      expect(screen.getByRole('heading', { name: 'Safety checks' })).toBeTruthy();
+      expect(screen.queryByText('Entry guards')).toBeNull();
+    });
+
+    it('puts Simulate, which writes nothing, before the run, and names the run by what it does', () => {
       render(tab());
       const preview = screen.getByTestId('frozen-load-preview');
       const run = screen.getByTestId('frozen-load-run');

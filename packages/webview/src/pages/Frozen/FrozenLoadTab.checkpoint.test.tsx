@@ -159,12 +159,15 @@ describe('FrozenLoadTab, Take a checkpoint now', () => {
       });
     });
 
-    it('is off, says the preview gives its cost, and goes with the preview and the load once ticked', () => {
+    it('is off, says Simulate gives its cost, and goes with the simulation and the load once ticked', () => {
       render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
       const toggle = screen.getByTestId('frozen-load-checkpoint-first-toggle');
       expect(toggle).not.toBeChecked();
       expect(screen.getByTestId('frozen-load-checkpoint-first-cost-said')).toHaveTextContent(
         'The load takes it with no question of its own',
+      );
+      expect(screen.getByTestId('frozen-load-checkpoint-first-cost-said')).toHaveTextContent(
+        /^Simulate says what it would hold and cost/,
       );
 
       fireEvent.click(toggle);

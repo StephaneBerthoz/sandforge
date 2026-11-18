@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, Play, Plus, Save, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -21,6 +21,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenCoverageNotes } from './FrozenCoverageNotes';
 import { FrozenKeptWithoutARule } from './FrozenKeptWithoutARule';
@@ -161,6 +162,10 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   const setExtractSummary = useFrozenStore((s) => s.setExtractSummary);
   const setManifest = useFrozenStore((s) => s.setManifest);
   const lastError = useFrozenStore((s) => s.lastError);
+  const pickedSource = useFrozenStore((s) => s.sourceOrgId);
+  const setSourceOrgId = useFrozenStore((s) => s.setSourceOrgId);
+  /** The advanced JSON's fold: shut until opened, or until its JSON does not parse. */
+  const advancedRef = useRef<HTMLDetailsElement>(null);
 
   const [rootObject, setRootObject] = useState('');
   const [budget, setBudget] = useState('2500');
@@ -178,6 +183,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
     rootHint: useId(),
     advancedHint: useId(),
     saveFirst: useId(),
+    pickSource: useId(),
     rulesBlocking: useId(),
     axisName: useId(),
     axisLabel: useId(),
@@ -225,10 +231,23 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
    */
   const rulesBlock =
     status?.rules !== undefined && (!status.rules.found || status.rules.invalid !== undefined);
+  /*
+   * The org both runs read: the one picked here, else the selected org while
+   * it is connected. Picked here, the side panel's org stays as it is: the
+   * load's target is picked on its own tab the same way.
+   */
+  const connectedOrgs = orgs.filter((org) => org.status === 'connected');
+  const sourceOrgId =
+    pickedSource ||
+    (connectedOrgs.some((org) => org.id === selectedOrgId) ? (selectedOrgId ?? '') : '');
+  const noSource = sourceOrgId === '';
   const sourceAlias = orgDisplayName(
-    orgs.find((org) => org.id === selectedOrgId),
-    selectedOrgId ?? '',
+    orgs.find((org) => org.id === sourceOrgId),
+    sourceOrgId,
   );
+  /** Why a run is not offered, by the ids of what says so. */
+  const heldBy = (...reasons: Array<string | false>): string | undefined =>
+    reasons.filter(Boolean).join(' ') || undefined;
   // Past the host's ten minutes: a selection that runs out of time answers
   // with what it kept, and the page waits long enough to hear it.
   const selectMutation = useFrozenMutation<FrozenSelectResponse['payload']>('frozen:select', {
@@ -276,11 +295,13 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
       const parsed: unknown = JSON.parse(advancedJson || '{}');
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         setJsonError(t('frozen.config.invalidJson'));
+        if (advancedRef.current) advancedRef.current.open = true;
         return;
       }
       advanced = parsed as Record<string, unknown>;
     } catch {
       setJsonError(t('frozen.config.invalidJson'));
+      if (advancedRef.current) advancedRef.current.open = true;
       return;
     }
     const budgetNum = Number.parseInt(budget, 10);
@@ -364,10 +385,15 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
         <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
       )}
 
-      {/* ── Configuration ─────────────────────────────────────────────── */}
+      {/* ── 1. Configuration ──────────────────────────────────────────── */}
+      {/* Numbered in the order of the work, each named by what it does: the
+          three cards read "Project configuration", "Coverage-matrix
+          selection" and "Extraction & pseudonymization", in no order said. */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-text-primary">{t('frozen.config.title')}</h2>
+          <h2 className="text-sm font-semibold text-text-primary">
+            {`1. ${t('frozen.config.title')}`}
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="flex flex-col gap-1">
@@ -563,33 +589,42 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
           </div>
 
           {/* What the advanced JSON takes, said once and linked to the docs'
-              table of keys: the label listed jargon over a bare "{}". */}
-          <div className="flex flex-col gap-1">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-secondary">{t('frozen.config.advanced')}</span>
+              table of keys: the label listed jargon over a bare "{}". Folded
+              under its name: it was a tall empty box under the form, which
+              most datasets never need; opened when its JSON does not parse. */}
+          <details
+            ref={advancedRef}
+            className="flex flex-col gap-1"
+            data-testid="frozen-config-advanced-section"
+          >
+            <summary className="cursor-pointer text-xs font-medium text-text-primary">
+              {t('frozen.config.advanced')}
+            </summary>
+            <div className="mt-1 flex flex-col gap-1">
               <textarea
                 className={`${inputClass} font-mono h-28`}
                 value={advancedJson}
                 onChange={(e) => edited(setAdvancedJson)(e.target.value)}
                 spellCheck={false}
+                aria-label={t('frozen.config.advanced')}
                 aria-describedby={ids.advancedHint}
                 data-testid="frozen-config-advanced"
               />
-            </label>
-            <p id={ids.advancedHint} className="text-[10px] text-text-secondary">
-              {t('frozen.config.advancedHint')}{' '}
-              <a
-                href={CONFIGURATION_KEYS_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-text-primary underline"
-                data-testid="frozen-config-keys-link"
-              >
-                {t('frozen.config.configKeys')}
-                <ExternalLink size={10} aria-hidden="true" className="shrink-0" />
-              </a>
-            </p>
-          </div>
+              <p id={ids.advancedHint} className="text-[10px] text-text-secondary">
+                {t('frozen.config.advancedHint')}{' '}
+                <a
+                  href={CONFIGURATION_KEYS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-text-primary underline"
+                  data-testid="frozen-config-keys-link"
+                >
+                  {t('frozen.config.configKeys')}
+                  <ExternalLink size={10} aria-hidden="true" className="shrink-0" />
+                </a>
+              </p>
+            </div>
+          </details>
           {jsonError && <p className="text-xs text-status-error">{jsonError}</p>}
 
           <div className="flex items-center gap-2">
@@ -628,34 +663,55 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
         </CardBody>
       </Card>
 
-      {/* ── Selection ─────────────────────────────────────────────────── */}
+      {/* ── 2. Selection ──────────────────────────────────────────────── */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-text-primary">
-              {t('frozen.selection.title')}
+              {`2. ${t('frozen.selection.title')}`}
             </h2>
             <Button
               variant="primary"
               size="sm"
               icon={<Play className="w-3 h-3" />}
               loading={selectMutation.loading}
-              disabled={!selectedOrgId || saveFirst}
+              disabled={noSource || saveFirst}
               focusableWhenDisabled
-              aria-describedby={saveFirst ? ids.saveFirst : undefined}
+              aria-describedby={heldBy(saveFirst && ids.saveFirst, noSource && ids.pickSource)}
               onClick={() => {
                 setSelectStep(null);
-                selectMutation.mutate({ sourceOrgId: selectedOrgId });
+                selectMutation.mutate({ sourceOrgId });
               }}
               data-testid="frozen-select-run"
             >
               {t('frozen.selection.run')}
             </Button>
           </div>
-          {/* The org the run reads: the side panel's, which nothing here named. */}
-          <p className="text-xs text-text-secondary" data-testid="frozen-selection-source">
-            {t('frozen.selection.source', { org: sourceAlias })}
-          </p>
+          {/* The org the selection and the extraction read, picked here. It
+              was the side panel's, which nothing here offered to change. */}
+          <div className="flex flex-col gap-1 sm:max-w-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-text-secondary">
+                {t('frozen.extract.sourceOrg')}
+              </span>
+              <OrgDropdown
+                value={sourceOrgId}
+                onChange={setSourceOrgId}
+                orgs={connectedOrgs}
+                ariaLabel={t('frozen.extract.sourceOrg')}
+                testId="frozen-source-org"
+              />
+            </label>
+            {noSource && (
+              <p
+                id={ids.pickSource}
+                className="text-[11px] text-text-secondary"
+                data-testid="frozen-source-pick"
+              >
+                {t('frozen.extract.pickSource')}
+              </p>
+            )}
+          </div>
           {selectMutation.loading && selectStep && (
             <p
               role="status"
@@ -734,32 +790,37 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
         </CardBody>
       </Card>
 
-      {/* ── Extraction + control ──────────────────────────────────────── */}
+      {/* ── 3. Extraction + control ───────────────────────────────────── */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-primary">{t('frozen.extract.title')}</h2>
+            <h2 className="text-sm font-semibold text-text-primary">
+              {`3. ${t('frozen.extract.title')}`}
+            </h2>
             <Button
               variant="primary"
               size="sm"
               icon={<Play className="w-3 h-3" />}
               loading={extractMutation.loading}
-              disabled={!selectedOrgId || !selection || saveFirst || rulesBlock}
+              disabled={noSource || !selection || saveFirst || rulesBlock}
               focusableWhenDisabled
-              aria-describedby={
-                [saveFirst ? ids.saveFirst : '', rulesBlock ? ids.rulesBlocking : '']
-                  .filter(Boolean)
-                  .join(' ') || undefined
-              }
-              onClick={() => extractMutation.mutate({ sourceOrgId: selectedOrgId })}
+              aria-describedby={heldBy(
+                saveFirst && ids.saveFirst,
+                noSource && ids.pickSource,
+                rulesBlock && ids.rulesBlocking,
+              )}
+              onClick={() => extractMutation.mutate({ sourceOrgId })}
               data-testid="frozen-extract-run"
             >
               {t('frozen.extract.run')}
             </Button>
           </div>
-          <p className="text-xs text-text-secondary" data-testid="frozen-extract-source">
-            {t('frozen.selection.source', { org: sourceAlias })}
-          </p>
+          {/* The org picked on the card above, said again beside the run that reads it. */}
+          {!noSource && (
+            <p className="text-xs text-text-secondary" data-testid="frozen-extract-source">
+              {t('frozen.selection.source', { org: sourceAlias })}
+            </p>
+          )}
           <FrozenRulesFileLine
             rules={status?.rules}
             blockingId={ids.rulesBlocking}
