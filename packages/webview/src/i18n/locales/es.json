@@ -3568,14 +3568,10 @@
     "step1Desc": "Conecte una org: impórtela desde la Salesforce CLI o inicie sesión en el navegador",
     "step2Title": "Tres formas de rellenar su sandbox",
     "step2Desc": "Genere datos sintéticos, parta de un registro real o reproduzca un dataset congelado tras una actualización",
-    "step3Title": "Configurar IA (opcional)",
-    "step3Desc": "Mejore SandForge con insights y generación de datos impulsados por IA",
     "skipOnboarding": "Omitir",
     "connectOrg": "Conectar una org",
-    "aiOptional": "Las funciones de IA son opcionales. Puede configurarlas más tarde en Configuración.",
     "chooseLanguage": "Elija su idioma",
     "step4Title": "Primeros pasos",
-    "suggestMonitor": "Comience con Monitor para vigilar la salud de su org de producción",
     "gotIt": "¡Entendido!",
     "whatsNewTitle": "Novedades en SandForge",
     "tryItNow": "Probar ahora",
@@ -3951,8 +3947,9 @@
     "connectFirst": "Conecte primero una org",
     "suggestSeedFor": "Rellene {{alias}} con el Kit inicial de CRM de Seed, o clone en ella un registro de otra org con Forge.",
     "done": "Listo",
-    "openAiSettings": "Abrir la configuración de IA",
-    "whatsNewSince": "Desde la {{version}}, la última versión que abrió"
+    "whatsNewSince": "Desde la {{version}}, la última versión que abrió",
+    "reconnectFirst": "Vuelva a conectar primero {{alias}}: su sesión terminó.",
+    "addSandboxFirst": "Añada el sandbox que llenar: Forge copia en él registros reales de {{alias}}."
   },
   "help": {
     "title": "Ayuda y Recursos",
@@ -4139,10 +4136,9 @@
   "home": {
     "connectedOrgs": "Orgs conectadas",
     "noOrgsConnected": "Sin orgs conectadas",
-    "quickActions": "Acciones rápidas",
+    "quickActions": "Todos los módulos",
     "recentOperations": "Operaciones recientes",
     "noRecentOps": "Sin operaciones recientes",
-    "healthSummary": "Resumen de salud",
     "healthScore": "Puntaje de salud",
     "gettingStarted": "Primeros pasos",
     "gettingStartedDesc": "¡Bienvenido a SandForge! Siga estos pasos para comenzar.",
@@ -4155,8 +4151,6 @@
     "justNow": "justo ahora",
     "minutesAgo": "hace {{count}}m",
     "hoursAgo": "hace {{count}}h",
-    "orgsConnected": "Orgs conectadas",
-    "activeJobs": "Jobs activos",
     "opsLast7d": "Ops (7 días)",
     "limitWarnings": "Advertencias de límites",
     "forgeASandbox": "Forjar un sandbox",
@@ -4205,7 +4199,6 @@
     "openSync": "Abrir Sync",
     "openForge": "Abrir Forge",
     "openFrozen": "Abrir Dataset congelado",
-    "openMonitor": "Abrir Monitor",
     "openSettings": "Abrir Configuración",
     "checkpoint": {
       "latest": "Último punto de control: «{{name}}», {{age}}",
@@ -4217,13 +4210,28 @@
       "replayRefreshed": "«{{name}}» es de {{org}} antes de su actualización: reprodúzcalo para volver a montar allí sus registros.",
       "replay": "Reproducir…"
     },
-    "openAutomation": "Abrir Automatización",
     "openOpModule": "Abrir {{module}}",
     "fillOrg": "Rellenar {{alias}} con datos de demostración",
     "fillOrgAction": "Rellenar con datos de demostración",
     "fillOrgDesc": "Una plantilla de Seed, una confirmación, sin clave de IA",
     "importFromCli": "Importar desde la Salesforce CLI",
-    "loginWeb": "Iniciar sesión en el navegador"
+    "loginWeb": "Iniciar sesión en el navegador",
+    "orgHealth": "Salud de la org",
+    "afterRefresh": {
+      "next": "Siguiente paso: {{step}}",
+      "step": {
+        "refresh": "Actualización detectada",
+        "users": "Usuarios",
+        "masking": "Enmascarar los datos copiados de producción",
+        "replay": "Reproducir el punto de control de antes",
+        "frozen": "Volver a cargar el dataset congelado",
+        "testersCheckpoint": "Punto de control Inicio de los testers",
+        "deliverability": "Capacidad de entrega del correo",
+        "scheduledJobs": "Trabajos programados",
+        "endpoints": "Endpoints que aún apuntan a producción",
+        "handoff": "Nota de traspaso"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Buscar comandos...",

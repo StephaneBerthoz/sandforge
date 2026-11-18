@@ -31,6 +31,8 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'errors',
     'home',
     'moduleSummary',
+    // The launcher's groups and its heroes' words, which Home says the same.
+    'sidePanel',
     'status',
   ]),
   orgs: page(() => import('./pages/OrgManager/OrgManagerPage'), 'OrgManagerPage', [

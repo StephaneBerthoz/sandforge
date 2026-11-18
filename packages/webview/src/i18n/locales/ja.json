@@ -3361,14 +3361,10 @@
     "step1Desc": "組織を接続します：Salesforce CLI からインポートするか、ブラウザでログインします",
     "step2Title": "Sandbox を満たす3つの方法",
     "step2Desc": "合成データを生成する、実際のレコードから始める、またはリフレッシュ後に凍結データセットを再生する",
-    "step3Title": "AI を設定（オプション）",
-    "step3Desc": "AI 分析とデータ生成で SandForge を強化しましょう",
     "skipOnboarding": "スキップ",
     "connectOrg": "組織を接続",
-    "aiOptional": "AI 機能はオプションです。設定で後から構成できます。",
     "chooseLanguage": "言語を選択してください",
     "step4Title": "最初のステップ",
-    "suggestMonitor": "モニターからスタートして、本番組織の健全性を把握しましょう",
     "gotIt": "了解しました！",
     "whatsNewTitle": "SandForge の新機能",
     "tryItNow": "今すぐ試す",
@@ -3744,8 +3740,9 @@
     "connectFirst": "まず組織を接続してください",
     "suggestSeedFor": "Seed の CRM スターターで {{alias}} を満たすか、Forge で別の組織からレコードをクローンします。",
     "done": "完了",
-    "openAiSettings": "AI の設定を開く",
-    "whatsNewSince": "前回開いたバージョン {{version}} 以降"
+    "whatsNewSince": "前回開いたバージョン {{version}} 以降",
+    "reconnectFirst": "まず {{alias}} に再接続してください。セッションが終了しました。",
+    "addSandboxFirst": "データを投入する Sandbox を追加してください。Forge が {{alias}} の実際のレコードをそこにコピーします。"
   },
   "help": {
     "title": "ヘルプとリソース",
@@ -3932,10 +3929,9 @@
   "home": {
     "connectedOrgs": "接続済みの組織",
     "noOrgsConnected": "接続されている組織はありません",
-    "quickActions": "クイックアクション",
+    "quickActions": "すべてのモジュール",
     "recentOperations": "最近の操作",
     "noRecentOps": "最近の操作はありません",
-    "healthSummary": "健全性サマリー",
     "healthScore": "健全性スコア",
     "gettingStarted": "はじめに",
     "gettingStartedDesc": "SandForge へようこそ！以下の手順で始めましょう。",
@@ -3948,8 +3944,6 @@
     "justNow": "たった今",
     "minutesAgo": "{{count}}分前",
     "hoursAgo": "{{count}}時間前",
-    "orgsConnected": "接続済みの組織",
-    "activeJobs": "アクティブジョブ",
     "opsLast7d": "操作（7日間）",
     "limitWarnings": "制限警告",
     "forgeASandbox": "Sandbox を Forge",
@@ -3993,7 +3987,6 @@
     "openSync": "Sync を開く",
     "openForge": "Forge を開く",
     "openFrozen": "凍結データセットを開く",
-    "openMonitor": "モニターを開く",
     "openSettings": "設定を開く",
     "checkpoint": {
       "latest": "最新のチェックポイント: 「{{name}}」、{{age}}",
@@ -4005,13 +3998,28 @@
       "replayRefreshed": "「{{name}}」はリフレッシュ前の {{org}} のものです。リプレイすると、そのレコードをここにもう一度用意できます。",
       "replay": "リプレイ…"
     },
-    "openAutomation": "自動化を開く",
     "openOpModule": "{{module}} を開く",
     "fillOrg": "デモデータで満たす：{{alias}}",
     "fillOrgAction": "デモデータで満たす",
     "fillOrgDesc": "Seed テンプレートで、確認は一度だけ、AI キーは不要",
     "importFromCli": "Salesforce CLI からインポート",
-    "loginWeb": "ブラウザでログイン"
+    "loginWeb": "ブラウザでログイン",
+    "orgHealth": "組織の健全性",
+    "afterRefresh": {
+      "next": "次の手順：{{step}}",
+      "step": {
+        "refresh": "リフレッシュを検出",
+        "users": "ユーザー",
+        "masking": "本番からコピーされたデータをマスキング",
+        "replay": "以前のチェックポイントをリプレイ",
+        "frozen": "凍結データセットを再読み込み",
+        "testersCheckpoint": "チェックポイント「テスター開始時点」",
+        "deliverability": "メールの到達性",
+        "scheduledJobs": "スケジュール済みジョブ",
+        "endpoints": "まだ本番組織を指すエンドポイント",
+        "handoff": "引き継ぎメモ"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "コマンドを検索...",

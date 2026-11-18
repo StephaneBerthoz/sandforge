@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bot, Flame, ListChecks, Plug, Snowflake, Sprout } from 'lucide-react';
-import { isDevelopmentOrg, orgDisplayName } from '@sandforge/shared';
+import { ArrowRight, Flame, ListChecks, Plug, Snowflake, Sprout } from 'lucide-react';
+import { orgDisplayName } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { orgToFill } from '../../utils/orgToFill';
+import { heroFor } from '../../navigation/heroFor';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
@@ -13,6 +14,7 @@ import { Card, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
+import { cn } from '../../theme';
 
 /** Module card definition for the explore step. */
 interface UseCasePath {
@@ -71,20 +73,19 @@ const LANGUAGES: ReadonlyArray<{ code: SupportedLanguage; label: string }> = [
   { code: 'pt-BR', label: 'Português (Brasil)' },
 ];
 
-/** Total number of wizard steps. */
-const TOTAL_STEPS = 5;
+/**
+ * The tour's steps, each shown by the testid it has always had: the welcome,
+ * connecting an org (`1`), the three ways to fill one (`2`), the first steps
+ * (`4`). An AI step stood between the last two, and its "Configure AI" said
+ * the opposite of the first step's "no AI key": it is gone, and Settings
+ * still has its AI tab.
+ */
+type WelcomeStep = 'bienvenue' | '1' | '2' | '4';
 
 /** Props for the WelcomePage component. */
 export interface WelcomePageProps {
   /** Called when the wizard is finished or skipped. */
   onComplete: () => void;
-  /**
-   * The kind of org the last step suggests a start for, once one is
-   * connected. By default the selected org's: a production org is pointed at
-   * Monitor, any other at Seed. Nothing passed it, so the production
-   * suggestion was never shown.
-   */
-  orgType?: 'sandbox' | 'production';
 }
 
 /** What the overlay hosting the wizard can ask of it. */
@@ -94,10 +95,9 @@ export interface WelcomePageHandle {
 }
 
 /**
- * 5-step guided tour, opened from Help → Start Guided Tour.
- * Step 0: Bienvenue (logo + language + primary use case), Step 1: Connect Org,
- * Step 2: Pick a use-case path (Seed / Forge / Frozen), Step 3: Configure AI,
- * Step 4: First steps suggestion.
+ * Guided tour, opened from Help → Start Guided Tour: the welcome (logo,
+ * language, primary use case), connecting an org while none is, the three
+ * ways to fill one (Seed / Forge / Frozen), and the first steps.
  *
  * It used to open by itself on the first panel of every session until it was
  * finished, over the page the walkthrough had sent the user to; the
@@ -106,49 +106,45 @@ export interface WelcomePageHandle {
  * the box, once ticked, made Help's button open nothing at all.
  */
 function WelcomePageView(
-  { onComplete, orgType: orgTypeProp }: WelcomePageProps,
+  { onComplete }: WelcomePageProps,
   ref: React.ForwardedRef<WelcomePageHandle>,
 ): React.ReactElement | null {
   const { t, i18n } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
-  const selectedOrg = orgs.find((org) => org.id === selectedOrgId);
-  const orgType =
-    orgTypeProp ?? (selectedOrg && !isDevelopmentOrg(selectedOrg) ? 'production' : 'sandbox');
   const fillTarget = orgToFill(orgs, selectedOrgId);
   /**
-   * What the last step suggests. It said "Based on your org type" and "Your
-   * sandbox is ready" with no org connected at all, the type falling back to
-   * a sandbox: with none it now asks for one first, and otherwise names the
-   * org it suggests filling.
+   * What the last step suggests: the rule the launcher's and Home's heroes
+   * follow (`heroFor`). It said "Based on your org type" and "Your sandbox is
+   * ready" with no org connected at all; it sent production orgs alone to
+   * Monitor, a start that fills nothing, where the launcher offered Forge; and
+   * it offered Forge to one org alone, which Forge cannot copy into from
+   * itself.
    */
-  const start: 'connect' | 'monitor' | 'fill' = !orgs.some((org) => org.status === 'connected')
-    ? 'connect'
-    : orgType === 'production' || !fillTarget
-      ? 'monitor'
-      : 'fill';
-  const [step, setStep] = useState(0);
-  const lastStep = step === TOTAL_STEPS - 1;
+  const hero = heroFor({ orgs, selectedOrgId });
+  /**
+   * The step that asks for an org is skipped as soon as one is connected: it
+   * asked for one with two connected.
+   */
+  const steps: readonly WelcomeStep[] = orgs.some((org) => org.status === 'connected')
+    ? ['bienvenue', '2', '4']
+    : ['bienvenue', '1', '2', '4'];
+  const [stepIndex, setStepIndex] = useState(0);
+  /** An org connected while the tour is open shortens it: the index stays within it. */
+  const index = Math.min(stepIndex, steps.length - 1);
+  const step = steps[index];
+  const lastStep = index === steps.length - 1;
   /** Why the language just picked is not the one on screen, or null. */
   const [languageError, setLanguageError] = useState<string | null>(null);
 
   const handleNext = useCallback((): void => {
-    if (step < TOTAL_STEPS - 1) {
-      setStep(step + 1);
-    }
-  }, [step]);
+    setStepIndex(Math.min(index + 1, steps.length - 1));
+  }, [index, steps.length]);
 
   const handleBack = useCallback((): void => {
-    if (step > 0) {
-      setStep(step - 1);
-    }
-  }, [step]);
-
-  const handleFinish = useCallback((): void => {
-    onComplete();
-    navigate('monitor');
-  }, [onComplete, navigate]);
+    setStepIndex(Math.max(index - 1, 0));
+  }, [index]);
 
   const handleSkip = useCallback((): void => {
     onComplete();
@@ -161,16 +157,16 @@ function WelcomePageView(
     navigate('settings');
   }, [onComplete, navigate]);
 
-  /** Settings on its AI tab, where the key and the model are set. */
-  const handleOpenAiSettings = useCallback((): void => {
-    onComplete();
-    navigate('settings', { settingsTab: 'ai' });
-  }, [onComplete, navigate]);
-
   /** Organizations, the tour left for it: it covered connecting. */
   const handleConnectOrg = useCallback((): void => {
     onComplete();
     navigate('orgs');
+  }, [onComplete, navigate]);
+
+  /** Organizations on its browser sign-in: the sandbox Forge fills from a production org. */
+  const handleAddSandbox = useCallback((): void => {
+    onComplete();
+    navigate('orgs', { orgAction: 'login-web' });
   }, [onComplete, navigate]);
 
   /**
@@ -228,7 +224,7 @@ function WelcomePageView(
     [onComplete, navigate, openSeed],
   );
 
-  const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
+  const progressPercent = ((index + 1) / steps.length) * 100;
 
   return (
     <div
@@ -259,7 +255,7 @@ function WelcomePageView(
       {/* Step content */}
       <div className="w-full max-w-2xl">
         {/* Step 0: Bienvenue */}
-        {step === 0 && (
+        {step === 'bienvenue' && (
           <div data-testid="welcome-step-bienvenue" className="text-center">
             {/*
               The step leads with the tagline, not with its own title: the
@@ -271,19 +267,37 @@ function WelcomePageView(
             <p className="mb-6 text-sm" style={{ color: 'var(--sf-text-secondary)' }}>
               {t('onboarding.welcomeTagline')}
             </p>
-            {/* Primary use case — what SandForge is for */}
-            <div
-              className="mb-6 mx-auto max-w-md rounded-lg px-4 py-3"
-              style={{
-                border: '1px solid var(--sf-accent, #E8A838)',
-                background: 'var(--sf-bg-secondary, #252526)',
-              }}
-              data-testid="welcome-hero-usecase"
-            >
-              <p className="text-sm font-semibold mb-1" style={{ color: 'var(--sf-text-link)' }}>
-                {t('onboarding.heroTitle')}
-              </p>
-              <p className="text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
+            {/* Primary use case — what SandForge is for. The box looked like
+                a link and answered no click: it opens Seed on its gallery,
+                and Forge, which it does not open, is said under it. */}
+            <div className="mb-6 mx-auto max-w-md">
+              <button
+                type="button"
+                className={cn(
+                  'group w-full flex items-center gap-3 rounded-lg px-4 py-3 text-left',
+                  'hover:ring-1 hover:ring-(--sf-accent) transition-shadow',
+                  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sf-accent)',
+                )}
+                style={{
+                  border: '1px solid var(--sf-accent, #E8A838)',
+                  background: 'var(--sf-bg-secondary, #252526)',
+                }}
+                onClick={openSeed}
+                data-testid="welcome-hero-usecase"
+              >
+                <Sprout className="w-5 h-5 shrink-0 text-hue-green" aria-hidden="true" />
+                <span
+                  className="flex-1 text-sm font-semibold"
+                  style={{ color: 'var(--sf-text-link)' }}
+                >
+                  {t('onboarding.heroTitle')}
+                </span>
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 text-text-secondary transition-transform group-hover:translate-x-0.5"
+                  aria-hidden="true"
+                />
+              </button>
+              <p className="mt-2 text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
                 {t('onboarding.heroDesc')}
               </p>
             </div>
@@ -317,8 +331,8 @@ function WelcomePageView(
           </div>
         )}
 
-        {/* Step 1: Connect Org */}
-        {step === 1 && (
+        {/* Step 1: Connect Org, while none is connected */}
+        {step === '1' && (
           <div data-testid="welcome-step-1" className="text-center">
             <Plug className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
@@ -336,7 +350,7 @@ function WelcomePageView(
         )}
 
         {/* Step 2: Pick a use-case path */}
-        {step === 2 && (
+        {step === '2' && (
           <div data-testid="welcome-step-2">
             <h2
               className="text-xl font-semibold mb-2 text-center"
@@ -382,35 +396,8 @@ function WelcomePageView(
           </div>
         )}
 
-        {/* Step 3: Configure AI (Optional) */}
-        {step === 3 && (
-          <div data-testid="welcome-step-3" className="text-center">
-            <Bot className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
-            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
-              {t('onboarding.step3Title')}
-            </h2>
-            <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
-              {t('onboarding.step3Desc')}
-            </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-secondary)' }}>
-              {t('onboarding.aiOptional')}
-            </p>
-            {/* The step was text alone: the way to the key was to finish the
-                tour and find Settings. */}
-            <div className="flex gap-3 justify-center">
-              <Button
-                variant="secondary"
-                onClick={handleOpenAiSettings}
-                data-testid="welcome-open-ai-settings-btn"
-              >
-                {t('onboarding.openAiSettings')}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: First steps, for the orgs connected */}
-        {step === 4 && (
+        {/* Step 4: First steps, for the orgs registered */}
+        {step === '4' && (
           <div data-testid="welcome-step-4" className="text-center">
             <ListChecks className="w-12 h-12 mx-auto mb-4 text-text-secondary" aria-hidden="true" />
             <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-link)' }}>
@@ -421,16 +408,18 @@ function WelcomePageView(
               style={{ color: 'var(--sf-text-primary)' }}
               data-testid="welcome-suggestion"
             >
-              {start === 'connect'
+              {hero.kind === 'none' || hero.kind === 'firstOrg'
                 ? t('onboarding.connectFirst')
-                : start === 'monitor'
-                  ? t('onboarding.suggestMonitor')
-                  : t('onboarding.suggestSeedFor', {
-                      alias: orgDisplayName(fillTarget),
-                    })}
+                : hero.kind === 'reconnect'
+                  ? t('onboarding.reconnectFirst', { alias: hero.alias })
+                  : hero.kind === 'addSandbox'
+                    ? t('onboarding.addSandboxFirst', { alias: hero.alias })
+                    : t('onboarding.suggestSeedFor', {
+                        alias: hero.kind === 'seed' ? hero.alias : orgDisplayName(fillTarget),
+                      })}
             </p>
             <div className="flex flex-wrap gap-3 justify-center mb-4">
-              {start === 'connect' && (
+              {(hero.kind === 'none' || hero.kind === 'firstOrg') && (
                 <Button
                   variant="primary"
                   onClick={handleConnectOrg}
@@ -439,26 +428,41 @@ function WelcomePageView(
                   {t('onboarding.connectOrg')}
                 </Button>
               )}
-              {start === 'monitor' && (
-                <Button variant="primary" onClick={handleFinish}>
-                  {t('home.openMonitor')}
+              {hero.kind === 'reconnect' && (
+                <Button
+                  variant="primary"
+                  onClick={handleConnectOrg}
+                  data-testid="welcome-reconnect-btn"
+                >
+                  {t('home.openOpModule', { module: t('nav.orgs') })}
                 </Button>
               )}
-              {start === 'fill' && (
-                <>
-                  <Button variant="primary" onClick={openSeed} data-testid="welcome-open-seed-btn">
-                    {t('home.openSeed')}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleOpenPath('forge')}
-                    data-testid="welcome-start-forge-btn"
-                  >
-                    {t('home.openForge')}
-                  </Button>
-                </>
+              {hero.kind === 'addSandbox' && (
+                <Button
+                  variant="primary"
+                  onClick={handleAddSandbox}
+                  data-testid="welcome-add-sandbox-btn"
+                >
+                  {t('home.loginWeb')}
+                </Button>
               )}
-              {start !== 'connect' && (
+              {(hero.kind === 'seed' || hero.kind === 'forge' || hero.kind === 'afterRefresh') && (
+                <Button variant="primary" onClick={openSeed} data-testid="welcome-open-seed-btn">
+                  {t('home.openSeed')}
+                </Button>
+              )}
+              {/* Forge copies into the org to fill from another: offered from
+                  two orgs connected on, never to one alone. */}
+              {(hero.kind === 'forge' || hero.kind === 'afterRefresh') && (
+                <Button
+                  variant="secondary"
+                  onClick={() => handleOpenPath('forge')}
+                  data-testid="welcome-start-forge-btn"
+                >
+                  {t('home.openForge')}
+                </Button>
+              )}
+              {hero.kind !== 'none' && hero.kind !== 'firstOrg' && (
                 <Button variant="secondary" onClick={handleOpenSettings}>
                   {t('home.openSettings')}
                 </Button>
@@ -470,7 +474,7 @@ function WelcomePageView(
 
       {/* Navigation */}
       <div className="flex items-center gap-4 mt-8">
-        {step > 0 && step < TOTAL_STEPS && (
+        {index > 0 && (
           <Button variant="ghost" size="sm" onClick={handleBack}>
             {t('common.back')}
           </Button>
@@ -495,15 +499,15 @@ function WelcomePageView(
 
       {/* Step indicators */}
       <div className="flex gap-2 mt-4">
-        {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+        {steps.map((each, i) => (
           <div
-            key={i}
+            key={each}
             className="rounded-full transition-all"
             data-testid={`step-indicator-${String(i)}`}
             style={{
-              width: step === i ? '24px' : '8px',
+              width: index === i ? '24px' : '8px',
               height: '8px',
-              background: step === i ? 'var(--sf-accent, #E8A838)' : 'var(--sf-text-secondary)',
+              background: index === i ? 'var(--sf-accent, #E8A838)' : 'var(--sf-text-secondary)',
             }}
           />
         ))}

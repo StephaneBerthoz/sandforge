@@ -673,7 +673,9 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       .filter(([title, module]) => !names(title, text(catalogue, `nav.${module}`)))
       .map(([title, module]) => `${title} (nav.${module} = ${text(catalogue, `nav.${module}`)})`);
     expect(offenders).toEqual([]);
-    for (const module of ['Forge', 'Frozen', 'Monitor', 'Seed', 'Settings', 'Sync']) {
+    // Home names the Monitor it opens through "Open {{module}}" and the
+    // navigation's own name: it has no button of its own words any more.
+    for (const module of ['Forge', 'Frozen', 'Seed', 'Settings', 'Sync']) {
       const label = text(catalogue, `nav.${module.toLowerCase()}`);
       expect({ module, named: names(text(catalogue, `home.open${module}`), label) }).toEqual({
         module,

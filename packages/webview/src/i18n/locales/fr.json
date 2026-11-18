@@ -3568,14 +3568,10 @@
     "step1Desc": "Connectez une org : importez-la depuis la Salesforce CLI ou connectez-vous dans le navigateur",
     "step2Title": "Trois façons de peupler votre sandbox",
     "step2Desc": "Générez des données synthétiques, partez d'un enregistrement réel, ou rejouez un jeu de données figé après un refresh",
-    "step3Title": "Configurer l'IA (optionnel)",
-    "step3Desc": "Améliorez SandForge avec des insights et une génération de données IA",
     "skipOnboarding": "Passer",
     "connectOrg": "Connecter une org",
-    "aiOptional": "Les fonctionnalités IA sont optionnelles. Vous pouvez les configurer plus tard dans les Paramètres.",
     "chooseLanguage": "Choisissez votre langue",
     "step4Title": "Premiers pas",
-    "suggestMonitor": "Commencez par le Moniteur pour surveiller la santé de votre org de production",
     "gotIt": "Compris !",
     "whatsNewTitle": "Nouveautés de SandForge",
     "tryItNow": "Essayer maintenant",
@@ -3951,8 +3947,9 @@
     "connectFirst": "Connectez d'abord une org",
     "suggestSeedFor": "Remplissez {{alias}} avec le Kit de démarrage CRM de Seed, ou clonez-y un enregistrement d'une autre org avec Forge.",
     "done": "Terminé",
-    "openAiSettings": "Ouvrir les paramètres de l'IA",
-    "whatsNewSince": "Depuis la {{version}}, la dernière version que vous avez ouverte"
+    "whatsNewSince": "Depuis la {{version}}, la dernière version que vous avez ouverte",
+    "reconnectFirst": "Reconnectez d'abord {{alias}} : sa session a pris fin.",
+    "addSandboxFirst": "Ajoutez la sandbox à remplir : Forge y copie des enregistrements réels de {{alias}}."
   },
   "help": {
     "title": "Aide & Ressources",
@@ -4139,10 +4136,9 @@
   "home": {
     "connectedOrgs": "Orgs connectées",
     "noOrgsConnected": "Aucune org connectée",
-    "quickActions": "Actions rapides",
+    "quickActions": "Tous les modules",
     "recentOperations": "Opérations récentes",
     "noRecentOps": "Aucune opération récente",
-    "healthSummary": "Résumé de santé",
     "healthScore": "Score de santé",
     "gettingStarted": "Premiers pas",
     "gettingStartedDesc": "Bienvenue sur SandForge ! Suivez ces étapes pour commencer.",
@@ -4155,8 +4151,6 @@
     "justNow": "à l'instant",
     "minutesAgo": "il y a {{count}}m",
     "hoursAgo": "il y a {{count}}h",
-    "orgsConnected": "Orgs connectées",
-    "activeJobs": "Jobs actifs",
     "opsLast7d": "Ops (7 jours)",
     "limitWarnings": "Alertes limites",
     "forgeASandbox": "Forger une sandbox",
@@ -4205,7 +4199,6 @@
     "openSync": "Ouvrir Sync",
     "openForge": "Ouvrir Forge",
     "openFrozen": "Ouvrir le Jeu de données figé",
-    "openMonitor": "Ouvrir le Moniteur",
     "openSettings": "Ouvrir les Paramètres",
     "checkpoint": {
       "latest": "Dernier point de contrôle : « {{name}} », {{age}}",
@@ -4217,13 +4210,28 @@
       "replayRefreshed": "« {{name}} » est de {{org}} avant son rafraîchissement : rejouez-le pour y remettre ses enregistrements.",
       "replay": "Rejouer…"
     },
-    "openAutomation": "Ouvrir l'Automatisation",
     "openOpModule": "Ouvrir {{module}}",
     "fillOrg": "Remplir {{alias}} de données de démonstration",
     "fillOrgAction": "Remplir de données de démonstration",
     "fillOrgDesc": "Un modèle Seed, une confirmation, sans clé d'IA",
     "importFromCli": "Importer depuis la Salesforce CLI",
-    "loginWeb": "Se connecter dans le navigateur"
+    "loginWeb": "Se connecter dans le navigateur",
+    "orgHealth": "Santé de l'org",
+    "afterRefresh": {
+      "next": "Prochaine étape : {{step}}",
+      "step": {
+        "refresh": "Rafraîchissement repéré",
+        "users": "Utilisateurs",
+        "masking": "Masquer les données copiées de la production",
+        "replay": "Rejouer le point de contrôle d'avant",
+        "frozen": "Recharger le jeu de données figé",
+        "testersCheckpoint": "Point de contrôle Départ des testeurs",
+        "deliverability": "Délivrabilité des e-mails",
+        "scheduledJobs": "Jobs planifiés",
+        "endpoints": "Points d'accès qui nomment encore la production",
+        "handoff": "Note de passation"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Rechercher des commandes...",

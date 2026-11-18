@@ -2201,6 +2201,78 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Home after a sandbox refresh: bringing it back into service leads, its next step said, every module listed', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme, orgs: true });
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            JSON.stringify(
+              (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [],
+            ),
+          ),
+        )
+        .toContain('recovery:status');
+      const step = (id: string, status: string, reason: string) => ({ id, status, reason });
+      await answerAll(page, 'recovery:status', 'recovery:status:response', {
+        status: {
+          orgId: MOCK_ORGS[1].id,
+          alias: MOCK_ORGS[1].alias,
+          tier: 'development',
+          refresh: {
+            detectedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+            evidence: 'connection',
+            cachesForgotten: true,
+          },
+          steps: [
+            step('refresh', 'done', 'refreshDetected'),
+            step('users', 'todo', 'toDo'),
+            step('masking', 'todo', 'toDo'),
+            step('replay', 'notApplicable', 'noCheckpointBefore'),
+            step('frozen', 'notApplicable', 'noManifest'),
+            step('testersCheckpoint', 'todo', 'toDo'),
+            step('deliverability', 'todo', 'toDo'),
+            step('scheduledJobs', 'notApplicable', 'noInventoryBefore'),
+            step('endpoints', 'todo', 'toDo'),
+            step('handoff', 'todo', 'toDo'),
+          ],
+          beforeNextRefresh: [],
+          done: 1,
+          total: 7,
+        },
+      });
+      const hero = page.getByTestId('home-after-refresh-hero');
+      await expect(hero.getByRole('heading', { level: 1 })).toHaveText(
+        `Bring ${MOCK_ORGS[1].alias} back into service`,
+      );
+      await expect(page.getByTestId('home-after-refresh-next')).toHaveText('Next step: Users');
+      await expect(page.getByTestId('quick-actions-tile').getByRole('group')).toHaveCount(5);
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Home with a production org alone: the sandbox to add leads, with the two ways to connect it', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await bridge.seedOrgs([
+        { ...MOCK_ORGS[0], id: 'org-live', alias: 'Live', orgType: 'Production' },
+      ]);
+      const hero = page.getByTestId('home-add-sandbox-hero');
+      await expect(hero.getByRole('heading', { level: 1 })).toHaveText('Add the sandbox to fill');
+      await expect(hero.getByTestId('home-add-sandbox-login-btn')).toBeVisible();
+      // The org health, measured, in the KPI row.
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        limits: [{ name: 'DailyApiRequests', max: 100, remaining: 45, usedPercent: 55 }],
+      });
+      await expect(page.getByTestId('home-org-health')).toContainText('85%');
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Home with an org of each kind, a sandbox marked Staging among them, each badge naming its type', async ({
       page,
     }) => {
@@ -7833,8 +7905,8 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
 
       // Its last step, which suggests a start for the selected org and has no
-      // "Don't show again" box any more.
-      for (let step = 0; step < 4; step++) {
+      // "Don't show again" box any more: four steps with no org connected.
+      for (let step = 0; step < 3; step++) {
         await dialog.getByRole('button', { name: 'Next' }).click();
       }
       await dialog.getByTestId('welcome-step-4').waitFor({ state: 'visible', timeout: 5000 });
@@ -7845,23 +7917,23 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
-    test('Welcome overlay, its AI step and its last step for a connected org', async ({ page }) => {
+    test('Welcome overlay for two connected orgs: no step asks for one, its three ways and its last step', async ({
+      page,
+    }) => {
       await navigateToModule(bridge, page, 'home', 'home-page', { theme, orgs: true });
       await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
 
       const dialog = page.getByRole('dialog', { name: 'Welcome wizard' });
       await dialog.getByTestId('welcome-page').waitFor({ state: 'visible', timeout: 5000 });
-      // Seed leads the three ways, its icons drawn as the side panel's.
-      await dialog.getByRole('button', { name: 'Next' }).click();
+      // The first step's box opens Seed: a button, read as one.
+      await expect(dialog.getByRole('button', { name: /CRM Starter/ })).toBeVisible();
+      // Seed leads the three ways, its icons drawn as the side panel's: the
+      // step that asks for an org is skipped, two being connected.
       await dialog.getByRole('button', { name: 'Next' }).click();
       await expect(dialog.locator('[data-testid^="path-card-"]').first()).toHaveAttribute(
         'data-testid',
         'path-card-seed',
       );
-      expectNoViolations(await checkAccessibility(page));
-
-      await dialog.getByRole('button', { name: 'Next' }).click();
-      await expect(dialog.getByTestId('welcome-open-ai-settings-btn')).toBeVisible();
       expectNoViolations(await checkAccessibility(page));
 
       await dialog.getByRole('button', { name: 'Next' }).click();

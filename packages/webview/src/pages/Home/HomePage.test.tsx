@@ -12,7 +12,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
 import { HomePage } from './HomePage';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { ApiLimit, SalesforceOrg } from '@sandforge/shared';
+import type { ApiLimit, RecoveryProgress, RecoveryStepId, SalesforceOrg } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -72,6 +72,33 @@ let mockSmartActionState = {
 
 vi.mock('./useSmartAction', () => ({
   useSmartAction: () => mockSmartActionState,
+}));
+
+/* ------------------------------------------------------------------ */
+/* Simulated answers of `recovery:status`, as useRecoveryLeads reads them */
+/* ------------------------------------------------------------------ */
+let mockRecovery = {
+  afterRefresh: [] as RecoveryProgress[],
+  next: {} as Record<string, RecoveryStepId>,
+};
+/** The org lists Home asked the refreshes of, in render order. */
+const recoveryAskedOf: Array<readonly SalesforceOrg[] | undefined> = [];
+
+vi.mock('./useRecoveryLeads', () => ({
+  useRecoveryLeads: (orgs: readonly SalesforceOrg[] | undefined) => {
+    recoveryAskedOf.push(orgs);
+    return {
+      afterRefresh: mockRecovery.afterRefresh,
+      nextStepOf: (orgId: string) => mockRecovery.next[orgId],
+    };
+  },
+}));
+
+/** What Home posts to the extension outside its queries: the org it selects. */
+const mockSendBridge = vi.fn();
+vi.mock('../../bridge/sendBridgeMessage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../bridge/sendBridgeMessage')>()),
+  sendBridgeMessage: (...args: unknown[]) => mockSendBridge(...args),
 }));
 
 /* ------------------------------------------------------------------ */
@@ -168,6 +195,9 @@ describe('HomePage', () => {
       confirm: vi.fn(),
       cancelConfirm: vi.fn(),
     };
+    mockRecovery = { afterRefresh: [], next: {} };
+    recoveryAskedOf.length = 0;
+    mockSendBridge.mockClear();
   });
 
   it('offers a checkpoint of the selected org, and none of a production org', () => {
@@ -261,16 +291,127 @@ describe('HomePage', () => {
     });
   });
 
-  it('leads with Forge once two orgs are connected, or one that is not to fill', () => {
+  it('leads with Forge once two orgs are connected, one of them to fill', () => {
     connectTwoOrgs();
-    const { unmount } = render(<HomePage />);
-    expect(screen.getByTestId('forge-hero-card')).toBeDefined();
-    expect(screen.queryByTestId('fill-hero-card')).toBeNull();
-    unmount();
-
-    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)], selectedOrgId: 'org-1' });
     render(<HomePage />);
     expect(screen.getByTestId('forge-hero-card')).toBeDefined();
+    expect(screen.queryByTestId('fill-hero-card')).toBeNull();
+  });
+
+  it('leads a production org alone to the sandbox to add, not to a Forge that could only refuse', () => {
+    // Forge copies from the production org into a sandbox, and there was none
+    // to copy into: the hero offered it all the same.
+    useOrgStore.setState({
+      orgs: [createMockOrg({ ...PRODUCTION, alias: 'Live' })],
+      selectedOrgId: 'org-1',
+    });
+    render(<HomePage />);
+
+    expect(screen.queryByTestId('forge-hero-card')).toBeNull();
+    const hero = screen.getByTestId('home-add-sandbox-hero');
+    expect(within(hero).getByRole('heading', { level: 1 }).textContent).toBe(
+      'Add the sandbox to fill',
+    );
+    expect(hero.textContent).toContain('Forge copies real records from Live into it');
+
+    fireEvent.click(within(hero).getByRole('button', { name: 'Log in with your browser' }));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'orgs',
+      orgAction: 'login-web',
+    });
+    fireEvent.click(within(hero).getByRole('button', { name: 'Import from Salesforce CLI' }));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'orgs',
+      orgAction: 'import-cli',
+    });
+  });
+
+  it('asks to reconnect the org whose session ended, rather than to connect a first one', () => {
+    // Every session expired: Home said "Connect your first org" to a person
+    // with two orgs registered, while the launcher offered Forge.
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({ status: 'expired' }),
+        createMockOrg({ id: 'org-2', alias: 'QASandbox', status: 'expired' }),
+      ],
+      selectedOrgId: 'org-2',
+    });
+    render(<HomePage />);
+
+    expect(screen.queryByTestId('getting-started-card')).toBeNull();
+    const hero = screen.getByTestId('home-reconnect-hero');
+    expect(within(hero).getByRole('heading', { level: 1 }).textContent).toBe('Reconnect QASandbox');
+    expect(hero.textContent).toContain('Its session has ended: sign in again from Organizations');
+    fireEvent.click(within(hero).getByRole('button', { name: 'Open Organizations' }));
+    expect(useAppStore.getState().currentRoute).toBe('orgs');
+  });
+
+  it('asks where every registered org stands after a refresh once the list is in, and not before', () => {
+    mockOrgListState.loading = true;
+    const { unmount } = render(<HomePage />);
+    expect(recoveryAskedOf.at(-1)).toBeUndefined();
+    unmount();
+
+    mockOrgListState.loading = false;
+    connectTwoOrgs();
+    render(<HomePage />);
+    expect(recoveryAskedOf.at(-1)?.map((org) => org.id)).toEqual(['org-1', 'org-2']);
+  });
+
+  describe('after a sandbox refresh', () => {
+    const REFRESHED: RecoveryProgress = {
+      orgId: 'org-2',
+      alias: 'QASandbox',
+      detectedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      done: 3,
+      total: 9,
+    };
+
+    it('leads with bringing the sandbox back into service, how far it is and its next step', () => {
+      connectTwoOrgs();
+      mockRecovery = { afterRefresh: [REFRESHED], next: { 'org-2': 'masking' } };
+      render(<HomePage />);
+
+      expect(screen.queryByTestId('forge-hero-card')).toBeNull();
+      const hero = screen.getByTestId('home-after-refresh-hero');
+      expect(within(hero).getByRole('heading', { level: 1 }).textContent).toBe(
+        'Bring QASandbox back into service',
+      );
+      expect(screen.getByTestId('home-after-refresh-progress').textContent).toBe(
+        'Refreshed 2 hours ago · 3/9 steps',
+      );
+      expect(screen.getByTestId('home-after-refresh-bar').style.width).toBe(`${(3 / 9) * 100}%`);
+      expect(screen.getByTestId('home-after-refresh-next').textContent).toBe(
+        'Next step: Mask the data copied from production',
+      );
+    });
+
+    it('opens Back into service on the sandbox refreshed, selected here and in the extension', () => {
+      connectTwoOrgs();
+      mockRecovery = { afterRefresh: [REFRESHED], next: { 'org-2': 'users' } };
+      render(<HomePage />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open Back into service' }));
+      expect(useOrgStore.getState().selectedOrgId).toBe('org-2');
+      expect(mockSendBridge).toHaveBeenCalledWith('org:select', { orgId: 'org-2' });
+      expect(useAppStore.getState().currentRoute).toBe('recovery');
+    });
+
+    it('says no next step when every step left is done', () => {
+      connectTwoOrgs();
+      mockRecovery = { afterRefresh: [REFRESHED], next: {} };
+      render(<HomePage />);
+      expect(screen.getByTestId('home-after-refresh-hero')).toBeDefined();
+      expect(screen.queryByTestId('home-after-refresh-next')).toBeNull();
+    });
+
+    it('leads with Forge again once the recovery is through', () => {
+      connectTwoOrgs();
+      mockRecovery = { afterRefresh: [{ ...REFRESHED, done: 9 }], next: {} };
+      render(<HomePage />);
+      expect(screen.queryByTestId('home-after-refresh-hero')).toBeNull();
+      expect(screen.getByTestId('forge-hero-card')).toBeDefined();
+    });
   });
 
   it('holds the hero while the org list is in flight, rather than calling the panel empty', () => {
@@ -284,8 +425,8 @@ describe('HomePage', () => {
     mockOrgListState.loading = true;
     render(<HomePage />);
     expect(screen.getByTestId('home-loading')).toBeDefined();
-    const skeletons = screen.getAllByTestId('skeleton');
-    expect(skeletons.length).toBeGreaterThanOrEqual(4);
+    const skeletons = within(screen.getByTestId('home-loading')).getAllByTestId('skeleton');
+    expect(skeletons).toHaveLength(2);
   });
 
   /* ---------------------------------------------------------------- */
@@ -317,22 +458,35 @@ describe('HomePage', () => {
     expect(useAppStore.getState().currentRoute).toBe('orgs');
   });
 
-  it('should show health summary when orgs are connected', () => {
-    useOrgStore.setState({ orgs: [createMockOrg()] });
-    render(<HomePage />);
-    expect(screen.getByTestId('health-summary')).toBeDefined();
-  });
-
-  it('counts the orgs and the active jobs once, in the KPI row, not again under it', () => {
-    // The health row repeated both under labels French and German wrote the same.
+  it('keeps the org health in the KPI row, beside the runs of the week, and opens the Monitor from it', () => {
+    // The score and the API usage sat in a row of their own at the foot of the
+    // page, under a "Health summary" that said nothing, apart from the limit
+    // warnings at its head; none of them led to the Monitor.
     useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
     render(<HomePage />);
-    const summary = screen.getByTestId('health-summary');
-    expect(within(summary).getAllByTestId('kpi-card')).toHaveLength(2);
-    expect(summary.textContent).toContain('Health score');
-    expect(summary.textContent).toContain('API usage');
-    expect(summary.textContent).not.toContain('Active jobs');
-    expect(summary.textContent).not.toContain('Connected orgs');
+    const row = screen.getByTestId('home-kpi-row');
+    expect(row.children).toHaveLength(2);
+    expect(within(row).getByTestId('kpi-card').textContent).toContain('Ops (7 days)');
+    const health = within(row).getByTestId('home-org-health');
+    expect(health.textContent).toContain('Org health');
+    expect(screen.queryByTestId('health-summary')).toBeNull();
+
+    fireEvent.click(health);
+    expect(useAppStore.getState().currentRoute).toBe('monitor');
+  });
+
+  it('counts neither the orgs, listed beside the hero, nor the jobs, which only the runs seen here fed', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    render(<HomePage />);
+    const row = screen.getByTestId('home-kpi-row');
+    expect(row.textContent).not.toContain('Orgs connected');
+    expect(row.textContent).not.toContain('Active jobs');
+  });
+
+  it('shows no org health while no org is connected, nothing being there to measure', () => {
+    render(<HomePage />);
+    expect(screen.getByTestId('home-kpi-row').children).toHaveLength(1);
+    expect(screen.queryByTestId('home-org-health')).toBeNull();
   });
 
   it('should not show getting started when orgs are connected', () => {
@@ -342,85 +496,43 @@ describe('HomePage', () => {
   });
 
   /* ---------------------------------------------------------------- */
-  /* Quick actions                                                     */
+  /* All modules                                                       */
   /* ---------------------------------------------------------------- */
 
-  it('names each quick action by the page it opens, since none does more', () => {
-    // Quick Forge, Refresh Monitor and Open Pipelines opened Forge, Monitor
-    // and Automation: Refresh refreshed nothing, Pipelines named no page.
+  it('lists every module by the launcher’s groups where three quick actions stood', () => {
+    // Quick actions opened Forge, Monitor and Automation, and nothing else:
+    // the page the launcher's Home button opens listed fewer modules than it.
+    connectTwoOrgs();
     render(<HomePage />);
-    const quick = screen.getByTestId('quick-actions-card');
-    const buttons = within(quick).getAllByRole('button');
-    expect(buttons.map((button) => button.textContent)).toEqual([
-      'Open Forge',
-      'Open Monitor',
-      'Open Automation',
-    ]);
+    const tile = screen.getByTestId('quick-actions-tile');
+    expect(within(tile).getByRole('heading', { level: 3 }).textContent).toBe('All modules');
+    expect(within(tile).getAllByRole('group')).toHaveLength(5);
+    expect(screen.getByTestId('open-recovery-btn')).toBeDefined();
+    expect(screen.queryByText('Open Automation')).toBeNull();
 
     fireEvent.click(screen.getByTestId('open-forge-btn'));
     expect(useAppStore.getState().currentRoute).toBe('forge');
-    fireEvent.click(screen.getByTestId('open-monitor-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('monitor');
-    fireEvent.click(screen.getByTestId('open-automation-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('automation');
   });
 
-  it('offers Grappe only while sandforge.grappe.enabled is on: off, its page is empty', () => {
-    useAppStore.setState({ grappeEnabled: false });
-    const { unmount } = render(<HomePage />);
-    expect(screen.queryByTestId('quick-grappe-btn')).toBeNull();
-    unmount();
-
-    useAppStore.setState({ grappeEnabled: true });
-    render(<HomePage />);
-    expect(screen.getByTestId('quick-grappe-btn')).toBeDefined();
-  });
-
-  it('should navigate to grappe on quick grappe click', () => {
-    useAppStore.setState({ grappeEnabled: true });
-    render(<HomePage />);
-    fireEvent.click(screen.getByTestId('quick-grappe-btn'));
-    expect(useAppStore.getState().currentRoute).toBe('grappe');
-  });
-
-  it('names the fill quick action as the side panel and Organizations do, with the org it fills', () => {
-    // It read "Populate Sandbox", for a scratch org or a Developer Edition too.
-    const prod = createMockOrg({ ...PRODUCTION, id: 'prod', alias: 'Live' });
-    const sandbox = createMockOrg({ orgType: 'Sandbox', id: 'sbx', alias: 'UAT' });
-    useOrgStore.setState({ orgs: [prod, sandbox], selectedOrgId: 'prod' });
-    render(<HomePage />);
-
-    const fill = screen.getByTestId('fill-org-btn');
-    expect(fill.textContent).toBe('Fill UAT with demo data');
-    expect(screen.queryByText('Populate Sandbox')).toBeNull();
-    fireEvent.click(fill);
-    expect(useAppStore.getState().navigationIntent).toMatchObject({
-      route: 'seed',
-      seedMode: 'quick-seed',
-      targetOrgId: 'sbx',
-    });
-  });
-
-  it('offers to fill a Developer Edition org, as a sandbox', () => {
-    // A Trailhead playground is one: it was taken for a production org, and
-    // the Home page offered nothing to fill it with.
+  it('lists Back into service once a sandbox is registered, as the launcher does', () => {
     useOrgStore.setState({
-      orgs: [
-        createMockOrg({ ...PRODUCTION, id: 'prod' }),
-        createMockOrg({
-          id: 'de',
-          alias: 'Playground',
-          orgType: 'Developer',
-          metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
-        }),
-      ],
+      orgs: [createMockOrg({ orgType: 'Developer' }), createMockOrg({ ...PRODUCTION, id: 'p' })],
     });
     render(<HomePage />);
-    expect(screen.getByTestId('fill-org-btn').textContent).toBe('Fill Playground with demo data');
+    expect(screen.queryByTestId('open-recovery-btn')).toBeNull();
   });
 
-  it('offers to fill no production org', () => {
-    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
+  it('offers no Grappe, whose page is retired, whatever its setting says', () => {
+    useAppStore.setState({ grappeEnabled: true });
+    render(<HomePage />);
+    expect(screen.queryByTestId('quick-grappe-btn')).toBeNull();
+    expect(screen.queryByTestId('open-grappe-btn')).toBeNull();
+  });
+
+  it('says the fill once, in the hero, rather than again among the modules', () => {
+    // "Fill DevSandbox with demo data" stood among the quick actions under a
+    // hero that already offered it, or offered Forge.
+    connectTwoOrgs();
     render(<HomePage />);
     expect(screen.queryByTestId('fill-org-btn')).toBeNull();
   });
@@ -483,11 +595,40 @@ describe('HomePage', () => {
     });
     render(<HomePage />);
 
-    const row = screen.getByRole('button', { name: /Sync Contacts/ });
+    const row = within(screen.getByTestId('recent-ops-card')).getByRole('button', {
+      name: /Sync/,
+    });
     expect(row).toBe(screen.getByTestId('recent-op-item'));
     expect(row.getAttribute('title')).toBe('Open Sync');
     fireEvent.click(row);
     expect(useAppStore.getState().currentRoute).toBe('sync');
+  });
+
+  it('names a run by its module and its status in the panel’s language, not by the extension’s English', async () => {
+    // "Succeeded · Executing forge operation": the extension's phrase, in
+    // English and in the present, for a run that had ended.
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'forge',
+          label: 'Executing forge operation',
+          status: 'success',
+          timestamp: Date.now() - 60_000,
+        },
+      ],
+    });
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<HomePage />);
+      const row = screen.getByTestId('recent-op-item');
+      expect(within(row).getByTestId('recent-op-module').textContent).toBe('Forge');
+      expect(row.textContent).toContain('Réussie');
+      expect(row.textContent).not.toContain('Executing');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should use bridge data when store is empty', () => {
@@ -510,10 +651,10 @@ describe('HomePage', () => {
   it('should render the forge hero card', () => {
     connectTwoOrgs();
     render(<HomePage />);
-    expect(screen.getByTestId('forge-hero-card')).toBeDefined();
-    expect(screen.getByText('Forge a sandbox')).toBeDefined();
+    const hero = screen.getByTestId('forge-hero-card');
+    expect(within(hero).getByText('Forge a sandbox')).toBeDefined();
     expect(
-      screen.getByText('Copy a real record and everything around it into another org'),
+      within(hero).getByText('Copy a real record and everything around it into another org'),
     ).toBeDefined();
   });
 
@@ -539,7 +680,7 @@ describe('HomePage', () => {
     expect(screen.getByTestId('recent-ops-tile')).toBeDefined();
   });
 
-  it('should render the quick actions tile', () => {
+  it('should render the all modules tile', () => {
     render(<HomePage />);
     expect(screen.getByTestId('quick-actions-tile')).toBeDefined();
   });
@@ -619,10 +760,9 @@ describe('HomePage', () => {
   /* Org health summary (sourced, never invented)                      */
   /* ---------------------------------------------------------------- */
 
-  /** Reads the value of the KPI card whose text contains `label`. */
-  function kpiValue(label: string): string {
-    const card = screen.getAllByTestId('kpi-card').find((c) => c.textContent?.includes(label));
-    return card?.querySelector('[data-testid="kpi-value"]')?.textContent ?? '';
+  /** Reads the value of the org health figure `testId`. */
+  function kpiValue(testId: string): string {
+    return screen.getByTestId(testId).querySelector('[data-testid="kpi-value"]')?.textContent ?? '';
   }
 
   it('should skip the health query and show a dash when no org is selected', () => {
@@ -631,9 +771,9 @@ describe('HomePage', () => {
 
     const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
     expect(monitorCall?.skip).toBe(true);
-    expect(kpiValue('Limit warnings')).toBe('—');
-    expect(kpiValue('Health score')).toBe('—');
-    expect(kpiValue('API usage')).toBe('—');
+    expect(kpiValue('home-limit-warnings')).toBe('—');
+    expect(kpiValue('home-health-score')).toBe('—');
+    expect(kpiValue('home-api-usage')).toBe('—');
   });
 
   it('should render limit warnings, health score and api usage from monitor data', () => {
@@ -651,9 +791,9 @@ describe('HomePage', () => {
     const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
     expect(monitorCall?.payload).toEqual({ orgId: 'org-1' });
     expect(monitorCall?.skip).toBe(false);
-    expect(kpiValue('Limit warnings')).toBe('2');
-    expect(kpiValue('Health score')).toBe('72%');
-    expect(kpiValue('API usage')).toBe('75%');
+    expect(kpiValue('home-limit-warnings')).toBe('2');
+    expect(kpiValue('home-health-score')).toBe('72%');
+    expect(kpiValue('home-api-usage')).toBe('75%');
   });
 
   it('should show a skeleton instead of a health number while the query is in flight', () => {
@@ -661,8 +801,9 @@ describe('HomePage', () => {
     mockMonitorState.loading = true;
     render(<HomePage />);
 
-    expect(screen.queryByText('Limit warnings')).toBeNull();
-    expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
+    const health = screen.getByTestId('home-org-health');
+    expect(within(health).queryByTestId('kpi-value')).toBeNull();
+    expect(within(health).getAllByTestId('skeleton')).toHaveLength(3);
   });
 
   it('should display recent ops from the store', () => {
@@ -679,7 +820,8 @@ describe('HomePage', () => {
       ],
     });
     render(<HomePage />);
-    expect(screen.getByText('Seed Accounts')).toBeDefined();
+    expect(screen.getByTestId('recent-op-module').textContent).toBe('Seed');
+    expect(screen.queryByText('Seed Accounts')).toBeNull();
     expect(screen.getAllByTestId('recent-op-item').length).toBe(1);
   });
 

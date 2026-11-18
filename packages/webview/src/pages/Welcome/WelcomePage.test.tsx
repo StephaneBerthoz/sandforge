@@ -78,7 +78,7 @@ const CONNECTED_DEV = {
   username: 'dev@example.com',
 };
 
-/** A connected production org: the tour points it at Monitor. */
+/** A connected production org: alone, the tour points it at the sandbox to add. */
 const CONNECTED_PROD = {
   id: 'prod',
   status: 'connected',
@@ -150,11 +150,60 @@ describe('WelcomePage', () => {
     expect(screen.getByRole('progressbar', { name: 'a11y.stepProgress' })).toBeDefined();
   });
 
-  it('should render 5 step indicators', () => {
+  it('has four steps while no org is connected, and no step about AI', () => {
+    // The AI step said the opposite of the first step's "no AI key".
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       expect(screen.getByTestId(`step-indicator-${String(i)}`)).toBeDefined();
     }
+    expect(screen.queryByTestId('step-indicator-4')).toBeNull();
+    const shown: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      shown.push(screen.getByTestId(/^welcome-step-/).getAttribute('data-testid') ?? '');
+      if (i < 3) fireEvent.click(screen.getByText('common.next'));
+    }
+    expect(shown).toEqual([
+      'welcome-step-bienvenue',
+      'welcome-step-1',
+      'welcome-step-2',
+      'welcome-step-4',
+    ]);
+    expect(screen.queryByTestId('welcome-open-ai-settings-btn')).toBeNull();
+    expect(screen.queryByText('onboarding.step3Title')).toBeNull();
+  });
+
+  it('skips the step that asks for an org as soon as one is connected', () => {
+    // It asked to connect an org with two connected.
+    mockOrgState.orgs = [CONNECTED_DEV];
+    render(<WelcomePage onComplete={onComplete} />);
+    expect(screen.queryByTestId('step-indicator-3')).toBeNull();
+    fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('welcome-step-2')).toBeDefined();
+    fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('welcome-step-4')).toBeDefined();
+    expect(screen.queryByTestId('welcome-step-1')).toBeNull();
+  });
+
+  it('asks for an org on its second step while the only one registered has expired', () => {
+    mockOrgState.orgs = [{ ...CONNECTED_DEV, status: 'expired' }];
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('welcome-step-1')).toBeDefined();
+  });
+
+  it('opens Seed on its gallery from the first step’s box, which looked like a link and did nothing', () => {
+    mockOrgState.orgs = [CONNECTED_DEV];
+    render(<WelcomePage onComplete={onComplete} />);
+    const box = screen.getByTestId('welcome-hero-usecase');
+    expect(box.tagName).toBe('BUTTON');
+    expect(box.textContent).toContain('onboarding.heroTitle');
+    expect(box.textContent).not.toContain('onboarding.heroDesc');
+    fireEvent.click(box);
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: CONNECTED_DEV.id,
+    });
   });
 
   it('should render all six language selection buttons on Bienvenue step, with native labels', () => {
@@ -209,67 +258,83 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-2')).toBeDefined();
   });
 
-  it('should navigate from step 2 to step 3', () => {
-    render(<WelcomePage onComplete={onComplete} />);
-    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
-    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
-    fireEvent.click(screen.getByText('common.next')); // 2 -> 3
-    expect(screen.getByTestId('welcome-step-3')).toBeDefined();
-  });
+  /** Click Next until the tour's last step, whatever number of steps it has. */
+  function toLastStep(): void {
+    while (screen.queryByTestId('welcome-step-4') === null) {
+      fireEvent.click(screen.getByText('common.next'));
+    }
+  }
 
-  it('should show the first steps (step 4) after step 3', () => {
+  it('should show the first steps (step 4) after the three ways', () => {
     render(<WelcomePage onComplete={onComplete} />);
-    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
-    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
-    fireEvent.click(screen.getByText('common.next')); // 2 -> 3
-    fireEvent.click(screen.getByText('common.next')); // 3 -> 4
+    fireEvent.click(screen.getByText('common.next')); // welcome -> connect
+    fireEvent.click(screen.getByText('common.next')); // connect -> the three ways
+    fireEvent.click(screen.getByText('common.next')); // the three ways -> first steps
     expect(screen.getByTestId('welcome-step-4')).toBeDefined();
   });
 
-  it('suggests filling the connected org, named, with Seed or with Forge', () => {
+  it('suggests filling the one org connected with Seed alone: Forge needs a second org', () => {
+    // Forge from one org could only say "Source and target must be different".
     mockOrgState.orgs = [CONNECTED_DEV];
     mockOrgState.selectedOrgId = CONNECTED_DEV.id;
-    render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
 
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe(
+      'onboarding.suggestSeedFor(dev-org)',
+    );
+    expect(screen.getByTestId('welcome-open-seed-btn')).toBeDefined();
+    expect(screen.queryByTestId('welcome-start-forge-btn')).toBeNull();
+    expect(screen.queryByText('home.openSync')).toBeNull();
+  });
+
+  it('suggests filling the org to fill, with Seed or with Forge, once two orgs are connected', () => {
     // It said "Your sandbox is ready… Seed or Sync" whatever was connected, and
     // the tour's cards led with Forge but its end offered Sync, not Forge.
+    mockOrgState.orgs = [CONNECTED_PROD, CONNECTED_DEV];
+    mockOrgState.selectedOrgId = CONNECTED_PROD.id;
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
+
     expect(screen.getByTestId('welcome-suggestion').textContent).toBe(
       'onboarding.suggestSeedFor(dev-org)',
     );
     expect(screen.getByText('home.openSeed')).toBeDefined();
     expect(screen.getByText('home.openForge')).toBeDefined();
-    expect(screen.queryByText('home.openSync')).toBeNull();
   });
 
   it('asks for an org first when none is connected, and says nothing of an org type', () => {
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    toLastStep();
 
     // "Based on your org type… Your sandbox is ready" showed with no org at
     // all: the type fell back to a sandbox.
     expect(screen.getByTestId('welcome-suggestion').textContent).toBe('onboarding.connectFirst');
     expect(screen.queryByText('onboarding.step4Desc')).toBeNull();
     expect(screen.queryByTestId('welcome-open-seed-btn')).toBeNull();
-    expect(screen.queryByText('home.openMonitor')).toBeNull();
 
     fireEvent.click(screen.getByTestId('welcome-connect-org-btn'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('orgs');
   });
 
-  it('asks for an org first while the only org registered is not connected', () => {
+  it('asks to reconnect the org registered whose session ended, by its name', () => {
     mockOrgState.orgs = [{ ...CONNECTED_DEV, status: 'expired' }];
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    toLastStep();
 
-    expect(screen.getByTestId('welcome-suggestion').textContent).toBe('onboarding.connectFirst');
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe(
+      'onboarding.reconnectFirst(dev-org)',
+    );
+    fireEvent.click(screen.getByTestId('welcome-reconnect-btn'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
   });
 
   it('leaves the tour for Forge from its last step', () => {
-    mockOrgState.orgs = [CONNECTED_DEV];
+    mockOrgState.orgs = [CONNECTED_DEV, { ...CONNECTED_DEV, id: 'qa', alias: 'qa-org' }];
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    toLastStep();
     fireEvent.click(screen.getByTestId('welcome-start-forge-btn'));
 
     expect(onComplete).toHaveBeenCalledOnce();
@@ -278,7 +343,7 @@ describe('WelcomePage', () => {
 
   it('ends on Done, not Skip, and Done leaves the tour where it is', () => {
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByText('common.next'));
+    for (let i = 0; i < 2; i++) fireEvent.click(screen.getByText('common.next'));
     expect(screen.getByTestId('skip-button').textContent).toBe('onboarding.skipOnboarding');
     fireEvent.click(screen.getByText('common.next'));
 
@@ -287,18 +352,6 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('done-button').textContent).toBe('onboarding.done');
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
-  it('opens Settings on its AI tab from the AI step', () => {
-    render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByText('common.next'));
-    expect(screen.getByTestId('welcome-step-3')).toBeDefined();
-
-    // The step was text alone.
-    fireEvent.click(screen.getByTestId('welcome-open-ai-settings-btn'));
-    expect(screen.getByText('onboarding.openAiSettings')).toBeDefined();
-    expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('settings', { settingsTab: 'ai' });
   });
 
   it('lists Seed first among the three ways, then Forge, then Frozen', () => {
@@ -315,29 +368,41 @@ describe('WelcomePage', () => {
   it('draws its icons as images, never as emoji, on every step', () => {
     // Emoji drew as empty boxes where no colour-emoji font exists, and a
     // flame, a robot and a rocket said other things than the side panel's.
-    mockOrgState.orgs = [CONNECTED_DEV];
     const { container } = render(<WelcomePage onComplete={onComplete} />);
-    for (let step = 0; step < 5; step++) {
-      const shown = screen.getByTestId(
-        step === 0 ? 'welcome-step-bienvenue' : `welcome-step-${step}`,
-      );
+    const steps = ['bienvenue', '1', '2', '4'];
+    for (const [index, step] of steps.entries()) {
+      const shown = screen.getByTestId(`welcome-step-${step}`);
       expect(shown.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
       expect(shown.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
-      if (step < 4) fireEvent.click(screen.getByText('common.next'));
+      if (index < steps.length - 1) fireEvent.click(screen.getByText('common.next'));
     }
     expect(container.textContent ?? '').not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it('should suggest Monitor for production org type', () => {
+  it('points production orgs alone at the sandbox to add, which Forge fills from them, not at Monitor', () => {
+    // The rule the launcher's and Home's heroes follow: Monitor was a start
+    // that filled nothing.
     mockOrgState.orgs = [CONNECTED_PROD];
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    expect(screen.getByText('onboarding.suggestMonitor')).toBeDefined();
-    expect(screen.getByText('home.openMonitor')).toBeDefined();
+    mockOrgState.selectedOrgId = CONNECTED_PROD.id;
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
+
+    expect(screen.getByTestId('welcome-suggestion').textContent).toBe(
+      'onboarding.addSandboxFirst(prod-org)',
+    );
+    expect(screen.queryByTestId('welcome-open-seed-btn')).toBeNull();
+    fireEvent.click(screen.getByTestId('welcome-add-sandbox-btn'));
+    expect(screen.getByTestId('welcome-add-sandbox-btn').textContent).toBe('home.loginWeb');
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('orgs', { orgAction: 'login-web' });
+  });
+
+  it('suggests filling a sandbox connected beside a selected production org, rather than Monitor', () => {
+    mockOrgState.orgs = [CONNECTED_PROD, CONNECTED_DEV];
+    mockOrgState.selectedOrgId = CONNECTED_PROD.id;
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
+    expect(screen.getByTestId('welcome-open-seed-btn')).toBeDefined();
   });
 
   it('should call onComplete when Skip is clicked', () => {
@@ -357,8 +422,8 @@ describe('WelcomePage', () => {
   it('offers no "Don\'t show again" box: the tour opens when Help asks for it', () => {
     // A box ticked on an earlier run made Help → Start Guided Tour open nothing.
     mockPersistedState.store['sandforge-welcome-dont-show'] = 'true';
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
 
     expect(screen.getByTestId('welcome-step-4')).toBeDefined();
     expect(screen.queryByTestId('dont-show-again')).toBeNull();
@@ -375,25 +440,10 @@ describe('WelcomePage', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('suggests Monitor when the selected org is a production org, with no org type passed', () => {
-    mockOrgState.orgs = [{ id: 'prod', status: 'connected', orgType: 'Production' }];
-    mockOrgState.selectedOrgId = 'prod';
-    render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
-
-    // Nothing passed the org type: this branch was never shown.
-    expect(screen.getByText('onboarding.suggestMonitor')).toBeDefined();
-    expect(screen.queryByTestId('welcome-open-seed-btn')).toBeNull();
-  });
-
-  it('should navigate to seed from step 4 for sandbox org type', () => {
+  it('should navigate to seed from step 4 for an org to fill', () => {
     mockOrgState.orgs = [CONNECTED_DEV];
-    render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
     fireEvent.click(screen.getByText('home.openSeed'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('seed', {
@@ -409,7 +459,7 @@ describe('WelcomePage', () => {
     ];
     mockOrgState.selectedOrgId = 'dev';
     render(<WelcomePage onComplete={onComplete} />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    toLastStep();
     fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
 
     expect(mockNavigate).toHaveBeenCalledWith('seed', {
@@ -418,27 +468,10 @@ describe('WelcomePage', () => {
     });
   });
 
-  it('should navigate to monitor from step 4 for production org type', () => {
-    mockOrgState.orgs = [CONNECTED_PROD];
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('home.openMonitor'));
-    expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('monitor');
-  });
-
   it('should navigate to settings from step 4', () => {
     mockOrgState.orgs = [CONNECTED_PROD];
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
+    render(<WelcomePage onComplete={onComplete} />);
+    toLastStep();
     fireEvent.click(screen.getByText('home.openSettings'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('settings');
@@ -472,8 +505,9 @@ describe('WelcomePage', () => {
   it('opens Seed on its gallery from its path card', () => {
     mockOrgState.orgs = [{ id: 'sbx', status: 'connected', orgType: 'Sandbox' }];
     render(<WelcomePage onComplete={onComplete} />);
-    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
-    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
+    // An org is connected: the step that asks for one is skipped.
+    fireEvent.click(screen.getByText('common.next'));
+    expect(screen.getByTestId('welcome-step-2')).toBeDefined();
     fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
     expect(mockNavigate).toHaveBeenCalledWith('seed', {
       seedMode: 'quick-seed',

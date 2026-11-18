@@ -49,13 +49,13 @@ const FR_BUNDLE = JSON.parse(
 const EN = {
   heroTitle: 'Forge a sandbox',
   startForge: 'Start Forge',
-  quickActions: 'Quick actions',
+  quickActions: 'All modules',
   recordIdPlaceholder: 'Record ID (e.g. 001...)',
 };
 const FR = {
   heroTitle: 'Forger une sandbox',
   startForge: 'Lancer Forge',
-  quickActions: 'Actions rapides',
+  quickActions: 'Tous les modules',
   recordIdPlaceholder: "ID d'enregistrement (ex. 001...)",
 };
 
@@ -101,9 +101,9 @@ async function localeRequests(page: Page): Promise<Record<string, unknown>[]> {
 async function expectEnglishHome(page: Page): Promise<void> {
   await expect(page.getByTestId('forge-hero-card').getByRole('heading')).toHaveText(EN.heroTitle);
   await expect(page.getByTestId('start-forge-btn')).toHaveText(EN.startForge);
-  await expect(page.getByTestId('quick-actions-tile').getByRole('heading')).toHaveText(
-    EN.quickActions,
-  );
+  await expect(
+    page.getByTestId('quick-actions-tile').getByRole('heading', { level: 3 }),
+  ).toHaveText(EN.quickActions);
 }
 
 test.describe('i18n — editor locale is English', () => {
@@ -154,9 +154,9 @@ test.describe('i18n — editor locale is French', () => {
     await connectTwoOrgs(bridge);
     await expect(page.getByTestId('forge-hero-card').getByRole('heading')).toHaveText(FR.heroTitle);
     await expect(page.getByTestId('start-forge-btn')).toHaveText(FR.startForge);
-    await expect(page.getByTestId('quick-actions-tile').getByRole('heading')).toHaveText(
-      FR.quickActions,
-    );
+    await expect(
+      page.getByTestId('quick-actions-tile').getByRole('heading', { level: 3 }),
+    ).toHaveText(FR.quickActions);
 
     // Translations must reach the accessibility layer too — the record input
     // is labelled from the same key that fills its placeholder.
@@ -201,9 +201,9 @@ test.describe('i18n — language pushed by the extension', () => {
     );
 
     await expect(page.getByTestId('forge-hero-card').getByRole('heading')).toHaveText(FR.heroTitle);
-    await expect(page.getByTestId('quick-actions-tile').getByRole('heading')).toHaveText(
-      FR.quickActions,
-    );
+    await expect(
+      page.getByTestId('quick-actions-tile').getByRole('heading', { level: 3 }),
+    ).toHaveText(FR.quickActions);
   });
 });
 

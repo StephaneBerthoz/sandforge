@@ -3568,14 +3568,10 @@
     "step1Desc": "Connect an org: import it from the Salesforce CLI or log in with your browser",
     "step2Title": "Three ways to populate your sandbox",
     "step2Desc": "Generate synthetic data, start from a real record, or replay a frozen dataset after a refresh",
-    "step3Title": "Configure AI (optional)",
-    "step3Desc": "Enhance SandForge with AI-powered insights and data generation",
     "skipOnboarding": "Skip",
     "connectOrg": "Connect an org",
-    "aiOptional": "AI features are optional. You can configure them later in Settings.",
     "chooseLanguage": "Choose your language",
     "step4Title": "First steps",
-    "suggestMonitor": "Start with Monitor to keep an eye on your production org health",
     "gotIt": "Got it!",
     "whatsNewTitle": "What's New in SandForge",
     "tryItNow": "Try it now",
@@ -3951,8 +3947,9 @@
     "connectFirst": "Connect an org first",
     "suggestSeedFor": "Fill {{alias}} with Seed's CRM Starter, or clone a record into it from another org with Forge.",
     "done": "Done",
-    "openAiSettings": "Open AI settings",
-    "whatsNewSince": "Since {{version}}, the version you last opened"
+    "whatsNewSince": "Since {{version}}, the version you last opened",
+    "reconnectFirst": "Reconnect {{alias}} first: its session has ended.",
+    "addSandboxFirst": "Add the sandbox to fill: Forge copies real records from {{alias}} into it."
   },
   "help": {
     "title": "Help & Resources",
@@ -4139,10 +4136,9 @@
   "home": {
     "connectedOrgs": "Connected orgs",
     "noOrgsConnected": "No orgs connected yet",
-    "quickActions": "Quick actions",
+    "quickActions": "All modules",
     "recentOperations": "Recent operations",
     "noRecentOps": "No recent operations",
-    "healthSummary": "Health summary",
     "healthScore": "Health score",
     "gettingStarted": "Getting started",
     "gettingStartedDesc": "Welcome to SandForge! Follow these steps to get started.",
@@ -4155,8 +4151,6 @@
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
-    "orgsConnected": "Orgs connected",
-    "activeJobs": "Active jobs",
     "opsLast7d": "Ops (7 days)",
     "limitWarnings": "Limit warnings",
     "forgeASandbox": "Forge a sandbox",
@@ -4205,7 +4199,6 @@
     "openSync": "Open Sync",
     "openForge": "Open Forge",
     "openFrozen": "Open Frozen Dataset",
-    "openMonitor": "Open Monitor",
     "openSettings": "Open Settings",
     "checkpoint": {
       "latest": "Last checkpoint: “{{name}}”, {{age}}",
@@ -4217,13 +4210,28 @@
       "replayRefreshed": "“{{name}}” is of {{org}} before its refresh: replay it to set its records up again there.",
       "replay": "Replay…"
     },
-    "openAutomation": "Open Automation",
     "openOpModule": "Open {{module}}",
     "fillOrg": "Fill {{alias}} with demo data",
     "fillOrgAction": "Fill with demo data",
     "fillOrgDesc": "A Seed template, one confirmation, no AI key",
     "importFromCli": "Import from Salesforce CLI",
-    "loginWeb": "Log in with your browser"
+    "loginWeb": "Log in with your browser",
+    "orgHealth": "Org health",
+    "afterRefresh": {
+      "next": "Next step: {{step}}",
+      "step": {
+        "refresh": "Refresh noticed",
+        "users": "Users",
+        "masking": "Mask the data copied from production",
+        "replay": "Replay the checkpoint of before",
+        "frozen": "Reload the frozen dataset",
+        "testersCheckpoint": "Testers' start checkpoint",
+        "deliverability": "Email deliverability",
+        "scheduledJobs": "Scheduled jobs",
+        "endpoints": "Endpoints that still name production",
+        "handoff": "Handoff note"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Search commands...",

@@ -3568,14 +3568,10 @@
     "step1Desc": "Verbinden Sie eine Org: Importieren Sie sie aus der Salesforce CLI oder melden Sie sich im Browser an",
     "step2Title": "Drei Wege, Ihre Sandbox zu füllen",
     "step2Desc": "Erzeugen Sie synthetische Daten, starten Sie mit einem echten Datensatz oder laden Sie ein eingefrorenes Dataset nach einem Refresh erneut",
-    "step3Title": "KI konfigurieren (optional)",
-    "step3Desc": "Erweitern Sie SandForge mit KI-gestützten Einblicken und Datengenerierung",
     "skipOnboarding": "Überspringen",
     "connectOrg": "Eine Org verbinden",
-    "aiOptional": "KI-Funktionen sind optional. Sie können diese später in den Einstellungen konfigurieren.",
     "chooseLanguage": "Wählen Sie Ihre Sprache",
     "step4Title": "Erste Schritte",
-    "suggestMonitor": "Beginnen Sie mit Monitor, um die Gesundheit Ihrer Produktions-Org im Blick zu behalten",
     "gotIt": "Verstanden!",
     "whatsNewTitle": "Neuigkeiten in SandForge",
     "tryItNow": "Jetzt ausprobieren",
@@ -3951,8 +3947,9 @@
     "connectFirst": "Verbinden Sie zuerst eine Org",
     "suggestSeedFor": "Füllen Sie {{alias}} mit dem CRM-Starter von Seed, oder klonen Sie mit Forge einen Datensatz aus einer anderen Org hinein.",
     "done": "Fertig",
-    "openAiSettings": "KI-Einstellungen öffnen",
-    "whatsNewSince": "Seit {{version}}, der zuletzt geöffneten Version"
+    "whatsNewSince": "Seit {{version}}, der zuletzt geöffneten Version",
+    "reconnectFirst": "Verbinden Sie zuerst {{alias}} erneut: Die Sitzung ist abgelaufen.",
+    "addSandboxFirst": "Fügen Sie die zu befüllende Sandbox hinzu: Forge kopiert echte Datensätze aus {{alias}} hinein."
   },
   "help": {
     "title": "Hilfe & Ressourcen",
@@ -4139,10 +4136,9 @@
   "home": {
     "connectedOrgs": "Verbundene Orgs",
     "noOrgsConnected": "Noch keine Orgs verbunden",
-    "quickActions": "Schnellaktionen",
+    "quickActions": "Alle Module",
     "recentOperations": "Aktuelle Operationen",
     "noRecentOps": "Keine aktuellen Operationen",
-    "healthSummary": "Gesundheitszusammenfassung",
     "healthScore": "Gesundheitswert",
     "gettingStarted": "Erste Schritte",
     "gettingStartedDesc": "Willkommen bei SandForge! Folgen Sie diesen Schritten, um zu beginnen.",
@@ -4155,8 +4151,6 @@
     "justNow": "gerade eben",
     "minutesAgo": "vor {{count}}m",
     "hoursAgo": "vor {{count}}h",
-    "orgsConnected": "Verbundene Orgs",
-    "activeJobs": "Aktive Jobs",
     "opsLast7d": "Operationen (7 Tage)",
     "limitWarnings": "Limit-Warnungen",
     "forgeASandbox": "Eine Sandbox schmieden",
@@ -4205,7 +4199,6 @@
     "openSync": "Sync öffnen",
     "openForge": "Forge öffnen",
     "openFrozen": "Eingefrorenes Dataset öffnen",
-    "openMonitor": "Monitor öffnen",
     "openSettings": "Einstellungen öffnen",
     "checkpoint": {
       "latest": "Letzter Prüfpunkt: „{{name}}“, {{age}}",
@@ -4217,13 +4210,28 @@
       "replayRefreshed": "„{{name}}“ stammt von {{org}} vor der Aktualisierung: Geben Sie ihn wieder, um seine Datensätze dort neu anzulegen.",
       "replay": "Wiedergeben…"
     },
-    "openAutomation": "Automatisierung öffnen",
     "openOpModule": "{{module}} öffnen",
     "fillOrg": "Mit Demodaten füllen: {{alias}}",
     "fillOrgAction": "Mit Demodaten füllen",
     "fillOrgDesc": "Eine Seed-Vorlage, eine Bestätigung, kein KI-Schlüssel",
     "importFromCli": "Aus der Salesforce CLI importieren",
-    "loginWeb": "Im Browser anmelden"
+    "loginWeb": "Im Browser anmelden",
+    "orgHealth": "Org-Gesundheit",
+    "afterRefresh": {
+      "next": "Nächster Schritt: {{step}}",
+      "step": {
+        "refresh": "Aktualisierung bemerkt",
+        "users": "Benutzer",
+        "masking": "Aus der Produktion kopierte Daten maskieren",
+        "replay": "Prüfpunkt von vorher wiedergeben",
+        "frozen": "Eingefrorenes Dataset neu laden",
+        "testersCheckpoint": "Prüfpunkt Start der Tester",
+        "deliverability": "E-Mail-Zustellbarkeit",
+        "scheduledJobs": "Geplante Jobs",
+        "endpoints": "Endpunkte, die noch auf die Produktion verweisen",
+        "handoff": "Übergabenotiz"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Befehle suchen...",

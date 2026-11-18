@@ -103,7 +103,7 @@ async function openHomeAt(page: Page, viewport: { width: number; height: number 
   await page.waitForSelector('[data-testid="home-page"]');
 
   // Answer the org list, and the health query that selecting an org unblocks
-  // for the fourth KPI card, until the KPI row shows. Answered once, a request
+  // for the org health card, until the KPI row shows. Answered once, a request
   // the page sends again goes unanswered and the row stays a skeleton: run
   // after rendered-text.spec.ts, which opens every lazily loaded page, the
   // home page asked for the org list again after the first answer, and the
@@ -182,9 +182,10 @@ test.describe('Responsive layout', () => {
     // columns rather than the stacked mobile form.
     expect(await bentoColumnCount(page)).toBe(3);
 
-    // The four KPI cards fit on one row and stay inside the panel.
+    // The runs of the week and the org health fit on one row and stay inside
+    // the panel.
     const cards = await kpiCardBoxes(page);
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(2);
     expect(new Set(cards.map((c) => c.top)).size).toBe(1);
     for (const card of cards) {
       expect(card.right).toBeLessThanOrEqual(overflow.clientWidth);
@@ -222,9 +223,9 @@ test.describe('Responsive layout', () => {
     expect(gridBox).toBeTruthy();
     expect(gridBox!.width).toBeGreaterThan(overflow.clientWidth - 40);
 
-    // The KPI row still reads as one row of four at this width.
+    // The KPI row still reads as one row at this width.
     const cards = await kpiCardBoxes(page);
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(2);
     expect(new Set(cards.map((c) => c.top)).size).toBe(1);
     for (const card of cards) {
       expect(card.right).toBeLessThanOrEqual(overflow.clientWidth);

@@ -458,7 +458,9 @@ describe('the English a panel loads', () => {
    */
   it('loads no other page’s English for the words a shared part says', () => {
     const notLoaded: Record<string, string[]> = {
-      'pages/Home/HomePage.tsx': ['forge', 'onboarding', 'org', 'seed', 'sidePanel'],
+      // Home lists the modules in the launcher's groups and leads with its
+      // heroes, in the launcher's words: its 2 kB are loaded, not copied.
+      'pages/Home/HomePage.tsx': ['forge', 'onboarding', 'org', 'seed'],
       'pages/OrgManager/OrgManagerPage.tsx': ['monitor', 'seed', 'sidePanel'],
       // The steps past its input bring their own words (forgeRun) as they come.
       'pages/Forge/ForgePage.tsx': ['forgeRun', 'frozen', 'org', 'seed', 'sync'],

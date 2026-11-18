@@ -175,8 +175,8 @@ describe('SmartActionCard', () => {
 
 /*
  * One act, filling an org with demo data, read "Set it up", then "Open Quick
- * Seed for <org>?": the side panel, Organizations and Home's Quick actions say
- * "Fill <org> with demo data" and open Seed's gallery at once.
+ * Seed for <org>?": the side panel, Organizations and Home's hero say "Fill <org>
+ * with demo data" and open Seed's gallery at once.
  */
 describe('SmartActionCard names a fill as every other surface does', () => {
   afterEach(() => {

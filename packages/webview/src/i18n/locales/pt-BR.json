@@ -3568,14 +3568,10 @@
     "step1Desc": "Conecte uma org: importe-a da Salesforce CLI ou entre pelo navegador",
     "step2Title": "Três maneiras de preencher sua sandbox",
     "step2Desc": "Gere dados sintéticos, comece de um registro real ou reproduza um dataset congelado após um refresh",
-    "step3Title": "Configurar IA (opcional)",
-    "step3Desc": "Aprimore o SandForge com insights e geração de dados impulsionados por IA",
     "skipOnboarding": "Pular",
     "connectOrg": "Conectar uma org",
-    "aiOptional": "Os recursos de IA são opcionais. Você pode configurá-los depois em Configurações.",
     "chooseLanguage": "Escolha seu idioma",
     "step4Title": "Primeiros passos",
-    "suggestMonitor": "Comece com Monitor para acompanhar a saúde da sua org de produção",
     "gotIt": "Entendi!",
     "whatsNewTitle": "Novidades no SandForge",
     "tryItNow": "Experimentar agora",
@@ -3951,8 +3947,9 @@
     "connectFirst": "Conecte uma org primeiro",
     "suggestSeedFor": "Preencha {{alias}} com o Kit inicial de CRM do Seed, ou clone nela um registro de outra org com o Forge.",
     "done": "Concluir",
-    "openAiSettings": "Abrir as configurações de IA",
-    "whatsNewSince": "Desde a {{version}}, a última versão que você abriu"
+    "whatsNewSince": "Desde a {{version}}, a última versão que você abriu",
+    "reconnectFirst": "Reconecte {{alias}} primeiro: a sessão terminou.",
+    "addSandboxFirst": "Adicione a sandbox a preencher: o Forge copia nela registros reais de {{alias}}."
   },
   "help": {
     "title": "Ajuda e Recursos",
@@ -4139,10 +4136,9 @@
   "home": {
     "connectedOrgs": "Orgs conectadas",
     "noOrgsConnected": "Nenhuma org conectada",
-    "quickActions": "Ações rápidas",
+    "quickActions": "Todos os módulos",
     "recentOperations": "Operações recentes",
     "noRecentOps": "Sem operações recentes",
-    "healthSummary": "Resumo de saúde",
     "healthScore": "Pontuação de saúde",
     "gettingStarted": "Primeiros passos",
     "gettingStartedDesc": "Bem-vindo ao SandForge! Siga estes passos para começar.",
@@ -4155,8 +4151,6 @@
     "justNow": "agora mesmo",
     "minutesAgo": "{{count}}min atrás",
     "hoursAgo": "{{count}}h atrás",
-    "orgsConnected": "Orgs conectadas",
-    "activeJobs": "Jobs ativos",
     "opsLast7d": "Operações (7 dias)",
     "limitWarnings": "Avisos de limites",
     "forgeASandbox": "Forjar uma sandbox",
@@ -4205,7 +4199,6 @@
     "openSync": "Abrir Sync",
     "openForge": "Abrir Forge",
     "openFrozen": "Abrir Dataset congelado",
-    "openMonitor": "Abrir Monitor",
     "openSettings": "Abrir Configurações",
     "checkpoint": {
       "latest": "Último ponto de verificação: “{{name}}”, {{age}}",
@@ -4217,13 +4210,28 @@
       "replayRefreshed": "“{{name}}” é de {{org}} antes da atualização: reproduza-o para montar de novo lá os registros dele.",
       "replay": "Reproduzir…"
     },
-    "openAutomation": "Abrir Automação",
     "openOpModule": "Abrir {{module}}",
     "fillOrg": "Preencher {{alias}} com dados de demonstração",
     "fillOrgAction": "Preencher com dados de demonstração",
     "fillOrgDesc": "Um modelo do Seed, uma confirmação, sem chave de IA",
     "importFromCli": "Importar da Salesforce CLI",
-    "loginWeb": "Entrar pelo navegador"
+    "loginWeb": "Entrar pelo navegador",
+    "orgHealth": "Saúde da org",
+    "afterRefresh": {
+      "next": "Próxima etapa: {{step}}",
+      "step": {
+        "refresh": "Atualização detectada",
+        "users": "Usuários",
+        "masking": "Mascarar os dados copiados da produção",
+        "replay": "Reproduzir o ponto de verificação de antes",
+        "frozen": "Recarregar o dataset congelado",
+        "testersCheckpoint": "Ponto de verificação Início dos testadores",
+        "deliverability": "Capacidade de entrega de e-mails",
+        "scheduledJobs": "Jobs agendados",
+        "endpoints": "Endpoints que ainda apontam para a produção",
+        "handoff": "Nota de passagem"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Buscar comandos...",
