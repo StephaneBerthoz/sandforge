@@ -4,12 +4,28 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
-import type { CheckpointListEntry, CheckpointPreviewResponse } from '@sandforge/shared';
+import {
+  RECOVERY_PREPARATION_IDS,
+  RECOVERY_REASON_STATUS,
+  RECOVERY_STEP_IDS,
+  recoveryProgressOf,
+  recoveryStatusSchema,
+  recoveryUsersListSchema,
+  usersPlanAnswerSchema,
+} from '@sandforge/shared';
+import type {
+  CheckpointListEntry,
+  CheckpointPreviewResponse,
+  RecoveryReason,
+  RecoveryStatus,
+  RecoveryStepId,
+} from '@sandforge/shared';
 import { MockBridge } from './helpers';
 import { encodeGif, type GifFrame } from './helpers/gifEncoder';
 import { readPng } from './helpers/readPng';
 import { MOCK_ORGS } from './fixtures';
 import { diffObject, listEntry, readyCheckpoint, USERS } from './fixtures/checkpoints';
+import { RECOVERY_ORG } from './fixtures/recovery';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -238,12 +254,18 @@ async function respondToAll(
  *
  * Some shots need more than the design viewport. A Forge run's results end
  * on what can be done with the run — verify it, remove what it wrote — below
- * everything it reports, and Review ends on Rehearse, Simulate and Execute
- * below its tabs: cut at 800 pixels, both pictures lost their actions. Those
- * shots grow to `maxHeight`, the panel still the measure. The launcher is no
+ * everything it reports, and Review's rows run past the viewport: cut at 800
+ * pixels, both pictures lost their foot. Those shots grow to `maxHeight`, the
+ * panel still the measure. The launcher is no
  * module panel: it fills the sidebar's height whatever it holds, so what it
  * holds is measured, by where its last block ends. The width is whatever the
  * test set.
+ *
+ * A page longer than any picture of it ends on a block of its own: `foot`
+ * names it, and the shot stops where the block after it starts, so the cut
+ * falls between two blocks and through none. Back into service runs to some
+ * 2,300 pixels with its users open; a picture of all of it, scaled down to the
+ * carousel, could not be read.
  *
  * Every shot starts at the top of its panel. Playwright scrolls each control
  * into view to click it, and a panel taller than its shot kept that scroll:
@@ -254,19 +276,32 @@ async function respondToAll(
 async function shoot(
   page: import('@playwright/test').Page,
   name: string,
-  options: { maxHeight?: number; launcher?: boolean } = {},
+  options: { maxHeight?: number; launcher?: boolean; foot?: string } = {},
 ): Promise<void> {
   const maxHeight = options.maxHeight ?? VIEWPORT.height;
-  const height = await page.evaluate((launcher) => {
-    if (launcher) {
-      const root = document.querySelector('[data-testid="sidepanel-root"]');
-      const last = root?.lastElementChild as HTMLElement | null | undefined;
-      return last ? Math.ceil(last.getBoundingClientRect().bottom) : 0;
-    }
-    const panel = document.querySelector('[data-testid="panel-app"]');
-    const content = panel?.firstElementChild as HTMLElement | null | undefined;
-    return content ? Math.ceil(content.getBoundingClientRect().height) : 0;
-  }, options.launcher === true);
+  const height = await page.evaluate(
+    ({ launcher, foot }) => {
+      if (launcher) {
+        const root = document.querySelector('[data-testid="sidepanel-root"]');
+        const last = root?.lastElementChild as HTMLElement | null | undefined;
+        return last ? Math.ceil(last.getBoundingClientRect().bottom) : 0;
+      }
+      const panel = document.querySelector('[data-testid="panel-app"]');
+      if (foot) {
+        panel?.scrollTo(0, 0);
+        const block = document.querySelector(foot);
+        if (!block) return 0;
+        const next = block.nextElementSibling;
+        // The last block of its list keeps the panel's own padding under it.
+        return next
+          ? Math.floor(next.getBoundingClientRect().top)
+          : Math.ceil(block.getBoundingClientRect().bottom + 16);
+      }
+      const content = panel?.firstElementChild as HTMLElement | null | undefined;
+      return content ? Math.ceil(content.getBoundingClientRect().height) : 0;
+    },
+    { launcher: options.launcher === true, foot: options.foot ?? null },
+  );
 
   // Never grow past the shot's ceiling, and keep a floor so a panel that
   // measures oddly still produces a usable image rather than a sliver.
@@ -366,25 +401,31 @@ const MOCK_HEALTH = {
   activeAlertsCount: 2,
 };
 
+/**
+ * The dev sandbox's backups, the day before FIXED_NOW and the day before
+ * that: Masking says when the latest was taken, and a date past the frozen
+ * clock would picture a backup from the future. The latest holds every row
+ * of the objects GDPR Standard masks, as MOCK_STORAGE counts them.
+ */
 const MOCK_BACKUPS = {
   backups: [
     {
-      operationId: 'op-2026-08-12-1',
+      operationId: 'op-2026-03-12-1',
       orgId: 'org-src-1',
-      timestamp: '2026-08-12T09:14:00Z',
-      totalRecords: 3250,
-      totalSize: 4_812_000,
+      timestamp: '2026-03-12T09:14:00Z',
+      totalRecords: 2500,
+      totalSize: 3_706_000,
       status: 'completed',
       objectResults: [
         { objectApiName: 'Account', recordCount: 500 },
         { objectApiName: 'Contact', recordCount: 1200 },
-        { objectApiName: 'Opportunity', recordCount: 300 },
+        { objectApiName: 'Lead', recordCount: 800 },
       ],
     },
     {
-      operationId: 'op-2026-08-11-2',
+      operationId: 'op-2026-03-11-2',
       orgId: 'org-src-1',
-      timestamp: '2026-08-11T17:02:00Z',
+      timestamp: '2026-03-11T17:02:00Z',
       totalRecords: 1250,
       totalSize: 1_940_000,
       status: 'completed',
@@ -394,6 +435,84 @@ const MOCK_BACKUPS = {
       ],
     },
   ],
+};
+
+/** A masking rule: its `Object.Field`, its method, and what it does. */
+const maskingRule = (fieldPattern: string, ruleType: string, description: string) => ({
+  fieldPattern,
+  ruleType,
+  description,
+});
+
+/**
+ * Masking templates, as `dataops:anonymization-templates:response` lists the
+ * ones that ship: GDPR Standard with its rules as it ships them, and two
+ * others the picker offers beside it. Answered with none, the tab DataOps
+ * opens on showed "No templates available", which no install ever shows.
+ */
+const MOCK_MASKING_TEMPLATES = {
+  templates: [
+    {
+      id: 'tpl-gdpr-standard',
+      name: 'GDPR Standard',
+      description:
+        'Standard GDPR compliance: anonymize personal data fields across common Salesforce objects.',
+      complianceFramework: 'gdpr',
+      rules: [
+        maskingRule('Contact.FirstName', 'fake', 'Replace with fake first name.'),
+        maskingRule('Contact.LastName', 'fake', 'Replace with fake last name.'),
+        maskingRule('Contact.Email', 'fake', 'Replace with fake email address.'),
+        {
+          ...maskingRule('Contact.Phone', 'mask', 'Mask phone number (keep last 4 digits).'),
+          config: { maskKeepLast: 4 },
+        },
+        maskingRule('Contact.MailingStreet', 'fake', 'Replace with fake street address.'),
+        maskingRule('Contact.MailingCity', 'fake', 'Replace with fake city.'),
+        maskingRule('Contact.MailingPostalCode', 'mask', 'Mask postal code.'),
+        maskingRule('Lead.FirstName', 'fake', 'Replace with fake first name.'),
+        maskingRule('Lead.LastName', 'fake', 'Replace with fake last name.'),
+        maskingRule('Lead.Email', 'fake', 'Replace with fake email address.'),
+        maskingRule('Lead.Phone', 'mask', 'Mask phone number.'),
+        maskingRule('Lead.Street', 'fake', 'Replace with fake street address.'),
+        maskingRule('Account.BillingStreet', 'fake', 'Replace with fake address.'),
+        maskingRule('Account.Phone', 'mask', 'Mask phone number.'),
+      ],
+    },
+    {
+      id: 'tpl-ccpa-california',
+      name: 'CCPA California',
+      description:
+        'CCPA compliance: anonymize consumer personal information per California privacy regulations.',
+      complianceFramework: 'ccpa',
+      rules: [maskingRule('Contact.Email', 'hash', 'Hash email for pseudonymization.')],
+    },
+    {
+      id: 'tpl-sandbox-scrub',
+      name: 'Sandbox Data Scrub',
+      description: 'General-purpose sandbox data scrubbing: mask all PII for safe development use.',
+      complianceFramework: 'custom',
+      rules: [maskingRule('Contact.FirstName', 'fake', 'Fake first name.')],
+    },
+  ],
+};
+
+/**
+ * What a restore of the latest backup can bring back of what GDPR Standard
+ * masks, as `dataops:anonymize:coverage` answers it: every row of each
+ * object, said before Apply masks them for good.
+ */
+const MOCK_MASKING_COVERAGE = {
+  templateId: 'tpl-gdpr-standard',
+  backup: {
+    operationId: MOCK_BACKUPS.backups[0].operationId,
+    timestamp: MOCK_BACKUPS.backups[0].timestamp,
+  },
+  objects: MOCK_BACKUPS.backups[0].objectResults.map(({ objectApiName, recordCount }) => ({
+    objectApiName,
+    count: recordCount,
+    backedUp: recordCount,
+    truncated: false,
+  })),
 };
 
 const MOCK_STORAGE = {
@@ -585,6 +704,152 @@ async function openCheckpoints(page: import('@playwright/test').Page): Promise<M
   await page.waitForSelector(`[data-testid="checkpoint-row-${BEFORE_UAT.checkpointId}"]`);
   return bridge;
 }
+
+/** The instant `hours` from FIXED_NOW: the recovery's steps were done this afternoon. */
+const hoursFromFixedNow = (hours: number): string =>
+  new Date(FIXED_NOW.getTime() + hours * 3_600_000).toISOString();
+
+/** The dev sandbox's Organization Id before its refresh, and after: placeholders, `xx` pod. */
+const ORG_ID_BEFORE = '00Dxx0000001XyZ';
+const ORG_ID_AFTER = '00Dxx0000002AbC';
+
+/**
+ * Where each step of the dev sandbox's recovery stands, this afternoon: the
+ * refresh noticed this morning, the copy masked and the checkpoint of before
+ * replayed, the deliverability checked in Setup; the users still to bring
+ * back; no frozen dataset kept on this machine, so nothing to reload.
+ */
+const RECOVERY_STEPS: Record<RecoveryStepId, { reason: RecoveryReason; at?: string }> = {
+  refresh: { reason: 'refreshDetected' },
+  users: { reason: 'toDo' },
+  masking: { reason: 'ranAfterRefresh', at: hoursFromFixedNow(-3) },
+  replay: { reason: 'ranAfterRefresh', at: hoursFromFixedNow(-2) },
+  frozen: { reason: 'noManifest' },
+  testersCheckpoint: { reason: 'toDo' },
+  deliverability: { reason: 'markedDone', at: hoursFromFixedNow(-1) },
+  scheduledJobs: { reason: 'toDo' },
+  endpoints: { reason: 'toDo' },
+  handoff: { reason: 'toDo' },
+};
+
+/**
+ * The dev sandbox, a Partial Copy, refreshed this morning, as
+ * `recovery:status` answers for it: the steps above, the checkpoint taken of
+ * it a week before and the inventory of its jobs kept then, the objects its
+ * last masking addressed. Parsed by the contract's schema, so the shot draws
+ * only a state the extension can send.
+ */
+const RECOVERY_STATUS: RecoveryStatus = (() => {
+  const steps = RECOVERY_STEP_IDS.map((id) => ({
+    id,
+    status: RECOVERY_REASON_STATUS[RECOVERY_STEPS[id].reason],
+    ...RECOVERY_STEPS[id],
+  }));
+  return recoveryStatusSchema.parse({
+    orgId: RECOVERY_ORG.id,
+    alias: RECOVERY_ORG.alias,
+    tier: 'development',
+    sandboxType: 'Partial',
+    myDomainHost: 'example--dev.sandbox.my.salesforce.com',
+    organizationId: ORG_ID_AFTER,
+    refresh: {
+      detectedAt: hoursFromFixedNow(-6),
+      evidence: 'connection',
+      previousOrganizationId: ORG_ID_BEFORE,
+      organizationId: ORG_ID_AFTER,
+      cachesForgotten: true,
+    },
+    checkpointBefore: {
+      checkpointId: 'ck-20260306-183123-a1b2',
+      name: 'Before refresh',
+      takenAt: fromFixedNow(-7),
+    },
+    inventoryBefore: { savedAt: fromFixedNow(-7), organizationId: ORG_ID_BEFORE, jobs: 6 },
+    maskObjects: { objects: ['Contact', 'Lead', 'Account'], from: 'org' },
+    beforeNextRefresh: RECOVERY_PREPARATION_IDS.map((id) => ({
+      id,
+      status: 'todo',
+      reason: 'toDo',
+    })),
+    steps,
+    ...recoveryProgressOf(steps),
+  });
+})();
+
+/** A user of the dev sandbox the refresh left to bring back. */
+const recoveryUser = (
+  n: number,
+  name: string,
+  username: string,
+  facts: { active?: boolean; frozen?: boolean; profile: string },
+) => ({
+  username,
+  userId: `005xx00000100${String(n).padStart(2, '0')}AAA`,
+  name,
+  address: 'invalid' as const,
+  active: facts.active ?? true,
+  frozen: facts.frozen ?? false,
+  profile: facts.profile,
+});
+
+/**
+ * The users the refresh left with their address under `.invalid`, as
+ * `recovery:users:list` reads them: three testers, one of them deactivated
+ * and frozen, and the integration user, which nobody brings back by hand.
+ */
+const RECOVERY_USERS = recoveryUsersListSchema.parse({
+  orgId: RECOVERY_ORG.id,
+  users: [
+    recoveryUser(1, 'Ana Lopes', 'ana.lopes@example.com.dev', { profile: 'Standard User' }),
+    recoveryUser(2, 'Bo Martin', 'bo.martin@example.com.dev', {
+      active: false,
+      frozen: true,
+      profile: 'Standard User',
+    }),
+    recoveryUser(3, 'Carla Diaz', 'carla.diaz@example.com.dev', { profile: 'Marketing User' }),
+    recoveryUser(4, 'Integration User', 'integration@example.com.dev', {
+      profile: 'System Administrator',
+    }),
+  ],
+});
+
+/** The three testers the shot brings back. */
+const RECOVERY_TESTERS = RECOVERY_USERS.users.slice(0, 3);
+
+/**
+ * What a simulation of the three testers answers: each address asked back,
+ * which Salesforce confirms by an email to its owner, and the tester left
+ * inactive and frozen activated and unfrozen, taking the last Salesforce
+ * license but one. The emails to people are asked to be accepted for the run.
+ */
+const RECOVERY_PLAN = usersPlanAnswerSchema.parse({
+  org: {
+    organizationId: ORG_ID_AFTER,
+    kind: 'sandbox',
+    alias: RECOVERY_ORG.alias,
+    username: 'admin@example.com.dev',
+  },
+  users: RECOVERY_TESTERS.map((user) => ({
+    username: user.username,
+    userId: user.userId,
+    address: 'invalid',
+    changes: [
+      { what: 'email', to: 'awaiting' },
+      ...(user.active ? [] : [{ what: 'active', from: false, to: true }]),
+      ...(user.frozen ? [{ what: 'frozen', from: true, to: false }] : []),
+    ],
+    emailsToPeople: 1,
+  })),
+  licenses: [{ name: 'Salesforce', total: 20, used: 18, toUse: 1 }],
+  emailsToPeople: RECOVERY_TESTERS.length,
+  apiRequests: 7,
+  refusals: [
+    {
+      code: 'USERS_EMAILS_NOT_ACCEPTED',
+      message: `Salesforce would email ${RECOVERY_TESTERS.length} people`,
+    },
+  ],
+});
 
 /** One object of a Forge graph, as discovery answers with it. */
 function forgeNode(
@@ -1098,7 +1363,7 @@ const FLOW_LAST_MS = 4500;
 
 /**
  * A screenshot of the viewport, as a frame of the animation: the screen from
- * its top, as a user arriving on it sees it, or from the element `top` names.
+ * its top, as a user arriving on it sees it.
  *
  * Playwright scrolls each control into view to click it, and the panel keeps
  * that scroll from one screen to the next: the results of a run started from
@@ -1107,18 +1372,8 @@ const FLOW_LAST_MS = 4500;
 async function flowFrame(
   page: import('@playwright/test').Page,
   delayMs: number,
-  top?: string,
 ): Promise<GifFrame> {
-  await page.evaluate((testId) => {
-    const panel = document.querySelector('[data-testid="panel-app"]');
-    const target = testId ? document.querySelector(`[data-testid="${testId}"]`) : null;
-    panel?.scrollTo(0, 0);
-    if (target) {
-      target.scrollIntoView({ block: 'start' });
-      // A margin above it, as the panel's own padding gives the top of a screen.
-      panel?.scrollBy(0, -16);
-    }
-  }, top ?? null);
+  await page.evaluate(() => document.querySelector('[data-testid="panel-app"]')?.scrollTo(0, 0));
   await settle(page);
   const png = await page.screenshot({ animations: 'disabled' });
   return { ...readPng(png), delayMs };
@@ -1133,13 +1388,12 @@ test.describe('Marketplace Screenshots', () => {
 
   test('home', async ({ page }) => {
     const bridge = await openModule(page, 'home');
-    // Home's KPI row no longer fabricates zeros — it reads the same
-    // monitor:refresh round trip Monitor does, and renders skeletons until it
-    // answers. Leaving it unanswered shoots three blank cards.
+    // Org health fabricates no zeros: it reads the same monitor:refresh round
+    // trip Monitor does, and holds its skeletons until it answers.
     await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
     await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH);
-    // The KPI row reads the org list itself, apart from the read the panel
-    // makes as it boots: unanswered, the row stayed four grey slabs.
+    // The KPI row waits for the page's own read of the org list, apart from
+    // the read the panel makes as it boots: unanswered, it stayed grey slabs.
     await respondToAll(page, 'org:list', 'org:list:response', { orgs: MOCK_ORGS });
     // The Checkpoints tile says nothing until the org's checkpoints are listed.
     await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
@@ -1149,7 +1403,7 @@ test.describe('Marketplace Screenshots', () => {
     // What the panel has seen run, as the extension announces each run, its
     // start then its end, in its own words: a Seed of the UAT refresh
     // template, then the clone of the account the Forge shots follow. The
-    // tile lists them, the week's count and the running count follow.
+    // tile lists them, and the week's count follows.
     await bridge.stream([
       {
         type: 'operation:started',
@@ -1180,20 +1434,26 @@ test.describe('Marketplace Screenshots', () => {
     ]);
     await page.waitForSelector('[data-testid="home-page"]');
     await page.waitForSelector('[data-testid="home-kpi-row"]');
+    // Home asks each sandbox where its recovery stands; neither answers a
+    // refresh, so the hero is the launcher's for two orgs connected: Forge.
+    // The launcher's shot has the refreshed sandbox.
     await page.waitForSelector('[data-testid="forge-hero-card"]');
     await page.waitForSelector('[data-testid="checkpoint-tile-latest"]');
     await page.getByTestId('recent-op-item').nth(1).waitFor();
     await blurFocus(page);
     await settle(page);
-    await shoot(page, 'home');
+    // All modules, the five groups of the launcher, ends below the design
+    // viewport's 800 pixels: cut there, the picture ended in the middle of
+    // its modules.
+    await shoot(page, 'home', { maxHeight: 1400 });
   });
 
   test('forge', async ({ page }) => {
     const bridge = await openModule(page, 'forge');
     await page.waitForSelector('[data-testid="forge-page"]');
 
-    // Pick a target org so the CTA is enabled and the estimate panel fills —
-    // an unconfigured form with a greyed-out button is a poor first impression.
+    // Pick a target org so Discover Graph is enabled — an unconfigured form
+    // with a greyed-out button is a poor first impression.
     await page.getByTestId('forge-target-org').click();
     await page.getByTestId('forge-target-org-option-org-tgt-1').click();
 
@@ -1212,10 +1472,35 @@ test.describe('Marketplace Screenshots', () => {
     // shot shows a 200px grey slab in the middle of the dashboard.
     await bridge.waitForMessage('monitor:storage', { timeout: 10_000 });
     await respondToAll(page, 'monitor:storage', 'monitor:storage:response', MOCK_STORAGE);
+    // The dev sandbox was refreshed this morning, as the launcher and Back
+    // into service have it: the band that leads the dashboard for a week
+    // after a refresh, with the way back into service. A sandbox has no
+    // refresh history of its own to list.
+    await bridge.waitForMessage('monitor:sandbox-refresh', { timeout: 10_000 });
+    const refresh = RECOVERY_STATUS.refresh;
+    await respondToAll(page, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', {
+      success: true,
+      supported: false,
+      refreshes: [],
+      inProgress: false,
+      detected: refresh
+        ? [
+            {
+              detectedAt: refresh.detectedAt,
+              evidence: refresh.evidence,
+              previousOrganizationId: refresh.previousOrganizationId,
+              organizationId: refresh.organizationId,
+            },
+          ]
+        : [],
+    });
     await page.waitForSelector('[data-testid="monitor-page"]');
+    await page.waitForSelector('[data-testid="monitor-after-refresh"]');
     await page.waitForSelector('[data-testid="storage-donut-chart"]');
     await settle(page);
-    await shoot(page, 'monitor');
+    // The dashboard runs on below the records by object, which the design
+    // viewport cut through their legend: it ends where the trends begin.
+    await shoot(page, 'monitor', { foot: '[data-testid="storage-panel"]', maxHeight: 1200 });
   });
 
   test('seed', async ({ page }) => {
@@ -1244,8 +1529,9 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="sync-page"]');
 
     // Source and target both matter: the object editor is not rendered at all
-    // until a source is picked, and the header's org-to-org badge pair — the
-    // one image that says "between two orgs" — needs the target too.
+    // until a source is picked, and the header's pair of orgs, copied from
+    // and written into — the one image that says "between two orgs" — needs
+    // the target too.
     await page.getByLabel('Source', { exact: true }).selectOption('org-src-1');
     await page.getByLabel('Target', { exact: true }).selectOption('org-tgt-1');
 
@@ -1279,25 +1565,39 @@ test.describe('Marketplace Screenshots', () => {
 
     await page.waitForSelector('[data-testid="object-entry-Opportunity"]');
     await settle(page);
-    // The object rows sit below the delta and file options: at the design
-    // viewport's 800 pixels the picture lost the rows it was set up to show.
+    // The delta, neutralization and file options sit below the object rows,
+    // and Back and Next below them: at the design viewport's 800 pixels the
+    // picture ended in the middle of the options.
     await shoot(page, 'sync', { maxHeight: 1200 });
   });
 
   test('dataops', async ({ page }) => {
     const bridge = await openModule(page, 'dataops');
+    // The backups count on their tab's label, beside Masking.
     await bridge.waitForMessage('backup:list', { timeout: 10_000 });
     await respondToAll(page, 'backup:list', 'backup:list:result', MOCK_BACKUPS);
-    // The tab body renders a skeleton while EITHER query is loading, so the
-    // templates query has to be answered even for the Backup tab.
+    // DataOps opens on Masking, whose body stays a skeleton until the
+    // templates are listed.
     await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
     await respondToAll(
       page,
       'dataops:anonymization-templates',
       'dataops:anonymization-templates:response',
-      { templates: [] },
+      MOCK_MASKING_TEMPLATES,
     );
     await page.waitForSelector('[data-testid="dataops-page"]');
+    // GDPR Standard picked: its rules, and what the latest backup can bring
+    // back of what they mask, above Preview and Apply.
+    await page.getByTestId('template-select').selectOption('tpl-gdpr-standard');
+    await bridge.waitForMessage('dataops:anonymize:coverage', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'dataops:anonymize:coverage',
+      'dataops:anonymize:coverage:response',
+      MOCK_MASKING_COVERAGE,
+    );
+    await page.waitForSelector('[data-testid="restore-coverage"]');
+    await blurFocus(page);
     await settle(page);
     await shoot(page, 'dataops');
   });
@@ -1318,7 +1618,8 @@ test.describe('Marketplace Screenshots', () => {
 
     // The launcher speaks to the extension without the bridge's envelope: it
     // asks for its orgs, and the answer is a raw broadcast. Without it the
-    // org switcher and both counters read empty.
+    // org switcher reads empty and the hero waits. The dev sandbox selected:
+    // the one refreshed.
     await page.waitForFunction(() =>
       ((window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? []).some(
         (m) => (m as Record<string, unknown>).type === 'sidebar:requestOrgs',
@@ -1326,7 +1627,33 @@ test.describe('Marketplace Screenshots', () => {
     );
     await sendExtensionMessage(page, {
       type: 'org:list:response',
-      payload: { orgs: MOCK_ORGS, selectedOrgId: 'org-tgt-1' },
+      payload: { orgs: MOCK_ORGS, selectedOrgId: RECOVERY_ORG.id },
+    });
+    // Its refresh, told on the launcher's own channel: the hero leads with
+    // bringing it back into service, n of N steps done, as the Back into
+    // service shot has them.
+    await sendExtensionMessage(page, {
+      type: 'sidebar:afterRefresh',
+      payload: [
+        {
+          orgId: RECOVERY_ORG.id,
+          alias: RECOVERY_ORG.alias,
+          detectedAt: RECOVERY_STATUS.refresh?.detectedAt,
+          done: RECOVERY_STATUS.done,
+          total: RECOVERY_STATUS.total,
+        },
+      ],
+    });
+    // The line under Checkpoints: the checkpoint taken before the refresh,
+    // which the recovery replays.
+    await page.waitForFunction(() =>
+      ((window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? []).some(
+        (m) => (m as Record<string, unknown>).type === 'sidebar:requestLastCheckpoint',
+      ),
+    );
+    await sendExtensionMessage(page, {
+      type: 'sidebar:lastCheckpoint',
+      payload: { orgId: RECOVERY_ORG.id, checkpoint: RECOVERY_STATUS.checkpointBefore },
     });
     // A Forge run finished: the last operation the launcher shows at its foot.
     await bridge.stream([
@@ -1338,6 +1665,8 @@ test.describe('Marketplace Screenshots', () => {
     ]);
 
     await page.waitForSelector('[data-testid="brand-mark"]');
+    await page.waitForSelector('[data-testid="sidepanel-after-refresh-hero"]');
+    await page.waitForSelector('[data-testid="sidepanel-last-checkpoint"]');
     await page.waitForSelector('[data-testid="sidepanel-last-op"]');
     await settle(page);
     await shoot(page, 'launcher', { launcher: true, maxHeight: 1000 });
@@ -1366,12 +1695,50 @@ test.describe('Marketplace Screenshots', () => {
     await shoot(page, 'checkpoint-rewind', { maxHeight: 1400 });
   });
 
+  test('recovery', async ({ page }) => {
+    const bridge = await openModule(page, 'recovery');
+    await page.waitForSelector('[data-testid="recovery-page"]');
+    await bridge.waitForMessage('recovery:status', { timeout: 10_000 });
+    await respondToAll(page, 'recovery:status', 'recovery:status:response', {
+      status: RECOVERY_STATUS,
+    });
+    await page.waitForSelector('[data-testid="recovery-steps"]');
+
+    // The users step open, the three testers chosen and simulated: what the
+    // run would change of each, the license it takes, and the emails to them
+    // accepted, which Apply waits for.
+    await page.getByTestId('recovery-users-toggle').click();
+    await bridge.waitForMessage('recovery:users:list', { timeout: 10_000 });
+    await respondToAll(page, 'recovery:users:list', 'recovery:users:list:response', RECOVERY_USERS);
+    for (const user of RECOVERY_TESTERS) {
+      await page.getByTestId(`recovery-user-${user.username}`).check();
+    }
+    await page.getByTestId('recovery-users-simulate').click();
+    await bridge.waitForMessage('recovery:users:plan', { timeout: 10_000 });
+    await respondToAll(page, 'recovery:users:plan', 'recovery:users:plan:response', {
+      orgId: RECOVERY_ORG.id,
+      plan: RECOVERY_PLAN,
+    });
+    await page.getByTestId('recovery-users-acceptUserEmails').getByRole('checkbox').check();
+    await page.waitForSelector('[data-testid="recovery-users-apply"]:enabled');
+    await blurFocus(page);
+    await settle(page);
+    // It ends on the fifth step, the steps done, to do and that do not apply
+    // all shown above it: the five after it and what to keep before the next
+    // refresh are rows of the same kind.
+    await shoot(page, 'recovery', {
+      foot: '[data-testid="recovery-steps"] > li:nth-child(5)',
+      maxHeight: 1400,
+    });
+  });
+
   test('forge-simulation', async ({ page }) => {
     const bridge = await openForgeReview(page);
     await simulateFromReview(page, bridge);
     await settle(page);
-    // Its last row of actions ends a little past 800 pixels.
-    await shoot(page, 'forge-simulation', { maxHeight: 900 });
+    // Its actions take two rows, under the steps above the orgs: they end
+    // past 900 pixels, where Save as template fell off the foot.
+    await shoot(page, 'forge-simulation', { maxHeight: 1000 });
   });
 
   test('forge-review', async ({ page }) => {
@@ -1405,9 +1772,9 @@ test.describe('Marketplace Screenshots', () => {
     // still refuses rows.
     await page.getByTestId('review-gaps-scroll').evaluate((el) => el.scrollTo(0, 0));
     await settle(page);
-    // The tabs take a second row since Controls joined them, and the graph
-    // search keeps lines for what it finds: at 1400 pixels Rehearse, Simulate
-    // and Execute fell off the foot again.
+    // Rehearse, Simulate and Execute stand in the column beside Review's rows,
+    // which end a little past 800 pixels: the ceiling leaves room for a row
+    // opened.
     await shoot(page, 'forge-review', { maxHeight: 1700 });
   });
 
@@ -1423,9 +1790,10 @@ test.describe('Marketplace Screenshots', () => {
     const run = await startRun(page, bridge);
     await finishRun(page, run);
     await settle(page);
-    // The offer to take a checkpoint of the target sits above Verify and
-    // Remove since Checkpoints came: at 1200 pixels Remove fell off the foot.
-    await shoot(page, 'forge-results', { maxHeight: 1400 });
+    // Next steps, the offer to take a checkpoint of the target among them,
+    // then Export and Save as template: at 1400 pixels the last fell off the
+    // foot.
+    await shoot(page, 'forge-results', { maxHeight: 1500 });
   });
 
   test('forge-flow', async ({ page }) => {
@@ -1470,14 +1838,18 @@ test.describe('Marketplace Screenshots', () => {
     await simulateFromReview(page, bridge);
     frames.push(await flowFrame(page, FLOW_FRAME_MS));
 
-    // Back on Review, every gap that refuses rows decided: the rows at the
-    // top, for the decisions to fill the screen below them.
+    // Back on Review, every gap that refuses rows decided. The Gaps row
+    // scrolls within itself, and the clicks left it on the last gaps: back to
+    // its first, the decisions of the gaps that refused rows. Scrolled to put
+    // the rows at the top, the panel had room for 43 pixels, enough to cut
+    // the title in half and show no more.
     await page.getByTestId('forge-results-simulation-review').click();
     await page.waitForSelector('[data-testid="forge-review"]');
     await answerReviewReads(page, 2);
     await decideSimulationGaps(page);
     await blurFocus(page);
-    frames.push(await flowFrame(page, FLOW_FRAME_MS, 'review-tabs'));
+    await page.getByTestId('review-gaps-scroll').evaluate((el) => el.scrollTo(0, 0));
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
 
     // The run for real, half way.
     const run = await startRun(page, bridge);
