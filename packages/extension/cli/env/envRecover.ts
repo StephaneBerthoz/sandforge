@@ -21,6 +21,12 @@
  * - each frozen resource's sas, `frozen/<resource>/`, and the payload each
  *   load was given, `templates/<resource>.<n>.json`, which its removal is run
  *   from; each mask resource's DataOps store, `dataops/<resource>/`;
+ * - of a users resource, each run's answer, kept as its summary, and the run
+ *   file of `sandforge users` it names, `<journal>/users/<Organization Id>/`,
+ *   which says the run it converged from and whether a removal took it back
+ *   whole; a run file no summary names — a run stopped before it answered —
+ *   is named, never guessed into a resource;
+ * - of a replay resource, each run's answer, kept as its summary;
  * - the checkpoints of the org, in the checkpoint store of the journal
  *   directory.
  *
@@ -60,6 +66,7 @@
 
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { z } from 'zod';
 import {
   RECOVERED_FINGERPRINT,
   envNameSchema,
@@ -73,7 +80,10 @@ import {
   type EnvState,
 } from '@sandforge/shared';
 import type { LinkedLockOptions } from '../../src/modules/checkpoint/linkedLock.js';
-import { OrgCheckpointStore } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
+import {
+  OrgCheckpointStore,
+  organizationKey,
+} from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import { nodeRunJournal } from '../../src/modules/forge/ForgeRunJournal.js';
 import {
   SasReferenceIdMappingStore,
@@ -118,7 +128,16 @@ import {
   type FrozenRunAnswer,
 } from './kinds/frozen.js';
 import { maskRunCount, readMaskRun, type MaskRunAnswer } from './kinds/mask.js';
+import {
+  readReplayRun,
+  replayPurgedWhole,
+  replayRunCount,
+  type ReplayRunAnswer,
+} from './kinds/replay.js';
 import { readSeedRun, seedRunCount, type SeedRunAnswer } from './kinds/seed.js';
+import { readUsersApply, usersRunCount, usersRunNumberOf } from './kinds/users.js';
+import { commandOf } from '../invocation.js';
+import type { UsersApplyAnswer } from '@sandforge/shared';
 
 /** What a recover runs with. */
 export interface EnvRecoverDeps {
@@ -360,7 +379,24 @@ type SummaryRead =
   | { kind: 'seed'; answer: SeedRunAnswer }
   | { kind: 'forge'; answer: ForgeRunAnswer; finishedAt?: string; elapsedMs?: number }
   | { kind: 'frozen'; answer: FrozenRunAnswer }
-  | { kind: 'mask'; answer: MaskRunAnswer };
+  | { kind: 'mask'; answer: MaskRunAnswer }
+  | { kind: 'users'; answer: UsersApplyAnswer }
+  | { kind: 'replay'; answer: ReplayRunAnswer };
+
+/**
+ * The kind of a summary no `tool` names: a users run's answer, which names
+ * its run, its org and its users; a replay's, which names the command.
+ */
+function untooledKindOf(raw: unknown): 'users' | 'replay' | undefined {
+  const answer = (raw ?? {}) as {
+    command?: unknown;
+    action?: unknown;
+    run?: unknown;
+    users?: unknown;
+  };
+  if (answer.command === 'replay' && answer.action === 'replay') return 'replay';
+  return typeof answer.run === 'number' && Array.isArray(answer.users) ? 'users' : undefined;
+}
 
 /** A date as the state keeps one, or undefined for what is none. */
 function instantOf(value: unknown): string | undefined {
@@ -399,8 +435,10 @@ async function readSummary(file: string): Promise<SummaryRead> {
     throw refused('not JSON');
   }
   const tool = (raw as { tool?: unknown } | null)?.tool;
-  const kind = typeof tool === 'string' ? KIND_OF_TOOL[tool] : undefined;
+  const kind = typeof tool === 'string' ? KIND_OF_TOOL[tool] : untooledKindOf(raw);
   try {
+    if (kind === 'users') return { kind, answer: readUsersApply(text) };
+    if (kind === 'replay') return { kind, answer: readReplayRun(text) };
     if (kind === 'seed') return { kind, answer: readSeedRun(text) };
     if (kind === 'frozen') return { kind, answer: readFrozenRun(text) };
     if (kind === 'mask') return { kind, answer: readMaskRun(text) };
@@ -431,6 +469,8 @@ async function readSummary(file: string): Promise<SummaryRead> {
 interface RunRebuilt {
   run: EnvRun;
   status: EnvResourceStatus;
+  /** A users run's: the number `sandforge users` gave it. */
+  users?: number;
 }
 
 /** Whether what a seed run's removals kept leaves nothing of it to take: the removal's own plan, empty. */
@@ -691,6 +731,111 @@ function frozenStatusOf(answer: FrozenRunAnswer): EnvResourceStatus {
   return answer.verdict === undefined || answer.verdict.status === 'PASSED' ? 'applied' : 'partial';
 }
 
+/** The status a users run's answer says it ended with. */
+function usersStatusOf(answer: UsersApplyAnswer): EnvResourceStatus {
+  if (answer.status === 'success') return 'applied';
+  if (answer.status === 'partial') return 'partial';
+  return answer.status === 'cancelled' ? 'applying' : 'failed';
+}
+
+/** The status a replay's answer says it ended with, by its exit code. */
+function replayStatusOf(answer: ReplayRunAnswer): EnvResourceStatus {
+  if (answer.exit === 0) return 'applied';
+  return answer.exit === 3 ? 'partial' : 'failed';
+}
+
+/** What a run file of `sandforge users` says of the run, beside what its answer says. */
+const usersRecordSchema = z
+  .object({
+    run: z.number().int().positive(),
+    replaces: z.number().int().positive().optional(),
+    startedAt: z.string().optional(),
+    removals: z.array(z.object({ status: z.string() }).loose()).optional(),
+  })
+  .loose();
+
+/** The folder of the run files of `sandforge users` for the org. */
+function usersFolderOf(deps: Pick<EnvRecoverDeps, 'journalDir'>, input: EnvRecoverInput): string {
+  return join(deps.journalDir, 'users', organizationKey(input.target.organizationId));
+}
+
+/**
+ * The run file of `sandforge users` run `run` keeps on this machine: the run
+ * it converged from, and whether its last removal took it back whole.
+ * Undefined when there is none, or it does not read.
+ */
+async function usersRecordOf(
+  deps: Pick<EnvRecoverDeps, 'journalDir'>,
+  input: EnvRecoverInput,
+  run: number,
+): Promise<{ replaces?: number; takenBackWhole: boolean } | undefined> {
+  const text = await readFile(join(usersFolderOf(deps, input), `run-${run}.json`), 'utf8').catch(
+    () => undefined,
+  );
+  if (text === undefined) return undefined;
+  try {
+    const read = usersRecordSchema.safeParse(JSON.parse(text));
+    if (!read.success || read.data.run !== run) return undefined;
+    return {
+      ...(read.data.replaces !== undefined ? { replaces: read.data.replaces } : {}),
+      takenBackWhole: read.data.removals?.at(-1)?.status === 'success',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The run files of `sandforge users` for the org that no summary of a users
+ * resource names, in words: runs stopped before they answered, maybe, which
+ * the state rebuilt holds not — no file says which resource each was of.
+ */
+async function usersRunsNamedBy(
+  deps: Pick<EnvRecoverDeps, 'journalDir'>,
+  input: EnvRecoverInput,
+  named: ReadonlySet<number>,
+): Promise<string[]> {
+  const folder = usersFolderOf(deps, input);
+  const out: string[] = [];
+  for (const name of await entriesOf(folder, false)) {
+    const run = Number(/^run-([1-9]\d{0,5})\.json$/.exec(name)?.[1] ?? 0);
+    if (run === 0 || named.has(run)) continue;
+    const record = await usersRecordOf(deps, input, run);
+    if (record?.takenBackWhole === true) continue;
+    out.push(
+      `${join(folder, name)}: run ${run} of ${commandOf('users')}, which no summary names — a ` +
+        'run of a users resource stopped before it answered, or one run alone: the state ' +
+        `holds it not; ${commandOf('users')} remove --org ${input.target.alias} --run ${run} ` +
+        'takes it back',
+    );
+  }
+  return out;
+}
+
+/**
+ * The numbers `sandforge users` gave the runs of the users resources
+ * rebuilt, as their summaries name them.
+ */
+async function usersRunNumbersOf(
+  deps: Pick<EnvRecoverDeps, 'store'>,
+  input: EnvRecoverInput,
+  resources: readonly ResourceRebuilt[],
+): Promise<Set<number>> {
+  const env = input.resolved.checked.file.name;
+  const named = new Set<number>();
+  for (const resource of resources) {
+    if (resource.state.kind !== 'users') continue;
+    for (const run of resource.state.runs) {
+      if (run.summary === undefined) continue;
+      const file = deps.store.fileOf(input.target.organizationId, env, run.summary);
+      const text = await readFile(file, 'utf8').catch(() => undefined);
+      const number = text !== undefined ? usersRunNumberOf(text) : undefined;
+      if (number !== undefined) named.add(number);
+    }
+  }
+  return named;
+}
+
 /** The status a masking's answer says it ended with. */
 function maskStatusOf(answer: MaskRunAnswer): EnvResourceStatus {
   const count = maskRunCount(answer);
@@ -754,6 +899,8 @@ async function rebuildResource(
     const file = deps.store.fileOf(organizationId, env, runSummaryPathOf(resource, n));
     if (read.kind === 'seed') holdToOrg(file, read.answer.targetOrgId, input);
     if (read.kind === 'forge') holdToOrg(file, read.answer.targetOrgId, input);
+    if (read.kind === 'users') holdToOrg(file, read.answer.org.organizationId, input);
+    if (read.kind === 'replay') holdToOrg(file, read.answer.target.organizationId, input);
   }
 
   const rebuilt: RunRebuilt[] = [];
@@ -804,6 +951,51 @@ async function rebuildResource(
       });
       // A reload whose purge took the loads before it whole: what its own report says.
       if (answer !== undefined && reloadPurgedWhole(answer)) {
+        for (const earlier of rebuilt.slice(0, -1)) earlier.run.takenBack = true;
+      }
+    }
+  } else if (kind === 'users') {
+    for (const n of order) {
+      const rank = ranks.get(n);
+      const read = reads.get(n);
+      if (rank?.summary === undefined || read?.kind !== 'users') continue;
+      const record = await usersRecordOf(deps, input, read.answer.run);
+      // A run converged from the one before it holds what that one held.
+      if (record?.replaces !== undefined) {
+        for (const earlier of rebuilt) {
+          if (earlier.users === record.replaces) earlier.run.takenBack = true;
+        }
+      }
+      rebuilt.push({
+        run: {
+          n,
+          script: 'sandforge-users',
+          summary: rank.summary,
+          ...(await datesOf(deps, input, rank)),
+          objects: objectsOf(usersRunCount(read.answer).objects),
+          ...(record?.takenBackWhole === true ? { takenBack: true as const } : {}),
+        },
+        status: usersStatusOf(read.answer),
+        users: read.answer.run,
+      });
+    }
+  } else if (kind === 'replay') {
+    for (const n of order) {
+      const rank = ranks.get(n);
+      const read = reads.get(n);
+      if (rank?.summary === undefined || read?.kind !== 'replay') continue;
+      rebuilt.push({
+        run: {
+          n,
+          script: 'sandforge-checkpoint',
+          summary: rank.summary,
+          ...(await datesOf(deps, input, rank)),
+          objects: objectsOf(replayRunCount(read.answer).objects),
+        },
+        status: replayStatusOf(read.answer),
+      });
+      // A replay again whose purge took the replays before it whole: its own report says it.
+      if (replayPurgedWhole(read.answer)) {
         for (const earlier of rebuilt.slice(0, -1)) earlier.run.takenBack = true;
       }
     }
@@ -1053,6 +1245,12 @@ export async function recoverEnvState(
       ...(last !== undefined ? { last } : {}),
     });
 
+    // The users runs of the org no summary names: said, never put in a resource.
+    const usersRuns =
+      resources.some((r) => r.state.kind === 'users') ||
+      input.resolved.resources.some((resource) => resource.kind === 'users')
+        ? await usersRunsNamedBy(deps, input, await usersRunNumbersOf(deps, input, resources))
+        : [];
     const fresh = newEnvState({
       env,
       org: {
@@ -1060,6 +1258,7 @@ export async function recoverEnvState(
         kind: target.kind,
         username: target.username,
         alias: target.alias,
+        ...(target.host !== undefined ? { host: target.host } : {}),
       },
       fileDigest: input.resolved.digest,
       sandforgeVersion: deps.sandforgeVersion,
@@ -1117,7 +1316,7 @@ export async function recoverEnvState(
           ...(checkpoints.before !== undefined ? { before: checkpoints.before } : {}),
           ...(checkpoints.after !== undefined ? { after: checkpoints.after } : {}),
         },
-        notLinked: [...checkpoints.notLinked, ...passedOver].slice(0, 20),
+        notLinked: [...checkpoints.notLinked, ...passedOver, ...usersRuns].slice(0, 20),
       },
     };
   } catch (err: unknown) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EnvState } from '@sandforge/shared';
@@ -17,7 +17,10 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   removalOrg: vi.fn(),
 }));
 
-import { acquireOrgLock } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
+import {
+  acquireOrgLock,
+  organizationKey,
+} from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import { refusedLine, refusedSummary } from '../runRefused.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
@@ -26,6 +29,7 @@ import {
   applySteps,
   removalSubjectOf,
   runResultLines,
+  usersRunOf,
   withEmailsAccepted,
   type EnvStepDeps,
 } from './envApply.js';
@@ -1130,5 +1134,60 @@ describe('a frozen resource’s steps, and a draw’s', () => {
       },
     ]);
     expect(world.records('Contact')).toEqual([]);
+  });
+});
+
+describe('the run of sandforge users a users run is', () => {
+  const where = { organizationId: ORG_ID, env: 'case-flow' };
+  const folder = () => join(journalDir, 'users', organizationKey(ORG_ID));
+  /** A run file of the script, begun at `startedAt`, taken back whole when `removed`. */
+  const begin = (run: number, startedAt: string, removed = false): void => {
+    mkdirSync(folder(), { recursive: true });
+    writeFileSync(
+      join(folder(), `run-${run}.json`),
+      JSON.stringify({ run, startedAt, ...(removed ? { removals: [{ status: 'success' }] } : {}) }),
+    );
+  };
+  const launched = { n: 2, startedAt: '2026-10-25T09:00:00.000Z' };
+
+  it('is the one its answer names, kept as its summary', async () => {
+    await store.writeFile(ORG_ID, 'case-flow', 'runs/testers/1.summary.json', '{"run":7}');
+    const summary = 'runs/testers/1.summary.json';
+
+    expect(usersRunOf({ ...launched, summary }, [], where, { store, journalDir })).toEqual({
+      run: 7,
+      file: store.fileOf(ORG_ID, 'case-flow', summary),
+    });
+  });
+
+  it('adopts, for a run stopped before it answered, the one run file begun since it was launched that no other run names', async () => {
+    await store.writeFile(ORG_ID, 'case-flow', 'runs/testers/1.summary.json', '{"run":3}');
+    const runs = [{ n: 1, summary: 'runs/testers/1.summary.json' }, launched];
+    begin(3, '2026-10-25T09:00:30.000Z');
+    begin(4, '2026-10-25T09:00:31.000Z');
+    // Begun a day before, or taken back whole: not its.
+    begin(1, '2026-10-24T09:00:00.000Z');
+    begin(5, '2026-10-25T09:00:40.000Z', true);
+
+    expect(usersRunOf(launched, runs, where, { store, journalDir })).toEqual({
+      run: 4,
+      file: join(folder(), 'run-4.json'),
+      adopted: true,
+    });
+  });
+
+  it('is none for a run its script refused before its first write, which begins no file; and names why nobody can say, never guessing', () => {
+    expect(usersRunOf({ ...launched, exitCode: 1 }, [], where, { store, journalDir })).toEqual({
+      none: true,
+    });
+    // Stopped, and nothing began since: it may have begun on another machine's clock.
+    expect(usersRunOf(launched, [], where, { store, journalDir })).toMatchObject({
+      unknown: expect.stringContaining('no run of '),
+    });
+    begin(3, '2026-10-25T09:00:30.000Z');
+    begin(4, '2026-10-25T09:00:31.000Z');
+    expect(usersRunOf(launched, [], where, { store, journalDir })).toMatchObject({
+      unknown: expect.stringContaining('2 runs of '),
+    });
   });
 });

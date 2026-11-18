@@ -33,6 +33,15 @@
  * records stay masked. A masking creates no record: what depends on one is
  * not replaced with it.
  *
+ * A users resource has no removal to preview either: its own plan, the last
+ * run named, reads what the org holds of its users, on every plan but a
+ * quick one. A user held as that run left it is kept; one frozen again, or
+ * whose assignment was taken away, is drift. Its replace converges in one
+ * run. The emails Salesforce sends to the people whose address it asks back
+ * are summed across every users resource the apply runs, and refuse the
+ * apply (`USERS_EMAILS_NOT_ACCEPTED`) unless the line accepts them: never a
+ * block of one resource, never the file's to accept.
+ *
  * A seed resource whose relations draw their parents from the records
  * another resource created is counted exactly once that resource has run:
  * its dry run is handed their ids. While that resource runs in the same
@@ -101,6 +110,16 @@ import {
   maskReplaceWords,
   type MaskPlace,
 } from './kinds/mask.js';
+import {
+  USERS_SCRIPT,
+  changeWords,
+  usersDriftWhy,
+  usersHeldOf,
+  usersKeptWhy,
+  type UsersDryRunAnswer,
+} from './kinds/users.js';
+import { refreshedStateWords } from './envGuards.js';
+import { sandboxMyDomainOf } from './envTargetHost.js';
 import { nameOf } from '../invocation.js';
 
 /**
@@ -163,6 +182,39 @@ export interface EnvPlanInput {
    * resource's records: what each draw is handed, and why one cannot be.
    */
   draws?: Readonly<Record<string, { draws: EnvActionDraw[]; refusals: string[] }>>;
+  /**
+   * The line's `--accept-user-emails`: Salesforce may email the people whose
+   * address a users resource asks back. Only the line accepts it.
+   */
+  acceptUserEmails?: boolean;
+  /**
+   * Of each users resource whose last run was stopped before it answered,
+   * why which run of `sandforge users` it was is not known: what it created
+   * no removal takes back, and the plan says so.
+   */
+  usersUnknown?: Readonly<Record<string, string>>;
+  /** The state of the org before its refresh, kept under its former Id: said where the state is. */
+  refreshed?: EnvPlan['state']['refreshed'];
+}
+
+/** The code of emails to people the line did not accept: only the line accepts them, never the file. */
+export const USERS_EMAILS_NOT_ACCEPTED = 'USERS_EMAILS_NOT_ACCEPTED';
+
+/**
+ * A users plan's answer without the refusal the environment gives itself:
+ * the emails to people, summed across every users resource the apply runs,
+ * which the line alone accepts (`USERS_EMAILS_NOT_ACCEPTED`). Each script
+ * refuses its own; the environment says the sum, once.
+ */
+export function withoutEmailsToPeopleRefusal<A extends EnvDryRunAnswer>(answer: A): A {
+  if (answer.tool !== USERS_SCRIPT) return answer;
+  const users = answer as UsersDryRunAnswer;
+  const refusals = (users.refusals ?? []).filter(
+    (refusal) => refusal.code !== USERS_EMAILS_NOT_ACCEPTED,
+  );
+  const rest: UsersDryRunAnswer = { ...users };
+  delete rest.refusals;
+  return (refusals.length > 0 ? { ...rest, refusals } : rest) as A;
 }
 
 /** A resource's action before its dry run and the gates are read. */
@@ -227,10 +279,14 @@ export function dependencyOrder(
  * those it depended on when it was applied, the last applied first. The
  * removal keeps a record while records that stay hang from it: taking the
  * accounts back before the contacts under them would keep every account.
+ * The users resources last, whatever their order: applied first, they are
+ * taken back after every other, which a replay's owners may need active.
  */
 export function removalOrder(state: EnvState | undefined, names: readonly string[]): string[] {
   const resources = state?.resources ?? {};
-  return dependencyOrder(names, (name) => resources[name]?.dependsOn ?? []).reverse();
+  const order = dependencyOrder(names, (name) => resources[name]?.dependsOn ?? []).reverse();
+  const users = (name: string): boolean => resources[name]?.kind === 'users';
+  return [...order.filter((name) => !users(name)), ...order.filter(users)];
 }
 
 /**
@@ -372,6 +428,16 @@ function driftOf(held: Held): string | undefined {
   return `${parts.join('; ')}${who}`;
 }
 
+/**
+ * What a destroy, or a delete, does to a users resource: what the
+ * environment added taken away, each user put back as it was, where the org
+ * still holds what the run left. Never an address put back under `.invalid`,
+ * which its owner confirmed or will; never a user deleted.
+ */
+export const USERS_TAKEN_BACK_WHY =
+  'taken back: the assignments and memberships the environment created deleted by id, each ' +
+  'user put back as it was before; an address asked back stays, and no user is deleted';
+
 /** Why a resource `state recover` rebuilt is replaced, whatever the file says of it. */
 export const RECOVERED_WHY =
   'its state was recovered from its run files, which do not say what it was applied from';
@@ -386,17 +452,34 @@ const STATUS_WHY: Readonly<Partial<Record<EnvResourceState['status'], string>>> 
 };
 
 /**
+ * Why a users resource's last run calls for a replace, from its status: a
+ * replace converges from what that run left, nothing taken back first.
+ */
+const USERS_STATUS_WHY: Readonly<Partial<Record<EnvResourceState['status'], string>>> = {
+  applying: 'its last run was stopped part way: a run converges from what it left',
+  partial: 'its last run was partial: the org refused changes to its users',
+  failed: 'its last run failed',
+  destroying: 'a removal of it was stopped part way',
+};
+
+/**
  * Why a resource cannot be planned, before anything of the org is read: a
  * forge resource whose source the plan did not read, or could not — its
  * fingerprint is of the org its alias reaches and the record its query names;
  * a frozen resource whose dataset the plan did not read, or is not the one
- * the file pins.
+ * the file pins; a replay whose checkpoint the plan did not resolve to one
+ * this machine keeps, which its fingerprint and its lines are of.
  */
 function sourceRefusal(resource: EnvFileResource): string | undefined {
   if (resource.kind === 'frozen') {
     const read = resource.dataset.read;
     if (read === undefined)
       return `its dataset at ${resource.dataset.dir} was not read: plan again`;
+    return 'refusal' in read ? read.refusal : undefined;
+  }
+  if (resource.kind === 'replay') {
+    const read = resource.checkpoint.read;
+    if (read === undefined) return 'its checkpoint was not resolved: plan again';
     return 'refusal' in read ? read.refusal : undefined;
   }
   if (resource.kind !== 'forge') return undefined;
@@ -425,7 +508,7 @@ export function classifyResources(
     | 'dryRuns'
     | 'maskStores'
   > &
-    Partial<Pick<EnvPlanInput, 'org'>>,
+    Partial<Pick<EnvPlanInput, 'org' | 'usersUnknown'>>,
 ): EnvActionDraft[] {
   const { resolved, state, previews } = input;
   const quick = previews === undefined;
@@ -470,7 +553,9 @@ export function classifyResources(
     } else if (kept.fingerprint !== resource.fingerprint && kept.fingerprint !== asIfDepsKept) {
       reasons.push('what it writes changed in the file since it was applied');
     }
-    const statusWhy = (kind === 'mask' ? MASK_STATUS_WHY : STATUS_WHY)[kept.status];
+    const statusWhy = (
+      kind === 'mask' ? MASK_STATUS_WHY : kind === 'users' ? USERS_STATUS_WHY : STATUS_WHY
+    )[kept.status];
     if (statusWhy !== undefined) reasons.push(statusWhy);
     // A masking run again writes over the same records, and makes no new one.
     const changedDeps = resource.dependsOn.filter((dep) => {
@@ -485,6 +570,10 @@ export function classifyResources(
     if (asked.has(resource.name)) reasons.push('--replace asks it');
     if (kind === 'mask') {
       actions.set(resource.name, maskDraft(resource.name, kept, reasons, input, quick));
+      continue;
+    }
+    if (kind === 'users') {
+      actions.set(resource.name, usersDraft(resource.name, reasons, input, quick));
       continue;
     }
     const seen = quick ? undefined : driftOf(held);
@@ -587,7 +676,10 @@ export function classifyResources(
       resource: name,
       kind: live.get(name)?.kind ?? 'seed',
       action: 'delete',
-      why: 'in the state, gone from the file: its records are taken back',
+      why:
+        kept?.kind === 'users'
+          ? `in the state, gone from the file: ${USERS_TAKEN_BACK_WHY}`
+          : 'in the state, gone from the file: its records are taken back',
       objects: heldObjects(held),
       ...(refusal !== undefined
         ? { refusal, ...codedWith(refused.length > 0 ? removalRefusalCodesOf(held) : []) }
@@ -679,6 +771,74 @@ function maskDraft(
   return draft('drifted', maskDriftWhy(name, held.drift), held.objects);
 }
 
+/**
+ * A users resource's action, from what it runs again for: replaced for its
+ * reasons, converging from its last run; or, for none, kept or drifted as
+ * its own plan, the last run named, reads the org: a user held as that run
+ * left it has nothing to change, one frozen again or whose assignment was
+ * taken away is drift. Drafted before its plan, it is kept, and drafted
+ * again once its plan has read the org.
+ */
+function usersDraft(
+  name: string,
+  reasons: readonly string[],
+  input: Pick<EnvPlanInput, 'dryRuns' | 'replaceDrifted' | 'usersUnknown'>,
+  quick: boolean,
+): EnvActionDraft {
+  const draft = (
+    action: EnvActionDraft['action'],
+    why: string,
+    objects: EnvPlanObject[] = [],
+    refusal?: string,
+  ): EnvActionDraft => ({
+    resource: name,
+    kind: 'users',
+    action,
+    why,
+    objects,
+    ...(refusal !== undefined ? { refusal } : {}),
+  });
+  // Its last run stopped before it answered, and nobody can say which run
+  // of the script it was: said, never guessed.
+  const unknown = input.usersUnknown?.[name];
+  const said = unknown !== undefined ? [...reasons, unknown] : reasons;
+  if (reasons.length > 0) return draft('replace', `replaced: ${said.join('; ')}`);
+  if (quick) return draft('keep', 'applied from the same file; no word on its users (--quick)');
+  if (input.dryRuns === undefined) return draft('keep', 'applied from the same file');
+  const dry = input.dryRuns[name];
+  if (dry === undefined) {
+    return draft('keep', 'applied from the same file', [], 'it was not dry-run: plan again');
+  }
+  if ('failed' in dry || dry.answer.tool !== USERS_SCRIPT) {
+    const said = 'failed' in dry ? dry.failed : `${nameOf(dry.answer.tool)} answered its plan`;
+    return draft(
+      'keep',
+      'applied from the same file',
+      [],
+      `what the org holds of its users could not be read (its plan: ${said}): plan again`,
+    );
+  }
+  const held = usersHeldOf(withoutEmailsToPeopleRefusal(dry.answer));
+  if (held.unread !== undefined) {
+    return draft(
+      'keep',
+      'applied from the same file',
+      held.objects,
+      `what the org holds of its users could not be read: ${held.unread}`,
+    );
+  }
+  if (held.drift === undefined) return draft('keep', usersKeptWhy(held.users), held.objects);
+  if (input.replaceDrifted === true) {
+    return draft(
+      'replace',
+      `replaced: its users changed since it was applied (${held.drift}), and --replace-drifted ` +
+        'asks it; a run converges from what the last one left',
+      held.objects,
+    );
+  }
+  return draft('drifted', usersDriftWhy(name, held.drift), held.objects);
+}
+
 /** Where a plan says a mask resource's store is, and the org a restore of it would name. */
 function maskPlaceOf(
   input: Pick<EnvPlanInput, 'maskStores' | 'state'> & Partial<Pick<EnvPlanInput, 'org'>>,
@@ -752,7 +912,8 @@ function countOf(
 ): { count: EnvDryRunCount } {
   const resource = resolved.resources.find((each) => each.name === name);
   const drawn = readTooEarly && resource !== undefined ? drawnCountsOf(resource) : undefined;
-  const count = dryRunCountOf(answer, drawn);
+  // The emails to people are the plan's own gate, summed: never a block of one resource.
+  const count = dryRunCountOf(withoutEmailsToPeopleRefusal(answer), drawn);
   const target = resource !== undefined ? targetRefusalOf(resource, answer) : undefined;
   return {
     count:
@@ -831,19 +992,27 @@ function sumGates(
   budget: EnvBudget | undefined,
   before: ReadonlyMap<string, string[]>,
   checkpoints: ReturnType<typeof checkpointRequestsOf>,
+  acceptUserEmails = false,
 ): EnvPlan['gates'] {
   // A checkpoint's take reads every record of the org: its requests are the day's too.
   let estimate = checkpoints.estimate;
   let bytes = 0;
   const emails = new Map<EnvEmailLimit, number>();
   const notCounted: string[] = [...checkpoints.notCounted];
+  let people: number | undefined;
   for (const draft of drafts) {
     // A masking is never taken back: its replace runs again, and its delete
-    // deletes its store, on this machine.
-    if ((draft.action === 'delete' || draft.action === 'replace') && draft.kind !== 'mask') {
+    // deletes its store, on this machine. A users resource's replace
+    // converges in one run, nothing taken back first.
+    if (
+      (draft.action === 'delete' || draft.action === 'replace') &&
+      draft.kind !== 'mask' &&
+      !(draft.action === 'replace' && draft.kind === 'users')
+    ) {
       notCounted.push(`the removal of the runs of ${draft.resource}`);
     }
     if (!RUNS.has(draft.action)) continue;
+    if (draft.kind === 'users') people ??= 0;
     const dry = dryRuns?.[draft.resource];
     if (dry === undefined || 'failed' in dry) {
       notCounted.push(`the run of ${draft.resource}, not dry-run`);
@@ -867,6 +1036,7 @@ function sumGates(
     for (const { limit, emails: n } of count.emails) {
       emails.set(limit, (emails.get(limit) ?? 0) + n);
     }
+    if (count.emailsToPeople !== undefined) people = (people ?? 0) + count.emailsToPeople;
   }
   const api = budget?.apiRequests;
   const storage = budget?.storage;
@@ -892,7 +1062,37 @@ function sumGates(
       const left = mail !== undefined && !('unread' in mail) ? mail[limit]?.remaining : undefined;
       return { limit, emails: n, ...(left !== undefined ? { left } : {}) };
     }),
+    // Of the users resources the apply runs: what Salesforce sends to people,
+    // which no daily limit counts and only the line accepts.
+    ...(people !== undefined
+      ? { emailsToPeople: { count: people, accepted: acceptUserEmails } }
+      : {}),
   };
+}
+
+/**
+ * What refuses an apply that would have Salesforce email people the line did
+ * not accept: each users resource that would, and how many. Undefined when
+ * none would, or the line accepted them.
+ */
+function emailsToPeopleRefusal(
+  gates: EnvPlan['gates'],
+  actions: readonly EnvAction[],
+): string | undefined {
+  const people = gates.emailsToPeople;
+  if (people === undefined || people.count === 0 || people.accepted) return undefined;
+  const each = actions.flatMap((action) => {
+    const n = action.gates?.emailsToPeople ?? 0;
+    if (action.kind !== 'users' || !RUNS.has(action.action) || n === 0) return [];
+    return [
+      `${action.resource} has Salesforce email ${n} ${n === 1 ? 'person' : 'people'} (the ` +
+        `confirmation of ${n === 1 ? 'an address' : `${n} addresses`} asked back)`,
+    ];
+  });
+  return (
+    `${each.join(', ')}, which only the line accepts: --accept-user-emails. Nothing was ` +
+    'written.'
+  );
 }
 
 /**
@@ -919,6 +1119,15 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       refusal ??= draws.refusals.join(' ');
     }
     let dryNotes: string[] = [];
+    // A users resource's plan names each user and what a run would change:
+    // read for what is kept as for what runs.
+    const usersRead = input.dryRuns?.[draft.resource];
+    const users =
+      draft.kind === 'users' && usersRead !== undefined && 'answer' in usersRead
+        ? usersRead.answer.tool === USERS_SCRIPT
+          ? usersRead.answer.users
+          : undefined
+        : undefined;
     if (dry !== undefined && 'failed' in dry) {
       // Refused by its script, as the real run would be: said in its words,
       // under its code, as what a dry run says a real run would meet.
@@ -936,6 +1145,9 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           : {}),
         storageBytes: counted.count.storageBytes,
         emails: counted.count.emails,
+        ...(counted.count.emailsToPeople !== undefined
+          ? { emailsToPeople: counted.count.emailsToPeople }
+          : {}),
       };
       const own = counted.count.refusal;
       if (own !== undefined && refusal === undefined) {
@@ -979,6 +1191,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       ...(gates !== undefined ? { gates } : {}),
       ...(refusal !== undefined ? { refusal, ...codedWith(codes) } : {}),
       ...(notes.length > 0 ? { notes } : {}),
+      ...(users !== undefined ? { users } : {}),
     };
   });
 
@@ -1002,6 +1215,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     input.budget,
     before,
     checkpointRequestsOf(checkpoints),
+    input.acceptUserEmails === true,
   );
   const alias = input.org.alias ?? input.org.organizationId;
   const summed = summedRefusals(gates, alias);
@@ -1014,6 +1228,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
   }
 
   const blocked = actions.filter((action) => action.action === 'blocked');
+  const people = emailsToPeopleRefusal(gates, actions);
   const refusal =
     input.refusal ??
     (summed.length > 0
@@ -1023,6 +1238,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           `blocked, and the apply refuses before its first write: ` +
           `${blocked.map((action) => `${action.resource} (${action.refusal ?? action.why})`).join('; ')}`
         : undefined) ??
+    people ??
     checkpointRefusalOf(checkpoints);
   // The codes of what `refusal` says, as a destroy's and an apply's carry
   // theirs: the guard's, the blocked resources' where their scripts gave
@@ -1035,9 +1251,11 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
         ? []
         : blocked.length > 0
           ? blocked.flatMap((action) => action.refusalCodes ?? [])
-          : checkpoints.flatMap((checkpoint) =>
-              checkpoint.refusal !== undefined ? [checkpoint.refusal.code] : [],
-            );
+          : people !== undefined
+            ? [USERS_EMAILS_NOT_ACCEPTED]
+            : checkpoints.flatMap((checkpoint) =>
+                checkpoint.refusal !== undefined ? [checkpoint.refusal.code] : [],
+              );
   // A Frozen load's dry run counts its emails, which the day's gate adds: it
   // counted none, and a load of 73 contacts into a Developer Edition of 15
   // single emails a day was let through, said nothing of.
@@ -1049,7 +1267,13 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
   return {
     env: input.resolved.checked.file.name,
     org: input.org,
-    state: state !== undefined ? { found: true, serial: state.serial } : { found: false },
+    state:
+      state !== undefined
+        ? { found: true, serial: state.serial }
+        : {
+            found: false,
+            ...(input.refreshed !== undefined ? { refreshed: input.refreshed } : {}),
+          },
     actions,
     totals: {
       create: count('create'),
@@ -1108,7 +1332,10 @@ export function destructionPlan(
       resource: name,
       kind: kept?.kind ?? 'seed',
       action: refusal !== undefined ? 'blocked' : 'delete',
-      why: 'taken back by destroy, into the recycle bin',
+      why:
+        kept?.kind === 'users'
+          ? `${USERS_TAKEN_BACK_WHY}, after every other resource`
+          : 'taken back by destroy, into the recycle bin',
       objects: heldObjects(held),
       ...(refusal !== undefined ? { refusal } : {}),
       ...(codes.length > 0 ? { refusalCodes: codes } : {}),
@@ -1184,17 +1411,19 @@ export function planDrifts(plan: Pick<EnvPlan, 'actions' | 'drift'>): boolean {
 
 /** An action's counts, per object, as the plan says them: `Account 3 to write, 1 changed`. */
 export function actionCountsOf(action: Pick<EnvAction, 'kind' | 'objects'>): string {
-  // A masking writes over records the org holds: what it masks, and holds masked.
+  // A masking writes over records the org holds: what it masks, and holds
+  // masked. A users resource sets up users the org holds, and makes none.
   const masks = action.kind === 'mask';
+  const users = action.kind === 'users';
   return action.objects
     .map((object) => {
       const parts = [
         object.wouldCreate !== undefined
           ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} ` +
-            (masks ? 'to mask' : 'to write')
+            (masks ? 'to mask' : users ? 'to set up' : 'to write')
           : '',
         object.present !== undefined && object.present > 0
-          ? `${object.present} ${masks ? 'masked' : 'in the org'}`
+          ? `${object.present} ${masks ? 'masked' : users ? 'set up' : 'in the org'}`
           : '',
         (object.gone ?? 0) > 0 ? `${object.gone} gone` : '',
         (object.changed ?? 0) > 0 ? `${object.changed} changed` : '',
@@ -1212,22 +1441,68 @@ const ACT_NOW: Readonly<Record<'apply' | 'destroy', string>> = {
 };
 
 /**
+ * What a plan says of each user of a users resource it runs, under its why:
+ * what a run would change, in the order it writes, or that the user is as
+ * the file says; then the emails Salesforce would send to people.
+ */
+function usersLines(action: EnvAction): string[] {
+  if (action.kind !== 'users' || !RUNS.has(action.action) || action.users === undefined) return [];
+  const lines = action.users.map(
+    (user) =>
+      `           ${user.username}: ` +
+      (user.changes.length > 0
+        ? user.changes.map(changeWords).join(', ')
+        : 'as the file says already: nothing to do'),
+  );
+  const asked = action.users.filter((user) => (user.emailsToPeople ?? 0) > 0);
+  const n = action.gates?.emailsToPeople ?? 0;
+  if (n > 0) {
+    const whose = asked.map((user) => user.username).join(', ');
+    lines.push(
+      n === 1
+        ? `           Salesforce sends 1 email to a person: the confirmation of ${whose}'s ` +
+            'address asked back, a system email, which leaves under System email only too'
+        : `           Salesforce sends ${n} emails to people: the confirmation of each address ` +
+            `asked back (${whose}), system emails, which leave under System email only too`,
+    );
+  }
+  return lines;
+}
+
+/** What a plan says of the line beside its last lines, which the plan holds no word of. */
+export interface EnvPlanLinesExtra {
+  /** What the audits the file asks cost once the apply wrote: `auditPlanLine`'s. */
+  audits?: string;
+}
+
+/**
  * The plan as a terminal shows it, ending on what refuses the act it is the
  * plan of: an apply's, or a destroy's, which ended on "an apply now would be
  * refused" of an apply nobody asked for.
  */
-export function planLines(plan: EnvPlan, act: 'apply' | 'destroy' = 'apply'): string[] {
+export function planLines(
+  plan: EnvPlan,
+  act: 'apply' | 'destroy' = 'apply',
+  extra: EnvPlanLinesExtra = {},
+): string[] {
+  // A sandbox by its My Domain, which a refresh keeps, beside its Id, which it changes.
+  const myDomain = plan.org.kind === 'sandbox' ? sandboxMyDomainOf(plan.org.host) : undefined;
+  const alias = plan.org.alias ?? plan.org.organizationId;
+  const refreshed = plan.state.refreshed;
   const lines = [
-    `plan of ${plan.env} on ${plan.org.alias ?? plan.org.organizationId} ` +
-      `(${plan.org.kind}, ${plan.org.organizationId})`,
+    `plan of ${plan.env} on ${alias} ` +
+      `(${plan.org.kind}${myDomain !== undefined ? ` ${myDomain}` : ''}, ${plan.org.organizationId})`,
     plan.state.found
       ? `state: kept on this machine, serial ${plan.state.serial ?? 0}`
-      : 'state: none on this machine',
+      : refreshed !== undefined
+        ? `state: ${refreshedStateWords(alias, refreshed)}`
+        : 'state: none on this machine',
   ];
   for (const action of plan.actions) {
     const counts = actionCountsOf(action);
     lines.push(`  ${action.action.padEnd(8)} ${action.resource}${counts ? `  ${counts}` : ''}`);
     lines.push(`           ${action.why}`);
+    lines.push(...usersLines(action));
     for (const draw of action.draws ?? []) {
       lines.push(
         `           ${draw.lookup} draws its parents from ` +
@@ -1265,7 +1540,17 @@ export function planLines(plan: EnvPlan, act: 'apply' | 'destroy' = 'apply'): st
         (limit.left !== undefined ? `, ${limit.left} left today` : ''),
     );
   }
+  const people = plan.gates.emailsToPeople;
+  if (people !== undefined && people.count > 0) {
+    lines.push(
+      `emails to people: ${people.count}, ` +
+        (people.accepted
+          ? 'accepted by the line (--accept-user-emails)'
+          : 'which the line accepts with --accept-user-emails'),
+    );
+  }
   lines.push(...checkpointPlanLines(plan));
+  if (extra.audits !== undefined) lines.push(extra.audits);
   for (const warning of plan.warnings ?? []) lines.push(`warning: ${warning}`);
   if (plan.refusal !== undefined) lines.push(`${ACT_NOW[act]} would be refused: ${plan.refusal}`);
   return lines;

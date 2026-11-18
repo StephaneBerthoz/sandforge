@@ -2134,7 +2134,7 @@ export const envAuditResultSchema = z.strictObject({
     alias: z.string().min(1).max(255).optional(),
     host: hostSchema.optional(),
   }),
-  /** When it was read, on the org's clock. */
+  /** When it was read, on this machine's clock: the org's would cost a request more. */
   at: instantSchema,
   apiRequests: countSchema,
   deliverability: auditDeliverabilitySchema.optional(),

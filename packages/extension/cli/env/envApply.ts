@@ -27,6 +27,11 @@
  * replace is one run, a reload, whose purge takes back what the loads before
  * it created, or refuses before anything is written.
  *
+ * A users resource runs first and is taken back last: its run converges from
+ * the one before it (`--replaces`), which it then holds, and its removal is
+ * of its last run alone. A replay is held to its dry run's count, and its
+ * replace replays again, whose purge takes back the replays before it.
+ *
  * A seed resource whose relations draw their parents from another
  * resource's records is handed their ids as its run begins, read from what
  * that resource's last run keeps: run first in the same apply, its records
@@ -63,25 +68,32 @@
  * to it would take back what this apply wrote and leave the state naming it.
  */
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type {
-  EnvActionKind,
-  EnvCheckpointStepResult,
-  EnvPlan,
-  EnvResourceStatus,
-  EnvRunResult,
-  EnvState,
-  EnvStepObject,
-  EnvStepResult,
+import { z } from 'zod';
+import {
+  usersApplyAnswerSchema,
+  usersPlanAnswerSchema,
+  type EnvActionKind,
+  type EnvCheckpointStepResult,
+  type EnvPlan,
+  type EnvResourceState,
+  type EnvResourceStatus,
+  type EnvRun,
+  type EnvRunResult,
+  type EnvState,
+  type EnvStepObject,
+  type EnvStepResult,
 } from '@sandforge/shared';
 import type { LinkedLockOptions } from '../../src/modules/checkpoint/linkedLock.js';
+import { organizationKey } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import { SEED_RUNS_DIR } from '../../src/modules/seed/SeedRunCreations.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, worstExit } from '../exitCodes.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
 import {
   deleteEnvCheckpoint,
+  envCheckpointStoreOf,
   takeEnvCheckpoint,
   takeSettingsOf,
   withCheckpoint,
@@ -118,6 +130,7 @@ import {
   runTakenBack,
   runTemplatePathOf,
   stepEnded,
+  withOrgHost,
   type EnvStore,
 } from './envState.js';
 import { StepAnswerError, reasonLineOf, type EnvRunCount } from './kinds/common.js';
@@ -147,8 +160,18 @@ import {
   type MaskRunCount,
   type MaskStoreForgotten,
 } from './kinds/mask.js';
+import { REPLAY_SCRIPT, readReplayRun, replayPurgedWhole, replayRunCount } from './kinds/replay.js';
 import { readSeedRun, seedRunCount } from './kinds/seed.js';
+import {
+  USERS_SCRIPT,
+  changeWords,
+  readUsersApply,
+  usersRunCount,
+  usersRunNumberOf,
+  type UsersRemovalAnswer,
+} from './kinds/users.js';
 import { drawnOf } from './envReferences.js';
+import { commandOf } from '../invocation.js';
 
 /** What a step runs with, beside its line: the product's own, or a test's. */
 export interface EnvStepDeps {
@@ -286,9 +309,10 @@ function answerOf<T>(
  * file.
  */
 export function removalSubjectOf(
-  run: { n: number; summary?: string; runId?: string; sas?: string },
+  run: { n: number; summary?: string; runId?: string; sas?: string; script?: string },
   where: Where,
   deps: Pick<EnvStepDeps, 'store' | 'journalDir'>,
+  resource?: string,
 ): string | undefined {
   const frozen = resourceOfSas(run.sas);
   if (frozen !== undefined) {
@@ -309,7 +333,134 @@ export function removalSubjectOf(
   ) {
     return run.runId;
   }
+  // A replay stopped before it answered: the payload it was given names the
+  // checkpoint it replays, which its removal is named by.
+  if (run.script === REPLAY_SCRIPT && resource !== undefined) {
+    const file = deps.store.fileOf(
+      where.organizationId,
+      where.env,
+      runTemplatePathOf(resource, run.n),
+    );
+    return existsSync(file) ? file : undefined;
+  }
   return undefined;
+}
+
+/**
+ * The run of `sandforge users` a run of a users resource is, by the number
+ * the script gave it: the one its answer, kept as its summary, names; for a
+ * run stopped before it answered, the one run file the script began on this
+ * machine after the environment launched it that no other run of the
+ * resource names, adopted; none, for a run its script refused before its
+ * first write, which begins no run file; or, for any other, why nobody can
+ * say which it was — never guessed.
+ */
+export type EnvUsersRunOf =
+  { run: number; file: string; adopted?: true } | { none: true } | { unknown: string };
+
+/** A run file of `sandforge users`, in its org's folder. */
+const USERS_RUN_FILE = /^run-([1-9]\d{0,5})\.json$/;
+
+/**
+ * How far before the environment's launch a run file's start may read: the
+ * state is stamped on the org's clock, the run file on this machine's.
+ */
+const USERS_CLOCK_LEEWAY_MS = 60_000;
+
+/** What of a run file of `sandforge users` tells when it began, and whether a removal took it back. */
+const usersRunBegunSchema = z
+  .object({
+    run: z.number().int().positive(),
+    startedAt: z.string(),
+    removals: z.array(z.object({ status: z.string() }).loose()).optional(),
+  })
+  .loose();
+
+export function usersRunOf(
+  run: Pick<EnvRun, 'n' | 'summary' | 'startedAt' | 'exitCode'>,
+  runs: ReadonlyArray<Pick<EnvRun, 'n' | 'summary'>>,
+  where: Where,
+  deps: Pick<EnvStepDeps, 'store' | 'journalDir'>,
+): EnvUsersRunOf {
+  const named = (summary: string | undefined): { run: number; file: string } | undefined => {
+    if (summary === undefined) return undefined;
+    const file = deps.store.fileOf(where.organizationId, where.env, summary);
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      return undefined;
+    }
+    const number = usersRunNumberOf(text);
+    return number !== undefined ? { run: number, file } : undefined;
+  };
+  const own = named(run.summary);
+  if (own !== undefined) return own;
+  const claimed = new Set(
+    runs.flatMap((other) => (other.n === run.n ? [] : [named(other.summary)?.run ?? 0])),
+  );
+  const folder = join(deps.journalDir, 'users', organizationKey(where.organizationId));
+  let names: string[];
+  try {
+    names = readdirSync(folder);
+  } catch {
+    names = [];
+  }
+  const since = Date.parse(run.startedAt) - USERS_CLOCK_LEEWAY_MS;
+  const began = names.flatMap((name) => {
+    const number = Number(USERS_RUN_FILE.exec(name)?.[1] ?? 0);
+    if (number === 0 || claimed.has(number)) return [];
+    const file = join(folder, name);
+    try {
+      const read = usersRunBegunSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
+      // A run a removal took back whole holds nothing left to take.
+      const takenBack = read.success && read.data.removals?.at(-1)?.status === 'success';
+      return read.success &&
+        read.data.run === number &&
+        !takenBack &&
+        Date.parse(read.data.startedAt) >= since
+        ? [{ run: number, file }]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const [one] = began;
+  if (one !== undefined && began.length === 1) return { ...one, adopted: true };
+  // Refused before its first write, the script begins no run file.
+  if (began.length === 0 && (run.exitCode === FAILED_EXIT || run.exitCode === 2)) {
+    return { none: true };
+  }
+  return {
+    unknown:
+      began.length === 0
+        ? `its run ${run.n} stopped before it answered, and no run of ${commandOf('users')} ` +
+          'began on this machine after it was launched: which it was, nobody can say'
+        : `its run ${run.n} stopped before it answered, and ${began.length} runs of ` +
+          `${commandOf('users')} began on this machine after it was launched ` +
+          `(${began.map((each) => each.run).join(', ')}): which is its, nobody can say. ` +
+          `${commandOf('users')} remove --run <n> takes one back`,
+  };
+}
+
+/**
+ * The run of `sandforge users` a users resource converges from: its last
+ * live run whose number is known, a run stopped before it answered adopted;
+ * and, of a later one nobody can name, why, which the plan says.
+ */
+export function usersReplacesOf(
+  kept: Pick<EnvResourceState, 'runs'> | undefined,
+  where: Where,
+  deps: Pick<EnvStepDeps, 'store' | 'journalDir'>,
+): { run?: number; unknown?: string } {
+  let unknown: string | undefined;
+  for (const run of [...(kept?.runs ?? [])].reverse()) {
+    if (run.takenBack === true) continue;
+    const of = usersRunOf(run, kept?.runs ?? [], where, deps);
+    if ('run' in of) return { run: of.run, ...(unknown !== undefined ? { unknown } : {}) };
+    if ('unknown' in of) unknown ??= of.unknown;
+  }
+  return unknown !== undefined ? { unknown } : {};
 }
 
 /** How taking back one resource's runs ended. */
@@ -362,9 +513,29 @@ export async function removeResource(
   const steps: EnvStepResult[] = [];
   let left = false;
   let wrote = false;
+  // A users run converges from the one before it, and holds what that one
+  // held: its last run known is taken back alone, the earlier with it.
+  let usersTaken = false;
   for (const run of [...before.runs].reverse()) {
     if (run.takenBack === true) continue;
-    const subject = removalSubjectOf(run, where, deps);
+    let subject: string | undefined;
+    if (before.kind === 'users') {
+      if (usersTaken) {
+        current = await deps.store.update(current, (s) => runTakenBack(s, ask.resource, run.n));
+        continue;
+      }
+      const of = usersRunOf(run, before.runs, where, deps);
+      if ('unknown' in of) {
+        // Nobody can say which run of the script it was: what it created is
+        // left, said, for the line that takes a run back by hand.
+        deps.say(`${ask.resource}: run ${run.n} is not taken back: ${of.unknown}`);
+        left = true;
+        continue;
+      }
+      subject = 'run' in of ? of.file : undefined;
+    } else {
+      subject = removalSubjectOf(run, where, deps, ask.resource);
+    }
     if (subject === undefined) continue;
     deps.say(`${ask.resource}: taking back run ${run.n}`);
     const line = removeLineOf(before.kind, {
@@ -373,6 +544,7 @@ export async function removeResource(
       includeChanged: ask.includeChanged,
       acceptAutomation: ask.acceptAutomation,
       sweep: ask.sweep,
+      checkpointStore: envCheckpointStoreOf(deps.journalDir),
     });
     const ran = await deps.runner(line.script, line.args, signal);
     const answer = answerOf((out) => readRemovalOf(before.kind, out), ran.stdout, deps.say);
@@ -405,6 +577,10 @@ export async function removeResource(
     if (ran.code === PARTIAL_EXIT) left = true;
     if (ran.code === DONE_EXIT) {
       current = await deps.store.update(current, (s) => runTakenBack(s, ask.resource, run.n));
+      usersTaken = before.kind === 'users';
+    } else if (before.kind === 'users' && ok) {
+      // What it kept, it keeps for the runs before it too: none is asked again.
+      break;
     }
     if (!ok) {
       if (!stopped)
@@ -509,13 +685,17 @@ async function forgetMask(
 /**
  * The scripts that read the target's automation before they write, and are
  * refused for the emails what still runs sends where it delivers them
- * (`EMAILS_NOT_ACCEPTED`): a seed, a clone, a masking and a frozen load.
+ * (`EMAILS_NOT_ACCEPTED`): a seed, a clone, a masking, a frozen load and a
+ * replay; and a users run, which asks addresses back in an org that delivers
+ * all email only with it (`USERS_EMAILS_OPEN`).
  */
 const SCRIPTS_THAT_ASK_FOR_THE_EMAILS: ReadonlySet<string> = new Set([
   'sandforge-seed',
   'sandforge-clone',
   'sandforge-dataops',
   'sandforge-frozen',
+  'sandforge-users',
+  'sandforge-checkpoint',
 ]);
 
 /**
@@ -550,6 +730,11 @@ export interface EnvApplyInput {
    * runs. Not given, not accepted; never `acceptAutomation`.
    */
   acceptEmails?: boolean;
+  /**
+   * Let Salesforce email the people whose address a users resource asks
+   * back: the line's, never the file's. Not given, not accepted.
+   */
+  acceptUserEmails?: boolean;
 }
 
 /** A step of an apply: a resource's runs taken back, or its script run. */
@@ -665,6 +850,10 @@ interface RunStepInput {
   acceptAutomation: boolean;
   /** The line's `--accept-emails`, handed to a run whose script asks for it. */
   acceptEmails: boolean;
+  /** The line's `--accept-user-emails`, handed to a users run. */
+  acceptUserEmails: boolean;
+  /** Of a users resource replaced, the run of its script it converges from. */
+  replacesRun?: number;
   signal: AbortSignal;
 }
 
@@ -777,12 +966,11 @@ async function runResourceStep(
   if (resource.kind === 'mask') {
     return runMaskStep(deps, state, input, startedAt);
   }
-
-  // Never run as a clone: a kind with no step here is refused before its script starts.
-  if (resource.kind !== 'forge') {
-    throw new Error(
-      `${resource.name} is a ${resource.kind} resource, which this apply has no step for`,
-    );
+  if (resource.kind === 'users') {
+    return runUsersStep(deps, state, input, startedAt);
+  }
+  if (resource.kind === 'replay') {
+    return runReplayStep(deps, state, input, startedAt, planned);
   }
   // A forge run: its summary named in the state before the clone starts it.
   const summary = runSummaryPathOf(resource.name, n);
@@ -1031,6 +1219,164 @@ async function runMaskStep(
   };
 }
 
+/** The refusals of a users run its script refused before its first write: it answers its plan. */
+function usersPlanRefusalsOf(stdout: string): string[] | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (usersApplyAnswerSchema.safeParse(raw).success) return undefined;
+  const read = usersPlanAnswerSchema.safeParse(raw);
+  return read.success ? (read.data.refusals ?? []).map((refusal) => refusal.message) : undefined;
+}
+
+/**
+ * Run a users resource: the run named in the state before the script
+ * starts, given the run it converges from when it replaces one. Its answer
+ * is kept beside the state as the run's summary, which names the run of the
+ * script a removal takes back. A run refused before its first write answers
+ * its plan, and wrote nothing; one stopped before it answered is told by the
+ * run file the script began ({@link usersRunOf}).
+ */
+async function runUsersStep(
+  deps: EnvStepDeps,
+  state: EnvState,
+  input: RunStepInput,
+  startedAt: string,
+): Promise<RunStepOutcome> {
+  const { resource, n, where, target, templateFile, signal } = input;
+  const current = await deps.store.update(state, (s) =>
+    runStarted(s, {
+      resource: resource.name,
+      kind: 'users',
+      fingerprint: resource.fingerprint,
+      dependsOn: resource.dependsOn,
+      run: { script: USERS_SCRIPT, startedAt },
+    }),
+  );
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      acceptAutomation: input.acceptAutomation,
+      acceptUserEmails: input.acceptUserEmails,
+      ...(input.replacesRun !== undefined ? { replacesRun: input.replacesRun } : {}),
+    }),
+    input.acceptEmails,
+  );
+  const ran = await deps.runner(line.script, line.args, signal);
+  const refusals = usersPlanRefusalsOf(ran.stdout);
+  const answer =
+    refusals === undefined ? answerOf(readUsersApply, ran.stdout, deps.say) : undefined;
+  const count = answer !== undefined ? usersRunCount(answer) : undefined;
+  const wrote =
+    answer !== undefined
+      ? answer.users.some((user) => user.done.length > 0)
+      : refusals === undefined && ran.code !== FAILED_EXIT && ran.code !== 2;
+  const summary =
+    answer !== undefined
+      ? await deps.store
+          .writeFile(
+            where.organizationId,
+            where.env,
+            runSummaryPathOf(resource.name, n),
+            ran.stdout,
+          )
+          .then(() => runSummaryPathOf(resource.name, n))
+      : undefined;
+  const answered = count?.refusal ?? (refusals !== undefined ? refusals.join(' ') : undefined);
+  return {
+    state: current,
+    script: line.script,
+    code: ran.code,
+    ...(count !== undefined ? { count } : {}),
+    ...(answer !== undefined ? { answer } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    wrote,
+    // Converged from the run before it, it holds what that one held, which
+    // no removal takes back again.
+    ...(input.replacesRun !== undefined && answer !== undefined ? { tookBackEarlier: true } : {}),
+    ...(answered !== undefined && answered !== '' ? { answered } : {}),
+    stderr: ran.stderr,
+  };
+}
+
+/**
+ * Run a replay resource: the replay named in the state before the script
+ * starts, held to its dry run's count, a replay again (`--again`) for a
+ * replace, whose purge takes back what the replays before it created. Its
+ * answer is kept beside the state, and names the checkpoint its removal is
+ * named by; one stopped before it answered is named by the payload it was
+ * given, which names the same.
+ */
+async function runReplayStep(
+  deps: EnvStepDeps,
+  state: EnvState,
+  input: RunStepInput,
+  startedAt: string,
+  planned: number | undefined,
+): Promise<RunStepOutcome> {
+  const { resource, n, where, target, templateFile, dry, signal } = input;
+  const current = await deps.store.update(state, (s) =>
+    runStarted(s, {
+      resource: resource.name,
+      kind: 'replay',
+      fingerprint: resource.fingerprint,
+      dependsOn: resource.dependsOn,
+      run: { script: REPLAY_SCRIPT, startedAt },
+    }),
+  );
+  const maxTotal = dryRunTotalOf(dry);
+  const line = withEmailsAccepted(
+    applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId: '',
+      summaryFile: '',
+      replace: input.replace,
+      acceptAutomation: input.acceptAutomation,
+      checkpointStore: envCheckpointStoreOf(deps.journalDir),
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
+    }),
+    input.acceptEmails,
+  );
+  const ran = await deps.runner(line.script, line.args, signal);
+  const answer = answerOf(readReplayRun, ran.stdout, deps.say);
+  const count = answer !== undefined ? replayRunCount(answer) : undefined;
+  // Killed, it said nothing: what it wrote, the store of checkpoints keeps.
+  const wrote = answer !== undefined ? (count?.created ?? 0) > 0 : isStopCode(ran.code);
+  const summary =
+    answer !== undefined
+      ? await deps.store
+          .writeFile(
+            where.organizationId,
+            where.env,
+            runSummaryPathOf(resource.name, n),
+            ran.stdout,
+          )
+          .then(() => runSummaryPathOf(resource.name, n))
+      : undefined;
+  return {
+    state: current,
+    script: line.script,
+    code: ran.code,
+    ...(count !== undefined ? { count } : {}),
+    ...(answer !== undefined ? { answer } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    wrote,
+    ...(planned !== undefined ? { planned } : {}),
+    ...(input.replace && answer !== undefined && replayPurgedWhole(answer)
+      ? { tookBackEarlier: true }
+      : {}),
+    ...(count?.refusal !== undefined ? { answered: count.refusal } : {}),
+    stderr: ran.stderr,
+  };
+}
+
 /**
  * How a masking ended: applied once it went through every record and left
  * no value as it was; partial when it left some, refused by the org; as every
@@ -1094,6 +1440,20 @@ async function runPayloadOf(
     );
     return { payload: payloadOf(resource, { sasDir }) };
   }
+  if (resource.kind === 'replay') {
+    // What it replays, by the id the plan resolved: what a removal of a
+    // replay stopped before it answered is named by.
+    const read = resource.checkpoint.read;
+    if (read === undefined || 'refusal' in read) {
+      return { refusal: read?.refusal ?? 'its checkpoint was not resolved: plan again' };
+    }
+    return {
+      payload: {
+        command: 'replay',
+        checkpoint: { id: read.checkpointId, organizationId: read.organizationId },
+      },
+    };
+  }
   if (resource.kind !== 'seed' || (resource.run.draws ?? []).length === 0) {
     return { payload: payloadOf(resource, {}) };
   }
@@ -1106,6 +1466,42 @@ async function runPayloadOf(
   );
   if (drawn.refusals.length > 0) return { refusal: drawn.refusals.join(' ') };
   return { payload: payloadOf(resource, { drawn: drawn.ids }) };
+}
+
+/**
+ * The state with each resource the plan keeps, or says drifted, applied from
+ * the file as it stands: its fingerprint, which chains those of what it
+ * depends on, is the file's. What it writes did not change — the plan would
+ * replace it otherwise —: only a masking under it changed, which runs again
+ * over the records it masked and makes no record for it to be replaced with.
+ * Left as it was, the next plan read the chain that moved as a change of its
+ * own, and replaced it. The state itself when none moved.
+ */
+export function withKeptFingerprints(
+  state: EnvState,
+  plan: Pick<EnvPlan, 'actions'>,
+  resources: ReadonlyMap<string, Pick<EnvFileResource, 'fingerprint'>>,
+): EnvState {
+  let next = state;
+  for (const action of plan.actions) {
+    if (action.action !== 'keep' && action.action !== 'drifted') continue;
+    const kept = next.resources[action.resource];
+    const fingerprint = resources.get(action.resource)?.fingerprint;
+    if (
+      kept === undefined ||
+      fingerprint === undefined ||
+      kept.recovered === true ||
+      kept.status === 'destroyed' ||
+      kept.fingerprint === fingerprint
+    ) {
+      continue;
+    }
+    next = {
+      ...next,
+      resources: { ...next.resources, [action.resource]: { ...kept, fingerprint } },
+    };
+  }
+  return next;
 }
 
 /** The status a run result says, from the exit code an apply or a destroy ends with. */
@@ -1199,6 +1595,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             kind: target.kind,
             username: target.username,
             alias: target.alias,
+            ...(target.host !== undefined ? { host: target.host } : {}),
           },
           fileDigest: resolved.digest,
           sandforgeVersion: deps.sandforgeVersion,
@@ -1209,8 +1606,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
       }
       throw err;
     }
+    // The host the org answers on, kept: what proves its refresh to the next plan.
     current = {
-      ...current,
+      ...withOrgHost(current, target.host),
       file: { digest: resolved.digest },
       sandforgeVersion: deps.sandforgeVersion,
     };
@@ -1269,6 +1667,12 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
       }
       const id = taken.checkpoint;
       current = await deps.store.update(current, (s) => withCheckpoint(s, 'before', id));
+    }
+
+    // What the plan keeps under a masking that runs again is applied from the
+    // file as it stands, before any step: a stop part way leaves it so too.
+    if (withKeptFingerprints(current, plan, resources) !== current) {
+      current = await deps.store.update(current, (s) => withKeptFingerprints(s, plan, resources));
     }
 
     try {
@@ -1349,6 +1753,11 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
         // in this apply: the dry run read the org before those records were
         // there, and a relation drawing them as existing parents counted none.
         const readTooEarly = resource.dependsOn.some((dep) => runThisApply.has(dep));
+        // A users resource replaced converges from its last run known.
+        const replacesRun =
+          resource.kind === 'users' && step.action === 'replace'
+            ? usersReplacesOf(current.resources[step.resource], where, deps).run
+            : undefined;
         deps.say(`${step.resource}: run ${n} (${step.action})`);
         const outcome = await runResourceStep(deps, current, {
           resource,
@@ -1363,6 +1772,8 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             input.acceptAutomation ||
             resolved.checked.file.resources[step.resource]?.accept?.automation === true,
           acceptEmails: input.acceptEmails === true,
+          acceptUserEmails: input.acceptUserEmails === true,
+          ...(replacesRun !== undefined ? { replacesRun } : {}),
           signal: stop.signal,
         });
         current = outcome.state;
@@ -1402,8 +1813,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           }),
         );
         if (outcome.tookBackEarlier === true) {
-          // The reload's purge took what the loads before it created: no
-          // removal looks for them again.
+          // The reload's purge, or a replay's again, took what the runs before
+          // it created, and a users run converged holds what the one before
+          // it held: no removal looks for them again.
           for (const earlier of current.resources[step.resource]?.runs ?? []) {
             if (earlier.n === n || earlier.takenBack === true) continue;
             current = await deps.store.update(current, (s) =>
@@ -1436,13 +1848,18 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             resource.kind === 'mask'
               ? `${step.resource}: its masking was stopped; the state keeps it applying, and its ` +
                   'store the snapshot it took first: apply again masks what its condition selects'
-              : `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
+              : resource.kind === 'users'
+                ? `${step.resource}: its run was stopped; the state keeps it applying, and the ` +
+                  'run file of sandforge users what it changed: apply again converges from it'
+                : `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
                   `${
                     resource.kind === 'forge'
                       ? 'summary what it created'
                       : resource.kind === 'frozen'
                         ? 'sas what it loaded'
-                        : 'run file what it wrote'
+                        : resource.kind === 'replay'
+                          ? 'payload the checkpoint it replays'
+                          : 'run file what it wrote'
                   }: apply again takes it back and runs it whole`,
           );
           continue;
@@ -1546,10 +1963,104 @@ function checkpointResultLines(checkpoints: readonly EnvCheckpointStepResult[]):
   });
 }
 
-/** The lines an apply or a destroy ends with. */
-export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'): string[] {
+/** How long the link Salesforce mails to an address asked back is said to stay good. */
+const ADDRESS_LINK_HOURS = 72;
+
+/**
+ * What a users step says: of a run, the users it set up, then each address
+ * awaiting its owner's click, which Salesforce mailed; of a removal, the
+ * assignments and memberships it deleted, the changes it put back — those
+ * deletions among them —, and what it kept, each user named with why.
+ */
+function usersStepLines(step: EnvStepResult): string[] {
+  const head = `  ${step.resource} ${step.phase === 'run' ? 'run' : 'removal of run'} ${step.run}: exit ${step.exitCode}, ${step.status}`;
+  if (step.phase === 'run') {
+    const answer = usersApplyAnswerSchema.safeParse(step.answer);
+    const lines: string[] = [];
+    if (answer.success) {
+      const setUp = answer.data.users.filter((user) => user.done.length > 0).length;
+      const refused = answer.data.users.filter((user) => (user.refused ?? []).length > 0).length;
+      lines.push(`${head}  User ${setUp} set up${refused > 0 ? `, ${refused} refused` : ''}`);
+      for (const user of answer.data.users) {
+        if (user.address !== 'awaiting') continue;
+        lines.push(
+          `      ${user.username}: address awaiting its owner's confirmation — Salesforce sent ` +
+            `the link to it; until it is clicked (${ADDRESS_LINK_HOURS} h), the address stays .invalid`,
+        );
+      }
+    } else {
+      lines.push(head);
+    }
+    if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
+    for (const object of step.objects) {
+      if (object.reason !== undefined) lines.push(`      ${object.object}: ${object.reason}`);
+    }
+    return lines;
+  }
+  const removal = step.answer as Partial<UsersRemovalAnswer> | undefined;
+  const deleted = step.objects
+    .map((object) => `${object.object} ${object.deleted} deleted`)
+    .join('; ');
+  const undone = typeof removal?.undone === 'number' ? removal.undone : undefined;
+  const said = [
+    deleted,
+    undone !== undefined
+      ? `${undone} change(s) of its users put back, the deletions among them`
+      : '',
+  ].filter(Boolean);
+  const lines = [`${head}${said.length > 0 ? `  ${said.join('; ')}` : ''}`];
+  if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
+  for (const kept of Array.isArray(removal?.kept) ? removal.kept : []) {
+    lines.push(`      ${kept.username}: ${changeWords(kept.change)} kept, ${kept.why}`);
+  }
+  return lines;
+}
+
+/** What a replay's run says: per object what it created, then whose records kept their owner. */
+function replayStepLines(step: EnvStepResult): string[] {
+  const created = step.objects.map((object) => `${object.object} ${object.created}`).join(', ');
+  const refused = step.objects.reduce((sum, object) => sum + object.refused, 0);
+  const owners = (
+    step.answer as { replay?: { owners?: { kept?: unknown; toRunningUser?: unknown } } } | undefined
+  )?.replay?.owners;
+  const kept = typeof owners?.kept === 'number' ? owners.kept : undefined;
+  const toYou = typeof owners?.toRunningUser === 'number' ? owners.toRunningUser : undefined;
+  const said =
+    (created !== '' ? `${created} created` : '') +
+    (refused > 0 ? `, ${refused} refused` : '') +
+    (kept !== undefined && toYou !== undefined
+      ? `; ${kept} records kept their owner, ${toYou} went to you`
+      : '');
+  const lines = [
+    `  ${step.resource} replay ${step.run}: exit ${step.exitCode}, ${step.status}` +
+      (said !== '' ? `  ${said}` : ''),
+  ];
+  if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
+  for (const object of step.objects) {
+    if (object.reason !== undefined) lines.push(`      ${object.object}: ${object.reason}`);
+  }
+  return lines;
+}
+
+/**
+ * The lines an apply or a destroy ends with; `said`, what came after its
+ * steps — the audits, the handoff note —, before the last.
+ */
+export function runResultLines(
+  result: EnvRunResult,
+  verb: 'apply' | 'destroy',
+  said: readonly string[] = [],
+): string[] {
   const lines: string[] = [''];
   for (const step of result.steps) {
+    if (step.script === USERS_SCRIPT) {
+      lines.push(...usersStepLines(step));
+      continue;
+    }
+    if (step.script === REPLAY_SCRIPT && step.phase === 'run') {
+      lines.push(...replayStepLines(step));
+      continue;
+    }
     // A masking writes over records, and its destroy leaves them masked.
     if (step.script === 'sandforge-dataops') {
       const masked = step.objects
@@ -1589,6 +2100,7 @@ export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'):
   for (const skip of result.skipped ?? []) lines.push(`  ${skip.resource}: not run, ${skip.why}`);
   lines.push(...checkpointResultLines(result.checkpoints ?? []));
   if (result.refusal !== undefined) lines.push(`${verb} refused: ${result.refusal}`);
+  lines.push(...said);
   lines.push(`${verb}: ${result.status}; state serial ${result.state.serial}`);
   return lines;
 }

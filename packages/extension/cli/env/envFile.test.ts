@@ -292,6 +292,17 @@ describe('checking the file', () => {
     expect(checked(document).order).toEqual(['first', 'middle', 'late', 'alone']);
   });
 
+  it('runs a users resource first, whatever the file’s order, the others after it as they depend', () => {
+    const document = fileWith(['resources'], {
+      first: { kind: 'seed', template: 'prebuilt-minimal-demo' },
+      late: { kind: 'seed', dependsOn: ['first'], template: 'prebuilt-minimal-demo' },
+      testers: { kind: 'users', users: [{ username: 'jane.qa@acme.com', frozen: false }] },
+      admins: { kind: 'users', users: [{ username: 'ada@acme.com', active: true }] },
+    });
+
+    expect(checked(document).order).toEqual(['testers', 'admins', 'first', 'late']);
+  });
+
   it('refuses a key shaped like a secret wherever it stands, saying where the thing goes instead', () => {
     const credentials = fileWith(['orgs', 'uat', 'sfdxAuthUrl'], 'force://x');
     const salt = fileWith(

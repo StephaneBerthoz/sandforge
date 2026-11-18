@@ -234,7 +234,11 @@ describe('plan --out', () => {
 
     expect(planned.code).toBe(0);
     const saved = kept();
-    expect(saved.plan).toEqual(envPlanSchema.parse(planned.answer));
+    // The plan it answered, but for the host the org answers on, which names
+    // the client: a plan names the org by its Organization Id.
+    const { host, ...org } = envPlanSchema.parse(planned.answer).org;
+    expect(host).toBe('example.my.salesforce.com');
+    expect(saved.plan).toEqual({ ...envPlanSchema.parse(planned.answer), org });
     expect(saved).toMatchObject({
       savedPlan: 1,
       // After the two dry runs, each half a minute by the org's clock.

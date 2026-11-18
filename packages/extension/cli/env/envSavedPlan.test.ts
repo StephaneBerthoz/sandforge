@@ -186,6 +186,60 @@ describe('what a saved plan holds', () => {
   });
 });
 
+describe('the host a saved plan keeps', () => {
+  const hosted = planOf({
+    org: {
+      organizationId: ORG_ID,
+      kind: 'sandbox',
+      alias: 'uat',
+      host: 'acme--uat.sandbox.my.salesforce.com',
+    },
+  });
+  const save = (listedByMyDomain: boolean) =>
+    savedPlanOf({
+      plan: hosted,
+      state: undefined,
+      digest: 'a'.repeat(64),
+      line: { replace: [], replaceDrifted: false, acceptAutomation: false, acceptNoState: true },
+      dryRuns: {},
+      sandforgeVersion: '1.69.0',
+      madeAt: MADE,
+      listedByMyDomain,
+    });
+
+  it('is none for an org the file lists by its Id: it names the client', () => {
+    expect(save(false).plan.org).toEqual({ organizationId: ORG_ID, kind: 'sandbox', alias: 'uat' });
+  });
+
+  it('is the sandbox’s, the My Domain the file names, and apply --plan holds the org reached to it', () => {
+    const saved = save(true);
+    expect(saved.plan.org.host).toBe('acme--uat.sandbox.my.salesforce.com');
+    const sandbox = { ...TARGET, kind: 'sandbox' as const };
+
+    expect(
+      savedPlanMoved(saved, '/p.json', {
+        target: { ...sandbox, host: 'acme--uat.sandbox.my.salesforce.com' },
+        digest: 'a'.repeat(64),
+        state: undefined,
+      }),
+    ).toBeUndefined();
+    expect(
+      savedPlanMoved(saved, '/p.json', {
+        target: { ...sandbox, host: 'acme--qa.sandbox.my.salesforce.com' },
+        digest: 'a'.repeat(64),
+        state: undefined,
+      }),
+    ).toMatchObject({
+      code: 'PLAN_OTHER_ORG',
+      message:
+        'The plan kept in /p.json was made for uat on acme--uat.sandbox.my.salesforce.com, and ' +
+        'pool-1 answers on acme--qa.sandbox.my.salesforce.com: a plan is applied to the org it ' +
+        'was made for. Nothing was written.',
+      exit: 1,
+    });
+  });
+});
+
 describe('a file read for one', () => {
   it('refuses a file not there, one that is not JSON, and one that is no saved plan, exit 2', () => {
     const path = join(dir, 'p.json');

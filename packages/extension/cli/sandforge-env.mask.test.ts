@@ -449,6 +449,53 @@ describe('a mask resource', () => {
     );
   });
 
+  it('keeps, once applied, a resource the apply kept while the masking it depends on was replaced: applied twice, the second writes nothing', async () => {
+    // A seed after the masking, of contacts its condition does not select.
+    const resources = {
+      ...maskedThenSeeded("LastName = 'Copied'"),
+      'demo-contacts': {
+        kind: 'seed',
+        dependsOn: ['customers'],
+        objects: [
+          {
+            object: 'Contact',
+            count: 2,
+            fields: [
+              { fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'Demo' } },
+            ],
+          },
+        ],
+      },
+    };
+    writeFile(file({}, { resources }));
+    expect((await apply()).code).toBe(0);
+    // The masking's rules change: it masks again, and the seed after it,
+    // whose records a masking does not make again, is kept.
+    writeFile(
+      file({}, { resources }, [
+        { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 3 } },
+      ]),
+    );
+    const replaced = await apply();
+    expect(replaced.code, replaced.said).toBe(0);
+    expect(replaced.result.plan.actions.map((action) => [action.resource, action.action])).toEqual([
+      ['customers', 'replace'],
+      ['demo-contacts', 'keep'],
+    ]);
+    const serial = (await stateOf()).state?.serial;
+
+    const again = await plan('--fail-on-change');
+
+    expect(again.code, again.said).toBe(0);
+    expect(again.plan.actions.find((action) => action.resource === 'demo-contacts')).toMatchObject({
+      action: 'keep',
+      why: 'applied, and the org holds its 2 record(s) as written',
+    });
+    expect((await apply()).code).toBe(0);
+    expect((await stateOf()).state?.serial).toBe(serial);
+  });
+
   it('replaces a masking whose rules changed, saying what a replace keeps', async () => {
     await apply();
     writeFile(file({}, {}, [...RULES, { fieldPattern: 'Contact.LastName', ruleType: 'fake' }]));

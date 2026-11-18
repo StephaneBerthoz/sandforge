@@ -7,7 +7,8 @@
  * It writes nothing to an org itself. Each resource is planned, applied,
  * previewed and taken back by the script that already does it —
  * `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen
- * resource, `sandforge-dataops` for a mask resource, and
+ * resource, `sandforge-dataops` for a mask resource, `sandforge-users` for a
+ * users resource, `sandforge-checkpoint replay` for a replay resource, and
  * `sandforge-seed` for a seed resource — spawned with `--json` as the MCP
  * server spawns its tools, so every guard, gate and run file of the script
  * holds unchanged. What it adds is what no script has: the declared file, a
@@ -31,7 +32,10 @@
  * back from this machine alone, by its ids (`output`, `env/envOutput.ts`).
  * A state lost or damaged is rebuilt from the run files the journal
  * directory keeps (`state recover`, `env/envRecover.ts`), the org read for
- * its kind alone.
+ * its kind alone. The audits a file asks — the scheduled jobs, the endpoints
+ * that still name production, the deliverability — are read without any
+ * write, once an apply wrote and by `audit` at any hour, and the handoff note
+ * an apply writes is kept on this machine (`env/audit/`).
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
@@ -43,12 +47,13 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy --file sandforge.yaml --org pool-1 --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts reset --file sandforge.yaml --org pool-1 --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover --file sandforge.yaml --org pool-1
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts audit --file sandforge.yaml --org uat --save
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { Connection } from 'jsforce';
@@ -57,8 +62,10 @@ import type {
   EnvOutput,
   EnvPlan,
   EnvPlanDrift,
+  EnvPlanRefreshed,
   EnvRecoverResult,
   EnvRefusalAnswer,
+  EnvRunResult,
   EnvSavedPlan,
   EnvState,
   EnvStateList,
@@ -88,9 +95,20 @@ import {
   applyPlan,
   removalSubjectOf,
   runResultLines,
+  usersReplacesOf,
   withEmailsAccepted,
   type EnvStepDeps,
 } from './env/envApply.js';
+import {
+  AUDIT_FLAGS,
+  auditLines,
+  auditPlanLine,
+  auditVerb,
+  auditsAskedOf,
+  readAudits,
+  type AuditOrgInput,
+} from './env/audit/auditVerb.js';
+import { handoffNoteOf, handoffPathOf, writeHandoffNote } from './env/audit/handoffNote.js';
 import { destroyEnvironment } from './env/envDestroy.js';
 import {
   checkEnvFile,
@@ -129,10 +147,13 @@ import {
 import { sweepRootPlans } from '../src/modules/forge/roots/rootPlanStore.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
 import { maskStoreOf } from './env/kinds/mask.js';
+import { readReplayCheckpoint, type EnvReplayCheckpointRead } from './env/kinds/replay.js';
 import {
   envTargetOf,
+  myDomainListingWords,
   noStateGuard,
   sameOrganization,
+  sandboxListing,
   stateRefusal,
   stateTargetRefusal,
   storeRefusal,
@@ -198,6 +219,7 @@ import {
   journalInsideRepository,
   nextRunNumber,
   openEnvStore,
+  repositoryHolding,
   stateExpiresAt,
   type EnvStateExpired,
   type EnvStore,
@@ -232,8 +254,12 @@ Commands:
             files the journal directory keeps, every resource marked for the next plan to
             replace; a damaged state is set aside, kept; reads the org's kind, writes nothing to it
   output    print what an apply created in the org: per resource, the ids of its records by
-            object, as its runs' files on this machine name them; --org, the alias it was
-            applied by or the Organization Id; reaches no org
+            object, as its runs' files on this machine name them, and the users a users
+            resource set up; --org, the alias it was applied by or the Organization Id; reaches
+            no org
+  audit     read the org, writing nothing to it: whether it delivers email, its scheduled jobs
+            against the inventory kept before its refresh, and the endpoints that still name
+            production; each part the file's audits do not turn off
 
 Required:
   --org <alias>              sf CLI alias of the org to fill (validate and state: not needed;
@@ -250,7 +276,8 @@ plan:
   --quick                    skip the dry runs and the removal previews: no counts, and no word
                              on what the org holds
   --replace <resource>, --replace-drifted, --accept-automation, --accept-emails,
-  --accept-no-state          plan what apply would do with them; --out keeps them with the plan
+  --accept-user-emails, --accept-no-state
+                             plan what apply would do with them; --out keeps them with the plan
   --out <file>               keep the plan in <file>, for apply --plan: outside the repository
                              that holds the file, unless --out-in-repository
   --out-in-repository        keep it inside that repository all the same, in a folder of it
@@ -269,8 +296,16 @@ apply:
                              sends some; without it their dry runs block the plan, and
                              --accept-automation and accept: { automation: true } never stand
                              for it
+  --accept-user-emails       let Salesforce email the people whose address a users resource asks
+                             back: the confirmation link of each, a system email, which leaves
+                             under System email only too; without it the plan refuses the
+                             apply (USERS_EMAILS_NOT_ACCEPTED), and no file accepts it
   --accept-no-state          apply to a Developer Edition or a sandbox this machine has no state
                              of: records an earlier apply left there would be created twice
+  --handoff <file.md>        write the handoff note there once the apply ended, outside the
+                             repository that holds the file unless --out-in-repository; without
+                             it, a file whose audits ask handoff: true keeps it in handoff/ of
+                             the journal directory, its owner's alone
   --yes                      do not ask; without it and with no terminal, stop at the question,
                              exit 2, having written nothing
 destroy:
@@ -299,6 +334,11 @@ reset:
                              deletes
   --accept-unseen            as for destroy --rewind
   --yes                      as for apply
+audit:
+  --save                     keep the scheduled jobs read, in audits/ of the journal directory by
+                             the org's host, to compare with after its next refresh
+  --fail-on-findings         exit 3 on a job gone or run as a user who can no longer, an endpoint
+                             that names production, or a deliverability open to all email
 
 The file holds no secret: org credentials stay with the sf CLI. A value comes from the environment
 only where the file writes { env: NAME }. The org to fill is never in the file. A resource's
@@ -339,6 +379,20 @@ only copy of the values masked: putting them back from a snapshot, with sandforg
 your own act, before a destroy, and plan and destroy give the line. A file with a mask resource
 takes no checkpoint.before, and destroy --rewind is refused while the state names one.
 
+A users resource hands a sandbox back to its testers, through sandforge users: per user, by
+its production username or the sandbox's, its address the copy put under .invalid asked back,
+an activation, a freeze, a profile, permission sets, their groups, groups and queues. It is
+applied before every other resource, whatever the file's order, and taken back after them all;
+its replace converges from its last run, never everything taken back then set up again. An
+address asked back awaits its owner's click on the link Salesforce mails to it; the plan sums
+those emails, which the line alone accepts (--accept-user-emails). A destroy takes back what the
+environment added and puts each user back as it was, never an address, never a user deleted.
+
+A replay resource replays a checkpoint through sandforge checkpoint replay: by its id, the
+newest of a name — of this sandbox before its refresh, or of the org its role from: names —,
+or an exported file whose key the variable keyEnv names. The plan resolves it to one checkpoint
+of this machine, which the replay writes from; one it does not find blocks the apply.
+
 A seed relation may draw its parents from the records another resource created:
 parents: { from: <resource>.<Object> }. They are read from that resource's own run, handed to
 the seed by their ids, at most 2,000 or the relation's limit, and counted exactly once that
@@ -359,9 +413,16 @@ then exits 3. It names what the runs kept: a record deleted since is still named
 reads.
 
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
-written to only when the file lists its Organization Id under targets.sandboxes and allows the
-sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
-apart by the Dev Hub the sf CLI names for it; one it names none for is taken for a sandbox.
+written to only when the file lists it under targets.sandboxes, by its Organization Id or by its
+My Domain ({ myDomain: acme--uat }, which a refresh keeps), and allows the sandbox kind; scratch
+orgs and Developer Edition orgs need no listing. A scratch org is told apart by the Dev Hub the
+sf CLI names for it; one it names none for is taken for a sandbox. A sandbox whose state this
+machine kept under its Organization Id before a refresh, on the same host, is applied anew
+without --accept-no-state: the plan says the state it sets aside, kept.
+
+audits: in the file asks what an apply reads once it wrote, after checkpoint.after: never a
+write, and never what the apply ends with — an audit not read is said not read, with why.
+handoff: true has the apply write a note of what it did and what is left to do.
 
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
@@ -381,7 +442,9 @@ protected org, a state of another org, no state without --accept-no-state, anoth
 org under way, a removal or a frozen load refused for automation without --accept-automation,
 more API requests, storage or emails than the org has left, emails the org delivers or would not
 say it withholds without --accept-emails (a clone's, a seed's or a load's EMAILS_NOT_ACCEPTED, a
-rewind's EMAILS_DELIVERED), a
+rewind's EMAILS_DELIVERED), emails to people without --accept-user-emails
+(USERS_EMAILS_NOT_ACCEPTED), a refusal of sandforge users (USERS_*), a checkpoint a replay
+names that this machine does not keep (REPLAY_CHECKPOINT_NOT_FOUND), a
 checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or
@@ -390,11 +453,13 @@ names that no longer holds, is a day old or was refused when it was made, no sta
 read, a state recover of a state that reads, of another org or of a later SandForge, of a summary
 of another org or that does not read, of two runs of one rank, or of no run at all —, or nothing
 written; 2 a bad command line, a file that does not validate, a variable not set, the journal
-directory or a dataset inside the file's repository, --out inside it, a file --plan names that
-is no plan, a question with no terminal (give --yes); 3 partial (apply: a resource partial, or
+directory or a dataset inside the file's repository, --out or --handoff inside it, a file --plan
+names that is no plan, a question with no terminal (give --yes); 3 partial (apply: a resource
+partial, or
 failed after others wrote; destroy: records left, each with why; reset and destroy --rewind:
 records still differ; plan with --fail-on-change or --fail-on-drift: changes or drift found;
-output: a resource not applied whole, or whose records cannot be read); 4 unstable (a forge run's
+output: a resource not applied whole, or whose records cannot be read; audit with
+--fail-on-findings: findings); 4 unstable (a forge run's
 or a frozen load's verification found records still changing; reset and destroy --rewind: someone
 changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
 takes up from the state.
@@ -402,7 +467,16 @@ takes up from the state.
 
 // ─── The command line ────────────────────────────────────────────────────────
 
-const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'reset', 'state', 'output'] as const;
+const COMMANDS = [
+  'validate',
+  'plan',
+  'apply',
+  'destroy',
+  'reset',
+  'state',
+  'output',
+  'audit',
+] as const;
 type Command = (typeof COMMANDS)[number];
 
 const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
@@ -420,6 +494,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--replace-drifted',
       '--accept-automation',
       '--accept-emails',
+      '--accept-user-emails',
       '--accept-no-state',
       '--out-in-repository',
     ],
@@ -432,10 +507,12 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--replace-drifted',
       '--accept-automation',
       '--accept-emails',
+      '--accept-user-emails',
       '--accept-no-state',
+      '--out-in-repository',
       '--yes',
     ],
-    values: ['--file', '--org', '--alias', '--replace', '--plan'],
+    values: ['--file', '--org', '--alias', '--replace', '--plan', '--handoff'],
   },
   destroy: {
     words: 1,
@@ -466,6 +543,12 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
   output: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
+  // As the audits read their line (`AUDIT_FLAGS`), each flag named here for the page to list.
+  audit: {
+    words: AUDIT_FLAGS.words,
+    switches: ['--json', '--save', '--fail-on-findings'],
+    values: ['--file', '--org', '--alias'],
+  },
 };
 
 /**
@@ -499,6 +582,8 @@ export interface CliArgs {
   acceptAutomation: boolean;
   /** The emails what still runs sends, for an org that delivers them all: never `acceptAutomation`. */
   acceptEmails: boolean;
+  /** The emails Salesforce sends to the people whose address a users resource asks back. */
+  acceptUserEmails: boolean;
   acceptNoState: boolean;
   includeChanged: boolean;
   sweep: boolean;
@@ -513,6 +598,12 @@ export interface CliArgs {
   outInRepository: boolean;
   /** apply: the plan `plan --out` kept, absolute. */
   plan?: string;
+  /** apply: where the handoff note is written, absolute. */
+  handoff?: string;
+  /** audit: keep the scheduled jobs read, to compare with after the next refresh. */
+  save: boolean;
+  /** audit: exit 3 on findings. */
+  failOnFindings: boolean;
 }
 
 /**
@@ -584,13 +675,13 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
     return refuseLine(
-      'Name the command first: validate, plan, apply, destroy, reset, state or output.',
+      'Name the command first: validate, plan, apply, destroy, reset, state, output or audit.',
     );
   }
   if (!isCommand(command)) {
     return refuseLine(
       `"${command}" is not a command of sandforge env: validate, plan, apply, destroy, reset, ` +
-        'state or output. Nothing was run.',
+        'state, output or audit. Nothing was run.',
     );
   }
   const recover = command === 'state' && args[1] === 'recover';
@@ -628,6 +719,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
       command === 'destroy' ||
       command === 'reset' ||
       command === 'output' ||
+      command === 'audit' ||
       recover) &&
     org === undefined
   ) {
@@ -640,8 +732,13 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
         'apply is held to.',
     );
   }
-  if (out === undefined && args.includes('--out-in-repository')) {
-    refuseLine('--out-in-repository goes with --out: it says where the plan may be kept.');
+  const handoff = single('--handoff');
+  if (out === undefined && handoff === undefined && args.includes('--out-in-repository')) {
+    refuseLine(
+      command === 'apply'
+        ? '--out-in-repository goes with --handoff: it says where the note may be kept.'
+        : '--out-in-repository goes with --out: it says where the plan may be kept.',
+    );
   }
   const plan = single('--plan');
   if (plan !== undefined) {
@@ -651,6 +748,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
       '--replace-drifted',
       '--accept-automation',
       '--accept-emails',
+      '--accept-user-emails',
       '--accept-no-state',
     ];
     const given = own.filter((flag) => args.includes(flag));
@@ -695,6 +793,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     replaceDrifted: args.includes('--replace-drifted'),
     acceptAutomation: args.includes('--accept-automation'),
     acceptEmails: args.includes('--accept-emails'),
+    acceptUserEmails: args.includes('--accept-user-emails'),
     acceptNoState: args.includes('--accept-no-state'),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
@@ -705,6 +804,9 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     ...(out !== undefined ? { out: resolve(cwd, out) } : {}),
     outInRepository: args.includes('--out-in-repository'),
     ...(plan !== undefined ? { plan: resolve(cwd, plan) } : {}),
+    ...(handoff !== undefined ? { handoff: resolve(cwd, handoff) } : {}),
+    save: args.includes('--save'),
+    failOnFindings: args.includes('--fail-on-findings'),
   };
 }
 
@@ -875,6 +977,10 @@ interface Prepared {
   warnings: string[];
   /** What a real apply would meet: no state without --accept-no-state. */
   noState?: EnvRefusal;
+  /** The state this machine kept of the sandbox before its refresh, set aside: the plan says it. */
+  refreshed?: EnvPlanRefreshed;
+  /** The file lets the sandbox through by its My Domain. */
+  listedByMyDomain: boolean;
   runner: CommandRunner;
 }
 
@@ -965,12 +1071,30 @@ async function prepare(
   }
   const warnings: string[] = [];
   let noState: EnvRefusal | undefined;
+  let refreshed: EnvPlanRefreshed | undefined;
   const plans = args.command === 'plan' || args.command === 'apply';
   if (state === undefined && plans) {
     const runsKept = await envRunsKept({ store, journalDir }, { resolved, target });
-    const guarded = noStateGuard(target, resolved.checked.file.name, args.acceptNoState, runsKept);
-    if ('warning' in guarded) warnings.push(guarded.warning);
-    else noState = guarded.refusal;
+    // A state of this sandbox kept under its former Id, on the same host:
+    // the refresh took what it held, and it is set aside, never deleted.
+    const before = await store.refreshedOf(target, resolved.checked.file.name);
+    const guarded = noStateGuard(
+      target,
+      resolved.checked.file.name,
+      args.acceptNoState,
+      runsKept,
+      before,
+    );
+    if ('refusal' in guarded) noState = guarded.refusal;
+    else if (guarded.refreshed !== undefined) refreshed = guarded.refreshed;
+    else warnings.push(guarded.warning);
+  }
+  // Let through by its My Domain, which a refresh keeps: said, and that its
+  // Id changed since the last apply, as a sandbox deleted and made again
+  // under its name would be let through too.
+  const listedByMyDomain = sandboxListing(resolved.checked.file.targets, target)?.by === 'myDomain';
+  if (plans && listedByMyDomain) {
+    warnings.push(`${target.alias}: ${myDomainListingWords(refreshed !== undefined)}`);
   }
   const holder = envLockHolder(locksDir, target.organizationId, deps.lockOptions);
   if (holder !== undefined) {
@@ -984,11 +1108,18 @@ async function prepare(
   if (plans) {
     const sources = await readSources(resolved, target, deps, say);
     const datasets = await readDatasets(resolved, say);
-    if (Object.keys(sources).length + Object.keys(datasets).length > 0) {
+    const checkpoints = await readCheckpoints(resolved, target, reached, {
+      journalDir,
+      locksDir,
+    });
+    const read =
+      Object.keys(sources).length + Object.keys(datasets).length + Object.keys(checkpoints).length;
+    if (read > 0) {
       const again = resolveEnvFile(resolved.checked, process.env, {
         aliases: args.aliases,
         sources,
         datasets,
+        checkpoints,
       });
       if ('refusals' in again) throw fileStop(args.file, again.refusals);
       resolved = again.resolved;
@@ -1004,6 +1135,8 @@ async function prepare(
     state,
     warnings,
     ...(noState !== undefined ? { noState } : {}),
+    ...(refreshed !== undefined ? { refreshed } : {}),
+    listedByMyDomain,
     runner:
       deps.runner !== undefined
         ? relayedRunner(
@@ -1081,6 +1214,40 @@ async function readDatasets(
   return datasets;
 }
 
+/**
+ * The checkpoint each replay resource replays, resolved from this machine's
+ * files alone: a file's from its header, before any key; the others' among
+ * the checkpoints of the environment's store. One not found blocks the
+ * resource, in its refusal's words, before its dry run: its line names the
+ * checkpoint by the id resolved here.
+ */
+async function readCheckpoints(
+  resolved: EnvFileResolved,
+  target: EnvTarget,
+  reached: Reached,
+  where: { journalDir: string; locksDir: string },
+): Promise<Record<string, EnvReplayCheckpointRead>> {
+  const checkpoints: Record<string, EnvReplayCheckpointRead> = {};
+  for (const resource of resolved.resources) {
+    if (resource.kind !== 'replay') continue;
+    checkpoints[resource.name] = await readReplayCheckpoint(
+      resource.run,
+      resource.checkpoint,
+      {
+        alias: target.alias,
+        organizationId: target.organizationId,
+        username: reached.session.username,
+        instanceUrl: reached.session.instanceUrl,
+      },
+      { storeRoot: envCheckpointStoreOf(where.journalDir), locksDir: where.locksDir },
+    ).catch((err: unknown) => ({
+      code: 'STORE_REFUSED',
+      refusal: `its checkpoint could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    }));
+  }
+  return checkpoints;
+}
+
 /** The production way to reach an org: the sf CLI's session. */
 async function reachOrg(alias: string): Promise<Reached> {
   const session = await loadOrg(alias);
@@ -1130,7 +1297,7 @@ async function previewRuns(
     // reads on every plan, one more at each replace.
     for (const run of previewedRunsOf(resource.kind, resource.runs)) {
       if (signal.aborted) break;
-      const subject = removalSubjectOf(run, where, prepared);
+      const subject = removalSubjectOf(run, where, prepared, name);
       if (subject === undefined) {
         runs.push({ n: run.n, nothing: true });
         continue;
@@ -1141,6 +1308,7 @@ async function previewRuns(
         subject,
         includeChanged: options.includeChanged,
         acceptAutomation: accept,
+        checkpointStore: envCheckpointStoreOf(prepared.journalDir),
         ...(options.sweep === true ? { sweep: true } : {}),
       });
       const ran = await prepared.runner(line.script, line.args, signal);
@@ -1262,18 +1430,21 @@ async function dryRun(
   seeds: Readonly<Record<string, number>> = {},
   acceptEmails = false,
   acceptAutomation = false,
+  acceptUserEmails = false,
 ): Promise<Record<string, EnvDryRun>> {
   const { resolved, target, state, store } = prepared;
   const dryRuns: Record<string, EnvDryRun> = {};
   // A mask resource kept is dry-run too: its dry run is what reads the
-  // records its condition selects now, against those it masked.
+  // records its condition selects now, against those it masked. So is a
+  // users resource, its plan converging from its last run: a user held as
+  // that run left it has nothing to change.
   const runs = new Map(
     drafts
       .filter(
         (d) =>
           d.action === 'create' ||
           d.action === 'replace' ||
-          (d.kind === 'mask' && d.action === 'keep'),
+          ((d.kind === 'mask' || d.kind === 'users') && d.action === 'keep'),
       )
       .map((d) => [d.resource, d.action] as const),
   );
@@ -1293,6 +1464,10 @@ async function dryRun(
       }
       if (resource.kind === 'frozen') {
         const read = resource.dataset.read;
+        if (read === undefined || 'refusal' in read) continue;
+      }
+      if (resource.kind === 'replay') {
+        const read = resource.checkpoint.read;
         if (read === undefined || 'refusal' in read) continue;
       }
       const drawn = draws[resource.name];
@@ -1330,6 +1505,16 @@ async function dryRun(
       writeFileSync(templateFile, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
       say(`${resource.name}: dry run`);
       const seed = seeds[resource.name];
+      // A users resource applied converges from its last run known: its plan
+      // reads what the org holds against it.
+      const replacesRun =
+        resource.kind === 'users' && action !== 'create'
+          ? usersReplacesOf(
+              state?.resources[resource.name],
+              { organizationId: target.organizationId, env },
+              prepared,
+            ).run
+          : undefined;
       // Dry-run with the accord of the line: without it, its emails would
       // block a plan the apply is told it may write.
       const line = withEmailsAccepted(
@@ -1349,6 +1534,9 @@ async function dryRun(
           // A store of the plan's own: a dry run saves the rules as a template,
           // and the resource's store keeps what its runs did alone.
           ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),
+          ...(replacesRun !== undefined ? { replacesRun } : {}),
+          ...(acceptUserEmails ? { acceptUserEmails: true } : {}),
+          checkpointStore: envCheckpointStoreOf(prepared.journalDir),
         }),
         acceptEmails,
       );
@@ -1444,7 +1632,9 @@ async function planOf(
     organizationId: prepared.target.organizationId,
     kind: prepared.target.kind,
     alias: prepared.target.alias,
+    ...(prepared.target.host !== undefined ? { host: prepared.target.host } : {}),
   };
+  const usersUnknown = usersUnknownOf(prepared);
   const common = {
     resolved: prepared.resolved,
     org,
@@ -1453,6 +1643,9 @@ async function planOf(
     replaceDrifted: args.replaceDrifted,
     warnings: prepared.warnings,
     maskStores: maskStoresOf(prepared),
+    acceptUserEmails: args.acceptUserEmails,
+    ...(Object.keys(usersUnknown).length > 0 ? { usersUnknown } : {}),
+    ...(prepared.refreshed !== undefined ? { refreshed: prepared.refreshed } : {}),
     ...(prepared.noState !== undefined
       ? { refusal: prepared.noState.message, refusalCodes: [prepared.noState.code] }
       : {}),
@@ -1479,6 +1672,7 @@ async function planOf(
     seeds,
     args.acceptEmails,
     args.acceptAutomation,
+    args.acceptUserEmails,
   );
   const budget = await readBudget(prepared.reached.conn);
   const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
@@ -1499,6 +1693,22 @@ async function planOf(
     }),
     dryRuns,
   };
+}
+
+/**
+ * Of each users resource the state holds, why which run of `sandforge users`
+ * its last run was is not known, where nobody can say: the plan says it.
+ */
+function usersUnknownOf(prepared: Prepared): Record<string, string> {
+  const { state, target, resolved } = prepared;
+  const where = { organizationId: target.organizationId, env: resolved.checked.file.name };
+  const out: Record<string, string> = {};
+  for (const [name, resource] of liveResources(state)) {
+    if (resource.kind !== 'users') continue;
+    const unknown = usersReplacesOf(resource, where, prepared).unknown;
+    if (unknown !== undefined) out[name] = unknown;
+  }
+  return out;
 }
 
 /**
@@ -1610,7 +1820,7 @@ function validatedLine(run: EnvKindRun): string {
             .join(', ')})`;
     return `masks ${what} with ${rules}, ${run.rules.rules.length} rule(s)`;
   }
-  if (run.kind === 'users') return `User ${run.users.length}`;
+  if (run.kind === 'users') return `User ${run.users.length}, applied first`;
   if (run.kind === 'replay') {
     const { checkpoint } = run;
     const file = checkpoint.file;
@@ -1877,6 +2087,160 @@ async function recover(
   return outcome.result;
 }
 
+/** The org the audits and the note name, as the guards typed it. */
+function auditOrgOf(prepared: Prepared): AuditOrgInput {
+  const { target } = prepared;
+  return {
+    organizationId: target.organizationId,
+    kind: target.kind,
+    alias: target.alias,
+    ...(target.host !== undefined ? { host: target.host } : {}),
+  };
+}
+
+/**
+ * What a plan says of what the apply reads and writes on this machine once
+ * it wrote, beside its plan: the audits the file asks, and their cost; the
+ * handoff note.
+ */
+function auditsPlanLineOf(resolved: EnvFileResolved): string | undefined {
+  const audits = resolved.checked.file.audits;
+  const asked = auditsAskedOf(audits, 'apply');
+  const note = audits?.handoff === true;
+  if (asked !== undefined) return `${auditPlanLine(asked)}${note ? '; then the handoff note' : ''}`;
+  return note ? 'after the apply: the handoff note, written on this machine' : undefined;
+}
+
+/**
+ * Why the handoff note may not be written where `--handoff` names, or
+ * undefined: a folder that is not there, or one inside the repository that
+ * holds the file, unless `--out-in-repository`. Said before any org is reached.
+ */
+function handoffRefusal(args: CliArgs): Stop | undefined {
+  if (args.handoff === undefined) return undefined;
+  const folder = dirname(args.handoff);
+  if (!existsSync(folder) || !statSync(folder).isDirectory()) {
+    return new Stop(
+      {
+        refusal: {
+          code: 'BAD_LINE',
+          message: `--handoff ${args.handoff}: its folder ${folder} is not there. Nothing was read.`,
+        },
+      },
+      2,
+    );
+  }
+  if (args.outInRepository) return undefined;
+  const repoRoot = repositoryHolding(dirname(args.file), args.handoff);
+  if (repoRoot === undefined) return undefined;
+  return new Stop(
+    {
+      refusal: {
+        code: 'HANDOFF_IN_REPOSITORY',
+        message:
+          `--handoff ${args.handoff} is inside the repository ${repoRoot} that holds the file: ` +
+          'the note names the org, its users by their usernames and what is left to do, and ' +
+          'committed with the project it would publish them. Keep it outside — in CI, in ' +
+          '$RUNNER_TEMP, kept as an artifact a short time — or give --out-in-repository for a ' +
+          'folder of it that is never committed. Nothing was read.',
+      },
+    },
+    2,
+  );
+}
+
+/** The audits an apply read, in one line: what they found, or that they found nothing. */
+function auditsFoundLine(result: NonNullable<EnvRunResult['audits']>): string {
+  const jobs = (result.schedules?.jobs ?? []).filter((job) => job.status !== 'new').length;
+  const endpoints = result.endpoints?.found.length ?? 0;
+  const unread = [
+    result.deliverability?.unread !== undefined ? 'the deliverability' : '',
+    result.schedules?.unread !== undefined ? 'the scheduled jobs' : '',
+    result.endpoints?.unread !== undefined ? 'the endpoints' : '',
+  ].filter(Boolean);
+  const found = [
+    jobs > 0 ? `${jobs} scheduled job(s) no longer run` : '',
+    endpoints > 0 ? `${endpoints} endpoint(s) still name production` : '',
+    result.deliverability?.read === 'open' ? 'the org delivers all email' : '',
+  ].filter(Boolean);
+  return (
+    `audits: ${found.length > 0 ? `${found.join(', ')} (below)` : 'nothing found'}` +
+    (unread.length > 0 ? `; not read: ${unread.join(', ')} (below)` : '')
+  );
+}
+
+/**
+ * Once an apply ended 0 or 3: the audits the file asks, read from the org
+ * and never written to it, then the handoff note, on this machine. An audit
+ * not read is said not read; a note not written is said; neither changes
+ * how the apply ended.
+ */
+async function afterApply(
+  prepared: Prepared,
+  args: CliArgs,
+  result: EnvRunResult,
+  say: (line: string) => void,
+): Promise<{ result: EnvRunResult; before: string[]; after: string[] }> {
+  const file = prepared.resolved.checked.file;
+  const org = auditOrgOf(prepared);
+  const before: string[] = [];
+  const after: string[] = [];
+  let answered = result;
+  const asked = auditsAskedOf(file.audits, 'apply');
+  if (asked !== undefined) {
+    say('audits: reading the org, nothing written');
+    try {
+      const read = await readAudits(
+        { transport: prepared.reached.conn, journalDir: prepared.journalDir },
+        { org, asked },
+      );
+      answered = { ...answered, audits: read.result };
+      before.push(auditsFoundLine(read.result));
+      after.push(...auditLines(read.result, { file: args.file, notes: read.notes }));
+    } catch (err: unknown) {
+      before.push(`audits: not read — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const at = new Date().toISOString();
+  const path =
+    args.handoff ??
+    (file.audits?.handoff === true
+      ? handoffPathOf(prepared.journalDir, {
+          env: file.name,
+          organizationId: prepared.target.organizationId,
+          at,
+        })
+      : undefined);
+  if (path !== undefined) {
+    try {
+      const state = await prepared.store.read(prepared.target.organizationId, file.name);
+      const output =
+        state !== undefined
+          ? (await outputOf(state, { store: prepared.store, journalDir: prepared.journalDir }))
+              .output
+          : undefined;
+      const note = handoffNoteOf({
+        run: answered,
+        org,
+        file: args.file,
+        at,
+        sandforgeVersion: sandforgeVersion(),
+        ...(output !== undefined ? { output } : {}),
+        resources: file.resources,
+        ...(file.masking !== undefined ? { masking: file.masking } : {}),
+      });
+      await writeHandoffNote(path, note);
+      answered = { ...answered, handoff: { path } };
+      before.push(`handoff note: ${path}`);
+    } catch (err: unknown) {
+      before.push(
+        `handoff note: not written — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return { result: answered, before, after };
+}
+
 /** Ask for the org's alias to be typed, or go on when `--yes` said so. */
 async function confirmed(
   args: CliArgs,
@@ -2008,7 +2372,10 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
         const { plan, dryRuns } = await stoppable(deps, 'planning', (signal) =>
           planOf(prepared, args, say, signal),
         );
-        for (const line of planLines(plan)) say(line);
+        const audits = auditsPlanLineOf(prepared.resolved);
+        for (const line of planLines(plan, 'apply', audits !== undefined ? { audits } : {})) {
+          say(line);
+        }
         if (args.out !== undefined) {
           const saved = savedPlanOf({
             plan,
@@ -2020,10 +2387,12 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
               acceptAutomation: args.acceptAutomation,
               ...(args.acceptEmails ? { acceptEmails: true } : {}),
               acceptNoState: args.acceptNoState,
+              ...(args.acceptUserEmails ? { acceptUserEmails: true } : {}),
             },
             dryRuns,
             sandforgeVersion: sandforgeVersion(),
             madeAt: new Date().toISOString(),
+            listedByMyDomain: prepared.listedByMyDomain,
           });
           await writeSavedPlan(args.out, saved);
           say(savedPlanLine(args.out, saved));
@@ -2036,6 +2405,9 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
       }
       case 'apply': {
         if (args.quick) refuseLine('apply makes a whole plan: --quick is for plan alone.');
+        // Where the note is kept is settled before any org is reached.
+        const notHere = handoffRefusal(args);
+        if (notHere !== undefined) throw notHere;
         // A plan kept by plan --out: read, and held to what it was made
         // against, then made again with its own switches and seeds.
         let saved: EnvSavedPlan | undefined;
@@ -2049,7 +2421,12 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
             sandforgeVersion: sandforgeVersion(),
           });
           if (refused !== undefined) throw stopWith(refused);
-          applied = { ...args, ...saved.line };
+          applied = {
+            ...args,
+            ...saved.line,
+            acceptEmails: saved.line.acceptEmails === true,
+            acceptUserEmails: saved.line.acceptUserEmails === true,
+          };
         }
         const prepared = await prepare(applied, deps, say);
         if (saved !== undefined && args.plan !== undefined) {
@@ -2067,7 +2444,10 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           const differences = planDifferences(saved.plan, plan);
           if (differences.length > 0) throw stopWith(planDiffersRefusal(args.plan, differences));
         }
-        for (const line of planLines(plan)) say(line);
+        const audits = auditsPlanLineOf(prepared.resolved);
+        for (const line of planLines(plan, 'apply', audits !== undefined ? { audits } : {})) {
+          say(line);
+        }
         if (saved !== undefined && args.plan !== undefined) {
           say(savedPlanHeldLine(args.plan, saved));
         }
@@ -2094,8 +2474,39 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           dryRuns,
           acceptAutomation: applied.acceptAutomation,
           acceptEmails: applied.acceptEmails,
+          acceptUserEmails: applied.acceptUserEmails,
         });
-        for (const line of runResultLines(outcome.result, 'apply')) say(line);
+        // The audits and the note once the apply ended 0 or 3, after the
+        // checkpoint once applied: a slow audit never holds the starting
+        // point back, and neither changes the exit code.
+        const ended =
+          (outcome.exitCode === DONE_EXIT || outcome.exitCode === PARTIAL_EXIT) &&
+          outcome.result.refusal === undefined;
+        const after = ended
+          ? await afterApply(prepared, args, outcome.result, say)
+          : { result: outcome.result, before: [], after: [] };
+        for (const line of runResultLines(after.result, 'apply', after.before)) say(line);
+        for (const line of after.after) say(line);
+        answerJson(after.result);
+        endWith(outcome.exitCode);
+        return;
+      }
+      case 'audit': {
+        const prepared = await prepare(args, deps, say);
+        const outcome = await auditVerb(
+          { transport: prepared.reached.conn, journalDir: prepared.journalDir },
+          {
+            org: auditOrgOf(prepared),
+            audits: prepared.resolved.checked.file.audits,
+            file: args.file,
+            save: args.save,
+            failOnFindings: args.failOnFindings,
+          },
+        );
+        if ('refusal' in outcome) {
+          throw new Stop({ refusal: outcome.refusal }, outcome.exitCode);
+        }
+        for (const line of outcome.lines) say(line);
         answerJson(outcome.result);
         endWith(outcome.exitCode);
         return;

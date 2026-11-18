@@ -873,6 +873,124 @@ describe('the order', () => {
     expect(removalOrder(state, ['accounts', 'contacts'])).toEqual(['contacts', 'accounts']);
     expect(removalOrder(state, ['contacts', 'accounts'])).toEqual(['contacts', 'accounts']);
   });
+
+  it('takes a users resource back after every other, whatever the order it was applied in', async () => {
+    const state = await applied();
+    const testers = {
+      kind: 'users' as const,
+      fingerprint: 'c'.repeat(64),
+      dependsOn: [],
+      status: 'applied' as const,
+      runs: [],
+    };
+    const withUsers = { ...state, resources: { testers, ...state.resources } };
+
+    expect(removalOrder(withUsers, ['accounts', 'contacts', 'testers'])).toEqual([
+      'contacts',
+      'accounts',
+      'testers',
+    ]);
+    // Negative control: without its kind, it is one more resource in the order given.
+    const seeded = {
+      ...withUsers,
+      resources: { ...withUsers.resources, testers: { ...testers, kind: 'seed' as const } },
+    };
+    expect(removalOrder(seeded, ['accounts', 'contacts', 'testers'])).toEqual([
+      'testers',
+      'contacts',
+      'accounts',
+    ]);
+  });
+});
+
+describe('the lines of a plan', () => {
+  const plan = (over: Partial<EnvPlan> = {}): EnvPlan => ({
+    env: 'uat-after-refresh',
+    org: { organizationId: '00D000000000002AAA', kind: 'sandbox', alias: 'uat' },
+    state: { found: false },
+    actions: [],
+    totals: { create: 0, keep: 0, replace: 0, delete: 0, drifted: 0, blocked: 0 },
+    gates: { apiRequests: { estimate: 0, partial: false }, storage: { bytes: 0 }, emails: [] },
+    ...over,
+  });
+
+  it('name a sandbox by its My Domain on a sandbox’s host, and by its kind alone on another', () => {
+    expect(
+      planLines(
+        plan({
+          org: {
+            organizationId: '00D000000000002AAA',
+            kind: 'sandbox',
+            alias: 'uat',
+            host: 'acme--uat.sandbox.my.salesforce.com',
+          },
+        }),
+      )[0],
+    ).toBe('plan of uat-after-refresh on uat (sandbox acme--uat, 00D000000000002AAA)');
+    expect(
+      planLines(
+        plan({
+          org: {
+            organizationId: '00D000000000002AAA',
+            kind: 'sandbox',
+            alias: 'uat',
+            host: 'example.my.salesforce.com',
+          },
+        }),
+      )[0],
+    ).toBe('plan of uat-after-refresh on uat (sandbox, 00D000000000002AAA)');
+  });
+
+  it('say the state of the sandbox before its refresh where none is kept for its Id, set aside', () => {
+    const lines = planLines(
+      plan({
+        state: {
+          found: false,
+          refreshed: {
+            organizationId: '00D000000000001AAA',
+            serial: 9,
+            updatedAt: '2026-11-14T10:00:00.000Z',
+            setAside: '/home/dev/.sandforge/env/00D000000000001AAA/uat-after-refresh',
+          },
+        },
+      }),
+    );
+
+    expect(lines[1]).toBe(
+      'state: none for this Organization Id; uat was refreshed since the last apply, which this ' +
+        'machine kept under 00D000000000001AAA (serial 9, 2026-11-14): the refresh took what it ' +
+        'held, and this apply starts anew. That state is set aside, kept: ' +
+        '/home/dev/.sandforge/env/00D000000000001AAA/uat-after-refresh',
+    );
+  });
+
+  it('say the emails to people, accepted by the line or not, and what the audits after the apply cost', () => {
+    const asked = (accepted: boolean) =>
+      planLines(
+        plan({
+          gates: {
+            apiRequests: { estimate: 0, partial: false },
+            storage: { bytes: 0 },
+            emails: [],
+            emailsToPeople: { count: 2, accepted },
+          },
+        }),
+        'apply',
+        { audits: 'audits after the apply: deliverability, about 1 to 2 API requests' },
+      );
+
+    expect(asked(false)).toContain(
+      'emails to people: 2, which the line accepts with --accept-user-emails',
+    );
+    expect(asked(true)).toContain(
+      'emails to people: 2, accepted by the line (--accept-user-emails)',
+    );
+    expect(asked(true)).toContain(
+      'audits after the apply: deliverability, about 1 to 2 API requests',
+    );
+    // None to people, none said.
+    expect(planLines(plan()).some((line) => line.startsWith('emails to people'))).toBe(false);
+  });
 });
 
 describe('the plan of a destroy', () => {

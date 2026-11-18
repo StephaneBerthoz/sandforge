@@ -13,6 +13,9 @@
  * - a mask resource names none: a masking creates no record, it writes over
  *   records the org holds. It says per object how many its last run went
  *   through, and the snapshot that run took first;
+ * - a users resource names the users its last run set up, by username and
+ *   id alone, as that run's answer, kept as its summary, names them: the
+ *   users the org holds, which it set up, never made;
  * - a resource not applied whole — its last run partial, failed or stopped
  *   part way — names none, and says why: a suite run against part of an
  *   environment tests what nobody declared. Nor does one whose run keeps no
@@ -27,8 +30,17 @@
  * refused, both named: only an Organization Id says which is meant.
  */
 
-import type { EnvOutput, EnvOutputResource, EnvResourceStatus, EnvState } from '@sandforge/shared';
+import { readFileSync } from 'node:fs';
+import type {
+  EnvOutput,
+  EnvOutputResource,
+  EnvResourceStatus,
+  EnvRun,
+  EnvState,
+} from '@sandforge/shared';
 import type { EnvRefusal } from './envGuards.js';
+import { StepAnswerError } from './kinds/common.js';
+import { readUsersApply, usersSetUpOf } from './kinds/users.js';
 import { dependencyOrder } from './envPlan.js';
 import { createdByRun, type EnvReferenceDeps } from './envReferences.js';
 import type { EnvStateListing } from './envState.js';
@@ -44,6 +56,37 @@ export const OUTPUT_MASK_DESTROYED_WHY =
 /** What a mask resource says, applied or not. */
 export const OUTPUT_MASK_WHY =
   'a masking creates no record: it writes over those the org holds that its condition selects';
+
+/** What a users resource says, applied or not. */
+export const OUTPUT_USERS_WHY =
+  'a users resource creates no record of its own: it sets up users the org holds, named here';
+
+/**
+ * The users a users run set up, from its answer kept as its summary, or why
+ * they cannot be named: the run stopped before it answered, or its summary
+ * does not read.
+ */
+function usersSetUpBy(
+  run: EnvRun | undefined,
+  where: { organizationId: string; env: string },
+  deps: EnvReferenceDeps,
+): { users: Array<{ username: string; userId: string }> } | { refusal: string } {
+  if (run?.summary === undefined) {
+    return { refusal: 'its last run stopped before it answered: it names no user' };
+  }
+  try {
+    const text = readFileSync(
+      deps.store.fileOf(where.organizationId, where.env, run.summary),
+      'utf8',
+    );
+    return { users: usersSetUpOf(readUsersApply(text)) };
+  } catch (err: unknown) {
+    if (err instanceof StepAnswerError || err instanceof Error) {
+      return { refusal: `its last run's summary does not read: ${err.message}` };
+    }
+    throw err;
+  }
+}
 
 /** Why a resource not applied whole names no record, by its status. */
 const NOT_WHOLE: Readonly<Partial<Record<EnvResourceStatus, string>>> = {
@@ -165,6 +208,22 @@ export async function outputOf(
       };
       continue;
     }
+    if (kept.kind === 'users') {
+      const live = [...kept.runs].reverse().find((run) => run.takenBack !== true);
+      const set = usersSetUpBy(live, where, deps);
+      if ('refusal' in set) whole = false;
+      resources[name] = {
+        ...base,
+        ...('users' in set ? { users: set.users } : {}),
+        why:
+          'refusal' in set
+            ? set.refusal
+            : kept.status === 'applied'
+              ? OUTPUT_USERS_WHY
+              : `${notWholeWhy(kept.status)}; ${OUTPUT_USERS_WHY}`,
+      };
+      continue;
+    }
     if (kept.status !== 'applied') {
       resources[name] = { ...base, why: notWholeWhy(kept.status) };
       continue;
@@ -214,6 +273,9 @@ export function outputLines(output: EnvOutput): string[] {
     }
     for (const [object, n] of Object.entries(resource.masked ?? {})) {
       lines.push(`    ${object}  ${n} masked`);
+    }
+    for (const user of resource.users ?? []) {
+      lines.push(`    User  ${user.username} ${user.userId}`);
     }
     if (resource.snapshotId !== undefined) {
       lines.push(`    snapshot ${resource.snapshotId}, taken first`);

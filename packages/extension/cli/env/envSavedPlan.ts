@@ -74,14 +74,28 @@ export interface SavedPlanInput {
   sandforgeVersion: string;
   /** On this machine's clock. */
   madeAt: string;
+  /**
+   * Whether the file lists the org by its My Domain: the host it answers on
+   * is then kept, the My Domain the file already names, and `apply --plan`
+   * holds the org it reaches to it.
+   */
+  listedByMyDomain?: boolean;
 }
 
-/** The saved plan of a plan, checked by its schema before it is written. */
+/**
+ * The saved plan of a plan, checked by its schema before it is written. The
+ * host the org answers on is not kept — it names the client, as the username
+ * the state keeps does —, unless the file lists the org by its My Domain,
+ * which that host only repeats.
+ */
 export function savedPlanOf(input: SavedPlanInput): EnvSavedPlan {
   const seeds: Record<string, number> = {};
   for (const [name, dry] of Object.entries(input.dryRuns)) {
     if ('answer' in dry && dry.answer.tool === SEED_SCRIPT) seeds[name] = dry.answer.seed;
   }
+  const { host, ...org } = input.plan.org;
+  const plan =
+    host !== undefined && input.listedByMyDomain === true ? input.plan : { ...input.plan, org };
   return envSavedPlanSchema.parse({
     savedPlan: 1,
     sandforgeVersion: input.sandforgeVersion,
@@ -93,7 +107,7 @@ export function savedPlanOf(input: SavedPlanInput): EnvSavedPlan {
         : { found: true, serial: input.state.serial, lineage: input.state.lineage },
     line: input.line,
     seeds,
-    plan: input.plan,
+    plan,
   } satisfies EnvSavedPlan);
 }
 
@@ -250,6 +264,18 @@ export function savedPlanMoved(
         `The plan kept in ${path} was made for ${org.alias ?? org.organizationId} ` +
         `(${org.organizationId}), and ${now.target.alias} is ${now.target.organizationId}: a ` +
         'plan is applied to the org it was made for. Nothing was written.',
+      exit: 1,
+    };
+  }
+  // A sandbox listed by its My Domain: the plan kept its host, and the org
+  // reached answers on it, or it is another sandbox under that Id.
+  if (org.host !== undefined && org.host !== now.target.host) {
+    return {
+      code: 'PLAN_OTHER_ORG',
+      message:
+        `The plan kept in ${path} was made for ${org.alias ?? org.organizationId} on ${org.host}, ` +
+        `and ${now.target.alias} answers on ${now.target.host ?? 'no My Domain host'}: a plan is ` +
+        'applied to the org it was made for. Nothing was written.',
       exit: 1,
     };
   }

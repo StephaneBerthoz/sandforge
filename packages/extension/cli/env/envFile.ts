@@ -154,7 +154,10 @@ export interface EnvFileChecked {
   file: EnvFile;
   /** The folder the file is in, resolved. */
   folder: string;
-  /** The resources in the order apply runs them: what each depends on first, ties in file order. */
+  /**
+   * The resources in the order apply runs them: the users resources first,
+   * then each after what it depends on, ties in file order.
+   */
   order: string[];
   /** What each resource runs, by name, with its kind. */
   runs: Record<string, EnvKindRun>;
@@ -333,10 +336,11 @@ export function dependenciesOf(name: string, resource: EnvFile['resources'][stri
 }
 
 /**
- * The resources in the order apply runs them: each after what it depends on,
- * and after what its relations draw their parents from, ties in file order;
- * a destroy runs it backwards. A dependency on no resource of the file, or a
- * circle of them, is refused: no order would apply it.
+ * The resources in the order apply runs them: the users resources first,
+ * whatever the file's order, then each after what it depends on, and after
+ * what its relations draw their parents from, ties in file order; a destroy
+ * runs it backwards. A dependency on no resource of the file, or a circle of
+ * them, is refused: no order would apply it.
  */
 function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusal[] } {
   const names = Object.keys(file.resources);
@@ -401,10 +405,15 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
     };
   }
 
+  // A users resource first, whatever the file's order: a replay keeps an
+  // owner who is an active user, and the testers' access is handed back
+  // before their data.
+  const first = names.filter((name) => file.resources[name]?.kind === 'users');
+  const candidates = [...first, ...names.filter((name) => !first.includes(name))];
   const order: string[] = [];
   const placed = new Set<string>();
   while (order.length < names.length) {
-    const next = names.find(
+    const next = candidates.find(
       (name) => !placed.has(name) && (edges.get(name) ?? []).every((dep) => placed.has(dep)),
     );
     // A circle was refused above: there is always a next one.

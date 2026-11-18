@@ -509,7 +509,16 @@ describe('docs/environments.md', () => {
 
   it('names each command the script reads, with the flags each reads, and no other', () => {
     const commands = commandsRead();
-    expect(commands).toEqual(['validate', 'plan', 'apply', 'destroy', 'reset', 'state', 'output']);
+    expect(commands).toEqual([
+      'validate',
+      'plan',
+      'apply',
+      'destroy',
+      'reset',
+      'state',
+      'output',
+      'audit',
+    ]);
     const flags = flagsOf();
     // Positive control: the table read is the one each command checks its line against.
     expect(flags.get('destroy')).toEqual(

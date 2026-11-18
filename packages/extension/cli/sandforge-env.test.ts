@@ -296,7 +296,12 @@ describe('plan, apply, plan again, destroy', () => {
     const planned = await run(['plan', '--org', 'TGT', '--json']);
     expect(planned.code).toBe(0);
     const plan = envPlanSchema.parse(planned.answer);
-    expect(plan.org).toEqual({ organizationId: ORG_ID, kind: 'scratch', alias: 'TGT' });
+    expect(plan.org).toEqual({
+      organizationId: ORG_ID,
+      kind: 'scratch',
+      alias: 'TGT',
+      host: 'example.my.salesforce.com',
+    });
     expect(plan.actions.map((a) => [a.resource, a.action])).toEqual([
       ['accounts', 'create'],
       ['contacts', 'create'],
