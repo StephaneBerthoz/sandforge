@@ -1,5 +1,7 @@
 /**
- * README claim gate for the Internationalization section.
+ * Claim gate for what SandForge says of its languages: the Languages section of
+ * docs/configuration.md, where the README's Internationalization section moved
+ * when the README became a short landing page (1.83.0).
  *
  * The extension README is the Marketplace description, so a sentence there is
  * read as a guarantee. Two i18n claims outran the code. A translation
@@ -59,19 +61,19 @@ function productionSources(dir, out = []) {
   return out;
 }
 
-/** The `## Internationalization` section of a README, next heading excluded. */
+/** The `## Languages` section of a page, next heading excluded. */
 function i18nSection(relPath) {
   const text = readFileSync(join(repoRoot, relPath), 'utf8');
-  const start = text.indexOf('## Internationalization');
-  assert.notEqual(start, -1, `${relPath} has no "## Internationalization" section`);
-  const rest = text.slice(start + '## Internationalization'.length);
+  const start = text.indexOf('## Languages');
+  assert.notEqual(start, -1, `${relPath} has no "## Languages" section`);
+  const rest = text.slice(start + '## Languages'.length);
   const end = rest.indexOf('\n## ');
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-const READMES = ['README.md', 'packages/extension/README.md'];
+const READMES = ['docs/configuration.md'];
 
-test('both READMEs claim key parity, not translation coverage', () => {
+test('the Languages section claims key parity, not translation coverage', () => {
   for (const relPath of READMES) {
     const section = i18nSection(relPath);
 
@@ -90,7 +92,7 @@ test('both READMEs claim key parity, not translation coverage', () => {
   }
 });
 
-test('both READMEs say which locale drives Intl formatting', () => {
+test('the Languages section says which locale drives Intl formatting', () => {
   for (const relPath of READMES) {
     const section = i18nSection(relPath);
 

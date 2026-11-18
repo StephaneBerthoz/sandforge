@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -6,6 +6,9 @@ import { CHANGELOG_URL, WhatsNewPage, WHATS_NEW, releasesToShow } from './WhatsN
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
 import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 
 /** The extension manifest, which names the publisher and the extension the Marketplace lists. */
 const manifest = JSON.parse(
@@ -332,5 +335,122 @@ describe('WhatsNewPage', () => {
       expect(entry).toContain(catalogue.forgeRun.rehearsal.action);
       expect(entry).not.toMatch(retired);
     }
+  });
+});
+
+/**
+ * From 1.82.0 on, a highlight says in one sentence what a release lets you do
+ * and where: in a module, a terminal, a CI job, sf or an AI agent.
+ *
+ * 1.82.0 first shipped five descriptions of 239 to 646 characters in English,
+ * up to 801 in French, each a paragraph of flags, sandforge.yaml keys,
+ * conditions and caveats, on the panel every upgrader opens. They were
+ * rewritten to one sentence each; flags, keys, conditions and what is not yet
+ * proven belong to the changelog and the guides. Releases before 1.82.0 keep
+ * the text they shipped with.
+ *
+ * Each cap leaves a little room above the rewritten 1.82.0 lines, and none
+ * for a second clause of options:
+ *  - English, 170 characters: one sentence of about 160, as asked; the 1.82.0
+ *    descriptions run 136 to 160;
+ *  - French, German, Spanish and Brazilian Portuguese, 230: the same sentence
+ *    runs up to a third longer in them, 151 to 209 for 1.82.0;
+ *  - Japanese, 130: it writes the sentence in about 60% of the English
+ *    characters, 79 to 119 for 1.82.0, so the Latin-script cap would never
+ *    hold it back;
+ *  - an English title, 40 characters, and five highlights per release.
+ */
+describe("What's New stays short from 1.82.0 on", () => {
+  const LIGHT_SINCE = '1.82.0';
+  const MAX_HIGHLIGHTS = 5;
+  const MAX_TITLE_EN = 40;
+  const MAX_DESCRIPTION: Readonly<Record<string, number>> = {
+    en: 170,
+    fr: 230,
+    de: 230,
+    es: 230,
+    'pt-BR': 230,
+    ja: 130,
+  };
+  const CATALOGUES: Readonly<Record<string, unknown>> = { en, fr, de, es, 'pt-BR': ptBR, ja };
+
+  /** Whether `version` is `since` or a later release, compared by numbers. */
+  const isAtOrAfter = (version: string, since: string): boolean => {
+    const a = version.split('.').map(Number);
+    const b = since.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      const delta = (a[i] ?? 0) - (b[i] ?? 0);
+      if (delta !== 0) return delta > 0;
+    }
+    return true;
+  };
+
+  /** The text a catalogue holds under a dotted key. */
+  const textOf = (catalogue: unknown, key: string): string =>
+    String(
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+          catalogue,
+        ),
+    );
+
+  /** Characters as a reader counts them, a Japanese one as one. */
+  const lengthOf = (text: string): number => [...text].length;
+
+  const lightReleases = Object.entries(WHATS_NEW).filter(([version]) =>
+    isAtOrAfter(version, LIGHT_SINCE),
+  );
+
+  it('applies to 1.82.0 and every release after it, never to one before', () => {
+    const versions = lightReleases.map(([version]) => version);
+    expect(versions).toContain('1.82.0');
+    expect(versions).not.toContain('1.81.0');
+  });
+
+  it('caps the descriptions of every language the panel ships in', () => {
+    const shipped = readdirSync(resolve(__dirname, '..', '..', 'i18n', 'locales'))
+      .filter((file) => file.endsWith('.json'))
+      .map((file) => file.replace(/\.json$/, ''))
+      .sort();
+    expect(Object.keys(MAX_DESCRIPTION).sort()).toEqual(shipped);
+    expect(Object.keys(CATALOGUES).sort()).toEqual(shipped);
+  });
+
+  it('lists five highlights at most per release', () => {
+    const over = lightReleases
+      .filter(([, features]) => features.length > MAX_HIGHLIGHTS)
+      .map(([version, features]) => `${version}: ${features.length} highlights`);
+    expect(over, `more than ${MAX_HIGHLIGHTS} highlights`).toEqual([]);
+  });
+
+  it('keeps an English highlight title to 40 characters', () => {
+    const over = lightReleases.flatMap(([version, features]) =>
+      features
+        .map((feature) => [feature.titleKey, lengthOf(textOf(en, feature.titleKey))] as const)
+        .filter(([, length]) => length > MAX_TITLE_EN)
+        .map(([key, length]) => `${version} ${key}: ${length} characters`),
+    );
+    expect(over, `English titles over ${MAX_TITLE_EN} characters`).toEqual([]);
+  });
+
+  it('keeps each highlight description to one short sentence in every language', () => {
+    const over: string[] = [];
+    for (const [locale, catalogue] of Object.entries(CATALOGUES)) {
+      const cap = MAX_DESCRIPTION[locale] ?? 0;
+      for (const [version, features] of lightReleases) {
+        for (const feature of features) {
+          const length = lengthOf(textOf(catalogue, feature.descKey));
+          if (length > cap) {
+            over.push(`${locale} ${version} ${feature.descKey}: ${length} characters, cap ${cap}`);
+          }
+        }
+      }
+    }
+    expect(
+      over,
+      "a What's New description says what one can do and where; flags, config keys and caveats go to the changelog",
+    ).toEqual([]);
   });
 });

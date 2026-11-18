@@ -165,16 +165,17 @@ describe('the setting as it is described', () => {
     },
   );
 
-  it.each([['README.md'], ['packages', 'extension', 'README.md'], ['docs', 'forge-quickstart.md']])(
-    '%s names it too',
-    (...path) => {
-      const lines = readFileSync(join(REPO, ...path), 'utf8')
-        .split('\n')
-        .filter((line) => line.includes('`auto`') && line.includes('graph'));
-      expect(lines.length).toBeGreaterThan(0);
-      for (const line of lines) expect(namesTheNumber(line)).toBe(true);
-    },
-  );
+  // The Settings table lives in docs/configuration.md since 1.83.0, no longer in the READMEs.
+  it.each([
+    ['docs', 'configuration.md'],
+    ['docs', 'forge-quickstart.md'],
+  ])('%s names it too', (...path) => {
+    const lines = readFileSync(join(REPO, ...path), 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('`auto`') && line.includes('graph'));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(namesTheNumber(line)).toBe(true);
+  });
 
   /** The narrowest panel the graph is drawn in, as a number. */
   const namesTheWidth = (text: string): boolean =>
@@ -191,8 +192,7 @@ describe('the setting as it is described', () => {
   );
 
   it.each([
-    ['README.md'],
-    ['packages', 'extension', 'README.md'],
+    ['docs', 'configuration.md'],
     ['docs', 'forge-quickstart.md'],
     ['docs', 'forge-reference.md'],
   ])('%s names the width too', (...path) => {

@@ -420,19 +420,16 @@ describe('docs/mcp.md', () => {
 describe('the pages that send a reader to docs/mcp.md', () => {
   it('the README’s checkpoint paragraph, the checkpoint guide and the FAQ’s answer on what is sent', () => {
     const readme = source('README.md');
-    const rewind = readme.slice(readme.indexOf('## Rewind an org to a checkpoint'));
-    const checkpoint = rewind
-      .split('\n')
-      .find((line) => line.includes('[`sandforge checkpoint`]('));
+    // Since 1.83.0 the README names the server where it says the scripts, in its
+    // command-line section; the line that says what the scripts are links it.
+    const scripts = readme.slice(readme.indexOf('## Test data as code, for the command line & CI'));
+    const checkpoint = scripts.split('\n').find((line) => line.includes('](docs/mcp.md)'));
     const privacy = source('docs/faq.md')
       .split('\n')
       .find((line) => line.startsWith('Only to Anthropic'));
 
     expect(checkpoint).toContain('](docs/mcp.md)');
-    // The server's tools apply and destroy environments too: the paragraph names them.
-    expect(checkpoint).toContain(
-      'the plan, apply and destroy of the environments a `sandforge.yaml` declares',
-    );
+    expect(checkpoint).toContain('an AI agent reaches them as the tools of an [MCP server]');
     expect(source('docs/modules/checkpoint.md')).toContain('](../mcp.md)');
     expect(privacy).toContain('](mcp.md)');
   });

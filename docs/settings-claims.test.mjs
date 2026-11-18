@@ -65,9 +65,9 @@ test('the telemetry setting says local and nothing sent, in six languages', () =
   assert.match(bundles().en['config.telemetry.description'], /Nothing is sent/);
 });
 
-test('both READMEs describe the telemetry setting as the manifest does', () => {
+test('the Settings table describes the telemetry setting as the manifest does', () => {
   const expected = bundles().en['config.telemetry.description'];
-  for (const readme of [['README.md'], ['packages', 'extension', 'README.md']]) {
+  for (const readme of [['docs', 'configuration.md']]) {
     const row = read(...readme)
       .split('\n')
       .find((line) => line.startsWith('| `sandforge.telemetry`'));
@@ -138,7 +138,7 @@ test('anchor: no setting drops the question a write to a production org is asked
   );
 });
 
-test('the production setting says it is no longer used, in the manifest, six languages and both READMEs', () => {
+test('the production setting says it is no longer used, in the manifest, six languages and the Settings table', () => {
   const property = JSON.parse(read('packages', 'extension', 'package.json')).contributes
     .configuration.properties['sandforge.safety.requireProdConfirmation'];
   assert.ok(property, 'the setting is gone from the manifest — re-point this gate');
@@ -150,7 +150,7 @@ test('the production setting says it is no longer used, in the manifest, six lan
       assert.match(text, NO_LONGER_USED[locale], `${locale}: the ${key} still sells the setting`);
     }
   }
-  for (const readme of [['README.md'], ['packages', 'extension', 'README.md']]) {
+  for (const readme of [['docs', 'configuration.md']]) {
     const row = read(...readme)
       .split('\n')
       .find((line) => line.startsWith('| `sandforge.safety.requireProdConfirmation`'));

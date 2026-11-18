@@ -1,5 +1,8 @@
 /**
- * The two Settings tables against the settings the extension declares.
+ * The Settings table against the settings the extension declares.
+ *
+ * Since 1.83.0 the table lives in docs/configuration.md alone, and both READMEs
+ * link it: one table cannot drift from a second.
  *
  * Both READMEs list `sandforge.*` in a table, and the two drifted apart: the
  * Marketplace one gained `sandforge.orgs.validateOnStartup` and the repository
@@ -25,6 +28,7 @@ const repoRoot = resolve(docsDir, '..');
 const read = (...parts) => readFileSync(join(repoRoot, ...parts), 'utf8');
 
 const READMES = ['README.md', 'packages/extension/README.md'];
+const TABLES = ['docs/configuration.md'];
 
 const manifest = () => JSON.parse(read('packages', 'extension', 'package.json'));
 
@@ -62,9 +66,9 @@ function documentedSettings(relativePath) {
   );
 }
 
-test('both READMEs list exactly the settings the manifest declares', () => {
+test('the configuration page lists exactly the settings the manifest declares', () => {
   const declared = Object.keys(declaredSettings()).sort();
-  for (const relativePath of READMES) {
+  for (const relativePath of TABLES) {
     const documented = Object.keys(documentedSettings(relativePath)).sort();
     assert.deepEqual(
       documented,
@@ -76,22 +80,26 @@ test('both READMEs list exactly the settings the manifest declares', () => {
   }
 });
 
-test('the two Settings tables say the same thing', () => {
-  // The description is compared as well as the default: a row reworded in one
-  // file only is how the two tables drifted the first time.
-  const [root, marketplace] = READMES.map(documentedRows);
-  assert.deepEqual(
-    root,
-    marketplace,
-    'the repository README and the Marketplace README describe the same extension; these two ' +
-      'tables have drifted apart',
-  );
+test('the READMEs carry no second Settings table, and link the one there is', () => {
+  // Two tables drifted apart the first time; a copy in a README would again.
+  for (const relativePath of READMES) {
+    const text = read(...relativePath.split('/'));
+    assert.ok(
+      !text.split('\n').some((line) => /^\|\s*`sandforge\.[\w.]+`\s*\|/.test(line)),
+      `${relativePath}: a Settings table is back; the one table is docs/configuration.md`,
+    );
+    assert.match(
+      text,
+      /\]\((?:https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/master\/)?docs\/configuration\.md\)/,
+      `${relativePath}: no link to the Settings table`,
+    );
+  }
 });
 
 test('the documented default is the manifest default', () => {
   const declared = declaredSettings();
   const offenders = [];
-  for (const relativePath of READMES) {
+  for (const relativePath of TABLES) {
     for (const [key, documented] of Object.entries(documentedSettings(relativePath))) {
       const expected = String(declared[key]);
       if (documented !== expected) {

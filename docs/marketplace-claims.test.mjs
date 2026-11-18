@@ -1230,8 +1230,9 @@ test('the Compare rows of both READMEs describe what Compare reads', () => {
     const rows = read(...relPath.split('/'))
       .split('\n')
       .filter((line) => /^\|\s*(?:\*\*Compare\*\*|\[Compare\])/.test(line));
-    // Positive control: the feature table row and the module index row.
-    assert.equal(rows.length, 2, `${relPath}: expected two Compare rows, found ${rows.length}`);
+    // Positive control: the feature table row. The module index row left the
+    // README with 1.83.0; the feature row links the module guide itself.
+    assert.equal(rows.length, 1, `${relPath}: expected one Compare row, found ${rows.length}`);
     for (const row of rows) {
       const hit = COMPARE_OVERCLAIM.exec(row);
       if (hit) offenders.push(`${relPath}: "${hit[0]}"`);
@@ -1611,10 +1612,8 @@ test('anchor: Migration imports an SFDMU export.json alone, run from Sync, as bo
   );
   for (const relPath of READMES) {
     const lines = read(...relPath.split('/')).split('\n');
-    const rows = [
-      lines.find((line) => line.startsWith('| **Migration**')),
-      lines.find((line) => line.startsWith('| [Migration]')),
-    ];
+    // The feature table row; the module index row left the README with 1.83.0.
+    const rows = [lines.find((line) => line.startsWith('| **Migration**'))];
     for (const row of rows) {
       assert.ok(row, `${relPath}: a Migration row is gone`);
       assert.match(row, /SFDMU `?export\.json`?/, `${relPath}: a Migration row no longer names it`);
@@ -1656,10 +1655,11 @@ test('anchor: the first SandForge view of a window refreshes expired org session
       /when SandForge first opens a view in a window, expired sessions are refreshed through the sf CLI/,
       `${relPath}: the Organizations row no longer says when the sessions are refreshed`,
     );
-    const setting = read(...relPath.split('/'))
+    // The Settings table lives in docs/configuration.md since 1.83.0.
+    const setting = read('docs', 'configuration.md')
       .split('\n')
       .find((line) => line.startsWith('| `sandforge.orgs.validateOnStartup`'));
-    assert.ok(setting, `${relPath}: the validateOnStartup row is gone`);
+    assert.ok(setting, 'docs/configuration.md: the validateOnStartup row is gone');
     assert.doesNotMatch(
       `${row}\n${setting}`,
       /at startup/i,
