@@ -829,6 +829,14 @@ const UNVERIFIABLE_SUBSCRIPTIONS: ReadonlyArray<{ site: string; why: string }> =
       'posts, and dispatch() answers a malformed one with bridge:error; nothing to drive.',
   },
   {
+    site: 'providers/SidebarViewProvider.ts: afterRefreshSource.onDidChange',
+    why:
+      'The progress of a sandbox back into service, handed to the provider by extension.ts ' +
+      'from ExtensionHandlers.recoveryProgress, whose source fires it each time a step of the ' +
+      'page changes or a refresh is noticed: a cross-file binding this scan does not resolve. ' +
+      'Each change is pushed to the launcher as sidebar:afterRefresh.',
+  },
+  {
     site: 'extension.ts: orgManager.onOrgChange',
     why:
       'OrgManager is built in composition/coreComposition.ts and driven through the injected ' +
