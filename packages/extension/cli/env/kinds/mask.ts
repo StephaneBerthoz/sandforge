@@ -57,6 +57,7 @@ import {
   type EnvMaskingSet,
   type EnvPlanObject,
   type EnvResourceState,
+  type EnvState,
 } from '@sandforge/shared';
 import { anonymizationTemplateSavePayloadSchema } from '../../../src/bridge/validatePayload.js';
 import { ANONYMIZATION_TEMPLATES } from '../../../src/bridge/templates/anonymizationTemplates.js';
@@ -667,16 +668,86 @@ export function maskRunCount(answer: MaskRunAnswer): MaskRunCount {
 // ─── What the org holds of a masking applied ─────────────────────────────────
 
 /**
+ * What the resources applied after a masking in the same environment created
+ * since its last run, per object, read in their own runs: those its
+ * condition selects, and those it may select or not.
+ */
+export interface MaskCreatedAfter {
+  /**
+   * Records its condition selects, which are theirs and no drift: a masking
+   * with no condition selects every record of its object, theirs among them.
+   */
+  theirs: Map<string, number>;
+  /**
+   * Records a masking with a condition may select or not: its dry run counts
+   * what its condition selects, and names no record, so a count does not
+   * tell them apart from records copied in since.
+   */
+  unsure: Map<string, number>;
+}
+
+/**
+ * What the resources applied after a masking created since its last run,
+ * per object, read in their own runs: of each, the runs not taken back that
+ * started once the masking's last run had — a frozen resource's last alone,
+ * whose reload took the loads before it —; none of a resource destroyed, nor
+ * of one applied before it, whose records were there to mask. Theirs where
+ * the masking has no condition; otherwise ones it may select or not.
+ *
+ * @param order - The resources of the file in the order apply runs them.
+ * @param condition - The masking's own condition (`where`), if it has one.
+ */
+export function createdAfterMasking(
+  name: string,
+  state: Pick<EnvState, 'resources'> | undefined,
+  order: readonly string[],
+  condition: string | undefined,
+): MaskCreatedAfter {
+  const created = new Map<string, number>();
+  const since = state?.resources[name]?.runs.at(-1)?.startedAt;
+  const at = order.indexOf(name);
+  if (state !== undefined && since !== undefined && at >= 0) {
+    for (const following of order.slice(at + 1)) {
+      const resource = state.resources[following];
+      if (resource === undefined || resource.status === 'destroyed') continue;
+      const live = resource.runs.filter((run) => run.takenBack !== true);
+      for (const run of resource.kind === 'frozen' ? live.slice(-1) : live) {
+        if (Date.parse(run.startedAt) < Date.parse(since)) continue;
+        for (const object of run.objects) {
+          if (object.created <= 0) continue;
+          created.set(
+            object.objectApiName,
+            (created.get(object.objectApiName) ?? 0) + object.created,
+          );
+        }
+      }
+    }
+  }
+  return condition === undefined
+    ? { theirs: created, unsure: new Map() }
+    : { theirs: new Map(), unsure: created };
+}
+
+/**
  * What the org holds of a masking applied, read by its dry run now: per
  * object, the records its condition selects against those its last run went
  * through. The same count is the same masking, kept; another is drift —
  * records copied in since, which hold their original values, or records
  * gone. A dry run that does not say leaves it unread.
+ *
+ * Of the records more than it masked, as many as the resources applied
+ * after it in the same environment created since and its condition selects
+ * (`createdAfter.theirs`, from {@link createdAfterMasking}) are theirs, and
+ * no drift: a replay after a masking would otherwise put the masking in
+ * drift at every plan, and `--replace-drifted` mask again for nothing. Those
+ * a condition may select or not are never taken for theirs, which would
+ * keep a masking over a record copied in since: the drift says them.
  */
 export function maskHeldOf(
   kept: Pick<EnvResourceState, 'runs'>,
   answer: MaskDryRunAnswer,
-): { objects: EnvPlanObject[]; masked: number; drift?: string; unread?: string } {
+  createdAfter: MaskCreatedAfter = { theirs: new Map(), unsure: new Map() },
+): { objects: EnvPlanObject[]; masked: number; theirs?: number; drift?: string; unread?: string } {
   const read = maskDryRead(answer);
   const last = kept.runs.at(-1);
   const masked = new Map(
@@ -687,19 +758,30 @@ export function maskHeldOf(
   }
   const drift: string[] = [];
   const objects: EnvPlanObject[] = [];
+  let theirs = 0;
   for (const { object, count } of read.objects) {
     const now = count ?? 0;
     const before = masked.get(object) ?? 0;
+    const created = Math.min(Math.max(0, now - before), createdAfter.theirs.get(object) ?? 0);
+    theirs += created;
     // Held masked: those of its records still under its condition.
     objects.push({
       object,
       present: Math.min(now, before),
       ...(now < before ? { gone: before - now } : {}),
     });
-    if (now > before) {
+    if (now - created > before) {
+      const since =
+        created > 0 ? `, ${created} created since by the resources applied after it` : '';
+      const unsure = createdAfter.unsure.get(object) ?? 0;
+      const maybe =
+        unsure > 0
+          ? `, unless they are among the ${unsure} the resources applied after it created ` +
+            'since, which a count under its condition does not tell apart'
+          : '';
       drift.push(
-        `${object} ${now} under its condition, ${before} masked: ${now - before} more, which ` +
-          'hold their original values',
+        `${object} ${now} under its condition, ${before} masked${since}: ` +
+          `${now - created - before} more, which hold their original values${maybe}`,
       );
     } else if (now < before) {
       drift.push(`${object} ${now} under its condition, ${before} masked: ${before - now} gone`);
@@ -708,6 +790,7 @@ export function maskHeldOf(
   return {
     objects,
     masked: [...masked.values()].reduce((sum, n) => sum + n, 0),
+    ...(theirs > 0 ? { theirs } : {}),
     ...(drift.length > 0 ? { drift: drift.join('; ') } : {}),
   };
 }
@@ -784,11 +867,15 @@ export const MASK_STATUS_WHY: Readonly<Partial<Record<EnvResourceState['status']
   destroying: 'a deletion of its snapshots was stopped part way',
 };
 
-/** Why a mask resource kept as applied is: the same rules, the same records. */
-export function maskKeptWhy(masked: number): string {
+/**
+ * Why a mask resource kept as applied is: the same rules, the same records,
+ * beside those the resources applied after it created since.
+ */
+export function maskKeptWhy(masked: number, theirs = 0): string {
   return (
     `applied, and its condition selects the ${masked} record(s) it masked, with the same ` +
-    'rules: masked again they would only be masked twice'
+    `rules${theirs > 0 ? `, beside ${theirs} the resources applied after it created since` : ''}: ` +
+    'masked again they would only be masked twice'
   );
 }
 

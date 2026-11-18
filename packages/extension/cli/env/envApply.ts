@@ -778,6 +778,12 @@ async function runResourceStep(
     return runMaskStep(deps, state, input, startedAt);
   }
 
+  // Never run as a clone: a kind with no step here is refused before its script starts.
+  if (resource.kind !== 'forge') {
+    throw new Error(
+      `${resource.name} is a ${resource.kind} resource, which this apply has no step for`,
+    );
+  }
   // A forge run: its summary named in the state before the clone starts it.
   const summary = runSummaryPathOf(resource.name, n);
   const summaryFile = await deps.store.prepareFile(where.organizationId, env, summary);

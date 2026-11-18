@@ -50,6 +50,13 @@ import { maskingSetsOf } from './kinds/mask.js';
 import { canonicalJson, pathText, refusalAt, sha256, type EnvFileRefusal } from './kinds/common.js';
 import type { EnvSourceRead } from './kinds/forge.js';
 import type { EnvDatasetRead } from './kinds/frozen.js';
+import {
+  replayFileOf,
+  type EnvReplayCheckpointRead,
+  type EnvReplayPlace,
+  type EnvReplayRun,
+} from './kinds/replay.js';
+import type { EnvUsersRun } from './kinds/users.js';
 
 export { canonicalJson, pathText, type EnvFileRefusal };
 
@@ -138,7 +145,7 @@ export interface EnvFileVariable {
   path: EnvDocumentPath;
   /** The org role whose alias it holds. */
   role?: string;
-  /** The frozen resource whose dataset's path it holds. */
+  /** The frozen resource whose dataset's path it holds, or the replay whose checkpoint file's. */
   resource?: string;
 }
 
@@ -255,6 +262,14 @@ export function checkEnvFile(
       variables.push({
         name: resource.dataset.path.env,
         path: ['resources', name, 'dataset', 'path'],
+        resource: name,
+      });
+    }
+    const checkpointFile = resource.kind === 'replay' ? resource.checkpoint.file : undefined;
+    if (checkpointFile !== undefined && typeof checkpointFile !== 'string') {
+      variables.push({
+        name: checkpointFile.env,
+        path: ['resources', name, 'checkpoint', 'file'],
         resource: name,
       });
     }
@@ -506,7 +521,9 @@ export type EnvFileResource =
   | (EnvFileResourceBase & { kind: 'seed'; run: EnvSeedRun })
   | (EnvFileResourceBase & { kind: 'forge'; run: EnvForgeRun; source: EnvForgeSource })
   | (EnvFileResourceBase & { kind: 'frozen'; run: EnvFrozenRun; dataset: EnvFrozenDatasetPlace })
-  | (EnvFileResourceBase & { kind: 'mask'; run: EnvMaskRun });
+  | (EnvFileResourceBase & { kind: 'mask'; run: EnvMaskRun })
+  | (EnvFileResourceBase & { kind: 'users'; run: EnvUsersRun })
+  | (EnvFileResourceBase & { kind: 'replay'; run: EnvReplayRun; checkpoint: EnvReplayPlace });
 
 /** A file whose variables are read: what `plan`, `apply` and `destroy` work from. */
 export interface EnvFileResolved {
@@ -535,6 +552,9 @@ const ALIAS = /^[^-\s][^\s]{0,199}$/;
  * @param datasets - What a plan read of each frozen resource's dataset, by
  *   resource: its digest and version held to the file's pin. A resource
  *   whose dataset was not read, or is not the one pinned, a plan blocks.
+ * @param checkpoints - What a plan resolved each replay resource's
+ *   checkpoint to, by resource: its id and the org it was taken of, which
+ *   its fingerprint is of.
  */
 export function resolveEnvFile(
   checked: EnvFileChecked,
@@ -543,6 +563,7 @@ export function resolveEnvFile(
     aliases?: Readonly<Record<string, string>>;
     sources?: Readonly<Record<string, EnvSourceRead>>;
     datasets?: Readonly<Record<string, EnvDatasetRead>>;
+    checkpoints?: Readonly<Record<string, EnvReplayCheckpointRead>>;
   } = {},
 ): { resolved: EnvFileResolved } | { refusals: EnvFileRefusal[] } {
   const roles = Object.keys(checked.file.orgs);
@@ -605,6 +626,13 @@ export function resolveEnvFile(
     if ('refusal' in read) refusals.push(read.refusal);
     else datasetDirs[name] = read.dir;
   }
+  const checkpointFiles: Record<string, string> = {};
+  for (const [name, resource] of Object.entries(checked.file.resources)) {
+    if (resource.kind !== 'replay' || resource.checkpoint.file === undefined) continue;
+    const read = replayFileOf(name, resource.checkpoint.file, env);
+    if ('refusal' in read) refusals.push(read.refusal);
+    else checkpointFiles[name] = read.file;
+  }
   if (refusals.length > 0) return { refusals };
 
   const fingerprints: Record<string, string> = {};
@@ -621,6 +649,26 @@ export function resolveEnvFile(
     } else if (kindRun.kind === 'mask') {
       const { kind, ...run } = kindRun;
       ready = { name, kind, dependsOn, fingerprint: '', run };
+    } else if (kindRun.kind === 'users') {
+      const { kind, ...run } = kindRun;
+      ready = { name, kind, dependsOn, fingerprint: '', run };
+    } else if (kindRun.kind === 'replay') {
+      const { kind, ...run } = kindRun;
+      const read = options.checkpoints?.[name];
+      const from = run.from !== undefined ? orgs[run.from] : undefined;
+      const file = checkpointFiles[name];
+      ready = {
+        name,
+        kind,
+        dependsOn,
+        fingerprint: '',
+        run,
+        checkpoint: {
+          ...(from !== undefined ? { from } : {}),
+          ...(file !== undefined ? { file } : {}),
+          ...(read !== undefined ? { read } : {}),
+        },
+      };
     } else if (kindRun.kind === 'frozen') {
       const { kind, ...run } = kindRun;
       const read = options.datasets?.[name];
@@ -733,6 +781,7 @@ export function readEnvFile(
     aliases?: Readonly<Record<string, string>>;
     sources?: Readonly<Record<string, EnvSourceRead>>;
     datasets?: Readonly<Record<string, EnvDatasetRead>>;
+    checkpoints?: Readonly<Record<string, EnvReplayCheckpointRead>>;
     now?: Date;
   } = {},
 ): { resolved: EnvFileResolved } | { refusals: EnvFileRefusal[] } {
@@ -742,5 +791,6 @@ export function readEnvFile(
     ...(options.aliases ? { aliases: options.aliases } : {}),
     ...(options.sources ? { sources: options.sources } : {}),
     ...(options.datasets ? { datasets: options.datasets } : {}),
+    ...(options.checkpoints ? { checkpoints: options.checkpoints } : {}),
   });
 }

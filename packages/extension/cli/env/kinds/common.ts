@@ -179,6 +179,12 @@ export interface EnvDryRunCount {
   apiRequests?: number;
   storageBytes: number;
   emails: Array<{ limit: EnvEmailLimit; emails: number }>;
+  /**
+   * The emails Salesforce sends to people as the run writes — the link of
+   * each address a users resource asks back —, which no daily limit counts
+   * and only the line accepts. Absent for a kind that sends none.
+   */
+  emailsToPeople?: number;
   /** What the script says a real run would be refused for now. */
   refusal?: string;
   /** The codes of what `refusal` says, each once, where the script gave them. */

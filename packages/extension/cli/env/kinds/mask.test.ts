@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { EnvMaskResource, EnvResourceState } from '@sandforge/shared';
+import type { EnvMaskResource, EnvResourceState, EnvState } from '@sandforge/shared';
 import { missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import {
+  createdAfterMasking,
   forgetMaskStore,
   maskApplyLine,
   maskDeleteWhy,
@@ -13,6 +14,7 @@ import {
   maskDryRunLine,
   maskForgottenLine,
   maskHeldOf,
+  maskKeptWhy,
   maskingSetsOf,
   maskNotes,
   maskObjectsOf,
@@ -510,6 +512,136 @@ describe('what the org holds of a masking applied', () => {
       objects: [],
       masked: 0,
       unread: 'no session',
+    });
+  });
+});
+
+describe('what the org holds of a masking, beside what the resources after it created', () => {
+  /** A run of a resource, started at `at` (minutes past nine), creating `created` per object. */
+  const runAt = (
+    n: number,
+    script: EnvResourceState['runs'][number]['script'],
+    at: number,
+    created: Record<string, number>,
+    takenBack?: true,
+  ): EnvResourceState['runs'][number] => ({
+    n,
+    script,
+    startedAt: `2026-11-20T09:${String(at).padStart(2, '0')}:00.000Z`,
+    objects: Object.entries(created).map(([objectApiName, records]) => ({
+      objectApiName,
+      created: records,
+      refused: 0,
+    })),
+    ...(takenBack ? { takenBack } : {}),
+  });
+  const applied = (
+    kind: EnvResourceState['kind'],
+    runs: EnvResourceState['runs'],
+    status: EnvResourceState['status'] = 'applied',
+  ): EnvResourceState => ({ kind, fingerprint: 'f', dependsOn: [], status, runs });
+  const masking: EnvResourceState = applied('mask', [
+    {
+      n: 1,
+      script: 'sandforge-dataops',
+      snapshotId: 's1-snapshot',
+      startedAt: '2026-11-20T09:02:00.000Z',
+      objects: [{ objectApiName: 'Contact', created: 0, refused: 0, masked: 1204 }],
+    },
+  ]);
+  /** The environment of the recipe: users, a masking, a replay after it, a seed after that. */
+  const state: Pick<EnvState, 'resources'> = {
+    resources: {
+      testers: applied('users', [runAt(1, 'sandforge-users', 1, { PermissionSetAssignment: 2 })]),
+      customers: masking,
+      'test-data': applied('replay', [
+        runAt(1, 'sandforge-checkpoint', 5, { Account: 40, Contact: 212 }),
+      ]),
+      'demo-cases': applied('seed', [runAt(1, 'sandforge-seed', 7, { Contact: 6, Case: 12 })]),
+    },
+  };
+  const order = ['testers', 'customers', 'test-data', 'demo-cases'];
+  const counted = (contacts: number) =>
+    dryAnswer({ objects: [{ objectApiName: 'Contact', count: contacts }] });
+  /** What the resources after it created, the masking selecting every contact. */
+  const after = () => createdAfterMasking('customers', state, order, undefined);
+
+  it('keeps a masking whose condition selects, beside what it masked, the records the resources applied after it created, read in their own runs', () => {
+    expect(Object.fromEntries(after().theirs)).toEqual({ Account: 40, Contact: 218, Case: 12 });
+    expect(after().unsure.size).toBe(0);
+    expect(maskHeldOf(masking, counted(1204 + 218), after())).toEqual({
+      objects: [{ object: 'Contact', present: 1204 }],
+      masked: 1204,
+      theirs: 218,
+    });
+    expect(maskKeptWhy(1204, 218)).toBe(
+      'applied, and its condition selects the 1204 record(s) it masked, with the same rules, ' +
+        'beside 218 the resources applied after it created since: masked again they would only ' +
+        'be masked twice',
+    );
+  });
+
+  it('says drift for a contact come from elsewhere, beside those the resources after it created', () => {
+    expect(maskHeldOf(masking, counted(1204 + 218 + 1), after()).drift).toBe(
+      'Contact 1423 under its condition, 1204 masked, 218 created since by the resources ' +
+        'applied after it: 1 more, which hold their original values',
+    );
+    // Without what they created, the same count was all drift.
+    expect(maskHeldOf(masking, counted(1204 + 218)).drift).toBe(
+      'Contact 1422 under its condition, 1204 masked: 218 more, which hold their original values',
+    );
+  });
+
+  it('never takes for theirs what a masking with a condition may select or not: a count does not tell them from a contact copied in', () => {
+    const conditioned = createdAfterMasking('customers', state, order, "LastName = 'Copied'");
+
+    expect(conditioned.theirs.size).toBe(0);
+    expect(Object.fromEntries(conditioned.unsure)).toEqual({ Account: 40, Contact: 218, Case: 12 });
+    // Two contacts copied in since, and none of theirs under its condition:
+    // were they taken for theirs, the masking would be kept over real values.
+    expect(maskHeldOf(masking, counted(1204 + 2), conditioned)).toEqual({
+      objects: [{ object: 'Contact', present: 1204 }],
+      masked: 1204,
+      drift:
+        'Contact 1206 under its condition, 1204 masked: 2 more, which hold their original ' +
+        'values, unless they are among the 218 the resources applied after it created since, ' +
+        'which a count under its condition does not tell apart',
+    });
+  });
+
+  it('counts nothing of a resource applied before it, a run taken back or destroyed, or a run before its last masking', () => {
+    const before: Pick<EnvState, 'resources'> = {
+      resources: {
+        // Applied before it in the order: its records were there to mask.
+        seeded: applied('seed', [runAt(2, 'sandforge-seed', 9, { Contact: 5 })]),
+        customers: masking,
+        // Its first run before the masking's, its second taken back.
+        'test-data': applied('replay', [
+          runAt(1, 'sandforge-checkpoint', 1, { Contact: 7 }),
+          runAt(2, 'sandforge-checkpoint', 8, { Contact: 9 }, true),
+        ]),
+        gone: applied('seed', [runAt(1, 'sandforge-seed', 9, { Contact: 3 })], 'destroyed'),
+        // A reload's purge took the loads before its last.
+        loaded: applied('frozen', [
+          runAt(1, 'sandforge-frozen', 4, { Contact: 11 }),
+          runAt(2, 'sandforge-frozen', 6, { Contact: 13 }),
+        ]),
+      },
+    };
+    const of = ['seeded', 'customers', 'test-data', 'gone', 'loaded'];
+
+    expect(
+      Object.fromEntries(createdAfterMasking('customers', before, of, undefined).theirs),
+    ).toEqual({ Contact: 13 });
+    expect(createdAfterMasking('customers', undefined, order, undefined).theirs.size).toBe(0);
+    expect(createdAfterMasking('unknown', state, order, undefined).theirs.size).toBe(0);
+  });
+
+  it('still says records gone when the resources after it created some', () => {
+    expect(maskHeldOf(masking, counted(1200), after())).toEqual({
+      objects: [{ object: 'Contact', present: 1200, gone: 4 }],
+      masked: 1204,
+      drift: 'Contact 1200 under its condition, 1204 masked: 4 gone',
     });
   });
 });

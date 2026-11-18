@@ -93,6 +93,7 @@ import type { EnvDryRunCount } from './kinds/common.js';
 import {
   DATAOPS_SCRIPT,
   MASK_STATUS_WHY,
+  createdAfterMasking,
   maskDeleteWhy,
   maskDriftWhy,
   maskHeldOf,
@@ -607,7 +608,7 @@ function maskDraft(
   name: string,
   kept: EnvResourceState,
   reasons: readonly string[],
-  input: Pick<EnvPlanInput, 'dryRuns' | 'replaceDrifted'>,
+  input: Pick<EnvPlanInput, 'dryRuns' | 'replaceDrifted' | 'resolved' | 'state'>,
   quick: boolean,
 ): EnvActionDraft {
   const draft = (
@@ -646,7 +647,16 @@ function maskDraft(
       `what the org holds of it could not be read (its dry run: ${said}): plan again`,
     );
   }
-  const held = maskHeldOf(kept, dry.answer);
+  // What the resources applied after it created since, read in their own
+  // runs, is theirs: a replay after a masking is no drift of it.
+  const order = input.resolved.resources.map((resource) => resource.name);
+  const own = input.resolved.resources.find((resource) => resource.name === name);
+  const condition = own?.kind === 'mask' ? own.run.where : undefined;
+  const held = maskHeldOf(
+    kept,
+    dry.answer,
+    createdAfterMasking(name, input.state, order, condition),
+  );
   if (held.unread !== undefined) {
     return draft(
       'keep',
@@ -655,7 +665,9 @@ function maskDraft(
       `what the org holds of it could not be read: ${held.unread}`,
     );
   }
-  if (held.drift === undefined) return draft('keep', maskKeptWhy(held.masked), held.objects);
+  if (held.drift === undefined) {
+    return draft('keep', maskKeptWhy(held.masked, held.theirs), held.objects);
+  }
   if (input.replaceDrifted === true) {
     return draft(
       'replace',

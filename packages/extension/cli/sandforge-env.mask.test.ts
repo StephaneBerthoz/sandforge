@@ -381,6 +381,74 @@ describe('a mask resource', () => {
     expect(runs.every((run) => run.takenBack === undefined)).toBe(true);
   });
 
+  /** The file: a masking of every contact, or of those `where` selects, then a seed writing contacts. */
+  const maskedThenSeeded = (where?: string) => ({
+    customers: {
+      kind: 'mask',
+      rules: 'contact-points',
+      object: 'Contact',
+      ...(where !== undefined ? { where } : {}),
+    },
+    'demo-contacts': {
+      kind: 'seed',
+      dependsOn: ['customers'],
+      objects: [
+        {
+          object: 'Contact',
+          count: 2,
+          fields: [
+            { fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'Copied' } },
+          ],
+        },
+      ],
+    },
+  });
+
+  it('keeps a masking of every contact beside the contacts a resource applied after it created, and says drift for a contact come from elsewhere', async () => {
+    // A seed after the masking writes contacts it selects: they are the
+    // environment's own, read in the seed's run, and no drift.
+    writeFile(file({}, { resources: maskedThenSeeded() }));
+    const applied = await apply();
+    expect(applied.code, applied.said).toBe(0);
+
+    const kept = await plan('--fail-on-drift');
+    expect(kept.code, kept.said).toBe(0);
+    expect(kept.plan.actions.find((action) => action.resource === 'customers')).toMatchObject({
+      action: 'keep',
+      objects: [{ object: 'Contact', present: 3 }],
+      why:
+        'applied, and its condition selects the 3 record(s) it masked, with the same rules, ' +
+        'beside 2 the resources applied after it created since: masked again they would only ' +
+        'be masked twice',
+    });
+
+    // Negative control: one more, copied in from elsewhere, is drift.
+    world.copyIn('Contact', [{ LastName: 'Copied', Email: 'late@example.com' }]);
+    const drifted = await plan('--fail-on-drift');
+    expect(drifted.code).toBe(3);
+    expect(drifted.plan.actions.find((action) => action.resource === 'customers')?.why).toBe(
+      'its condition selects other records than it masked: Contact 6 under its condition, 3 ' +
+        'masked, 2 created since by the resources applied after it: 1 more, which hold their ' +
+        'original values. Left as they are: --replace customers or --replace-drifted masks ' +
+        'them all again',
+    );
+  });
+
+  it('says drift for a masking with a condition, which a count does not tell apart from what came after it', async () => {
+    writeFile(file({}, { resources: maskedThenSeeded("LastName = 'Copied'") }));
+    expect((await apply()).code).toBe(0);
+
+    const drifted = await plan('--fail-on-drift');
+    expect(drifted.code).toBe(3);
+    expect(drifted.plan.actions.find((action) => action.resource === 'customers')?.why).toBe(
+      'its condition selects other records than it masked: Contact 4 under its condition, 2 ' +
+        'masked: 2 more, which hold their original values, unless they are among the 2 the ' +
+        'resources applied after it created since, which a count under its condition does not ' +
+        'tell apart. Left as they are: --replace customers or --replace-drifted masks them all ' +
+        'again',
+    );
+  });
+
   it('replaces a masking whose rules changed, saying what a replace keeps', async () => {
     await apply();
     writeFile(file({}, {}, [...RULES, { fieldPattern: 'Contact.LastName', ruleType: 'fake' }]));

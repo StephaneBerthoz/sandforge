@@ -1610,6 +1610,17 @@ function validatedLine(run: EnvKindRun): string {
             .join(', ')})`;
     return `masks ${what} with ${rules}, ${run.rules.rules.length} rule(s)`;
   }
+  if (run.kind === 'users') return `User ${run.users.length}`;
+  if (run.kind === 'replay') {
+    const { checkpoint } = run;
+    const file = checkpoint.file;
+    return checkpoint.id !== undefined
+      ? `a replay of checkpoint ${checkpoint.id}`
+      : checkpoint.name !== undefined
+        ? `a replay of the checkpoint named ${checkpoint.name}` +
+          (run.from !== undefined ? ` of the ${run.from} org` : '')
+        : `a replay of the checkpoint file ${typeof file === 'string' ? file : `$${file?.env ?? ''}`}`;
+  }
   const where = (object: string, condition: string | undefined): string =>
     condition !== undefined ? `${object} WHERE ${condition}` : object;
   const fit = run.wholeOrg?.fit;
@@ -1679,7 +1690,9 @@ function validate(
     const holds =
       variable.role !== undefined
         ? `the ${variable.role} org`
-        : `the dataset of ${variable.resource ?? ''}`;
+        : variable.path[2] === 'checkpoint'
+          ? `the checkpoint file of ${variable.resource ?? ''}`
+          : `the dataset of ${variable.resource ?? ''}`;
     say(
       `  variable ${variable.name} (${holds}): ` +
         (unset.has(variable.name) ? 'not set in this shell' : 'set'),
