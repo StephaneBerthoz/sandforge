@@ -6,9 +6,9 @@ Compare metadata, permission names, and five Organization settings between two S
 
 ## How to
 
-1. Pick the Source Org and a different Target Org.
+1. Pick the Source Org and a different Target Org; Org overview then reads both, with no comparison.
 2. Under Categories, click the types to compare, or Select All.
-3. Click Run Comparison, then open a group in Diff Viewer and click a change to see it.
+3. Click Run Comparison, then open a group on the Differences tab and click a change to see it.
 4. On the Deploy from Diff tab, tick components and click the Validate button that names the target.
 5. Once it succeeds, click the Deploy button that names the target, type its name and click Confirm.
 
@@ -18,17 +18,20 @@ Compare metadata, permission names, and five Organization settings between two S
 
 ## Quick Start
 
-1. Navigate to **Compare Org** from the sidebar (requires at least 2 orgs in SandForge's list of orgs)
+1. Open **Compare Org** from the launcher's **Watch and compare** group (it needs at least 2 orgs in SandForge's list of orgs)
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
-4. Click **Run Comparison** to execute the comparison
-5. Browse results across five tabs: Diff Viewer, Permission Presence, Objects, Org Settings Drift, and Deploy from Diff
+4. Click **Run Comparison** to execute the comparison. Once it is in, the configuration folds to one line -- the two orgs, how many categories, and whether managed package components were left out -- with **Edit** to unfold it
+5. The page has three tabs: Differences, Deploy from Diff, and Org overview
+
+**Org overview** needs no comparison: pick the two orgs and open the tab.
 
 ## Features
 
-### Diff Viewer
+### Differences
 
-The primary tab shows a side-by-side comparison of metadata between the two orgs.
+The first tab shows what the comparison found, side by side between the two orgs: the
+Risk Score Card, the counts, and the changes grouped by type.
 
 Each chosen type is listed in both orgs. A component only the source holds is
 marked + in green: a deployment creates it in the target. One only the target
@@ -57,7 +60,7 @@ count. An org's own components stay in, even in an org with a namespace of its
 own.
 
 When a comparison finds no component only one org holds and none modified, the
-**Diff Viewer** tab says that nothing differs; the line above it says how many components
+**Differences** tab says that nothing differs; the line above it says how many components
 were compared by content.
 
 - **Summary Bar** -- Counts of the components only in the source (+), only in the target (-), modified (~), unchanged (=) and not compared (?), a line saying what each of the first three means for a deployment, and how many of the components both orgs hold were compared by content
@@ -65,45 +68,12 @@ were compared by content.
 - **Diff Group Accordion** -- Changes grouped by type, expandable to see individual changes
 - **Diff Detail Modal** -- Click any change to see it; for a modified component, the lines where the two copies first differ
 
-### Permission Presence
-
-Which permission sets and profiles exist on each side, by name:
-
-- Permission sets on the source only, on the target only, and on both
-- Profiles split the same three ways
-- Names and labels, nothing about what a permission set or profile grants —
-  object and field permissions are not read, so no record-level access is
-  compared here
-
-### Objects
-
-A live capture of the objects of both orgs, taken with `describeGlobal` at the
-moment you open the tab: a list, not a saved state such as a checkpoint.
-Nothing is stored between runs, so there is no history to browse and no
-earlier capture to compare against -- the tab compares the two orgs as they are
-right now:
-
-- Object counts per org: total, custom, standard, and queryable
-- The objects that exist on only one side, listed per org, plus the shared count
-- The capture timestamp, which is the time of the run that produced it
-
-### Org Settings Drift
-
-Five fields of the `Organization` record, read from both orgs when you open the
-tab, and listed side by side with whether each one matches:
-
-- Name, language, default locale, time zone, and the month the fiscal year
-  starts
-- One query per org, on request — nothing runs on a schedule and nothing is
-  stored between runs
-- No metadata is read, so a difference in security settings, sharing rules or
-  any other configuration does not appear here
-
 ### Deploy from Diff
 
 The **Deploy from Diff** tab deploys to the target the components the comparison found only
 in the source, or different in it. Nothing is deployed that was not validated
-first.
+first. Opened before a comparison, the tab says that it deploys what a
+comparison finds.
 
 1. **Pick.** The tab lists each component a deployment can carry, marked
    _Only in the source_ or _Modified_, as the diff views name it, with the risk the Risk Score
@@ -142,10 +112,54 @@ other. The Production Guard decides it, as it decides every write. With such a
 target, the tab says so and names the orgs to pick as Target Org instead, and
 offers nothing to pick, test or validate.
 
+### Org overview
+
+The two orgs side by side, read each time the tab opens, with no comparison to
+run: it needs the two orgs alone, and none of the categories. Until a source
+and a different target org are picked, it says so and reads nothing. Each
+section says when it read the two orgs, as a date and a time in the panel's
+language. A section whose answer carries nothing to show says so, rather than
+showing two orgs that match.
+
+#### Objects
+
+A live capture of the objects of both orgs, taken with `describeGlobal` at the
+moment you open the tab: a list, not a saved state such as a checkpoint.
+Nothing is stored between visits, so there is no history to browse and no
+earlier capture to compare against -- the section compares the two orgs as they
+are right now:
+
+- Object counts per org: total, custom, standard, and queryable
+- The objects that exist on only one side, listed per org, plus the shared count
+- When the two orgs were read
+
+#### Permission sets & profiles
+
+Which permission sets and profiles exist on each side, by name:
+
+- Permission sets on the source only, on the target only, and on both
+- Profiles split the same three ways
+- Names and labels, nothing about what a permission set or profile grants —
+  object and field permissions are not read, so no record-level access is
+  compared here
+
+#### Organization settings
+
+Five fields of the `Organization` record, read from both orgs when you open the
+tab, and listed side by side with whether each one matches, under the share of
+them that differ:
+
+- Name, language, default locale, time zone, and the month the fiscal year
+  starts
+- One query per org, on request — nothing runs on a schedule and nothing is
+  stored between visits
+- No metadata is read, so a difference in security settings, sharing rules or
+  any other configuration does not appear here
+
 ## Tips
 
 - Run a compare before any major deployment to understand the full scope of changes
 - Use the Risk Score Card to quickly assess whether changes are safe to deploy
-- Permission Presence answers "which permission sets and profiles is this org missing?", not "who can see what"
-- Re-run the **Org Settings Drift** tab after each release to see whether those five Organization settings still match
+- **Permission sets & profiles** answers "which permission sets and profiles is this org missing?", not "who can see what"
+- Open **Org overview** after each release to see whether those five Organization settings still match
 - Deploy a few components at a time: a validation of a handful says which one fails, and on which line

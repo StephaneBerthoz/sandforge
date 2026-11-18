@@ -7,6 +7,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { CHANGE_LOOK } from './changeLook';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** How one setting compared across the two orgs. */
 export type SettingsDriftStatus = 'match' | 'drift' | 'missing_source' | 'missing_target';
@@ -112,6 +113,15 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
   const unchanged = drift.items.filter((i) => i.status === 'match').length;
   const score = Math.round(((modified + added + removed) / drift.items.length) * 100);
 
+  /* When the two orgs were read, in the panel's language: the raw ISO stamp
+     the extension sends was printed as it came. None for one that is not a
+     date. */
+  const readAtDate = formatStoredDate(
+    drift.detectedAt,
+    dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format,
+  );
+  const readAt = readAtDate === null ? null : t('compare.readAt', { at: readAtDate });
+
   return (
     <Card className={className}>
       <CardHeader title={t('compare.drift')} />
@@ -203,12 +213,12 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
             </tbody>
           </table>
 
-          {drift.detectedAt && (
+          {readAt && (
             <span
-              className="font-mono text-[10px] text-(--sf-text-secondary)"
+              className="text-[10px] text-(--sf-text-secondary)"
               data-testid="drift-detected-at"
             >
-              {drift.detectedAt}
+              {readAt}
             </span>
           )}
         </div>

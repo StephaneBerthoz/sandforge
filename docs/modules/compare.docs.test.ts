@@ -33,7 +33,7 @@ const EN = JSON.parse(
   readFileSync(resolve(REPO_ROOT, 'packages/webview/src/i18n/locales/en.json'), 'utf8'),
 ) as Record<string, unknown>;
 
-/** Spelled-out counts, so the doc's "five tabs" can be checked against the code. */
+/** Spelled-out counts, so the doc's "three tabs" can be checked against the code. */
 const NUMBER_WORDS: readonly string[] = [
   'zero',
   'one',
@@ -57,11 +57,20 @@ function tabIdsFromSource(source: string): string[] {
   );
 }
 
+/** The string at a dotted key of the English catalogue. */
+function english(key: string): string {
+  const label = key
+    .split('.')
+    .reduce<unknown>((at, part) => (at as Record<string, unknown> | undefined)?.[part], EN);
+  if (typeof label !== 'string') throw new Error(`en.json has no string at ${key}`);
+  return label;
+}
+
 /**
  * The labels the panel shows on its tabs, in their order: each tab's
  * `label: t('…')` key, read in the English catalogue. Compared with the tab
  * ids, the doc's "Diff, Permissions, Objects, Drift, and Deploy" passed,
- * while the panel reads "Diff Viewer", "Permission Presence", "Objects",
+ * while the panel read "Diff Viewer", "Permission Presence", "Objects",
  * "Org Settings Drift" and "Deploy from Diff".
  */
 function tabLabelsFromSource(source: string): string[] {
@@ -69,19 +78,33 @@ function tabLabelsFromSource(source: string): string[] {
   if (block?.[1] === undefined) {
     throw new Error('COMPARE_TABS array literal not found in ComparePage.tsx');
   }
-  return [...block[1].matchAll(/label: t\('([^']+)'\)/g)].map((m) => {
-    const key = m[1] ?? '';
-    const label = key
-      .split('.')
-      .reduce<unknown>((at, part) => (at as Record<string, unknown> | undefined)?.[part], EN);
-    if (typeof label !== 'string') throw new Error(`en.json has no string at ${key}`);
-    return label;
+  return [...block[1].matchAll(/label: t\('([^']+)'\)/g)].map((m) => english(m[1] ?? ''));
+}
+
+/**
+ * The headings of Org overview's sections, in the order the tab draws them:
+ * each component's `CardHeader` title, read in the English catalogue.
+ */
+function overviewSectionsFromSource(): string[] {
+  const overview = readFileSync(
+    resolve(REPO_ROOT, 'packages/webview/src/pages/Compare/OrgOverview.tsx'),
+    'utf8',
+  );
+  const drawn = [...overview.matchAll(/<(SnapshotComparison|PermissionPresence|SettingsDrift)\b/g)];
+  return drawn.map((m) => {
+    const component = readFileSync(
+      resolve(REPO_ROOT, `packages/webview/src/pages/Compare/${m[1] ?? ''}.tsx`),
+      'utf8',
+    );
+    const key = /<CardHeader title=\{t\('([^']+)'\)\}/.exec(component)?.[1];
+    if (key === undefined) throw new Error(`${m[1] ?? ''}.tsx has no CardHeader title`);
+    return english(key);
   });
 }
 
 /** The tab roster the Quick Start promises the reader. */
 function tabsFromQuickStart(doc: string): { countWord: string; names: string[] } {
-  const line = /Browse results across (\w+) tabs: ([^\n]+)/.exec(doc);
+  const line = /The page has (\w+) tabs: ([^\n]+)/.exec(doc);
   if (line?.[1] === undefined || line[2] === undefined) {
     throw new Error('Quick Start tab roster not found in compare.md');
   }
@@ -99,7 +122,24 @@ function featureHeadings(doc: string): string[] {
   );
 }
 
-/** Body text under a `###` heading, up to the next heading of any level. */
+/** Every `####` heading under a `###` section, in document order. */
+function subHeadings(doc: string, section: string): string[] {
+  return [...sectionBody(doc, section).matchAll(/^#### (.+)$/gm)].flatMap((m) =>
+    m[1] === undefined ? [] : [m[1].trim()],
+  );
+}
+
+/** Body text under a `####` heading, up to the next heading of level 2 to 4. */
+function subsectionBody(doc: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^#### ${escaped}$([\\s\\S]*?)(?=^#{2,4} |(?![\\s\\S]))`, 'm').exec(doc);
+  if (match?.[1] === undefined) {
+    throw new Error(`Subsection "${heading}" not found in compare.md`);
+  }
+  return match[1];
+}
+
+/** Body text under a `###` heading, up to the next heading of level 2 or 3. */
 function sectionBody(doc: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // JavaScript has no `\z`: written that way it matched a literal "z", and a
@@ -123,6 +163,23 @@ describe('docs/modules/compare.md', () => {
   it('documents each tab under the label the panel shows, and no tab that does not exist', () => {
     // "### Metadata Diff" described the tab the panel calls "Diff Viewer".
     expect(featureHeadings(DOC)).toEqual(tabLabelsFromSource(COMPARE_PAGE));
+  });
+
+  it('documents the sections of Org overview under the headings the tab shows, in its order', () => {
+    // Objects, Permission Presence and Org Settings Drift were three tabs;
+    // they are now the three sections of one.
+    expect(subHeadings(DOC, english('compare.overview'))).toEqual(overviewSectionsFromSource());
+  });
+
+  it('says Org overview needs no comparison, since the page draws it without one', () => {
+    // The three sections waited behind `result &&` for a diff of up to 106 s.
+    expect(COMPARE_PAGE).toMatch(
+      /activeTab === 'overview' && \(\s*<OrgOverview[^>]*orgsPicked=\{orgsPicked\}/,
+    );
+    expect(sectionBody(DOC, english('compare.overview')).replace(/\s+/g, ' ')).toMatch(
+      /with no comparison to run: it needs the two orgs alone/,
+    );
+    expect(DOC).toMatch(/\*\*Org overview\*\* needs no comparison/);
   });
 
   it('documents no Schema Advice, whose button is gone', () => {
@@ -216,7 +273,7 @@ describe('docs/modules/compare.md', () => {
       'utf8',
     );
     expect(/ObjectPermissions|FieldPermissions/.test(handler)).toBe(false);
-    expect(sectionBody(DOC, 'Permission Presence')).not.toMatch(/CRUD|FLS|grid/i);
+    expect(subsectionBody(DOC, english('compare.permissions'))).not.toMatch(/CRUD|FLS|grid/i);
   });
 
   it('claims no automated drift, since the tab reads five Organization fields on request', () => {
@@ -227,7 +284,9 @@ describe('docs/modules/compare.md', () => {
     // The one query the drift path runs, and there is no second one.
     expect(handler).toContain('FROM Organization');
     expect(/metadata\.read|SecuritySettings|CompanyInfo/.test(handler)).toBe(false);
-    expect(sectionBody(DOC, 'Org Settings Drift')).not.toMatch(/automated|categories|dashboard/i);
+    expect(subsectionBody(DOC, english('compare.drift'))).not.toMatch(
+      /automated|categories|dashboard/i,
+    );
   });
 
   it('does not say only differing fields are listed, since matching ones get a row too', () => {
@@ -236,7 +295,9 @@ describe('docs/modules/compare.md', () => {
       'utf8',
     );
     expect(handler).toContain("status: 'match'");
-    expect(sectionBody(DOC, 'Org Settings Drift')).not.toMatch(/where they differ|only .*differ/i);
+    expect(subsectionBody(DOC, english('compare.drift'))).not.toMatch(
+      /where they differ|only .*differ/i,
+    );
   });
 
   it('claims no scheduled drift monitoring, since drift is request/response only', () => {

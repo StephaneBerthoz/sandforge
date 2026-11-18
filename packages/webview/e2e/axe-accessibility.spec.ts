@@ -10141,6 +10141,81 @@ for (const theme of STATE_THEMES) {
       }
     });
 
+    test('Compare Org overview, read with no comparison run', async ({ page }) => {
+      await openPanel(bridge, page, 'compare', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
+      await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+      await page.getByTestId('page-tab-overview').click();
+      await bridge.waitForMessage('compare:drift', { timeout: 10_000 });
+      // Every row each section can paint: an object, a permission set and a
+      // profile on each side and on both, a setting that differs and one
+      // that matches, under the share that differ and the time they were read.
+      await answerAll(page, 'compare:snapshots', 'compare:snapshots:response', {
+        snapshot: {
+          source: {
+            orgId: DEV_SANDBOX.id,
+            totalObjects: 812,
+            customObjects: 44,
+            standardObjects: 768,
+            queryableObjects: 790,
+          },
+          target: {
+            orgId: QA_SANDBOX.id,
+            totalObjects: 806,
+            customObjects: 41,
+            standardObjects: 765,
+            queryableObjects: 784,
+          },
+          diff: { sourceOnly: ['Legacy__c'], targetOnly: ['Survey__c'], sharedCount: 805 },
+          capturedAt: '2026-09-10T09:05:00.000Z',
+        },
+      });
+      await answerAll(page, 'compare:permissions', 'compare:permissions:response', {
+        permissions: {
+          permissionSets: {
+            sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
+            targetOnly: [{ name: 'Billing_Clerk', label: 'Billing Clerk' }],
+            shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
+          },
+          profiles: {
+            sourceOnly: [],
+            targetOnly: [{ name: 'Read Only' }],
+            shared: [{ name: 'System Administrator' }],
+          },
+        },
+      });
+      await answerAll(page, 'compare:drift', 'compare:drift:response', {
+        drift: {
+          items: [
+            {
+              setting: 'Organization.DefaultLocaleSidKey',
+              sourceValue: 'fr_FR',
+              targetValue: 'en_US',
+              status: 'drift',
+            },
+            {
+              setting: 'Organization.TimeZoneSidKey',
+              sourceValue: 'Europe/Paris',
+              targetValue: 'Europe/Paris',
+              status: 'match',
+            },
+          ],
+          totalChecked: 2,
+          driftCount: 1,
+          matchCount: 1,
+          missingCount: 0,
+          detectedAt: '2026-09-10T09:06:00.000Z',
+        },
+      });
+      await expect(page.getByTestId('drift-detected-at')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('perm-presence-matrix')).toBeVisible();
+      await expect(page.getByTestId('snapshot-captured-at')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Compare result with its risk score card', async ({ page }) => {
       await openPanel(bridge, page, 'compare', theme);
       await bridge.seedOrgs(MOCK_ORGS);

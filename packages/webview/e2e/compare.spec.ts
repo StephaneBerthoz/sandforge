@@ -194,6 +194,88 @@ async function completeComparison(page: Page): Promise<void> {
   await expect(page.getByTestId('compare-summary')).toBeVisible({ timeout: 10_000 });
 }
 
+/** Pick the two orgs, all Org overview needs, and open it: no category, no run. */
+async function openOverview(page: Page): Promise<void> {
+  await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+  await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+  await page.getByTestId('page-tab-overview').click();
+}
+
+/** The type of every request the page has sent, in order. */
+async function sentTypes(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return msgs.map((m) => {
+      const envelope = m as Record<string, unknown>;
+      const inner = (envelope.payload as Record<string, unknown> | undefined) ?? envelope;
+      return String(inner.type);
+    });
+  });
+}
+
+/** What `CompareHandler.handlePermissions` posts: names split three ways. */
+const PERMISSIONS_ANSWER = {
+  permissions: {
+    permissionSets: {
+      sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
+      targetOnly: [],
+      shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
+    },
+    profiles: {
+      sourceOnly: [],
+      targetOnly: [{ name: 'Read Only' }],
+      shared: [{ name: 'System Administrator' }],
+    },
+  },
+};
+
+/** What `CompareHandler.handleSnapshots` posts: one capture of both orgs, taken now. */
+const SNAPSHOT_ANSWER = {
+  snapshot: {
+    source: {
+      orgId: DEV_SANDBOX.id,
+      totalObjects: 812,
+      customObjects: 44,
+      standardObjects: 768,
+      queryableObjects: 790,
+    },
+    target: {
+      orgId: QA_SANDBOX.id,
+      totalObjects: 806,
+      customObjects: 41,
+      standardObjects: 765,
+      queryableObjects: 784,
+    },
+    diff: { sourceOnly: ['Legacy__c'], targetOnly: [], sharedCount: 805 },
+    capturedAt: '2026-09-10T09:05:00.000Z',
+  },
+};
+
+/** What `CompareHandler.handleDrift` posts: five Organization fields of both orgs. */
+const DRIFT_ANSWER = {
+  drift: {
+    items: [
+      {
+        setting: 'Organization.DefaultLocaleSidKey',
+        sourceValue: 'fr_FR',
+        targetValue: 'en_US',
+        status: 'drift',
+      },
+      {
+        setting: 'Organization.TimeZoneSidKey',
+        sourceValue: 'Europe/Paris',
+        targetValue: 'Europe/Paris',
+        status: 'match',
+      },
+    ],
+    totalChecked: 2,
+    driftCount: 1,
+    matchCount: 1,
+    missingCount: 0,
+    detectedAt: '2026-09-10T09:06:00.000Z',
+  },
+};
+
 test.describe('Compare panel — org prerequisites', () => {
   test('falls back to the empty state when only one org is connected', async ({ page }) => {
     await openComparePanel(page, [DEV_SANDBOX]);
@@ -333,10 +415,28 @@ test.describe('Compare panel — controls', () => {
   });
 
   test('shows the no-results message before any comparison has run', async ({ page }) => {
-    await expect(page.getByTestId('compare-page')).toContainText('No comparison results yet');
+    await expect(page.getByTestId('compare-no-results')).toHaveText('No comparison results yet');
     await expect(page.getByTestId('compare-skeleton')).toHaveCount(0);
     await expect(page.getByTestId('compare-summary')).toHaveCount(0);
-    await expect(page.getByTestId('page-tabs')).toHaveCount(0);
+  });
+
+  test('offers its three tabs before any comparison has run, Deploy from Diff beside Differences', async ({
+    page,
+  }) => {
+    // Five tabs waited behind a diff, Deploy last, while three of them read
+    // nothing but the two orgs.
+    await expect(page.getByTestId('page-tabs').getByRole('tab')).toHaveText([
+      'Differences',
+      'Deploy from Diff',
+      'Org overview',
+    ]);
+    await expect(page.getByTestId('page-tab-diff')).toHaveAttribute('aria-selected', 'true');
+
+    await page.getByTestId('page-tab-deploy').click();
+    await expect(page.getByTestId('compare-deploy-needs-run')).toHaveText(
+      'Deploy from Diff deploys what a comparison finds: pick categories, then click Run Comparison.',
+    );
+    await expect(page.getByTestId('compare-no-results')).toHaveCount(0);
   });
 });
 
@@ -488,20 +588,88 @@ test.describe('Compare panel — results tabs', () => {
     await completeComparison(page);
   });
 
-  test('renders the five result tabs once a comparison has run', async ({ page }) => {
-    await expect(page.getByTestId('page-tabs')).toBeVisible();
+  test('shows the comparison on Differences, Deploy from Diff beside it', async ({ page }) => {
     await expect(page.getByTestId('page-tabs').getByRole('tab')).toHaveText([
-      'Diff Viewer',
-      'Permission Presence',
-      'Objects',
-      'Org Settings Drift',
+      'Differences',
       'Deploy from Diff',
+      'Org overview',
     ]);
     await expect(page.getByTestId('page-tab-diff')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('page-tab-permissions')).toHaveAttribute(
-      'aria-selected',
-      'false',
+    await expect(page.getByTestId('page-tab-deploy')).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByTestId('risk-score-card')).toBeVisible();
+
+    // What the comparison found belongs to Differences: Org overview does not
+    // sit under the risk score of a diff it does not need.
+    await page.getByTestId('page-tab-overview').click();
+    await expect(page.getByTestId('risk-score-card')).toHaveCount(0);
+    await expect(page.getByTestId('compare-summary')).toHaveCount(0);
+  });
+
+  test('folds the configuration to one line once the comparison is in, and Edit unfolds it', async ({
+    page,
+  }) => {
+    // It stayed open above the result, and the tabs began about 1,030 px down.
+    const summary = page.getByTestId('compare-config-summary');
+    await expect(summary.getByTestId('compare-config-summary-text')).toHaveText(
+      'DevSandbox → QASandbox · 2 categories',
     );
+    await expect(page.getByTestId('org-selector')).toHaveCount(0);
+    await expect(page.getByTestId('category-selector')).toHaveCount(0);
+
+    await summary.getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByLabel('Source Org')).toBeFocused();
+    await expect(page.getByTestId('category-selector')).toBeVisible();
+    await expect(page.getByTestId('compare-summary')).toBeVisible();
+  });
+});
+
+test.describe('Compare panel — Org overview, with no comparison run', () => {
+  test.beforeEach(async ({ page }) => {
+    await openComparePanel(page);
+    await expect(page.getByTestId('compare-page')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('says what it waits for, and asks the orgs nothing, until two different orgs are picked', async ({
+    page,
+  }) => {
+    await page.getByTestId('page-tab-overview').click();
+    await expect(page.getByTestId('compare-overview-needs')).toHaveText(
+      'Pick a source and a different target org: this tab reads their objects, permission sets ' +
+        'and profiles, and five Organization settings, with no comparison to run.',
+    );
+    await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+    await page.getByLabel('Target Org').selectOption(DEV_SANDBOX.id);
+    await expect(page.getByTestId('compare-overview-needs')).toBeVisible();
+    expect(await sentTypes(page)).not.toContain('compare:snapshots');
+  });
+
+  test('reads the objects, permission sets and profiles, and settings of both orgs at once', async ({
+    page,
+  }) => {
+    // The three ask the two orgs alone: they were three tabs that waited
+    // behind a diff of 24 to 106 s.
+    await openOverview(page);
+    await answerAll(page, 'compare:snapshots', 'compare:snapshots:response', SNAPSHOT_ANSWER);
+    await answerAll(
+      page,
+      'compare:permissions',
+      'compare:permissions:response',
+      PERMISSIONS_ANSWER,
+    );
+    await answerAll(page, 'compare:drift', 'compare:drift:response', DRIFT_ANSWER);
+
+    await expect(page.getByTestId('compare-overview').getByRole('heading')).toHaveText([
+      'Objects',
+      'Permission sets & profiles',
+      'Organization settings',
+    ]);
+    expect(await sentTypes(page)).not.toContain('compare:execute');
+    expect((await lastRequest(page, 'compare:drift')).payload).toEqual({
+      sourceOrgId: DEV_SANDBOX.id,
+      targetOrgId: QA_SANDBOX.id,
+    });
+    const results = await checkAccessibility(page);
+    expect(results.violations.length, formatViolations(results.violations)).toBe(0);
   });
 
   /**
@@ -515,24 +683,14 @@ test.describe('Compare panel — results tabs', () => {
    * CRUD, so no CRUD column is rendered to suggest access was audited — this
    * test holds that absence in place as much as the presence of the rows.
    */
-  test('permissions tab shows which permission sets and profiles each org has', async ({
-    page,
-  }) => {
-    await page.getByTestId('page-tab-permissions').click();
-    await answerAll(page, 'compare:permissions', 'compare:permissions:response', {
-      permissions: {
-        permissionSets: {
-          sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
-          targetOnly: [],
-          shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
-        },
-        profiles: {
-          sourceOnly: [],
-          targetOnly: [{ name: 'Read Only' }],
-          shared: [{ name: 'System Administrator' }],
-        },
-      },
-    });
+  test('permission sets & profiles section shows which ones each org has', async ({ page }) => {
+    await openOverview(page);
+    await answerAll(
+      page,
+      'compare:permissions',
+      'compare:permissions:response',
+      PERMISSIONS_ANSWER,
+    );
 
     const matrix = page.getByTestId('perm-presence-matrix');
     await expect(matrix).toBeVisible({ timeout: 10_000 });
@@ -578,28 +736,11 @@ test.describe('Compare panel — results tabs', () => {
    * that does not exist. The tab renders the comparison that does: object
    * totals per org and the objects only one side has.
    */
-  test('objects tab shows both orgs object totals and what only one side has', async ({ page }) => {
-    await page.getByTestId('page-tab-objects').click();
-    await answerAll(page, 'compare:snapshots', 'compare:snapshots:response', {
-      snapshot: {
-        source: {
-          orgId: DEV_SANDBOX.id,
-          totalObjects: 812,
-          customObjects: 44,
-          standardObjects: 768,
-          queryableObjects: 790,
-        },
-        target: {
-          orgId: QA_SANDBOX.id,
-          totalObjects: 806,
-          customObjects: 41,
-          standardObjects: 765,
-          queryableObjects: 784,
-        },
-        diff: { sourceOnly: ['Legacy__c'], targetOnly: [], sharedCount: 805 },
-        capturedAt: '2026-09-10T09:05:00.000Z',
-      },
-    });
+  test('objects section shows both orgs object totals and what only one side has', async ({
+    page,
+  }) => {
+    await openOverview(page);
+    await answerAll(page, 'compare:snapshots', 'compare:snapshots:response', SNAPSHOT_ANSWER);
 
     await expect(page.getByTestId('snapshot-comparison')).toBeVisible({ timeout: 10_000 });
 
@@ -618,7 +759,9 @@ test.describe('Compare panel — results tabs', () => {
     // The shared count is the sample size: without it an empty list of
     // differences could pass for "nothing was compared".
     await expect(page.getByTestId('snapshot-shared-count')).toHaveText('805 objects');
-    await expect(page.getByTestId('snapshot-captured-at')).toContainText('2026-09-10');
+    // Said as a date in the panel's language, no longer as the raw stamp.
+    await expect(page.getByTestId('snapshot-captured-at')).toContainText('Read at Sep 10, 2026');
+    await expect(page.getByTestId('snapshot-captured-at')).not.toContainText('2026-09-10T');
 
     // Honesty lock: no history, so no timeline and no snapshot-taking button.
     await expect(page.getByTestId('snapshot-timeline')).toHaveCount(0);
@@ -638,31 +781,11 @@ test.describe('Compare panel — results tabs', () => {
    * The items are settings, so the tab renders settings, and scores them by
    * the same four-way vocabulary the rest of the page uses.
    */
-  test('drift tab scores the settings the extension actually compared', async ({ page }) => {
-    await page.getByTestId('page-tab-drift').click();
-    await answerAll(page, 'compare:drift', 'compare:drift:response', {
-      drift: {
-        items: [
-          {
-            setting: 'Organization.DefaultLocaleSidKey',
-            sourceValue: 'fr_FR',
-            targetValue: 'en_US',
-            status: 'drift',
-          },
-          {
-            setting: 'Organization.TimeZoneSidKey',
-            sourceValue: 'Europe/Paris',
-            targetValue: 'Europe/Paris',
-            status: 'match',
-          },
-        ],
-        totalChecked: 2,
-        driftCount: 1,
-        matchCount: 1,
-        missingCount: 0,
-        detectedAt: '2026-09-10T09:06:00.000Z',
-      },
-    });
+  test('settings section shares out the settings the extension actually compared', async ({
+    page,
+  }) => {
+    await openOverview(page);
+    await answerAll(page, 'compare:drift', 'compare:drift:response', DRIFT_ANSWER);
 
     await expect(page.getByTestId('settings-drift')).toBeVisible({ timeout: 10_000 });
 
@@ -680,7 +803,7 @@ test.describe('Compare panel — results tabs', () => {
       'Unchanged',
     );
 
-    // 1 of the 2 settings differs: the score is that fraction, and the counts
+    // 1 of the 2 settings differs: the share is that fraction, and the counts
     // that make up its denominator are on screen beside it.
     await expect(page.getByTestId('settings-drift')).toContainText('50%');
     await expect(page.getByTestId('drift-modified')).toContainText('~1');
@@ -702,8 +825,10 @@ test.describe('Compare panel — results tabs', () => {
    * the extension never made. v1.19.0 spent a release deleting that class of
    * lie; this test keeps it out of the compare panel.
    */
-  test('drift tab reports an empty answer instead of implying the orgs agree', async ({ page }) => {
-    await page.getByTestId('page-tab-drift').click();
+  test('settings section reports an empty answer instead of implying the orgs agree', async ({
+    page,
+  }) => {
+    await openOverview(page);
     await answerAll(page, 'compare:drift', 'compare:drift:response', {
       drift: {
         items: [],
@@ -721,6 +846,14 @@ test.describe('Compare panel — results tabs', () => {
     await expect(page.getByTestId('settings-drift')).toHaveCount(0);
     await expect(page.getByTestId('compare-page')).not.toContainText('No drift detected');
     await expect(page.getByTestId('compare-page')).toBeVisible();
+  });
+});
+
+test.describe('Compare panel — Deploy from Diff', () => {
+  test.beforeEach(async ({ page }) => {
+    await openComparePanel(page);
+    await expect(page.getByTestId('compare-page')).toBeVisible({ timeout: 10_000 });
+    await completeComparison(page);
   });
 
   /**

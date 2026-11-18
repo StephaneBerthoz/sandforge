@@ -1,11 +1,12 @@
-import React, { useId, useState, useMemo, useEffect } from 'react';
+import React, { useId, useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { orgDisplayName } from '@sandforge/shared';
 import type { CompareResult, MetadataComponentType, EnrichedDiff } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import type { NavigationIntent } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
-import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { REQUEST_TIMED_OUT } from '../../hooks/useMessageResponse';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
@@ -20,12 +21,7 @@ import { RiskScoreCard } from './RiskScoreCard';
 import { ContentCoverage } from './ContentCoverage';
 import { DiffGroupAccordion } from './DiffGroupAccordion';
 import { DiffDetailModal } from './DiffDetailModal';
-import { PermissionPresence, readPermissionComparison } from './PermissionPresence';
-import type { PermissionComparison } from './PermissionPresence';
-import { SnapshotComparison, readSnapshotComparison } from './SnapshotComparison';
-import type { OrgSnapshotComparison } from './SnapshotComparison';
-import { SettingsDrift, readSettingsDrift } from './SettingsDrift';
-import type { SettingsDriftReport } from './SettingsDrift';
+import { OrgOverview } from './OrgOverview';
 import { DeployPanel } from './DeployPanel';
 import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
 import { enrichDiffs } from './enrichDiffs';
@@ -34,33 +30,74 @@ import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 /** How long the page waits for a diff before it calls the comparison failed. */
 const COMPARE_TIMEOUT_MS = 5 * 60_000;
 
+/** A tab of the page, by the id a navigation names it with. */
+type CompareTab = NonNullable<NavigationIntent['compareTab']>;
+
+/** Where the page opens: the two orgs and the tab a navigation named, or none of them. */
+interface CompareLanding {
+  sourceOrgId: string;
+  targetOrgId: string;
+  tab: CompareTab;
+}
+
+/**
+ * The landing a navigation asked for, read once as the page opens. One meant
+ * for another page is none: the page opens empty, on Differences.
+ */
+function landingOf(intent: NavigationIntent | null): CompareLanding {
+  if (intent?.route !== 'compare') return { sourceOrgId: '', targetOrgId: '', tab: 'diff' };
+  return {
+    sourceOrgId: intent.compareSourceOrgId ?? '',
+    targetOrgId: intent.compareTargetOrgId ?? '',
+    tab: intent.compareTab ?? 'diff',
+  };
+}
+
 /** Main compare page -- wired to extension via bridge hooks. */
 export const ComparePage: React.FC = () => {
   const { t } = useTranslation();
   const runNeedsId = useId();
+  const configSummaryId = useId();
 
   const COMPARE_TABS: PageTab[] = [
     { id: 'diff', label: t('compare.diff'), icon: 'diff' },
-    { id: 'permissions', label: t('compare.permissions'), icon: 'shield' },
-    // "Snapshots" named the live object lists of both orgs, beside Checkpoints,
-    // whose snapshots are saved states.
-    { id: 'objects', label: t('compare.objects'), icon: 'database' },
-    { id: 'drift', label: t('compare.drift'), icon: 'warning' },
+    // The step that follows a diff, beside it: it came fifth, after three
+    // tabs that needed no diff at all.
     { id: 'deploy', label: t('compare.deploy'), icon: 'cloud-upload' },
+    // Objects, permission sets and profiles, and Organization settings ask
+    // the two orgs alone: open without a comparison.
+    { id: 'overview', label: t('compare.overview'), icon: 'database' },
   ];
   const orgs = useOrgStore((s) => s.orgs);
   const navigate = useAppStore((s) => s.navigate);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  const [sourceOrgId, setSourceOrgId] = useState('');
-  const [targetOrgId, setTargetOrgId] = useState('');
+  // Where the navigation asked the page to open, read once: the two orgs and
+  // a tab. The pickers opened empty whatever sent the user here.
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  const [landing] = useState(() => landingOf(navigationIntent));
+  useEffect(() => {
+    if (navigationIntent?.route === 'compare') clearNavigationIntent();
+  }, [navigationIntent, clearNavigationIntent]);
+
+  const [sourceOrgId, setSourceOrgId] = useState(landing.sourceOrgId);
+  const [targetOrgId, setTargetOrgId] = useState(landing.targetOrgId);
   const [selectedTypes, setSelectedTypes] = useState<MetadataComponentType[]>([]);
   // What a managed package installed is compared with the rest unless the box
   // is unticked; the result then says how many components it left out.
   const [includeManaged, setIncludeManaged] = useState(true);
-  const [activeTab, setActiveTab] = useState('diff');
+  const [activeTab, setActiveTab] = useState<string>(landing.tab);
   const [selectedDiff, setSelectedDiff] = useState<EnrichedDiff | undefined>();
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The comparison whose configuration Edit unfolded. A comparison that comes
+   * back folds it to one line: it stayed open above the result, and the tabs
+   * began about 1,030 px down.
+   */
+  const [editingFor, setEditingFor] = useState<string | null>(null);
+  const configRef = useRef<HTMLDivElement>(null);
+  const focusSourceOnUnfold = useRef(false);
 
   /**
    * Bridge mutation: execute the comparison.
@@ -74,47 +111,6 @@ export const ComparePage: React.FC = () => {
   const compareMutation = useBridgeMutation<CompareResult>('compare:execute', {
     timeoutMs: COMPARE_TIMEOUT_MS,
   });
-
-  /**
-   * Bridge queries for each tab -- lazy loaded via skip option.
-   *
-   * Each generic is the *envelope* the matching CompareHandler method posts,
-   * not the value inside it. Typing these as the bare payload (`Row[]`,
-   * `OrgSnapshot[]`, `DriftResult`) is what let three tabs hand an object to a
-   * component expecting an array: the key was never unwrapped, TypeScript
-   * believed the lie, and the ErrorBoundary took the whole panel down at
-   * runtime. Unwrapping happens here, once, where the contract is visible.
-   */
-  const permissionsQuery = useBridgeQuery<{ permissions?: PermissionComparison }>(
-    'compare:permissions',
-    { sourceOrgId, targetOrgId },
-    { skip: activeTab !== 'permissions' || !sourceOrgId || !targetOrgId },
-  );
-
-  const snapshotsQuery = useBridgeQuery<{ snapshot?: OrgSnapshotComparison }>(
-    'compare:snapshots',
-    { sourceOrgId, targetOrgId },
-    { skip: activeTab !== 'objects' || !sourceOrgId || !targetOrgId },
-  );
-
-  const driftQuery = useBridgeQuery<{ drift?: SettingsDriftReport }>(
-    'compare:drift',
-    { sourceOrgId, targetOrgId },
-    { skip: activeTab !== 'drift' || !sourceOrgId || !targetOrgId },
-  );
-
-  /*
-   * Validate each envelope once, here.
-   *
-   * A response that does not carry what the tab needs is reported as the
-   * failed exchange it is -- never rendered as an empty comparison, which a
-   * reader would take for a measurement ("the two orgs match"). The message is
-   * a channel diagnostic, in the same register as the bridge's own timeout
-   * text, because it names a wire contract rather than a user-facing fact.
-   */
-  const permissions = readPermissionComparison(permissionsQuery.data?.permissions);
-  const snapshot = readSnapshotComparison(snapshotsQuery.data?.snapshot);
-  const drift = readSettingsDrift(driftQuery.data?.drift);
 
   /** Derive state from the bridge mutation. */
   const result = compareMutation.data;
@@ -145,17 +141,6 @@ export const ComparePage: React.FC = () => {
   const held = (id: string): boolean => orgs.some((org) => org.id === id);
   const orgsPicked = held(sourceOrgId) && held(targetOrgId) && sourceOrgId !== targetOrgId;
 
-  const handleRunCompare = () => {
-    if (!orgsPicked || selectedTypes.length === 0) return;
-    setError(null);
-    compareMutation.mutate({
-      sourceOrgId,
-      targetOrgId,
-      types: selectedTypes as unknown as Record<string, unknown>[],
-      includeManaged,
-    });
-  };
-
   // What Run Comparison waits for, said under it: two different orgs first,
   // then a category.
   const runNeeds: 'orgs' | 'categories' | null = !orgsPicked
@@ -164,6 +149,33 @@ export const ComparePage: React.FC = () => {
       ? 'categories'
       : null;
   const canRun = runNeeds === null;
+
+  /**
+   * Folded once a comparison is in, until Edit. A configuration Run would
+   * refuse stays open, so the ribbon can say an org disconnected meanwhile.
+   */
+  const folded = !!result && editingFor !== result.configId && canRun;
+
+  // Edit hands the focus to the source picker it unfolds: the button it was
+  // on goes with the folded line.
+  useEffect(() => {
+    if (folded || !focusSourceOnUnfold.current) return;
+    focusSourceOnUnfold.current = false;
+    configRef.current?.querySelector('select')?.focus();
+  }, [folded]);
+
+  const handleRunCompare = () => {
+    if (!canRun) return;
+    setError(null);
+    // The comparison is shown on Differences; Org overview would hide it.
+    if (activeTab === 'overview') setActiveTab('diff');
+    compareMutation.mutate({
+      sourceOrgId,
+      targetOrgId,
+      types: selectedTypes as unknown as Record<string, unknown>[],
+      includeManaged,
+    });
+  };
 
   /** Enriched compare report computed from raw diffs. */
   const compareReport = useMemo(() => (result ? enrichDiffs(result.diffs) : undefined), [result]);
@@ -187,6 +199,24 @@ export const ComparePage: React.FC = () => {
       />
     );
   }
+
+  /** The folded configuration, said in one line: the two orgs and what is compared. */
+  const configSummary = (): string => {
+    const words = {
+      source: orgDisplayName(
+        orgs.find((org) => org.id === sourceOrgId),
+        sourceOrgId,
+      ),
+      target: orgDisplayName(
+        orgs.find((org) => org.id === targetOrgId),
+        targetOrgId,
+      ),
+      categories: t('compare.categoryCount', { count: selectedTypes.length }),
+    };
+    return includeManaged
+      ? t('compare.configSummary', words)
+      : t('compare.configSummaryManagedOut', words);
+  };
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="compare-page">
@@ -233,30 +263,60 @@ export const ComparePage: React.FC = () => {
         />
       )}
 
-      {/* The two orgs, picked in the ribbon that names them */}
-      <OrgSelector
-        orgs={orgs}
-        sourceOrgId={sourceOrgId}
-        targetOrgId={targetOrgId}
-        onSourceChange={setSourceOrgId}
-        onTargetChange={setTargetOrgId}
-      />
+      {folded ? (
+        <div
+          className="flex flex-wrap items-center gap-(--sf-space-3) rounded-md border border-(--sf-border) px-(--sf-space-3) py-(--sf-space-2)"
+          data-testid="compare-config-summary"
+        >
+          <span
+            id={configSummaryId}
+            className="text-xs text-(--sf-text-primary)"
+            data-testid="compare-config-summary-text"
+          >
+            {configSummary()}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              focusSourceOnUnfold.current = true;
+              setEditingFor(result?.configId ?? null);
+            }}
+            aria-describedby={configSummaryId}
+            data-testid="compare-config-edit"
+          >
+            {t('common.edit')}
+          </Button>
+        </div>
+      ) : (
+        <div ref={configRef} className="flex flex-col gap-(--sf-space-4)">
+          {/* The two orgs, picked in the ribbon that names them */}
+          <OrgSelector
+            orgs={orgs}
+            sourceOrgId={sourceOrgId}
+            targetOrgId={targetOrgId}
+            onSourceChange={setSourceOrgId}
+            onTargetChange={setTargetOrgId}
+          />
 
-      {/* Category selection */}
-      <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />
+          {/* Category selection */}
+          <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />
 
-      <label className="flex items-center gap-2 text-xs text-text-secondary">
-        <input
-          type="checkbox"
-          checked={includeManaged}
-          onChange={(e) => setIncludeManaged(e.target.checked)}
-          data-testid="compare-include-managed"
-        />
-        {t('compare.includeManaged')}
-      </label>
+          <label className="flex items-center gap-2 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              checked={includeManaged}
+              onChange={(e) => setIncludeManaged(e.target.checked)}
+              data-testid="compare-include-managed"
+            />
+            {t('compare.includeManaged')}
+          </label>
+        </div>
+      )}
 
-      {/* Results tabs */}
-      {result && compareReport && (
+      <PageTabs tabs={COMPARE_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+
+      {activeTab === 'diff' && result && compareReport && (
         <>
           {/* Risk score card */}
           <RiskScoreCard report={compareReport} />
@@ -293,80 +353,43 @@ export const ComparePage: React.FC = () => {
 
           <ContentCoverage coverage={result.content} />
 
-          <PageTabs tabs={COMPARE_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
-
-          {activeTab === 'diff' && (
-            <DiffGroupAccordion diffs={compareReport.diffs} onSelectDiff={setSelectedDiff} />
-          )}
-
-          {activeTab === 'permissions' &&
-            (permissionsQuery.loading ? (
-              <Skeleton variant="rect" height="200px" />
-            ) : permissions ? (
-              <PermissionPresence
-                comparison={permissions}
-                sourceLabel={t('compareParts.source')}
-                targetLabel={t('compareParts.target')}
-              />
-            ) : (
-              <ErrorBanner
-                message={
-                  permissionsQuery.error ?? 'compare:permissions returned no permission data'
-                }
-                data-testid="compare-permissions-error"
-              />
-            ))}
-
-          {activeTab === 'objects' &&
-            (snapshotsQuery.loading ? (
-              <Skeleton variant="rect" height="200px" />
-            ) : snapshot ? (
-              <SnapshotComparison
-                snapshot={snapshot}
-                sourceLabel={t('compareParts.source')}
-                targetLabel={t('compareParts.target')}
-              />
-            ) : (
-              <ErrorBanner
-                message={snapshotsQuery.error ?? 'compare:snapshots returned no org snapshot'}
-                data-testid="compare-snapshots-error"
-              />
-            ))}
-
-          {activeTab === 'drift' &&
-            (driftQuery.loading ? (
-              <Skeleton variant="rect" height="200px" />
-            ) : drift ? (
-              <SettingsDrift
-                drift={drift}
-                sourceLabel={t('compareParts.source')}
-                targetLabel={t('compareParts.target')}
-              />
-            ) : (
-              <ErrorBanner
-                message={driftQuery.error ?? 'compare:drift returned no settings to compare'}
-                data-testid="compare-drift-error"
-              />
-            ))}
-
-          {/* Mounted while the comparison is shown, hidden on the other tabs:
-              a validation runs for minutes, and a panel a tab change
-              unmounted would drop its answer. Keyed by the comparison: what
-              was picked and validated answers for one comparison, and a new
-              one starts the tab afresh. */}
-          <div hidden={activeTab !== 'deploy'} data-testid="compare-deploy-tab">
-            <DeployPanel key={result.configId} result={result} report={compareReport} orgs={orgs} />
-          </div>
-
-          {/* Diff detail modal */}
-          {selectedDiff && (
-            <DiffDetailModal diff={selectedDiff} onClose={() => setSelectedDiff(undefined)} />
-          )}
+          <DiffGroupAccordion diffs={compareReport.diffs} onSelectDiff={setSelectedDiff} />
         </>
       )}
 
+      {/* Mounted while the comparison is shown, hidden on the other tabs:
+          a validation runs for minutes, and a panel a tab change
+          unmounted would drop its answer. Keyed by the comparison: what
+          was picked and validated answers for one comparison, and a new
+          one starts the tab afresh. */}
+      {result && compareReport && (
+        <div hidden={activeTab !== 'deploy'} data-testid="compare-deploy-tab">
+          <DeployPanel key={result.configId} result={result} report={compareReport} orgs={orgs} />
+        </div>
+      )}
+
+      {/* Reached before a comparison, from its tab or from a way out that
+          names it: what it deploys comes from one. */}
+      {activeTab === 'deploy' && !result && !isRunning && (
+        <p
+          className="py-8 text-center text-xs text-(--sf-text-secondary)"
+          data-testid="compare-deploy-needs-run"
+        >
+          {t('compare.deployNeedsRun')}
+        </p>
+      )}
+
+      {activeTab === 'overview' && (
+        <OrgOverview sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} orgsPicked={orgsPicked} />
+      )}
+
+      {/* Diff detail modal */}
+      {selectedDiff && (
+        <DiffDetailModal diff={selectedDiff} onClose={() => setSelectedDiff(undefined)} />
+      )}
+
       {/* Skeleton loading state while comparison runs */}
-      {isRunning && !result && (
+      {isRunning && !result && activeTab !== 'overview' && (
         <div className="flex flex-col gap-(--sf-space-4)" data-testid="compare-skeleton">
           <Skeleton variant="rect" height="80px" />
           <div className="flex gap-(--sf-space-4)">
@@ -381,8 +404,11 @@ export const ComparePage: React.FC = () => {
       )}
 
       {/* No results state */}
-      {!result && !isRunning && (
-        <p className="text-xs text-(--sf-text-secondary) text-center py-8">
+      {activeTab === 'diff' && !result && !isRunning && (
+        <p
+          className="text-xs text-(--sf-text-secondary) text-center py-8"
+          data-testid="compare-no-results"
+        >
           {t('compare.noResults')}
         </p>
       )}

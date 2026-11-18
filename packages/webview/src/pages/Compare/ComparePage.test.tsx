@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { ComparePage } from './ComparePage';
@@ -32,14 +33,86 @@ let mockCompareMutationState = {
  */
 const mockQueryData: Record<string, unknown> = {};
 
+/** Each query a render asked for: its channel, its payload, and whether it was held back. */
+const mockQueryCalls: Array<{ type: string; payload: unknown; skip: boolean }> = [];
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => ({
-    data: mockQueryData[type] ?? null,
-    loading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
+  useBridgeQuery: (type: string, payload: unknown, options?: { skip?: boolean }) => {
+    mockQueryCalls.push({ type, payload, skip: options?.skip ?? false });
+    return {
+      data: mockQueryData[type] ?? null,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+  },
 }));
+
+/** The channels Org overview reads, each sent with the two orgs alone. */
+const OVERVIEW_CHANNELS = ['compare:snapshots', 'compare:permissions', 'compare:drift'];
+
+/** What `compare:permissions` posts: names split three ways, never a CRUD grid. */
+const PERMISSIONS_ENVELOPE = {
+  permissions: {
+    permissionSets: {
+      sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
+      targetOnly: [],
+      shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
+    },
+    profiles: {
+      sourceOnly: [],
+      targetOnly: [{ name: 'Read Only' }],
+      shared: [{ name: 'System Administrator' }],
+    },
+  },
+};
+
+/** What `compare:snapshots` posts: one capture of both orgs, taken now. */
+const SNAPSHOT_ENVELOPE = {
+  snapshot: {
+    source: {
+      orgId: 'org-1',
+      totalObjects: 812,
+      customObjects: 44,
+      standardObjects: 768,
+      queryableObjects: 790,
+    },
+    target: {
+      orgId: 'org-2',
+      totalObjects: 806,
+      customObjects: 41,
+      standardObjects: 765,
+      queryableObjects: 784,
+    },
+    diff: { sourceOnly: ['Legacy__c'], targetOnly: [], sharedCount: 805 },
+    capturedAt: '2026-09-10T09:05:00.000Z',
+  },
+};
+
+/** What `compare:drift` posts: five Organization fields, read off both orgs. */
+const DRIFT_ENVELOPE = {
+  drift: {
+    items: [
+      {
+        setting: 'Organization.DefaultLocaleSidKey',
+        sourceValue: 'fr_FR',
+        targetValue: 'en_US',
+        status: 'drift',
+      },
+      {
+        setting: 'Organization.TimeZoneSidKey',
+        sourceValue: 'Europe/Paris',
+        targetValue: 'Europe/Paris',
+        status: 'match',
+      },
+    ],
+    totalChecked: 2,
+    driftCount: 1,
+    matchCount: 1,
+    missingCount: 0,
+    detectedAt: '2026-09-10T09:06:00.000Z',
+  },
+};
 
 /** What a comparison that read every component both orgs hold says it read. */
 const COMPARED_EVERYTHING = {
@@ -135,6 +208,8 @@ describe('ComparePage', () => {
       reset: mockCompareReset,
     };
     for (const key of Object.keys(mockQueryData)) delete mockQueryData[key];
+    mockQueryCalls.length = 0;
+    useAppStore.setState({ navigationIntent: null });
   });
 
   it('should show empty state with fewer than 2 orgs', () => {
@@ -226,6 +301,13 @@ describe('ComparePage', () => {
     fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
     fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
     fireEvent.click(screen.getByTestId('cat-ApexClass'));
+  }
+
+  /** Pick two orgs, all Org overview needs, and open it. */
+  function openOverview(): void {
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
   }
 
   it('picks the two orgs in the ribbon, which names each once, as a source and a target: it writes nothing', () => {
@@ -323,11 +405,12 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('page-header-actions').querySelectorAll('button')).toHaveLength(1);
   });
 
-  it('names the tab of both orgs’ live object lists Objects, not Snapshots', () => {
+  it('names the section of both orgs’ live object lists Objects, not Snapshots', () => {
     // Beside Checkpoints, a newcomer took "Snapshots" for saved states.
-    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    mockQueryData['compare:snapshots'] = SNAPSHOT_ENVELOPE;
     render(<ComparePage />);
-    expect(screen.getByTestId('page-tab-objects').textContent).toBe('Objects');
+    openOverview();
+    expect(screen.getByRole('heading', { name: 'Objects' })).toBeDefined();
     expect(screen.queryByText('Snapshots')).toBeNull();
   });
 
@@ -445,37 +528,172 @@ describe('ComparePage', () => {
     );
   });
 
-  it('should show tabs when result is received', () => {
-    mockCompareMutationState = {
-      mutate: mockCompareMutate,
-      data: {
-        configId: 'cfg-1',
-        sourceOrgId: 'org-1',
-        targetOrgId: 'org-2',
-        mode: 'metadata',
-        summary: {
-          totalItems: 100,
-          added: 5,
-          removed: 3,
-          modified: 10,
-          unchanged: 82,
-          notCompared: 0,
-          byType: {},
-        },
-        content: COMPARED_EVERYTHING,
-        diffs: [],
-        timestamp: '2024-01-01T12:00:00Z',
-        duration: 5000,
+  it('offers three tabs before any comparison has run: Differences, Deploy from Diff beside it, and Org overview', () => {
+    // Five tabs waited behind a diff, Deploy last, while three of them read
+    // nothing but the two orgs.
+    render(<ComparePage />);
+    const tabs = within(screen.getByTestId('page-tabs')).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      'Differences',
+      'Deploy from Diff',
+      'Org overview',
+    ]);
+    expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
+      'page-tab-diff',
+      'page-tab-deploy',
+      'page-tab-overview',
+    ]);
+    expect(screen.getByTestId('page-tab-diff').getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByTestId('page-tab-permissions')).toBeNull();
+    expect(screen.queryByTestId('page-tab-drift')).toBeNull();
+  });
+
+  it('says on Deploy from Diff, before a comparison, that it deploys what one finds', () => {
+    render(<ComparePage />);
+    fireEvent.click(screen.getByTestId('page-tab-deploy'));
+    expect(screen.getByTestId('compare-deploy-needs-run').textContent).toBe(
+      'Deploy from Diff deploys what a comparison finds: pick categories, then click Run Comparison.',
+    );
+    expect(screen.queryByTestId('compare-deploy')).toBeNull();
+    expect(screen.queryByTestId('compare-no-results')).toBeNull();
+  });
+
+  it('shows the comparison it runs from Org overview on Differences', () => {
+    render(<ComparePage />);
+    readyToRun();
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+    expect(mockCompareMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('page-tab-diff').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('keeps the risk score and the counts of a comparison on Differences, off Org overview', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    render(<ComparePage />);
+    expect(screen.getByTestId('risk-score-card')).toBeDefined();
+    expect(screen.getByTestId('compare-summary')).toBeDefined();
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
+    expect(screen.queryByTestId('risk-score-card')).toBeNull();
+    expect(screen.queryByTestId('compare-summary')).toBeNull();
+    expect(screen.queryByTestId('compare-coverage-compared')).toBeNull();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* The configuration, folded once a comparison is in                  */
+  /* ---------------------------------------------------------------- */
+
+  it('folds the configuration to one line once a comparison is in, and Edit unfolds it on the source', () => {
+    // The configuration stayed open above the result, and the tabs began
+    // about 1,030 px down.
+    const { rerender } = render(<ComparePage />);
+    readyToRun();
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    rerender(<ComparePage />);
+
+    expect(screen.getByTestId('compare-config-summary-text').textContent).toBe(
+      'Dev → Prod · 1 category',
+    );
+    expect(screen.queryByTestId('org-selector')).toBeNull();
+    expect(screen.queryByTestId('category-selector')).toBeNull();
+    expect(screen.queryByTestId('compare-include-managed')).toBeNull();
+    const edit = screen.getByTestId('compare-config-edit');
+    expect(edit.textContent).toBe('Edit');
+    expect(edit.getAttribute('aria-describedby')).toBe(
+      screen.getByTestId('compare-config-summary-text').id,
+    );
+
+    fireEvent.click(edit);
+    expect(screen.getByTestId('org-selector')).toBeDefined();
+    expect(screen.getByTestId('category-selector')).toBeDefined();
+    expect(screen.queryByTestId('compare-config-summary')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText('Source Org'));
+    // What it compared stays on screen while the configuration is edited.
+    expect(screen.getByTestId('compare-summary')).toBeDefined();
+  });
+
+  it('says on the folded line that managed package components were left out', () => {
+    const { rerender } = render(<ComparePage />);
+    readyToRun();
+    fireEvent.click(screen.getByLabelText('Include managed package components'));
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    rerender(<ComparePage />);
+
+    expect(screen.getByTestId('compare-config-summary-text').textContent).toBe(
+      'Dev → Prod · 1 category · managed package components left out',
+    );
+  });
+
+  it('unfolds the configuration when a folded org is no longer held, so the ribbon can say it', () => {
+    const { rerender } = render(<ComparePage />);
+    readyToRun();
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    rerender(<ComparePage />);
+    expect(screen.getByTestId('compare-config-summary')).toBeDefined();
+
+    act(() => {
+      useOrgStore.setState({ orgs: [twoOrgs[1]!, { ...twoOrgs[0]!, id: 'org-3' }] });
+    });
+
+    expect(screen.queryByTestId('compare-config-summary')).toBeNull();
+    expect(screen.getByTestId('org-ribbon-source-not-held')).toBeDefined();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Where a navigation asks the page to open                           */
+  /* ---------------------------------------------------------------- */
+
+  it('opens on the two orgs and the tab a navigation names, and reads the intent once', () => {
+    // The page read no intent: a way out that sent the user here opened it
+    // with both pickers empty.
+    mockQueryData['compare:snapshots'] = SNAPSHOT_ENVELOPE;
+    useAppStore.setState({
+      navigationIntent: {
+        route: 'compare',
+        compareSourceOrgId: 'org-1',
+        compareTargetOrgId: 'org-2',
+        compareTab: 'overview',
       },
-      loading: false,
-      error: null,
-      reset: mockCompareReset,
-    };
+    });
     render(<ComparePage />);
 
-    expect(screen.getByText('Diff Viewer')).toBeDefined();
-    expect(screen.getByText('Permission Presence')).toBeDefined();
-    expect(screen.getByText('Deploy from Diff')).toBeDefined();
+    expect((screen.getByLabelText('Source Org') as HTMLSelectElement).value).toBe('org-1');
+    expect((screen.getByLabelText('Target Org') as HTMLSelectElement).value).toBe('org-2');
+    expect(screen.getByTestId('page-tab-overview').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('snapshot-comparison')).toBeDefined();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  it('opens on Deploy from Diff when a navigation asks for it, which waits for a comparison', () => {
+    useAppStore.setState({
+      navigationIntent: {
+        route: 'compare',
+        compareSourceOrgId: 'org-1',
+        compareTargetOrgId: 'org-2',
+        compareTab: 'deploy',
+      },
+    });
+    render(<ComparePage />);
+
+    expect(screen.getByTestId('page-tab-deploy').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('compare-deploy-needs-run')).toBeDefined();
+    expect(screen.getByTestId('compare-run-needs').textContent).toBe('Pick at least one category');
+  });
+
+  it('leaves alone a navigation meant for another page', () => {
+    const elsewhere = {
+      route: 'dataops' as const,
+      compareSourceOrgId: 'org-1',
+      compareTab: 'overview' as const,
+    };
+    useAppStore.setState({ navigationIntent: elsewhere });
+    render(<ComparePage />);
+
+    expect((screen.getByLabelText('Source Org') as HTMLSelectElement).value).toBe('');
+    expect(screen.getByTestId('page-tab-diff').getAttribute('aria-selected')).toBe('true');
+    expect(useAppStore.getState().navigationIntent).toEqual(elsewhere);
   });
 
   it('draws the deployment from the comparison, and refuses its production target before anything else', () => {
@@ -553,30 +771,60 @@ describe('ComparePage', () => {
   });
 
   /* ---------------------------------------------------------------- */
-  /* Results tabs, fed the envelope CompareHandler really posts          */
+  /* Org overview, fed the envelopes CompareHandler really posts        */
   /* ---------------------------------------------------------------- */
 
+  it('reads the objects, permission sets and profiles, and settings of the two orgs with no comparison run', () => {
+    // The three read nothing but the two orgs, and waited behind a diff of
+    // 24 to 106 s.
+    mockQueryData['compare:permissions'] = PERMISSIONS_ENVELOPE;
+    mockQueryData['compare:snapshots'] = SNAPSHOT_ENVELOPE;
+    mockQueryData['compare:drift'] = DRIFT_ENVELOPE;
+    render(<ComparePage />);
+    openOverview();
+
+    const overview = screen.getByTestId('compare-overview');
+    expect(
+      within(overview)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+    ).toEqual(['Objects', 'Permission sets & profiles', 'Organization settings']);
+    expect(mockCompareMutate).not.toHaveBeenCalled();
+    const sent = mockQueryCalls.filter((call) => !call.skip);
+    expect([...new Set(sent.map((call) => call.type))].sort()).toEqual(
+      [...OVERVIEW_CHANNELS].sort(),
+    );
+    for (const call of sent) {
+      expect(call.payload).toEqual({ sourceOrgId: 'org-1', targetOrgId: 'org-2' });
+    }
+  });
+
+  it('says what Org overview waits for, and asks the orgs nothing, until two different orgs are picked', () => {
+    render(<ComparePage />);
+    fireEvent.click(screen.getByTestId('page-tab-overview'));
+    expect(screen.getByTestId('compare-overview-needs').textContent).toBe(
+      'Pick a source and a different target org: this tab reads their objects, permission sets ' +
+        'and profiles, and five Organization settings, with no comparison to run.',
+    );
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-1' } });
+    expect(screen.getByTestId('compare-overview-needs')).toBeDefined();
+    expect(mockQueryCalls.filter((call) => !call.skip)).toEqual([]);
+  });
+
+  it('asks the orgs nothing while Org overview is not the tab shown', () => {
+    render(<ComparePage />);
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    expect(mockQueryCalls.filter((call) => !call.skip)).toEqual([]);
+  });
+
   it('should render the permission presence matrix from the compare:permissions envelope', () => {
-    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
     // Exactly what CompareHandler.handlePermissions posts: an object under
     // `permissions` holding name buckets -- never PermissionMatrixRow[].
-    mockQueryData['compare:permissions'] = {
-      permissions: {
-        permissionSets: {
-          sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
-          targetOnly: [],
-          shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
-        },
-        profiles: {
-          sourceOnly: [],
-          targetOnly: [{ name: 'Read Only' }],
-          shared: [{ name: 'System Administrator' }],
-        },
-      },
-    };
+    mockQueryData['compare:permissions'] = PERMISSIONS_ENVELOPE;
     render(<ComparePage />);
-
-    fireEvent.click(screen.getByTestId('page-tab-permissions'));
+    openOverview();
 
     expect(screen.getByTestId('perm-presence-matrix')).toBeDefined();
     // Source-only permission set: present on the left, absent on the right.
@@ -597,30 +845,9 @@ describe('ComparePage', () => {
   });
 
   it('should render the schema snapshot from the compare:snapshots envelope', () => {
-    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
-    mockQueryData['compare:snapshots'] = {
-      snapshot: {
-        source: {
-          orgId: 'org-1',
-          totalObjects: 812,
-          customObjects: 44,
-          standardObjects: 768,
-          queryableObjects: 790,
-        },
-        target: {
-          orgId: 'org-2',
-          totalObjects: 806,
-          customObjects: 41,
-          standardObjects: 765,
-          queryableObjects: 784,
-        },
-        diff: { sourceOnly: ['Legacy__c'], targetOnly: [], sharedCount: 805 },
-        capturedAt: '2026-09-10T09:05:00.000Z',
-      },
-    };
+    mockQueryData['compare:snapshots'] = SNAPSHOT_ENVELOPE;
     render(<ComparePage />);
-
-    fireEvent.click(screen.getByTestId('page-tab-objects'));
+    openOverview();
 
     expect(screen.getByTestId('snapshot-comparison')).toBeDefined();
     expect(screen.getByTestId('snapshot-source-total').textContent).toBe('812 objects');
@@ -636,33 +863,9 @@ describe('ComparePage', () => {
   });
 
   it('should render settings drift from the compare:drift envelope', () => {
-    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
-    mockQueryData['compare:drift'] = {
-      drift: {
-        items: [
-          {
-            setting: 'Organization.DefaultLocaleSidKey',
-            sourceValue: 'fr_FR',
-            targetValue: 'en_US',
-            status: 'drift',
-          },
-          {
-            setting: 'Organization.TimeZoneSidKey',
-            sourceValue: 'Europe/Paris',
-            targetValue: 'Europe/Paris',
-            status: 'match',
-          },
-        ],
-        totalChecked: 2,
-        driftCount: 1,
-        matchCount: 1,
-        missingCount: 0,
-        detectedAt: '2026-09-10T09:06:00.000Z',
-      },
-    };
+    mockQueryData['compare:drift'] = DRIFT_ENVELOPE;
     render(<ComparePage />);
-
-    fireEvent.click(screen.getByTestId('page-tab-drift'));
+    openOverview();
 
     expect(screen.getByTestId('settings-drift')).toBeDefined();
     expect(screen.getByTestId('drift-source-Organization.DefaultLocaleSidKey').textContent).toBe(
@@ -677,7 +880,7 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('drift-status-Organization.TimeZoneSidKey').textContent).toBe(
       'Unchanged',
     );
-    // 1 of the 2 settings differs: the score is that fraction, and the counts
+    // 1 of the 2 settings differs: the share is that fraction, and the counts
     // that make up the denominator sit beside it.
     expect(screen.getByText('50%')).toBeDefined();
     expect(screen.getByTestId('drift-modified').textContent).toContain('~1');
@@ -685,15 +888,13 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('compare-page')).toBeDefined();
   });
 
-  it('should report a tab whose channel answered with nothing usable', () => {
-    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+  it('should report a section whose channel answered with nothing usable', () => {
     // The envelope arrives, but carries no comparable setting.
     mockQueryData['compare:drift'] = {
       drift: { items: [], totalChecked: 0, driftCount: 0, matchCount: 0, missingCount: 0 },
     };
     render(<ComparePage />);
-
-    fireEvent.click(screen.getByTestId('page-tab-drift'));
+    openOverview();
 
     // "No drift detected" would be a claim about two orgs nothing compared.
     expect(screen.getByTestId('compare-drift-error')).toBeDefined();

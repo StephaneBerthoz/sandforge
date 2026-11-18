@@ -20,6 +20,7 @@
     "common.itemCount_one",
     "common.orgType.devPro",
     "common.recordErrors.group",
+    "compare.configSummary",
     "dataops.frameworks.pci_dss",
     "forge.soqlPlaceholder",
     "forge.starter.account360.name",

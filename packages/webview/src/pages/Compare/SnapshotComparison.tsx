@@ -5,6 +5,7 @@ import { cn } from '../../theme';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { CHANGE_LOOK } from './changeLook';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Object counts `describeGlobal` yields for one org. */
 export interface OrgObjectCounts {
@@ -110,6 +111,15 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
   const listed = onlyRows.slice(0, MAX_LISTED);
   const remaining = onlyRows.length - listed.length;
 
+  /* When the two orgs were read, in the panel's language: the raw ISO stamp
+     the extension sends was printed as it came. None for one that is not a
+     date. */
+  const readAtDate = formatStoredDate(
+    snapshot.capturedAt,
+    dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format,
+  );
+  const readAt = readAtDate === null ? null : t('compare.readAt', { at: readAtDate });
+
   return (
     <Card className={className}>
       <CardHeader title={t('compare.objects')} />
@@ -166,12 +176,12 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
             </span>
           </div>
 
-          {snapshot.capturedAt && (
+          {readAt && (
             <span
-              className="font-mono text-[10px] text-(--sf-text-secondary)"
+              className="text-[10px] text-(--sf-text-secondary)"
               data-testid="snapshot-captured-at"
             >
-              {snapshot.capturedAt}
+              {readAt}
             </span>
           )}
         </div>

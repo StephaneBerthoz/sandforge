@@ -227,7 +227,7 @@ describe('the landing instructions a page opens with', () => {
     >();
     expectTypeOf<NavigationIntent['frozenTab']>().toEqualTypeOf<'extract' | 'load' | undefined>();
     expectTypeOf<NavigationIntent['compareTab']>().toEqualTypeOf<
-      'diff' | 'permissions' | 'objects' | 'drift' | 'deploy' | undefined
+      'diff' | 'deploy' | 'overview' | undefined
     >();
     expectTypeOf<NavigationIntent['syncTab']>().toEqualTypeOf<
       'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts' | undefined

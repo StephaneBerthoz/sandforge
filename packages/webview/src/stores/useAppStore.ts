@@ -140,8 +140,11 @@ export interface NavigationIntent {
   compareSourceOrgId?: string;
   /** The org Compare compares it with, and deploys to. */
   compareTargetOrgId?: string;
-  /** The Compare tab to open on, by the id the page names it with. */
-  compareTab?: 'diff' | 'permissions' | 'objects' | 'drift' | 'deploy';
+  /**
+   * The Compare tab to open on, by the id the page names it with: Org
+   * overview (`overview`) took in Objects, Permissions and Drift.
+   */
+  compareTab?: 'diff' | 'deploy' | 'overview';
   /** The Sync tab to open on, by the id the page names it with. */
   syncTab?: 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
   /** The Seed template the gallery opens on, by its id: with `seedMode: 'quick-seed'`. */

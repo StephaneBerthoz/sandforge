@@ -13,14 +13,32 @@ const DRIFT: SettingsDriftReport = {
   driftCount: 1,
   matchCount: 1,
   missingCount: 0,
-  detectedAt: '2026-09-01T00:00:00Z',
+  detectedAt: '2026-09-01T12:00:00Z',
 };
 
 describe('SettingsDrift', () => {
-  it('names the drift score bar after the label beside it', () => {
+  it('names the share bar for what it measures, the settings that differ', () => {
+    // "Drift Score" in English and "Score de drift" in French, over a bar
+    // that is the share of five settings that differ.
     render(<SettingsDrift drift={DRIFT} sourceLabel="Dev" targetLabel="QA" />);
-    const bar = screen.getByRole('progressbar', { name: 'Drift Score' });
+    const bar = screen.getByRole('progressbar', { name: 'Settings that differ' });
     expect(bar.getAttribute('aria-valuenow')).toBe('50');
+    expect(screen.getByRole('heading').textContent).toBe('Organization settings');
+  });
+
+  it('says when the settings were read, as a date in the panel’s language, not a raw stamp', () => {
+    render(<SettingsDrift drift={DRIFT} sourceLabel="Dev" targetLabel="QA" />);
+    const readAt = screen.getByTestId('drift-detected-at').textContent ?? '';
+    // In the time zone of the machine, which moves the day east of UTC+11.
+    expect(readAt).toMatch(/^Read at Sep [12], 2026, \d{1,2}:\d{2}\s?[AP]M$/);
+    expect(readAt).not.toContain('2026-09-01T');
+  });
+
+  it('says no read time for a stamp that is not a date', () => {
+    render(
+      <SettingsDrift drift={{ ...DRIFT, detectedAt: 'soon' }} sourceLabel="Dev" targetLabel="QA" />,
+    );
+    expect(screen.queryByTestId('drift-detected-at')).toBeNull();
   });
 
   it('draws a setting only the source holds as an addition, and one only the target holds as a removal', () => {
