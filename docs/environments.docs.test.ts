@@ -54,14 +54,34 @@ vi.mock('../packages/extension/src/core/connection/ConnectionHelper.js', async (
   getJsforceConnection: vi.fn(),
 }));
 
+import type { Connection } from 'jsforce';
+import {
+  fakeAuditOrg,
+  type FakeAuditOrgInit,
+} from '../packages/extension/cli/env/audit/auditFakeOrg.js';
 import { checkEnvFile, documentOf } from '../packages/extension/cli/env/envFile.js';
-import { main } from '../packages/extension/cli/sandforge-env.js';
+import { main as checkpointMain } from '../packages/extension/cli/sandforge-checkpoint.js';
+import { main, type EnvCliDeps } from '../packages/extension/cli/sandforge-env.js';
+import { main as usersMain } from '../packages/extension/cli/sandforge-users.js';
 import { dispatchOf } from '../packages/extension/cli/sandforge.js';
 import type { CommandRunner } from '../packages/extension/cli/scriptRunner.js';
+import { loadOrg, makeConn } from '../packages/extension/cli/sfSession.js';
 import { runnerWithCheckpoints } from '../packages/extension/cli/testing/envCheckpointWorld.js';
-import { EnvWorld, type EnvWorldOptions } from '../packages/extension/cli/testing/envWorld.js';
+import {
+  EnvWorld,
+  runInProcess,
+  type EnvWorldOptions,
+} from '../packages/extension/cli/testing/envWorld.js';
 import { freezeDataset } from '../packages/extension/cli/testing/frozenDataset.js';
+import { getJsforceConnection } from '../packages/extension/src/core/connection/ConnectionHelper.js';
+import { EMAIL_NOT_PERMITTED } from '../packages/extension/src/modules/forge/targetDeliverability.js';
 import { frozenDatasetDigest } from '../packages/extension/src/modules/frozendataset/datasetDigest.js';
+import {
+  ACME,
+  acmeSetup,
+  usersTestOrg,
+  type UsersTestOrg,
+} from '../packages/extension/src/modules/users/usersOrg.fixtures.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -196,7 +216,25 @@ const WORLDS: Readonly<Record<string, EnvWorldOptions>> = {
   developer: { sandbox: false, edition: 'Developer Edition' },
   production: { sandbox: false, edition: 'Enterprise Edition' },
   sandbox: { sandbox: true },
+  uat: { sandbox: true },
+  refresh: { sandbox: true },
 };
+
+/**
+ * The kinds of org a session is reached on by a sandbox's My Domain, as the
+ * sf CLI reaches a sandbox: a users resource's, a refresh's, and the refusal
+ * of a sandbox the file does not list, which names the My Domain.
+ */
+const ON_SANDBOX_HOST = new Set(['sandbox', 'uat', 'refresh']);
+
+/** The host of the sandbox the page names `uat`: its My Domain's, which a refresh keeps. */
+const SANDBOX_HOST = 'acme--uat.sandbox.my.salesforce.com';
+
+/** The Organization Id the sandbox answers with once refreshed: a refresh gives it another. */
+const REFRESHED_ORG_ID = '00Dxx0000002AbCEAU';
+
+/** A day and a half after T0: when the page's sandbox is refreshed. */
+const REFRESHED_AT = Date.parse('2026-10-26T21:00:00.000Z');
 
 /** A session under way: its org, its folders and the file as it stands. */
 interface Replay {
@@ -206,6 +244,10 @@ interface Replay {
   world: EnvWorld;
   /** The world's scripts, the checkpoint script among them. */
   runner: CommandRunner;
+  /** How the command line reaches the org, where the audits read it: the sf CLI's way otherwise. */
+  reach?: EnvCliDeps['reach'];
+  /** The users of a sandbox the page names, which `sandforge users` reads and writes. */
+  users?: UsersTestOrg;
 }
 
 /** A user of the org a session names, who changes records between two commands. */
@@ -230,6 +272,259 @@ function maskExample(): string {
   const yaml = fenced(section(DOC, '### A mask resource'), 'yaml')[0];
   if (!yaml) throw new Error('the mask section gives no example file: re-point this test');
   return `${yaml}\n`;
+}
+
+/** The file a users resource's sessions start from: the example of its section. */
+function usersExample(): string {
+  const yaml = fenced(section(DOC, '### A users resource'), 'yaml')[0];
+  if (!yaml) throw new Error('the users section gives no example file: re-point this test');
+  return `${yaml}\n`;
+}
+
+/** The file of a refreshed sandbox's sessions: the example of its section. */
+function refreshExample(): string {
+  const yaml = fenced(section(DOC, '## After a sandbox refresh'), 'yaml')[0];
+  if (!yaml) throw new Error('the refresh section gives no example file: re-point this test');
+  return `${yaml}\n`;
+}
+
+/** The columns of `CronTrigger` the audit of scheduled jobs reads. */
+const CRON_COLUMNS = [
+  'CronJobDetail.Name',
+  'CronJobDetail.JobType',
+  'CronExpression',
+  'State',
+  'NextFireTime',
+  'PreviousFireTime',
+  'OwnerId',
+];
+
+/**
+ * What the audits read of the page's sandbox: two scheduled jobs before its
+ * refresh, the nightly one gone after it; the weekly one run as the
+ * integration user, frozen or not as the org holds it now; a Named
+ * Credential whose URL carries a key, which no line may print, and a Remote
+ * Site, both pointing at production.
+ */
+function auditedOf(users: UsersTestOrg, refreshed: boolean): FakeAuditOrgInit {
+  const job = (name: string, cron: string, next: string, owner: string) => ({
+    'CronJobDetail.Name': name,
+    'CronJobDetail.JobType': '7',
+    CronExpression: cron,
+    State: 'WAITING',
+    NextFireTime: next,
+    PreviousFireTime: null,
+    OwnerId: owner,
+  });
+  return {
+    deliverability: 'closed',
+    data: {
+      CronTrigger: {
+        columns: CRON_COLUMNS,
+        rows: [
+          ...(refreshed
+            ? []
+            : [
+                job(
+                  'Nightly ERP sync',
+                  '0 0 2 * * ?',
+                  '2026-10-26T02:00:00.000+0000',
+                  ACME.users.admin,
+                ),
+              ]),
+          job('Weekly digest', '0 0 6 ? * SAT', '2026-10-31T06:00:00.000+0000', ACME.users.erp),
+        ],
+      },
+      User: {
+        columns: ['Id', 'Username', 'IsActive'],
+        rows: users.users.map((user) => ({
+          Id: user.id,
+          Username: user.username,
+          IsActive: user.isActive,
+        })),
+      },
+      UserLogin: {
+        columns: ['UserId', 'IsFrozen'],
+        rows: users.users.map((user) => ({ UserId: user.id, IsFrozen: user.frozen === true })),
+      },
+    },
+    tooling: {
+      NamedCredential: {
+        columns: ['DeveloperName', 'Endpoint', 'PrincipalType'],
+        rows: [
+          {
+            DeveloperName: 'ERP_API',
+            Endpoint: 'https://erp.acme.com/api?key=abc123',
+            PrincipalType: 'NamedUser',
+          },
+        ],
+      },
+      RemoteProxy: {
+        columns: ['SiteName', 'EndpointUrl', 'IsActive'],
+        rows: [
+          { SiteName: 'SF_Prod', EndpointUrl: 'https://acme.my.salesforce.com/', IsActive: true },
+        ],
+      },
+    },
+  };
+}
+
+/**
+ * The connection `sandforge users` holds to the page's sandbox: its users,
+ * licenses, profiles, permission sets, groups and queues, which refuse what
+ * a scratch org refused (`usersOrg.fixtures.ts`); its Organization record; a
+ * deliverability read closed, as a sandbox wakes; nothing run as a user or a
+ * login is written.
+ */
+function usersConnectionOf(users: UsersTestOrg, organizationId: string): unknown {
+  const nothing = { totalSize: 0, done: true, records: [] };
+  return {
+    ...users.connection,
+    version: '62.0',
+    query: (soql: string) =>
+      /\bFROM Organization\b/.test(soql)
+        ? Promise.resolve({
+            totalSize: 1,
+            done: true,
+            records: [
+              { Id: organizationId, IsSandbox: true, OrganizationType: 'Enterprise Edition' },
+            ],
+          })
+        : /\bFROM (?:FlowDefinitionView|ApexTrigger|WorkflowRule|Flow)\b/.test(soql)
+          ? Promise.resolve(nothing)
+          : users.connection.query(soql),
+    tooling: { query: async () => nothing, queryMore: async () => nothing },
+    request: async (request: { url: string; body?: string } | string) => {
+      const url = typeof request === 'string' ? request : request.url;
+      if (url.startsWith('/tooling/executeAnonymous')) {
+        return { compiled: true, success: false, exceptionMessage: EMAIL_NOT_PERMITTED };
+      }
+      if (url.startsWith('/query?q=')) return { records: [{ PermissionsEmailSingle: true }] };
+      if (url.endsWith('/tooling/composite') && typeof request !== 'string') {
+        const asked = JSON.parse(request.body ?? '{}') as {
+          compositeRequest?: Array<{ referenceId: string }>;
+        };
+        return {
+          compositeResponse: (asked.compositeRequest ?? []).map((sub) => ({
+            referenceId: sub.referenceId,
+            httpStatusCode: 200,
+            body: nothing,
+          })),
+        };
+      }
+      throw new Error(`The page's sandbox answers no request to ${url}`);
+    },
+  };
+}
+
+/** Run `work` with every short pause answered at once, as the world runs a Frozen load. */
+async function withoutPauses<T>(work: () => Promise<T>): Promise<T> {
+  const timer = globalThis.setTimeout;
+  const pause = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    handler: () => void,
+    ms = 0,
+  ) => {
+    if (ms >= 30_000) return timer(handler, ms);
+    handler();
+    return 0;
+  }) as unknown as typeof setTimeout);
+  try {
+    return await work();
+  } finally {
+    pause.mockRestore();
+  }
+}
+
+/**
+ * The page's sandbox, `uat`: an org of its Organization Id, reached by its
+ * My Domain host as the admin, holding the contacts production copied into
+ * it, under the same Ids after each refresh. Its scripts are the world's,
+ * and two more in this process: `sandforge users` against its users, and
+ * `sandforge checkpoint replay`, which the Frozen handler makes as it makes
+ * a load, into the same memory org. The audits read it through the command
+ * line's own connection.
+ */
+function sandboxOf(
+  dir: string,
+  organizationId: string,
+  refreshed: boolean,
+): Pick<Replay, 'world' | 'runner' | 'reach' | 'users'> {
+  const tick = () => vi.setSystemTime(Date.now() + 30_000);
+  const world = new EnvWorld({ organizationId, tick, sandbox: true });
+  onSandboxHost();
+  world.copyIn('Contact', COPIED_CONTACTS);
+  const users = usersTestOrg(acmeSetup({ organizationId, now: () => new Date() }));
+  const locksDir = join(dir, 'locks');
+  const inner = runnerWithCheckpoints(world, {
+    locksDir,
+    users: { [COLLEAGUE]: 'Colleague' },
+    tick,
+  });
+  const runner: CommandRunner = async (script, args, signal) => {
+    if (script === 'sandforge-users') {
+      const reached = vi.mocked(makeConn).getMockImplementation();
+      vi.mocked(makeConn).mockImplementation(
+        () => usersConnectionOf(users, organizationId) as Connection,
+      );
+      try {
+        return await runInProcess(() => usersMain(['node', 'sandforge-users.ts', ...args]));
+      } finally {
+        if (reached) vi.mocked(makeConn).mockImplementation(reached);
+        tick();
+      }
+    }
+    if (script === 'sandforge-checkpoint' && args[0] === 'replay') {
+      try {
+        return await runInProcess(() =>
+          withoutPauses(() =>
+            checkpointMain(['node', 'sandforge-checkpoint.ts', ...args], { locksDir }),
+          ),
+        );
+      } finally {
+        tick();
+      }
+    }
+    // The checkpoint script's host points the handlers at its own
+    // connection, which describes what a checkpoint keeps: given back after
+    // it, for a masking or a replay that runs next.
+    const handlers = vi.mocked(getJsforceConnection).getMockImplementation();
+    try {
+      return await inner(script, args, signal);
+    } finally {
+      if (handlers) vi.mocked(getJsforceConnection).mockImplementation(handlers);
+    }
+  };
+  const reach: EnvCliDeps['reach'] = async (alias) => {
+    const session = await loadOrg(alias);
+    const conn = makeConn(session) as unknown as Record<string, unknown> & {
+      request: (request: unknown) => Promise<unknown>;
+    };
+    // Read as the org holds its users when the audit reads them: after the
+    // apply that froze one, at the end of the same command.
+    const read = {
+      ...conn,
+      request: async (request: unknown) => {
+        const url = typeof request === 'string' ? request : (request as { url: string }).url;
+        return /^\/(?:tooling\/)?query\?/.test(url) || url.startsWith('/tooling/executeAnonymous')
+          ? fakeAuditOrg(auditedOf(users, refreshed)).transport.request({ method: 'GET', url })
+          : conn.request(request);
+      },
+    };
+    return { session, conn: read as unknown as Connection };
+  };
+  return { world, runner, reach, users };
+}
+
+/** Reach every org of the session by the page's sandbox's My Domain host, as its admin. */
+function onSandboxHost(): void {
+  const reached = vi.mocked(loadOrg).getMockImplementation();
+  vi.mocked(loadOrg).mockImplementation(async (alias: string) => ({
+    ...(await reached?.(alias)),
+    alias,
+    username: 'admin@acme.com.uat',
+    instanceUrl: `https://${SANDBOX_HOST}`,
+    accessToken: 'token',
+  }));
 }
 
 /** The contacts a sandbox copied from production holds, as a mask session starts on: the last with no email. */
@@ -334,6 +629,72 @@ const EVENTS: Readonly<Record<string, (replay: Replay) => void | Promise<void>>>
       '{ maskKeepLast: 2 } }\n',
       '{ maskKeepLast: 2 } }\n      - { fieldPattern: Contact.Nickname__c, ruleType: fake }\n',
     ),
+  'an admin freezes jane.qa again': (replay) => {
+    const jane = replay.users?.users.find((user) => user.id === ACME.users.jane);
+    if (!jane) throw new Error('the session has no jane.qa: re-point this test');
+    jane.frozen = true;
+  },
+  // The file applied before, without its replay, which no checkpoint stood
+  // for yet; two accounts and their contacts the testers made by hand since;
+  // the checkpoint of the day before the refresh, kept with no end date.
+  'applied once, the testers at work, then the checkpoint before the refresh': async (replay) => {
+    const full = readFileSync(replay.file, 'utf8');
+    const replayed = /\n {2}test-data:\n[\s\S]*?\n\n/.exec(full)?.[0];
+    if (!replayed) throw new Error('the refresh example has no test-data: re-point this test');
+    writeFileSync(replay.file, full.replace(replayed, '\n'));
+    const applied = await command(replay, [
+      'apply',
+      '--file',
+      '../uat/sandforge.yaml',
+      '--org',
+      'uat',
+      '--yes',
+      '--accept-no-state',
+      '--accept-user-emails',
+    ]);
+    if (applied.code !== 0) throw new Error(`the apply before the refresh ended ${applied.code}`);
+    writeFileSync(replay.file, full);
+    for (const rank of [1, 2]) {
+      const account = `001xx00000${rank}gPLEAAA`;
+      replay.world.org.add('Account', {
+        Id: account,
+        Name: `QA account ${rank}`,
+        CreatedById: COLLEAGUE,
+        LastModifiedById: COLLEAGUE,
+      });
+      replay.world.org.add('Contact', {
+        Id: `003xx00000${rank}gPLEAAA`,
+        LastName: `QA contact ${rank}`,
+        AccountId: account,
+        CreatedById: COLLEAGUE,
+        LastModifiedById: COLLEAGUE,
+      });
+    }
+    const taken = await replay.runner(
+      'sandforge-checkpoint',
+      [
+        'take',
+        '--org',
+        'uat',
+        '--name',
+        'uat-before-refresh',
+        '--keep-days',
+        '0',
+        '--store',
+        join(replay.journalDir, 'checkpoints'),
+        '--json',
+      ],
+      new AbortController().signal,
+    );
+    if (taken.code !== 0) throw new Error(`the checkpoint before the refresh ended ${taken.code}`);
+  },
+  // Another Organization Id on the same host: the records production holds,
+  // copied again under their Ids, the users as the copy leaves them, the
+  // nightly job gone.
+  'the sandbox is refreshed': (replay) => {
+    vi.setSystemTime(REFRESHED_AT);
+    Object.assign(replay, sandboxOf(replay.dir, REFRESHED_ORG_ID, true));
+  },
 };
 
 /** An account a test creates, as the colleague the sessions name. */
@@ -361,14 +722,28 @@ async function begin(kind: string): Promise<Replay> {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sandforge-env-docs-')));
   const project = join(
     dir,
-    kind === 'frozen' ? 'claims-flow' : kind === 'masking' ? 'uat-masked' : 'case-flow',
+    kind === 'frozen'
+      ? 'claims-flow'
+      : kind === 'masking'
+        ? 'uat-masked'
+        : kind === 'uat' || kind === 'refresh'
+          ? 'uat'
+          : 'case-flow',
   );
   mkdirSync(join(project, '.git'), { recursive: true });
   mkdirSync(join(dir, 'sandforge'));
   const file = join(project, 'sandforge.yaml');
   writeFileSync(
     file,
-    kind === 'frozen' ? frozenExample() : kind === 'masking' ? maskExample() : example(),
+    kind === 'frozen'
+      ? frozenExample()
+      : kind === 'masking'
+        ? maskExample()
+        : kind === 'uat'
+          ? usersExample()
+          : kind === 'refresh'
+            ? refreshExample()
+            : example(),
   );
   if (kind === 'frozen') {
     mkdirSync(join(project, 'frozen'));
@@ -379,18 +754,23 @@ async function begin(kind: string): Promise<Replay> {
     const dataset = await freezeDataset(join(dir, 'datasets', 'claims'), CLAIMS);
     process.env[DATASET_VARIABLE] = dataset;
   }
+  const journalDir = join(dir, '.sandforge');
+  if (kind === 'uat' || kind === 'refresh') {
+    return { dir, file, journalDir, ...sandboxOf(dir, ORG_ID, false) };
+  }
   const world = new EnvWorld({
     organizationId: ORG_ID,
     tick: () => vi.setSystemTime(Date.now() + 30_000),
     ...options,
   });
+  if (ON_SANDBOX_HOST.has(kind)) onSandboxHost();
   if (kind === 'masking') world.copyIn('Contact', COPIED_CONTACTS);
   const runner = runnerWithCheckpoints(world, {
     locksDir: join(dir, 'locks'),
     users: { [COLLEAGUE]: 'Colleague' },
     tick: () => vi.setSystemTime(Date.now() + 30_000),
   });
-  return { dir, file, journalDir: join(dir, '.sandforge'), world, runner };
+  return { dir, file, journalDir, world, runner };
 }
 
 /** Run one command line of a session: what it said, stdout and stderr in the order they came, and its exit code. */
@@ -415,6 +795,7 @@ async function command(replay: Replay, args: string[]): Promise<{ said: string; 
       locksDir: join(replay.dir, 'locks'),
       onStop: () => () => undefined,
       cwd: join(replay.dir, 'sandforge'),
+      ...(replay.reach !== undefined ? { reach: replay.reach } : {}),
     });
   } catch (error: unknown) {
     if (!(error instanceof Error) || !error.message.startsWith('exit ')) throw error;
@@ -425,30 +806,42 @@ async function command(replay: Replay, args: string[]): Promise<{ said: string; 
   }
   const code = exited ?? Number(process.exitCode ?? 0);
   process.exitCode = undefined;
-  // The page's folders for the session's own, written with forward slashes on
-  // every platform: on Windows the paths come with backslashes.
-  const paths = new RegExp(`${HOME}[^\\s]*`, 'g');
-  return {
-    said: said
-      .join('')
+  return { said: asThePageWrites(replay, said.join('')), code };
+}
+
+/**
+ * What a session printed, or a file it wrote, as the page gives it: the
+ * session's folders as the page's, with forward slashes on every platform —
+ * on Windows the paths come with backslashes —, and the random ends of ids.
+ */
+function asThePageWrites(replay: Replay, text: string): string {
+  const paths = new RegExp(`${HOME}[^\\s\`]*`, 'g');
+  return (
+    text
       .replaceAll(replay.dir, HOME)
       .replace(paths, (path) => path.replaceAll('\\', '/'))
       // A checkpoint's id ends in four random characters: the page gives them as a1b2.
       .replace(/\b(ck|rw|pv)-(\d{8}-\d{6})-[a-z0-9]{4}\b/g, '$1-$2-a1b2')
       // A masking's snapshot is named after its run's id, which ends in six: the page gives them as a1b2c3.
-      .replace(/\b(cli-dataops-anonymize-\d+)-[a-z0-9]{1,6}-snapshot\b/g, '$1-a1b2c3-snapshot'),
-    code,
-  };
+      .replace(/\b(cli-dataops-anonymize-\d+)-[a-z0-9]{1,6}-snapshot\b/g, '$1-a1b2c3-snapshot')
+  );
 }
 
+/** The version of SandForge the code runs as, which a handoff note names. */
+const VERSION = (JSON.parse(source('packages/extension/package.json')) as { version: string })
+  .version;
+
 /** The sessions of the page, in order, each with the org it runs on and what happens before it. */
-function sessions(): Array<{ start: string; event?: string; block: string }> {
+function sessions(): Array<{ start: string; event?: string; block: string; note?: string }> {
   const found = [
-    ...DOC.matchAll(/<!-- replay: ([a-z]+)(?:; ([^>]+?))? -->\n+```console\n([\s\S]*?)\n```/g),
+    ...DOC.matchAll(
+      /<!-- replay: ([a-z]+)(?:; ([^>]+?))? -->\n+```console\n([\s\S]*?)\n```(?:\n+(?:[^\n<`][^\n]*\n+)?<!-- the note it wrote -->\n+```markdown\n([\s\S]*?)\n```)?/g,
+    ),
   ].map((m) => ({
     start: m[1] as string,
     ...(m[2] !== undefined ? { event: m[2] } : {}),
     block: m[3] as string,
+    ...(m[4] !== undefined ? { note: m[4] } : {}),
   }));
   if (found.length !== fenced(DOC, 'console').length) {
     throw new Error('a console block of the page says nothing of where it is replayed');
@@ -558,11 +951,28 @@ describe('docs/environments.md', () => {
   it('names in its prose and its sessions only flags the command line reads', () => {
     const read = new Set([...flagsOf().values()].flatMap((set) => [...set]));
     read.add('--help');
-    // The help block aside, and the checkpoint script's own lines, which its guide holds.
-    const base = DOC.replace(/```text\n[\s\S]*?\n```/, '').replace(
-      /(?:pnpm exec tsx packages\/extension\/cli\/)?sandforge-checkpoint(?:\.ts)? [^\n`]*/g,
-      '',
-    );
+    // The help block aside, and the checkpoint script's own lines, which its
+    // guide holds, as a session prints them or as a person types them. The
+    // lines a mask resource's plan gives, wherever a session prints them,
+    // name the flags sandforge-dataops reads, and no other.
+    const dataopsLine = /pnpm exec tsx packages\/extension\/cli\/sandforge-dataops\.ts [^\n`]*/g;
+    const dataopsLines = [...DOC.matchAll(dataopsLine)].map((m) => m[0]);
+    expect(dataopsLines.length).toBeGreaterThan(3);
+    for (const line of dataopsLines) {
+      expect(
+        [...flagsIn(line)].filter((flag) => !dataopsFlags().has(flag)),
+        line,
+      ).toEqual([]);
+    }
+    const others = (text: string): string =>
+      text
+        .replace(/```text\n[\s\S]*?\n```/, '')
+        .replace(
+          /(?:pnpm exec tsx packages\/extension\/cli\/)?sandforge[- ]checkpoint(?:\.ts)? [^\n`]*/g,
+          '',
+        )
+        .replace(dataopsLine, '');
+    const base = others(DOC);
     const named = flagsIn(base);
     // Positive control: the flags of a plan, an apply, a saved plan and a destroy are all there.
     for (const flag of [
@@ -580,7 +990,7 @@ describe('docs/environments.md', () => {
     // there alone.
     const frozen = section(DOC, '### A frozen resource');
     const mask = section(DOC, '### A mask resource');
-    const outside = flagsIn(base.replace(frozen, '').replace(mask, ''));
+    const outside = flagsIn(others(DOC.replace(frozen, '').replace(mask, '')));
     expect([...outside].filter((flag) => !read.has(flag))).toEqual([]);
     const frozenRead = frozenFlags();
     expect(frozenRead.has('--max-total')).toBe(true);
@@ -887,9 +1297,21 @@ describe('docs/environments.md', () => {
     const all = sessions();
     // Positive control: the walk-through and the refusals, on every kind of org.
     expect(new Set(all.map((s) => s.start))).toEqual(
-      new Set(['frozen', 'masking', 'scratch', 'then', 'production', 'sandbox', 'developer']),
+      new Set([
+        'frozen',
+        'masking',
+        'uat',
+        'refresh',
+        'scratch',
+        'then',
+        'production',
+        'sandbox',
+        'developer',
+      ]),
     );
     expect(all.length).toBeGreaterThan(20);
+    // The note an apply wrote follows its session, once.
+    expect(all.filter((s) => s.note !== undefined)).toHaveLength(1);
 
     let replay: Replay | undefined;
     const done: Replay[] = [];
@@ -907,6 +1329,7 @@ describe('docs/environments.md', () => {
           await event(replay);
         }
         let last = 0;
+        let lastSaid = '';
         const parts = session.block.split(/^\$ /m).slice(1);
         expect(parts.length, session.block).toBeGreaterThan(0);
         for (const part of parts) {
@@ -923,6 +1346,24 @@ describe('docs/environments.md', () => {
           const { said, code } = await command(replay, args);
           expect(expected, `$ ${line}`).toBe(said.replace(/\n$/, ''));
           last = code;
+          lastSaid = said;
+        }
+        if (session.note !== undefined) {
+          // The note is the one the apply named, read from where it wrote it;
+          // the SandForge it names is the one that runs, which the page gives
+          // as of its own release.
+          const path = /^handoff note: (\S+)$/m.exec(lastSaid)?.[1];
+          if (!path) throw new Error('the session before the note names no note: re-point');
+          const written = readFileSync(path.replace(HOME, replay.dir), 'utf8');
+          expect(written).toContain(`by SandForge ${VERSION};`);
+          const pageVersion = /by SandForge (\d+\.\d+\.\d+);/.exec(session.note)?.[1] ?? '';
+          expect(
+            asThePageWrites(replay, written).replace(
+              `by SandForge ${VERSION};`,
+              `by SandForge ${pageVersion};`,
+            ),
+            'the handoff note',
+          ).toBe(`${session.note}\n`);
         }
       }
     } finally {
@@ -966,7 +1407,7 @@ describe('docs/environments.md', () => {
       "Its lines go on to this process's stderr as they\n * come",
     );
     expect(DOC).toContain(
-      'Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource --, run in a process of its own with `--json`',
+      'Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource, `sandforge users` for a users resource, `sandforge checkpoint replay` for a replay resource --, run in a process of its own with `--json`',
     );
     expect(DOC).toContain('Each script it runs says its own lines too, on stderr, as they come');
     // The file's two checks: its own schema, then Seed's, as the panel's.
@@ -1415,6 +1856,96 @@ describe('docs/environments.md', () => {
     // The MCP server's tools plan, apply and destroy an environment: docs/mcp.md says how.
     expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).toContain("script: 'sandforge-env'");
     expect(later).not.toContain('MCP server');
+  });
+});
+
+describe('a refreshed sandbox, on the page', () => {
+  const USERS_SCRIPT = source(`${CLI_DIR}/sandforge-users.ts`);
+  const HANDOFF = source(`${CLI_DIR}/env/audit/handoffNote.ts`);
+  const AUDIT_STORE = source(`${CLI_DIR}/env/audit/auditStore.ts`);
+
+  it('says an address asked back awaits its owner, never that it is restored, and that no password is reset', () => {
+    // Positive control: what the code says of an address, and of a password.
+    expect(APPLY).toContain("address awaiting its owner's confirmation — Salesforce sent ");
+    expect(USERS_SCRIPT).toContain("address awaiting its owner's confirmation — Salesforce");
+    expect(SCHEMA).toContain(
+      "'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +",
+    );
+
+    const users = section(DOC, '### A users resource');
+    expect(users).toContain("`address asked back, awaiting its owner's confirmation`");
+    expect(users).toContain('never that it is restored');
+    expect(users).toContain(
+      "**No password.** SandForge resets no password: a tester asks for one with **Forgot your password?** on the sandbox's login page, once the address is confirmed.",
+    );
+    expect(section(DOC, '## Not yet')).toContain('- **A password reset**: SandForge resets none.');
+    // No line of the page says an address was put back: the sessions print
+    // what the code prints, and the prose follows them.
+    expect(DOC).not.toMatch(/address(?:es)? (?:is |are |was |were )?restored/i);
+  });
+
+  it('says what no refreshed sandbox has proven yet, where it says what a refresh leaves', () => {
+    // Positive control: the three points rest on code alone — the host a
+    // sandbox is listed by, and the state told by its host and another Id.
+    expect(GUARDS).toContain(
+      "'listed by its My Domain; its Organization Id changed since the last apply'",
+    );
+    expect(STATE).toContain(
+      'if (state?.org.host === undefined || !refreshedSince(state.org, target)) continue;',
+    );
+
+    const refresh = section(DOC, '## After a sandbox refresh');
+    expect(refresh).toContain('**Not yet proven on a refreshed sandbox.**');
+    for (const point of [
+      'that a refresh puts each address under `.invalid`',
+      'the listing by My Domain reads',
+      'that the state of before is told apart by that host and another Organization Id',
+    ]) {
+      expect(refresh, point).toContain(point);
+    }
+    expect(section(DOC, '## Not yet')).toContain(
+      'the `.invalid` suffix, the listing by My Domain and the state told after a refresh are not yet proven on a refreshed sandbox',
+    );
+    expect(section(DOC, '### Every key')).toContain('Not yet proven on a refreshed sandbox');
+  });
+
+  it('shows the refusal of a sandbox the file does not list with the My Domain that lists it', () => {
+    // Positive control: the refusal gives the My Domain on a sandbox's host.
+    expect(GUARDS).toContain(
+      'which a refresh keeps: { myDomain: ${myDomain} }. Nothing was read or written.',
+    );
+    const block =
+      /<!-- replay: sandbox; the file lists another sandbox -->\n+```console\n([\s\S]*?)\n```/.exec(
+        DOC,
+      )?.[1];
+    expect(block).toContain('nor its My Domain acme--uat');
+    expect(block).toContain('{ myDomain: acme--uat }');
+  });
+
+  it('prints no endpoint with its query, where the org holds one with a key', () => {
+    // Positive control: the endpoint the sessions' org holds carries a key.
+    const users = usersTestOrg(acmeSetup({ organizationId: ORG_ID }));
+    expect(JSON.stringify(auditedOf(users, false))).toContain(
+      'https://erp.acme.com/api?key=abc123',
+    );
+
+    const audits = section(DOC, '## Audits and the handoff note');
+    expect(audits).toContain('never its query, which may carry a key, nor a user and a password');
+    expect(DOC).toContain('Named Credential  ERP_API  https://erp.acme.com/api ');
+    expect(DOC).not.toContain('abc123');
+  });
+
+  it('keeps the inventories and the notes where the code files them', () => {
+    expect(AUDIT_STORE).toContain('audits/');
+    expect(HANDOFF).toContain("'handoff',\n    input.env,");
+    const state = section(DOC, '## The state');
+    expect(state).toContain(
+      'the inventories of scheduled jobs `audit --save` keeps, in `audits/<host>/`',
+    );
+    expect(state).toContain('the handoff notes, in `handoff/<name>/`');
+    expect(section(DOC, '## Audits and the handoff note')).toContain(
+      "It is kept in `handoff/<name>/` of the journal directory, its owner's alone",
+    );
   });
 });
 
@@ -2066,11 +2597,81 @@ describe('the pages that send a reader to docs/environments.md', () => {
     .join('\n');
 
   /** The commented-out jobs of the pipeline: what follows their header. */
+  /** Where the jobs after a refresh begin, which the jobs of an environment end at. */
+  const REFRESH_JOBS = '── After a sandbox refresh (sandforge env), commented out';
+
   function envJobs(): string {
     const start = commented.indexOf('── An environment as code (sandforge env), commented out');
     if (start === -1) throw new Error('the pipeline has no commented sandforge env jobs: re-point');
+    const end = commented.indexOf(REFRESH_JOBS);
+    return commented.slice(start, end === -1 ? undefined : end);
+  }
+
+  /** The commented-out jobs of after a refresh: what follows their header. */
+  function refreshJobs(): string {
+    const start = commented.indexOf(REFRESH_JOBS);
+    if (start === -1) throw new Error('the pipeline has no jobs after a refresh: re-point');
     return commented.slice(start);
   }
+
+  it('the jobs after a refresh keep the checkpoint and the inventory the day before, then apply from the npm package, the emails accepted on the line, no state accepted, the cache keyed by My Domain', () => {
+    const jobs = refreshJobs();
+    // Positive control: what the lines name is what the code reads. The
+    // checkpoint the guide's replay resource names, a take's flags, and the
+    // flags each verb of the environment reads.
+    expect(refreshExample()).toContain('checkpoint: { name: uat-before-refresh }');
+    const checkpointFlags = flagsIn(
+      /\n {2}take: \{([\s\S]*?)\n {2}\},/.exec(source(`${CLI_DIR}/sandforge-checkpoint.ts`))?.[1] ??
+        '',
+    );
+    expect(checkpointFlags.has('--keep-days')).toBe(true);
+
+    const take = /npx -y "\$SANDFORGE" checkpoint take ([^\n]+)/.exec(jobs)?.[1] ?? '';
+    expect(take).toBe('--org uat --name uat-before-refresh --keep-days 0');
+    expect(
+      [...flagsIn(take)].filter((flag) => !checkpointFlags.has(flag) && flag !== '--org'),
+    ).toEqual([]);
+
+    const flags = flagsOf();
+    const calls = [
+      ...jobs.matchAll(/npx -y "\$SANDFORGE" env ([a-z]+) ((?:[^\n]*\\\n)*[^\n]*)/g),
+    ].map((m) => ({ command: m[1] as string, line: (m[2] as string).replace(/\\\n\s*/g, '') }));
+    expect(calls.map((call) => call.command)).toEqual(['audit', 'plan', 'apply']);
+    for (const { command, line } of calls) {
+      const read = flags.get(command) ?? new Set<string>();
+      expect(
+        [...flagsIn(line)].filter((flag) => !read.has(flag)),
+        line,
+      ).toEqual([]);
+      expect(line).toContain('--file sandforge.yaml --org uat');
+    }
+    expect(calls[0]?.line).toContain('--save');
+    const apply = calls[2]?.line ?? '';
+    for (const flag of ['--yes', '--accept-user-emails', '--handoff "$RUNNER_TEMP/handoff.md"']) {
+      expect(apply).toContain(flag);
+    }
+    // The refresh is proven by the state of before: never accepted blind.
+    expect(jobs).not.toMatch(/^[^#\n]*--accept-no-state/m);
+    expect(apply).not.toContain('--accept-no-state');
+
+    // Both from the release that has the resources, the state outside the
+    // workspace, cached by the My Domain a refresh keeps, one job at a time.
+    expect(jobs.match(/SANDFORGE: sandforge@\d+\.\d+\.\d+/g)).toHaveLength(2);
+    expect(
+      jobs.match(/echo "SANDFORGE_JOURNAL_DIR=\$RUNNER_TEMP\/sandforge" >> "\$GITHUB_ENV"/g),
+    ).toHaveLength(2);
+    const key = 'key: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-${{ github.run_id }}';
+    expect(jobs.split(key)).toHaveLength(5);
+    expect(jobs.match(/uses: actions\/cache\/save@v4\n\s+if: always\(\)/g)).toHaveLength(2);
+    expect(
+      jobs.match(
+        /concurrency:\n\s+group: sandforge-env-\$\{\{ vars\.SF_SANDBOX_MY_DOMAIN \}\}\n\s+cancel-in-progress: false/g,
+      ),
+    ).toHaveLength(2);
+    // The note names the testers: an artifact kept a short time.
+    expect(jobs).toMatch(/\$\{\{ runner\.temp \}\}\/handoff\.md[\s\S]*?retention-days: 3/);
+    expect(PIPELINE).not.toMatch(/^\s+[^#\s][^\n]*sandforge@/m);
+  });
 
   it('the CI guide runs the script from the checkout, the state outside the repository, one org at a time', () => {
     const env = section(GUIDE, '## An environment as code');

@@ -10,9 +10,13 @@
 #   4. VSIX package    — pnpm package, uploaded as an artifact
 #   5. Environment     — commented out at the end: the sandforge env jobs of a
 #                        project that commits a sandforge.yaml
+#   6. After a refresh — commented out after them: what a sandbox's refresh
+#                        will take, kept the day before, and the sandbox
+#                        handed back to its testers in one apply after it
 #
-# There is no installed `sandforge` command: each headless tool is a script of
-# packages/extension/cli/, run with tsx from a checkout. See ci-examples/README.md.
+# Stages 2 to 5 run each headless tool as a script of packages/extension/cli/,
+# with tsx from a checkout; stage 6 runs the same scripts from the sandforge
+# npm package (npx sandforge <name>), with no checkout. See ci-examples/README.md.
 #
 # Prerequisites for stages 2-3 (org-touching, dry-run by default):
 #   - Repository secrets:
@@ -467,3 +471,143 @@ jobs:
   #           env-apply.json
   #           env-drift.json
   #           env-destroy.json
+
+  # ── After a sandbox refresh (sandforge env), commented out ────────────────
+  #
+  # Two more jobs for your project's own repository, whose sandforge.yaml
+  # lists the sandbox by its My Domain ({ myDomain: acme--uat }), which a
+  # refresh keeps: before-refresh keeps, the day before, what the refresh
+  # will take; after-refresh hands the sandbox back to its testers in one
+  # apply once the refresh is done. See "After a sandbox refresh" in
+  # ci-examples/README.md, and in docs/environments.md for the file.
+  #
+  # Add `repository_dispatch: { types: [sandbox-refresh-planned,
+  # sandbox-refreshed] }` to the triggers, and send each by hand
+  # (gh api repos/<owner>/<repo>/dispatches -f event_type=sandbox-refreshed)
+  # or from what starts the refresh. Repository variables SF_UAT_USERNAME
+  # and SF_SANDBOX_MY_DOMAIN (acme--uat); secrets SF_UAT_JWT_KEY and
+  # SF_UAT_CLIENT_ID.
+  #
+  # Both run the sandforge npm package at the release that has users and
+  # replay resources, and keep the journal directory in $RUNNER_TEMP/sandforge,
+  # cached by the sandbox's My Domain: the state of before, which proves the
+  # refresh, and the checkpoint the replay reads, the testers' records
+  # unencrypted, which the pipeline alone reads.
+  #
+  # before-refresh:
+  #   name: Before the sandbox refresh (sandforge checkpoint, sandforge env audit)
+  #   if: github.event_name == 'repository_dispatch' && github.event.action == 'sandbox-refresh-planned'
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 60
+  #   concurrency:
+  #     group: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}
+  #     cancel-in-progress: false
+  #   env:
+  #     SANDFORGE: sandforge@1.82.0
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '22'
+  #     - name: Install the Salesforce CLI
+  #       run: |
+  #         npm install -g @salesforce/cli
+  #         echo "SANDFORGE_JOURNAL_DIR=$RUNNER_TEMP/sandforge" >> "$GITHUB_ENV"
+  #     - name: Log in to the sandbox
+  #       env:
+  #         SF_JWT_KEY: ${{ secrets.SF_UAT_JWT_KEY }}
+  #         SF_UAT_CLIENT_ID: ${{ secrets.SF_UAT_CLIENT_ID }}
+  #         SF_UAT_USERNAME: ${{ vars.SF_UAT_USERNAME }}
+  #         SF_SANDBOX_MY_DOMAIN: ${{ vars.SF_SANDBOX_MY_DOMAIN }}
+  #       run: |
+  #         umask 077
+  #         key_dir=$(mktemp -d)
+  #         trap 'rm -rf "$key_dir"' EXIT
+  #         printf '%s\n' "$SF_JWT_KEY" > "$key_dir/server.key"
+  #         sf org login jwt --client-id "$SF_UAT_CLIENT_ID" --jwt-key-file "$key_dir/server.key" \
+  #           --username "$SF_UAT_USERNAME" --instance-url "https://$SF_SANDBOX_MY_DOMAIN.sandbox.my.salesforce.com" --alias uat
+  #     - uses: actions/cache/restore@v4
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-${{ github.run_id }}
+  #         restore-keys: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-
+  #     # What the testers made, kept until deleted under the name the file's
+  #     # replay resource names; then the scheduled jobs, which the audit after
+  #     # the refresh compares with. Neither writes to the sandbox.
+  #     - name: Checkpoint and inventory (sandforge checkpoint take, sandforge env audit --save)
+  #       run: |
+  #         npx -y "$SANDFORGE" checkpoint take --org uat --name uat-before-refresh --keep-days 0
+  #         npx -y "$SANDFORGE" env audit --file sandforge.yaml --org uat --save
+  #     - uses: actions/cache/save@v4
+  #       if: always()
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-${{ github.run_id }}
+  #
+  # after-refresh:
+  #   name: After the sandbox refresh (sandforge env apply)
+  #   if: github.event_name == 'repository_dispatch' && github.event.action == 'sandbox-refreshed'
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 120
+  #   concurrency:
+  #     group: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}
+  #     cancel-in-progress: false
+  #   env:
+  #     SANDFORGE: sandforge@1.82.0
+  #   steps:
+  #     # The same checkout, install, login and cache restore as before-refresh.
+  #     # A login of before the refresh that no longer holds is sf's to put right.
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '22'
+  #     - name: Install the Salesforce CLI
+  #       run: |
+  #         npm install -g @salesforce/cli
+  #         echo "SANDFORGE_JOURNAL_DIR=$RUNNER_TEMP/sandforge" >> "$GITHUB_ENV"
+  #     - name: Log in to the sandbox
+  #       env:
+  #         SF_JWT_KEY: ${{ secrets.SF_UAT_JWT_KEY }}
+  #         SF_UAT_CLIENT_ID: ${{ secrets.SF_UAT_CLIENT_ID }}
+  #         SF_UAT_USERNAME: ${{ vars.SF_UAT_USERNAME }}
+  #         SF_SANDBOX_MY_DOMAIN: ${{ vars.SF_SANDBOX_MY_DOMAIN }}
+  #       run: |
+  #         umask 077
+  #         key_dir=$(mktemp -d)
+  #         trap 'rm -rf "$key_dir"' EXIT
+  #         printf '%s\n' "$SF_JWT_KEY" > "$key_dir/server.key"
+  #         sf org login jwt --client-id "$SF_UAT_CLIENT_ID" --jwt-key-file "$key_dir/server.key" \
+  #           --username "$SF_UAT_USERNAME" --instance-url "https://$SF_SANDBOX_MY_DOMAIN.sandbox.my.salesforce.com" --alias uat
+  #     - uses: actions/cache/restore@v4
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-${{ github.run_id }}
+  #         restore-keys: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-
+  #     # Writes nothing: what the apply would set up, mask and replay, and the
+  #     # state of before it sets aside.
+  #     - name: Plan (sandforge env plan)
+  #       run: npx -y "$SANDFORGE" env plan --file sandforge.yaml --org uat --json > env-plan.json
+  #     # --accept-user-emails: Salesforce mails each tester whose address is
+  #     # asked back a link to confirm it, which whoever sends the dispatch
+  #     # accepts. No --accept-no-state: the state kept under the sandbox's
+  #     # Organization Id of before, on the same host, proves the refresh; a
+  #     # cache lost proves nothing, and the apply refuses, exit 1.
+  #     - name: Apply (sandforge env apply)
+  #       run: |
+  #         npx -y "$SANDFORGE" env apply --file sandforge.yaml --org uat --yes \
+  #           --accept-user-emails --handoff "$RUNNER_TEMP/handoff.md" --json > env-apply.json
+  #     - uses: actions/cache/save@v4
+  #       if: always()
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_SANDBOX_MY_DOMAIN }}-${{ github.run_id }}
+  #     # The note names the testers by their usernames: kept a short time.
+  #     - uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: handoff
+  #         path: |
+  #           ${{ runner.temp }}/handoff.md
+  #           env-plan.json
+  #           env-apply.json
+  #         retention-days: 3

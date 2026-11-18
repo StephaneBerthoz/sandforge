@@ -31,6 +31,10 @@ const CLI = ['packages', 'extension', 'cli'];
 const SCHEMA = read('packages', 'shared', 'src', 'schemas', 'env.schema.ts');
 const KINDS_TABLE = read(...CLI, 'env', 'envKinds.ts');
 const MASK_KIND = read(...CLI, 'env', 'kinds', 'mask.ts');
+const USERS_KIND = read(...CLI, 'env', 'kinds', 'users.ts');
+const REPLAY_KIND = read(...CLI, 'env', 'kinds', 'replay.ts');
+const HANDOFF = read(...CLI, 'env', 'audit', 'handoffNote.ts');
+const USERS_SCHEMA = read('packages', 'shared', 'src', 'schemas', 'users.schema.ts');
 const ENV_SCRIPT = read(...CLI, 'sandforge-env.ts');
 const ENV_FILE = read(...CLI, 'env', 'envFile.ts');
 const MCP_SERVER = read(...CLI, 'sandforge-mcp.ts');
@@ -73,7 +77,7 @@ function scriptsOfKinds() {
   const table = /const SCRIPTS[^{]*\{([^}]+)\}/.exec(KINDS_TABLE);
   assert.ok(table, 'the SCRIPTS table of envKinds.ts moved');
   const constants = {};
-  for (const kind of ['seed', 'forge', 'frozen', 'mask']) {
+  for (const kind of ['seed', 'forge', 'frozen', 'mask', 'users', 'replay']) {
     const source = read(...CLI, 'env', 'kinds', `${kind}.ts`);
     for (const [, name, script] of source.matchAll(/export const (\w+_SCRIPT) = '([\w-]+)'/g)) {
       constants[name] = script;
@@ -85,40 +89,58 @@ function scriptsOfKinds() {
 }
 
 test('each page names every kind of resource the file has, and what applies it', () => {
-  // Positive control: the four kinds, and the script each one runs.
-  assert.deepEqual(kinds(), ['seed', 'forge', 'frozen', 'mask']);
+  // Positive control: the six kinds, and the script each one runs; a replay
+  // is the checkpoint script's verb `replay`, and a users resource runs the
+  // verbs of `sandforge users`.
+  assert.deepEqual(kinds(), ['seed', 'forge', 'frozen', 'mask', 'users', 'replay']);
   assert.deepEqual(scriptsOfKinds(), {
     seed: 'sandforge-seed',
     forge: 'sandforge-clone',
     frozen: 'sandforge-frozen',
     mask: 'sandforge-dataops',
+    users: 'sandforge-users',
+    replay: 'sandforge-checkpoint',
   });
+  assert.ok(
+    REPLAY_KIND.includes(
+      "function replaySwitches(input: ReplayLine & { again: boolean }): string[] {\n  return [\n    'replay',",
+    ),
+  );
+  assert.ok(
+    USERS_KIND.includes("function usersSwitches(verb: 'plan' | 'apply', input: UsersLine)"),
+  );
 
   /** Per kind, the words each page gives it. */
   const said = {
     seed: {
       readme: 'so many contacts under each',
-      apply: 'Seed',
       guide: 'the seed',
       faq: "Seed's",
     },
     forge: {
       readme: 'records cloned from an org it names',
-      apply: 'Forge',
       guide: 'the clone',
       faq: "Forge's",
     },
     frozen: {
       readme: 'a Frozen Dataset it loads',
-      apply: 'Frozen Dataset',
       guide: "Frozen's load",
       faq: "Frozen Dataset's",
     },
     mask: {
       readme: 'the records a sandbox copied from production already holds, masked',
-      apply: 'DataOps',
       guide: "DataOps' masking for a mask resource",
       faq: "DataOps'",
+    },
+    users: {
+      readme: 'the users its testers sign in as, handed back by a users resource',
+      guide: '`sandforge users` for a users resource',
+      faq: '`sandforge users` for a users resource',
+    },
+    replay: {
+      readme: 'from a checkpoint a replay resource replays',
+      guide: '`sandforge checkpoint replay` for a replay resource',
+      faq: '`sandforge checkpoint replay` for a replay resource',
     },
   };
   assert.deepEqual(Object.keys(said), kinds(), 'a kind of the schema no page names');
@@ -126,12 +148,66 @@ test('each page names every kind of resource the file has, and what applies it',
   for (const [kind, words] of Object.entries(said)) {
     assert.ok(README.includes(words.readme), `README: the ${kind} kind is not named`);
     assert.ok(GUIDE_SCRIPTS.includes(words.guide), `CI guide: what a ${kind} resource runs`);
+    assert.ok(FAQ.includes(words.faq), `FAQ: what a ${kind} resource runs`);
   }
-  assert.ok(README.includes('`apply` writes it through Seed, Forge, Frozen Dataset and DataOps'));
-  assert.ok(FAQ.includes("through Seed's, Forge's, Frozen Dataset's and DataOps' own runs"));
-  assert.ok(GUIDE_ROW.includes('through the runs of the seed, the clone, Frozen and DataOps'));
-  assert.ok(GUIDE_ENV.includes('-- the seed, the clone, a Frozen load, a DataOps masking --'));
+  assert.ok(
+    README.includes(
+      '`apply` writes it through Seed, Forge, Frozen Dataset and DataOps, `sandforge users` and `sandforge checkpoint replay`, the users first',
+    ),
+  );
+  assert.ok(
+    FAQ.includes(
+      "through Seed's, Forge's, Frozen Dataset's and DataOps' own runs, and those of `sandforge users` for a users resource and `sandforge checkpoint replay` for a replay resource",
+    ),
+  );
+  assert.ok(
+    GUIDE_ROW.includes(
+      'through the runs of the seed, the clone, Frozen, DataOps, `sandforge users` and `sandforge checkpoint replay`',
+    ),
+  );
+  assert.ok(
+    GUIDE_ENV.includes(
+      '-- the seed, the clone, a Frozen load, a DataOps masking, `sandforge users`, `sandforge checkpoint replay` --',
+    ),
+  );
   assert.ok(!GUIDE_SCRIPTS.includes('by running the seed script'), 'the CI guide runs Seed alone');
+});
+
+test('a page that hands a refreshed sandbox back says what no refreshed sandbox has proven, an address awaiting its owner, and no password reset', () => {
+  // Positive control: a key that would reset a password is refused, the
+  // handoff note says how a user gets one, and the users schema says an
+  // address asked back awaits its owner's click.
+  assert.ok(
+    SCHEMA.includes(
+      "'SandForge resets no password; once the address is restored, its owner asks Salesforce for ' +",
+    ),
+  );
+  assert.ok(
+    HANDOFF.includes(
+      "- Passwords: each user's own, by Forgot your password? on the sandbox's login page.",
+    ),
+  );
+  assert.ok(USERS_SCHEMA.includes('SandForge resets no password; once an'));
+
+  const refresh = section(GUIDE, '## After a sandbox refresh');
+  for (const [page, text] of [
+    ['FAQ', FAQ],
+    ['CI guide', refresh],
+  ]) {
+    assert.ok(
+      text.includes('not yet proven on a refreshed sandbox'),
+      `${page}: what is not proven`,
+    );
+    assert.ok(text.includes('**Forgot your password?**'), `${page}: how a tester gets a password`);
+    assert.ok(text.includes('awaiting its owner'), `${page}: an address asked back, not restored`);
+    assert.ok(
+      !/address(?:es)? (?:is |are )?restored/.test(text),
+      `${page}: an address said restored`,
+    );
+  }
+  assert.ok(README.includes('what no refreshed sandbox has proven yet'));
+  assert.ok(README.includes('](docs/environments.md#after-a-sandbox-refresh)'));
+  assert.ok(refresh.includes('](../docs/environments.md#after-a-sandbox-refresh)'));
 });
 
 test('a page that says destroy takes an environment back says a masking is never undone', () => {
@@ -178,17 +254,21 @@ test('the CI guide says the cache of the journal directory holds what a masking 
 
 test('the CI guide names the environment tools the MCP server registers, and the FAQ the server', () => {
   const tools = [...MCP_SERVER.matchAll(/name: '(env_\w+)'/g)].map((match) => match[1]);
-  // Positive control: the three tools, no more.
-  assert.deepEqual(tools, ['env_plan', 'env_apply', 'env_destroy']);
+  // Positive control: the four tools, no more; the last writes nothing to the
+  // org, its inventory kept on the machine alone.
+  assert.deepEqual(tools, ['env_plan', 'env_apply', 'env_destroy', 'env_audit']);
+  assert.ok(/name: 'env_audit',[\s\S]{0,2000}?destructive: false/.test(MCP_SERVER));
 
-  const named = '`env_plan`, `env_apply` and `env_destroy`';
-  assert.ok(GUIDE_SCRIPTS.includes(`the last three as ${named}`));
+  const named = '`env_plan`, `env_apply`, `env_destroy` and `env_audit`';
+  assert.ok(GUIDE_SCRIPTS.includes(`the last four as ${named}`));
   assert.ok(
-    GUIDE_ROW.includes(`the MCP server's ${named} run its \`plan\`, \`apply\` and \`destroy\``),
+    GUIDE_ROW.includes(
+      `the MCP server's ${named} run its \`plan\`, \`apply\`, \`destroy\` and \`audit\``,
+    ),
   );
   assert.ok(
     FAQ.includes(
-      "plans, applies and destroys an environment through the tools of the [MCP server](mcp.md), each write confirmed by the org's alias",
+      `plans, applies, destroys and audits an environment through the tools of the [MCP server](mcp.md), ${named}, each write confirmed by the org's alias`,
     ),
   );
 });

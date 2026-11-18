@@ -2,9 +2,9 @@
 
 A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource --, run in a process of its own with `--json`, and taken back by that script's own removal, a masking excepted, which is never undone: every guard, gate and run file of the script holds unchanged, and what `sandforge env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge checkpoint`, the same way.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge seed` for a seed resource, `sandforge clone` for a forge resource, `sandforge frozen` for a frozen resource, `sandforge dataops` for a mask resource, `sandforge users` for a users resource, `sandforge checkpoint replay` for a replay resource --, run in a process of its own with `--json`, and taken back by that script's own removal, a masking excepted, which is never undone: every guard, gate and run file of the script holds unchanged, and what `sandforge env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge checkpoint`, the same way.
 
-This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- **frozen resources** -- a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)) -- and **mask resources**: records the org already holds, a sandbox copied from production, masked with DataOps rules as the **DataOps** panel masks them, and never unmasked ([A mask resource](#a-mask-resource)). A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
+This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- **frozen resources** -- a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)) -- **mask resources** -- records the org already holds, a sandbox copied from production, masked with DataOps rules as the **DataOps** panel masks them, and never unmasked ([A mask resource](#a-mask-resource)) --, **users resources** -- the users of a sandbox handed back to its testers, set up before every other resource ([A users resource](#a-users-resource)) -- and **replay resources**: a checkpoint replayed, what a sandbox held before its refresh ([A replay resource](#a-replay-resource)). [After a sandbox refresh](#after-a-sandbox-refresh) puts them in one file, applied in one command, with the audits it reads and the note it writes. A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
@@ -559,6 +559,220 @@ data storage: about 0 MB, 5 MB left
 an apply now would be refused: A resource is blocked, and the apply refuses before its first write: customers (its own dry run says a real run would be refused: Contact.Nickname__c: the org has no such field, or field-level security hides it from this user — a run is refused and masks nothing (give the user read and edit access to it, or take it out of the template))
 ```
 
+### A users resource
+
+```yaml
+# sandforge.yaml: the uat sandbox, refreshed from production, handed back to its testers
+version: 1
+name: uat-testers
+
+targets:
+  kinds: [sandbox]
+  sandboxes:
+    - { myDomain: acme--uat } # the sandbox uat of acme, whatever its refreshes
+
+resources:
+  testers:
+    kind: users # set up before every other resource, taken back after them all
+    defaults: { email: restore, frozen: false }
+    users:
+      - username: jane.qa@acme.com # production's username: the sandbox's is jane.qa@acme.com.uat
+        permissionSets: [QA_Tools]
+        groups: [QA_Team]
+      - username: paul.qa@acme.com
+        active: true
+        profile: QA Tester
+        permissionSetGroups: [Support_Bundle]
+      - username: erp.integration@acme.com
+        email: keep
+        frozen: true # its scheduled callouts stop until someone points them away from production
+```
+
+A users resource hands a sandbox back to the people who test in it, through `sandforge users`, the command line of the users module. A sandbox copied from production holds production's users: their addresses put under `.invalid`, some of them frozen or inactive, with production's profiles and accesses. It sets up users the org holds, and creates none.
+
+- **Named as production names them.** A `username` is production's, `jane.qa@acme.com`, or the sandbox's whole, `jane.qa@acme.com.uat`. The plan reads the user of that username, or else the one user whose username is it and a dot, then a sandbox's name: no user, or two, blocks the resource (`USERS_NO_USER`, `USERS_TWO_USERS`), and the plan names those it found. Each user is named once in the file, every users resource counted.
+- **Each key a change, and that change alone.** `email: restore` asks the address back from under the `.invalid` the copy put it under; `active` and `frozen` set the user active or not, frozen or not; `profile` gives it the profile Setup names so, in the org's language. `permissionSets`, `permissionSetGroups` and `groups`, by API name, add assignments and memberships: none the file does not name is taken away. A key left out leaves the user as it is; `defaults` is what every user gets, and a user's own key replaces the default's whole, a list included. Per user, the plan says what would change, or `as the file says already: nothing to do`.
+- **An address asked back is its owner's to confirm.** When an admin changes a user's address, Salesforce mails a link to the new one, and keeps the old one, under `.invalid`, until its owner follows the link: the plan, the apply and the handoff note say `address asked back, awaiting its owner's confirmation`, never that it is restored, and an address left so fails nothing. Those emails go to people: the plan sums them, `emails to people`, and only the line accepts them, `--accept-user-emails`, never the file (`USERS_EMAILS_NOT_ACCEPTED`). In an org that delivers all email, or would not say, the resource is blocked while an address is to be asked back (`USERS_EMAILS_OPEN`): set Setup > Deliverability to System email only until the masking is done, or accept with `--accept-emails` that what runs there emails these people.
+- **No password.** SandForge resets no password: a tester asks for one with **Forgot your password?** on the sandbox's login page, once the address is confirmed. A key that would reset one is refused, as every key shaped like a secret is.
+- **Refused before the first write.** The plan reads the licenses the activations and the profiles take, summed over the file (`USERS_LICENSE`); the profiles, permission sets, their groups, the groups and queues the file names (`USERS_PROFILE_UNKNOWN`, `USERS_PERMISSION_SET_UNKNOWN`, `USERS_GROUP_UNKNOWN`); a permission set whose license the user lacks (`USERS_PERMISSION_SET_LICENSE`); Manage Users for the user SandForge connects as (`USERS_NO_RIGHT`), and a change that would lock that user out (`USERS_SELF`). What the org runs as a user or a login is written blocks it unless `accept: { automation: true }` on the resource, or `--accept-automation`. A refusal the org gives only as the run writes -- a license taken in between -- leaves the resource partial, exit `3`, the user named in the org's words, the other users set up.
+- **First, and last.** It is applied before every other resource, whatever the file's order: a replay that keeps its records' owners keeps them for active users alone. It takes no `dependsOn`, and none names it, exit `2`. A destroy takes it back after every other resource.
+- **Replaced by converging.** A file changed since: the next run adds what is missing, takes back what the environment added and the file no longer names, and puts a user taken out of the file back as it was; it never takes everything back to set it up again.
+- **Taken back, but never an address, never a user.** `destroy` deletes the assignments and memberships the environment created, by their ids, and puts each user back as it was: frozen, inactive, under its profile. It never puts an address back under `.invalid`, and deletes no user. A user changed since is kept unless `--include-changed`.
+- **Usernames in the repository.** A users resource names people by their usernames: keep its file in the project's private repository. It holds no address and no password.
+
+<!-- replay: uat -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat
+testers: dry run
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   testers  User 3 to set up
+           not applied to this org yet; Salesforce Platform: 2 of 3 used, 1 more taken by the activations and the profiles
+           jane.qa@acme.com.uat: unfrozen, permission set QA_Tools added, group QA_Team joined, address asked back, awaiting its owner’s confirmation
+           paul.qa@acme.com.uat: profile QA Tester in place of Standard Platform User, activated, permission set group Support_Bundle added, address asked back, awaiting its owner’s confirmation
+           erp.integration@acme.com.uat: frozen
+           Salesforce sends 2 emails to people: the confirmation of each address asked back (jane.qa@acme.com.uat, paul.qa@acme.com.uat), system emails, which leave under System email only too
+totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 44, 14000 left
+data storage: about 0 MB, 5 MB left
+emails to people: 2, which the line accepts with --accept-user-emails
+warning: uat: listed by its My Domain
+an apply now would be refused: This machine keeps no state of uat-testers on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice. On a sandbox that lives on, apply asks --accept-no-state to go ahead: restore the journal directory of the apply before it, or give the flag. Nothing was written.
+```
+
+The emails are said, and only the line accepts them:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env apply --file ../uat/sandforge.yaml --org uat --yes --accept-no-state
+testers: dry run
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   testers  User 3 to set up
+           not applied to this org yet; Salesforce Platform: 2 of 3 used, 1 more taken by the activations and the profiles
+           jane.qa@acme.com.uat: unfrozen, permission set QA_Tools added, group QA_Team joined, address asked back, awaiting its owner’s confirmation
+           paul.qa@acme.com.uat: profile QA Tester in place of Standard Platform User, activated, permission set group Support_Bundle added, address asked back, awaiting its owner’s confirmation
+           erp.integration@acme.com.uat: frozen
+           Salesforce sends 2 emails to people: the confirmation of each address asked back (jane.qa@acme.com.uat, paul.qa@acme.com.uat), system emails, which leave under System email only too
+totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 44, 14000 left
+data storage: about 0 MB, 5 MB left
+emails to people: 2, which the line accepts with --accept-user-emails
+warning: this machine keeps no state of uat-testers on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+warning: uat: listed by its My Domain
+an apply now would be refused: testers has Salesforce email 2 people (the confirmation of 2 addresses asked back), which only the line accepts: --accept-user-emails. Nothing was written.
+
+apply refused: testers has Salesforce email 2 people (the confirmation of 2 addresses asked back), which only the line accepts: --accept-user-emails. Nothing was written.
+apply: failure; state serial 0
+$ echo $?
+1
+```
+
+With `--accept-user-emails`, and `--accept-no-state`, which a sandbox this machine keeps no state of asks for, whatever its resources:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env apply --file ../uat/sandforge.yaml --org uat --yes --accept-no-state --accept-user-emails
+testers: dry run
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   testers  User 3 to set up
+           not applied to this org yet; Salesforce Platform: 2 of 3 used, 1 more taken by the activations and the profiles
+           jane.qa@acme.com.uat: unfrozen, permission set QA_Tools added, group QA_Team joined, address asked back, awaiting its owner’s confirmation
+           paul.qa@acme.com.uat: profile QA Tester in place of Standard Platform User, activated, permission set group Support_Bundle added, address asked back, awaiting its owner’s confirmation
+           erp.integration@acme.com.uat: frozen
+           Salesforce sends 2 emails to people: the confirmation of each address asked back (jane.qa@acme.com.uat, paul.qa@acme.com.uat), system emails, which leave under System email only too
+totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 44, 14000 left
+data storage: about 0 MB, 5 MB left
+emails to people: 2, accepted by the line (--accept-user-emails)
+warning: this machine keeps no state of uat-testers on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+warning: uat: listed by its My Domain
+testers: run 1 (create)
+
+  testers run 1: exit 0, applied  User 3 set up
+      jane.qa@acme.com.uat: address awaiting its owner's confirmation — Salesforce sent the link to it; until it is clicked (72 h), the address stays .invalid
+      paul.qa@acme.com.uat: address awaiting its owner's confirmation — Salesforce sent the link to it; until it is clicked (72 h), the address stays .invalid
+apply: success; state serial 2
+```
+
+Planned again, it is kept: an address awaiting its owner is no change left to make.
+
+<!-- replay: then -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat --fail-on-drift
+testers: dry run
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  keep     testers  User 3 set up
+           applied, and the org holds its 3 user(s) as the last run left them
+totals: 0 to create, 0 to replace, 0 to delete, 1 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+warning: uat: listed by its My Domain
+$ echo $?
+0
+```
+
+An admin then freezes jane.qa again:
+
+<!-- replay: then; an admin freezes jane.qa again -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat --fail-on-drift
+testers: dry run
+plan of uat-testers on uat (sandbox acme--uat, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  drifted  testers  User 2 set up
+           its users changed since it was applied: jane.qa@acme.com.uat would be unfrozen. Left as they are: --replace testers or --replace-drifted sets them up again, converging from what the last run left
+totals: 0 to create, 0 to replace, 0 to delete, 0 kept, 1 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+warning: uat: listed by its My Domain
+$ echo $?
+3
+```
+
+`--replace testers`, or `--replace-drifted`, sets the users up again, converging from what the last run left.
+
+`output` names the users it set up, by username and Id:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env output --file ../uat/sandforge.yaml --org uat
+uat-testers on uat (sandbox, 00Dxx0000001gPLEAY): state serial 2, written 2026-10-25T09:02:00.000Z
+  testers  users, applied, run 1
+    User  jane.qa@acme.com.uat 005000000000002AAA
+    User  paul.qa@acme.com.uat 005000000000003AAA
+    User  erp.integration@acme.com.uat 005000000000004AAA
+    a users resource creates no record of its own: it sets up users the org holds, named here
+```
+
+Taken back, with `--include-changed`, jane.qa having changed since:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env destroy --file ../uat/sandforge.yaml --org uat --yes --include-changed
+plan of uat-testers on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  delete   testers
+           taken back: the assignments and memberships the environment created deleted by id, each user put back as it was before; an address asked back stays, and no user is deleted, after every other resource
+totals: 0 to create, 0 to replace, 1 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 0; not counted: the removal of the runs of testers
+data storage: about 0 MB
+testers: taking back run 1
+every record of uat-testers is taken back from uat: the state keeps it as destroyed, and the next apply creates it again
+
+  testers removal of run 1: exit 0, destroyed  GroupMember 1 deleted; PermissionSetAssignment 2 deleted; 6 change(s) of its users put back, the deletions among them
+destroy: success; state serial 5
+```
+
+### A replay resource
+
+```yaml
+resources:
+  test-data:
+    kind: replay
+    dependsOn: [customers]
+    checkpoint: { name: uat-before-refresh } # the newest of that name, of this sandbox before its refresh
+    owners: same
+```
+
+A replay resource replays a [checkpoint](modules/checkpoint.md) into the org through `sandforge checkpoint replay`: its records set up again with new Ids, parents first, nothing the org holds changed or deleted. It is how a file says "what the testers had before the refresh".
+
+- **One checkpoint, in one of three forms.** `checkpoint.id` names one kept on this machine; `checkpoint.name`, the newest of that name taken of this sandbox before its refresh -- the same username, or the same My Domain host -- or, with `from`, of the org that role names; `checkpoint.file`, a `.sfcheckpoint` an export wrote, from the root or `{ env: NAME }`, opened with the key held by the variable `keyEnv` names, which the file never holds. The plan resolves it to one checkpoint of this machine, by its files alone: no org is reached, no key is read. One it does not find blocks the apply before its first write (`REPLAY_CHECKPOINT_NOT_FOUND`), with the line that takes one before the next refresh.
+- **The replay's own choices, and its guards.** `objects`, `excludeObjects`, `owners` (`same` or `me`), `customSettings`, `mask`, `keepContactPoints` and `maxRecords` are handed to the replay as the flags of their names, and every guard of the replay holds: what it refuses blocks the resource, in its own words.
+- **Planned by its dry run, held to it.** The plan dry-runs the replay and shows what it would create; the run is held to that count. A record the org holds under the same Id -- a sandbox copied again from the same production -- is linked, not changed.
+- **Replaced, and taken back, by the replay itself.** A newer checkpoint of the name, or other choices, replace the resource: the replay runs again, its purge taking back first what the replays before it created there. `destroy` takes it back by the replay's own removal.
+
+[After a sandbox refresh](#after-a-sandbox-refresh) has a replay resource applied.
+
 ## A walk through
 
 ### Check the file: `validate`
@@ -1105,6 +1319,297 @@ $ echo $?
 
 - **Before any org is reached**: a plan made more than a day ago, one another SandForge made, and one refused when it was made (`was refused when it was made`). A file that is no plan `plan --out` kept is refused, exit `2`.
 
+## After a sandbox refresh
+
+A refresh copies production into the sandbox again: what the testers made there is gone, the users are production's, their addresses under `.invalid`, and what is scheduled or points elsewhere is production's too. One file, applied by one command after each refresh, hands the sandbox back: the users first, the records copied from production masked, what the testers had before the refresh replayed, a checkpoint they start from, then the audits and a note of what is left to do.
+
+```yaml
+# sandforge.yaml: the uat sandbox, refreshed from production, handed back to its testers
+version: 1
+name: uat-after-refresh
+
+targets:
+  kinds: [sandbox]
+  sandboxes:
+    - { myDomain: acme--uat } # the sandbox uat of acme, whatever its refreshes
+
+checkpoint:
+  after: uat-baseline # the starting point the testers get, reset returns to it
+
+masking:
+  contact-points:
+    rules:
+      - { fieldPattern: Contact.Email, ruleType: fake }
+      - { fieldPattern: Contact.Phone, ruleType: mask, config: { maskKeepLast: 2 } }
+
+resources:
+  testers:
+    kind: users # set up before every other resource, taken back after them all
+    defaults: { email: restore, frozen: false }
+    users:
+      - username: jane.qa@acme.com
+        permissionSets: [QA_Tools]
+        groups: [QA_Team]
+      - username: paul.qa@acme.com
+        active: true
+        profile: QA Tester
+        permissionSetGroups: [Support_Bundle]
+      - username: erp.integration@acme.com
+        email: keep
+        frozen: true
+
+  customers:
+    kind: mask
+    rules: contact-points
+    object: Contact
+
+  test-data:
+    kind: replay
+    dependsOn: [customers]
+    checkpoint: { name: uat-before-refresh } # the newest of that name, of this sandbox before its refresh
+
+audits:
+  schedules: true
+  endpoints:
+    productionHosts: [erp.acme.com]
+  handoff: true
+```
+
+- **Listed by its My Domain.** A refresh changes the sandbox's Organization Id and keeps its My Domain, `acme--uat`: listed by it, the sandbox is written to after each refresh with the file unchanged, where listed by its Id it is refused until listed again. Its kind is read from the org itself: a scratch org, a Developer Edition org or a production org is never taken for it. A sandbox deleted and made again under the same name is listed all the same, and the plan says `listed by its My Domain; its Organization Id changed since the last apply`: the guards of the masking and the replay are what stand then.
+- **The state of before, set aside.** The state is filed by Organization Id, so a refreshed sandbox has none. A state of the same environment this machine kept under another Organization Id, on the same host, proves the refresh: the plan says so, sets that state aside, kept, never deleted, and the apply starts anew without `--accept-no-state`. A cache lost, or a state written before SandForge kept the host, proves nothing: the apply asks `--accept-no-state`, as on any sandbox.
+- **In this order.** The users, then the other resources in the order of their `dependsOn`, then `checkpoint.after`, then the audits, then the note. The checkpoint comes before the audits: an audit slow or refused never holds back the starting point.
+
+**The day before the refresh**, two lines keep what the refresh will take: a checkpoint of the sandbox under the name the replay resource names, kept until deleted, and the inventory of its scheduled jobs, which the audit compares with afterwards. Here the file was applied once already, without its replay resource, which no checkpoint stood for yet, and the testers have made two accounts and their contacts since:
+
+```bash
+sandforge checkpoint take --org uat --name uat-before-refresh --keep-days 0
+```
+
+<!-- replay: refresh; applied once, the testers at work, then the checkpoint before the refresh -->
+
+```console
+$ sandforge env audit --file ../uat/sandforge.yaml --org uat --save
+audit of uat (sandbox acme--uat, 00Dxx0000001gPLEAY), 2026-10-25T09:03:30Z, 7 API requests
+deliverability: closed — System email only or No access: what runs there emails nobody. Which of the two, no API says.
+scheduled jobs: 2 now, nothing to compare them with: no inventory of acme--uat.sandbox.my.salesforce.com is kept on this machine
+  frozen   Weekly digest (Scheduled Apex) runs as erp.integration@acme.com.uat, who is frozen: its next run, 2026-10-31T06:00:00Z, fails
+  inventory saved in /home/dev/.sandforge/audits/acme--uat.sandbox.my.salesforce.com/20261025T090330000Z-00Dxx0000001gPLEAY.json, to compare with after the next refresh
+endpoints that still name production (acme.my.salesforce.com, acme.lightning.force.com, acme.my.site.com, login.salesforce.com, erp.acme.com):
+  Named Credential  ERP_API  https://erp.acme.com/api         a production host the file lists
+  Remote Site       SF_Prod  https://acme.my.salesforce.com/  production's My Domain
+SandForge changes none of these: Setup, sf or your deployment put them right.
+```
+
+**The refresh.** Production is copied in again, under another Organization Id: the testers' records are gone, the copied contacts are back under the same Ids, the users are as the copy leaves them, and the nightly job is no longer scheduled. The plan, from the same file:
+
+<!-- replay: then; the sandbox is refreshed -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat
+testers: dry run
+customers: dry run
+test-data: dry run
+checkpoint: estimating what a take of the org costs
+plan of uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU)
+state: none for this Organization Id; uat was refreshed since the last apply, which this machine kept under 00Dxx0000001gPLEAY (serial 5, 2026-10-25): the refresh took what it held, and this apply starts anew. That state is set aside, kept: /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-after-refresh
+  create   testers  User 3 to set up
+           not applied to this org yet; Salesforce Platform: 2 of 3 used, 1 more taken by the activations and the profiles
+           jane.qa@acme.com.uat: unfrozen, permission set QA_Tools added, group QA_Team joined, address asked back, awaiting its owner’s confirmation
+           paul.qa@acme.com.uat: profile QA Tester in place of Standard Platform User, activated, permission set group Support_Bundle added, address asked back, awaiting its owner’s confirmation
+           erp.integration@acme.com.uat: frozen
+           Salesforce sends 2 emails to people: the confirmation of each address asked back (jane.qa@acme.com.uat, paul.qa@acme.com.uat), system emails, which leave under System email only too
+  create   customers  Contact 4 to mask
+           not applied to this org yet
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000002AbCEAU/uat-after-refresh/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000002AbCEAU/uat-after-refresh/dataops/customers
+  create   test-data  Account 2 to write; Contact 2 to write
+           not applied to this org yet
+totals: 3 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 63, 14000 left; not counted: the requests of the run of customers, which its script does not estimate, the requests of the run of test-data, which its script does not estimate
+data storage: about 0.01 MB, 5 MB left
+emails to people: 2, which the line accepts with --accept-user-emails
+checkpoint once applied: 'uat-baseline', about 11 records, 19 API requests, 6 s, 0.01 MB on this machine
+audits after the apply: deliverability, scheduled jobs, endpoints, about 4 to 7 API requests; then the handoff note
+warning: uat: listed by its My Domain; its Organization Id changed since the last apply
+an apply now would be refused: testers has Salesforce email 2 people (the confirmation of 2 addresses asked back), which only the line accepts: --accept-user-emails. Nothing was written.
+```
+
+The state of before is set aside, and no `--accept-no-state` is asked. The replay resolves `uat-before-refresh` to the checkpoint taken of this sandbox before its refresh, and writes what the refresh took, the testers' two accounts and their contacts: the contacts production copied in again hold the Ids the checkpoint knows them by, and are linked, not written twice. The addresses are asked back, which only the line accepts:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env apply --file ../uat/sandforge.yaml --org uat --yes --accept-user-emails
+testers: dry run
+customers: dry run
+test-data: dry run
+checkpoint: estimating what a take of the org costs
+plan of uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU)
+state: none for this Organization Id; uat was refreshed since the last apply, which this machine kept under 00Dxx0000001gPLEAY (serial 5, 2026-10-25): the refresh took what it held, and this apply starts anew. That state is set aside, kept: /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-after-refresh
+  create   testers  User 3 to set up
+           not applied to this org yet; Salesforce Platform: 2 of 3 used, 1 more taken by the activations and the profiles
+           jane.qa@acme.com.uat: unfrozen, permission set QA_Tools added, group QA_Team joined, address asked back, awaiting its owner’s confirmation
+           paul.qa@acme.com.uat: profile QA Tester in place of Standard Platform User, activated, permission set group Support_Bundle added, address asked back, awaiting its owner’s confirmation
+           erp.integration@acme.com.uat: frozen
+           Salesforce sends 2 emails to people: the confirmation of each address asked back (jane.qa@acme.com.uat, paul.qa@acme.com.uat), system emails, which leave under System email only too
+  create   customers  Contact 4 to mask
+           not applied to this org yet
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000002AbCEAU/uat-after-refresh/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000002AbCEAU/uat-after-refresh/dataops/customers
+  create   test-data  Account 2 to write; Contact 2 to write
+           not applied to this org yet
+totals: 3 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 63, 14000 left; not counted: the requests of the run of customers, which its script does not estimate, the requests of the run of test-data, which its script does not estimate
+data storage: about 0.01 MB, 5 MB left
+emails to people: 2, accepted by the line (--accept-user-emails)
+checkpoint once applied: 'uat-baseline', about 11 records, 19 API requests, 6 s, 0.01 MB on this machine
+audits after the apply: deliverability, scheduled jobs, endpoints, about 4 to 7 API requests; then the handoff note
+warning: uat: listed by its My Domain; its Organization Id changed since the last apply
+testers: run 1 (create)
+customers: run 1 (create)
+test-data: run 1 (create)
+checkpoint once applied: taking 'uat-baseline'
+audits: reading the org, nothing written
+
+  testers run 1: exit 0, applied  User 3 set up
+      jane.qa@acme.com.uat: address awaiting its owner's confirmation — Salesforce sent the link to it; until it is clicked (72 h), the address stays .invalid
+      paul.qa@acme.com.uat: address awaiting its owner's confirmation — Salesforce sent the link to it; until it is clicked (72 h), the address stays .invalid
+  customers masking 1: exit 0, applied  Contact 4 masked
+      Contact: snapshot cli-dataops-anonymize-1793048670000-a1b2c3-snapshot of the values it wrote over, taken first, kept on this machine until destroy deletes it
+  test-data replay 1: exit 0, applied  Account 2, Contact 2 created; 0 records kept their owner, 0 went to you
+  checkpoint once applied: exit 0, taken ck-20261026-210530-a1b2
+audits: 2 scheduled job(s) no longer run, 2 endpoint(s) still name production (below)
+handoff note: /home/dev/.sandforge/handoff/uat-after-refresh/20261026T210600000Z-00Dxx0000002AbCEAU.md
+apply: success; state serial 7
+audit of uat (sandbox acme--uat, 00Dxx0000002AbCEAU), 2026-10-26T21:06:00Z, 7 API requests
+deliverability: closed — System email only or No access: what runs there emails nobody. Which of the two, no API says.
+scheduled jobs: 1 now, against the inventory saved on 2026-10-25 from 00Dxx0000001gPLEAY, this sandbox before its refresh
+  gone     Nightly ERP sync (Scheduled Apex, 0 0 2 * * ?): scheduled before the refresh, not since
+  frozen   Weekly digest (Scheduled Apex) runs as erp.integration@acme.com.uat, who is frozen: its next run, 2026-10-31T06:00:00Z, fails
+  kept     0
+endpoints that still name production (acme.my.salesforce.com, acme.lightning.force.com, acme.my.site.com, login.salesforce.com, erp.acme.com):
+  Named Credential  ERP_API  https://erp.acme.com/api         a production host the file lists
+  Remote Site       SF_Prod  https://acme.my.salesforce.com/  production's My Domain
+SandForge changes none of these: Setup, sf or your deployment put them right.
+```
+
+The note it wrote, kept on this machine:
+
+<!-- the note it wrote -->
+
+```markdown
+# Handoff: `uat-after-refresh` on `uat`
+
+## Environment
+
+- Environment: `uat-after-refresh`, state serial 7.
+- Org: `uat`, sandbox `acme--uat`, `00Dxx0000002AbCEAU`.
+- Applied: 2026-10-26T21:06:00Z, by SandForge 1.82.0; it ended success.
+
+## Access
+
+- `jane.qa@acme.com.uat`: unfrozen; permission set `QA_Tools`; public group `QA_Team`; address asked back, awaiting its owner.
+- `paul.qa@acme.com.uat`: profile `QA Tester`; activated; permission set group `Support_Bundle`; address asked back, awaiting its owner.
+- `erp.integration@acme.com.uat`: frozen.
+
+### Addresses awaiting their owner
+
+- `jane.qa@acme.com.uat`: the address stays under `.invalid` until its owner follows the link Salesforce sent to it, by about 2026-10-29T21:06:00Z (72 hours).
+- `paul.qa@acme.com.uat`: the address stays under `.invalid` until its owner follows the link Salesforce sent to it, by about 2026-10-29T21:06:00Z (72 hours).
+
+SandForge resets no password: a user without one sets it by **Forgot your password?** on the sandbox's login page, once the address is theirs again.
+
+## Data
+
+- `customers` (mask): applied; masked Contact 4; fields `Contact.Email`, `Contact.Phone`; snapshot `cli-dataops-anonymize-1793048670000-a1b2c3-snapshot`, taken first.
+- `test-data` (replay): applied; created Account 2, Contact 2.
+
+### Starting point
+
+- Checkpoint `uat-baseline` `ck-20261026-210530-a1b2`, about 11 records: the org as the testers get it.
+- Back to it between two test runs: `pnpm exec tsx packages/extension/cli/sandforge-env.ts reset --file /home/dev/uat/sandforge.yaml --org uat`
+
+## Still to do, in this order
+
+1. Credentials and technical components: point them away from production.
+   - Named Credential `ERP_API` names `erp.acme.com`, a production host the file lists.
+   - Remote Site `SF_Prod` names `acme.my.salesforce.com`, production's My Domain.
+2. Scheduled jobs: schedule again those gone, and give those stuck a user who can run them.
+   - `Nightly ERP sync` (Scheduled Apex) was scheduled in the inventory of 2026-10-25, and is not now.
+   - `Weekly digest` (Scheduled Apex) runs as `erp.integration@acme.com.uat`, who is frozen: its next run fails.
+3. Automations that send emails — flows, workflow rules, Apex —: turn them on last, once the addresses and the masking are as the testers need them.
+4. Deliverability.
+   - Read closed, System email only or No access: leave it so until the masking is done.
+
+## Not touched by SandForge
+
+- Named and External Credentials: Setup, or a deployment of your project by `sf`.
+- Metadata: your deployment.
+- Single sign-on and DKIM keys: Setup.
+- Deliverability: Setup > Deliverability.
+- Passwords: each user's own, by Forgot your password? on the sandbox's login page.
+```
+
+Planned again, everything is kept: the masking too, beside the contacts the replay created after it, which are not its own to mask.
+
+<!-- replay: then -->
+
+```console
+$ sandforge env plan --file ../uat/sandforge.yaml --org uat --fail-on-drift
+test-data: reading what the org holds of run 1
+checkpoint ck-20261026-210530-a1b2: comparing the whole org with it
+testers: dry run
+customers: dry run
+plan of uat-after-refresh on uat (sandbox acme--uat, 00Dxx0000002AbCEAU)
+state: kept on this machine, serial 7
+  keep     testers  User 3 set up
+           applied, and the org holds its 3 user(s) as the last run left them
+  keep     customers  Contact 4 masked
+           applied, and its condition selects the 4 record(s) it masked, with the same rules, beside 2 the resources applied after it created since: masked again they would only be masked twice
+  keep     test-data  Contact 2 in the org; Account 2 in the org
+           applied, and the org holds its 4 record(s) as written
+totals: 0 to create, 0 to replace, 0 to delete, 3 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+the whole org against the checkpoint after the last apply (ck-20261026-210530-a1b2): nothing differs among the objects and fields it compares
+audits after the apply: deliverability, scheduled jobs, endpoints, about 4 to 7 API requests; then the handoff note
+warning: uat: listed by its My Domain
+$ echo $?
+0
+```
+
+**Not yet proven on a refreshed sandbox.** The tests replay these sessions on an org in memory, and the users, the audits and the masking have run on scratch orgs; no refreshed sandbox has run them yet. Until one does, three points rest on what the code reads and what Salesforce documents: that a refresh puts each address under `.invalid`, and which users it leaves out; that a refreshed sandbox is reached on the host `<domain>--<sandbox>.sandbox.my.salesforce.com`, which the listing by My Domain reads; and that the state of before is told apart by that host and another Organization Id. So are what happens to the scheduled jobs across a refresh, the deliverability a refreshed sandbox wakes up with, and whether the `sf` CLI's login of before still reaches it.
+
+## Audits and the handoff note
+
+`audits:` asks, of an apply that wrote, three reads of the org, which write nothing to it: whether it delivers email, its scheduled jobs against the inventory kept before its refresh, and the endpoints that still name production. `sandforge env audit` reads them at any hour, each part the file does not turn off (`schedules: false`, `endpoints: false`). An audit is never what the apply ends with: one the org would not answer is said `not read`, with why.
+
+- **Deliverability**: the line of Apex every module's email gate reads, which reserves an email and sends none. It tells an org that delivers all email from one that does not; whether that one is on System email only or No access, no API says.
+- **Scheduled jobs**: `CronTrigger`, with each job's owner, active or not, frozen or not. `--save` keeps them in an inventory of this machine, in `audits/` of the journal directory, filed by the org's My Domain host, which a refresh keeps: after the refresh, the audit compares with the newest inventory of the same host under another Organization Id, and says each job `gone`, `new` or `kept`, or `inactive` or `frozen`, run as a user who can no longer run it. With no inventory to compare with, it lists the jobs and gives the line that keeps one.
+- **Endpoints**: the Named Credentials and Remote Sites, and the fields `endpoints.fields` names, of Custom Metadata or Custom Settings, against the production hosts: those deduced from a sandbox's host `<domain>--<sandbox>.sandbox.my.salesforce.com` -- `<domain>.my.salesforce.com`, `<domain>.lightning.force.com`, `<domain>.my.site.com` --, `login.salesforce.com`, and the `productionHosts` the file lists. From any other host, none is deduced, and the audit says so. A URL is printed as its scheme, host and path alone: never its query, which may carry a key, nor a user and a password. External Credentials, which hold the authentication, are not read.
+- **What it costs**, in API requests, is in the plan beside the apply's own, and in the audit's first line.
+- **`--fail-on-findings`** exits `3` on a job gone or run as a user who can no longer, an endpoint that names production, or a deliverability open to all email; without it, `audit` exits `0` whatever it found.
+
+SandForge changes none of what the audits find: Setup, `sf` or the project's deployment puts it right. The audit of the apply above, read again with `--fail-on-findings`:
+
+<!-- replay: then -->
+
+```console
+$ sandforge env audit --file ../uat/sandforge.yaml --org uat --fail-on-findings
+audit of uat (sandbox acme--uat, 00Dxx0000002AbCEAU), 2026-10-26T21:08:00Z, 7 API requests
+deliverability: closed — System email only or No access: what runs there emails nobody. Which of the two, no API says.
+scheduled jobs: 1 now, against the inventory saved on 2026-10-25 from 00Dxx0000001gPLEAY, this sandbox before its refresh
+  gone     Nightly ERP sync (Scheduled Apex, 0 0 2 * * ?): scheduled before the refresh, not since
+  frozen   Weekly digest (Scheduled Apex) runs as erp.integration@acme.com.uat, who is frozen: its next run, 2026-10-31T06:00:00Z, fails
+  kept     0
+endpoints that still name production (acme.my.salesforce.com, acme.lightning.force.com, acme.my.site.com, login.salesforce.com, erp.acme.com):
+  Named Credential  ERP_API  https://erp.acme.com/api         a production host the file lists
+  Remote Site       SF_Prod  https://acme.my.salesforce.com/  production's My Domain
+SandForge changes none of these: Setup, sf or your deployment put them right.
+$ echo $?
+3
+```
+
+**The handoff note.** `audits: { handoff: true }` has an apply that ended `0` or `3` write a note in Markdown, in English: the environment and the org, what was done for each user -- the addresses awaiting their owner listed apart, with when the link runs out --, the data masked, replayed, seeded or cloned, the checkpoint the testers start from and the line that returns to it, what is left to do, in the order a refresh guide gives it -- credentials and technical components, scheduled jobs, automations that send email, deliverability --, and what SandForge never touches. It names users by their usernames, and holds no record's value and no URL's query. It is kept in `handoff/<name>/` of the journal directory, its owner's alone, or where `--handoff <file.md>` says, outside the repository that holds the file unless `--out-in-repository`, as `--out`. With `--json`, the apply's answer names it under `handoff`, and carries the audits under `audits`, as `audit --json` answers them.
+
 ## The commands
 
 | Command         | What it does                                                                                                                                                        | Flags                                                                                                                                                                                                                                             |
@@ -1384,13 +1889,13 @@ $ sandforge env plan --file ../case-flow/sandforge.yaml --org uat
 uat is a sandbox, and the file's targets.kinds allows scratch, developer: add sandbox to targets.kinds to apply it there. Nothing was read or written. If it is a scratch org, the sf CLI did not say so: its display names no Dev Hub for it, as when the org was logged in with an auth URL alone. Log its Dev Hub in on this machine, or list the org as a sandbox.
 ```
 
-**A sandbox the file does not list by its Organization Id**, under `targets.sandboxes`, with `sandbox` among the kinds. Nothing Salesforce says tells a sandbox holding a client's records from a developer's, so each one is listed, and reviewed with the file; a refresh changes the Id, so a sandbox refreshed is refused until it is listed again:
+**A sandbox the file does not list**, by its Organization Id or by its My Domain, under `targets.sandboxes`, with `sandbox` among the kinds. Nothing Salesforce says tells a sandbox holding a client's records from a developer's, so each one is listed, and reviewed with the file. A refresh changes the Id: a sandbox listed by it is refused after a refresh until it is listed again, where one listed by its My Domain is not ([After a sandbox refresh](#after-a-sandbox-refresh)). Reached on a sandbox's My Domain host, the refusal gives the line that lists it so:
 
 <!-- replay: sandbox; the file lists another sandbox -->
 
 ```console
 $ sandforge env plan --file ../case-flow/sandforge.yaml --org uat
-uat is a sandbox, and its Organization Id 00Dxx0000001gPLEAY is not listed under targets.sandboxes: nothing Salesforce says tells a sandbox that holds a client's records from a developer's, so each one the file writes to is listed, reviewed with the file. A refresh changes the Id: a sandbox listed before its refresh is listed again. Nothing was read or written. If it is a scratch org, the sf CLI did not say so: its display names no Dev Hub for it, as when the org was logged in with an auth URL alone.
+uat is a sandbox, and its Organization Id 00Dxx0000001gPLEAY is not listed under targets.sandboxes, nor its My Domain acme--uat: nothing Salesforce says tells a sandbox that holds a client's records from a developer's, so each one the file writes to is listed, reviewed with the file. A refresh changes the Id: a sandbox listed by it before its refresh is listed again, or listed by its My Domain, which a refresh keeps: { myDomain: acme--uat }. Nothing was read or written.
 ```
 
 **No state, on a Developer Edition org or a sandbox, without `--accept-no-state`.** Records an earlier apply left there cannot be told from the org's own, and would be created twice; a plan says what an apply would meet, and the apply refuses. On a scratch org, which usually lives as long as the job that fills it, it is a warning, as in the plan above:
@@ -1447,13 +1952,16 @@ And:
 - **a mask resource's rules that mask nothing**: a set with no rule for its object, exit `2` before any org is reached (`a run would mask nothing`); a field the org does not show the user, blocked in the script's own words by its dry run ([A mask resource](#a-mask-resource));
 - **a masking that could be undone**: a file asking `checkpoint.before` beside a mask resource, exit `2`, and a `destroy --rewind` of a state naming one (`destroy never unmasks`);
 - **a plan kept that no longer holds**, given to `apply --plan`: made for another org, from another file, against another state, a count the org reads otherwise, a day old, by another SandForge, or refused when made, exit `1`; one kept inside the repository without `--out-in-repository`, exit `2` ([Saved plans](#saved-plans-plan---out-and-apply---plan));
-- **a `state recover` that would write over a state that reads, or rebuild part of one**: a summary of another org or that does not read, two runs of one rank, no run at all, exit `1` ([When the state is lost](#when-the-state-is-lost-state-recover)).
+- **a `state recover` that would write over a state that reads, or rebuild part of one**: a summary of another org or that does not read, two runs of one rank, no run at all, exit `1` ([When the state is lost](#when-the-state-is-lost-state-recover));
+- **a users resource's refusals**, before the first write: emails to people the line does not accept (`USERS_EMAILS_NOT_ACCEPTED`), addresses to ask back in an org that delivers all email (`USERS_EMAILS_OPEN`), a username no user has or two have (`USERS_NO_USER`, `USERS_TWO_USERS`), more licenses than are free (`USERS_LICENSE`), a profile, a permission set or a group the org does not have (`USERS_PROFILE_UNKNOWN`, `USERS_PERMISSION_SET_UNKNOWN`, `USERS_GROUP_UNKNOWN`), a permission set license the user lacks (`USERS_PERMISSION_SET_LICENSE`), no Manage Users (`USERS_NO_RIGHT`), the user SandForge connects as locked out (`USERS_SELF`), exit `1`; a users resource in a `dependsOn`, or with one, exit `2` ([A users resource](#a-users-resource));
+- **a replay resource's checkpoint this machine does not keep** (`REPLAY_CHECKPOINT_NOT_FOUND`), with the line that takes one before the next refresh, exit `1`; and what the replay itself refuses, in its words ([A replay resource](#a-replay-resource));
+- **the handoff note inside the repository that holds the file**, `--handoff` without `--out-in-repository`, exit `2`, before any org is reached.
 
 ## The state
 
 What `apply` keeps of the org: **ids, counts and dates, never a record's values**. Per resource, the fingerprint it was applied from, the order, and how each run ended; the records themselves are named by each seed run's own summary and run file, a clone's summary and a Frozen load's mapping, which the state points at.
 
-- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran; a frozen resource's loads are kept there too, in `frozen/<resource>/`, its sas, and a mask resource's snapshots, in `dataops/<resource>/`, its DataOps store, which hold the values it wrote over in clear until a destroy deletes them: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox.
+- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran; a frozen resource's loads are kept there too, in `frozen/<resource>/`, its sas, and a mask resource's snapshots, in `dataops/<resource>/`, its DataOps store, which hold the values it wrote over in clear until a destroy deletes them: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox, whose state of before is set aside, kept, when the host proves the refresh ([After a sandbox refresh](#after-a-sandbox-refresh)). Beside them in the journal directory, its owner's alone too: the runs of `sandforge users`, in `users/<Organization Id>/`, which name users by their ids and usernames and keep no address; the inventories of scheduled jobs `audit --save` keeps, in `audits/<host>/`; the handoff notes, in `handoff/<name>/`.
 - **Outside the repository.** The journal directory must sit outside the repository that holds the file: committed, the state and the run summaries would publish the org's record ids with the project.
 - **Between jobs.** Keep the journal directory between the jobs that apply and destroy, in a cache keyed by the org: in GitHub Actions, `$RUNNER_TEMP/sandforge`, restored before and saved after. Lost, the next plan cannot tell the environment's records from the org's own -- the refusal above.
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
@@ -1533,6 +2041,8 @@ A destroy is not undone as a whole: children deleted before their parent cannot 
 
 A mask resource is never unmasked: its store is deleted, the snapshots of the values it wrote over with it, and its records stay masked ([A mask resource](#a-mask-resource)).
 
+A users resource is taken back last, by `sandforge users`' own removal: the assignments and memberships the environment created deleted by their ids, each user put back as it was -- frozen, inactive, under its profile --, a user changed since kept unless `--include-changed`. An address asked back is never put under `.invalid` again, and no user is deleted. To keep a tester out after a destroy, freeze the user: `frozen: true` in the file, then apply. A replay resource is taken back by the replay's own removal, as any other resource by its script's.
+
 Once every resource is taken back, the environment's checkpoints are deleted from this machine; a destroy that left records keeps them. What tests created on their own, not under the environment's records, is not the environment's, and a destroy by removal never sees it: `destroy --rewind` does ([Back to before the first apply](#back-to-before-the-first-apply-destroy---rewind)), and so does deleting the scratch org.
 
 ## Stopped part way
@@ -1557,6 +2067,13 @@ The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/
 This version applies seed, forge, frozen, mask, users and replay resources, keeps a plan for `apply --plan`, names what an apply created, and rebuilds a lost state from the run files the journal directory keeps; the rest waits for a later one:
 
 - **A recovered resource kept**: after `state recover`, the next apply replaces every resource still in the org, its records taken back and written again, since no run file says what it was applied from. Telling one applied from the file as it stands, to keep it, waits for a later version ([When the state is lost](#when-the-state-is-lost-state-recover)).
+- **A password reset**: SandForge resets none. A tester asks for one with **Forgot your password?** on the sandbox's login page, once the address is confirmed.
+- **Users chosen otherwise than by username**: by profile, by role, or every other user frozen; a role given; a permission set license assigned; an address pointed at a team's mailbox.
+- **Fields scanned for endpoints**: the audit reads the Custom Metadata and Custom Settings fields `endpoints.fields` names, and no other.
+- **A masking with a `where` told from what a replay creates after it**: a mask resource whose condition selects records a replay of the same file creates is said drifted on the next plan; without a `where`, the records a later resource created are not its own, and it is kept.
+- **The records a replay created, by `output`**: they are kept by `sandforge checkpoint`, which `output` does not read; it names the resource, says why, and exits `3`.
+- **The state of before a refresh forgotten**: it stays set aside until you delete its folder.
+- **A refreshed sandbox**: the `.invalid` suffix, the listing by My Domain and the state told after a refresh are not yet proven on a refreshed sandbox ([After a sandbox refresh](#after-a-sandbox-refresh)).
 
 ## In CI
 
