@@ -451,7 +451,8 @@ describe('the lines of a replay resource', () => {
         }),
       ),
     ).toMatchObject({
-      replay: { file: '/runner/uat.sfcheckpoint', keyEnv: 'UAT_CHECKPOINT_KEY' },
+      // parseArgs resolves the file as it does the store.
+      replay: { file: resolve('/runner/uat.sfcheckpoint'), keyEnv: 'UAT_CHECKPOINT_KEY' },
     });
     const removal = { replayed: RESOLVED, target: 'uat', store: '/journal/checkpoints' };
     expect(
