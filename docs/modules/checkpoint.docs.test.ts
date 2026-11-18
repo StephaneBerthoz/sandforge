@@ -1230,7 +1230,7 @@ describe('the README lines of the module', () => {
     }
   });
 
-  it('gives the rewind its own steps, ending on Undo, in both READMEs alike', () => {
+  it('gives the rewind its own section, from the take to Undo, in both READMEs alike', () => {
     // The Marketplace copy points its links at GitHub and its images at
     // raw.githubusercontent.com (scripts/sync-extension-readme.mjs).
     const [root, marketplace] = READMES.map((path) =>
@@ -1239,10 +1239,9 @@ describe('the README lines of the module', () => {
         .replace(/\]\(https:\/\/raw\.githubusercontent\.com\/[^)]*?\/master\/([^)]+)\)/g, ']($1)'),
     );
     expect(root.trim()).toBe(marketplace.trim());
-    const steps = root.split('\n').filter((line) => /^\d+\. /.test(line));
-    expect(steps).toHaveLength(5);
-    expect(steps[0]).toContain(`**${label('checkpoint.take.open')}**`);
-    expect(steps[4]).toContain(`**${label('checkpoint.undo.open')}**`);
+    // Since 1.83.0 the README says the rewind in two paragraphs; the guide keeps the steps.
+    expect(root).toContain(`**${label('checkpoint.take.open')}**`);
+    expect(root).toContain(`**${label('checkpoint.undo.open')}**`);
     expect(root).toContain('never takes a checkpoint of a production org nor rewinds one');
   });
 
@@ -1251,12 +1250,10 @@ describe('the README lines of the module', () => {
     expect(REWIND).toContain('if (notMade.length > 0) refusals.push(recreateRefusal(notMade));');
     expect(REWIND).toContain('await this.recreate(journal, recreate, tally);');
 
-    const steps = section(source('README.md'), '## Rewind an org to a checkpoint')
-      .split('\n')
-      .filter((line) => /^\d+\. /.test(line));
-    expect(steps[3]).toContain(
-      'the records deleted since come back from the recycle bin with their Ids, or, once it no ' +
-        'longer holds them and you accept it, are made again with new Ids',
+    // The README no longer walks the rewind step by step (1.83.0): the guide says it.
+    expect(DOC).toContain(
+      'records deleted since come back from the recycle bin with their original Ids -- or, once ' +
+        'the bin no longer holds them and you accept it, are made again from the checkpoint with new Ids',
     );
   });
 
@@ -1267,10 +1264,8 @@ describe('the README lines of the module', () => {
     expect(REWIND).toContain('const UNDO_WINDOW_MS = RECYCLE_BIN_DAYS * 24 * 60 * 60_000;');
     expect(constant(STORE, 'RECYCLE_BIN_DAYS')).toBe(15);
 
-    const steps = section(source('README.md'), '## Rewind an org to a checkpoint')
-      .split('\n')
-      .filter((line) => /^\d+\. /.test(line));
-    expect(steps[4]).toContain(
+    const rewind = section(source('README.md'), '## Rewind an org to a checkpoint');
+    expect(rewind).toContain(
       `**${label('checkpoint.undo.open')}**, offered on the org's last rewind for 15 days, ` +
         'returns the org to how it was before the rewind and keeps what anyone changed since. ' +
         'What the rewind deleted comes back while the recycle bin holds it, and the preview ' +

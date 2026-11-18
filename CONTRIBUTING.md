@@ -36,6 +36,9 @@ docs/              # module guides and ADR/ (standing decisions)
 scripts/           # repo-wide tooling (audit-disposables, soak-test, hooks)
 ```
 
+The webview talks to the extension host through a typed `postMessage` broker; every
+message is validated by Zod schemas at the boundary.
+
 ## Commit conventions
 
 Conventional Commits: `<type>(<scope>): <subject>`. Types:
@@ -201,6 +204,11 @@ and links the version badge to the listing, and turns every relative link and
 image into an absolute GitHub URL, since the Marketplace would resolve them
 against `packages/extension/`. `pnpm test:gates` fails while a copy differs from
 what the script makes, and `pnpm package` runs it after `sync-readme-badges.mjs`.
+
+The README is the landing page of GitHub and of the Marketplace: what a reader
+needs to decide and to start. Reference material goes under `docs/`: the
+settings, the keyboard shortcuts and the languages in `docs/configuration.md`,
+each module's detail in its guide.
 
 ## Disposable hygiene
 

@@ -4683,8 +4683,9 @@ const SHARED_MODEL_MARKERS = [
 ];
 
 /**
- * The eight places this setting is described: the sentence VS Code shows in
- * the Settings editor, in six languages, and the row each README gives it.
+ * The seven places this setting is described: the sentence VS Code shows in
+ * the Settings editor, in six languages, and its row in docs/configuration.md,
+ * the one Settings table since 1.83.0.
  */
 function modelSettingDescriptions() {
   const properties =
@@ -4698,14 +4699,14 @@ function modelSettingDescriptions() {
     label: `${NLS_FILES[locale]} config.ai.model.description`,
     text,
   }));
-  for (const readme of READMES) {
+  for (const readme of ['docs/configuration.md']) {
     const row = read(...readme.split('/'))
       .split(/\r?\n/)
       .find((line) => line.startsWith(`| \`${MODEL_SETTING}\``));
     assert.ok(row, `${readme} no longer lists ${MODEL_SETTING} in its settings table`);
     surfaces.push({ label: `${readme} settings table`, text: row.split('|')[2] ?? '' });
   }
-  assert.equal(surfaces.length, 8, 'the eight descriptions of this setting are no longer eight');
+  assert.equal(surfaces.length, 7, 'the seven descriptions of this setting are no longer seven');
   return surfaces;
 }
 

@@ -667,9 +667,13 @@ test('both READMEs sell the DataOps snapshot as what it is', () => {
     assert.ok(dataops, `${relPath}: the DataOps row is gone`);
     assert.doesNotMatch(dataops, /\|\s*Backup and restore/, `${relPath}: no backup of any object`);
     assert.match(dataops, /anonymization writes over/);
+    // The screenshot gallery left the README with 1.83.0; a caption put back
+    // must still say what the snapshot is.
     const caption = text.split('\n').find((line) => line.includes('screenshots/dataops.png'));
-    assert.doesNotMatch(caption, /backup history/i);
-    assert.match(caption, /anonymization templates mask/);
+    if (caption !== undefined) {
+      assert.doesNotMatch(caption, /backup history/i);
+      assert.match(caption, /anonymization templates mask/);
+    }
   }
 });
 
