@@ -54,7 +54,6 @@ vi.mock('../packages/extension/src/core/connection/ConnectionHelper.js', async (
   getJsforceConnection: vi.fn(),
 }));
 
-import type { Connection } from 'jsforce';
 import {
   fakeAuditOrg,
   type FakeAuditOrgInit,
@@ -74,6 +73,9 @@ import {
 } from '../packages/extension/cli/testing/envWorld.js';
 import { freezeDataset } from '../packages/extension/cli/testing/frozenDataset.js';
 import { getJsforceConnection } from '../packages/extension/src/core/connection/ConnectionHelper.js';
+
+/** The connection the CLI asks sf for: jsforce's, typed without naming a package the root does not depend on. */
+type Connection = Awaited<ReturnType<typeof getJsforceConnection>>;
 import { EMAIL_NOT_PERMITTED } from '../packages/extension/src/modules/forge/targetDeliverability.js';
 import { frozenDatasetDigest } from '../packages/extension/src/modules/frozendataset/datasetDigest.js';
 import {
