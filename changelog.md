@@ -5,6 +5,35 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.82.0] - 2026-11-18
+
+A refreshed sandbox goes back to its testers in one apply: users, masked records, a replayed checkpoint, an audit; and SandForge is an sf plugin.
+
+### Added
+
+- **Environments**: a users resource, or `sandforge users`, hands users back: addresses asked back, activation, freeze, profile, access.
+- **Environments**: a replay resource replays a checkpoint taken before the refresh, by id, by name or from an exported file.
+- **Environments**: a sandbox is listed or protected by its My Domain, its former state set aside; not yet proven on a refreshed sandbox.
+- **Environments**: `env audit` reads deliverability, scheduled jobs against those before the refresh, and endpoints naming production.
+- **Environments**: an apply writes a handoff note: what each user and resource got, the starting point, and what is left to do, in order.
+- **Command line**: `sf plugins install sandforge` runs the scripts in sf as `sf sandforge <command>`, never on sf's default org.
+- **Command line**: `sf sandforge:hardis-commands` gives sfdx-hardis a SandForge menu of four read-only entries that reach no org.
+- **CI examples**: two jobs, before and after a sandbox refresh, run from the npm package.
+- **Command line and MCP**: `sandforge users`, `sandforge-users`, `env audit`, `--save`, `--fail-on-findings`, `--handoff`, `--accept-user-emails`; MCP `env_audit`, `acceptUserEmails`.
+
+### Changed
+
+- **Checkpoints**: `sandforge checkpoint replay` exits 3, partial, where it exited 0, when it refused records before writing the others: check what gates on it.
+- **Environments**: 1.81 reads a state 1.82 wrote as damaged, and its `state recover` sets it aside: stay on 1.82 where it applied, CI caches included.
+
+### Fixed
+
+- **Sync, Seed**: a removal counts once a duplicate record set the target made of the run's records, and leaves in the org a set it says kept.
+- **Environments**: a masking stays kept beside what later resources create, and what depends on a masking run again is no longer replaced.
+- **MCP**: `env_plan` takes `replace`, `replaceDrifted` and `acceptNoState`, and `env_apply` `replaceDrifted`, the flags a plan names.
+- **Forge**: a clone's dry run says what it could not read of the target, and of its automation, in the same order run after run.
+- **Command line, CI examples**: the package's README names `sandforge pipeline`, and the environment jobs say a full destroy keeps the state.
+
 ## [1.81.0] - 2026-11-17
 
 Forge clones the records a query chooses, a checkpoint replays into another org, a pipeline runs with VS Code closed, and DataOps masks in slices.

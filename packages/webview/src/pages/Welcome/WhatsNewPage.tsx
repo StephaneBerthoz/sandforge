@@ -79,6 +79,33 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * adds no entry here shows no panel at all: from 1.44.3 on, a patch adds none.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.82.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.refresh1820',
+      descKey: 'onboarding.whatsNew.refresh1820Desc',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.myDomain1820',
+      descKey: 'onboarding.whatsNew.myDomain1820Desc',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.audit1820',
+      descKey: 'onboarding.whatsNew.audit1820Desc',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.sfPlugin1820',
+      descKey: 'onboarding.whatsNew.sfPlugin1820Desc',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.mcp1820',
+      descKey: 'onboarding.whatsNew.mcp1820Desc',
+    },
+  ],
   '1.81.0': [
     {
       category: 'feature',
