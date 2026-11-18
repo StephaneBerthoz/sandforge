@@ -157,8 +157,13 @@ describe('docs/mcp.md', () => {
       .filter((block) => /^\s+name: 'env_/m.test(block))
       .map((block) => /script: 'sandforge-env',\s+args: \[\s+'([a-z]+)'/.exec(block)?.[1]);
 
-    expect(envTools.map((tool) => tool.name)).toEqual(['env_plan', 'env_apply', 'env_destroy']);
-    expect(lines).toEqual(['plan', 'apply', 'destroy']);
+    expect(envTools.map((tool) => tool.name)).toEqual([
+      'env_plan',
+      'env_apply',
+      'env_destroy',
+      'env_audit',
+    ]);
+    expect(lines).toEqual(['plan', 'apply', 'destroy', 'audit']);
     expect(not).toContain(
       'No tool resets an environment (`sandforge env reset`) or destroys it by rewinding the org to a checkpoint (`destroy --rewind`) in this version',
     );
@@ -175,6 +180,50 @@ describe('docs/mcp.md', () => {
     expect(SERVER).toContain("'--accept-no-state': 'acceptNoState'");
     expect(SERVER).toContain("flags: { '--include-changed': 'includeChanged' },");
     expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
+    expect(rule).toContain(
+      '`acceptUserEmails` is `--accept-user-emails` (`env_plan`, `env_apply`), which ' +
+        '`acceptEmails` never stands for, nor it for `acceptEmails`',
+    );
+    expect(rule).toContain(
+      "`env_audit`'s `save` and `failOnFindings` are `--save` and `--fail-on-findings`",
+    );
+    expect(SERVER).toContain("'--accept-user-emails': 'acceptUserEmails'");
+    expect(
+      SERVER.split("...(args.acceptUserEmails === true ? ['--accept-user-emails'] : []),"),
+    ).toHaveLength(3);
+    expect(SERVER).toContain("...(args.save === true ? ['--save'] : []),");
+    expect(SERVER).toContain("...(args.failOnFindings === true ? ['--fail-on-findings'] : []),");
+  });
+
+  it('says no tool sets up the users of a sandbox alone, as the server runs no line of sandforge users', () => {
+    const not = section('What the environment tools do not offer');
+
+    expect(not).toContain(
+      'No tool sets up the users of a sandbox alone: a `users` resource of the file is applied ' +
+        'by `env_apply` and taken back by `env_destroy`, as any other resource',
+    );
+    expect(declaredTools().filter((tool) => tool.name.startsWith('users_'))).toEqual([]);
+    expect(SERVER).not.toContain("'sandforge-users'");
+  });
+
+  it('says how many tools the server declares, in words', () => {
+    const words = [
+      'twenty',
+      'twenty-one',
+      'twenty-two',
+      'twenty-three',
+      'twenty-four',
+      'twenty-five',
+      'twenty-six',
+      'twenty-seven',
+      'twenty-eight',
+      'twenty-nine',
+    ];
+    const count = declaredTools().length;
+    // Positive control: the count of 1.82.0, the audit of an environment added.
+    expect(count).toBeGreaterThanOrEqual(25);
+
+    expect(DOC).toContain(`\`sandforge mcp\` gives an AI agent ${words[count - 20] ?? '?'} tools`);
   });
 
   it('names the parameter each flag a removal names in its advice stands for, as run_remove passes it', () => {

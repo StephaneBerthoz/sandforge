@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { PassThrough } from 'node:stream';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 
 import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
@@ -14,7 +14,11 @@ import { removalAutomationRefusal } from '../src/modules/forge/ForgeRunGate.js';
 import type { ClonePlanReceipt } from './mcpClonePlans.js';
 import { refusedLine } from './runRefused.js';
 import { rootsMaxTotalRefusal, rootsStorageRefusal, sweepOptionWords } from './sandforge-clone.js';
-import { main as envMain } from './sandforge-env.js';
+import {
+  main as envMain,
+  parseArgs as envParseArgs,
+  type CliArgs as EnvCliArgs,
+} from './sandforge-env.js';
 import { RELAYED_BY_VARIABLE } from './scriptRunner.js';
 import { runInProcess } from './testing/envWorld.js';
 import { undeletableRefusal } from './undeletableAnswer.js';
@@ -298,7 +302,7 @@ describe('sandforge-mcp: the protocol', () => {
 });
 
 describe('sandforge-mcp: the tools', () => {
-  it('lists the twenty-four tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
+  it('lists the twenty-five tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
     const c = client();
     await c.initialized();
 
@@ -334,6 +338,7 @@ describe('sandforge-mcp: the tools', () => {
       'env_plan',
       'env_apply',
       'env_destroy',
+      'env_audit',
       'pipeline_plan',
     ]);
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
@@ -368,8 +373,9 @@ describe('sandforge-mcp: the tools', () => {
         expect.objectContaining({ readOnlyHint: false, destructiveHint: true }),
       );
     }
-    // A plan is kept on this machine, a clone of the whole org inserts, and a
-    // run stopped keeps what it wrote: none deletes or writes over.
+    // A plan is kept on this machine, a clone of the whole org inserts, a
+    // run stopped keeps what it wrote, and an audit given save keeps the jobs
+    // it read: none deletes or writes over.
     for (const name of [
       'seed_run',
       'clone_record',
@@ -378,6 +384,7 @@ describe('sandforge-mcp: the tools', () => {
       'clone_org',
       'run_stop',
       'checkpoint_take',
+      'env_audit',
     ]) {
       expect(hints[name], name).toEqual(
         expect.objectContaining({ readOnlyHint: false, destructiveHint: false }),
@@ -396,7 +403,7 @@ describe('sandforge-mcp: the tools', () => {
     }
     const rewind = TOOLS.find((t) => t.definition.name === 'checkpoint_rewind');
     expect(rewind?.definition.inputSchema.required).toEqual(['org', 'checkpoint']);
-    for (const name of ['env_plan', 'env_apply', 'env_destroy']) {
+    for (const name of ['env_plan', 'env_apply', 'env_destroy', 'env_audit']) {
       const env = TOOLS.find((t) => t.definition.name === name);
       expect(env?.definition.inputSchema.required, name).toEqual(['file', 'org']);
     }
@@ -1881,6 +1888,293 @@ describe('sandforge-mcp: the environment tools', () => {
     );
     await c.close();
   });
+
+  it('hands acceptUserEmails to a plan and an apply as --accept-user-emails, never from acceptEmails nor it for acceptEmails, and names it where a users resource is refused for the emails', async () => {
+    const refused =
+      'apply would be refused: testers has Salesforce email 2 people (the confirmation of 2 ' +
+      'addresses asked back), which only the line accepts: --accept-user-emails. Nothing was ' +
+      'written.\n';
+    const answers: Array<Partial<CommandRun>> = [
+      {
+        code: 0,
+        stderr: 'emails to people: 2, which the line accepts with --accept-user-emails\n',
+      },
+      { code: 1, stderr: refused },
+      { code: 0, stdout: '{"status":"success"}' },
+      { code: 0, stdout: '{"status":"success"}' },
+    ];
+    const { ran, run } = scripts(() => answers.shift() ?? {});
+    const c = client(run);
+    await c.initialized();
+
+    const planned = await c.call('env_plan', { file: 'sandforge.yaml', org: 'SB' });
+    const apply = { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' };
+    const blocked = await c.call('env_apply', apply);
+    await c.call('env_apply', { ...apply, acceptUserEmails: true });
+    await c.call('env_apply', { ...apply, acceptEmails: true });
+    const listed = await c.request('tools/list');
+
+    for (const answered of [planned, blocked]) {
+      expect(textOf(answered)).toContain(
+        "--accept-user-emails, named above, is this tool's acceptUserEmails: true.",
+      );
+      expect(textOf(answered)).not.toContain("is this tool's acceptEmails");
+    }
+    expect(ran.map((each) => each.args)).toEqual([
+      ['plan', '--file', 'sandforge.yaml', '--org', 'SB', '--json'],
+      ['apply', '--file', 'sandforge.yaml', '--org', 'SB', '--yes', '--json'],
+      [
+        'apply',
+        '--file',
+        'sandforge.yaml',
+        '--org',
+        'SB',
+        '--accept-user-emails',
+        '--yes',
+        '--json',
+      ],
+      ['apply', '--file', 'sandforge.yaml', '--org', 'SB', '--accept-emails', '--yes', '--json'],
+    ]);
+    const tools = listed.result?.tools as Array<{
+      name: string;
+      inputSchema: { properties: Record<string, { description?: string }> };
+    }>;
+    for (const name of ['env_plan', 'env_apply']) {
+      const described = tools.find((t) => t.name === name)?.inputSchema.properties;
+      expect(described?.['acceptUserEmails']?.description, name).toContain(
+        'Only once the person using you has accepted that Salesforce emails these people.',
+      );
+    }
+    // A destroy puts users back as they were, never an address: no email to accept.
+    for (const name of ['env_destroy', 'env_audit']) {
+      const described = tools.find((t) => t.name === name)?.inputSchema.properties;
+      expect(described, name).toBeDefined();
+      expect(described?.['acceptUserEmails'], name).toBeUndefined();
+    }
+    await c.close();
+  });
+
+  it('audits with the file and the org, --save and --fail-on-findings only once asked, with no confirm, and reads exit 3 as findings, not a partial run', async () => {
+    const answers: Array<Partial<CommandRun>> = [
+      { code: 0, stdout: '{"findings":0}' },
+      { code: 3, stdout: '{"findings":2}' },
+    ];
+    const { ran, run } = scripts(() => answers.shift() ?? {});
+    const c = client(run);
+    await c.initialized();
+
+    const read = await c.call('env_audit', { file: 'sandforge.yaml', org: 'SB' });
+    const failing = await c.call('env_audit', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      save: true,
+      failOnFindings: true,
+    });
+    // What env audit reads of its line and no tool gives it: an alias, an
+    // acceptance, a confirm of a write it does not make.
+    const refusals = [
+      await c.call('env_audit', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' }),
+      await c.call('env_audit', { file: 'sandforge.yaml', org: 'SB', alias: 'uat=UAT' }),
+      await c.call('env_audit', { file: 'sandforge.yaml', org: 'SB', acceptEmails: true }),
+      await c.call('env_audit', { org: 'SB' }),
+    ];
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-env',
+        args: ['audit', '--file', 'sandforge.yaml', '--org', 'SB', '--json'],
+      },
+      {
+        script: 'sandforge-env',
+        args: [
+          'audit',
+          '--file',
+          'sandforge.yaml',
+          '--org',
+          'SB',
+          '--save',
+          '--fail-on-findings',
+          '--json',
+        ],
+      },
+    ]);
+    expect(read).toMatchObject({ isError: false, structuredContent: { exitCode: 0 } });
+    expect(failing).toMatchObject({ isError: false, structuredContent: { exitCode: 3 } });
+    expect(textOf(failing)).toContain(
+      'exit 3: findings: a job gone or run as a user who can no longer run it, an endpoint ' +
+        'that names production, or a deliverability open to all email, each said above',
+    );
+    expect(textOf(failing)).not.toContain('partial');
+    for (const result of refusals) {
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ refusal: { code: 'ARGUMENTS' } });
+    }
+    await c.close();
+  });
+
+  it('names env_audit’s save where an audit or an apply’s audits say to keep the jobs with --save', async () => {
+    const keep =
+      '  before the next refresh, keep one: ' +
+      `${commandOf('env')} audit --file sandforge.yaml --org SB --save\n`;
+    const { run } = scripts(() => ({ code: 0, stderr: keep }));
+    const c = client(run);
+    await c.initialized();
+
+    const audited = await c.call('env_audit', { file: 'sandforge.yaml', org: 'SB' });
+    const applied = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+
+    const saves =
+      'it keeps the scheduled jobs read on this machine, to compare with after the next refresh.';
+    expect(textOf(audited)).toContain(`--save, named above, is this tool's save: ${saves}`);
+    expect(textOf(applied)).toContain(
+      `--save, named above, is env_audit's save, with the same file and org: ${saves}`,
+    );
+    await c.close();
+  });
+});
+
+describe('sandforge-mcp: the environment tools against the env script’s own line', () => {
+  /** What the env script reads of a line, or the words it refused it with. */
+  function envRead(line: readonly string[]): EnvCliArgs | string {
+    const said: string[] = [];
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      said.push(String(chunk));
+      return true;
+    });
+    try {
+      return envParseArgs(['node', 'sandforge-env.ts', ...line], '/work');
+    } catch (err: unknown) {
+      return said.join('') || String(err);
+    } finally {
+      exit.mockRestore();
+      stderr.mockRestore();
+    }
+  }
+
+  /** A value of each parameter that is no switch, as a call gives it. */
+  const GIVEN: Readonly<Record<string, unknown>> = {
+    file: 'sandforge.yaml',
+    org: 'SB',
+    confirm: 'SB',
+    replace: ['accounts'],
+  };
+
+  /** The tools that run the env script, each with its parameters as tools/list gives them. */
+  async function envTools() {
+    const { ran, run } = scripts();
+    const c = client(run);
+    await c.initialized();
+    const tools: Array<{
+      name: string;
+      served: (typeof TOOLS)[number];
+      properties: Record<string, { type?: string }>;
+      required: string[];
+      lineOf: (args: Record<string, unknown>) => Promise<string[]>;
+    }> = [];
+    for (const served of TOOLS) {
+      const schema = served.definition.inputSchema as {
+        properties: Record<string, { type?: string }>;
+        required?: string[];
+      };
+      if (!('file' in schema.properties) || !('org' in schema.properties)) continue;
+      const lineOf = async (args: Record<string, unknown>): Promise<string[]> => {
+        const before = ran.length;
+        const result = await c.call(served.definition.name, args);
+        expect(result.structuredContent, served.definition.name).not.toHaveProperty('refusal');
+        expect(ran.slice(before), served.definition.name).toHaveLength(1);
+        const [one] = ran.slice(before);
+        expect(one?.script, served.definition.name).toBe('sandforge-env');
+        return one?.args ?? [];
+      };
+      tools.push({
+        name: served.definition.name,
+        served,
+        properties: schema.properties,
+        required: schema.required ?? [],
+        lineOf,
+      });
+    }
+    return { tools, close: () => c.close() };
+  }
+
+  it('runs each environment tool’s line as the env script reads it: every parameter read as its field of the same name, and no flag the call did not ask', async () => {
+    const { tools, close } = await envTools();
+    // Positive control: the four tools that run sandforge env, each a verb of its own.
+    expect(tools.map((t) => t.name)).toEqual(['env_plan', 'env_apply', 'env_destroy', 'env_audit']);
+
+    for (const { name, properties, required, lineOf } of tools) {
+      const base = Object.fromEntries(
+        ['file', 'org', ...('confirm' in properties ? ['confirm'] : [])].map((key) => [
+          key,
+          GIVEN[key],
+        ]),
+      );
+      expect(required, name).toEqual(['file', 'org']);
+      const line0 = await lineOf(base);
+      const read0 = envRead(line0);
+      if (typeof read0 === 'string') throw new Error(`${name}: ${line0.join(' ')}: ${read0}`);
+      expect(read0.command, name).toBe(line0[0]);
+      expect(read0, name).toMatchObject({ org: 'SB', fileGiven: true, json: true });
+      // No flag the call did not ask: the file, the org, the answer as JSON, and the
+      // --yes a confirmed write gives a script that would ask.
+      expect(
+        line0.filter((word) => word.startsWith('--')),
+        name,
+      ).toEqual(['--file', '--org', ...(line0.includes('--yes') ? ['--yes'] : []), '--json']);
+      expect(line0.includes('--yes'), name).toBe('confirm' in properties);
+
+      for (const [parameter, schema] of Object.entries(properties)) {
+        if (parameter in base) continue;
+        const value = schema.type === 'boolean' ? true : GIVEN[parameter];
+        if (value === undefined) {
+          throw new Error(`${name}.${parameter}: give this test a value of it`);
+        }
+        const line = await lineOf({ ...base, [parameter]: value });
+        const read = envRead(line);
+        if (typeof read === 'string') {
+          throw new Error(`${name}.${parameter}: ${line.join(' ')}: ${read}`);
+        }
+        const changed = (Object.keys(read) as Array<keyof EnvCliArgs>).filter(
+          (key) => JSON.stringify(read[key]) !== JSON.stringify(read0[key]),
+        );
+        expect(changed, `${name}.${parameter}`).toEqual([parameter]);
+        expect(
+          line.filter((word) => word.startsWith('--') && !line0.includes(word)),
+          `${name}.${parameter}`,
+        ).toHaveLength(1);
+      }
+    }
+    await close();
+  });
+
+  it('names as a parameter of a tool only a flag that parameter puts on its line', async () => {
+    const { tools, close } = await envTools();
+
+    for (const { name, served, properties, lineOf } of tools) {
+      const base = {
+        file: 'sandforge.yaml',
+        org: 'SB',
+        ...('confirm' in properties ? { confirm: 'SB' } : {}),
+      };
+      for (const [flag, parameter] of Object.entries(served.flags)) {
+        expect(Object.keys(properties), `${name}: ${flag}`).toContain(parameter);
+        const line = await lineOf({ ...base, [parameter]: true });
+        expect(line, `${name}: ${flag}`).toContain(flag);
+      }
+    }
+    // Negative control: a destroy reads no acceptance of the emails to people.
+    expect(envRead(['destroy', '--file', 'f.yaml', '--org', 'SB', '--accept-user-emails'])).toEqual(
+      expect.stringContaining('--accept-user-emails'),
+    );
+    await close();
+  });
 });
 
 describe('sandforge-mcp: stopping', () => {
@@ -2049,7 +2343,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge mcp: 24 tools on stdio');
+    expect(stderr).toContain('sandforge mcp: 25 tools on stdio');
     expect(stderr).toContain('No checkpoint of DEV is kept in');
   }, 60_000);
 });

@@ -372,7 +372,7 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
     const refused = await h.call('checkpoint_rewind', { org: 'DEV-SB', checkpoint: 'Before UAT' });
     const preview = await h.call('checkpoint_preview', { org: 'DEV-SB', checkpoint: 'Before UAT' });
 
-    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(24);
+    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(25);
     expect(taken).toMatchObject({ isError: false, structuredContent: { exitCode: 0 } });
     expect(refused).toMatchObject({
       isError: true,
@@ -620,7 +620,7 @@ describe('sandforge-mcp: the environment tools on the memory org', () => {
    * Developer Edition in memory, and a client of it: what the env script ran
    * with, and the org's records.
    */
-  function envHarness() {
+  function envHarness(audits?: Record<string, unknown>) {
     const dir = mkdtempSync(join(tmpdir(), 'sandforge-mcp-env-'));
     dirs.push(dir);
     const project = join(dir, 'project');
@@ -631,6 +631,7 @@ describe('sandforge-mcp: the environment tools on the memory org', () => {
       JSON.stringify({
         version: 1,
         name: 'case-flow',
+        ...(audits !== undefined ? { audits } : {}),
         resources: {
           accounts: {
             kind: 'seed',
@@ -798,6 +799,44 @@ describe('sandforge-mcp: the environment tools on the memory org', () => {
       isError: false,
       structuredContent: { exitCode: 0, answer: { status: 'success' } },
     });
+    expect(h.world.records('Account')).toEqual([]);
+    await h.close();
+  });
+
+  it('audits through the env script, writing nothing: its refusal of a save the file reads no jobs for, exit 2, and its answer, exit 0, what it could not read said not read', async () => {
+    const h = envHarness({ schedules: false });
+    await h.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+
+    const refused = await h.call('env_audit', { file: h.file, org: 'DEV-ED', save: true });
+    const audited = await h.call('env_audit', { file: h.file, org: 'DEV-ED' });
+
+    expect(h.lines).toEqual([
+      ['audit', '--file', h.file, '--org', 'DEV-ED', '--save', '--json'],
+      ['audit', '--file', h.file, '--org', 'DEV-ED', '--json'],
+    ]);
+    expect(refused, textOf(refused)).toMatchObject({
+      isError: true,
+      structuredContent: { exitCode: 2, answer: { refusal: { code: 'BAD_LINE' } } },
+    });
+    expect(textOf(refused)).toContain(
+      "--save, named above, is this tool's save: it keeps the scheduled jobs read on this machine",
+    );
+    expect(audited, textOf(audited)).toMatchObject({
+      isError: false,
+      structuredContent: {
+        exitCode: 0,
+        answer: { org: { organizationId: ENV_ORG_ID, alias: 'DEV-ED' } },
+      },
+    });
+    expect(textOf(audited)).toContain('audit of DEV-ED');
+    expect(textOf(audited)).toContain('deliverability: not read — the org refused it');
+    // The file reads no scheduled jobs: none is read, and none is asked to be kept.
+    expect(textOf(audited)).not.toContain('--save');
+    expect(h.world.calls).toEqual([]);
     expect(h.world.records('Account')).toEqual([]);
     await h.close();
   });

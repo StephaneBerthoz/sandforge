@@ -743,6 +743,20 @@ const envFile = () =>
         'started.',
     );
 
+/**
+ * The emails Salesforce sends the people whose address a users resource asks
+ * back, as `--accept-user-emails` accepts them: never `acceptEmails`, which
+ * is the emails what still runs sends.
+ */
+const acceptUserEmails = (of: string) =>
+  acceptance(
+    `${of} Only once the person using you has accepted that Salesforce emails these people.`,
+  );
+
+/** What `env audit --save` keeps, as a line that names it is told. */
+const AUDIT_SAVES =
+  'it keeps the scheduled jobs read on this machine, to compare with after the next refresh.';
+
 // ─── The plan of a pipeline ──────────────────────────────────────────────────
 
 /** A variable of a pipeline, as `--var <name>=<value>` names it: no `=`, not starting with `-`. */
@@ -3788,8 +3802,13 @@ export const TOOLS: readonly ServedTool[] = [
           'where the org delivers the emails what still runs sends, or would not say whether it ' +
           'does.',
       ),
+      acceptUserEmails: acceptUserEmails(
+        'Plan what env_apply would do with acceptUserEmails: a users resource that asks ' +
+          'addresses back otherwise blocks the apply (USERS_EMAILS_NOT_ACCEPTED), Salesforce ' +
+          'emailing each of those people the link that confirms their address.',
+      ),
     }),
-    flags: { '--accept-emails': 'acceptEmails' },
+    flags: { '--accept-emails': 'acceptEmails', '--accept-user-emails': 'acceptUserEmails' },
     exits: {
       [PARTIAL_EXIT]:
         'drift: the org no longer holds the environment as applied, records deleted or changed ' +
@@ -3805,6 +3824,7 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.failOnDrift === true ? ['--fail-on-drift'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.acceptUserEmails === true ? ['--accept-user-emails'] : []),
         '--json',
       ],
     }),
@@ -3822,7 +3842,8 @@ export const TOOLS: readonly ServedTool[] = [
       "an earlier apply left would be created twice. A resource's accept: { automation: true } " +
       'in the file is what lets its runs be taken back although the org runs automation. ' +
       'acceptEmails lets its resources write although the org delivers the emails what still ' +
-      'runs sends, or would not say whether it does. The ' +
+      'runs sends, or would not say whether it does; acceptUserEmails lets Salesforce email the ' +
+      'people whose address a users resource asks back, which no file accepts. The ' +
       'answer ends with the env_destroy call that takes the environment back.',
     readOnly: false,
     destructive: true,
@@ -3850,14 +3871,29 @@ export const TOOLS: readonly ServedTool[] = [
           'its resources write sends some. Only once the person using you has accepted that ' +
           'these emails go out.',
       ),
+      acceptUserEmails: acceptUserEmails(
+        'Let Salesforce email the people whose address a users resource asks back: the link ' +
+          'that confirms each address, a system email, which leaves under System email only ' +
+          'too. Without it the plan refuses the apply (USERS_EMAILS_NOT_ACCEPTED), and no file ' +
+          'accepts it.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes:
       'creates, replaces and deletes the resources of the file there as its plan says, taking ' +
       'back the earlier runs a replace or a delete takes back',
     readFirst: 'env_plan of the same file says what it would do, writing nothing',
-    flags: { '--accept-no-state': 'acceptNoState', '--accept-emails': 'acceptEmails' },
-    named: { '--accept-automation': fileAcceptsAutomation('env_apply') },
+    flags: {
+      '--accept-no-state': 'acceptNoState',
+      '--accept-emails': 'acceptEmails',
+      '--accept-user-emails': 'acceptUserEmails',
+    },
+    named: {
+      '--accept-automation': fileAcceptsAutomation('env_apply'),
+      // What an apply's audits say when no inventory of the jobs was kept
+      // before: the line of env audit --save, which env_audit runs.
+      '--save': `is env_audit's save, with the same file and org: ${AUDIT_SAVES}`,
+    },
     after: (args) => [
       `env_destroy with file "${args.file}" and org "${args.org}" takes this environment back.`,
     ],
@@ -3872,6 +3908,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
         ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
         ...(args.acceptEmails === true ? ['--accept-emails'] : []),
+        ...(args.acceptUserEmails === true ? ['--accept-user-emails'] : []),
         '--yes',
         '--json',
       ],
@@ -3915,6 +3952,62 @@ export const TOOLS: readonly ServedTool[] = [
         args.org,
         ...(args.includeChanged === true ? ['--include-changed'] : []),
         '--yes',
+        '--json',
+      ],
+    }),
+  }),
+  tool({
+    name: 'env_audit',
+    title: 'Audit an environment',
+    description:
+      'Read org as sandforge env audit --json reads it, writing nothing to it: whether it ' +
+      'delivers email, its scheduled jobs against the inventory this machine kept of it before ' +
+      "its refresh, and the endpoints that still name production, each part the file's audits " +
+      'do not turn off. An audit that could not be read is said not read, with why, never taken ' +
+      'for one that found nothing; no URL is given with its query or its credentials. save: ' +
+      'true keeps the jobs read on this machine, to compare with after the next refresh: the ' +
+      'day before it. failOnFindings: true ends it exit 3 on what it found. A production org is ' +
+      'refused, and a sandbox the file does not list. SandForge changes none of what it finds: ' +
+      'Setup, sf or a deployment puts it right.',
+    // save keeps an inventory on this machine, as a plan of a clone of the
+    // whole org is kept: no tool that keeps one says it reads only.
+    readOnly: false,
+    destructive: false,
+    args: z.strictObject({
+      file: envFile(),
+      org: alias('The org to audit: its sf CLI alias.'),
+      save: z
+        .boolean()
+        .optional()
+        .describe(
+          "true: keep the scheduled jobs read, in audits/ of the journal directory by the org's " +
+            "host, its owner's alone, to compare with after its next refresh. Refused, exit 2, " +
+            "when the file's audits read no scheduled jobs.",
+        ),
+      failOnFindings: z
+        .boolean()
+        .optional()
+        .describe(
+          'true: exit 3 on a job gone or run as a user who can no longer run it, an endpoint ' +
+            'that names production, or a deliverability open to all email.',
+        ),
+    }),
+    named: { '--save': `is this tool's save: ${AUDIT_SAVES}` },
+    exits: {
+      [PARTIAL_EXIT]:
+        'findings: a job gone or run as a user who can no longer run it, an endpoint that ' +
+        'names production, or a deliverability open to all email, each said above',
+    },
+    run: (args) => ({
+      script: 'sandforge-env',
+      args: [
+        'audit',
+        '--file',
+        args.file,
+        '--org',
+        args.org,
+        ...(args.save === true ? ['--save'] : []),
+        ...(args.failOnFindings === true ? ['--fail-on-findings'] : []),
         '--json',
       ],
     }),
