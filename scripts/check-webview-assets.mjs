@@ -229,8 +229,13 @@ export function namespaceSentinels(catalogue) {
  * @param sentinels - From {@link namespaceSentinels}.
  */
 export function namespacesHeld(sources, sentinels) {
+  // A value of its own, between the quotes the build writes it with: the same
+  // words inside a longer sentence of another namespace say nothing of this one.
+  const quoted = (sentinel) => ['`', '"', "'"].map((quote) => `${quote}${sentinel}${quote}`);
   return [...sentinels]
-    .filter(([, sentinel]) => sources.some((source) => source.includes(sentinel)))
+    .filter(([, sentinel]) =>
+      sources.some((source) => quoted(sentinel).some((literal) => source.includes(literal))),
+    )
     .map(([namespace]) => namespace)
     .sort();
 }

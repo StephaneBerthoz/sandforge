@@ -234,6 +234,25 @@ test('it finds a namespace by a plain sentence of its own, and the namespaces a 
     'forge',
   ]);
   assert.deepEqual(namespacesHeld(['x=`Cancel`'], sentinels), []);
+  // A value of its own, under any quote the build writes it with; never the
+  // same words inside a longer sentence of another namespace's chunk.
+  assert.deepEqual(namespacesHeld(["x='Copy a real record and everything around it'"], sentinels), [
+    'forge',
+  ]);
+  assert.deepEqual(namespacesHeld(['x="Copy a real record and everything around it"'], sentinels), [
+    'forge',
+  ]);
+  assert.deepEqual(
+    namespacesHeld(
+      ['x=`Open Copy a real record and everything around it, then read on`'],
+      sentinels,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    namespacesHeld(['x=`Copy a real record and everything around it · {{count}}`'], sentinels),
+    [],
+  );
 });
 
 test('it reads the namespaces the panel catalogue starts with', () => {
