@@ -112,6 +112,6 @@ describe('QuickSyncFlow', () => {
     expect(indicator).toBeDefined();
     expect(screen.getByText('Orgs')).toBeDefined();
     expect(screen.getByText('Objects')).toBeDefined();
-    expect(screen.getByText('Preview')).toBeDefined();
+    expect(screen.getByText('Estimate')).toBeDefined();
   });
 });

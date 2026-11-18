@@ -356,7 +356,7 @@ describe('SyncPage', () => {
     render(<SyncPage />);
     expect(screen.getByTestId('empty-state')).toBeDefined();
     expect(screen.getByTestId('illustration-sync')).toBeDefined();
-    expect(screen.getByText('Keep two orgs in sync')).toBeDefined();
+    expect(screen.getByText('Copy records between two orgs')).toBeDefined();
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
   });
 
@@ -405,6 +405,72 @@ describe('SyncPage', () => {
     render(<SyncPage />);
     expect(screen.getByTestId('page-header')).toBeDefined();
     expect(screen.getByText('Sync Data')).toBeDefined();
+  });
+
+  it('says under its title what the page does, and asks for the orgs on the first step alone', () => {
+    // "Choose source and target orgs" stood under the title on every tab,
+    // History and Real-Time included, and again on the first step.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    expect(screen.getByTestId('page-header').textContent).toContain(
+      'Copy records from one org to another',
+    );
+    expect(screen.getByTestId('page-header').textContent).not.toContain(
+      'Choose source and target orgs',
+    );
+    expect(screen.getByTestId('sync-step-orgs').textContent).toContain(
+      'Choose source and target orgs',
+    );
+  });
+
+  it('asks for the orgs, then the objects, then what to do with a record the target holds, and the options last', () => {
+    // Three option boxes came before the objects, which the Marketplace
+    // capture had to grow to show.
+    draft.value = {
+      currentStep: 0,
+      wizardSteps: 5,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const inOrder = [
+      screen.getByLabelText('Source', { exact: true }),
+      screen.getByTestId('sync-template-section'),
+      screen.getByTestId('object-set-editor'),
+      screen.getByTestId('sync-held-records'),
+      screen.getByTestId('sync-options'),
+    ];
+    for (let i = 1; i < inOrder.length; i++) {
+      expect(
+        inOrder[i - 1].compareDocumentPosition(inOrder[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${String(i - 1)} before ${String(i)}`,
+      ).toBeTruthy();
+    }
+    const options = screen.getByTestId('sync-options');
+    expect(within(options).getByRole('heading', { name: 'Options' })).toBeDefined();
+    for (const box of [
+      'sync-delta-settings',
+      'sync-contact-points-settings',
+      'sync-files-settings',
+    ]) {
+      expect(within(options).getByTestId(box)).toBeDefined();
+    }
   });
 
   it('should start on step 0 (Select Orgs)', () => {
@@ -541,6 +607,37 @@ describe('SyncPage', () => {
     expect(screen.getByText(/starting five minutes earlier/)).toBeDefined();
   });
 
+  it('maps fields and makes rules of one object on one step, the object picked once for both', () => {
+    // Field Mapping and Transforms were two steps over the same object picker,
+    // drawn twice and each its own way.
+    draft.value = {
+      currentStep: 1,
+      wizardSteps: 5,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', batchSize: 200, where: '' },
+        { objectApiName: 'Contact', operation: 'insert', batchSize: 200, where: '' },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const step = screen.getByTestId('sync-fields');
+    expect(within(step).getAllByRole('combobox', { name: 'Fields of' })).toHaveLength(1);
+    expect(within(step).getByTestId('field-mapping-canvas')).toBeDefined();
+    expect(within(step).getByTestId('transform-builder')).toBeDefined();
+    expect(screen.queryByTestId('transform-object')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('sync-mapped-object'), { target: { value: 'Contact' } });
+    expect(screen.getByTestId('transform-intro').textContent).toContain('Contact');
+  });
+
   it('maps fields in one editor, and says what an object with no mapping gets', () => {
     // Two editors edited the same list, and a single object's empty list read
     // "Unmapped" with nothing to say that its fields are copied all the same.
@@ -565,12 +662,13 @@ describe('SyncPage', () => {
     );
   });
 
-  it('marks Field Mapping and Transforms as steps that ask nothing to go on', () => {
+  it('marks Fields as the one step that asks nothing to go on', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    expect(screen.getByTestId('sync-optional-field-mapping').textContent).toBe('Optional');
-    expect(screen.getByTestId('sync-optional-transforms').textContent).toBe('Optional');
+    expect(screen.getByTestId('sync-optional-fields').textContent).toBe('Optional');
+    expect(screen.queryByTestId('sync-optional-field-mapping')).toBeNull();
+    expect(screen.queryByTestId('sync-optional-transforms')).toBeNull();
     expect(screen.queryByTestId('sync-optional-review')).toBeNull();
   });
 
@@ -1494,10 +1592,16 @@ describe('SyncPage', () => {
     mockExecuteMutationState.data = null;
   });
 
-  it('should show 6 step indicators', () => {
+  it('counts five steps, the one that starts the run named for its two buttons', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
-    expect(screen.getByTestId('sync-step-indicator').children.length).toBeGreaterThanOrEqual(6);
+    const steps = screen.getByTestId('sync-step-indicator');
+    expect(steps.textContent).toContain('Fields');
+    expect(steps.textContent).toContain('Simulate & run');
+    expect(steps.textContent).not.toContain('Field Mapping');
+    expect(steps.textContent).not.toContain('Transforms');
+    expect(steps.textContent).not.toContain('Execute');
+    expect(within(steps).getAllByRole('button')).toHaveLength(5);
   });
 
   it('offers Quick Sync by one card, on the first step alone, saying what it does', () => {
@@ -1545,23 +1649,41 @@ describe('SyncPage', () => {
     expect(screen.getByText('Sync failed')).toBeDefined();
   });
 
-  it('offers the Real-Time tab and the Conflicts tab its sessions feed', () => {
+  it('offers four tabs: the saved configurations under Saved, and the conflicts real-time holds under Real-Time', () => {
+    // Conflicts had a tab of its own that only real-time replication fed, and
+    // the saved configurations sat under Schedules, after every schedule.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    const tabs = within(screen.getByTestId('sync-tabs'))
-      .getAllByRole('tab')
-      .map((tab) => tab.getAttribute('data-testid'));
-    expect(tabs).toEqual([
+    const tabs = within(screen.getByTestId('sync-tabs')).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
       'tab-sync',
       'tab-history',
       'tab-schedules',
       'tab-realtime',
-      'tab-conflicts',
     ]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Sync', 'History', 'Saved', 'Real-Time']);
 
     fireEvent.click(screen.getByTestId('tab-realtime'));
     expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
+    const conflicts = screen.getByTestId('sync-conflicts-section');
+    expect(within(conflicts).getByRole('heading', { name: 'Conflicts' })).toBeDefined();
+    expect(within(conflicts).getByTestId('conflict-list-panel')).toBeDefined();
+  });
+
+  it.each([
+    ['history', 'tab-history'],
+    ['schedules', 'tab-schedules'],
+    ['realtime', 'tab-realtime'],
+    // Conflicts is a section of Real-Time now: a page that asks for it lands there.
+    ['conflicts', 'tab-realtime'],
+  ] as const)('opens on the %s tab another page asked for', (syncTab, selected) => {
+    useAppStore.setState({ navigationIntent: { route: 'sync', syncTab } });
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    expect(screen.getByTestId(selected).getAttribute('aria-selected')).toBe('true');
+    expect(useAppStore.getState().navigationIntent).toBeNull();
   });
 
   it('walks its tabs with the arrows, one Tab stop, the focus following the selection', () => {
@@ -1580,7 +1702,7 @@ describe('SyncPage', () => {
     expect(document.activeElement).toBe(history);
     expect(screen.getByTestId('sync-history-panel')).toBeDefined();
     fireEvent.keyDown(history, { key: 'End' });
-    expect(document.activeElement).toBe(screen.getByTestId('tab-conflicts'));
+    expect(document.activeElement).toBe(screen.getByTestId('tab-realtime'));
   });
 
   it('holds the selected tab’s content in a panel the tab names and controls', () => {
@@ -1608,7 +1730,7 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('tab-sync').getAttribute('aria-controls')).toBeNull();
   });
 
-  it('counts the changes held for a decision on the Conflicts tab', () => {
+  it('counts the changes held for a decision on the Real-Time tab, which lists them under Conflicts', () => {
     const conflict: UIConflict = {
       id: 'Account:001:1',
       objectApiName: 'Account',
@@ -1625,10 +1747,12 @@ describe('SyncPage', () => {
     render(<SyncPage />);
 
     expect(
-      within(screen.getByTestId('tab-conflicts')).getByTestId('conflict-count-badge').textContent,
+      within(screen.getByTestId('tab-realtime')).getByTestId('conflict-count-badge').textContent,
     ).toBe('1');
-    fireEvent.click(screen.getByTestId('tab-conflicts'));
-    expect(screen.getByTestId('conflict-list-panel')).toBeDefined();
+    fireEvent.click(screen.getByTestId('tab-realtime'));
+    expect(
+      within(screen.getByTestId('sync-conflicts-section')).getByTestId('conflict-list-panel'),
+    ).toBeDefined();
   });
 
   it('announces a history export whose save is answered after the History tab is left', () => {
@@ -1752,7 +1876,7 @@ describe('SyncPage', () => {
     const simulate = screen.getByTestId('sync-simulate') as HTMLButtonElement;
     const why = screen.getByTestId('sync-transforms-need-field');
     expect(why.textContent).toBe(
-      'A transform rule names no field: pick its field in the Transforms step. Simulate and ' +
+      'A transform rule names no field: pick its field in the Fields step. Simulate and ' +
         'Run the sync stay off until then, as such a rule would change every field of every record.',
     );
     expect(run.disabled).toBe(true);
@@ -1983,11 +2107,11 @@ describe('SyncPage', () => {
     expect(again.id).toBe(first.id);
 
     // Back to the first step, another strategy, forward to the review again.
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-back'));
+    for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('sync-wizard-back'));
     fireEvent.change(screen.getByLabelText('When the target already holds the record'), {
       target: { value: 'target_wins' },
     });
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-next'));
+    for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('sync-wizard-next'));
     expect(screen.getByTestId('sync-save-config')).toBeDefined();
     expect(screen.queryByTestId('sync-config-saved')).toBeNull();
 
@@ -2306,7 +2430,7 @@ describe('SyncPage simulation, pause and cancel', () => {
   });
 });
 
-describe('SyncPage Run now on a saved configuration', () => {
+describe('SyncPage Open on a saved configuration', () => {
   const idleExecute = mockExecuteMutationState;
 
   /** A configuration as `sync:config:load` reads it back from the store. */
@@ -2367,32 +2491,61 @@ describe('SyncPage Run now on a saved configuration', () => {
     openedConfigAnswer.asked = [];
   });
 
-  /** Open the Schedules tab and click Run now on the saved configuration. */
-  function runSaved(): ReturnType<typeof render> {
+  /** Open the Saved tab and click Open on the saved configuration. */
+  function openSaved(): ReturnType<typeof render> {
     const view = render(<SyncPage />);
     fireEvent.click(screen.getByTestId('tab-schedules'));
-    fireEvent.click(screen.getByTestId('run-saved-config-cfg-saved'));
+    fireEvent.click(screen.getByTestId('open-saved-config-cfg-saved'));
     return view;
   }
 
-  it('reads it back and sends it to the run as saved, on the request the wizard runs with', () => {
-    const { rerender } = runSaved();
+  /** Open it, then press Run the sync once it is read. */
+  function runSaved(): ReturnType<typeof render> {
+    openedConfigAnswer.value = { config: savedConfig };
+    const view = openSaved();
+    fireEvent.click(screen.getByTestId('sync-run'));
+    return view;
+  }
 
-    expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
-    // Shown where a run of the wizard is: the execute step of the Sync tab.
+  it('opens it on Simulate & run, says what each of its objects does, and runs nothing until asked', () => {
+    // Run now sent it to sync:execute at once: no simulation, no checkpoint
+    // first, no mute, and nothing of what it did on screen.
+    openedConfigAnswer.value = { config: savedConfig };
+    const { rerender } = openSaved();
+
     expect(screen.getByTestId('tab-sync').getAttribute('aria-selected')).toBe('true');
     // The wizard's step button shares the testid: the panel is the div.
     expect(
       screen.getAllByTestId('sync-step-execute').some((element) => element.tagName === 'DIV'),
     ).toBe(true);
+    expect(openedConfigAnswer.asked).toContainEqual({ id: 'cfg-saved' });
+    expect(screen.getByTestId('sync-saved-run').textContent).toBe(
+      'Saved configuration: Nightly accounts',
+    );
+    expect(screen.getByTestId('sync-review-object-Account')).toBeDefined();
+    expect(mockLoadConfigMutate).not.toHaveBeenCalled();
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+
+    // Simulate sends it as saved, and writes nothing.
+    fireEvent.click(screen.getByTestId('sync-simulate'));
+    expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
+    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: savedConfig } };
+    rerender(<SyncPage />);
+    expect(mockSimulateMutate).toHaveBeenCalledWith({ config: savedConfig });
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+  });
+
+  it('runs it as saved from there, on the request the wizard runs with', () => {
+    const { rerender } = runSaved();
+
+    expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
     expect(mockExecuteMutate).not.toHaveBeenCalled();
 
     mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: savedConfig } };
     rerender(<SyncPage />);
 
     // Exactly what was saved, on sync:execute: the host checks it and asks
-    // Production Guard as it does for the wizard's own run. No simulation
-    // comes first, as none does before the wizard's Run.
+    // Production Guard as it does for the wizard's own run.
     expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
     expect(mockExecuteMutate).toHaveBeenCalledWith({ config: savedConfig });
     expect(mockSimulateMutate).not.toHaveBeenCalled();
@@ -2427,29 +2580,23 @@ describe('SyncPage Run now on a saved configuration', () => {
     );
   });
 
-  it('opens a configuration that deletes on the execute step rather than run it, and Run there runs it', () => {
+  it('says a configuration that deletes deletes, above Run, which runs it there', () => {
     // Run now sent it to sync:execute at once: its delete fired on a sandbox
     // or a Developer Edition with no word of what it deleted.
     const deleting = {
       ...savedConfig,
       objects: [{ ...savedConfig.objects[0], operation: 'delete', transformRules: [] }],
     };
-    const { rerender } = runSaved();
-    mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: deleting } };
     openedConfigAnswer.value = { config: deleting };
-    rerender(<SyncPage />);
+    const { rerender } = openSaved();
 
     expect(mockExecuteMutate).not.toHaveBeenCalled();
-    expect(openedConfigAnswer.asked).toContainEqual({ id: 'cfg-saved' });
-    expect(screen.getByTestId('sync-saved-run').textContent).toBe(
-      'Saved configuration: Nightly accounts',
-    );
     expect(screen.getByTestId('sync-review-object-Account').textContent).toBe(
       "Account — Delete by Id: the target record holding the source record's Id is deleted.",
     );
 
     fireEvent.click(screen.getByTestId('sync-run'));
-    expect(mockLoadConfigMutate).toHaveBeenCalledTimes(2);
+    expect(mockLoadConfigMutate).toHaveBeenCalledTimes(1);
     mockLoadConfigMutationState = { ...mockLoadConfigMutationState, data: { config: deleting } };
     rerender(<SyncPage />);
 
@@ -2602,15 +2749,24 @@ describe('SyncPage Run now on a saved configuration', () => {
     });
   });
 
-  it('offers no Run now while a run is under way on the page', () => {
+  it('offers no Open while a run is under way on the page', () => {
     mockExecuteMutationState = { ...idleExecute, loading: true, requestId: 'sync-run-1' } as never;
     render(<SyncPage />);
     fireEvent.click(screen.getByTestId('tab-schedules'));
 
-    expect(screen.getByTestId('run-saved-config-cfg-saved')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('open-saved-config-cfg-saved')).toHaveProperty('disabled', true);
   });
 
-  it('keeps a Schedules tab whose chunk could not be fetched to its tab, and the Sync tab works', () => {
+  it('offers SFDMU Import from Saved, which opens it', () => {
+    render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('tab-schedules'));
+
+    fireEvent.click(screen.getByTestId('sync-saved-sfdmu-btn'));
+
+    expect(useAppStore.getState().currentRoute).toBe('migration');
+  });
+
+  it('keeps a Saved tab whose chunk could not be fetched to its tab, and the Sync tab works', () => {
     // The page's boundary caught it: the wizard and its draft went with it.
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     schedulesUnreadable.value = true;
@@ -2853,6 +3009,75 @@ describe('SyncPage saving a configuration under a name', () => {
       expect(summary.textContent).toContain('Total success: 1');
     } finally {
       mockExecuteMutationState = { ...mockExecuteMutationState, data: null };
+    }
+  });
+
+  it('ends a run’s results on a new sync and on the run in History, which it opens', () => {
+    // The results step hid the wizard's buttons and offered nothing else: no
+    // new sync, and no way to the run's history entry, which Quick Sync had.
+    draft.value = { ...review, currentStep: 5 };
+    const openRun = vi.spyOn(useSyncHistoryStore.getState(), 'openRun');
+    mockExecuteMutationState = {
+      ...mockExecuteMutationState,
+      data: { ...historyEntry.result, totalSkipped: 0 },
+    };
+    try {
+      render(<SyncPage />);
+      const results = screen.getAllByTestId('sync-step-results').find((el) => el.tagName === 'DIV');
+      expect(within(results as HTMLElement).getByTestId('sync-new-sync').textContent).toBe(
+        'New sync',
+      );
+
+      fireEvent.click(screen.getByTestId('sync-see-in-history'));
+
+      expect(openRun).toHaveBeenCalledWith('op-1');
+      expect(screen.getByTestId('tab-history').getAttribute('aria-selected')).toBe('true');
+    } finally {
+      openRun.mockRestore();
+      mockExecuteMutationState = { ...mockExecuteMutationState, data: null };
+    }
+  });
+
+  it('starts a new sync from the results, on the first step between the same two orgs', () => {
+    draft.value = { ...review, currentStep: 5 };
+    mockExecuteMutationState = {
+      ...mockExecuteMutationState,
+      data: { ...historyEntry.result, totalSkipped: 0 },
+    };
+    try {
+      render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-new-sync'));
+
+      expect(mockExecuteReset).toHaveBeenCalled();
+      expect(screen.getByTestId('sync-step-orgs')).toBeDefined();
+      expect(headerAliases()).toEqual(['dev1', 'dev2']);
+    } finally {
+      mockExecuteMutationState = { ...mockExecuteMutationState, data: null };
+    }
+  });
+
+  it('offers no History for a simulation, which writes nothing there', () => {
+    draft.value = { ...review, currentStep: 4 };
+    const { rerender } = render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('sync-simulate'));
+    mockSimulateMutationState = {
+      ...mockSimulateMutationState,
+      data: {
+        configId: 'c',
+        operationId: 'wv-simulation',
+        direction: 'source_to_target',
+        conflictStrategy: 'source_wins',
+        objects: [],
+        duration: 1,
+        timestamp: '2026-10-06T00:00:00.000Z',
+      },
+    };
+    try {
+      rerender(<SyncPage />);
+      expect(screen.getByTestId('sync-new-sync')).toBeDefined();
+      expect(screen.queryByTestId('sync-see-in-history')).toBeNull();
+    } finally {
+      mockSimulateMutationState = { ...mockSimulateMutationState, data: null };
     }
   });
 });

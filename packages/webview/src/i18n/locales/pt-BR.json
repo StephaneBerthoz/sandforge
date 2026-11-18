@@ -41,7 +41,6 @@
     "typeToConfirm": "Digite <code>{{text}}</code> para confirmar:",
     "time": "Hora",
     "recordIds": "IDs de registro",
-    "statusAbbrev": "St",
     "recordCountFormatted_one": "{{formatted}} registro",
     "recordCountFormatted_other": "{{formatted}} registros",
     "fieldCount_one": "{{count}} campo",
@@ -194,7 +193,7 @@
     "frozen": "Dataset congelado",
     "grappe": "Grappe",
     "autopilot": "Autopilot",
-    "migration": "Migração",
+    "migration": "Importação SFDMU",
     "help": "Ajuda",
     "checkpoint": "Pontos de verificação",
     "recovery": "Volta ao serviço"
@@ -1366,11 +1365,13 @@
   "sync": {
     "standardPricebookMatched": "Catálogo de preços padrão: pareado com o da org de destino, nunca gravado.",
     "title": "Sincronizar dados",
+    "subtitle": "Copiar registros de uma org para outra",
     "selectOrgs": "Selecionar Orgs",
     "selectOrgsDesc": "Escolha as orgs de origem e destino",
     "sameOrgWarning": "A origem e o destino são a mesma org: escolha outra org como destino para continuar.",
     "configureObjects": "Configurar objetos",
     "fieldMapping": "Mapeamento de campos",
+    "fields": "Campos",
     "transforms": "Transformações",
     "review": "Revisar",
     "reviewDesc": "Revise a configuração de sync antes da execução",
@@ -1390,10 +1391,12 @@
       "encrypted": "{{object}}: {{fields}}, criptografados, aparecem mascarados para o usuário com que o SandForge lê a org de origem, que não tem a permissão View Encrypted Data. A execução os deixa de fora de cada registro em vez de copiar as máscaras; conceda essa permissão para copiar seus valores.",
       "readCap": "Cada objeto é lido até {{cap}} registros, de qualquer uma das duas orgs, conforme sandforge.sync.maxRecordsPerObject define (50.000 no máximo): um com mais é copiado em parte, e a execução o indica. Para copiar uma parte de uma org maior que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino."
     },
-    "configSaved": "Configuração salva. Um agendamento já pode executá-la.",
-    "execute": "Executar",
+    "configSaved": "Configuração salva: a aba Salvas a lista, e um agendamento pode executá-la.",
+    "execute": "Simular e executar",
     "executeDesc": "Executar a operação de sincronização",
     "results": "Resultados",
+    "newSync": "Nova sincronização",
+    "seeInHistory": "Ver no histórico",
     "modes": {
       "full": "Completo",
       "incremental": "Incremental",
@@ -1420,7 +1423,6 @@
     "target": "Destino",
     "sourceField": "Campo de origem",
     "targetField": "Campo de destino",
-    "dataFlow": "Fluxo de dados",
     "alreadyCopied_one": "{{count}} registro já copiado por uma execução anterior desta configuração, deixado como estava.",
     "alreadyCopied_other": "{{count}} registros já copiados por uma execução anterior desta configuração, deixados como estavam.",
     "alreadyLinked_one": "{{count}} registro já vinculado por uma execução anterior desta configuração a um registro que o destino tinha, deixado como estava.",
@@ -1430,6 +1432,7 @@
     "autoMap": "Mapeamento automático",
     "suggestedMappings": "Mapeamentos sugeridos",
     "selectAndConfigure": "Selecionar orgs e objetos",
+    "optionsTitle": "Opções",
     "templates": {
       "title": "Modelos de início rápido",
       "useThis": "Usar",
@@ -1450,6 +1453,8 @@
     },
     "realtime": {
       "title": "Sync em tempo real",
+      "conflictsTitle": "Conflitos",
+      "conflictsHint": "As alterações que a replicação em tempo real reteve para uma decisão, campo a campo. Uma execução do Sync resolve o que encontra pela escolha feita na primeira etapa e não retém nada aqui.",
       "start": "Iniciar",
       "stop": "Parar",
       "metrics": "Métricas",
@@ -1495,7 +1500,7 @@
         "failed": "Não gravado",
         "watched": "Apenas observado, não gravado",
         "kept-target": "Não gravado: o registro de destino foi editado após esta alteração",
-        "held": "Retido para uma decisão na aba Conflitos",
+        "held": "Retido para uma decisão em Conflitos",
         "deletes-off": "Exclusão não aplicada: as exclusões estão desativadas para este objeto",
         "own-write": "Gravado por esta sessão; não aplicado novamente"
       },
@@ -1529,9 +1534,8 @@
     "tabs": {
       "sync": "Sync",
       "history": "Histórico",
-      "schedules": "Agendamentos",
-      "realtime": "Tempo real",
-      "conflicts": "Conflitos"
+      "schedules": "Salvas",
+      "realtime": "Tempo real"
     },
     "conflictResolution": {
       "title": "Resolução de conflitos",
@@ -1566,8 +1570,8 @@
       "timestamp": "Data e hora"
     },
     "emptyState": {
-      "title": "Mantenha duas orgs sincronizadas",
-      "description": "O Sync copia dados entre orgs — com mapeamento de campos, transformações e regras de conflito — ex. atualizar uma sandbox de dev a partir de uma partial copy.",
+      "title": "Copiar registros entre duas orgs",
+      "description": "O Sync copia registros de uma org para outra, com mapeamentos de campos, transformações e o que fazer com um registro que o destino já tem.",
       "step2": "Escolha as orgs de origem e destino",
       "step3": "Mapeie objetos e campos",
       "step4": "Execute a sincronização e revise os resultados"
@@ -1601,8 +1605,8 @@
       "emptyDesc": "Sincronizações concluídas aparecem aqui com seus resultados por objeto."
     },
     "piiWarningTitle": "PII detectada",
-    "mappingForObject": "Mapeamento de",
-    "mappingForObjectHint": "Cada objeto carrega os mapeamentos criados para ele. Objetos sem mapeamento são copiados campo a campo.",
+    "mappingForObject": "Campos de",
+    "mappingForObjectHint": "Cada objeto carrega os mapeamentos e regras criados para ele. Um objeto sem nenhum é copiado campo a campo.",
     "fieldMappingCount_one": "{{count}} mapeamento de campo",
     "fieldMappingCount_other": "{{count}} mapeamentos de campos",
     "transformCount_one": "{{count}} transformação",
@@ -1822,10 +1826,9 @@
       "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}."
     },
     "transformIntro": "Cada regra muda um único campo de {{object}} em cada registro que a execução escreve. Os campos sem regra são escritos como foram lidos.",
-    "transformForObject": "Regras de",
     "transformNeedsFieldNote": "Uma regra sem campo foi criada antes de as regras nomearem um campo, e alteraria cada campo de cada registro: escolha na linha dela o campo que ela altera. Simular e Executar a sincronização ficam desativados até que cada regra nomeie seu campo.",
-    "transformNeedsFieldRun": "Uma regra de transformação não nomeia nenhum campo: escolha o campo dela na etapa Transformações. Simular e Executar a sincronização ficam desativados até lá, pois uma regra assim alteraria cada campo de cada registro.",
-    "transformOpenStep": "Ir para Transformações",
+    "transformNeedsFieldRun": "Uma regra de transformação não nomeia nenhum campo: escolha o campo dela na etapa Campos. Simular e Executar a sincronização ficam desativados até lá, pois uma regra assim alteraria cada campo de cada registro.",
+    "transformOpenStep": "Ir para Campos",
     "transformRemove": "Remover {{rule}} em {{field}}",
     "transformRemoveNoField": "Remover {{rule}}, que não nomeia nenhum campo",
     "transformNone": "Nenhuma regra em {{object}}: seus campos são escritos como foram lidos.",
@@ -1880,9 +1883,19 @@
     "readCutAtMost": "A leitura da org de origem parou em {{cap}} registros, o máximo que uma execução mantém de um objeto: esta execução copiou uma parte dele. Para copiar o restante, leia-o em fatias com um filtro em CreatedDate, um intervalo por execução. Para copiar em vez disso uma amostra da origem que caiba no destino, use o Forge com a profundidade ALL e Registros por objeto em Uma amostra que caiba no destino.",
     "savedConfigs": {
       "title": "Configurações salvas",
-      "hint": "Execute uma agora, como foi salva: ela é verificada como uma execução da aba Sync, e o Production Guard a avalia antes de qualquer gravação. Uma que exclui abre na aba Sync, que diz o que cada um de seus objetos faz: Executar a sincronização a executa lá.",
-      "runNow": "Executar agora",
-      "runNamed": "Executar {{name}} agora",
+      "hint": "Abrir leva uma à etapa Simular e executar da aba Sync, com o que a execução do assistente tem ali: primeiro Simular, depois Executar a sincronização.",
+      "none": "Nenhuma configuração salva ainda: Salvar como configuração do Sync, na etapa Revisar da aba Sync, salva uma.",
+      "open": "Abrir",
+      "openNamed": "Abrir {{name}}",
+      "delete": "Excluir",
+      "deleteNamed": "Excluir {{name}}",
+      "deleteConfirm": "Excluir {{name}}? Não é possível desfazer.",
+      "deleteSchedules_one": "O agendamento que a executa falhará a partir da próxima execução: edite-o ou exclua-o também.",
+      "deleteSchedules_other": "Os {{count}} agendamentos que a executam falharão a partir da próxima execução: edite-os ou exclua-os também.",
+      "deleteDone": "{{name}} foi excluída.",
+      "deleteGone": "{{name}} não está mais salva: nada foi excluído.",
+      "sfdmuHint": "Um export.json do SFDMU aparece aqui depois que a Importação SFDMU o converte em uma configuração salva.",
+      "openSfdmu": "Abrir {{module}}",
       "ofSaved": "Configuração salva: {{name}}",
       "gone": "Esta configuração não está mais salva: nada foi executado.",
       "reading": "Lendo a configuração salva, para dizer o que cada um de seus objetos faz antes de executá-la…",
@@ -1949,7 +1962,7 @@
     "chooseObject": "Escolha um objeto…"
   },
   "migration": {
-    "title": "Migração",
+    "title": "Importação SFDMU",
     "subtitle": "Converta um export.json do SFDMU em uma configuração do Sync. A importação lê o arquivo sem alterar nada em nenhuma org; o Sync executa a configuração depois de salva e grava registros na org de destino.",
     "type": {
       "sfdmu": {
@@ -1963,6 +1976,7 @@
     "import": "Importar",
     "importing": "Importando…",
     "reset": "Nova importação",
+    "importedFrom": "Importado de {{path}}",
     "successTitle": "Importação concluída",
     "successDescription": "Configuração convertida",
     "unknownError": "A importação falhou por um motivo desconhecido.",
@@ -3948,7 +3962,7 @@
     "monitorContent": "O painel de Monitor mostra a saúde da org, lida ao abrir a página e a cada clique em Atualizar:\n- Indicador de pontuação de saúde com fatores contribuintes\n- Operações ao vivo, enquanto uma execução está em andamento: seu módulo, seu progresso e sua etapa atual\n- Limites de API com tendências de uso e previsões\n- Jobs Apex ativos e recentes\n- Escanear anomalias, em Limites de governor: examina até 500 registros do objeto escolhido em busca de valores incomuns\n- Alertas para limites críticos\n- Governança da org: políticas de regras de limite, verificadas na org quando você clica em Avaliar\n\nDica: Atualização automática, o botão do relógio, vem desativada por padrão; ative-a para ler a org de novo a cada 30 segundos enquanto o painel estiver visível.",
     "seedContent": "Abaixo dos modelos, outras quatro formas de popular uma org:\n- Gerar dados: um assistente para os objetos, a quantidade de registros e as regras de campos que você escolher (IA, Faker, estático, sequência...); um campo de pesquisa é preenchido com os registros que a mesma execução inseriu antes\n- Upload CSV: registros de um arquivo CSV, com suas colunas associadas aos campos\n- Clonar de Org: registros copiados de outra org\n- Dados de teste para um agente do Agentforce: escolha um pacote ou Redigir a partir do seu próprio texto, revise-o, Iniciar o seed do cenário e depois Escrever o arquivo de teste. Os pacotes não precisam de chave de IA; um rascunho usa a sua chave da Anthropic. Os artigos do Knowledge dele são publicados; o SandForge nunca executa os testes.",
     "checkpointContent": "Um ponto de verificação é o estado dos dados de uma org em um momento. Retroceder depois exclui o que foi adicionado desde então, devolve ao que mudou os seus valores e recupera o que foi excluído, não importa quem o fez. A prévia dele conta, objeto por objeto, os registros a Excluir, aos quais Devolver valores e a Recuperar. Um backup do DataOps é uma cópia de alguns objetos: a restauração dele nunca exclui o que foi adicionado.\n- O retrocesso desfaz o trabalho de todos desde o ponto de verificação, não só as execuções do SandForge: qualquer usuário, fluxo ou integração. A prévia diz quem alterou o quê por último antes que qualquer coisa seja gravada.\n- Nunca em uma org de produção: os pontos de verificação são para sandboxes, scratch orgs e orgs Developer Edition, e nenhum ajuste ou opção suspende essa recusa.\n- Só dados: campos, fluxos, regras de validação, layouts, permissões, usuários e configuração ficam como estão, e o que já saiu da org (e-mails, callouts, eventos de plataforma) continua enviado.\n- Os arquivos só são abrangidos em parte: retroceder exclui os arquivos anexados desde então aos registros dele e recupera os excluídos desde então, mas um arquivo que recebeu uma nova versão mantém o novo conteúdo.\n- Um ponto de verificação guarda em claro os valores dos registros, dados pessoais entre eles, nesta máquina, legíveis só por você, por 30 dias, a menos que você o guarde até excluí-lo.",
-    "syncContent": "O Sync copia objetos de uma org para outra, campo a campo; a aba Histórico lista cada execução, e a aba Agendamentos executa uma configuração salva conforme um agendamento.\n- Uma execução delta de uma configuração salva lê o que mudou desde a última execução bem-sucedida, e pode excluir no destino o que a origem excluiu.\n- Mapeamento automático associa os campos com o mesmo nome de API. Uma regra de transformação altera um único campo em cada registro gravado; uma regra sem campo é recusada antes que algo seja lido ou salvo. Os mapeamentos de valores vêm de uma configuração do SFDMU importada.\n- Neutralizar e-mails e números de telefone fica ativado, a menos que você desmarque; Copiar os arquivos destes registros traz os arquivos deles.\n- Aba Tempo real: grava cada alteração que a origem publica (Change Data Capture) assim que chega; um conflito é decidido pela estratégia ou retido na aba Conflitos.\n- Remover o que esta execução criou, nos resultados ou na entrada do histórico da execução, exclui o que ela inseriu e seus arquivos, devolve aos registros que ela sobrescreveu os valores de antes, guardados por sandforge.backup.maxAgeDays, e recupera o que uma execução delta excluiu. O Production Guard recusa isso em uma org de produção.\n- Uma sessão de Tempo real é removida do mesmo modo, em Sessões anteriores, depois que ela para.",
+    "syncContent": "O Sync copia objetos de uma org para outra, campo a campo; a aba Histórico lista cada execução, e a aba Salvas abre uma configuração salva ou a executa conforme um agendamento.\n- Uma execução delta de uma configuração salva lê o que mudou desde a última execução bem-sucedida, e pode excluir no destino o que a origem excluiu.\n- Mapeamento automático associa os campos com o mesmo nome de API. Uma regra de transformação altera um único campo em cada registro gravado; uma regra sem campo é recusada antes que algo seja lido ou salvo. Os mapeamentos de valores vêm de uma configuração do SFDMU importada.\n- Neutralizar e-mails e números de telefone fica ativado, a menos que você desmarque; Copiar os arquivos destes registros traz os arquivos deles.\n- Aba Tempo real: grava cada alteração que a origem publica (Change Data Capture) assim que chega; um conflito é decidido pela estratégia ou retido em Conflitos, na mesma aba.\n- Remover o que esta execução criou, nos resultados ou na entrada do histórico da execução, exclui o que ela inseriu e seus arquivos, devolve aos registros que ela sobrescreveu os valores de antes, guardados por sandforge.backup.maxAgeDays, e recupera o que uma execução delta excluiu. O Production Guard recusa isso em uma org de produção.\n- Uma sessão de Tempo real é removida do mesmo modo, em Sessões anteriores, depois que ela para.",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Presença de permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Objetos: os objetos das duas orgs, lidos ao vivo quando você abre a aba\n- Desvio das configurações da org: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantar a partir do diff: escolha o que difere, valide primeiro no destino e depois implante a validação em uma sandbox, uma scratch org ou uma org Developer Edition",
     "dataopsContent": "Operações de dados na org escolhida no topo da página:\n- Mascaramento mascara os campos diretamente na org com um modelo integrado como GDPR, CCPA ou HIPAA, ou um seu de Criar modelo; a menos que você desmarque Guardar os valores antes, faz backup do que mascara, para que Restaurar… possa devolvê-lo. Criar backup, ao lado do modelo, copia nesta máquina os objetos que ele mascara.\n- Backups lista cada backup da org, cada um com Restaurar…, Exportar e Excluir. Restaurar… pergunta antes, nomeando a org e cada objeto, e se deve gravar de volta cada linha; desmarcado, grava só as linhas que mudaram desde então. Um backup não é um ponto de verificação: antes de uma execução arriscada em uma sandbox, crie um ponto de verificação.\n- Dados pessoais encontra os campos com dados pessoais e depois os registros de uma pessoa por e-mail, nome ou telefone, para exportá-los, anonimizá-los ou excluí-los após uma revisão e uma confirmação digitada.\n- Limpeza conta registros inativos, pesquisas vazias, valores repetidos e com que frequência cada campo é preenchido, para exportá-los ou excluí-los após uma revisão e uma confirmação digitada, 1.000 por vez.\n- Esvaziamento exclui todos os registros dos objetos escolhidos, ou da org inteira, depois que Simular contou o que sai e você digitou o nome da org.",
     "automationContent": "Construtor visual de pipelines:\n- Em Etapas, a página oferece os tipos de etapas que um pipeline executa: Sync, Seed, Anonimização, Backup, Ponto de verificação, Retrocesso, Comparação, Pré-verificação, Condição, Atraso, Aprovação e Notificação. O Sync executa uma configuração salva na página Sync e, se grava em uma org sobre a qual o Production Guard pergunta, precisa de uma etapa Aprovação antes. Seed e Anonimização executam um modelo da própria página, nunca em uma org de produção, depois de uma etapa Aprovação em uma sandbox marcada como Staging, e nunca são tentadas de novo. Uma etapa Retrocesso devolve uma org a um ponto de verificação guardado nesta máquina, no máximo os registros definidos, depois que você a confirma abaixo da prévia com o alias da org, ou, se ela não tiver alias, o nome dela ou o ID da organização. Restauração e Exclusão gravam em uma org e só são executadas pela própria página: um pipeline que contenha uma dessas etapas, ou uma etapa Script, Loop ou Paralelo, é recusado antes de começar\n- Um pipeline começa pelo botão Executar pipeline, nos horários que uma expressão cron indica enquanto o VS Code está aberto, ou quando o SandForge detecta a atualização de uma sandbox escolhida\n- Histórico de execução: status, duração total e erros de cada execução, o que cada uma de suas etapas fez, e os inícios que um gatilho perdeu\n- Modelos de pipeline do Marketplace",
@@ -3977,7 +3991,7 @@
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Iniciar tour guiado",
     "autopilotContent": "Em três etapas:\n1. Escolha a org de origem e a de destino\n2. Selecione os objetos a copiar\n3. Revise o plano (ondas, registros, chamadas de API, campos PII) e execute-o. E-mails e números de telefone são neutralizados, a menos que você desmarque — cada endereço sob .invalid, cada número fictício — e Avançado escolhe um framework de conformidade que anonimiza mais (GDPR, CCPA, HIPAA ou PCI-DSS)",
-    "migrationContent": "A Migração converte um export.json do SFDMU em uma configuração do Sync:\n- A importação lê o arquivo e não altera nada em nenhuma org\n- Salva como configuração do Sync, com as orgs de origem e destino e um nome, ela abre com Abrir no Sync: Simular a verifica ali, e Executar a sincronização a grava\n- Um arquivo CSV de registros vai para o Upload CSV do Seed, que carrega as linhas dele",
+    "migrationContent": "A Importação SFDMU converte um export.json do SFDMU em uma configuração do Sync:\n- A importação lê o arquivo e não altera nada em nenhuma org\n- Salva como configuração do Sync, com as orgs de origem e destino e um nome, ela abre com Abrir no Sync: Simular a verifica ali, e Executar a sincronização a grava\n- Um arquivo CSV de registros vai para o Upload CSV do Seed, que carrega as linhas dele",
     "reportsContent": "Relatórios mostra o que as execuções do SandForge fizeram:\n- Execuções: cada execução do Forge e do Sync com status, duração e número de registros, exportável em JSON\n- Análises: taxas de sucesso calculadas a partir dessas execuções\n- Registro de auditoria: cada execução que grava em uma org — uma clonagem Forge, uma sincronização, um seed, uma importação CSV, uma clonagem de registros, uma execução do Autopilot, uma restauração, um mascaramento ou uma carga de dataset congelado — com o que gravou em cada objeto e o que o Production Guard decidiu\n- Linhagem de dados: de onde vieram os registros que uma execução gravou — outra org, dados gerados, um arquivo CSV, um backup ou um dataset congelado — e quantos de cada objeto",
     "orgsContent": "Conecte uma org de uma de duas formas, ambas pela Salesforce CLI (sf):\n- Importar da Salesforce CLI adiciona cada org que a CLI já tem. Uma CLI que ainda não tem nenhuma org é indicada como informação, não como erro: entre pelo navegador em vez disso.\n- Entrar pelo navegador abre a página de login do Salesforce; o alias é opcional.\n- URL de login: Produção / Desenvolvedor ou Sandbox; para uma org que bloqueia as duas, Domínio personalizado (My Domain)… recebe a URL de login dela como Configuração → Meu domínio a mostra.\n- Usuário / Senha não precisa da CLI; JWT Bearer e OAuth (dispositivo) ficam em Mais métodos.\n\nO Forge, as cargas do Dataset congelado, os Pontos de verificação e a implantação da Comparação recusam uma org de produção; as exclusões também são recusadas ali; qualquer outra gravação ali pergunta antes, e nenhuma configuração desativa isso. Uma sandbox com dados reais (cópia completa, UAT): abra a caixa Editar Org dela na página Organizações e marque Staging, e o Production Guard passa a perguntar antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros.\n\nUma org que não conecta: veja Solução de problemas.",
     "fullGuide": "Guia completo: {{section}}",
@@ -4030,11 +4044,11 @@
       "tip": "Crie um ponto de verificação Antes da atualização antes de cada atualização: a próxima volta ao serviço o reproduz."
     },
     "sync": {
-      "step1": "Na aba Sync, clique em Iniciar Sync rápido.",
-      "step2": "Escolha a Org de origem e a Org de destino e clique em Próximo.",
-      "step3": "Escolha objetos em Objetos sugeridos ou pela busca e clique em Próximo.",
-      "step4": "Confira as orgs e Total de registros na Pré-visualização e clique em Sincronizar em, que nomeia a org de destino.",
-      "tip": "Um Sync rápido insere todos os registros a cada execução; fora de produção, os resultados oferecem Remover o que esta execução criou."
+      "step1": "Na aba Sync, escolha a Origem e o Destino e adicione os objetos, cada um com sua operação.",
+      "step2": "Ajuste as Opções se preciso e, em Campos, mapeie ou transforme um campo só onde as orgs diferem.",
+      "step3": "Em Revisar, veja o que cada objeto faz; Salvar como configuração do Sync a guarda em Salvas.",
+      "step4": "Em Simular e executar, Simular diz o que seria gravado e Executar a sincronização grava.",
+      "tip": "Iniciar Sync rápido copia objetos inteiros em três telas, inserindo cada registro; a Estimativa os conta antes."
     },
     "autopilot": {
       "step1": "Escolha uma org em Org de origem e outra em Org de destino e clique em Próximo.",
@@ -7402,7 +7416,7 @@
     "suggestedObjects": "Objetos sugeridos",
     "notInSource": "{{object}} não está entre os objetos que a org de origem deixa o SandForge ler e criar.",
     "addParent": "Adicionar o pai {{parent}} para {{child}}?",
-    "preview": "Pré-visualização",
+    "preview": "Estimativa",
     "totalRecords": "Total de registros",
     "totalApiCalls": "Chamadas de API estimadas",
     "estimatedDuration": "Duração estimada",

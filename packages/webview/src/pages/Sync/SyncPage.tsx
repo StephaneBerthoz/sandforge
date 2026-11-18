@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
+import type { SyncConflictStrategy, MappingType } from '@sandforge/shared';
 import {
   FILE_COPY_CEILING_MB,
   SYNC_FILES_MAX_RUN_MB,
@@ -9,6 +9,7 @@ import {
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import type { NavigationIntent } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -27,13 +28,10 @@ import { FieldMappingCanvas } from './FieldMappingCanvas';
 import { TransformBuilder } from './TransformBuilder';
 import { ObjectSetEditor } from './ObjectSetEditor';
 import { SyncTemplatePicker } from './SyncTemplatePicker';
-import { SankeyFlow } from './SankeyFlow';
-import type { SankeyNode, SankeyLink } from './SankeyFlow';
 import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import type { BadgeVariant } from '../../components/ui/Badge';
-import { useSyncPageData, OFFERED_CONFLICT_STRATEGIES } from './useSyncPageData';
-import type { ObjectSetEntry } from './ObjectSetEditor';
+import { useSyncPageData, OFFERED_CONFLICT_STRATEGIES, SYNC_STEP } from './useSyncPageData';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
@@ -47,8 +45,8 @@ import {
 import { PartBoundary } from '../../components/ui/PartBoundary';
 import { useConflictStore } from '../../stores/useConflictStore';
 // Listens to the extension from the moment it loads: the real-time changes and
-// the conflicts they raise land in their stores while the Real-Time and
-// Conflicts tabs, which load on demand, are closed.
+// the conflicts they raise land in their stores while the Real-Time tab, which
+// loads on demand, is closed.
 import '../../stores/useCDCLiveStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
@@ -76,22 +74,28 @@ import { CheckpointFirstOption } from '../../components/ui/CheckpointFirstOption
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 
-/** Tab options for the Sync page. */
-type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
+/** Tab options for the Sync page. `schedules` is the Saved tab, by the id it always had. */
+type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime';
 
 /**
  * The tabs the page offers. Real-Time streams the source org's change events
- * for the objects it publishes, and Conflicts lists the changes it held for a
- * decision: nothing else pushes to that list, since a Sync run resolves its
- * collisions by its strategy alone.
+ * for the objects it publishes, and lists under Conflicts the changes it held
+ * for a decision: nothing else pushes to that list, since a Sync run resolves
+ * its collisions by its strategy alone. Conflicts was a tab of its own, which
+ * only Real-Time fed.
  */
-const OFFERED_SYNC_TABS: readonly SyncTab[] = [
-  'sync',
-  'history',
-  'schedules',
-  'realtime',
-  'conflicts',
-];
+const OFFERED_SYNC_TABS: readonly SyncTab[] = ['sync', 'history', 'schedules', 'realtime'];
+
+/**
+ * The tab another page opens Sync on: Back into service asks for Saved, where
+ * "Run full next time" reads everything again after a refresh. Conflicts is a
+ * section of Real-Time now, which a page that asks for it lands on.
+ */
+function openingTab(intent: NavigationIntent | null): SyncTab {
+  if (intent?.route !== 'sync' || intent.syncConfig || intent.syncTab === undefined) return 'sync';
+  const asked = intent.syncTab === 'conflicts' ? 'realtime' : intent.syncTab;
+  return OFFERED_SYNC_TABS.includes(asked) ? asked : 'sync';
+}
 
 /**
  * The rest of a toggle's hint, one click away: the sentence under the toggle
@@ -114,10 +118,11 @@ const ToggleDetails: React.FC<{ testId: string; children: React.ReactNode }> = (
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
-  // Both pass with nothing set: two orgs of the same schema need neither.
-  { id: 'field-mapping', labelKey: 'sync.fieldMapping', optional: true },
-  { id: 'transforms', labelKey: 'sync.transforms', optional: true },
+  // Passes with nothing set: two orgs of the same schema need no mapping and
+  // no rule. Field Mapping and Transforms were two steps over the same object.
+  { id: 'fields', labelKey: 'sync.fields', optional: true },
   { id: 'review', labelKey: 'sync.review' },
+  // Named for its two buttons: Simulate, then Run the sync.
   { id: 'execute', labelKey: 'sync.execute' },
   { id: 'results', labelKey: 'sync.results' },
 ];
@@ -127,60 +132,6 @@ const statusVariant: Record<string, BadgeVariant> = {
   partial: 'warning',
   failure: 'error',
 };
-
-/** Build Sankey nodes from configured objects and field mappings. */
-function buildSankeyNodes(entries: ObjectSetEntry[], fieldMappings: FieldMapping[]): SankeyNode[] {
-  if (entries.length === 0 && fieldMappings.length === 0) return [];
-
-  const sourceNames = new Set<string>();
-  const targetNames = new Set<string>();
-
-  for (const entry of entries) {
-    sourceNames.add(entry.objectApiName);
-    targetNames.add(entry.objectApiName);
-  }
-
-  for (const m of fieldMappings) {
-    sourceNames.add(m.sourceField);
-    targetNames.add(m.targetField);
-  }
-
-  const nodes: SankeyNode[] = [];
-  for (const name of sourceNames) {
-    nodes.push({ id: `src-${name}`, label: name, group: 'source' });
-  }
-  for (const name of targetNames) {
-    nodes.push({ id: `tgt-${name}`, label: name, group: 'target' });
-  }
-  return nodes;
-}
-
-/** Build Sankey links from configured objects and field mappings. */
-function buildSankeyLinks(entries: ObjectSetEntry[], fieldMappings: FieldMapping[]): SankeyLink[] {
-  if (entries.length === 0 && fieldMappings.length === 0) return [];
-
-  const links: SankeyLink[] = [];
-
-  // One link per object being synced
-  for (const entry of entries) {
-    links.push({
-      sourceId: `src-${entry.objectApiName}`,
-      targetId: `tgt-${entry.objectApiName}`,
-      value: entry.batchSize || 200,
-    });
-  }
-
-  // One link per field mapping (thinner)
-  for (const m of fieldMappings) {
-    links.push({
-      sourceId: `src-${m.sourceField}`,
-      targetId: `tgt-${m.targetField}`,
-      value: 50,
-    });
-  }
-
-  return links;
-}
 
 /** Badge showing unresolved conflict count, hidden when zero. */
 const ConflictCountBadge: React.FC = () => {
@@ -193,43 +144,61 @@ const ConflictCountBadge: React.FC = () => {
   );
 };
 
-/** Conflicts tab content — master/detail SplitView layout. */
-const ConflictsTabContent: React.FC = () => {
+/**
+ * The changes real-time replication held for a decision, under the panel that
+ * holds them: list and decision side by side. They had a tab of their own,
+ * whose name read as the conflicts of every Sync run, while a run settles
+ * what it finds by its strategy and holds nothing.
+ */
+const ConflictsSection: React.FC = () => {
   const { t } = useTranslation();
+  const headingId = React.useId();
   const selectedConflictId = useConflictStore((s) => s.selectedConflictId);
   const conflicts = useConflictStore((s) => s.conflicts);
   const selectedConflict = conflicts.find((c) => c.id === selectedConflictId);
 
   return (
-    <SplitView
-      ratio="60/40"
-      left={
-        <PartBoundary data-testid="sync-conflicts-failed">
-          <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
-            <ConflictListPanel />
-          </Suspense>
-        </PartBoundary>
-      }
-      right={
-        selectedConflict ? (
-          // Keyed on the conflict id so selecting another conflict remounts the
-          // panel instead of swapping the prop underneath its local state: the
-          // per-field choices of one record can never stay armed on the next.
-          <PartBoundary data-testid="sync-conflict-failed">
-            <Suspense fallback={null}>
-              <ConflictResolutionPanel key={selectedConflict.id} conflict={selectedConflict} />
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-(--sf-space-2)"
+      data-testid="sync-conflicts-section"
+    >
+      {/* The count is on the tab, which a change held while another tab is
+          open has to reach. */}
+      <h3 id={headingId} className="text-sm font-semibold text-text-primary">
+        {t('sync.realtime.conflictsTitle')}
+      </h3>
+      <p className="text-xs text-text-secondary">{t('sync.realtime.conflictsHint')}</p>
+      <SplitView
+        ratio="60/40"
+        left={
+          <PartBoundary data-testid="sync-conflicts-failed">
+            <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
+              <ConflictListPanel />
             </Suspense>
           </PartBoundary>
-        ) : (
-          <div
-            className="flex items-center justify-center h-full text-xs text-text-secondary"
-            data-testid="conflict-placeholder"
-          >
-            {t('sync.conflictResolution.selectConflict')}
-          </div>
-        )
-      }
-    />
+        }
+        right={
+          selectedConflict ? (
+            // Keyed on the conflict id so selecting another conflict remounts the
+            // panel instead of swapping the prop underneath its local state: the
+            // per-field choices of one record can never stay armed on the next.
+            <PartBoundary data-testid="sync-conflict-failed">
+              <Suspense fallback={null}>
+                <ConflictResolutionPanel key={selectedConflict.id} conflict={selectedConflict} />
+              </Suspense>
+            </PartBoundary>
+          ) : (
+            <div
+              className="flex items-center justify-center h-full text-xs text-text-secondary"
+              data-testid="conflict-placeholder"
+            >
+              {t('sync.conflictResolution.selectConflict')}
+            </div>
+          )
+        }
+      />
+    </section>
   );
 };
 
@@ -255,7 +224,11 @@ export const SyncPage: React.FC = () => {
   /** The name typed for the configuration a save stores; null while the one proposed stands. */
   const [configNameDraft, setConfigNameDraft] = React.useState<string | null>(null);
   const configNameId = React.useId();
-  const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
+  // Read before the page data clears it.
+  const [activeTab, setActiveTab] = React.useState<SyncTab>(() =>
+    openingTab(useAppStore.getState().navigationIntent),
+  );
+  const optionsHeadingId = React.useId();
   const deltaHintId = React.useId();
   const deletesHintId = React.useId();
   const filesHintId = React.useId();
@@ -331,7 +304,8 @@ export const SyncPage: React.FC = () => {
     handleExecute,
     handleSimulate,
     handleSaveConfig,
-    handleRunSavedConfig,
+    handleOpenSavedConfig,
+    handleNewSync,
     savedRunLabel,
     openedConfigLabel,
     openedConfigEntries,
@@ -441,7 +415,7 @@ export const SyncPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="sync-page">
-      <PageHeader title={t('sync.title')} subtitle={t('sync.selectOrgsDesc')} icon="sync" />
+      <PageHeader title={t('sync.title')} subtitle={t('sync.subtitle')} icon="sync" />
       {(headerSource || headerTarget) && <OrgRibbon source={headerSource} target={headerTarget} />}
       <ModuleHowTo module="sync" />
 
@@ -481,7 +455,7 @@ export const SyncPage: React.FC = () => {
             data-testid={`tab-${tab}`}
           >
             {t(`sync.tabs.${tab}`)}
-            {tab === 'conflicts' && <ConflictCountBadge />}
+            {tab === 'realtime' && <ConflictCountBadge />}
           </button>
         ))}
       </div>
@@ -504,40 +478,41 @@ export const SyncPage: React.FC = () => {
           </PartBoundary>
         )}
 
-        {/* Schedules tab: the schedules, and the saved configurations, each of
-          which runs from the execute step of the Sync tab, as the wizard's
-          own run does. */}
+        {/* Saved tab: the saved configurations, each of which opens on the
+          execute step of the Sync tab, as the wizard's own run does, then
+          the schedules. */}
         {activeTab === 'schedules' && (
           <PartBoundary data-testid="sync-schedules-failed">
             <Suspense fallback={<SkeletonTable rows={3} columns={5} />}>
               <SyncSchedulePanel
-                onRunConfig={(configId, label) => {
+                onOpenConfig={(configId, label) => {
                   setQuickSyncActive(false);
                   setActiveTab('sync');
-                  handleRunSavedConfig(configId, label);
+                  handleOpenSavedConfig(configId, label);
                 }}
+                onImportSfdmu={() => navigate('migration')}
                 runDisabled={busy}
               />
             </Suspense>
           </PartBoundary>
         )}
 
-        {/* Conflicts tab */}
-        {activeTab === 'conflicts' && <ConflictsTabContent />}
-
-        {/* Real-time tab */}
+        {/* Real-time tab, and the changes it held for a decision */}
         {activeTab === 'realtime' && (
-          <PartBoundary data-testid="sync-realtime-failed">
-            <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
-              <RealTimeSyncPanel sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} />
-            </Suspense>
-          </PartBoundary>
+          <>
+            <PartBoundary data-testid="sync-realtime-failed">
+              <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
+                <RealTimeSyncPanel sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} />
+              </Suspense>
+            </PartBoundary>
+            <ConflictsSection />
+          </>
         )}
 
         {/* Sync tab (default). One way into Quick Sync, on the first step
           alone: two cards there started it under two names, and one of them
           stayed above every later step, Review and Results included. */}
-        {activeTab === 'sync' && !quickSyncActive && currentStep === 0 && (
+        {activeTab === 'sync' && !quickSyncActive && currentStep === SYNC_STEP.select && (
           <QuickSyncCard onStart={() => setQuickSyncActive(true)} />
         )}
 
@@ -571,7 +546,7 @@ export const SyncPage: React.FC = () => {
             canRevisitSteps={!busy}
           >
             {/* Step 0: Select orgs + Configure objects (merged) */}
-            {currentStep === 0 && (
+            {currentStep === SYNC_STEP.select && (
               <div className="flex flex-col gap-4" data-testid="sync-step-orgs">
                 <p className="text-xs text-text-secondary">{t('sync.selectOrgsDesc')}</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -600,144 +575,6 @@ export const SyncPage: React.FC = () => {
                     {t('sync.sameOrgWarning')}
                   </p>
                 )}
-                {/* Full or delta. The Mode dropdown offered "incremental",
-                  "delta" and "cdc" while every run was a full sync; a delta
-                  run now reads each object from its last good run, so it is
-                  offered alone, with what it needs said beside it. */}
-                <div
-                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
-                  data-testid="sync-delta-settings"
-                >
-                  <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={mode === 'delta'}
-                      onChange={(e) => setMode(e.target.checked ? 'delta' : 'full')}
-                      aria-describedby={deltaHintId}
-                      data-testid="sync-delta-toggle"
-                    />
-                    {t('sync.delta.toggle')}
-                  </label>
-                  <p id={deltaHintId} className="text-xs text-text-secondary">
-                    {t('sync.delta.toggleHint')}
-                  </p>
-                  <ToggleDetails testId="sync-delta-details">
-                    {t('sync.delta.toggleDetails')}
-                  </ToggleDetails>
-                  {/* Dimmed by colour, not opacity: a faded label falls below
-                    AA on the light themes. */}
-                  <label
-                    className={`flex items-start gap-2 text-xs ${
-                      mode === 'delta' ? 'text-text-primary cursor-pointer' : 'text-text-secondary'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={propagateDeletes}
-                      disabled={mode !== 'delta'}
-                      onChange={(e) => setPropagateDeletes(e.target.checked)}
-                      aria-describedby={deletesHintId}
-                      data-testid="sync-delta-deletes"
-                    />
-                    {t('sync.delta.deletes')}
-                  </label>
-                  <p id={deletesHintId} className="text-xs text-text-secondary">
-                    {t('sync.delta.deletesHint')}
-                  </p>
-                  <ToggleDetails testId="sync-delta-deletes-details">
-                    {t('sync.delta.deletesDetails')}
-                  </ToggleDetails>
-                  {deltaBlockers.length > 0 && (
-                    <p
-                      className="text-xs text-status-warning"
-                      role="alert"
-                      data-testid="sync-delta-blockers"
-                    >
-                      {t('sync.delta.needsKey', { objects: deltaBlockers.join(', ') })}
-                    </p>
-                  )}
-                </div>
-
-                {/* Emails and phone numbers: neutralized unless unticked, as a
-                  Forge run's are. Copied as read into a sandbox whose flows
-                  email and text the contacts they are written for, the copies
-                  were real people. */}
-                <div
-                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
-                  data-testid="sync-contact-points-settings"
-                >
-                  <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!keepContactPoints}
-                      onChange={(e) => setKeepContactPoints(!e.target.checked)}
-                      aria-describedby={contactPointsHintId}
-                      data-testid="sync-contact-points-toggle"
-                    />
-                    {t('sync.contactPoints.toggle')}
-                  </label>
-                  <p id={contactPointsHintId} className="text-xs text-text-secondary">
-                    {t('sync.contactPoints.toggleHint')}
-                  </p>
-                  <ToggleDetails testId="sync-contact-points-details">
-                    {t('sync.contactPoints.toggleDetails')}
-                  </ToggleDetails>
-                </div>
-
-                {/* The files of the records it writes: off unless ticked, with the
-                  two caps a run keeps to. */}
-                <div
-                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
-                  data-testid="sync-files-settings"
-                >
-                  <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={copyFiles}
-                      onChange={(e) => setCopyFiles(e.target.checked)}
-                      aria-describedby={filesHintId}
-                      data-testid="sync-files-toggle"
-                    />
-                    {t('sync.files.toggle')}
-                  </label>
-                  <p id={filesHintId} className="text-xs text-text-secondary">
-                    {t('sync.files.toggleHint')}
-                  </p>
-                  <ToggleDetails testId="sync-files-details">
-                    {t('sync.files.toggleDetails')}
-                  </ToggleDetails>
-                  {copyFiles && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
-                      <label className="flex flex-col gap-1 text-xs text-text-primary">
-                        {t('sync.files.maxFileSize')}
-                        <input
-                          type="number"
-                          min={1}
-                          max={FILE_COPY_CEILING_MB}
-                          step={1}
-                          value={fileCaps.maxFileSizeMB}
-                          onChange={(e) => setFileCap('maxFileSizeMB', Number(e.target.value))}
-                          className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
-                          data-testid="sync-files-max-file"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-xs text-text-primary">
-                        {t('sync.files.maxRun')}
-                        <input
-                          type="number"
-                          min={1}
-                          max={SYNC_FILES_MAX_RUN_MB}
-                          step={1}
-                          value={fileCaps.maxRunMB}
-                          onChange={(e) => setFileCap('maxRunMB', Number(e.target.value))}
-                          className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
-                          data-testid="sync-files-max-run"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-
                 {/* Template picker — only show when both orgs are selected */}
                 {sourceOrgId && targetOrgId && (
                   <details className="mt-2" data-testid="sync-template-section">
@@ -817,23 +654,168 @@ export const SyncPage: React.FC = () => {
                     )}
                   </div>
                 )}
+
+                {/* The run's options, once the objects are picked: three boxes
+                  came before the objects, and the Marketplace capture had to
+                  grow to show the objects at all. */}
+                <section
+                  aria-labelledby={optionsHeadingId}
+                  className="flex flex-col gap-(--sf-space-2)"
+                  data-testid="sync-options"
+                >
+                  <h3 id={optionsHeadingId} className="text-xs font-semibold text-text-primary">
+                    {t('sync.optionsTitle')}
+                  </h3>
+                  {/* Full or delta. The Mode dropdown offered "incremental",
+                    "delta" and "cdc" while every run was a full sync; a delta
+                    run now reads each object from its last good run, so it is
+                    offered alone, with what it needs said beside it. */}
+                  <div
+                    className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                    data-testid="sync-delta-settings"
+                  >
+                    <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mode === 'delta'}
+                        onChange={(e) => setMode(e.target.checked ? 'delta' : 'full')}
+                        aria-describedby={deltaHintId}
+                        data-testid="sync-delta-toggle"
+                      />
+                      {t('sync.delta.toggle')}
+                    </label>
+                    <p id={deltaHintId} className="text-xs text-text-secondary">
+                      {t('sync.delta.toggleHint')}
+                    </p>
+                    <ToggleDetails testId="sync-delta-details">
+                      {t('sync.delta.toggleDetails')}
+                    </ToggleDetails>
+                    {/* Dimmed by colour, not opacity: a faded label falls below
+                      AA on the light themes. */}
+                    <label
+                      className={`flex items-start gap-2 text-xs ${
+                        mode === 'delta'
+                          ? 'text-text-primary cursor-pointer'
+                          : 'text-text-secondary'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={propagateDeletes}
+                        disabled={mode !== 'delta'}
+                        onChange={(e) => setPropagateDeletes(e.target.checked)}
+                        aria-describedby={deletesHintId}
+                        data-testid="sync-delta-deletes"
+                      />
+                      {t('sync.delta.deletes')}
+                    </label>
+                    <p id={deletesHintId} className="text-xs text-text-secondary">
+                      {t('sync.delta.deletesHint')}
+                    </p>
+                    <ToggleDetails testId="sync-delta-deletes-details">
+                      {t('sync.delta.deletesDetails')}
+                    </ToggleDetails>
+                    {deltaBlockers.length > 0 && (
+                      <p
+                        className="text-xs text-status-warning"
+                        role="alert"
+                        data-testid="sync-delta-blockers"
+                      >
+                        {t('sync.delta.needsKey', { objects: deltaBlockers.join(', ') })}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Emails and phone numbers: neutralized unless unticked, as a
+                    Forge run's are. Copied as read into a sandbox whose flows
+                    email and text the contacts they are written for, the copies
+                    were real people. */}
+                  <div
+                    className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                    data-testid="sync-contact-points-settings"
+                  >
+                    <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!keepContactPoints}
+                        onChange={(e) => setKeepContactPoints(!e.target.checked)}
+                        aria-describedby={contactPointsHintId}
+                        data-testid="sync-contact-points-toggle"
+                      />
+                      {t('sync.contactPoints.toggle')}
+                    </label>
+                    <p id={contactPointsHintId} className="text-xs text-text-secondary">
+                      {t('sync.contactPoints.toggleHint')}
+                    </p>
+                    <ToggleDetails testId="sync-contact-points-details">
+                      {t('sync.contactPoints.toggleDetails')}
+                    </ToggleDetails>
+                  </div>
+
+                  {/* The files of the records it writes: off unless ticked, with the
+                    two caps a run keeps to. */}
+                  <div
+                    className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                    data-testid="sync-files-settings"
+                  >
+                    <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={copyFiles}
+                        onChange={(e) => setCopyFiles(e.target.checked)}
+                        aria-describedby={filesHintId}
+                        data-testid="sync-files-toggle"
+                      />
+                      {t('sync.files.toggle')}
+                    </label>
+                    <p id={filesHintId} className="text-xs text-text-secondary">
+                      {t('sync.files.toggleHint')}
+                    </p>
+                    <ToggleDetails testId="sync-files-details">
+                      {t('sync.files.toggleDetails')}
+                    </ToggleDetails>
+                    {copyFiles && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
+                        <label className="flex flex-col gap-1 text-xs text-text-primary">
+                          {t('sync.files.maxFileSize')}
+                          <input
+                            type="number"
+                            min={1}
+                            max={FILE_COPY_CEILING_MB}
+                            step={1}
+                            value={fileCaps.maxFileSizeMB}
+                            onChange={(e) => setFileCap('maxFileSizeMB', Number(e.target.value))}
+                            className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
+                            data-testid="sync-files-max-file"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs text-text-primary">
+                          {t('sync.files.maxRun')}
+                          <input
+                            type="number"
+                            min={1}
+                            max={SYNC_FILES_MAX_RUN_MB}
+                            step={1}
+                            value={fileCaps.maxRunMB}
+                            onChange={(e) => setFileCap('maxRunMB', Number(e.target.value))}
+                            className="px-2 py-1 rounded-sm text-xs bg-(--sf-bg-input) text-(--sf-text-input) border border-(--sf-border-input)"
+                            data-testid="sync-files-max-run"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </section>
               </div>
             )}
 
-            {/* Step 1: Field mapping */}
-            {currentStep === 1 && fieldsLoading && (
-              <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-fields-skeleton">
-                <Skeleton variant="text" width="25%" height="1em" />
-                <div className="grid grid-cols-2 gap-(--sf-space-4)">
-                  <Skeleton variant="rect" height="200px" />
-                  <Skeleton variant="rect" height="200px" />
-                </div>
-              </div>
-            )}
-            {currentStep === 1 && !fieldsLoading && (
-              <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
+            {/* Step 1: Fields — the mappings and the rules of one object, on
+              the fields one describe of it gives both. They were two steps,
+              each with its own picker of the same object. */}
+            {currentStep === SYNC_STEP.fields && (
+              <div className="flex flex-col gap-4" data-testid="sync-fields">
                 {/*
-                Which object is being mapped. The step describes one object at a
+                Which object is shown. The step describes one object at a
                 time, and every object of the run used to be sent the mappings
                 drawn for whichever one happened to be first — so only one
                 object could be mapped at all, and the rest were written through
@@ -865,51 +847,60 @@ export const SyncPage: React.FC = () => {
                     </p>
                   </div>
                 )}
-                {/* One editor for the mappings: two edited the same list, one
-                  of them drawing lines and the other a table. */}
-                <FieldMappingCanvas
-                  sourceFields={sourceFields}
-                  targetFields={targetFields}
-                  mappings={mappings}
-                  onAddMapping={handleAddMapping}
-                  onRemoveMapping={handleRemoveMapping}
-                  onChangeMappingType={handleMappingTypeChange}
-                  onAutoMap={() => {
-                    const auto = sourceFields
-                      .filter((sf) => targetFields.some((tf) => tf.apiName === sf.apiName))
-                      .map((sf) => ({
-                        sourceField: sf.apiName,
-                        targetField: sf.apiName,
-                        type: 'direct' as MappingType,
-                      }));
-                    setMappings(auto);
-                  }}
+                {fieldsLoading ? (
+                  <div
+                    className="flex flex-col gap-(--sf-space-3)"
+                    data-testid="sync-fields-skeleton"
+                  >
+                    <Skeleton variant="text" width="25%" height="1em" />
+                    <div className="grid grid-cols-2 gap-(--sf-space-4)">
+                      <Skeleton variant="rect" height="200px" />
+                      <Skeleton variant="rect" height="200px" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
+                    {/* One editor for the mappings: two edited the same list, one
+                      of them drawing lines and the other a table. */}
+                    <FieldMappingCanvas
+                      sourceFields={sourceFields}
+                      targetFields={targetFields}
+                      mappings={mappings}
+                      onAddMapping={handleAddMapping}
+                      onRemoveMapping={handleRemoveMapping}
+                      onChangeMappingType={handleMappingTypeChange}
+                      onAutoMap={() => {
+                        const auto = sourceFields
+                          .filter((sf) => targetFields.some((tf) => tf.apiName === sf.apiName))
+                          .map((sf) => ({
+                            sourceField: sf.apiName,
+                            targetField: sf.apiName,
+                            type: 'direct' as MappingType,
+                          }));
+                        setMappings(auto);
+                      }}
+                    />
+                  </div>
+                )}
+                <TransformBuilder
+                  rules={transforms}
+                  objectApiName={mappedObject}
+                  fields={targetFields}
+                  fieldsLoading={fieldsLoading}
+                  matchField={
+                    objectEntries.find((entry) => entry.objectApiName === mappedObject)
+                      ?.externalIdField
+                  }
+                  onAddRule={handleAddTransform}
+                  onPickField={handlePickTransformField}
+                  onRemoveRule={handleRemoveTransform}
+                  onChangeConfig={handleChangeTransformConfig}
                 />
               </div>
             )}
 
-            {/* Step 2: Transforms */}
-            {currentStep === 2 && (
-              <TransformBuilder
-                rules={transforms}
-                objects={objectEntries.map((entry) => entry.objectApiName)}
-                objectApiName={mappedObject}
-                onObjectChange={setMappedObject}
-                fields={targetFields}
-                fieldsLoading={fieldsLoading}
-                matchField={
-                  objectEntries.find((entry) => entry.objectApiName === mappedObject)
-                    ?.externalIdField
-                }
-                onAddRule={handleAddTransform}
-                onPickField={handlePickTransformField}
-                onRemoveRule={handleRemoveTransform}
-                onChangeConfig={handleChangeTransformConfig}
-              />
-            )}
-
-            {/* Step 3: Review */}
-            {currentStep === 3 && (
+            {/* Step 2: Review */}
+            {currentStep === SYNC_STEP.review && (
               <div className="flex flex-col gap-3" data-testid="sync-step-review">
                 <p className="text-xs text-text-secondary">{t('sync.reviewDesc')}</p>
 
@@ -969,10 +960,6 @@ export const SyncPage: React.FC = () => {
                   encrypted={writeOrderEncrypted}
                   {...(writeOrderReadCap !== undefined ? { readCap: writeOrderReadCap } : {})}
                 />
-                <SankeyFlow
-                  nodes={buildSankeyNodes(objectEntries, mappings)}
-                  links={buildSankeyLinks(objectEntries, mappings)}
-                />
 
                 {/* A schedule runs a saved configuration by id, so this is where
                   one is created: the review step holds the configuration the
@@ -1011,8 +998,8 @@ export const SyncPage: React.FC = () => {
               </div>
             )}
 
-            {/* Step 4: Execute — a simulation first, if wanted, then the run. */}
-            {currentStep === 4 && (
+            {/* Step 3: Execute — a simulation first, if wanted, then the run. */}
+            {currentStep === SYNC_STEP.execute && (
               <div className="flex flex-col gap-3" data-testid="sync-step-execute">
                 <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
                 {/* Stopped on this step: what became of the checkpoint it took
@@ -1028,8 +1015,8 @@ export const SyncPage: React.FC = () => {
                 )}
                 {/* While it runs: back on this step afterwards, Run is the
                   wizard's, unless another page opened a saved configuration
-                  here (Migration's "Open in Sync"): Simulate and Run below
-                  are then that configuration's, and it is named. */}
+                  here (Saved's Open, SFDMU Import's "Open in Sync"): Simulate
+                  and Run below are then that configuration's, and it is named. */}
                 {((busy && savedRunLabel !== null) || openedConfigLabel !== null) && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
                     {t('syncParts.savedConfigs.ofSaved', {
@@ -1109,7 +1096,7 @@ export const SyncPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => setCurrentStep(2)}
+                      onClick={() => setCurrentStep(SYNC_STEP.fields)}
                       aria-describedby={transformsNeedFieldId}
                       className="shrink-0"
                       data-testid="sync-transforms-pick-field"
@@ -1214,8 +1201,8 @@ export const SyncPage: React.FC = () => {
               </div>
             )}
 
-            {/* Step 5: Results */}
-            {currentStep === 5 && (
+            {/* Step 4: Results */}
+            {currentStep === SYNC_STEP.results && (
               <div className="flex flex-col gap-3" data-testid="sync-step-results">
                 {savedRunLabel !== null && (result || simulation) && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
@@ -1382,6 +1369,36 @@ export const SyncPage: React.FC = () => {
                       </Card>
                     ))}
                   </>
+                )}
+                {/* What comes next. The wizard's buttons are gone on this
+                  step, and nothing else was offered: no other sync, and no
+                  way to the run's history entry, which Quick Sync has. A
+                  simulation is written nowhere, History included. */}
+                {(result || simulation) && (
+                  <div className="flex flex-wrap justify-end gap-(--sf-space-2) pt-2">
+                    {result && !busy && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          useSyncHistoryStore.getState().openRun(result.operationId);
+                          setActiveTab('history');
+                        }}
+                        data-testid="sync-see-in-history"
+                      >
+                        {t('sync.seeInHistory')}
+                      </Button>
+                    )}
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleNewSync}
+                      disabled={busy}
+                      data-testid="sync-new-sync"
+                    >
+                      {t('sync.newSync')}
+                    </Button>
+                  </div>
                 )}
               </div>
             )}

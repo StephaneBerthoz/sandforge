@@ -41,7 +41,6 @@
     "typeToConfirm": "Geben Sie <code>{{text}}</code> ein, um zu bestätigen:",
     "time": "Zeit",
     "recordIds": "Datensatz-IDs",
-    "statusAbbrev": "St",
     "recordCountFormatted_one": "{{formatted}} Datensatz",
     "recordCountFormatted_other": "{{formatted}} Datensätze",
     "fieldCount_one": "{{count}} Feld",
@@ -194,7 +193,7 @@
     "frozen": "Eingefrorenes Dataset",
     "grappe": "Grappe",
     "autopilot": "Autopilot",
-    "migration": "Migration",
+    "migration": "SFDMU-Import",
     "help": "Hilfe",
     "checkpoint": "Prüfpunkte",
     "recovery": "Wieder in Betrieb"
@@ -1366,11 +1365,13 @@
   "sync": {
     "standardPricebookMatched": "Standardpreisbuch: dem der Ziel-Org zugeordnet, nie geschrieben.",
     "title": "Daten synchronisieren",
+    "subtitle": "Datensätze von einer Org in eine andere kopieren",
     "selectOrgs": "Orgs auswählen",
     "selectOrgsDesc": "Quell- und Ziel-Org wählen",
     "sameOrgWarning": "Quelle und Ziel sind dieselbe Org: Wählen Sie eine andere Org als Ziel, um fortzufahren.",
     "configureObjects": "Objekte konfigurieren",
     "fieldMapping": "Feld-Zuordnung",
+    "fields": "Felder",
     "transforms": "Transformationen",
     "review": "Überprüfen",
     "reviewDesc": "Sync-Konfiguration vor Ausführung überprüfen",
@@ -1390,10 +1391,12 @@
       "encrypted": "{{object}}: {{fields}} sind verschlüsselt und für den Benutzer, mit dem SandForge die Quell-Org liest, maskiert, da ihm die Berechtigung View Encrypted Data fehlt. Der Lauf lässt sie aus jedem Datensatz weg, statt die Masken zu kopieren; erteilen Sie diese Berechtigung, um ihre Werte zu kopieren.",
       "readCap": "Jedes Objekt wird aus beiden Orgs bis zu {{cap}} Datensätze gelesen, wie sandforge.sync.maxRecordsPerObject es festlegt (höchstens 50.000): Eines mit mehr wird teilweise kopiert, und der Lauf meldet es. Um einen Teil einer größeren Org zu kopieren, der in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt."
     },
-    "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
-    "execute": "Ausführen",
+    "configSaved": "Konfiguration gespeichert: Der Tab Gespeichert listet sie, und ein Zeitplan kann sie ausführen.",
+    "execute": "Simulieren und starten",
     "executeDesc": "Synchronisierungsoperation starten",
     "results": "Ergebnisse",
+    "newSync": "Neue Synchronisierung",
+    "seeInHistory": "Im Verlauf ansehen",
     "modes": {
       "full": "Vollständig",
       "incremental": "Inkrementell",
@@ -1420,7 +1423,6 @@
     "target": "Ziel",
     "sourceField": "Quellfeld",
     "targetField": "Zielfeld",
-    "dataFlow": "Datenfluss",
     "alreadyCopied_one": "{{count}} Datensatz, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieb, wie er war.",
     "alreadyCopied_other": "{{count}} Datensätze, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieben, wie sie waren.",
     "alreadyLinked_one": "{{count}} Datensatz, bereits von einem früheren Lauf dieser Konfiguration mit einem Datensatz verknüpft, den das Ziel enthielt, blieb, wie er war.",
@@ -1430,6 +1432,7 @@
     "autoMap": "Auto-Zuordnung",
     "suggestedMappings": "Vorgeschlagene Zuordnungen",
     "selectAndConfigure": "Orgs und Objekte auswählen",
+    "optionsTitle": "Optionen",
     "templates": {
       "title": "Schnellstart-Vorlagen",
       "useThis": "Verwenden",
@@ -1450,6 +1453,8 @@
     },
     "realtime": {
       "title": "Echtzeit-Sync",
+      "conflictsTitle": "Konflikte",
+      "conflictsHint": "Die Änderungen, die die Echtzeit-Replikation zur Entscheidung zurückgehalten hat, Feld für Feld. Ein Sync-Lauf entscheidet, was er vorfindet, nach der Wahl auf seinem ersten Schritt, und hält hier nichts zurück.",
       "start": "Start",
       "stop": "Stopp",
       "metrics": "Metriken",
@@ -1495,7 +1500,7 @@
         "failed": "Nicht geschrieben",
         "watched": "Nur beobachtet, nicht geschrieben",
         "kept-target": "Nicht geschrieben: Der Zieldatensatz wurde nach dieser Änderung bearbeitet",
-        "held": "Zur Entscheidung auf dem Tab „Konflikte“ zurückgehalten",
+        "held": "Zur Entscheidung unter „Konflikte“ zurückgehalten",
         "deletes-off": "Löschung nicht übernommen: Löschungen sind für dieses Objekt ausgeschaltet",
         "own-write": "Von dieser Sitzung geschrieben; nicht erneut angewendet"
       },
@@ -1529,9 +1534,8 @@
     "tabs": {
       "sync": "Sync",
       "history": "Verlauf",
-      "schedules": "Zeitpläne",
-      "realtime": "Echtzeit",
-      "conflicts": "Konflikte"
+      "schedules": "Gespeichert",
+      "realtime": "Echtzeit"
     },
     "conflictResolution": {
       "title": "Konfliktauflösung",
@@ -1566,8 +1570,8 @@
       "timestamp": "Zeitstempel"
     },
     "emptyState": {
-      "title": "Halten Sie zwei Orgs synchron",
-      "description": "Sync kopiert Daten zwischen Orgs — mit Feld-Mapping, Transformationen und Konfliktregeln — z. B. eine Dev-Sandbox aus einer Partial Copy aktualisieren.",
+      "title": "Datensätze zwischen zwei Orgs kopieren",
+      "description": "Sync kopiert Datensätze von einer Org in eine andere, mit Feld-Zuordnungen, Transformationen und dem, was mit einem Datensatz geschieht, den das Ziel schon hat.",
       "step2": "Quell- und Ziel-Org auswählen",
       "step3": "Objekte und Felder mappen",
       "step4": "Sync starten und Ergebnisse prüfen"
@@ -1601,8 +1605,8 @@
       "emptyDesc": "Abgeschlossene Syncs erscheinen hier mit ihren Ergebnissen pro Objekt."
     },
     "piiWarningTitle": "PII erkannt",
-    "mappingForObject": "Zuordnung für",
-    "mappingForObjectHint": "Jedes Objekt trägt die für es erstellten Zuordnungen. Objekte ohne Zuordnung werden Feld für Feld kopiert.",
+    "mappingForObject": "Felder von",
+    "mappingForObjectHint": "Jedes Objekt trägt die für es erstellten Zuordnungen und Regeln. Ein Objekt ohne beides wird Feld für Feld kopiert.",
     "fieldMappingCount_one": "{{count}} Feld-Zuordnung",
     "fieldMappingCount_other": "{{count}} Feld-Zuordnungen",
     "transformCount_one": "{{count}} Transformation",
@@ -1822,10 +1826,9 @@
       "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
     },
     "transformIntro": "Jede Regel ändert ein einziges Feld von {{object}} in jedem Datensatz, den der Lauf schreibt. Felder ohne Regel werden so geschrieben, wie sie gelesen wurden.",
-    "transformForObject": "Regeln für",
     "transformNeedsFieldNote": "Eine Regel ohne Feld stammt aus der Zeit, bevor Regeln ein Feld nannten, und würde jedes Feld jedes Datensatzes ändern: Wählen Sie in ihrer Zeile das Feld, das sie ändert. Simulieren und Synchronisierung starten bleiben deaktiviert, bis jede Regel ihr Feld nennt.",
-    "transformNeedsFieldRun": "Eine Transformationsregel nennt kein Feld: Wählen Sie ihr Feld im Schritt Transformationen. Bis dahin bleiben Simulieren und Synchronisierung starten deaktiviert, denn eine solche Regel würde jedes Feld jedes Datensatzes ändern.",
-    "transformOpenStep": "Zu den Transformationen",
+    "transformNeedsFieldRun": "Eine Transformationsregel nennt kein Feld: Wählen Sie ihr Feld im Schritt Felder. Bis dahin bleiben Simulieren und Synchronisierung starten deaktiviert, denn eine solche Regel würde jedes Feld jedes Datensatzes ändern.",
+    "transformOpenStep": "Zu den Feldern",
     "transformRemove": "{{rule}} auf {{field}} entfernen",
     "transformRemoveNoField": "{{rule}} entfernen, die kein Feld nennt",
     "transformNone": "Keine Regel für {{object}}: Seine Felder werden so geschrieben, wie sie gelesen wurden.",
@@ -1880,9 +1883,19 @@
     "readCutAtMost": "Das Lesen der Quell-Org endete bei {{cap}} Datensätzen, dem Höchsten, das ein Lauf von einem Objekt hält: Dieser Lauf hat einen Teil davon kopiert. Um den Rest zu kopieren, lesen Sie es in Abschnitten mit einem Filter auf CreatedDate, ein Bereich pro Lauf. Um stattdessen eine Stichprobe der Quelle zu kopieren, die in das Ziel passt, verwenden Sie Forge mit der Tiefe ALL und Datensätze pro Objekt auf Eine Stichprobe, die in das Ziel passt.",
     "savedConfigs": {
       "title": "Gespeicherte Konfigurationen",
-      "hint": "Führen Sie eine jetzt so aus, wie sie gespeichert wurde: Sie wird geprüft wie ein Lauf aus dem Sync-Tab, und Production Guard beurteilt sie, bevor etwas geschrieben wird. Eine, die löscht, öffnet sich stattdessen im Sync-Tab, der sagt, was jedes ihrer Objekte tut: Synchronisierung starten führt sie dort aus.",
-      "runNow": "Jetzt ausführen",
-      "runNamed": "{{name}} jetzt ausführen",
+      "hint": "Öffnen bringt eine zum Schritt Simulieren und starten des Sync-Tabs, mit allem, was der Lauf des Assistenten dort hat: erst Simulieren, dann Synchronisierung starten.",
+      "none": "Noch keine Konfiguration gespeichert: Als Sync-Konfiguration speichern, im Schritt Überprüfen des Sync-Tabs, speichert eine.",
+      "open": "Öffnen",
+      "openNamed": "{{name}} öffnen",
+      "delete": "Löschen",
+      "deleteNamed": "{{name}} löschen",
+      "deleteConfirm": "{{name}} löschen? Das lässt sich nicht rückgängig machen.",
+      "deleteSchedules_one": "Der Zeitplan, der sie ausführt, schlägt ab seinem nächsten Lauf fehl: Bearbeiten oder löschen Sie ihn ebenfalls.",
+      "deleteSchedules_other": "Die {{count}} Zeitpläne, die sie ausführen, schlagen ab ihrem nächsten Lauf fehl: Bearbeiten oder löschen Sie sie ebenfalls.",
+      "deleteDone": "{{name}} wurde gelöscht.",
+      "deleteGone": "{{name}} ist nicht mehr gespeichert: Nichts wurde gelöscht.",
+      "sfdmuHint": "Eine SFDMU-export.json erscheint hier, sobald SFDMU-Import sie in eine gespeicherte Konfiguration umgewandelt hat.",
+      "openSfdmu": "{{module}} öffnen",
       "ofSaved": "Gespeicherte Konfiguration: {{name}}",
       "gone": "Diese Konfiguration ist nicht mehr gespeichert: Es wurde nichts ausgeführt.",
       "reading": "Die gespeicherte Konfiguration wird gelesen, um vor dem Lauf zu sagen, was jedes ihrer Objekte tut…",
@@ -1949,7 +1962,7 @@
     "chooseObject": "Objekt auswählen…"
   },
   "migration": {
-    "title": "Migration",
+    "title": "SFDMU-Import",
     "subtitle": "Konvertieren Sie eine SFDMU-export.json in eine Sync-Konfiguration. Der Import liest die Datei und ändert in keiner Org etwas; Sync führt die Konfiguration aus, sobald sie gespeichert ist, und schreibt Datensätze in die Ziel-Org.",
     "type": {
       "sfdmu": {
@@ -1963,6 +1976,7 @@
     "import": "Importieren",
     "importing": "Importieren…",
     "reset": "Neuer Import",
+    "importedFrom": "Importiert aus {{path}}",
     "successTitle": "Import abgeschlossen",
     "successDescription": "Konvertierte Konfiguration",
     "unknownError": "Der Import ist aus unbekanntem Grund fehlgeschlagen.",
@@ -3948,7 +3962,7 @@
     "monitorContent": "Das Monitor-Dashboard zeigt die Gesundheit der Org, gelesen beim Öffnen der Seite und bei jedem Klick auf Aktualisieren:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- Live-Operationen, solange ein Lauf aktiv ist: sein Modul, sein Fortschritt und sein aktueller Schritt\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Anomalien scannen, unter Governor-Limits: prüft bis zu 500 Datensätze des gewählten Objekts auf ungewöhnliche Werte\n- Warnmeldungen für kritische Schwellenwerte\n- Org-Governance: Richtlinien aus Schwellenwertregeln, gegen die Org geprüft, wenn Sie auf Auswerten klicken\n\nTipp: Automatisch aktualisieren, die Uhr-Schaltfläche, ist standardmäßig aus; klicken Sie darauf, damit die Org alle 30 Sekunden neu gelesen wird, solange das Panel sichtbar ist.",
     "seedContent": "Unter den Vorlagen stehen vier weitere Wege bereit:\n- Daten generieren: ein Assistent für die Objekte, die Datensatzanzahl und die Feldregeln Ihrer Wahl (KI, Faker, statisch, Sequenz...); ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n- CSV-Upload: Datensätze aus einer CSV-Datei, deren Spalten den Feldern zugeordnet werden\n- Von Org klonen: Datensätze, die aus einer anderen Org kopiert werden\n- Testdaten für einen Agentforce-Agenten: Wählen Sie ein Paket oder Aus eigenem Text entwerfen, prüfen Sie es, Seed des Szenarios starten, dann Testdatei schreiben. Die Pakete brauchen keinen KI-Schlüssel; ein Entwurf nutzt Ihren Anthropic-Schlüssel. Seine Knowledge-Artikel werden veröffentlicht; SandForge führt die Tests nie aus.",
     "checkpointContent": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat. Seine Vorschau zählt Objekt für Objekt die Datensätze unter Löschen, Werte zurückgeben und Zurückholen. Eine DataOps-Sicherung ist eine Kopie einiger Objekte: Ihre Wiederherstellung löscht nie, was hinzugefügt wurde.\n- Das Zurücksetzen macht die Arbeit aller seit dem Prüfpunkt ungeschehen, nicht nur die Läufe von SandForge: ob von Benutzern, Flows oder Integrationen. Die Vorschau zeigt, wer was zuletzt geändert hat, bevor etwas geschrieben wird.\n- Nie in einer Produktions-Org: Prüfpunkte sind für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht, und keine Einstellung und keine Option hebt diese Ablehnung auf.\n- Nur Daten: Felder, Flows, Validierungsregeln, Layouts, Berechtigungen, Benutzer und Setup bleiben, wie sie sind, und was die Org schon verlassen hat (E-Mails, Callouts, Plattformereignisse), bleibt gesendet.\n- Dateien sind nur zum Teil abgedeckt: Das Zurücksetzen löscht die seitdem an seine Datensätze angehängten Dateien und holt die seitdem gelöschten zurück, doch eine Datei, die eine neue Version erhalten hat, behält ihren neuen Inhalt.\n- Ein Prüfpunkt enthält die Werte der Datensätze im Klartext, darunter personenbezogene Daten, auf diesem Rechner, nur für Sie lesbar, 30 Tage lang, sofern Sie ihn nicht aufbewahren.",
-    "syncContent": "Sync kopiert Objekte von einer Org in eine andere, Feld für Feld; der Tab Verlauf listet jeden Lauf, und der Tab Zeitpläne führt eine gespeicherte Konfiguration nach Zeitplan aus.\n- Ein Delta-Lauf einer gespeicherten Konfiguration liest, was sich seit ihrem letzten erfolgreichen Lauf geändert hat, und kann im Ziel löschen, was die Quelle gelöscht hat.\n- Auto-Zuordnung verbindet Felder mit demselben API-Namen. Eine Transformationsregel ändert ein einziges Feld in jedem geschriebenen Datensatz; eine Regel ohne Feld wird abgelehnt, bevor etwas gelesen oder gespeichert wird. Wertzuordnungen kommen aus einer importierten SFDMU-Konfiguration.\n- „E-Mail-Adressen und Telefonnummern neutralisieren“ ist an, sofern Sie es nicht abwählen; „Die Dateien dieser Datensätze kopieren“ bringt ihre Dateien mit.\n- Tab Echtzeit: schreibt jede Änderung, die die Quelle veröffentlicht (Change Data Capture), sobald sie kommt; einen Konflikt entscheidet die Strategie, oder er wird auf dem Tab Konflikte zurückgehalten.\n- „Entfernen, was dieser Lauf erstellt hat“, in den Ergebnissen oder im Verlaufseintrag des Laufs, löscht, was er eingefügt hat, und seine Dateien, gibt den Datensätzen, die er überschrieben hat, ihre vorherigen Werte zurück, aufbewahrt für sandforge.backup.maxAgeDays, und holt zurück, was ein Delta-Lauf gelöscht hat. Production Guard verweigert es in einer Produktions-Org.\n- Eine Echtzeit-Sitzung wird ebenso entfernt, unter „Frühere Sitzungen“, sobald sie gestoppt ist.",
+    "syncContent": "Sync kopiert Objekte von einer Org in eine andere, Feld für Feld; der Tab Verlauf listet jeden Lauf, und der Tab Gespeichert öffnet eine gespeicherte Konfiguration oder führt sie nach Zeitplan aus.\n- Ein Delta-Lauf einer gespeicherten Konfiguration liest, was sich seit ihrem letzten erfolgreichen Lauf geändert hat, und kann im Ziel löschen, was die Quelle gelöscht hat.\n- Auto-Zuordnung verbindet Felder mit demselben API-Namen. Eine Transformationsregel ändert ein einziges Feld in jedem geschriebenen Datensatz; eine Regel ohne Feld wird abgelehnt, bevor etwas gelesen oder gespeichert wird. Wertzuordnungen kommen aus einer importierten SFDMU-Konfiguration.\n- „E-Mail-Adressen und Telefonnummern neutralisieren“ ist an, sofern Sie es nicht abwählen; „Die Dateien dieser Datensätze kopieren“ bringt ihre Dateien mit.\n- Tab Echtzeit: schreibt jede Änderung, die die Quelle veröffentlicht (Change Data Capture), sobald sie kommt; einen Konflikt entscheidet die Strategie, oder er wird unter Konflikte auf demselben Tab zurückgehalten.\n- „Entfernen, was dieser Lauf erstellt hat“, in den Ergebnissen oder im Verlaufseintrag des Laufs, löscht, was er eingefügt hat, und seine Dateien, gibt den Datensätzen, die er überschrieben hat, ihre vorherigen Werte zurück, aufbewahrt für sandforge.backup.maxAgeDays, und holt zurück, was ein Delta-Lauf gelöscht hat. Production Guard verweigert es in einer Produktions-Org.\n- Eine Echtzeit-Sitzung wird ebenso entfernt, unter „Frühere Sitzungen“, sobald sie gestoppt ist.",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Vorhandene Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Objekte: die Objekte beider Orgs, live gelesen beim Öffnen des Tabs\n- Abweichung der Org-Einstellungen: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Aus Diff bereitstellen: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie die Validierung dann in einer Sandbox, einer Scratch-Org oder einer Developer-Edition-Org bereit",
     "dataopsContent": "Datenoperationen in der oben auf der Seite gewählten Org:\n- Maskierung maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA oder mit einer eigenen aus „Vorlage erstellen“; sofern Sie „Die Werte vorher aufbewahren“ nicht abwählen, sichert sie, was sie maskiert, damit „Wiederherstellen…“ es zurückschreiben kann. „Sicherung erstellen“ neben der Vorlage kopiert die Objekte, die sie maskiert, auf diesen Rechner.\n- Sicherungen listet jede Sicherung der Org, jede mit „Wiederherstellen…“, „Exportieren“ und „Löschen“. „Wiederherstellen…“ fragt zuerst, nennt die Org und jedes Objekt und fragt, ob jede Zeile zurückgeschrieben wird; nicht angehakt, schreibt es nur die seitdem geänderten Zeilen. Eine Sicherung ist kein Prüfpunkt: Erstellen Sie vor einem riskanten Lauf auf einer Sandbox einen Prüfpunkt.\n- Personenbezogene Daten findet die Felder mit personenbezogenen Daten, dann die Datensätze einer Person über E-Mail, Name oder Telefon, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren, zu anonymisieren oder zu löschen.\n- Bereinigung zählt veraltete Datensätze, leere Lookups, wiederholte Werte und wie oft jedes Feld gefüllt ist, um sie nach einer Prüfung und einer eingetippten Bestätigung zu exportieren oder zu löschen, 1.000 auf einmal.\n- Leeren löscht alle Datensätze der gewählten Objekte oder der ganzen Org, sobald „Simulieren“ gezählt hat, was verschwindet, und Sie den Namen der Org eingetippt haben.",
     "automationContent": "Visueller Pipeline-Builder:\n- Unter „Schritte“ bietet die Seite die Schritttypen an, die eine Pipeline ausführt: Sync, Seed, Anonymisierung, Sicherung, Prüfpunkt, Zurücksetzen, Vergleich, Vorabprüfung, Bedingung, Verzögerung, Genehmigung und Benachrichtigung. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus, und schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor. Seed und Anonymisierung führen eine Vorlage ihrer Seite aus, nie in einer Produktions-Org, in einer als Staging markierten Sandbox nach einem Genehmigungsschritt, und werden nie wiederholt. Ein Zurücksetzen-Schritt setzt eine Org auf einen auf diesem Rechner aufbewahrten Prüfpunkt zurück, höchstens so viele Datensätze wie eingestellt, sobald Sie ihn unter seiner Vorschau mit dem Alias der Org bestätigt haben, oder, wenn sie keinen hat, mit ihrem Namen oder ihrer Organisations-ID. Wiederherstellung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite: Eine Pipeline mit einem dieser Schritte oder mit einem Skript-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
@@ -3977,7 +3991,7 @@
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Geführte Tour starten",
     "autopilotContent": "In drei Schritten:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
-    "migrationContent": "Migration wandelt eine SFDMU-export.json in eine Sync-Konfiguration um:\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Als Sync-Konfiguration gespeichert, mit ihrer Quell- und Ziel-Org und einem Namen, öffnet sie sich mit In Sync öffnen: Simulieren prüft sie dort, und Synchronisierung starten schreibt sie\n- Eine CSV-Datei mit Datensätzen gehört in den CSV-Upload von Seed, der ihre Zeilen lädt",
+    "migrationContent": "SFDMU-Import wandelt eine SFDMU-export.json in eine Sync-Konfiguration um:\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Als Sync-Konfiguration gespeichert, mit ihrer Quell- und Ziel-Org und einem Namen, öffnet sie sich mit In Sync öffnen: Simulieren prüft sie dort, und Synchronisierung starten schreibt sie\n- Eine CSV-Datei mit Datensätzen gehört in den CSV-Upload von Seed, der ihre Zeilen lädt",
     "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele je Objekt",
     "orgsContent": "Verbinden Sie eine Org auf einem von zwei Wegen, die beide über die Salesforce CLI (sf) laufen:\n- Aus der Salesforce CLI importieren fügt jede Org hinzu, die die CLI schon kennt. Eine CLI, die noch keine Org enthält, wird als Hinweis gemeldet, nicht als Fehler: Melden Sie sich stattdessen im Browser an.\n- Im Browser anmelden öffnet die Salesforce-Anmeldeseite; der Alias ist optional.\n- Login-URL: Produktion / Entwickler oder Sandbox; für eine Org, die beide sperrt, nimmt Eigene Domäne (My Domain)… ihre Login-URL, wie Setup → Meine Domäne sie zeigt.\n- Benutzername / Passwort braucht keine CLI; JWT Bearer und OAuth (Gerät) stehen unter Weitere Methoden.\n\nForge, das Laden des eingefrorenen Datasets, Prüfpunkte und das Bereitstellen des Vergleichs lehnen eine Produktions-Org ab; Löschungen werden dort ebenfalls abgelehnt; jeder andere Schreibvorgang dort fragt vorher, und keine Einstellung schaltet das ab. Eine Sandbox mit echten Daten (Full Copy, UAT): Öffnen Sie ihren Dialog „Org bearbeiten“ auf der Seite Organisationen und aktivieren Sie Staging; Production Guard fragt dann vor jedem Löschen, jeder Bereitstellung und jedem Schreiben von mehr als 10.000 Datensätzen.\n\nEine Org, die sich nicht verbindet: siehe Fehlerbehebung.",
     "fullGuide": "Vollständige Anleitung: {{section}}",
@@ -4030,11 +4044,11 @@
       "tip": "Erstellen Sie vor jeder Aktualisierung einen Prüfpunkt Vor der Aktualisierung: Die nächste Inbetriebnahme gibt ihn wieder."
     },
     "sync": {
-      "step1": "Klicken Sie auf dem Tab Sync auf Schnell-Sync starten.",
-      "step2": "Wählen Sie die Quell-Org und die Ziel-Org, dann klicken Sie auf Weiter.",
-      "step3": "Wählen Sie Objekte unter Vorgeschlagene Objekte oder über die Suche aus, dann klicken Sie auf Weiter.",
-      "step4": "Prüfen Sie die Orgs und Datensätze gesamt in der Vorschau, dann klicken Sie auf In … synchronisieren, das die Ziel-Org nennt.",
-      "tip": "Ein Schnell-Sync fügt bei jedem Lauf alle Datensätze ein; außer in einer Produktions-Org bieten seine Ergebnisse die Schaltfläche Entfernen, was dieser Lauf erstellt hat."
+      "step1": "Wählen Sie auf dem Tab Sync Quelle und Ziel, dann fügen Sie die Objekte hinzu, jedes mit seiner Operation.",
+      "step2": "Stellen Sie bei Bedarf die Optionen ein, dann ordnen Sie unter Felder ein Feld zu oder transformieren es, wo die Orgs abweichen.",
+      "step3": "Prüfen Sie unter Überprüfen, was jedes Objekt tut; Als Sync-Konfiguration speichern legt sie unter Gespeichert ab.",
+      "step4": "Unter Simulieren und starten sagt Simulieren, was geschrieben würde, dann schreibt Synchronisierung starten es.",
+      "tip": "Schnell-Sync starten kopiert ganze Objekte in drei Bildschirmen, jeder Datensatz eingefügt; seine Schätzung zählt sie vorher."
     },
     "autopilot": {
       "step1": "Wählen Sie eine Org unter Quell-Org und eine andere unter Ziel-Org, dann klicken Sie auf Weiter.",
@@ -7402,7 +7416,7 @@
     "suggestedObjects": "Vorgeschlagene Objekte",
     "notInSource": "{{object}} gehört nicht zu den Objekten, die die Quell-Org SandForge lesen und anlegen lässt.",
     "addParent": "Übergeordnetes Objekt {{parent}} für {{child}} hinzufügen?",
-    "preview": "Vorschau",
+    "preview": "Schätzung",
     "totalRecords": "Datensätze gesamt",
     "totalApiCalls": "Geschätzte API-Aufrufe",
     "estimatedDuration": "Geschätzte Dauer",

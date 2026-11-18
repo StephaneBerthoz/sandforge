@@ -1247,9 +1247,9 @@ test('anchor: every realtime:* channel is routed to the handler that subscribes'
 const SYNC_PAGE_FILE = 'packages/webview/src/pages/Sync/SyncPage.tsx';
 
 /**
- * The Sync page offers the tabs `OFFERED_SYNC_TABS` lists, Real-Time and the
- * Conflicts tab it feeds among them: the panel's strings are on screen, and
- * the CDC rule reads them like any other.
+ * The Sync page offers the tabs `OFFERED_SYNC_TABS` lists, Real-Time among
+ * them, which lists under Conflicts the changes it held for a decision: the
+ * panel's strings are on screen, and the CDC rule reads them like any other.
  */
 function assertRealtimeTabIsOffered() {
   let tabs = null;
@@ -1275,14 +1275,20 @@ function assertRealtimeTabIsOffered() {
       'reads nothing, so the absence below proves nothing',
   );
   assert.equal(
-    tabs.includes('realtime') && tabs.includes('conflicts'),
+    tabs.includes('realtime'),
     true,
-    'the Sync page no longer offers the Real-Time and Conflicts tabs — the docs and the help panel ' +
-      'describe them, and have to be read again',
+    'the Sync page no longer offers the Real-Time tab — the docs and the help panel describe it, ' +
+      'and have to be read again',
+  );
+  assert.match(
+    read(SYNC_PAGE_FILE),
+    /<ConflictsSection \/>/,
+    'the Real-Time tab no longer lists the changes it held under Conflicts — the docs and the ' +
+      'help panel describe them, and have to be read again',
   );
 }
 
-test('anchor: the Sync page offers the Real-Time tab and its Conflicts tab', () => {
+test('anchor: the Sync page offers the Real-Time tab and the conflicts it holds', () => {
   assertRealtimeTabIsOffered();
 });
 

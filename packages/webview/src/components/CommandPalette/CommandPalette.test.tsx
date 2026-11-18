@@ -170,6 +170,17 @@ describe('CommandPalette', () => {
     expect(screen.queryByTestId('command-palette-item-nav-monitor')).toBeNull();
   });
 
+  it('finds SFDMU Import under the name it had, Migration', () => {
+    render(<CommandPalette />);
+    openPalette();
+    fireEvent.change(screen.getByTestId('command-palette-input'), {
+      target: { value: 'migration' },
+    });
+
+    const row = screen.getByTestId('command-palette-item-nav-migration');
+    expect(row.textContent).toContain('SFDMU Import');
+  });
+
   it('should show no results message when nothing matches', () => {
     render(<CommandPalette />);
     openPalette();

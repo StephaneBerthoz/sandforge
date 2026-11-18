@@ -27,12 +27,10 @@ function renderBuilder(props: Partial<TransformBuilderProps> = {}) {
     onPickField: vi.fn(),
     onRemoveRule: vi.fn(),
     onChangeConfig: vi.fn(),
-    onObjectChange: vi.fn(),
   };
   render(
     <TransformBuilder
       rules={rules}
-      objects={['Account', 'Contact']}
       objectApiName="Account"
       fields={FIELDS}
       {...handlers}
@@ -66,20 +64,19 @@ describe('TransformBuilder', () => {
     );
   });
 
-  it('lets the other objects of the run be picked, and says which one is shown', () => {
-    const { onObjectChange } = renderBuilder();
+  it('asks for no object: the Fields step picks it once, for its mappings and its rules', () => {
+    // Its own picker drew the same choice a second time, another way.
+    renderBuilder();
 
-    const picker = screen.getByLabelText('Rules for');
-    expect((picker as HTMLSelectElement).value).toBe('Account');
-    fireEvent.change(picker, { target: { value: 'Contact' } });
-
-    expect(onObjectChange).toHaveBeenCalledWith('Contact');
+    expect(screen.queryByRole('combobox', { name: 'Rules for' })).toBeNull();
+    expect(screen.queryByTestId('transform-object')).toBeNull();
   });
 
-  it('asks for no object when the run has one', () => {
-    renderBuilder({ objects: ['Account'] });
+  it('shows the rules of the object it is given', () => {
+    renderBuilder({ objectApiName: 'Contact' });
 
-    expect(screen.queryByLabelText('Rules for')).toBeNull();
+    expect(screen.getByTestId('transform-2-field').textContent).toBe('LastName');
+    expect(screen.queryByTestId('transform-0')).toBeNull();
   });
 
   it('adds a rule on the field picked, and only once one is picked', () => {

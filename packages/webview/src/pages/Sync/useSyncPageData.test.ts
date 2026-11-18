@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import '../../i18n';
-import { useSyncPageData } from './useSyncPageData';
+import { SYNC_STEP, useSyncPageData } from './useSyncPageData';
 import { useAppStore } from '../../stores/useAppStore';
 import { SYNC_ACCOUNT_HIERARCHY } from '@sandforge/shared';
 
@@ -129,11 +129,13 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 
 /** The stored draft the page reopens on; a test that needs one sets it. */
 const draft = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+/** Each draft the page stored, in order. */
+const draftWrites = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
 vi.mock('../../hooks/useWebviewPersistedState', () => ({
   useWebviewPersistedState: (_key: string, defaultValue: unknown) => {
     const state = { current: draft.value ?? defaultValue };
-    return [state.current, vi.fn()];
+    return [state.current, (value: Record<string, unknown>) => draftWrites.push(value)];
   },
 }));
 
@@ -145,6 +147,7 @@ describe('useSyncPageData', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     draft.value = null;
+    draftWrites.length = 0;
     execution.loading = false;
     execution.requestId = null;
     execution.mutate.mockClear();
@@ -383,13 +386,11 @@ describe('useSyncPageData', () => {
     expect(result.current.transforms).toEqual([]);
   });
 
-  it('describes on the transforms step the object picked there, and not again the one just described', () => {
+  it('describes on the Fields step the object picked there, once, for its mappings and its rules alike', () => {
     describeFields.data = { objectApiName: 'Account', sourceFields: [], targetFields: [] };
-    const { result } = twoObjects();
-    act(() => result.current.setCurrentStep(1));
-    expect(describeFields.mutate).toHaveBeenCalledTimes(1);
-
-    act(() => result.current.setCurrentStep(2));
+    const { result, rerender } = twoObjects();
+    act(() => result.current.setCurrentStep(SYNC_STEP.fields));
+    rerender();
     expect(describeFields.mutate).toHaveBeenCalledTimes(1);
 
     act(() => result.current.setMappedObject('Contact'));
@@ -815,7 +816,7 @@ describe('useSyncPageData', () => {
       simulation.data = found;
       rerender();
 
-      expect(result.current.currentStep).toBe(5);
+      expect(result.current.currentStep).toBe(SYNC_STEP.results);
       expect(result.current.simulation?.operationId).toBe('wv-simulation');
       expect(result.current.isFinished).toBe(true);
     });
@@ -873,8 +874,123 @@ describe('useSyncPageData', () => {
 
     const { result } = renderHook(() => useSyncPageData());
 
-    expect(result.current.currentStep).toBe(4);
+    expect(result.current.currentStep).toBe(SYNC_STEP.execute);
     expect(result.current.canGoNext()).toBe(false);
+  });
+
+  describe('five steps, Field Mapping and Transforms now one', () => {
+    /** A draft as a build stored it, on `currentStep`, counted in its own steps. */
+    function reopened(stored: Record<string, unknown>): number {
+      draft.value = {
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [],
+        mappingsByObject: {},
+        transforms: [],
+        ...stored,
+      };
+      const { result, unmount } = renderHook(() => useSyncPageData());
+      const step = result.current.currentStep;
+      unmount();
+      return step;
+    }
+
+    it('reopens a draft of the six steps on the step it was left on', () => {
+      // Its step counted Field Mapping and Transforms apart: read in five, a
+      // draft left on Review reopened on the execute step, one click from Run.
+      expect(reopened({ currentStep: 0 })).toBe(SYNC_STEP.select);
+      expect(reopened({ currentStep: 1 })).toBe(SYNC_STEP.fields);
+      expect(reopened({ currentStep: 2 })).toBe(SYNC_STEP.fields);
+      expect(reopened({ currentStep: 3 })).toBe(SYNC_STEP.review);
+      expect(reopened({ currentStep: 4 })).toBe(SYNC_STEP.execute);
+      expect(reopened({ currentStep: 5 })).toBe(SYNC_STEP.execute);
+    });
+
+    it('reopens a draft of the five steps on its own step, the results on the step that starts a run', () => {
+      expect(reopened({ currentStep: SYNC_STEP.review, wizardSteps: 5 })).toBe(SYNC_STEP.review);
+      expect(reopened({ currentStep: SYNC_STEP.execute, wizardSteps: 5 })).toBe(SYNC_STEP.execute);
+      expect(reopened({ currentStep: SYNC_STEP.results, wizardSteps: 5 })).toBe(SYNC_STEP.execute);
+      expect(reopened({ currentStep: 9, wizardSteps: 5 })).toBe(SYNC_STEP.execute);
+      expect(reopened({ currentStep: -1 })).toBe(SYNC_STEP.select);
+    });
+
+    it('stores its step with the count of steps it is counted in', () => {
+      const { result } = renderHook(() => useSyncPageData());
+      act(() => result.current.setCurrentStep(SYNC_STEP.review));
+
+      expect(draftWrites.at(-1)).toMatchObject({
+        currentStep: SYNC_STEP.review,
+        wizardSteps: 5,
+      });
+    });
+  });
+
+  it('keeps the draft as it was left when another page opens Sync on a tab alone', () => {
+    draft.value = {
+      currentStep: 0,
+      wizardSteps: 5,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    useAppStore.setState({ navigationIntent: { route: 'sync', syncTab: 'schedules' } });
+
+    const { result } = renderHook(() => useSyncPageData());
+
+    expect(result.current.sourceOrgId).toBe('org-1');
+    expect(result.current.objectEntries.map((e) => e.objectApiName)).toEqual(['Account']);
+  });
+
+  it('starts a new sync on the same two orgs, the objects, fields and options of the last one gone', () => {
+    draft.value = {
+      currentStep: SYNC_STEP.execute,
+      wizardSteps: 5,
+      direction: 'source_to_target',
+      mode: 'delta',
+      propagateDeletes: true,
+      files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      keepContactPoints: true,
+      conflictStrategy: 'target_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+        },
+      ],
+      mappingsByObject: { Account: [{ sourceField: 'A', targetField: 'B', type: 'rename' }] },
+      transforms: [{ type: 'trim', field: 'Name', objectApiName: 'Account', config: {} }],
+    };
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => result.current.handleNewSync());
+
+    expect(result.current.currentStep).toBe(SYNC_STEP.select);
+    expect(result.current.sourceOrgId).toBe('org-1');
+    expect(result.current.targetOrgId).toBe('org-2');
+    expect(result.current.objectEntries).toEqual([]);
+    expect(result.current.mappings).toEqual([]);
+    expect(result.current.transforms).toEqual([]);
+    expect(result.current.mode).toBe('full');
+    expect(result.current.propagateDeletes).toBe(false);
+    expect(result.current.copyFiles).toBe(false);
+    expect(result.current.keepContactPoints).toBe(false);
+    expect(result.current.conflictStrategy).toBe('source_wins');
+    // The simulation found before goes with it.
+    expect(simulation.reset).toHaveBeenCalled();
   });
 
   it('should start at step 0', () => {
@@ -941,7 +1057,7 @@ describe('useSyncPageData', () => {
     expect(describeFields.mutate).not.toHaveBeenCalled();
 
     act(() => {
-      result.current.setCurrentStep(1);
+      result.current.setCurrentStep(SYNC_STEP.fields);
     });
     rerender();
     rerender();
@@ -965,7 +1081,7 @@ describe('useSyncPageData', () => {
     expect(queries.get('sync:write-order')?.options?.skip).toBe(true);
 
     act(() => {
-      result.current.setCurrentStep(3);
+      result.current.setCurrentStep(SYNC_STEP.review);
     });
 
     const asked = queries.get('sync:write-order');
@@ -1072,7 +1188,7 @@ describe('useSyncPageData', () => {
     it('opens on the execute step, between the orgs it runs between, and names it', () => {
       const { result } = openedFromMigration();
 
-      expect(result.current.currentStep).toBe(4);
+      expect(result.current.currentStep).toBe(SYNC_STEP.execute);
       expect(result.current.sourceOrgId).toBe('org-src');
       expect(result.current.targetOrgId).toBe('org-tgt');
       expect(result.current.openedConfigLabel).toBe('Nightly accounts');
@@ -1135,10 +1251,10 @@ describe('useSyncPageData', () => {
     it('is put away once the wizard’s own steps are opened again: Run is the wizard’s then', () => {
       const { result } = openedFromMigration();
 
-      act(() => result.current.setCurrentStep(3));
+      act(() => result.current.setCurrentStep(SYNC_STEP.review));
       expect(result.current.openedConfigLabel).toBeNull();
       act(() => result.current.handleAddObject('Contact'));
-      act(() => result.current.setCurrentStep(4));
+      act(() => result.current.setCurrentStep(SYNC_STEP.execute));
       act(() => result.current.handleExecute());
 
       expect(readBack.mutate).not.toHaveBeenCalled();
@@ -1146,6 +1262,71 @@ describe('useSyncPageData', () => {
         config: { objects: Array<{ objectApiName: string }> };
       };
       expect(sent.config.objects.map((o) => o.objectApiName)).toEqual(['Contact']);
+    });
+
+    it('is opened from Saved on the execute step, between its own orgs, and runs nothing until asked', () => {
+      draft.value = {
+        currentStep: SYNC_STEP.review,
+        wizardSteps: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-a',
+        targetOrgId: 'org-b',
+        objectEntries: [
+          { objectApiName: 'Lead', operation: 'insert', externalIdField: '', batchSize: 200 },
+        ],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      const { result, rerender } = renderHook(() => useSyncPageData());
+
+      act(() => result.current.handleOpenSavedConfig('cfg-9', 'Nightly accounts'));
+
+      expect(result.current.currentStep).toBe(SYNC_STEP.execute);
+      expect(result.current.openedConfigLabel).toBe('Nightly accounts');
+      expect(queries.get('sync:config:load')?.payload).toEqual({ id: 'cfg-9' });
+      // The orgs it runs between, as it was saved, not the draft's.
+      expect(result.current.sourceOrgId).toBe('org-src');
+      expect(result.current.targetOrgId).toBe('org-tgt');
+      expect(readBack.mutate).not.toHaveBeenCalled();
+      expect(execution.mutate).not.toHaveBeenCalled();
+
+      // Simulate first, as the wizard's own run offers it.
+      act(() => result.current.handleSimulate());
+      expect(readBack.mutate).toHaveBeenCalledWith({ id: 'cfg-9' });
+      readBack.data = { config: SAVED };
+      rerender();
+      expect(simulation.mutate).toHaveBeenCalledWith({ config: SAVED });
+      expect(execution.mutate).not.toHaveBeenCalled();
+
+      // Back on the wizard's steps, the draft is as it was left.
+      act(() => result.current.setCurrentStep(SYNC_STEP.review));
+      expect(result.current.openedConfigLabel).toBeNull();
+      expect(result.current.sourceOrgId).toBe('org-a');
+      expect(result.current.objectEntries.map((e) => e.objectApiName)).toEqual(['Lead']);
+    });
+
+    it('runs a saved configuration that deletes only from the execute step that says so', () => {
+      const deleting = {
+        ...SAVED,
+        objects: [{ objectApiName: 'Account', operation: 'delete', transformRules: [] }],
+      };
+      openedRead.data = null;
+      const { result, rerender } = renderHook(() => useSyncPageData());
+      act(() => result.current.handleOpenSavedConfig('cfg-9', 'Nightly accounts'));
+
+      // Not read yet: Run waits.
+      act(() => result.current.handleExecute());
+      expect(readBack.mutate).not.toHaveBeenCalled();
+
+      openedRead.data = { config: deleting };
+      rerender();
+      expect(result.current.openedConfigEntries?.[0]?.operation).toBe('delete');
+      act(() => result.current.handleExecute());
+      readBack.data = { config: deleting };
+      rerender();
+      expect(execution.mutate).toHaveBeenCalledWith({ config: deleting });
     });
 
     it('says it is no longer saved, and runs nothing', () => {
@@ -1242,7 +1423,7 @@ describe('each object carries its own field mappings', () => {
     act(() => {
       result.current.handleAddObject('Lead');
       result.current.handleAddMapping('Name', 'Name');
-      result.current.setCurrentStep(2);
+      result.current.setCurrentStep(SYNC_STEP.review);
     });
 
     act(() => {
@@ -1255,7 +1436,7 @@ describe('each object carries its own field mappings', () => {
 
     expect(result.current.sourceOrgId).toBe('src');
     expect(result.current.targetOrgId).toBe('tgt');
-    expect(result.current.currentStep).toBe(0);
+    expect(result.current.currentStep).toBe(SYNC_STEP.select);
     expect(result.current.mode).toBe('full');
     expect(result.current.objectEntries).toEqual([
       {

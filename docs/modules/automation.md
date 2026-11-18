@@ -179,7 +179,7 @@ Not proven by a run: the cron daemon on a machine that sleeps (a start missed is
 
 ### Scheduler
 
-The tab lists the sync schedules, the ones the Sync page's Schedules tab keeps
+The tab lists the sync schedules, the ones the Sync page's Saved tab keeps
 (see [Sync](sync.md#schedules)), by the day each next runs:
 
 - Today, tomorrow and each later day, with the time of each run. A run whose

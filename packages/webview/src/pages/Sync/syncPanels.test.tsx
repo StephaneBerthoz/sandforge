@@ -40,12 +40,12 @@ import {
 } from './syncPanels';
 
 describe('syncPanels', () => {
-  it('loads the Schedules tab only once it is drawn', async () => {
+  it('loads the Saved tab only once it is drawn', async () => {
     expect([...evaluated]).toEqual([]);
 
     render(
       <Suspense fallback={<div data-testid="loading" />}>
-        <SyncSchedulePanel onRunConfig={() => undefined} runDisabled={false} />
+        <SyncSchedulePanel onOpenConfig={() => undefined} runDisabled={false} />
       </Suspense>,
     );
 

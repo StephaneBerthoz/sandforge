@@ -49,9 +49,39 @@ import { configObjects, objectSetEntryOf } from './objectSetEntries';
 import type { SyncTransformRule } from './TransformBuilder';
 import { runSettingsOf, writesOverHeld } from './heldRecordChoice';
 
+/**
+ * The wizard's steps, by what each does. Field Mapping and Transforms were two
+ * steps over the same object picker, drawn twice; they are one now, Fields.
+ */
+export const SYNC_STEP = {
+  select: 0,
+  fields: 1,
+  review: 2,
+  execute: 3,
+  results: 4,
+} as const;
+
+/**
+ * The step of the six-step wizard a draft saved before Fields was left on, in
+ * the five it has: Field Mapping and Transforms both open Fields.
+ */
+const SIX_STEP_DRAFT: readonly number[] = [
+  SYNC_STEP.select,
+  SYNC_STEP.fields,
+  SYNC_STEP.fields,
+  SYNC_STEP.review,
+  SYNC_STEP.execute,
+  SYNC_STEP.results,
+];
+
 /** Draft state safe to persist (no credentials, no execution results). */
 interface SyncDraftState {
   currentStep: number;
+  /**
+   * How many steps `currentStep` counts in: 5. Absent from a draft saved when
+   * the wizard had six, whose step is read in those six (`draftStepOf`).
+   */
+  wizardSteps?: 5;
   /** The direction the run would be sent, kept for older builds: never read back (see `runSettingsOf`). */
   direction: SyncDirection;
   mode: SyncMode;
@@ -130,9 +160,12 @@ export interface SyncPageData {
   currentStep: number;
   /** Set the current wizard step. */
   setCurrentStep: (step: number) => void;
-  /** Selected source org ID. */
+  /**
+   * Selected source org ID; while a saved configuration is opened on the
+   * execute step, the org it reads from, once it is read back.
+   */
   sourceOrgId: string;
-  /** Selected target org ID. */
+  /** Selected target org ID; the one an opened saved configuration writes to, as above. */
   targetOrgId: string;
   /**
    * Whether an object of the run finds a record the target already holds —
@@ -240,10 +273,17 @@ export interface SyncPageData {
   /** Save the current configuration under `name` so a schedule can run it. */
   handleSaveConfig: (name: string) => void;
   /**
-   * Run a saved configuration now, as it was saved: read back by its id, then
-   * sent to the run exactly as the wizard sends its own.
+   * Open a saved configuration on the execute step, by its id and the name the
+   * Saved tab lists it under: Simulate, the checkpoint first, the mute and Run
+   * there act on it as it was saved, once what each of its objects does is on
+   * screen.
    */
-  handleRunSavedConfig: (configId: string, label: string) => void;
+  handleOpenSavedConfig: (configId: string, label: string) => void;
+  /**
+   * Back to the first step on the same two orgs, for another sync: the last
+   * one's objects, fields, options, results and simulation go.
+   */
+  handleNewSync: () => void;
   /** The label of the saved configuration the run on the page is of, or null for the wizard's own. */
   savedRunLabel: string | null;
   /**
@@ -374,6 +414,32 @@ export const OFFERED_MODES: readonly SyncMode[] = ['full', 'delta'];
  */
 const DELTA_OPERATIONS: ReadonlySet<SyncOperation> = new Set<SyncOperation>(['upsert', 'update']);
 
+/**
+ * The step a draft reopens on. A draft of the six-step wizard is read in its
+ * six: read in five, one left on Review reopened on the execute step, one
+ * click from Run. One left on the results step reopens on the step that
+ * starts a run, since a run's progress and results are not kept with it.
+ */
+function draftStepOf(saved: Pick<SyncDraftState, 'currentStep' | 'wizardSteps'>): number {
+  const step = saved.wizardSteps === 5 ? saved.currentStep : SIX_STEP_DRAFT[saved.currentStep];
+  if (step === undefined || !Number.isInteger(step) || step < SYNC_STEP.select) {
+    return SYNC_STEP.select;
+  }
+  return Math.min(step, SYNC_STEP.execute);
+}
+
+/**
+ * The org a saved configuration read back over the bridge reads from or
+ * writes to, when it names one.
+ */
+function orgOfSaved(
+  config: Record<string, unknown> | null,
+  side: 'sourceOrgId' | 'targetOrgId',
+): string | undefined {
+  const id = config?.[side];
+  return typeof id === 'string' && id !== '' ? id : undefined;
+}
+
 /** One shared empty list: a fresh `[]` per render would retrigger every memo. */
 const EMPTY_MAPPINGS: FieldMapping[] = [];
 
@@ -489,14 +555,23 @@ export function useSyncPageData(): SyncPageData {
   const [draft, setDraft] = useWebviewPersistedState<SyncDraftState>('syncDraft', defaultDraft);
   // Opened from Home's sync recommendation: a fresh draft on the two orgs it
   // named, rather than whatever draft was left for another pair. Opened on a
-  // saved configuration (Migration's "Open in Sync"): the same, on the orgs
-  // it runs between, at the execute step, where its Simulate and Run are.
+  // saved configuration (SFDMU Import's "Open in Sync"): the same, on the
+  // orgs it runs between, at the execute step, where its Simulate and Run
+  // are. Opened on a tab alone, the draft is as it was left.
   const [startingDraft] = useState<SyncDraftState>(() => {
     const intent = useAppStore.getState().navigationIntent;
     if (intent?.route !== 'sync') return draft;
+    if (
+      !intent.syncConfig &&
+      intent.sourceOrgId === undefined &&
+      intent.targetOrgId === undefined
+    ) {
+      return draft;
+    }
     return {
       ...defaultDraft,
-      currentStep: intent.syncConfig ? 4 : 0,
+      currentStep: intent.syncConfig ? SYNC_STEP.execute : SYNC_STEP.select,
+      wizardSteps: 5,
       sourceOrgId: intent.sourceOrgId ?? '',
       targetOrgId: intent.targetOrgId ?? '',
     };
@@ -520,9 +595,7 @@ export function useSyncPageData(): SyncPageData {
     if (useAppStore.getState().navigationIntent?.route === 'sync') clearNavigationIntent();
   }, [clearNavigationIntent]);
 
-  // A run's progress and its results are not kept with the draft, so a draft
-  // left on the results step reopens on the step that starts a run.
-  const [currentStep, setCurrentStep] = useState(Math.min(initialDraft.current.currentStep, 4));
+  const [currentStep, setCurrentStep] = useState(() => draftStepOf(initialDraft.current));
   const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
   const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
   const [mode, setModeValue] = useState<SyncMode>(
@@ -612,6 +685,7 @@ export function useSyncPageData(): SyncPageData {
   useEffect(() => {
     setDraft({
       currentStep,
+      wizardSteps: 5,
       direction,
       mode,
       propagateDeletes,
@@ -850,14 +924,14 @@ export function useSyncPageData(): SyncPageData {
   // Navigate to results step when execution completes
   useEffect(() => {
     if (result && !isRunning) {
-      setCurrentStep(5);
+      setCurrentStep(SYNC_STEP.results);
     }
   }, [result, isRunning]);
 
   // And when a simulation answers: the results step shows what it found.
   useEffect(() => {
     if (simulation && !isSimulating) {
-      setCurrentStep(5);
+      setCurrentStep(SYNC_STEP.results);
     }
   }, [simulation, isSimulating]);
 
@@ -865,7 +939,7 @@ export function useSyncPageData(): SyncPageData {
   // re-scanning on every object-list identity change would fire a scan per
   // keystroke in the object picker.
   const scanForPii = useLatestRef(() => {
-    if (currentStep === 3 && sourceOrgId && objectEntries.length > 0) {
+    if (currentStep === SYNC_STEP.review && sourceOrgId && objectEntries.length > 0) {
       piiScan.mutate({
         orgId: sourceOrgId,
         objectNames: objectEntries.map((e) => e.objectApiName),
@@ -876,9 +950,10 @@ export function useSyncPageData(): SyncPageData {
     scanForPii.current();
   }, [currentStep, scanForPii]);
 
-  // Fetch fields when entering field mapping step, or when the orgs or objects
-  // change on it. `mutate` is read through a ref so the dependency array names
-  // those triggers only.
+  // Fetch fields when entering the Fields step, or when the orgs or the object
+  // shown change on it: its mappings and its rules name the same fields.
+  // `mutate` is read through a ref so the dependency array names those
+  // triggers only.
   // The selection has to stay inside the object set: an object removed from
   // step 0 must not leave step 1 describing something that is no longer there.
   useEffect(() => {
@@ -888,20 +963,11 @@ export function useSyncPageData(): SyncPageData {
   }, [objectEntries, mappedObject]);
 
   const describeFields = useLatestRef(fieldsMutation.mutate);
-  // The transforms step names fields of its object too. It describes only
-  // an object the mapping step has not just described between the same orgs.
-  const describedObject = useLatestRef(fieldsMutation.data?.objectApiName);
-  const describedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (currentStep !== 1 && currentStep !== 2) return;
+    if (currentStep !== SYNC_STEP.fields) return;
     if (!sourceOrgId || !targetOrgId || !mappedObject) return;
-    const asked = JSON.stringify([sourceOrgId, targetOrgId, mappedObject]);
-    if (currentStep === 2 && describedFor.current === asked) {
-      if (describedObject.current === mappedObject) return;
-    }
-    describedFor.current = asked;
     describeFields.current({ sourceOrgId, targetOrgId, objectApiName: mappedObject });
-  }, [currentStep, sourceOrgId, targetOrgId, mappedObject, describeFields, describedObject]);
+  }, [currentStep, sourceOrgId, targetOrgId, mappedObject, describeFields]);
 
   const handleSourceOrgChange = useCallback((orgId: string) => {
     setSourceOrgId(orgId);
@@ -1043,7 +1109,7 @@ export function useSyncPageData(): SyncPageData {
       setMappingsByObject({});
       setMappedObject(pick.objects[0] ?? '');
       setTransforms([]);
-      setCurrentStep(0);
+      setCurrentStep(SYNC_STEP.select);
     },
     [setMode],
   );
@@ -1105,8 +1171,11 @@ export function useSyncPageData(): SyncPageData {
     {
       errorType: 'sync:error',
       skip: openedSaved
-        ? currentStep !== 4
-        : currentStep !== 3 || !sourceOrgId || !targetOrgId || objectEntries.length === 0,
+        ? currentStep !== SYNC_STEP.execute
+        : currentStep !== SYNC_STEP.review ||
+          !sourceOrgId ||
+          !targetOrgId ||
+          objectEntries.length === 0,
     },
   );
 
@@ -1134,7 +1203,10 @@ export function useSyncPageData(): SyncPageData {
   const savedConfigsQuery = useBridgeQuery<SyncConfigListResponse['payload']>(
     'sync:config:list',
     undefined,
-    { responseType: 'sync:config:list:response', skip: currentStep !== 3 && currentStep !== 4 },
+    {
+      responseType: 'sync:config:list:response',
+      skip: currentStep !== SYNC_STEP.review && currentStep !== SYNC_STEP.execute,
+    },
   );
   const savedConfigs = savedConfigsQuery.data?.configs ?? NO_SAVED_CONFIGS;
   const saveAnswer = saveConfigMutation.loading ? null : saveConfigMutation.data;
@@ -1200,7 +1272,7 @@ export function useSyncPageData(): SyncPageData {
       checkpointFirst: checkpoint,
     });
     if (simulate) setSimulatedFor(simulatedConfig);
-    setCurrentStep(4);
+    setCurrentStep(SYNC_STEP.execute);
     loadConfigMutation.mutate({ id: saved.id });
   };
 
@@ -1227,7 +1299,7 @@ export function useSyncPageData(): SyncPageData {
     simulateMutation.reset();
     setSavedRunLabel(null);
     setSyncStartedAt(Date.now());
-    setCurrentStep(4);
+    setCurrentStep(SYNC_STEP.execute);
     executeMutation.mutate({
       config: config as unknown as Record<string, unknown>,
       ...(muteAutomation ? { muteAutomation: true } : {}),
@@ -1236,20 +1308,49 @@ export function useSyncPageData(): SyncPageData {
   };
 
   /**
-   * Run a saved configuration now. It is read back as the store holds it and
-   * sent on `sync:execute`, the request the wizard's Run sends: the same
-   * checks at the boundary, the same Production Guard, the same progress,
-   * Pause and Cancel on the execute step, the same results. A run there needs
-   * no simulation first, and neither does this one. Nothing in the wizard is
-   * replaced: a configuration saved from Migration can hold what the wizard
-   * cannot show — a transform of one object alone — and goes to the run as
-   * it was saved.
+   * Open a saved configuration on the execute step, as SFDMU Import's "Open in
+   * Sync" opens one. Saved's Run now sent it to the run at once: no
+   * simulation, no checkpoint first, no mute, and nothing of what it does on
+   * screen. Here it is read back as the store holds it, what each of its
+   * objects does is said above Simulate and Run, and both send it as it was
+   * saved on the requests the wizard's own use. Nothing in the wizard is
+   * replaced: a configuration saved from SFDMU Import can hold what the
+   * wizard cannot show — a transform of one object alone — and the draft is
+   * as it was left once the wizard's steps are opened again.
    */
-  const handleRunSavedConfig = (configId: string, label: string) => {
+  const handleOpenSavedConfig = (configId: string, label: string) => {
     if (busy) return;
-    // Run now names its configuration: one opened here before is put away.
-    if (openedConfig?.id !== configId) setOpenedConfig(null);
-    readBackSaved({ id: configId, label }, false, false, false);
+    setError(null);
+    executeMutation.reset();
+    simulateMutation.reset();
+    setSavedRunLabel(null);
+    setOpenedConfig({ id: configId, label });
+    setCurrentStep(SYNC_STEP.execute);
+  };
+
+  /**
+   * Another sync, on the same two orgs: the results step had no way on but
+   * the step list, and no way to History. What the last one was made of goes
+   * — its objects, their fields and rules, its options — and so does what it
+   * came to; a saved configuration keeps it, on the Saved tab.
+   */
+  const handleNewSync = () => {
+    if (busy) return;
+    setError(null);
+    executeMutation.reset();
+    simulateMutation.reset();
+    setSavedRunLabel(null);
+    setOpenedConfig(null);
+    setObjectEntries([]);
+    setMappingsByObject({});
+    setMappedObject('');
+    setTransforms([]);
+    setMode('full');
+    setCopyFiles(false);
+    setFileCaps(fileCapsOf(undefined));
+    setKeepContactPoints(false);
+    setConflictStrategy('source_wins');
+    setCurrentStep(SYNC_STEP.select);
   };
 
   // The saved configuration read back goes to the run or the simulation
@@ -1262,15 +1363,6 @@ export function useSyncPageData(): SyncPageData {
     if (!loaded.config) {
       setSavedRunLabel(null);
       setError(t('syncParts.savedConfigs.gone'));
-      return;
-    }
-    // A configuration that deletes runs once what it does has been shown: Run
-    // now opens it here, on the execute step that says it, and Run there runs
-    // it. Its delete fired with no word on a sandbox or a Developer Edition.
-    const deletes = configObjects(loaded.config).some((obj) => obj.operation === 'delete');
-    if (!asked.simulate && deletes && openedConfig?.id !== asked.id) {
-      setSavedRunLabel(null);
-      setOpenedConfig({ id: asked.id, label: asked.label });
       return;
     }
     setSyncStartedAt(Date.now());
@@ -1315,7 +1407,7 @@ export function useSyncPageData(): SyncPageData {
     setSavedRunLabel(null);
     setSimulatedFor(simulatedConfig);
     setSyncStartedAt(Date.now());
-    setCurrentStep(4);
+    setCurrentStep(SYNC_STEP.execute);
     simulateMutation.mutate({
       config: config as unknown as Record<string, unknown>,
       ...(checkpointFirst ? { checkpointFirst: {} } : {}),
@@ -1344,13 +1436,13 @@ export function useSyncPageData(): SyncPageData {
    * away, and Simulate and Run are the wizard's when they come round again.
    */
   const goToStep = useCallback((step: number) => {
-    if (step < 4) setOpenedConfig(null);
+    if (step < SYNC_STEP.execute) setOpenedConfig(null);
     setCurrentStep(step);
   }, []);
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
-      case 0:
+      case SYNC_STEP.select:
         return (
           !!sourceOrgId &&
           !!targetOrgId &&
@@ -1358,18 +1450,18 @@ export function useSyncPageData(): SyncPageData {
           objectEntries.length > 0 &&
           deltaBlockers.length === 0
         );
-      case 4:
+      case SYNC_STEP.execute:
         // The results step shows what a run or a simulation came to; there is
         // nothing to show before one has answered.
         return !busy && (!!result || !!simulation);
-      case 5:
+      case SYNC_STEP.results:
         return false;
       default:
         return true;
     }
   };
 
-  const isFinished = currentStep === 5 && (!!result || !!simulation);
+  const isFinished = currentStep === SYNC_STEP.results && (!!result || !!simulation);
 
   return {
     availableObjects,
@@ -1388,8 +1480,8 @@ export function useSyncPageData(): SyncPageData {
     piiWarnings,
     currentStep,
     setCurrentStep: goToStep,
-    sourceOrgId,
-    targetOrgId,
+    sourceOrgId: orgOfSaved(openedSaved, 'sourceOrgId') ?? sourceOrgId,
+    targetOrgId: orgOfSaved(openedSaved, 'targetOrgId') ?? targetOrgId,
     findsHeldRecords,
     mode,
     setMode,
@@ -1432,7 +1524,8 @@ export function useSyncPageData(): SyncPageData {
     handleExecute,
     handleSimulate,
     handleSaveConfig,
-    handleRunSavedConfig,
+    handleOpenSavedConfig,
+    handleNewSync,
     savedRunLabel,
     openedConfigLabel: openedConfig?.label ?? null,
     openedConfigEntries,

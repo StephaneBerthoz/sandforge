@@ -10538,7 +10538,9 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('Sync conflicts tab with a change held for a decision', async ({ page }) => {
+    test('Sync conflicts, on the Real-Time tab, with a change held for a decision', async ({
+      page,
+    }) => {
       await openPanel(bridge, page, 'sync', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
@@ -10560,7 +10562,7 @@ for (const theme of STATE_THEMES) {
           },
         });
       }
-      await page.getByTestId('tab-conflicts').click();
+      await page.getByTestId('tab-realtime').click();
       await page.getByTestId('conflict-list-panel').waitFor({ timeout: 10_000 });
       await page.getByTestId('data-table').locator('[data-testid^="table-row-"]').first().click();
       await page.getByTestId('conflict-resolution-panel').waitFor({ timeout: 10_000 });

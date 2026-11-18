@@ -267,7 +267,7 @@ test.describe('Sync panel — simulate, then run', () => {
     const choice = page.getByLabel('When the target already holds the record');
     await expect(choice).toHaveValue('source_wins');
     await choice.selectOption('target_wins');
-    for (let step = 0; step < 4; step++) await page.getByTestId('sync-wizard-next').click();
+    for (let step = 0; step < 3; step++) await page.getByTestId('sync-wizard-next').click();
     await page.getByTestId('sync-run').click();
 
     const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
@@ -338,7 +338,9 @@ test.describe('Sync panel — transforms', () => {
     await page.getByTestId('add-transform-btn').click();
     await expect(page.getByTestId('transform-0-field')).toHaveText('Name');
 
-    await page.getByTestId('transform-object').selectOption('Contact');
+    // One picker for the step's mappings and rules alike.
+    await expect(page.getByTestId('transform-object')).toHaveCount(0);
+    await page.getByTestId('sync-mapped-object').selectOption('Contact');
     await answerDescribe(bridge, 'Contact', [
       { apiName: 'LastName', label: 'Last Name', type: 'string' },
     ]);
@@ -380,7 +382,7 @@ test.describe('Sync panel — transforms', () => {
     });
     const why = page.getByTestId('sync-transforms-need-field');
     await expect(why).toHaveText(
-      'A transform rule names no field: pick its field in the Transforms step. Simulate and Run the sync stay off until then, as such a rule would change every field of every record.',
+      'A transform rule names no field: pick its field in the Fields step. Simulate and Run the sync stay off until then, as such a rule would change every field of every record.',
     );
     await expect(page.getByTestId('sync-run')).toBeDisabled();
     await expect(page.getByTestId('sync-simulate')).toBeDisabled();
@@ -413,7 +415,7 @@ test.describe('Sync panel — transforms', () => {
     expect(account.transformRules).toEqual([{ type: 'uppercase', field: 'Name', config: {} }]);
   });
 
-  test('Run now of a saved configuration holding a rule that names no field says, in the page’s words, why it was refused', async ({
+  test('a saved configuration holding a rule that names no field, opened and run, says in the page’s words why it was refused', async ({
     page,
   }) => {
     const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
@@ -435,40 +437,42 @@ test.describe('Sync panel — transforms', () => {
         String(request.id),
       );
     }
-    await page.getByTestId('run-saved-config-cfg-old').click();
-    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
-    await bridge.respond(
-      'sync:config:load:response',
-      {
-        config: {
-          id: 'cfg-old',
-          name: 'Accounts in capitals',
-          description: 'Saved before rules named a field',
-          sourceOrgId: DEV_SANDBOX.id,
-          targetOrgId: QA_SANDBOX.id,
-          direction: 'source_to_target',
-          mode: 'full',
-          conflictStrategy: 'source_wins',
-          objects: [
-            {
-              objectApiName: 'Account',
-              operation: 'insert',
-              externalIdField: '',
-              batchSize: 200,
-              fieldMappings: [],
-              transformRules: [{ type: 'uppercase', config: {} }],
-              excludedFields: [],
-              addOnFields: [],
-              insertOrder: 0,
-            },
-          ],
-          enableRollback: false,
-          createdAt: '2026-09-01T09:00:00.000Z',
-          updatedAt: '2026-09-01T09:00:00.000Z',
+    const oldConfig = {
+      id: 'cfg-old',
+      name: 'Accounts in capitals',
+      description: 'Saved before rules named a field',
+      sourceOrgId: DEV_SANDBOX.id,
+      targetOrgId: QA_SANDBOX.id,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      objects: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          fieldMappings: [],
+          transformRules: [{ type: 'uppercase', config: {} }],
+          excludedFields: [],
+          addOnFields: [],
+          insertOrder: 0,
         },
-      },
-      load.id as string,
-    );
+      ],
+      enableRollback: false,
+      createdAt: '2026-09-01T09:00:00.000Z',
+      updatedAt: '2026-09-01T09:00:00.000Z',
+    };
+    await page.getByTestId('open-saved-config-cfg-old').click();
+    // Read back as it opens, for the step to say what it does.
+    await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    await answerLoads(bridge, oldConfig);
+    await expect(page.getByTestId('sync-review-object-Account')).toBeVisible();
+    // Every read so far answered: the next one is Run's.
+    const answered = await answerLoads(bridge, oldConfig);
+    await page.getByTestId('sync-run').click();
+    const load = await nextLoad(bridge, answered);
+    await bridge.respond('sync:config:load:response', { config: oldConfig }, load.id as string);
     const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
     // The host's refusal, before anything is read: English words, a code, the rules.
     await bridge.respond(
@@ -536,47 +540,63 @@ async function nextLoad(bridge: MockBridge, answered: number): Promise<Record<st
   return loads[loads.length - 1];
 }
 
+/** Answer every `sync:config:list` posted so far with `configs`. */
+async function answerLists(bridge: MockBridge, configs: unknown[]): Promise<void> {
+  // Every request answered: a development build mounts the panel twice, and
+  // the first request's listener is gone with the first mount.
+  for (const asked of await bridge.getMessages('sync:config:list')) {
+    await bridge.respond('sync:config:list:response', { configs }, String(asked.id));
+  }
+}
+
+/** The saved configuration the Saved tab lists, as `sync:config:list` sums it up. */
+const NIGHTLY = {
+  id: 'cfg-saved',
+  name: 'Nightly accounts',
+  description: 'Saved from Migration',
+  updatedAt: '2026-10-01T09:00:00.000Z',
+};
+
 test.describe('Sync panel — saved configurations', () => {
-  test('Run now reads a saved configuration back and runs it on the request the wizard runs with', async ({
+  test('Saved lists them first; Open puts one on Simulate & run, and Run there runs it as saved', async ({
     page,
   }) => {
+    // Run now sent it to sync:execute at once, from under the schedules: no
+    // simulation, no checkpoint first, no mute, nothing of what it does said.
     const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
 
     await page.getByTestId('tab-schedules').click();
+    await expect(page.getByTestId('tab-schedules')).toHaveText('Saved');
     await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
-    // Every request answered: a development build mounts the panel twice, and
-    // the first request's listener is gone with the first mount.
-    const listRequests = (await bridge.getMessages('sync:config:list')).map((m) => String(m.id));
-    for (const correlationId of listRequests) {
-      await bridge.respond(
-        'sync:config:list:response',
-        {
-          configs: [
-            {
-              id: 'cfg-saved',
-              name: 'Nightly accounts',
-              description: 'Saved from Migration',
-              updatedAt: '2026-10-01T09:00:00.000Z',
-            },
-          ],
-        },
-        correlationId,
-      );
-    }
+    await answerLists(bridge, [NIGHTLY]);
     await expect(page.getByTestId('sync-saved-configs')).toContainText('Nightly accounts');
+    await expect(page.getByTestId('run-saved-config-cfg-saved')).toHaveCount(0);
     const listed = await checkAccessibility(page);
     expect(listed.violations, formatViolations(listed.violations)).toEqual([]);
 
-    await page.getByTestId('run-saved-config-cfg-saved').click();
-    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
-    expect(load.payload).toEqual({ id: 'cfg-saved' });
+    await page.getByTestId('open-saved-config-cfg-saved').click();
+    await expect(page.getByTestId('tab-sync')).toHaveAttribute('aria-selected', 'true');
+    const opened = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    expect(opened.payload).toEqual({ id: 'cfg-saved' });
+    await answerLoads(bridge, SAVED_CONFIG);
+    await expect(page.getByTestId('sync-review-object-Account')).toHaveText(
+      'Account — Insert: each record read is created in the target.',
+    );
+    await expect(page.getByTestId('sync-simulate')).toBeEnabled();
+    expect(await bridge.getMessages('sync:execute')).toEqual([]);
+    const shown = await checkAccessibility(page);
+    expect(shown.violations, formatViolations(shown.violations)).toEqual([]);
+
+    // Every read so far answered: the next one is Run's.
+    const answered = await answerLoads(bridge, SAVED_CONFIG);
+    await page.getByTestId('sync-run').click();
+    const load = await nextLoad(bridge, answered);
     await bridge.respond('sync:config:load:response', { config: SAVED_CONFIG }, load.id as string);
 
     // What was saved, as it was saved, on the wizard's own request: the host
     // checks it and asks Production Guard as for any run of the page.
     const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
     expect(run.payload).toEqual({ config: SAVED_CONFIG });
-    expect(await bridge.getMessages('sync:simulate')).toEqual([]);
     await expect(page.getByTestId('sync-saved-run')).toContainText(
       'Saved configuration: Nightly accounts',
     );
@@ -586,7 +606,42 @@ test.describe('Sync panel — saved configurations', () => {
     expect(running.violations, formatViolations(running.violations)).toEqual([]);
   });
 
-  test('Run now opens a configuration that deletes on the execute step, which says so, and Run runs it there', async ({
+  test('Delete asks first, then deletes a saved configuration by its id, and the list goes without it', async ({
+    page,
+  }) => {
+    // The host deleted on sync:config:delete, and nothing on the page sent it.
+    const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
+    await page.getByTestId('tab-schedules').click();
+    await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
+    await answerLists(bridge, [NIGHTLY]);
+
+    await page.getByRole('button', { name: 'Delete Nightly accounts' }).click();
+    await expect(page.getByTestId('delete-config-confirm-cfg-saved')).toContainText(
+      'Delete Nightly accounts? It cannot be undone.',
+    );
+    expect(await bridge.getMessages('sync:config:delete')).toEqual([]);
+    const asking = await checkAccessibility(page);
+    expect(asking.violations, formatViolations(asking.violations)).toEqual([]);
+
+    const listsBefore = (await bridge.getMessages('sync:config:list')).length;
+    await page.getByTestId('confirm-delete-config-cfg-saved').click();
+    const deletion = await bridge.waitForMessage('sync:config:delete', { timeout: 10_000 });
+    expect(deletion.payload).toEqual({ id: 'cfg-saved' });
+    await bridge.respond('sync:config:delete:response', { success: true }, deletion.id as string);
+
+    await expect(page.getByTestId('delete-config-done')).toHaveText(
+      'Nightly accounts was deleted.',
+    );
+    // Read again, and listed no more.
+    await expect
+      .poll(async () => (await bridge.getMessages('sync:config:list')).length)
+      .toBeGreaterThan(listsBefore);
+    await answerLists(bridge, []);
+    await expect(page.getByTestId('sync-saved-configs-none')).toBeVisible();
+    await expect(page.getByTestId('saved-config-cfg-saved')).toHaveCount(0);
+  });
+
+  test('Open says a configuration that deletes deletes, before Run there runs it', async ({
     page,
   }) => {
     // Run now sent it to sync:execute at once: the delete fired on a sandbox
@@ -598,30 +653,11 @@ test.describe('Sync panel — saved configurations', () => {
     const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
     await page.getByTestId('tab-schedules').click();
     await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
-    for (const asked of await bridge.getMessages('sync:config:list')) {
-      await bridge.respond(
-        'sync:config:list:response',
-        {
-          configs: [
-            {
-              id: 'cfg-saved',
-              name: 'Nightly accounts',
-              description: 'Saved from Migration',
-              updatedAt: '2026-10-01T09:00:00.000Z',
-            },
-          ],
-        },
-        asked.id as string,
-      );
-    }
+    await answerLists(bridge, [NIGHTLY]);
 
-    await page.getByTestId('run-saved-config-cfg-saved').click();
+    await page.getByTestId('open-saved-config-cfg-saved').click();
     await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
     let answered = await answerLoads(bridge, deleting);
-    // Opened, then read back for the execute step to say what it does.
-    const opened = await nextLoad(bridge, answered);
-    expect(opened.payload).toEqual({ id: 'cfg-saved' });
-    answered = await answerLoads(bridge, deleting);
 
     await expect(page.getByTestId('sync-review-object-Account')).toHaveText(
       "Account — Delete by Id: the target record holding the source record's Id is deleted.",
@@ -640,7 +676,7 @@ test.describe('Sync panel — saved configurations', () => {
   });
 });
 
-test.describe('Sync panel — a configuration Migration saved and opened here', () => {
+test.describe('Sync panel — a configuration SFDMU Import saved and opened here', () => {
   test('runs from the execute step as saved, between its orgs, with its own Stop', async ({
     page,
   }) => {

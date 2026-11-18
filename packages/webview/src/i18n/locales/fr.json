@@ -41,7 +41,6 @@
     "typeToConfirm": "Saisissez <code>{{text}}</code> pour confirmer :",
     "time": "Heure",
     "recordIds": "ID d'enregistrement",
-    "statusAbbrev": "St",
     "recordCountFormatted_one": "{{formatted}} enregistrement",
     "recordCountFormatted_other": "{{formatted}} enregistrements",
     "fieldCount_one": "{{count}} champ",
@@ -194,7 +193,7 @@
     "frozen": "Jeu de données figé",
     "grappe": "Grappe",
     "autopilot": "Autopilot",
-    "migration": "Migration",
+    "migration": "Import SFDMU",
     "help": "Aide",
     "checkpoint": "Points de contrôle",
     "recovery": "Remise en service"
@@ -1366,11 +1365,13 @@
   "sync": {
     "standardPricebookMatched": "Catalogue de prix standard : apparié à celui de l'org cible, jamais écrit.",
     "title": "Synchroniser les données",
+    "subtitle": "Copier des enregistrements d'une org vers une autre",
     "selectOrgs": "Sélectionner les orgs",
     "selectOrgsDesc": "Choisissez les orgs source et cible",
     "sameOrgWarning": "La source et la cible sont la même org : choisissez une autre org comme cible pour continuer.",
     "configureObjects": "Configurer les objets",
     "fieldMapping": "Mapping de champs",
+    "fields": "Champs",
     "transforms": "Transformations",
     "review": "Vérification",
     "reviewDesc": "Vérifiez la configuration de sync avant exécution",
@@ -1390,10 +1391,12 @@
       "encrypted": "{{object}} : {{fields}}, chiffrés, sont masqués pour l'utilisateur avec lequel SandForge lit l'org source, qui n'a pas l'autorisation View Encrypted Data. L'exécution les laisse hors de chaque enregistrement plutôt que de copier les masques ; accordez cette autorisation pour copier leurs valeurs.",
       "readCap": "Chaque objet est lu jusqu'à {{cap}} enregistrements, dans l'une ou l'autre org, comme le règle sandforge.sync.maxRecordsPerObject (50 000 au plus) : un objet qui en a davantage est copié en partie, et l'exécution le dit. Pour copier une partie d'une org plus grande qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible."
     },
-    "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
-    "execute": "Exécuter",
+    "configSaved": "Configuration enregistrée : l'onglet Enregistrées la liste, et une planification peut l'exécuter.",
+    "execute": "Simuler et lancer",
     "executeDesc": "Lancer l'opération de synchronisation",
     "results": "Résultats",
+    "newSync": "Nouvelle synchronisation",
+    "seeInHistory": "Voir dans l'historique",
     "modes": {
       "full": "Complet",
       "incremental": "Incrémental",
@@ -1420,7 +1423,6 @@
     "target": "Cible",
     "sourceField": "Champ source",
     "targetField": "Champ cible",
-    "dataFlow": "Flux de données",
     "alreadyCopied_one": "{{count}} enregistrement déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
     "alreadyCopied_other": "{{count}} enregistrements déjà copiés par une exécution précédente de cette configuration, laissés tels quels.",
     "alreadyLinked_one": "{{count}} enregistrement déjà lié par une exécution précédente de cette configuration à un enregistrement que la cible détenait, laissé tel quel.",
@@ -1430,6 +1432,7 @@
     "autoMap": "Mapping auto",
     "suggestedMappings": "Mappings suggérés",
     "selectAndConfigure": "Sélectionner les orgs et les objets",
+    "optionsTitle": "Options",
     "templates": {
       "title": "Modèles de démarrage rapide",
       "useThis": "Utiliser",
@@ -1450,6 +1453,8 @@
     },
     "realtime": {
       "title": "Sync temps réel",
+      "conflictsTitle": "Conflits",
+      "conflictsHint": "Les modifications que la réplication en temps réel a mises en attente d'une décision, champ par champ. Une exécution Sync tranche ce qu'elle trouve selon le choix fait à sa première étape, et ne met rien en attente ici.",
       "start": "Démarrer",
       "stop": "Arrêter",
       "metrics": "Métriques",
@@ -1495,7 +1500,7 @@
         "failed": "Non écrit",
         "watched": "Seulement observé, non écrit",
         "kept-target": "Non écrit : l'enregistrement cible a été modifié après ce changement",
-        "held": "En attente d'une décision dans l'onglet Conflits",
+        "held": "En attente d'une décision sous Conflits",
         "deletes-off": "Suppression non appliquée : les suppressions sont désactivées pour cet objet",
         "own-write": "Écrit par cette session ; non réappliqué"
       },
@@ -1529,9 +1534,8 @@
     "tabs": {
       "sync": "Sync",
       "history": "Historique",
-      "schedules": "Planifications",
-      "realtime": "Temps réel",
-      "conflicts": "Conflits"
+      "schedules": "Enregistrées",
+      "realtime": "Temps réel"
     },
     "conflictResolution": {
       "title": "Résolution des conflits",
@@ -1566,8 +1570,8 @@
       "timestamp": "Horodatage"
     },
     "emptyState": {
-      "title": "Gardez deux orgs synchronisées",
-      "description": "Sync copie les données entre orgs — mapping de champs, transformations et règles de conflit — ex. rafraîchir une sandbox de dev depuis une partial copy.",
+      "title": "Copier des enregistrements entre deux orgs",
+      "description": "Sync copie des enregistrements d'une org dans une autre, avec des mappings de champs, des transformations et ce qu'il faut faire d'un enregistrement que la cible détient déjà.",
       "step2": "Choisissez les orgs source et cible",
       "step3": "Mappez les objets et les champs",
       "step4": "Lancez la synchronisation et vérifiez les résultats"
@@ -1601,8 +1605,8 @@
       "emptyDesc": "Les synchronisations terminées apparaissent ici avec leurs résultats par objet."
     },
     "piiWarningTitle": "PII détectées",
-    "mappingForObject": "Mapping de",
-    "mappingForObjectHint": "Chaque objet porte les mappings tracés pour lui. Les objets laissés sans mapping sont copiés champ pour champ.",
+    "mappingForObject": "Champs de",
+    "mappingForObjectHint": "Chaque objet porte les mappings et les règles créés pour lui. Un objet qui n'en a pas est copié champ pour champ.",
     "fieldMappingCount_one": "{{count}} mapping de champ",
     "fieldMappingCount_other": "{{count}} mappings de champs",
     "transformCount_one": "{{count}} transformation",
@@ -1822,10 +1826,9 @@
       "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
     },
     "transformIntro": "Chaque règle change un seul champ de {{object}}, dans chaque enregistrement que la synchronisation écrit. Les champs sans règle sont écrits tels qu'ils ont été lus.",
-    "transformForObject": "Règles de",
     "transformNeedsFieldNote": "Une règle sans champ date d'avant les règles qui nomment un champ, et modifierait chaque champ de chaque enregistrement : choisissez sur sa ligne le champ qu'elle modifie. Simuler et Lancer la synchronisation restent désactivés tant que chaque règle ne nomme pas son champ.",
-    "transformNeedsFieldRun": "Une règle de transformation ne nomme aucun champ : choisissez son champ à l'étape Transformations. Simuler et Lancer la synchronisation restent désactivés d'ici là, car une telle règle modifierait chaque champ de chaque enregistrement.",
-    "transformOpenStep": "Aller aux Transformations",
+    "transformNeedsFieldRun": "Une règle de transformation ne nomme aucun champ : choisissez son champ à l'étape Champs. Simuler et Lancer la synchronisation restent désactivés d'ici là, car une telle règle modifierait chaque champ de chaque enregistrement.",
+    "transformOpenStep": "Aller aux Champs",
     "transformRemove": "Retirer {{rule}} sur {{field}}",
     "transformRemoveNoField": "Retirer {{rule}}, qui ne nomme aucun champ",
     "transformNone": "Aucune règle sur {{object}} : ses champs sont écrits tels qu'ils ont été lus.",
@@ -1880,9 +1883,19 @@
     "readCutAtMost": "La lecture de l'org source s'est arrêtée à {{cap}} enregistrements, le plus qu'une exécution tienne d'un objet : cette exécution en a copié une partie. Pour copier le reste, lisez-le par tranches avec un filtre sur CreatedDate, une plage par exécution. Pour copier plutôt un échantillon de la source qui tient dans la cible, utilisez Forge avec la profondeur ALL et Enregistrements / objet réglé sur Un échantillon qui tient dans la cible.",
     "savedConfigs": {
       "title": "Configurations enregistrées",
-      "hint": "Exécutez-en une maintenant, telle qu'elle a été enregistrée : elle est vérifiée comme une exécution lancée depuis l'onglet Sync, et Production Guard la juge avant toute écriture. Une configuration qui supprime s'ouvre plutôt dans l'onglet Sync, qui dit ce que fait chacun de ses objets : Lancer la synchronisation l'y exécute.",
-      "runNow": "Exécuter maintenant",
-      "runNamed": "Exécuter {{name}} maintenant",
+      "hint": "Ouvrir en mène une à l'étape Simuler et lancer de l'onglet Sync, avec ce qu'y a l'exécution de l'assistant : Simuler d'abord, puis Lancer la synchronisation.",
+      "none": "Aucune configuration n'est encore enregistrée : Enregistrer comme configuration Sync, à l'étape Vérification de l'onglet Sync, en enregistre une.",
+      "open": "Ouvrir",
+      "openNamed": "Ouvrir {{name}}",
+      "delete": "Supprimer",
+      "deleteNamed": "Supprimer {{name}}",
+      "deleteConfirm": "Supprimer {{name}} ? Ce ne peut pas être annulé.",
+      "deleteSchedules_one": "La planification qui l'exécute échouera dès sa prochaine exécution : modifiez-la ou supprimez-la aussi.",
+      "deleteSchedules_other": "Les {{count}} planifications qui l'exécutent échoueront dès leur prochaine exécution : modifiez-les ou supprimez-les aussi.",
+      "deleteDone": "{{name}} a été supprimée.",
+      "deleteGone": "{{name}} n'est plus enregistrée : rien n'a été supprimé.",
+      "sfdmuHint": "Un export.json SFDMU figure ici une fois qu'Import SFDMU l'a converti en configuration enregistrée.",
+      "openSfdmu": "Ouvrir {{module}}",
       "ofSaved": "Configuration enregistrée : {{name}}",
       "gone": "Cette configuration n'est plus enregistrée : rien n'a été exécuté.",
       "reading": "Lecture de la configuration enregistrée, pour dire ce que fait chacun de ses objets avant son exécution…",
@@ -1949,7 +1962,7 @@
     "chooseObject": "Choisir un objet…"
   },
   "migration": {
-    "title": "Migration",
+    "title": "Import SFDMU",
     "subtitle": "Convertissez un export.json SFDMU en configuration Sync. L'import lit le fichier sans rien modifier dans aucune org ; Sync exécute la configuration une fois enregistrée, et écrit des enregistrements dans l'org cible.",
     "type": {
       "sfdmu": {
@@ -1961,11 +1974,12 @@
     "filePathPlaceholderSfdmu": "/chemin/vers/export.json",
     "filePathHint": "Parcourir… pour le choisir, ou collez son chemin absolu. Le fichier doit se trouver dans un dossier du workspace ouvert ou dans votre répertoire personnel.",
     "import": "Importer",
-    "importing": "Importation…",
+    "importing": "Import en cours…",
     "reset": "Nouvel import",
-    "successTitle": "Importation terminée",
+    "importedFrom": "Importé depuis {{path}}",
+    "successTitle": "Import terminé",
     "successDescription": "Configuration convertie",
-    "unknownError": "L'importation a échoué pour une raison inconnue.",
+    "unknownError": "L'import a échoué pour une raison inconnue.",
     "targetObjectMapped": "Rien n'a été importé : Sync écrit un objet dans le même objet de l'org cible, et cet export en envoie un vers un autre : {{objects}}. Retirez ses entrées targetObject, ou ces objets, puis importez-le de nouveau.",
     "refused": {
       "notJson": "Rien n'a été importé : ce fichier n'est pas du JSON, ce n'est donc pas un export.json SFDMU.",
@@ -3948,7 +3962,7 @@
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org, lue à l'ouverture de la page et à chaque clic sur Actualiser :\n- Jauge de score de santé avec facteurs contributifs\n- Opérations en cours, tant qu'une exécution tourne : son module, sa progression et son étape en cours\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Scanner les anomalies, dans Limites governor : examine jusqu'à 500 enregistrements de l'objet choisi à la recherche de valeurs inhabituelles\n- Alertes pour les seuils critiques\n- Gouvernance Org : des politiques de règles de seuil, vérifiées sur l'org quand vous cliquez sur Évaluer\n\nAstuce : Actualisation automatique, le bouton horloge, est désactivée par défaut ; cliquez dessus pour relire l'org toutes les 30 secondes tant que le panneau est visible.",
     "seedContent": "Sous les modèles, quatre autres façons d'alimenter une org :\n- Générer des données : un assistant pour les objets, le nombre d'enregistrements et les règles de champs de votre choix (IA, Faker, statique, séquence...) ; un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n- Import CSV : des enregistrements tirés d'un fichier CSV, ses colonnes associées aux champs\n- Cloner depuis une org : des enregistrements copiés depuis une autre org\n- Données de test pour un agent Agentforce : choisissez un pack ou Rédiger depuis votre propre texte, relisez-le, Lancer le seed du scénario, puis Écrire le fichier de test. Les packs ne demandent aucune clé d'IA ; un brouillon utilise votre clé Anthropic. Ses articles Knowledge sont publiés ; SandForge ne lance jamais les tests.",
     "checkpointContent": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur. Son aperçu compte, objet par objet, les enregistrements à Supprimer, à qui Rendre les valeurs et à Rétablir. Une sauvegarde DataOps est une copie de certains objets : sa restauration ne supprime jamais ce qui a été ajouté.\n- Le retour arrière défait le travail de tous depuis le point de contrôle, pas seulement les exécutions de SandForge : n'importe quel utilisateur, Flow ou intégration. L'aperçu indique qui a modifié quoi en dernier avant que rien ne soit écrit.\n- Jamais sur une org de production : les points de contrôle sont réservés aux sandboxes, aux scratch orgs et aux orgs Developer Edition, et aucun paramètre ni option ne lève ce refus.\n- Les données seulement : champs, Flows, règles de validation, présentations, autorisations, utilisateurs et configuration restent tels quels, et ce qui est déjà sorti de l'org (e-mails, callouts, événements de plateforme) reste envoyé.\n- Les fichiers ne sont couverts qu'en partie : un retour arrière supprime les fichiers joints depuis à ses enregistrements et rétablit ceux supprimés depuis, mais un fichier qui a reçu une nouvelle version conserve son nouveau contenu.\n- Un point de contrôle contient en clair les valeurs des enregistrements, dont des données personnelles, sur cette machine, lisibles par vous seul, pendant 30 jours sauf si vous le conservez.",
-    "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Planifications lance une configuration enregistrée selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente dans l'onglet Conflits.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
+    "syncContent": "Sync copie des objets d'une org vers une autre, champ par champ ; l'onglet Historique liste chaque exécution, et l'onglet Enregistrées ouvre une configuration enregistrée, ou la lance selon une planification.\n- Une exécution delta d'une configuration enregistrée lit ce qui a changé depuis sa dernière exécution réussie, et peut supprimer dans la cible ce que la source a supprimé.\n- Mapping auto associe les champs de même nom d'API. Une règle de transformation change un seul champ dans chaque enregistrement écrit ; une règle sans champ est refusée avant que rien ne soit lu ni enregistré. Les tables de correspondance viennent d'une configuration SFDMU importée.\n- Neutraliser les e-mails et les numéros de téléphone est coché sauf si vous le décochez ; Copier les fichiers de ces enregistrements apporte leurs fichiers.\n- Onglet Temps réel : écrit chaque modification que la source publie (Change Data Capture) dès qu'elle arrive ; un conflit est tranché par la stratégie ou mis en attente sous Conflits, dans le même onglet.\n- Retirer ce que cette exécution a créé, sur les résultats ou l'entrée d'historique de l'exécution, supprime ce qu'elle a inséré et ses fichiers, rend aux enregistrements qu'elle a écrasés leurs valeurs d'avant, conservées pendant sandforge.backup.maxAgeDays, et rétablit ce qu'une exécution delta a supprimé. Production Guard le refuse sur une org de production.\n- Une session Temps réel se retire de la même façon, sous Sessions précédentes, une fois arrêtée.",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Présence des permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Objets : les objets des deux orgs, lus en direct à l'ouverture de l'onglet\n- Écarts de paramètres d'org : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déployer depuis le diff : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox, une scratch org ou une org Developer Edition",
     "dataopsContent": "Opérations sur les données de l'org choisie en haut de la page :\n- Masquage masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA, ou un modèle à vous créé par Créer un modèle ; sauf si vous décochez Conserver d'abord les valeurs, il sauvegarde ce qu'il masque, pour que Restaurer… puisse le remettre. Créer une sauvegarde, à côté du modèle, copie sur cette machine les objets qu'il masque.\n- Sauvegardes liste chaque sauvegarde de l'org, chacune avec Restaurer…, Exporter et Supprimer. Restaurer… demande d'abord, en nommant l'org et chaque objet, et s'il faut réécrire chaque ligne ; décoché, il n'écrit que les lignes modifiées depuis. Une sauvegarde n'est pas un point de contrôle : avant une exécution risquée sur une sandbox, créez un point de contrôle.\n- Données personnelles trouve les champs qui contiennent des données personnelles, puis les enregistrements d'une personne par e-mail, nom ou téléphone, à exporter, effacer ou supprimer après un examen et une confirmation saisie.\n- Nettoyage compte les enregistrements inactifs, les références vides, les valeurs répétées et le remplissage de chaque champ, à exporter ou supprimer après un examen et une confirmation saisie, 1 000 à la fois.\n- Vidage supprime tous les enregistrements des objets choisis, ou de toute l'org, une fois que Simuler a compté ce qui part et que vous avez saisi le nom de l'org.",
     "automationContent": "Constructeur visuel de pipelines :\n- Sous Étapes, la page propose les types d'étapes qu'un pipeline exécute : Sync, Seed, Anonymisation, Sauvegarde, Point de contrôle, Retour arrière, Comparaison, Vérification préalable, Condition, Délai, Approbation et Notification. Sync exécute une configuration enregistrée sur la page Sync, et s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui. Seed et Anonymisation exécutent un modèle de leur page, jamais dans une org de production, derrière une étape Approbation dans une sandbox marquée Staging, et ne sont jamais retentées. Une étape Retour arrière fait revenir une org à un point de contrôle conservé sur cette machine, au plus le nombre d'enregistrements indiqué, une fois que vous l'avez confirmée avec l'alias de l'org, ou, si elle n'en a pas, son nom ou son ID d'organisation, sous son aperçu. Restauration et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page : un pipeline qui contient l'une de ces étapes, ou une étape Script, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
@@ -3977,7 +3991,7 @@
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Démarrer la visite guidée",
     "autopilotContent": "En trois étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le. Les e-mails et les numéros de téléphone sont neutralisés sauf si vous décochez la case — chaque adresse sous .invalid, chaque numéro fictif — et Avancé choisit un référentiel de conformité qui anonymise davantage (RGPD, CCPA, HIPAA ou PCI-DSS)",
-    "migrationContent": "Migration convertit un export.json SFDMU en configuration Sync :\n- L'import lit le fichier et ne modifie aucune org\n- Enregistrée comme configuration Sync, avec ses orgs source et cible et un nom, elle s'ouvre par Ouvrir dans Sync : Simuler la vérifie là, et Lancer la synchronisation l'écrit\n- Un fichier CSV d'enregistrements va à l'Import CSV de Seed, qui charge ses lignes",
+    "migrationContent": "Import SFDMU convertit un export.json SFDMU en configuration Sync :\n- L'import lit le fichier et ne modifie aucune org\n- Enregistrée comme configuration Sync, avec ses orgs source et cible et un nom, elle s'ouvre par Ouvrir dans Sync : Simuler la vérifie là, et Lancer la synchronisation l'écrit\n- Un fichier CSV d'enregistrements va à l'Import CSV de Seed, qui charge ses lignes",
     "reportsContent": "Rapports montre ce que les exécutions de SandForge ont fait :\n- Exécutions : chaque exécution Forge et Sync avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Analytiques : taux de réussite calculés à partir de ces exécutions\n- Journal d'audit : chaque exécution qui écrit dans une org — un clonage Forge, une synchronisation, un seed, un import CSV, un clonage d'enregistrements, une exécution Autopilot, une restauration, un masquage ou un chargement de jeu de données figé — avec ce qu'elle a écrit dans chaque objet et ce que Production Guard a décidé\n- Lignée de données : d'où viennent les enregistrements qu'une exécution a écrits — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu de données figé — et combien de chaque objet",
     "orgsContent": "Connectez une org de l'une de deux façons, qui passent toutes deux par la Salesforce CLI (sf) :\n- Importer depuis la Salesforce CLI ajoute chaque org que la CLI détient déjà. Une CLI qui ne détient encore aucune org est signalée comme une information, pas comme une erreur : connectez-vous plutôt dans le navigateur.\n- Se connecter dans le navigateur ouvre la page de connexion Salesforce ; l'alias est facultatif.\n- URL de connexion : Production / Développeur ou Sandbox ; pour une org qui bloque les deux, Domaine personnalisé (My Domain)… prend son URL de connexion telle que Configuration → Mon domaine l'affiche.\n- Nom d'utilisateur / Mot de passe se passe de la CLI ; JWT Bearer et OAuth (Appareil) sont sous Plus de méthodes.\n\nForge, les chargements du Jeu de données figé, les Points de contrôle et le déploiement de la Comparaison refusent une org de production ; les suppressions y sont refusées aussi ; toute autre écriture y demande d'abord, et aucun paramètre ne le désactive. Une sandbox qui contient des données réelles (copie complète, recette) : ouvrez sa boîte Modifier sur la page Organisations et cochez Préproduction, et Production Guard demande alors avant chaque suppression, chaque déploiement et chaque écriture de plus de 10 000 enregistrements.\n\nUne org qui ne se connecte pas : voir Dépannage.",
     "fullGuide": "Guide complet : {{section}}",
@@ -4030,11 +4044,11 @@
       "tip": "Prenez un point de contrôle Avant le rafraîchissement avant chaque rafraîchissement : la prochaine remise en service le rejoue."
     },
     "sync": {
-      "step1": "Dans l'onglet Sync, cliquez sur Démarrer le Sync rapide.",
-      "step2": "Choisissez l'Org source et l'Org cible, puis cliquez sur Suivant.",
-      "step3": "Choisissez des objets parmi les Objets suggérés ou par la recherche, puis cliquez sur Suivant.",
-      "step4": "Vérifiez les orgs et Total enregistrements dans l'Aperçu, puis cliquez sur Synchroniser vers, qui nomme l'org cible.",
-      "tip": "Un Sync rapide insère tous les enregistrements à chaque fois ; hors production, ses résultats proposent Retirer ce que cette exécution a créé."
+      "step1": "Dans l'onglet Sync, choisissez la Source et la Cible, puis ajoutez les objets, chacun avec son opération.",
+      "step2": "Réglez les Options au besoin, puis à l'étape Champs, mappez ou transformez un champ là où les orgs diffèrent.",
+      "step3": "À l'étape Vérification, voyez ce que fait chaque objet ; Enregistrer comme configuration Sync la garde dans Enregistrées.",
+      "step4": "À l'étape Simuler et lancer, Simuler dit ce qui serait écrit, puis Lancer la synchronisation l'écrit.",
+      "tip": "Démarrer le Sync rapide copie des objets entiers en trois écrans, chaque enregistrement inséré ; son Estimation les compte d'abord."
     },
     "autopilot": {
       "step1": "Choisissez une org sous Org source et une autre sous Org cible, puis cliquez sur Suivant.",
@@ -7402,7 +7416,7 @@
     "suggestedObjects": "Objets suggérés",
     "notInSource": "{{object}} ne fait pas partie des objets que l'org source laisse SandForge lire et créer.",
     "addParent": "Ajouter le parent {{parent}} pour {{child}} ?",
-    "preview": "Aperçu",
+    "preview": "Estimation",
     "totalRecords": "Total enregistrements",
     "totalApiCalls": "Appels API estimés",
     "estimatedDuration": "Durée estimée",

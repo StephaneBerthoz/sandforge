@@ -4,9 +4,9 @@
  * Two claims of `docs/modules/sync.md` outlived the code they described. The
  * feature list sold "5 Conflict Strategies -- ... manual merge ...", while the
  * page offered no tab on which a conflict could be reviewed and the strategy of
- * that name resolved to the source values like source wins. The Conflicts tab
- * is offered now, for the changes real-time replication holds, and a run no
- * longer has a manual strategy at all. It also called
+ * that name resolved to the source values like source wins. Conflicts is
+ * listed now, on the Real-Time tab, for the changes real-time replication
+ * holds, and a run no longer has a manual strategy at all. It also called
  * transforms "configurable per-field or per-object", while the only rules a
  * screen could produce were object-level ones that rewrote every field of every
  * record. And nothing said that Grappe's threshold is measured with one
@@ -60,19 +60,56 @@ const SYNC_WRITE_ORDER = source('packages/extension/src/modules/sync/syncWriteOr
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
 
 describe('docs/modules/sync.md', () => {
-  it('sells a conflict review for real-time changes only, the one list the tab shows', () => {
+  it('sells a conflict review for real-time changes only, the one list the Real-Time tab shows', () => {
     // Positive control: the tab list is where the page says what it offers. If
     // this match is gone the assertion below is about nothing.
     expect(OFFERED_TABS).not.toBeNull();
-    expect(OFFERED_TABS?.[1]).toContain("'conflicts'");
     expect(OFFERED_TABS?.[1]).toContain("'realtime'");
+    expect(OFFERED_TABS?.[1]).not.toContain("'conflicts'");
+    expect(SYNC_PAGE).toContain('<ConflictsSection />');
     // A run still resolves every collision by its strategy alone.
     expect(SYNC_ORCHESTRATOR).toContain('this.deps.conflictResolver.resolve(');
 
-    expect(DOC).toContain('The Conflicts tab lists only real-time changes');
-    expect(DOC).toContain('manual holds the change on the Conflicts tab');
+    expect(DOC).toContain('Conflicts, on the Real-Time tab, lists only real-time changes');
+    expect(DOC).toContain('manual holds the change under Conflicts, below the panel');
+    expect(DOC).not.toContain('Conflicts tab');
     expect(DOC).not.toContain('5 Conflict Strategies');
     expect(DOC).not.toContain('manual merge');
+  });
+
+  it('says the Saved tab opens a configuration on Simulate & run, and deletes one once asked', () => {
+    const PANEL = source('packages/webview/src/pages/Sync/SyncSchedulePanel.tsx');
+    // Positive control: Open opens it on the execute step, Delete sends the
+    // request the host deletes it on, and Run now is gone.
+    expect(SYNC_PAGE_DATA).toContain(
+      'const handleOpenSavedConfig = (configId: string, label: string)',
+    );
+    expect(SYNC_PAGE).toContain('handleOpenSavedConfig(configId, label);');
+    expect(PANEL).toContain("'sync:config:delete',");
+    expect(PANEL).not.toContain('runNow');
+    expect(SYNC_HANDLER).toContain("case 'sync:config:delete':");
+
+    expect(DOC).toContain('The Saved tab lists the saved configurations first');
+    expect(DOC).toContain('**Open** opens one on the Simulate & run');
+    expect(DOC).toContain('**Delete** asks first');
+    expect(DOC).toContain('**Run full next time**, beside a delta configuration');
+    expect(DOC).not.toContain('**Run now** runs one');
+    expect(DOC).not.toContain('Schedules tab');
+  });
+
+  it('describes Fields as one step, its mappings and rules of one object, and no flow diagram', () => {
+    // Positive control: the wizard's steps, as the page lists them.
+    expect(SYNC_PAGE).toContain("{ id: 'fields', labelKey: 'sync.fields', optional: true },");
+    expect(SYNC_PAGE).not.toContain("id: 'transforms'");
+    expect(SYNC_PAGE).not.toContain('SankeyFlow');
+    expect(existsSync(resolve(REPO_ROOT, 'packages/webview/src/pages/Sync/SankeyFlow.tsx'))).toBe(
+      false,
+    );
+
+    expect(DOC).toContain('### Fields\n\nThe Fields step is optional');
+    expect(DOC).toContain('pick it under **Fields of** when the run has more than one');
+    expect(DOC).not.toContain('Sankey');
+    expect(DOC).not.toContain('Execute step');
   });
 
   it('says which objects real-time follows, and where the others are enabled', () => {

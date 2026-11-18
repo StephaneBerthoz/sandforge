@@ -180,7 +180,7 @@ for (const theme of THEMES) {
         'QASandbox already holds about 1,520 records of 2 of these objects.',
       );
       await expect(page.getByTestId('review-target-holds-empty-first')).toContainText(
-        'DataOps → Cleanup → Empty objects',
+        'DataOps → Emptying → Empty objects',
       );
       await expect(page.getByTestId('rehearse-button')).toBeDisabled();
       await expect(page.getByTestId('simulate-button')).toBeEnabled();

@@ -87,7 +87,7 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       </span>
 
       {/* What became of it: an icon, its words for a screen reader, the reason on hover */}
-      <span className="w-[20px] shrink-0 text-center">
+      <span className="w-[60px] shrink-0 text-center">
         <span
           className={OUTCOME_ICONS[outcome].className}
           title={event.error ?? outcomeLabel}
@@ -121,7 +121,7 @@ export const CDCEventFeed: React.FC = () => {
         <span className="w-[100px] shrink-0">{t('common.object', 'Object')}</span>
         <span className="w-[70px] shrink-0">{t('common.type', 'Type')}</span>
         <span className="flex-1">{t('common.recordIds', 'Record IDs')}</span>
-        <span className="w-[20px] shrink-0 text-center">{t('common.statusAbbrev', 'St')}</span>
+        <span className="w-[60px] shrink-0 text-center">{t('common.status')}</span>
       </div>
 
       {/* Event list */}

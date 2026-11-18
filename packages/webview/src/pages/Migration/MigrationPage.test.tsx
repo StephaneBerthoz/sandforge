@@ -266,13 +266,43 @@ describe('MigrationPage — the file to import', () => {
   });
 
   it('should reset the form and the mutations when starting a new import', () => {
-    importState = mutationState({ success: true, config: sfdmuConfig });
-    render(<MigrationPage />);
+    const { rerender } = render(<MigrationPage />);
     typePath('/home/user/sfdmu/export.json');
+    importState = mutationState({ success: true, config: sfdmuConfig });
+    rerender(<MigrationPage />);
     fireEvent.click(screen.getByTestId('migration-reset-btn'));
     expect(importState.reset).toHaveBeenCalled();
     expect(saveState.reset).toHaveBeenCalled();
+    importState = mutationState();
+    rerender(<MigrationPage />);
     expect((screen.getByTestId('migration-path-input') as HTMLInputElement).value).toBe('');
+  });
+
+  it('says the file it imported in one line once imported, its box and buttons gone', () => {
+    // The card stayed whole above the configuration it made: the path, its
+    // hint, Browse… and Import, which a second press would run again.
+    const { rerender } = render(<MigrationPage />);
+    typePath('/home/user/sfdmu/export.json');
+    importState = mutationState({ success: true, config: sfdmuConfig });
+    rerender(<MigrationPage />);
+
+    expect(screen.getByTestId('migration-source-card').textContent).toBe(
+      'Imported from /home/user/sfdmu/export.json',
+    );
+    expect(screen.queryByTestId('migration-path-input')).toBeNull();
+    expect(screen.queryByTestId('migration-browse-btn')).toBeNull();
+    expect(screen.queryByTestId('migration-import-btn')).toBeNull();
+    // New import, beside the title, on one line.
+    const again = screen.getByTestId('migration-reset-btn');
+    expect(again.textContent).toBe('New import');
+    expect(again.className).toContain('whitespace-nowrap');
+  });
+
+  it('names itself SFDMU Import, for what it does: it converts a file and writes nothing', () => {
+    // "Migration" promised a move of data, on a page that writes nothing.
+    render(<MigrationPage />);
+    expect(screen.getByTestId('page-header').textContent).toContain('SFDMU Import');
+    expect(screen.getByTestId('page-header').textContent).not.toContain('Migration');
   });
 });
 

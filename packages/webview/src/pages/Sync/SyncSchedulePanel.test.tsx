@@ -43,11 +43,21 @@ function fromHost(data: Record<string, unknown>): void {
   });
 }
 
-/** The "Run full next time" requests the panel posted, envelope-unwrapped. */
-function sentResets(): Array<{ id: string; payload?: unknown }> {
+/** The requests of one type the panel posted, envelope-unwrapped. */
+function sent(type: string): Array<{ id: string; payload?: unknown }> {
   return mockVSCodeApi.postMessage.mock.calls
     .map(([envelope]) => (envelope as { payload: { id: string; type: string } }).payload)
-    .filter((message) => message.type === 'sync:config:reset-delta');
+    .filter((message) => message.type === type);
+}
+
+/** The "Run full next time" requests the panel posted. */
+function sentResets(): Array<{ id: string; payload?: unknown }> {
+  return sent('sync:config:reset-delta');
+}
+
+/** The deletions of a saved configuration the panel posted. */
+function sentDeletes(): Array<{ id: string; payload?: unknown }> {
+  return sent('sync:config:delete');
 }
 
 /** A saved configuration summary, as `sync:config:list` answers it. */
@@ -138,52 +148,70 @@ describe('SyncSchedulePanel', () => {
   });
 
   describe('the saved configurations, on the Sync page', () => {
-    it('lists each one with Run now, which runs it by its id under the label it is listed by', () => {
-      const onRunConfig = vi.fn();
+    it('lists them first, above the schedules, each with Open, which opens it by its id under the label it is listed by', () => {
+      const onOpenConfig = vi.fn();
       savedConfigs.value = [saved('cfg-1', 'dev1 → dev2'), saved('cfg-2', 'Nightly accounts')];
-      render(<SyncSchedulePanel onRunConfig={onRunConfig} />);
+      useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')], loading: false });
+      render(<SyncSchedulePanel onOpenConfig={onOpenConfig} />);
 
       const list = screen.getByTestId('sync-saved-configs');
       expect(list.querySelectorAll('li')).toHaveLength(2);
+      // Under Schedules they were found after every schedule, and on an empty
+      // list after its empty state: they come first now.
+      const schedule = screen.getByTestId('schedule-card-s-1');
+      expect(
+        list.compareDocumentPosition(schedule) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
       // Named after the configuration, as the picker lists it: a name no
       // other saved one has needs no time beside it.
-      const run = screen.getByRole('button', { name: 'Run Nightly accounts now' });
-      expect(run.textContent).toBe('Run now');
+      const open = screen.getByRole('button', { name: 'Open Nightly accounts' });
+      expect(open.textContent).toBe('Open');
+      expect(screen.queryByRole('button', { name: /^Run .* now$/ })).toBeNull();
 
-      fireEvent.click(run);
+      fireEvent.click(open);
 
-      expect(onRunConfig).toHaveBeenCalledWith('cfg-2', 'Nightly accounts');
-      // Nothing is sent from here: the page runs it.
-      expect(mockVSCodeApi.postMessage).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'sync:execute' }),
-      );
+      expect(onOpenConfig).toHaveBeenCalledWith('cfg-2', 'Nightly accounts');
+      // Nothing is read, simulated or run from here: the page opens it on its
+      // execute step.
+      for (const type of ['sync:config:load', 'sync:simulate', 'sync:execute']) {
+        expect(sent(type)).toEqual([]);
+      }
     });
 
-    it('lists them beside the schedules too', () => {
-      useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')], loading: false });
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+    it('offers no Open and no Delete while a run is under way on the page', () => {
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} runDisabled />);
 
-      expect(screen.getByText('Schedule s-1')).toBeDefined();
-      expect(screen.getByTestId('run-saved-config-cfg-1')).toBeDefined();
+      expect(screen.getByTestId('open-saved-config-cfg-1')).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('delete-config-cfg-1')).toHaveProperty('disabled', true);
     });
 
-    it('offers no Run now while a run is under way on the page', () => {
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} runDisabled />);
-
-      expect(screen.getByTestId('run-saved-config-cfg-1')).toHaveProperty('disabled', true);
-    });
-
-    it('lists nothing where no page runs them: the Automation calendar', () => {
+    it('lists nothing where no page opens them: the Automation calendar', () => {
       render(<SyncSchedulePanel />);
 
       expect(screen.queryByTestId('sync-saved-configs')).toBeNull();
+      expect(screen.queryByTestId('sync-saved-sfdmu')).toBeNull();
     });
 
-    it('lists nothing while no configuration is saved', () => {
+    it('says none is saved yet, where one is saved, and offers SFDMU Import, which makes one of an export', () => {
       savedConfigs.value = [];
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+      const onImportSfdmu = vi.fn();
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} onImportSfdmu={onImportSfdmu} />);
 
-      expect(screen.queryByTestId('sync-saved-configs')).toBeNull();
+      expect(screen.getByTestId('sync-saved-configs-none').textContent).toContain(
+        'Save as a Sync configuration',
+      );
+      const sfdmu = screen.getByTestId('sync-saved-sfdmu');
+      expect(sfdmu.textContent).toContain('export.json');
+      fireEvent.click(screen.getByRole('button', { name: 'Open SFDMU Import' }));
+      expect(onImportSfdmu).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing is saved only once the list has answered', () => {
+      savedConfigs.value = [];
+      savedConfigs.loading = true;
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
+
+      expect(screen.queryByTestId('sync-saved-configs-none')).toBeNull();
     });
 
     it('says which ones run as delta, and whether they carry deletions', () => {
@@ -192,7 +220,7 @@ describe('SyncSchedulePanel', () => {
         { ...saved('cfg-2', 'Delta one'), mode: 'delta', watermarks: 0 },
         { ...saved('cfg-3', 'Delta deletes'), mode: 'delta', propagateDeletes: true },
       ];
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
 
       expect(screen.getByTestId('saved-config-cfg-1').textContent).not.toContain('Delta,');
       expect(screen.getByTestId('saved-config-cfg-2').textContent).toContain('Delta');
@@ -207,7 +235,7 @@ describe('SyncSchedulePanel', () => {
         { ...saved('cfg-2', 'Fresh delta'), mode: 'delta', watermarks: 0 },
         { ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 },
       ];
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
 
       expect(screen.queryByTestId('reset-delta-cfg-1')).toBeNull();
       expect(screen.queryByTestId('reset-delta-cfg-2')).toBeNull();
@@ -218,7 +246,7 @@ describe('SyncSchedulePanel', () => {
 
     it('clears the watermarks by the id, says so once the host answers, and reads the list again', () => {
       savedConfigs.value = [{ ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 }];
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
 
       fireEvent.click(screen.getByTestId('reset-delta-cfg-3'));
 
@@ -241,7 +269,7 @@ describe('SyncSchedulePanel', () => {
 
     it('says why the watermarks were not cleared when the host refuses', () => {
       savedConfigs.value = [{ ...saved('cfg-3', 'Running delta'), mode: 'delta', watermarks: 2 }];
-      render(<SyncSchedulePanel onRunConfig={vi.fn()} />);
+      render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
 
       fireEvent.click(screen.getByTestId('reset-delta-cfg-3'));
       const sent = sentResets()[0];
@@ -258,6 +286,90 @@ describe('SyncSchedulePanel', () => {
 
       expect(screen.getByTestId('reset-delta-error').textContent).toContain('no longer saved');
       expect(screen.queryByTestId('reset-delta-done')).toBeNull();
+    });
+
+    describe('deleting one', () => {
+      beforeEach(() => {
+        savedConfigs.value = [saved('cfg-1', 'dev1 → dev2'), saved('cfg-2', 'Nightly accounts')];
+        useSyncScheduleStore.setState({
+          schedules: [makeMockSchedule('s-1', { configId: 'cfg-2' })],
+          loading: false,
+        });
+      });
+
+      it('asks first, naming the schedule that runs it, and sends nothing until confirmed', () => {
+        render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
+
+        // The host deleted a configuration on `sync:config:delete`, and the
+        // page never sent it: a saved configuration stayed for good.
+        fireEvent.click(screen.getByRole('button', { name: 'Delete Nightly accounts' }));
+
+        const asked = screen.getByTestId('delete-config-confirm-cfg-2');
+        expect(asked.textContent).toContain('Delete Nightly accounts? It cannot be undone.');
+        expect(asked.textContent).toContain(
+          'The schedule that runs it fails from its next run: edit it or delete it too.',
+        );
+        expect(sentDeletes()).toEqual([]);
+
+        fireEvent.click(screen.getByTestId('cancel-delete-config-cfg-2'));
+        expect(screen.queryByTestId('delete-config-confirm-cfg-2')).toBeNull();
+        expect(sentDeletes()).toEqual([]);
+      });
+
+      it('deletes it by its id once confirmed, says so once the host answers, and reads the list again', () => {
+        render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
+
+        fireEvent.click(screen.getByTestId('delete-config-cfg-2'));
+        fireEvent.click(screen.getByTestId('confirm-delete-config-cfg-2'));
+
+        const sent = sentDeletes()[0];
+        expect(sent?.payload).toEqual({ id: 'cfg-2' });
+        expect(screen.queryByTestId('delete-config-done')).toBeNull();
+
+        fromHost({
+          id: 'delete-answer',
+          type: 'sync:config:delete:response',
+          correlationId: sent?.id,
+          payload: { success: true },
+        });
+
+        expect(screen.getByTestId('delete-config-done').textContent).toBe(
+          'Nightly accounts was deleted.',
+        );
+        expect(savedConfigs.refetch).toHaveBeenCalled();
+      });
+
+      it('names no schedule when none runs it', () => {
+        render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
+
+        fireEvent.click(screen.getByTestId('delete-config-cfg-1'));
+
+        expect(screen.getByTestId('delete-config-confirm-cfg-1').textContent).toBe(
+          'Delete dev1 → dev2? It cannot be undone.DeleteCancel',
+        );
+      });
+
+      it('says why it was not deleted when the host refuses', () => {
+        render(<SyncSchedulePanel onOpenConfig={vi.fn()} />);
+
+        fireEvent.click(screen.getByTestId('delete-config-cfg-2'));
+        fireEvent.click(screen.getByTestId('confirm-delete-config-cfg-2'));
+        fromHost({
+          id: 'delete-refused',
+          type: 'sync:error',
+          correlationId: sentDeletes()[0]?.id,
+          payload: {
+            message: 'The store could not be written.',
+            code: 'UNKNOWN',
+            retryable: false,
+          },
+        });
+
+        expect(screen.getByTestId('delete-config-error').textContent).toContain(
+          'The store could not be written.',
+        );
+        expect(screen.queryByTestId('delete-config-done')).toBeNull();
+      });
     });
   });
 

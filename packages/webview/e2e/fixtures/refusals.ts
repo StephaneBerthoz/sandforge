@@ -93,7 +93,7 @@ export const QUICK_SYNC_STORAGE_WORDS =
   'target org has left. Quick Sync has no filter: leave objects out here, or open them in the ' +
   'wizard, where each object takes a filter. To copy part of the source that fits the target, ' +
   'use Forge with Depth ALL and Records per object set to A sample that fits the target. Or free ' +
-  'data storage in the target org: DataOps → Cleanup → Empty objects deletes what it holds of ' +
+  'data storage in the target org: DataOps → Emptying → Empty objects deletes what it holds of ' +
   'these objects.';
 
 /** A draft of the Sync wizard on its execute step: one object upserted, ready to simulate. */

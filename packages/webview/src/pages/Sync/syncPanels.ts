@@ -3,12 +3,12 @@ import { lazy } from 'react';
 /*
  * The Sync page's tabs past its first, each a chunk of its own fetched the
  * first time the tab opens. The page opens on its Sync tab and parsed them all
- * before it painted: the Schedules tab's cron builder and saved
- * configurations, and the tables of History, Conflicts and Real-Time, with the
+ * before it painted: the Saved tab's saved configurations and cron builder,
+ * and the tables of History and of Real-Time and its Conflicts, with the
  * virtual list under them, which took the page to its first-paint budget.
  */
 
-/** The Schedules tab. */
+/** The Saved tab: the saved configurations, then the schedules. */
 export const SyncSchedulePanel = lazy(() =>
   import('./SyncSchedulePanel').then((module) => ({ default: module.SyncSchedulePanel })),
 );
@@ -23,12 +23,12 @@ export const RealTimeSyncPanel = lazy(() =>
   import('./RealTimeSyncPanel').then((module) => ({ default: module.RealTimeSyncPanel })),
 );
 
-/** The Conflicts tab's list of the changes held for a decision. */
+/** The list of the changes held for a decision, under Conflicts on the Real-Time tab. */
 export const ConflictListPanel = lazy(() =>
   import('./ConflictListPanel').then((module) => ({ default: module.ConflictListPanel })),
 );
 
-/** The Conflicts tab's decision on the conflict picked in the list. */
+/** The decision on the conflict picked in that list. */
 export const ConflictResolutionPanel = lazy(() =>
   import('./ConflictResolutionPanel').then((module) => ({
     default: module.ConflictResolutionPanel,

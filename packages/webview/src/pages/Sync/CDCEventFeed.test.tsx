@@ -69,6 +69,14 @@ describe('CDCEventFeed', () => {
     expect(screen.getByText(/No change received yet/)).toBeDefined();
   });
 
+  it('heads the last column Status, in a word', () => {
+    // It read "St", which says nothing to anyone.
+    render(<CDCEventFeed />);
+
+    const header = screen.getByTestId('cdc-event-feed').firstElementChild as HTMLElement;
+    expect(header.lastElementChild?.textContent).toBe('Status');
+  });
+
   it('should render event rows with correct data', () => {
     useCDCLiveStore
       .getState()
@@ -119,7 +127,7 @@ describe('CDCEventFeed', () => {
     ['applied', 'check', 'Written to the target'],
     ['watched', 'eye', 'Watched only, not written'],
     ['kept-target', 'shield', 'Not written: the target record was edited after this change'],
-    ['held', 'question', 'Held for a decision on the Conflicts tab'],
+    ['held', 'question', 'Held for a decision under Conflicts'],
     ['deletes-off', 'circle-slash', 'Deletion not applied: deletes are off for this object'],
     ['own-write', 'reply', 'Written by this session; not applied again'],
   ] as const)('says in words what became of a %s change', (outcome, icon, words) => {

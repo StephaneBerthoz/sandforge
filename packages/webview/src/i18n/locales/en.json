@@ -41,7 +41,6 @@
     "typeToConfirm": "Type <code>{{text}}</code> to confirm:",
     "time": "Time",
     "recordIds": "Record IDs",
-    "statusAbbrev": "St",
     "recordCountFormatted_one": "{{formatted}} record",
     "recordCountFormatted_other": "{{formatted}} records",
     "fieldCount_one": "{{count}} field",
@@ -194,7 +193,7 @@
     "frozen": "Frozen Dataset",
     "grappe": "Grappe",
     "autopilot": "Autopilot",
-    "migration": "Migration",
+    "migration": "SFDMU Import",
     "help": "Help",
     "checkpoint": "Checkpoints",
     "recovery": "Back into service"
@@ -1366,11 +1365,13 @@
   "sync": {
     "standardPricebookMatched": "Standard price book: matched to the target org's, never written.",
     "title": "Sync Data",
+    "subtitle": "Copy records from one org to another",
     "selectOrgs": "Select Orgs",
     "selectOrgsDesc": "Choose source and target orgs",
     "sameOrgWarning": "Source and target are the same org: pick another org as the target to go on.",
     "configureObjects": "Configure Objects",
     "fieldMapping": "Field Mapping",
+    "fields": "Fields",
     "transforms": "Transforms",
     "review": "Review",
     "reviewDesc": "Review sync configuration before execution",
@@ -1390,10 +1391,12 @@
       "encrypted": "{{object}}: {{fields}}, encrypted, are masked for the user SandForge reads the source org as, who lacks View Encrypted Data. The run leaves them out of every record rather than copy the masks; grant that permission to copy their values.",
       "readCap": "Each object is read up to {{cap}} records, from either org, as sandforge.sync.maxRecordsPerObject sets it (50,000 at most): one holding more is copied in part, and the run says so. To copy part of a larger org that fits the target, use Forge with Depth ALL and Records per object set to A sample that fits the target."
     },
-    "configSaved": "Configuration saved. A schedule can now run it.",
-    "execute": "Execute",
+    "configSaved": "Configuration saved: the Saved tab lists it, and a schedule can run it.",
+    "execute": "Simulate & run",
     "executeDesc": "Run the sync operation",
     "results": "Results",
+    "newSync": "New sync",
+    "seeInHistory": "See in History",
     "modes": {
       "full": "Full",
       "incremental": "Incremental",
@@ -1420,7 +1423,6 @@
     "target": "Target",
     "sourceField": "Source Field",
     "targetField": "Target Field",
-    "dataFlow": "Data Flow",
     "alreadyCopied_one": "{{count}} record already copied by an earlier run of this configuration, left as it was.",
     "alreadyCopied_other": "{{count}} records already copied by an earlier run of this configuration, left as they were.",
     "alreadyLinked_one": "{{count}} record already linked by an earlier run of this configuration to a record the target held, left as it was.",
@@ -1430,6 +1432,7 @@
     "autoMap": "Auto Map",
     "suggestedMappings": "Suggested Mappings",
     "selectAndConfigure": "Select Orgs & Objects",
+    "optionsTitle": "Options",
     "templates": {
       "title": "Quick Start Templates",
       "useThis": "Use this",
@@ -1450,6 +1453,8 @@
     },
     "realtime": {
       "title": "Real-Time Sync",
+      "conflictsTitle": "Conflicts",
+      "conflictsHint": "The changes real-time replication held for a decision, field by field. A Sync run settles what it finds by the choice made on its first step, and holds nothing here.",
       "start": "Start",
       "stop": "Stop",
       "metrics": "Metrics",
@@ -1495,7 +1500,7 @@
         "failed": "Not written",
         "watched": "Watched only, not written",
         "kept-target": "Not written: the target record was edited after this change",
-        "held": "Held for a decision on the Conflicts tab",
+        "held": "Held for a decision under Conflicts",
         "deletes-off": "Deletion not applied: deletes are off for this object",
         "own-write": "Written by this session; not applied again"
       },
@@ -1529,9 +1534,8 @@
     "tabs": {
       "sync": "Sync",
       "history": "History",
-      "schedules": "Schedules",
-      "realtime": "Real-Time",
-      "conflicts": "Conflicts"
+      "schedules": "Saved",
+      "realtime": "Real-Time"
     },
     "conflictResolution": {
       "title": "Conflict Resolution",
@@ -1566,8 +1570,8 @@
       "timestamp": "Timestamp"
     },
     "emptyState": {
-      "title": "Keep two orgs in sync",
-      "description": "Sync copies data between orgs — with field mapping, transforms and conflict rules — e.g. refresh a dev sandbox from a partial copy.",
+      "title": "Copy records between two orgs",
+      "description": "Sync copies records from one org into another, with field mappings, transforms and what to do with a record the target already holds.",
       "step2": "Pick source and target orgs",
       "step3": "Map objects and fields",
       "step4": "Run the sync and review the results"
@@ -1601,8 +1605,8 @@
       "emptyDesc": "Completed syncs appear here with their per-object results."
     },
     "piiWarningTitle": "PII Detected",
-    "mappingForObject": "Mapping for",
-    "mappingForObjectHint": "Each object carries the mappings drawn for it. Objects you leave unmapped are copied field for field.",
+    "mappingForObject": "Fields of",
+    "mappingForObjectHint": "Each object carries the mappings and rules made for it. An object with neither is copied field for field.",
     "fieldMappingCount_one": "{{count}} field mapping",
     "fieldMappingCount_other": "{{count}} field mappings",
     "transformCount_one": "{{count}} transform",
@@ -1822,10 +1826,9 @@
       "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}."
     },
     "transformIntro": "Each rule changes one field of {{object}} in every record the run writes. Fields without a rule are written as read.",
-    "transformForObject": "Rules for",
     "transformNeedsFieldNote": "A rule without a field was made before rules named one, and would change every field of every record: pick on its row the field it changes. Simulate and Run the sync stay off until every rule names its field.",
-    "transformNeedsFieldRun": "A transform rule names no field: pick its field in the Transforms step. Simulate and Run the sync stay off until then, as such a rule would change every field of every record.",
-    "transformOpenStep": "Go to Transforms",
+    "transformNeedsFieldRun": "A transform rule names no field: pick its field in the Fields step. Simulate and Run the sync stay off until then, as such a rule would change every field of every record.",
+    "transformOpenStep": "Go to Fields",
     "transformRemove": "Remove {{rule}} on {{field}}",
     "transformRemoveNoField": "Remove {{rule}}, which names no field",
     "transformNone": "No rule on {{object}}: its fields are written as read.",
@@ -1880,9 +1883,19 @@
     "readCutAtMost": "The read of the source org stopped at {{cap}} records, the most a run holds of an object: this run copied part of it. To copy the rest, read it in slices with a filter on CreatedDate, one range per run. To copy a sample of the source that fits the target instead, use Forge with Depth ALL and Records per object set to A sample that fits the target.",
     "savedConfigs": {
       "title": "Saved configurations",
-      "hint": "Run one now, as it was saved: it is checked as a run from the Sync tab is, and Production Guard judges it before anything is written. One that deletes opens on the Sync tab instead, which says what each of its objects does: Run the sync runs it there.",
-      "runNow": "Run now",
-      "runNamed": "Run {{name}} now",
+      "hint": "Open takes one to the Simulate & run step of the Sync tab, with what the wizard's own run has there: Simulate first, then Run the sync.",
+      "none": "No configuration is saved yet: Save as a Sync configuration, on the Review step of the Sync tab, saves one.",
+      "open": "Open",
+      "openNamed": "Open {{name}}",
+      "delete": "Delete",
+      "deleteNamed": "Delete {{name}}",
+      "deleteConfirm": "Delete {{name}}? It cannot be undone.",
+      "deleteSchedules_one": "The schedule that runs it fails from its next run: edit it or delete it too.",
+      "deleteSchedules_other": "The {{count}} schedules that run it fail from their next run: edit them or delete them too.",
+      "deleteDone": "{{name}} was deleted.",
+      "deleteGone": "{{name}} is no longer saved: nothing was deleted.",
+      "sfdmuHint": "An SFDMU export.json is listed here once SFDMU Import has turned it into a saved configuration.",
+      "openSfdmu": "Open {{module}}",
       "ofSaved": "Saved configuration: {{name}}",
       "gone": "This configuration is no longer saved: nothing was run.",
       "reading": "Reading the saved configuration, to say what each of its objects does before it runs…",
@@ -1949,7 +1962,7 @@
     "chooseObject": "Choose an object…"
   },
   "migration": {
-    "title": "Migration",
+    "title": "SFDMU Import",
     "subtitle": "Convert an SFDMU export.json into a Sync configuration. Importing reads the file and changes nothing in any org; Sync runs the configuration once it is saved, and writes records to the target org.",
     "type": {
       "sfdmu": {
@@ -1963,6 +1976,7 @@
     "import": "Import",
     "importing": "Importing…",
     "reset": "New import",
+    "importedFrom": "Imported from {{path}}",
     "successTitle": "Import completed",
     "successDescription": "Converted configuration",
     "unknownError": "Import failed for an unknown reason.",
@@ -3948,7 +3962,7 @@
     "monitorContent": "The Monitor dashboard shows the org's health, read when the page opens and on each Refresh:\n- Health Score gauge with contributing factors\n- Live Operations, while a run is in progress: its module, progress and current step\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Scan anomalies, in Governor Limits: checks up to 500 records of the object you pick for unusual values\n- Alert notifications for critical thresholds\n- Org Governance: policies of threshold rules, checked against the org when you click Evaluate\n\nTip: Auto-refresh, the clock button, is off by default; turn it on to read the org again every 30 seconds while the panel is visible.",
     "seedContent": "Under the templates, four other ways to seed:\n- Generate data: a wizard for the objects, record counts and field rules you choose (AI, Faker, static, sequence...); a lookup field is filled from the records the same run inserted earlier\n- CSV Upload: records from a CSV file, its columns mapped to fields\n- Clone from Org: records copied from another org\n- Test data for an Agentforce agent: pick a pack or Draft from your own text, review it, Seed the scenario, then Write the test file. The packs need no AI key; a draft uses your Anthropic key. Its Knowledge articles are published; SandForge never runs the tests.",
     "checkpointContent": "A checkpoint is the state of an org's data at a moment. Rewind then deletes what was added since, gives back what changed and brings back what was deleted, whoever did it. Its preview counts, object by object, the records to Delete, Restore values and Undelete. A DataOps backup is a copy of some objects: its Restore never deletes what was added.\n- It undoes everyone's work since the checkpoint, not only SandForge's runs: any user, flow or integration. The preview says who last changed what before anything is written.\n- Never on a production org: checkpoints are for sandboxes, scratch orgs and Developer Edition orgs, and no setting or flag lifts the refusal.\n- Data only: fields, flows, validation rules, layouts, permissions, users and setup stay as they are, and what already left the org (emails, callouts, platform events) stays sent.\n- Files are not covered in full: a rewind deletes the files attached to its records since and brings back those deleted since, but a file given a new version keeps its new content.\n- A checkpoint holds the records' values unencrypted, personal data among them, on this machine, readable by you alone, for 30 days unless you keep it.",
-    "syncContent": "Sync copies objects from one org to another, field by field; the History tab lists each run, and the Schedules tab runs a saved configuration on a schedule.\n- A delta run of a saved configuration reads what changed since its last good run, and can delete in the target what the source deleted.\n- Auto Map pairs fields of the same API name. A transform rule changes one field in every record written; a rule with no field is refused before anything is read or saved. Value mappings come from an imported SFDMU configuration.\n- Neutralize emails and phone numbers is on unless unticked; Copy the files of these records brings their files.\n- Real-Time tab: writes each change the source publishes (Change Data Capture) as it comes; a conflict is settled by the strategy or held on the Conflicts tab.\n- Remove what this run created, on the results or the run's history entry, deletes what it inserted and its files, gives the records it wrote over their values from before, kept for sandforge.backup.maxAgeDays, and brings back what a delta run deleted. Production Guard refuses it on a production org.\n- A Real-Time session is taken back the same way under Earlier sessions, once it has stopped.",
+    "syncContent": "Sync copies objects from one org to another, field by field; the History tab lists each run, and the Saved tab opens or schedules a saved configuration.\n- A delta run of a saved configuration reads what changed since its last good run, and can delete in the target what the source deleted.\n- Auto Map pairs fields of the same API name. A transform rule changes one field in every record written; a rule with no field is refused before anything is read or saved. Value mappings come from an imported SFDMU configuration.\n- Neutralize emails and phone numbers is on unless unticked; Copy the files of these records brings their files.\n- Real-Time tab: writes each change the source publishes (Change Data Capture) as it comes; a conflict is settled by the strategy or held under Conflicts, on the same tab.\n- Remove what this run created, on the results or the run's history entry, deletes what it inserted and its files, gives the records it wrote over their values from before, kept for sandforge.backup.maxAgeDays, and brings back what a delta run deleted. Production Guard refuses it on a production org.\n- A Real-Time session is taken back the same way under Earlier sessions, once it has stopped.",
     "compareContent": "Compare metadata between two orgs:\n- Diff Viewer grouped by category and risk level\n- Permission Presence: which profiles and permission sets exist on each side\n- Objects: the objects of both orgs, read live when you open the tab\n- Org Settings Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy from Diff: pick what differs, validate it in the target first, then deploy the validation to a sandbox, a scratch org or a Developer Edition org",
     "dataopsContent": "Data operations on the org picked at the top of the page:\n- Masking masks fields in place with a built-in template such as GDPR, CCPA or HIPAA, or one of your own from Create template; unless you untick Keep the values first, it backs up what it masks, so Restore… can put it back. Create backup, beside the template, copies the objects it masks to this machine.\n- Backups lists every backup of the org, each with Restore…, Export and Delete. Restore… asks first, naming the org and each object, and whether to write every row back; unticked, it writes only the rows changed since. A backup is no checkpoint: before a risky run on a sandbox, take a checkpoint.\n- Personal data finds the fields holding personal data, then one person's records by email, name or phone, to export, erase or delete after a review and a typed confirmation.\n- Cleanup counts stale records, empty lookups, repeated values and how often each field is filled, to export or delete after a review and a typed confirmation, 1,000 at a time.\n- Emptying deletes every record of the objects you pick, or of the whole org, once Simulate has counted what goes and you have typed the org's name.",
     "automationContent": "Visual pipeline builder:\n- Under Steps, the page offers the step types a pipeline runs: Sync, Seed, Anonymize, Backup, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Sync runs a configuration saved on the Sync page, and one into an org Production Guard asks about needs an Approval step before it. Seed and Anonymize run a template of their pages, never in a production org, behind an Approval step in a sandbox marked Staging, and are never tried again. A Rewind step puts an org back to a checkpoint on this machine, at most the records it is set to, once you confirm it under its preview with the org's alias, else its name or Organization Id. Restore and Delete write to an org and run only from their own pages: a pipeline holding one of them, or a Script, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
@@ -3977,7 +3991,7 @@
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Start Guided Tour",
     "autopilotContent": "In three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
-    "migrationContent": "Migration turns an SFDMU export.json into a Sync configuration:\n- Importing reads the file and changes nothing in any org\n- Saved as a Sync configuration, with its source and target orgs and a name, it opens with Open in Sync: Simulate checks it there, and Run the sync writes it\n- A CSV file of records goes to Seed's CSV Upload, which loads its rows",
+    "migrationContent": "SFDMU Import turns an SFDMU export.json into a Sync configuration:\n- Importing reads the file and changes nothing in any org\n- Saved as a Sync configuration, with its source and target orgs and a name, it opens with Open in Sync: Simulate checks it there, and Run the sync writes it\n- A CSV file of records goes to Seed's CSV Upload, which loads its rows",
     "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object",
     "orgsContent": "Connect an org in one of two ways, both run on the Salesforce CLI (sf):\n- Import from Salesforce CLI adds every org the CLI already holds. A CLI that holds no org yet is said as information, not an error: log in with your browser instead.\n- Log in with your browser opens the Salesforce login page; the alias is optional.\n- Login URL: Production / Developer or Sandbox; for an org that blocks both, Custom domain (My Domain)… takes its login URL as Setup → My Domain shows it.\n- Username / Password needs no CLI; JWT Bearer and OAuth (Device) are under More methods.\n\nForge, Frozen Dataset loads, Checkpoints and Compare's deploy refuse a production org; deletes are refused there too; every other write there asks first, and no setting turns that off. A sandbox holding real data (full copy, UAT): open its Edit dialog on Organizations and tick Staging, and Production Guard then asks before every delete, deployment and write over 10,000 records.\n\nAn org that will not connect: see Troubleshooting.",
     "fullGuide": "Full guide: {{section}}",
@@ -4030,11 +4044,11 @@
       "tip": "Take a checkpoint named Before refresh before each refresh: the next recovery replays it."
     },
     "sync": {
-      "step1": "On the Sync tab, click Start Quick Sync.",
-      "step2": "Choose the Source org and the Target org, then click Next.",
-      "step3": "Pick objects under Suggested objects or by search, then click Next.",
-      "step4": "Check the orgs and Total records in the Preview, then click Sync into, which names the target org.",
-      "tip": "A Quick Sync inserts every record each time it runs; outside production, its results offer Remove what this run created."
+      "step1": "On the Sync tab, pick the Source and Target orgs and add the objects, each with its operation.",
+      "step2": "Set the Options if needed, then on Fields map or transform a field only where the orgs differ.",
+      "step3": "On Review, check what each object does; Save as a Sync configuration keeps it under Saved.",
+      "step4": "On Simulate & run, Simulate says what it would write, then Run the sync writes it.",
+      "tip": "Start Quick Sync copies whole objects in three screens, every record inserted; its Estimate counts them first."
     },
     "autopilot": {
       "step1": "Pick an org under Source Org and another under Target Org, then click Next.",
@@ -7402,7 +7416,7 @@
     "suggestedObjects": "Suggested objects",
     "notInSource": "{{object}} is not among the objects the source org lets SandForge read and create.",
     "addParent": "Add parent {{parent}} for {{child}}?",
-    "preview": "Preview",
+    "preview": "Estimate",
     "totalRecords": "Total records",
     "totalApiCalls": "Estimated API calls",
     "estimatedDuration": "Estimated duration",

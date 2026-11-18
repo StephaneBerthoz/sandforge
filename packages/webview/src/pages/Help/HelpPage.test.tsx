@@ -411,7 +411,7 @@ describe('HelpPage', () => {
       for (const label of [
         bundle.sync.tabs.history,
         bundle.sync.tabs.schedules,
-        bundle.sync.tabs.conflicts,
+        bundle.sync.realtime.conflictsTitle,
         bundle.sync.autoMap,
         bundle.sync.files.toggle,
         bundle.runRemoval.sync.remove,

@@ -17,7 +17,7 @@
   "command.openCompare": "SandForge: Open Compare Org",
   "command.openDataOps": "SandForge: Open DataOps",
   "command.openAutomation": "SandForge: Open Automation",
-  "command.openMigration": "SandForge: Open Migration",
+  "command.openMigration": "SandForge: Open SFDMU Import",
   "command.openAI": "SandForge: Open AI Assistant",
   "command.openOrgs": "SandForge: Connect Org",
   "command.openReports": "SandForge: Open Reports",

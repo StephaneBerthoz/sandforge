@@ -266,7 +266,7 @@ for (const theme of THEMES) {
       expect(results.violations, formatViolations(results.violations)).toEqual([]);
 
       // Back on the execute step, from the wizard's own steps: the results end it.
-      await page.getByTestId('sync-step-indicator').getByRole('button').nth(4).click();
+      await page.getByTestId('sync-step-indicator').getByRole('button').nth(3).click();
       await expect(page.getByTestId('sync-checkpoint-first-estimate-cost')).toContainText(
         'At the last simulation:',
       );

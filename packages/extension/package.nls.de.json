@@ -17,7 +17,7 @@
   "command.openCompare": "SandForge: Vergleich öffnen",
   "command.openDataOps": "SandForge: DataOps öffnen",
   "command.openAutomation": "SandForge: Automatisierung öffnen",
-  "command.openMigration": "SandForge: Migration öffnen",
+  "command.openMigration": "SandForge: SFDMU-Import öffnen",
   "command.openAI": "SandForge: KI-Assistent öffnen",
   "command.openOrgs": "SandForge: Org verbinden",
   "command.openReports": "SandForge: Berichte öffnen",

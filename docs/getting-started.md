@@ -56,7 +56,7 @@ Top to bottom, the launcher gives you:
 The modules come next, in five groups named by what they are for, always in this order and never folded. Hovering a module says what it does.
 
 - **Fill an org** -- Seed, Frozen Dataset.
-- **Copy between orgs** -- Forge, Sync, Autopilot, Migration. While fewer than two orgs are connected, **Needs a second org** under them opens Organizations.
+- **Copy between orgs** -- Forge, Sync, Autopilot, SFDMU Import. While fewer than two orgs are connected, **Needs a second org** under them opens Organizations.
 - **Protect and restore** -- Back into service, listed once a sandbox is registered, then Checkpoints and DataOps.
 - **Watch and compare** -- Monitor, Compare Org, Reports.
 - **Automate** -- Automation, AI Assistant.

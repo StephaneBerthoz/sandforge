@@ -29,11 +29,12 @@ export interface SyncTransformRule extends TransformRule {
 export interface TransformBuilderProps {
   /** Every rule of the wizard; the object's own are shown, and those that name no field. */
   rules: SyncTransformRule[];
-  /** The objects of the run, to choose whose rules to show. */
-  objects: string[];
-  /** The object whose rules are shown, and whose fields a new rule may name. */
+  /**
+   * The object whose rules are shown, and whose fields a new rule may name:
+   * the one the Fields step shows, picked there once for its mappings and its
+   * rules alike.
+   */
   objectApiName: string;
-  onObjectChange: (objectApiName: string) => void;
   /** The object's fields in the target, as its describe gives them. */
   fields: FieldInfo[];
   fieldsLoading?: boolean;
@@ -126,9 +127,7 @@ function ruleTakes(type: TransformRuleType, field: FieldInfo): boolean {
 /** Transform rule builder UI: the rules of one object, each on the field it names. */
 export const TransformBuilder: React.FC<TransformBuilderProps> = ({
   rules,
-  objects,
   objectApiName,
-  onObjectChange,
   fields,
   fieldsLoading = false,
   matchField,
@@ -170,18 +169,6 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="transform-builder">
-      {objects.length > 1 && (
-        <div className="max-w-xs">
-          <Select
-            label={t('sync.transformForObject')}
-            options={objects.map((name) => ({ value: name, label: name }))}
-            value={objectApiName}
-            onChange={(e) => onObjectChange(e.target.value)}
-            data-testid="transform-object"
-          />
-        </div>
-      )}
-
       <p className="text-xs text-text-secondary" data-testid="transform-intro">
         {t('sync.transformIntro', { object: objectApiName })}
       </p>

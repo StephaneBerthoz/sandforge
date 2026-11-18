@@ -93,10 +93,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'The gallery lists, loads and saves templates; nothing deletes one yet.',
   },
   {
-    channel: 'sync:config:delete',
-    reason: 'Nothing deletes a saved sync configuration yet.',
-  },
-  {
     channel: 'frozen:remove:preview',
     reason:
       'sandforge frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',

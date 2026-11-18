@@ -71,17 +71,36 @@ describe('docs/modules/migration.md', () => {
     expect(DOC).toContain('under `keepObjectOrderWhileExecute`');
   });
 
-  it('says a delete is shown on the Execute step before its run, and Run now opens it there', () => {
+  it('says a delete is shown on Simulate & run before its run, opened from here or from Saved', () => {
     const HOOK = source('packages/webview/src/pages/Sync/useSyncPageData.ts');
     const PAGE = source('packages/webview/src/pages/Sync/SyncPage.tsx');
     // Positive control: the execute step lists the opened configuration's
-    // objects, holds Run until it has, and Run now opens one that deletes.
+    // objects and holds Run until it has, and Saved opens one there, as Open
+    // in Sync does: no Run now sends one to the run unseen.
     expect(PAGE).toContain('{!busy && openedConfigEntries !== null && (');
     expect(PAGE).toContain('disabled={filesNeedSave || transformsNeedField || openedUnread}');
-    expect(HOOK).toContain('if (!asked.simulate && deletes && openedConfig?.id !== asked.id) {');
+    expect(HOOK).toContain('setOpenedConfig({ id: configId, label });');
+    expect(HOOK).not.toContain('handleRunSavedConfig');
 
-    expect(DOC).toContain('**Open in Sync** says what each object does above **Run the sync**');
-    expect(DOC).toContain('**Run now** opens such a configuration there rather than run it');
+    expect(DOC).toContain(
+      "**Open in Sync**, and **Open** on Sync's Saved tab, say what each object does above **Run the sync**",
+    );
+    expect(DOC).not.toContain('**Run now**');
+    expect(DOC).not.toContain('Execute step');
+  });
+
+  it('names the page as the panel does, and the name it had', () => {
+    const EN = JSON.parse(source('packages/webview/src/i18n/locales/en.json')) as {
+      nav: Record<string, string>;
+    };
+    const PALETTE = source('packages/webview/src/components/CommandPalette/CommandPalette.tsx');
+    // Positive control: the panel's label, and the palette that still finds
+    // the page by its route, migration.
+    expect(EN.nav.migration).toBe('SFDMU Import');
+    expect(PALETTE).toContain('keywords: [route],');
+
+    expect(DOC.startsWith('# SFDMU Import\n')).toBe(true);
+    expect(DOC).toContain('Called Migration until 1.83.0');
   });
 
   it('says a run neutralizes emails and phone numbers, and where the box that keeps them is', () => {

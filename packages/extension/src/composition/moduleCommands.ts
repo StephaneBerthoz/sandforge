@@ -71,7 +71,7 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare Org' },
   { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },
   { command: 'sandforge.openAutomation', moduleId: 'automation', title: 'Automation' },
-  { command: 'sandforge.openMigration', moduleId: 'migration', title: 'Migration' },
+  { command: 'sandforge.openMigration', moduleId: 'migration', title: 'SFDMU Import' },
   { command: 'sandforge.openAI', moduleId: 'ai', title: 'AI Assistant' },
   { command: 'sandforge.openOrgs', moduleId: 'orgs', title: 'Organizations' },
   {

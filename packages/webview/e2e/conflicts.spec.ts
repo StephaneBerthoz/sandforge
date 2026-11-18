@@ -5,9 +5,9 @@ import { MOCK_ORGS } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * Conflict resolution E2E — the Sync panel's `conflicts` tab.
+ * Conflict resolution E2E — Conflicts, on the Sync panel's `realtime` tab.
  *
- * The tab lists the changes a real-time session held for a decision: the host
+ * It lists the changes a real-time session held for a decision: the host
  * holds a change when the target record was edited after it and the session's
  * strategy is manual, and nothing else pushes to this list.
  *
@@ -174,15 +174,17 @@ async function pushConflict(page: Page, push: ConflictPush): Promise<void> {
   });
 }
 
-/** The count badge inside the Conflicts tab — the only `<span>` that button holds. */
+/** The count badge on the Real-Time tab, which lists the conflicts under Conflicts. */
 function tabBadge(page: Page): Locator {
-  return page.getByTestId('tab-conflicts').locator('span');
+  return page.getByTestId('tab-realtime').getByTestId('conflict-count-badge');
 }
 
-/** Open the Conflicts tab. */
+/** Open the Real-Time tab, on its Conflicts. */
 async function openConflictsTab(page: Page): Promise<void> {
-  await page.getByTestId('tab-conflicts').click();
-  await expect(page.getByTestId('conflict-list-panel')).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('tab-realtime').click();
+  await expect(
+    page.getByTestId('sync-conflicts-section').getByTestId('conflict-list-panel'),
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 /** The list row holding a given record id. */
@@ -210,15 +212,21 @@ async function confirmDanger(page: Page): Promise<void> {
   await expect(page.getByTestId('danger-input')).toHaveCount(0);
 }
 
-test.describe('Sync conflicts — offered beside the real-time tab', () => {
-  test('the Sync page offers the conflicts tab, and counts a pushed conflict on it', async ({
+test.describe('Sync conflicts — listed on the real-time tab', () => {
+  test('the Sync page lists them under Real-Time, and counts a pushed conflict on its tab', async ({
     page,
   }) => {
+    // A tab of their own read as the conflicts of every Sync run, which hold
+    // nothing: only a real-time session feeds the list.
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
 
-    await expect(page.getByTestId('tab-conflicts')).toBeVisible();
-    await expect(page.getByTestId('conflict-count-badge')).toHaveText('1');
+    await expect(page.getByTestId('tab-conflicts')).toHaveCount(0);
+    await expect(tabBadge(page)).toHaveText('1');
+    await openConflictsTab(page);
+    await expect(
+      page.getByTestId('sync-conflicts-section').getByRole('heading', { name: 'Conflicts' }),
+    ).toBeVisible();
   });
 });
 
@@ -531,7 +539,7 @@ test.describe('Sync conflicts — bulk resolution', () => {
 test.describe('Sync conflicts — switching between conflicts', () => {
   /**
    * `ConflictResolutionPanel` keeps its per-field choices in `useState`, and
-   * `ConflictsTabContent` (SyncPage.tsx) keys it on the conflict id, so
+   * `ConflictsSection` (SyncPage.tsx) keys it on the conflict id, so
    * selecting another conflict remounts it. Without the key the choices made
    * on one record stayed armed on the next: ACCOUNT_C conflicts on the same two
    * field names as ACCOUNT_A, so opening it showed an armed Apply button on a

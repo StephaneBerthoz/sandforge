@@ -17,6 +17,7 @@ import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleFormData } from './CronScheduleBuilder';
 import type {
   MigrationSaveSyncConfigResponse,
+  SyncConfigDeleteResponse,
   SyncConfigListResponse,
   SyncConfigResetDeltaResponse,
   SyncConfigSaveResponse,
@@ -114,16 +115,19 @@ export interface SyncSchedulePanelProps {
    */
   layout?: React.ComponentType<ScheduleLayoutProps>;
   /**
-   * Run a saved configuration now, by its id, under the label the panel lists
-   * it by. Given, the panel lists the saved configurations, each with Run
-   * now; the Sync page runs one as its wizard runs its own.
+   * Open a saved configuration on the Sync tab's execute step, by its id,
+   * under the label the panel lists it by. Given, the panel lists the saved
+   * configurations first, each with Open and Delete; the Sync page opens one
+   * as SFDMU Import's "Open in Sync" does, where Simulate and Run act on it.
    */
-  onRunConfig?: (configId: string, label: string) => void;
+  onOpenConfig?: (configId: string, label: string) => void;
+  /** Open SFDMU Import, which turns an SFDMU export.json into a saved configuration. */
+  onImportSfdmu?: () => void;
   /** A run or a simulation is under way on the page: nothing else is started. */
   runDisabled?: boolean;
 }
 
-/** A saved configuration as the Run now list shows it. */
+/** A saved configuration as the Saved tab lists it. */
 interface SavedConfigRow {
   id: string;
   name: string;
@@ -133,23 +137,48 @@ interface SavedConfigRow {
 }
 
 /**
- * The saved configurations, each with Run now. They were listed nowhere but
- * in the schedule builder's picker, and none could be run but by a schedule.
- * A delta configuration says so, and while it holds watermarks offers "Run
- * full next time", which clears them.
+ * The saved configurations, each with Open and Delete. They were listed under
+ * the schedules, after an empty state that said none existed, with a Run now
+ * that wrote at once: no simulation, no checkpoint first, no mute. Open takes
+ * one to the Sync tab's execute step, which offers all three; Delete asks
+ * first, naming the schedules that run it. A delta configuration says so,
+ * and while it holds watermarks offers "Run full next time", which clears
+ * them: after a refresh of the target, the one way to read everything again.
  */
-const SavedConfigRuns: React.FC<{
+const SavedConfigs: React.FC<{
   configs: ReadonlyArray<SavedConfigRow>;
-  onRun: (configId: string, label: string) => void;
+  /** Whether the list has answered: "none saved" is said only then. */
+  read: boolean;
+  /** How many schedules run each configuration, by its id. */
+  schedulesOf: (configId: string) => number;
+  onOpen: (configId: string, label: string) => void;
+  onImportSfdmu: (() => void) | undefined;
   disabled: boolean;
   onResetDelta: (configId: string, label: string) => void;
   /** The configuration whose watermarks were just cleared, by name. */
   resetDone: string | null;
   resetError: string | null;
-}> = ({ configs, onRun, disabled, onResetDelta, resetDone, resetError }) => {
+  onDelete: (configId: string, label: string) => void;
+  /** The configuration just deleted, by name. */
+  deleteDone: string | null;
+  deleteError: string | null;
+}> = ({
+  configs,
+  read,
+  schedulesOf,
+  onOpen,
+  onImportSfdmu,
+  disabled,
+  onResetDelta,
+  resetDone,
+  resetError,
+  onDelete,
+  deleteDone,
+  deleteError,
+}) => {
   const { t } = useTranslation();
   const headingId = useId();
-  if (configs.length === 0) return null;
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   return (
     <section
       aria-labelledby={headingId}
@@ -159,60 +188,153 @@ const SavedConfigRuns: React.FC<{
       <h3 id={headingId} className="text-sm font-semibold text-text-primary">
         {t('syncParts.savedConfigs.title')}
       </h3>
-      <p className="text-[10px] text-text-secondary">{t('syncParts.savedConfigs.hint')}</p>
-      <ul className="flex flex-col gap-1">
-        {configs.map((config) => (
-          <li
-            key={config.id}
-            className="flex items-center justify-between gap-(--sf-space-2) text-xs"
-            data-testid={`saved-config-${config.id}`}
-          >
-            <span className="flex items-center gap-(--sf-space-2) text-text-primary">
-              {config.name}
-              {config.mode === 'delta' && (
-                <Badge variant="info">
-                  {config.propagateDeletes
-                    ? t('syncParts.delta.withDeletes')
-                    : t('syncParts.delta.mode')}
-                </Badge>
-              )}
-            </span>
-            <span className="flex items-center gap-1">
-              {config.mode === 'delta' && (config.watermarks ?? 0) > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={disabled}
-                  onClick={() => onResetDelta(config.id, config.name)}
-                  aria-label={t('syncParts.savedConfigs.resetDeltaNamed', { name: config.name })}
-                  data-testid={`reset-delta-${config.id}`}
+      {configs.length > 0 && (
+        <p className="text-xs text-text-secondary">{t('syncParts.savedConfigs.hint')}</p>
+      )}
+      {configs.length === 0 && read && (
+        <p className="text-xs text-text-secondary" data-testid="sync-saved-configs-none">
+          {t('syncParts.savedConfigs.none')}
+        </p>
+      )}
+      {configs.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {configs.map((config) => (
+            <li
+              key={config.id}
+              className="flex flex-col gap-1 text-xs"
+              data-testid={`saved-config-${config.id}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-(--sf-space-2)">
+                <span className="flex items-center gap-(--sf-space-2) text-text-primary">
+                  {config.name}
+                  {config.mode === 'delta' && (
+                    <Badge variant="info">
+                      {config.propagateDeletes
+                        ? t('syncParts.delta.withDeletes')
+                        : t('syncParts.delta.mode')}
+                    </Badge>
+                  )}
+                </span>
+                <span className="flex items-center gap-1">
+                  {config.mode === 'delta' && (config.watermarks ?? 0) > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={disabled}
+                      onClick={() => onResetDelta(config.id, config.name)}
+                      aria-label={t('syncParts.savedConfigs.resetDeltaNamed', {
+                        name: config.name,
+                      })}
+                      data-testid={`reset-delta-${config.id}`}
+                    >
+                      {t('syncParts.savedConfigs.resetDelta')}
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={disabled}
+                    onClick={() => onOpen(config.id, config.name)}
+                    aria-label={t('syncParts.savedConfigs.openNamed', { name: config.name })}
+                    data-testid={`open-saved-config-${config.id}`}
+                  >
+                    {t('syncParts.savedConfigs.open')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={disabled || confirmDeleteId === config.id}
+                    onClick={() => setConfirmDeleteId(config.id)}
+                    aria-label={t('syncParts.savedConfigs.deleteNamed', { name: config.name })}
+                    data-testid={`delete-config-${config.id}`}
+                  >
+                    <Icon name="trash" />
+                  </Button>
+                </span>
+              </div>
+              {confirmDeleteId === config.id && (
+                <div
+                  className="flex flex-wrap items-center gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                  role="group"
+                  aria-label={t('syncParts.savedConfigs.deleteNamed', { name: config.name })}
+                  data-testid={`delete-config-confirm-${config.id}`}
                 >
-                  {t('syncParts.savedConfigs.resetDelta')}
-                </Button>
+                  <p className="flex-1 min-w-48 text-text-primary">
+                    {t('syncParts.savedConfigs.deleteConfirm', { name: config.name })}
+                    {schedulesOf(config.id) > 0 && (
+                      <>
+                        {' '}
+                        {t('syncParts.savedConfigs.deleteSchedules', {
+                          count: schedulesOf(config.id),
+                        })}
+                      </>
+                    )}
+                  </p>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={disabled}
+                    onClick={() => {
+                      setConfirmDeleteId(null);
+                      onDelete(config.id, config.name);
+                    }}
+                    data-testid={`confirm-delete-config-${config.id}`}
+                  >
+                    {t('syncParts.savedConfigs.delete')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setConfirmDeleteId(null)}
+                    data-testid={`cancel-delete-config-${config.id}`}
+                  >
+                    {t('common.cancel')}
+                  </Button>
+                </div>
               )}
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={disabled}
-                onClick={() => onRun(config.id, config.name)}
-                aria-label={t('syncParts.savedConfigs.runNamed', { name: config.name })}
-                data-testid={`run-saved-config-${config.id}`}
-              >
-                {t('syncParts.savedConfigs.runNow')}
-              </Button>
-            </span>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
       {resetDone !== null && (
-        <p className="text-[10px] text-text-secondary" role="status" data-testid="reset-delta-done">
+        <p className="text-xs text-text-secondary" role="status" data-testid="reset-delta-done">
           {t('syncParts.savedConfigs.resetDone', { name: resetDone })}
         </p>
       )}
       {resetError !== null && (
-        <p className="text-[10px] text-status-error" role="alert" data-testid="reset-delta-error">
+        <p className="text-xs text-status-error" role="alert" data-testid="reset-delta-error">
           {resetError}
         </p>
+      )}
+      {deleteDone !== null && (
+        <p className="text-xs text-text-secondary" role="status" data-testid="delete-config-done">
+          {t('syncParts.savedConfigs.deleteDone', { name: deleteDone })}
+        </p>
+      )}
+      {deleteError !== null && (
+        <p className="text-xs text-status-error" role="alert" data-testid="delete-config-error">
+          {deleteError}
+        </p>
+      )}
+      {/* An SFDMU export becomes a saved configuration on SFDMU Import, and
+          is listed here once saved: the way there, from where it lands. */}
+      {onImportSfdmu && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-(--sf-space-2)"
+          data-testid="sync-saved-sfdmu"
+        >
+          <p className="flex-1 min-w-48 text-xs text-text-secondary">
+            {t('syncParts.savedConfigs.sfdmuHint')}
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onImportSfdmu}
+            data-testid="sync-saved-sfdmu-btn"
+          >
+            {t('syncParts.savedConfigs.openSfdmu', { module: t('nav.migration') })}
+          </Button>
+        </div>
       )}
     </section>
   );
@@ -275,11 +397,12 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
  * the configurations `sync:config:list` returns and nothing else: the panel
  * used to offer one made-up `cfg-default`, and every schedule built on it
  * named a configuration the executor could never load. On the Sync page it
- * lists them too, each with Run now (`onRunConfig`).
+ * lists them too, first, each with Open and Delete (`onOpenConfig`).
  */
 export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   layout: Layout = ScheduleCards,
-  onRunConfig,
+  onOpenConfig,
+  onImportSfdmu,
   runDisabled = false,
 }) => {
   const { t } = useTranslation();
@@ -357,6 +480,27 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   useEffect(() => {
     if (resetAnswer?.success) refetchConfigs();
   }, [resetAnswer, refetchConfigs]);
+
+  // Delete, once confirmed: the host deletes the configuration and which
+  // record of the target each record of its runs became, and the list is
+  // read again so it goes. The host handled it, and nothing sent it.
+  const deleteConfig = useBridgeMutation<SyncConfigDeleteResponse['payload']>(
+    'sync:config:delete',
+    { responseType: 'sync:config:delete:response' },
+  );
+  const [deleteAsked, setDeleteAsked] = useState<string | null>(null);
+  const { mutate: askDelete } = deleteConfig;
+  const handleDeleteConfig = useCallback(
+    (configId: string, label: string) => {
+      setDeleteAsked(label);
+      askDelete({ id: configId });
+    },
+    [askDelete],
+  );
+  const deleteAnswer = deleteConfig.data;
+  useEffect(() => {
+    if (deleteAnswer) refetchConfigs();
+  }, [deleteAnswer, refetchConfigs]);
   const canCreate = availableConfigs.length > 0;
   // "No configuration saved" is only true once the list has answered: while
   // it is loading, or after it was refused, nothing is known yet.
@@ -504,23 +648,34 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     <ErrorBanner message={shownError} code={null} data-testid="sync-schedule-error" />
   ) : null;
 
-  // Read apart from the schedules: listed while those load too.
-  const savedConfigRuns = onRunConfig ? (
-    <SavedConfigRuns
+  // Read apart from the schedules, and listed first: listed while those load too.
+  const savedConfigList = onOpenConfig ? (
+    <SavedConfigs
       configs={savedConfigRows}
-      onRun={onRunConfig}
-      disabled={runDisabled || resetDelta.loading}
+      read={!configsQuery.loading && !configsQuery.error && configsQuery.data !== null}
+      schedulesOf={(configId) => schedules.filter((s) => s.configId === configId).length}
+      onOpen={onOpenConfig}
+      onImportSfdmu={onImportSfdmu}
+      disabled={runDisabled || resetDelta.loading || deleteConfig.loading}
       onResetDelta={handleResetDelta}
       resetDone={resetAnswer?.success && !resetDelta.loading ? resetAsked : null}
       resetError={resetDelta.error}
+      onDelete={handleDeleteConfig}
+      deleteDone={deleteAnswer?.success && !deleteConfig.loading ? deleteAsked : null}
+      deleteError={
+        deleteConfig.error ??
+        (deleteAnswer && !deleteAnswer.success && deleteAsked !== null
+          ? t('syncParts.savedConfigs.deleteGone', { name: deleteAsked })
+          : null)
+      }
     />
   ) : null;
 
   if (loading && schedules.length === 0) {
     return (
       <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
+        {savedConfigList}
         <SkeletonTable rows={3} columns={5} />
-        {savedConfigRuns}
       </div>
     );
   }
@@ -529,6 +684,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
     return (
       <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
         {errorBanner}
+        {savedConfigList}
         <EmptyState
           title={t('syncParts.schedules.emptyTitle')}
           description={
@@ -540,7 +696,6 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
           actionLabel={canCreate ? t('syncParts.schedules.createFirst') : undefined}
           onAction={canCreate ? () => setShowBuilder(true) : undefined}
         />
-        {savedConfigRuns}
       </div>
     );
   }
@@ -548,6 +703,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
       {errorBanner}
+      {savedConfigList}
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-text-primary">
@@ -570,7 +726,6 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       </div>
 
       <Layout schedules={schedules} actionsFor={actionsFor} />
-      {savedConfigRuns}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Upload } from 'lucide-react';
+import { FileCheck, Upload } from 'lucide-react';
 import type {
   MigrationImportNote,
   MigrationImportSfdmuResponse,
@@ -490,6 +490,7 @@ export const MigrationPage: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
+              className="whitespace-nowrap"
               onClick={handleReset}
               data-testid="migration-reset-btn"
             >
@@ -500,55 +501,71 @@ export const MigrationPage: React.FC = () => {
       />
       <ModuleHowTo module="migration" />
 
-      {/* Source file */}
-      <Card data-testid="migration-source-card">
-        <CardHeader
-          title={t('migration.type.sfdmu.title')}
-          subtitle={t('migration.type.sfdmu.description')}
-        />
-        <CardBody>
-          <div className="flex flex-col gap-(--sf-space-3)">
-            <Input
-              label={t('migration.filePathLabel')}
-              value={filePath}
-              onChange={(e) => setFilePath(e.target.value)}
-              placeholder={t('migration.filePathPlaceholderSfdmu')}
-              hint={t('migration.filePathHint')}
-              error={pathError ?? undefined}
-              disabled={importMutation.loading}
-              data-testid="migration-path-input"
-            />
-            <div className="flex justify-end gap-(--sf-space-2)">
-              <Button
-                variant="secondary"
-                onClick={() => pickMutation.mutate()}
+      {/* Source file. Imported, it is one line: the card stayed whole above
+          the configuration it made, its path, Browse… and an Import that a
+          second press ran again. New import, beside the title, brings it back. */}
+      {successResult ? (
+        <div
+          className="flex items-center gap-(--sf-space-2) rounded-lg border border-subtle bg-surface-1 p-3"
+          data-testid="migration-source-card"
+        >
+          <FileCheck className="w-4 h-4 shrink-0 text-status-success" aria-hidden="true" />
+          <p className="min-w-0 flex-1 truncate text-xs text-text-primary" title={filePath.trim()}>
+            {t('migration.importedFrom', {
+              path: filePath.trim() || t('migration.type.sfdmu.title'),
+            })}
+          </p>
+        </div>
+      ) : (
+        <Card data-testid="migration-source-card">
+          <CardHeader
+            title={t('migration.type.sfdmu.title')}
+            subtitle={t('migration.type.sfdmu.description')}
+          />
+          <CardBody>
+            <div className="flex flex-col gap-(--sf-space-3)">
+              <Input
+                label={t('migration.filePathLabel')}
+                value={filePath}
+                onChange={(e) => setFilePath(e.target.value)}
+                placeholder={t('migration.filePathPlaceholderSfdmu')}
+                hint={t('migration.filePathHint')}
+                error={pathError ?? undefined}
                 disabled={importMutation.loading}
-                loading={pickMutation.loading}
-                data-testid="migration-browse-btn"
-              >
-                {t('migration.browse')}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleImport}
-                disabled={!canSubmit}
-                loading={importMutation.loading}
-                data-testid="migration-import-btn"
-              >
-                {importMutation.loading ? t('migration.importing') : t('migration.import')}
-              </Button>
-            </div>
-            {pickMutation.error && (
-              <ErrorBanner
-                message={pickMutation.error}
-                code={pickMutation.errorCode}
-                onDismiss={() => pickMutation.reset()}
-                data-testid="migration-browse-error"
+                data-testid="migration-path-input"
               />
-            )}
-          </div>
-        </CardBody>
-      </Card>
+              <div className="flex justify-end gap-(--sf-space-2)">
+                <Button
+                  variant="secondary"
+                  onClick={() => pickMutation.mutate()}
+                  disabled={importMutation.loading}
+                  loading={pickMutation.loading}
+                  data-testid="migration-browse-btn"
+                >
+                  {t('migration.browse')}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleImport}
+                  disabled={!canSubmit}
+                  loading={importMutation.loading}
+                  data-testid="migration-import-btn"
+                >
+                  {importMutation.loading ? t('migration.importing') : t('migration.import')}
+                </Button>
+              </div>
+              {pickMutation.error && (
+                <ErrorBanner
+                  message={pickMutation.error}
+                  code={pickMutation.errorCode}
+                  onDismiss={() => pickMutation.reset()}
+                  data-testid="migration-browse-error"
+                />
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* A CSV file of records: the page read its column names and dropped its
           rows, under a card promising they would be mapped. Seed loads them. */}
