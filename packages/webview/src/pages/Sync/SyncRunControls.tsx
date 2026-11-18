@@ -73,7 +73,7 @@ export const SyncRunControls: React.FC<SyncRunControlsProps> = ({ operationId, k
           focusableWhenDisabled
           data-testid="sync-cancel"
         >
-          {kind === 'run' ? t('common.cancelRun') : t('sync.runControls.cancelSimulation')}
+          {kind === 'run' ? t('common.stopRun') : t('sync.runControls.cancelSimulation')}
         </Button>
       </div>
       <p
@@ -91,7 +91,7 @@ export const SyncRunControls: React.FC<SyncRunControlsProps> = ({ operationId, k
           setConfirming(false);
           cancel();
         }}
-        title={t('common.cancelRun')}
+        title={t('common.stopRun')}
         description={t('sync.runControls.cancelConfirm')}
         // Stopping writes nothing: a question, not a word to type.
         confirmLabel={t('common.stopRun')}

@@ -41,8 +41,8 @@ const MIGRATION_TYPES = new Set([
   'migration:save-sync-config',
 ]);
 
-/** How a configuration saved from the Migration page is described among Sync's. */
-const SAVED_FROM_MIGRATION = 'Saved from the SandForge Migration page';
+/** How a configuration saved from the SFDMU Import page is described among Sync's. */
+const SAVED_FROM_MIGRATION = 'Saved from the SandForge SFDMU Import page';
 
 /**
  * The file extension the importer takes: SfdmuImporter accepts an SFDMU

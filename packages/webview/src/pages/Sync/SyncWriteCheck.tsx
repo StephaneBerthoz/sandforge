@@ -26,6 +26,8 @@ export interface SyncWriteCheckCardProps {
   unread?: string;
   /** The order the run writes the objects in. */
   order?: SyncWriteOrder;
+  /** The two orgs simulated: Compare, opened from here, opens on them. */
+  pair?: { sourceOrgId: string; targetOrgId: string };
 }
 
 /**
@@ -36,7 +38,12 @@ export interface SyncWriteCheckCardProps {
  * or is refused — the checks Forge, Seed and Autopilot hold their runs to,
  * which Sync had none of.
  */
-export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, unread, order }) => {
+export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({
+  check,
+  unread,
+  order,
+  pair,
+}) => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
   if (!check && unread === undefined && !order) return null;
@@ -262,13 +269,24 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                 <p className="text-text-secondary">{t('sync.writeCheck.unwritable.hint')}</p>
               )}
               {/* An object the target has not is deployed from the source,
-                  which no access gives it: the way there, beside the words. */}
+                  which no access gives it: the way there, beside the words,
+                  on the two orgs simulated. */}
               {(check.unwritable ?? []).some(({ why }) => why === 'notInTarget') && (
                 <Button
                   variant="secondary"
                   size="sm"
                   className="self-start"
-                  onClick={() => navigate('compare')}
+                  onClick={() =>
+                    navigate(
+                      'compare',
+                      pair
+                        ? {
+                            compareSourceOrgId: pair.sourceOrgId,
+                            compareTargetOrgId: pair.targetOrgId,
+                          }
+                        : undefined,
+                    )
+                  }
                   data-testid="sync-write-check-open-compare"
                 >
                   {t('sync.writeCheck.unwritable.openCompare')}

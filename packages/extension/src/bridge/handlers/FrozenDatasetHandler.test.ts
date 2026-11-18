@@ -591,6 +591,7 @@ describe('FrozenDatasetHandler', () => {
       deps = createMockDeps({ ...createMockConfig(), sasDir });
       vi.mocked(deps.orgManager.getOrg).mockReturnValue({
         orgType: 'Unknown',
+        alias: 'ProdOrg',
       } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
       deps.infraServices = {
         productionGuard: new ProductionGuard(),
@@ -602,8 +603,10 @@ describe('FrozenDatasetHandler', () => {
       const errors = posted(deps, 'frozen:load:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('GUARD_REFUSED');
+      // By its alias, as the panel and the command line name it elsewhere,
+      // never by the id it is registered under.
       expect(String(errors[0].payload.message)).toContain(
-        'Refusing frozen-dataset load on production org org-2: loads go into sandboxes and ' +
+        'Refusing frozen-dataset load on production org ProdOrg: loads go into sandboxes and ' +
           'Developer Edition orgs only.',
       );
       // Which guard, and what it refused, beside the English: the panel words it.

@@ -5074,7 +5074,7 @@ export class DataOpsHandler implements DomainHandler {
     const refused = (code: string, message: string): Error & { code: string } =>
       pipelineMaskingRefusal(code, message);
     const stopped = (): StepCancelledError =>
-      new StepCancelledError('The dry run of the masking was stopped: nothing was masked.');
+      new StepCancelledError('The simulation of the masking was stopped: nothing was masked.');
     if (!this.deps.orgManager.getOrg(request.orgId)) {
       throw refused(
         PIPELINE_MASKING_REFUSAL.orgUnknown,

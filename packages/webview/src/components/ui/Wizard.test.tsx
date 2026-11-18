@@ -278,12 +278,12 @@ describe('Wizard', () => {
         currentStep={1}
         onStepChange={vi.fn()}
         onCancel={vi.fn()}
-        cancelLabelKey="common.cancelRun"
+        cancelLabelKey="common.stopRun"
       >
         <div>Content</div>
       </Wizard>,
     );
-    expect(screen.getByTestId('wizard-wizard-cancel').textContent).toBe('Cancel run');
+    expect(screen.getByTestId('wizard-wizard-cancel').textContent).toBe('Stop the run');
   });
 
   it('should hide the cancel control once the wizard is finished', () => {

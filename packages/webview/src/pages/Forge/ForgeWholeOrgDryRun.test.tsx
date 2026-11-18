@@ -27,7 +27,7 @@ describe('ForgeWholeOrgDryRunResult', () => {
     renderDry();
 
     const panel = screen.getByTestId('forge-whole-org-dry-run');
-    expect(panel.textContent).toContain('Dry run of the whole org');
+    expect(panel.textContent).toContain('Simulation of the whole org');
     // It said no row was read past the counts, where it reads the ids of the
     // records the run would hold back or leave aside, and more.
     expect(panel.textContent).toContain(
@@ -257,7 +257,7 @@ describe('ForgeWholeOrgDryRunResult', () => {
     const verdict = screen.getByTestId('forge-whole-org-dry-run-verdict');
     // The sample comes first, before the verdict and the counts.
     expect(sample.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(panel.textContent).toContain('Dry run of a sample of the whole org');
+    expect(panel.textContent).toContain('Simulation of a sample of the whole org');
     expect(screen.queryByTestId('forge-whole-org-dry-run-sample-offer')).toBeNull();
   });
 

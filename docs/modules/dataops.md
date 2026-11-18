@@ -102,7 +102,7 @@ and **Delete**:
 - **Create backup** sits beside the template on the Masking tab, where the
   template picked chooses what it reads
 - A backup is listed in Live Operations while it reads, and Create backup
-  offers **Cancel run** meanwhile. It stops between two pages when either
+  offers **Stop the run** meanwhile. It stops between two pages when either
   cancels it, the window closes or the extension deactivates, and what it
   wrote is removed, so a stopped run leaves no half-saved backup -- run it
   again for a complete one. A backup in slices keeps the slices it took
@@ -207,7 +207,7 @@ What a restore does, in order:
   rather than restoring the record with that column silently missing
 
 A restore is listed in Live Operations while it writes, and the Backups tab
-offers **Cancel run** meanwhile. It stops between two batches when it is
+offers **Stop the run** meanwhile. It stops between two batches when it is
 cancelled — from either, by Ctrl-C at `sandforge dataops --restore`, or as the
 window closes — as a masking run does: the records it put back before are counted,
 the audit trail records it cancelled with them, and the same restore run
@@ -279,7 +279,7 @@ mask:
   `sandforge dataops anonymize` ends on exit code 1. An object with no record
   holds nothing to mask, and refuses nothing
 - **A run that stops before the end says what it left.** A cancel -- the
-  Masking tab's **Cancel run** while the run masks, or Live Operations',
+  Masking tab's **Stop the run** while the run masks, or Live Operations',
   where it is listed -- honoured between two batches, or before the first
   write while it counts, waits on Production Guard or takes its backup; the org's daily API requests reaching 95%, past which
   the run makes no further call; an error; records the org refuses. The run

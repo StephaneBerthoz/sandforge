@@ -2782,7 +2782,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       if (request.pilot === true) {
         throw new ReplayRefused(
           'REPLAY_NO_PILOT',
-          'A replay loads no pilot: preview it, then replay it whole. Nothing was read or written.',
+          'A replay loads no pilot: simulate it, then replay it whole. Nothing was read or written.',
         );
       }
       return await this.replaySourceOf(request.targetOrgId, request.replay, reads);
@@ -2838,7 +2838,12 @@ export class FrozenDatasetHandler implements DomainHandler {
     const orgTier = this.targetTier(targetOrgId);
     const stagingReplay =
       orgTier === 'staging' ? this.stagingReplayOf(targetOrgId, request, reads) : undefined;
-    assertLoadTier({ orgId: targetOrgId, orgTier, ...(stagingReplay ? { stagingReplay } : {}) });
+    assertLoadTier({
+      orgId: targetOrgId,
+      orgName: this.orgNameOf(targetOrgId),
+      orgTier,
+      ...(stagingReplay ? { stagingReplay } : {}),
+    });
     const stores = this.replayStoresInUse();
     const folder = stores.replays.folderOf(request.organizationId, request.checkpointId);
     const target = await this.replayTargetOf(targetOrgId);
@@ -4138,6 +4143,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const orgTier = this.targetTier(parsed.targetOrgId);
       const answer = await loader.gateLoad({
         orgId: parsed.targetOrgId,
+        orgName: this.orgNameOf(parsed.targetOrgId),
         orgTier,
         ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
         dataset,
@@ -4295,6 +4301,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const load = (): Promise<FrozenLoadReport> =>
         loader.load({
           orgId: parsed.targetOrgId,
+          orgName: this.orgNameOf(parsed.targetOrgId),
           orgTier,
           ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
           dataset,
@@ -4959,6 +4966,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const plan = await loader
         .planLoad({
           orgId: parsed.targetOrgId,
+          orgName: this.orgNameOf(parsed.targetOrgId),
           orgTier: this.targetTier(parsed.targetOrgId),
           ...(replay?.stagingReplay ? { stagingReplay: true } : {}),
           dataset,

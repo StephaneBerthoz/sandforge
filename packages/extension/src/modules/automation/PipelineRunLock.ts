@@ -195,7 +195,7 @@ export function pipelineRunLockHolder(
 
 /** Where a run that holds the lock runs, as a line names it. */
 function placeOf(holder: PipelineRunLockHolder): string {
-  const what = holder.dryRun ? 'a dry run' : 'a run';
+  const what = holder.dryRun ? 'a simulation' : 'a run';
   return holder.ranFrom === 'commandLine'
     ? `${what} from the command line (sandforge pipeline run)`
     : `${what} in VS Code`;

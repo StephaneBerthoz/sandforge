@@ -564,6 +564,20 @@ describe('frozenErrorWords', () => {
   });
 
   describe('of a replay of a checkpoint', () => {
+    it('says a sandbox marked Staging takes a replay once its name is typed, never that it takes none', () => {
+      // A replay goes into a sandbox marked Staging once its name is typed
+      // under the simulation: "a replay never goes into one" was no longer so.
+      const said = frozenErrorWords(
+        { code: 'GUARD_REFUSED', guard: 'non-sandbox', orgId: 'org-uat', tier: 'staging' },
+        t,
+        aliasOf,
+        'replay',
+      );
+      expect(said).toContain('UAT is a sandbox marked Staging');
+      expect(said).toContain('once its name is typed under the simulation');
+      expect(said).not.toContain('never goes');
+    });
+
     it('says each refusal of the replay’s own guard by the box that lifts it', () => {
       expect(
         frozenErrorWords(

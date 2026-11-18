@@ -235,6 +235,22 @@ describe('AutopilotPage', () => {
     expect(screen.getByTestId('empty-action-button')).toBeDefined();
   });
 
+  it('offers Connect an org with no org connected, and Select an org with orgs but none selected', () => {
+    // It said Select an Org with no org to select, where every other page
+    // without an org says Connect an org.
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    const { unmount } = render(<AutopilotPage />);
+    expect(screen.getByTestId('empty-action-button').textContent).toBe(en.emptyState.connectOrg);
+    unmount();
+
+    mockOrgState = {
+      orgs: [{ id: 'org-1', alias: 'DevSandbox' }],
+      selectedOrgId: null,
+    };
+    render(<AutopilotPage />);
+    expect(screen.getByTestId('empty-action-button').textContent).toBe(en.autopilot.emptyState.cta);
+  });
+
   it('should navigate to orgs when empty state CTA clicked', () => {
     mockOrgState = { orgs: [], selectedOrgId: null };
     render(<AutopilotPage />);

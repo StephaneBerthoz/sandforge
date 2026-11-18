@@ -115,3 +115,22 @@ test('the documented default is the manifest default', () => {
     'these rows document a default the extension does not have:\n  ' + offenders.join('\n  '),
   );
 });
+
+test('the configuration page lists exactly the keyboard shortcuts the manifest binds', () => {
+  // Grappe's page went in 1.83.0 with its Ctrl+Shift+R, and the shortcut
+  // table went on offering it: a key that opens nothing.
+  const bound = (manifest().contributes?.keybindings ?? []).map((entry) => entry.key).sort();
+  assert.ok(bound.length > 0, 'the manifest binds no key — re-read this gate');
+  for (const relativePath of TABLES) {
+    const documented = read(...relativePath.split('/'))
+      .split('\n')
+      .filter((line) => /^\|\s*`(?:Ctrl|Cmd)\+[^`]+`\s*\|/.test(line))
+      .map((line) => line.split('|')[1].trim().replace(/`/g, '').toLowerCase())
+      .sort();
+    assert.deepEqual(
+      documented,
+      bound,
+      `${relativePath}: the shortcut table and the manifest's keybindings disagree`,
+    );
+  }
+});

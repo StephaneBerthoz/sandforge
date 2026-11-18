@@ -313,8 +313,8 @@ export const MigrationPage: React.FC = () => {
   const emptyFirstHintId = useId();
   const selectOrg = useOrgStore((s) => s.selectOrg);
   /**
-   * Open DataOps → Cleanup → Empty objects on the run's target, these objects
-   * picked, the target selected there as everywhere.
+   * Open DataOps → Emptying on the run's target, these objects picked, the
+   * target selected there as everywhere.
    */
   const emptyFirst = (): void => {
     if (runTargetOrgId === '') return;

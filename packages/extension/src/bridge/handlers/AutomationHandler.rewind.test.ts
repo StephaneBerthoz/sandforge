@@ -364,7 +364,7 @@ describe('AutomationHandler: the confirmation of a Rewind step', () => {
     expect(result?.summary).toMatch(
       /^Would rewind training-dev to the checkpoint ck-20261030-020000-abcd: 2 to delete, 1 to give their values back, 0 to bring back from the recycle bin, /,
     );
-    expect(result?.summary).not.toContain('cannot be dry-run here');
+    expect(result?.summary).not.toContain('cannot be simulated here');
   });
 
   it("holds the pipeline's time budget while a dry run's preview runs past it, as its run holds it", async () => {
@@ -421,7 +421,7 @@ describe('AutomationHandler: the confirmation of a Rewind step', () => {
       .find((m) => m.type === 'pipeline:run:response');
     expect(run?.payload['status']).toBe('failed');
     expect(String(run?.payload['error'])).toContain('has never been confirmed');
-    expect(String(run?.payload['error'])).not.toContain('cannot be dry-run here');
+    expect(String(run?.payload['error'])).not.toContain('cannot be simulated here');
   });
 
   it('runs an edit of a confirmed step only once saved and confirmed again', async () => {

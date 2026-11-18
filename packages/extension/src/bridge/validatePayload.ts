@@ -1272,7 +1272,7 @@ export const dataOpsEmptyRunPayloadSchema = z
     ...dataOpsAskedFromShape,
   })
   .refine((request) => (request.previewId === undefined) !== (request.resumeRunId === undefined), {
-    message: 'An emptying acts on a preview, or takes up a run: one of them',
+    message: 'An emptying acts on a simulation, or takes up a run: one of them',
   });
 
 /** `dataops:empty:cancel`: the act to stop, by its operation id. */

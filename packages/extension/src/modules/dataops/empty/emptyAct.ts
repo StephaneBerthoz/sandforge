@@ -530,7 +530,7 @@ export function changedSince(confirmed: EmptyPreview, fresh: EmptyPreview): stri
     if (then !== undefined && now > then) {
       changes.push(
         `${now.toLocaleString('en-US')} ${object.objectApiName} record(s) now go along, where the ` +
-          `preview counted ${then.toLocaleString('en-US')}`,
+          `simulation counted ${then.toLocaleString('en-US')}`,
       );
     }
   }
@@ -556,8 +556,8 @@ function changedRefusal(orgName: string, changes: readonly string[]): DataOpsEmp
   return {
     code: 'ORG_CHANGED',
     message:
-      `${orgName} changed since the preview, beyond what was confirmed: ${changes.slice(0, 5).join('; ')}` +
-      `${changes.length > 5 ? '; …' : ''}. Preview the emptying again. ${NOTHING_DELETED}`,
+      `${orgName} changed since the simulation, beyond what was confirmed: ${changes.slice(0, 5).join('; ')}` +
+      `${changes.length > 5 ? '; …' : ''}. Simulate the emptying again. ${NOTHING_DELETED}`,
   };
 }
 
@@ -790,7 +790,7 @@ async function gateRefusals(
   if (read.preview.stopped) {
     refusals.push({
       code: 'PREVIEW_STOPPED',
-      message: `The preview was stopped before every count was in: preview again. ${NOTHING_READ}`,
+      message: `The simulation was stopped before every count was in: simulate again. ${NOTHING_READ}`,
     });
   }
   if (options.deleteMode === 'hard' && !read.permissions.hardDelete) {
@@ -822,7 +822,7 @@ function nothingToDelete(now: Date): DataOpsEmptyRunResult {
     passes: [],
     totals: { deleted: 0, gone: 0, refused: 0, notReached: 0 },
     undo: { offered: false, why: 'nothingDeleted' },
-    notes: ['The org holds nothing the preview would delete any more: nothing was sent.'],
+    notes: ['The org holds nothing the simulation would delete any more: nothing was sent.'],
     startedAt: at,
     finishedAt: at,
   };
@@ -913,7 +913,7 @@ export async function runEmptyAct(
   const { org, orgName } = context;
   const now = context.now ?? (() => new Date());
   if (!ask.confirmed && ask.resumeRunId === undefined) {
-    throw new Error('An emptying acts on a preview it was confirmed on, or takes up a run.');
+    throw new Error('An emptying acts on the simulation it was confirmed on, or takes up a run.');
   }
   const sentBefore = context.requestsSent?.() ?? 0;
   const conn = guardConnectionOf(org);
@@ -956,7 +956,7 @@ export async function runEmptyAct(
     return {
       ran: false,
       refusal: changedRefusal(orgName, [
-        'it is another org than the one the preview read — a refreshed sandbox is a new org',
+        'it is another org than the one the simulation read — a refreshed sandbox is a new org',
       ]),
     };
   }

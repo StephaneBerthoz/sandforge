@@ -140,6 +140,11 @@ describe('docs/modules/monitor.md', () => {
     expect(source('packages/webview/src/pages/Monitor/RefreshRecovery.tsx')).toContain(
       'export const RECENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;',
     );
+    // The band leaves once the recovery is finished, as the page reads it.
+    expect(refreshes).toContain('until its recovery is finished');
+    expect(source('packages/webview/src/pages/Monitor/MonitorPage.tsx')).toContain(
+      'recentRefresh && !recoveryFinished',
+    );
     expect(source('packages/extension/l10n/bundle.l10n.json')).toContain(
       '"Bring back into service"',
     );

@@ -183,12 +183,7 @@ test.describe('Home page', () => {
     );
     // Back into service, once a sandbox is registered.
     await expect(page.getByTestId('open-recovery-btn')).toBeVisible();
-    // Grappe's page is retired: no row, whatever its setting says.
-    await sendExtensionMessage(page, {
-      type: 'settings:response',
-      id: 'settings-grappe-on',
-      payload: { settings: {}, grappeEnabled: true },
-    });
+    // Grappe's page is retired: no row.
     await expect(page.getByTestId('open-grappe-btn')).toHaveCount(0);
     await expect(page.getByTestId('quick-grappe-btn')).toHaveCount(0);
   });

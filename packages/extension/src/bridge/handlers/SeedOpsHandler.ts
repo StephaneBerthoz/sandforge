@@ -2341,7 +2341,7 @@ export class SeedOpsHandler implements DomainHandler {
     if ('refusal' in read) throw pipelineSeedRefusal(read.refusal.code, read.refusal.message);
     if (signal?.aborted) {
       throw new StepCancelledError(
-        'The dry run of the seed was stopped before it said what the seed would meet. Nothing ' +
+        'The simulation of the seed was stopped before it said what the seed would meet. Nothing ' +
           'was written.',
       );
     }

@@ -33,7 +33,7 @@ export const RunStopControl: React.FC<RunStopControlProps> = ({ onStop, requeste
         onClick={onStop}
         data-testid={testId}
       >
-        {t('common.cancelRun')}
+        {t('common.stopRun')}
       </Button>
       {requested && (
         <p

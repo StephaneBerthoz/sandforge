@@ -2,7 +2,6 @@
   "common": {
     "save": "Save",
     "cancel": "Cancel",
-    "cancelRun": "Cancel run",
     "stopRun": "Stop the run",
     "keepRunning": "Keep running",
     "confirm": "Confirm",
@@ -543,7 +542,7 @@
     "empty": "(empty)",
     "emptyState": {
       "title": "Spot differences between two orgs",
-      "description": "Compare metadata, permissions and drift between a source and a target org — know exactly what changes before you deploy.",
+      "description": "Three tabs: Differences between a source and a target org, Deploy from Diff to deploy what differs, and Org overview to see both orgs side by side.",
       "step2": "Pick source and target orgs",
       "step3": "Select the metadata categories to diff",
       "step4": "Run the comparison and review the diffs"
@@ -806,7 +805,7 @@
     "stepExecute": "Options",
     "stepResults": "Run",
     "advancedSettings": "Advanced Settings",
-    "exportCsv": "Export CSV",
+    "exportCsv": "Export as CSV",
     "seedAgain": "Seed again…",
     "templates": {
       "salesCloudStarter": {
@@ -2803,7 +2802,7 @@
     "installFailed": "Could not install the template",
     "marketplaceAuthor": "Author",
     "noMarketplaceTemplates": "No templates available",
-    "noMarketplaceTemplatesDesc": "Community templates will appear here",
+    "noMarketplaceTemplatesDesc": "The pipeline templates that come with SandForge are listed here: none could be read.",
     "installTemplate": "Install",
     "runFailed": "The pipeline run failed: {{reason}}",
     "runStopped": "The pipeline run was stopped: the steps left did not run.",
@@ -5674,7 +5673,7 @@
     "graphViewSlow_one": "A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its {{formatted}} object at once.",
     "graphViewSlow_other": "A clone of the whole org or a graph past 150 objects can hold the panel still for a while once drawn, and a run redraws it at each step: the table lists its {{formatted}} objects at once.",
     "wholeOrgDryRun": {
-      "title": "Dry run of the whole org",
+      "title": "Simulation of the whole org",
       "stopped": "It stopped at the run’s write gate once the source was counted: past the counts, only the ids of the records the run would hold back or leave aside and of the contact roles the platform writes itself were read, with the size of the emails and files, and nothing was written to either org.",
       "stoppedSample": "It stopped at the run’s write gate once the sample was drawn: drawing it read the ids and lookups of the records it reached, and only the few values that decide which it keeps and how each is written, such as record types and creation dates; then the gate counted what its plan keeps. Nothing was written to either org.",
       "records_one": "{{formatted}} record to write into {{target}}, of {{objects}} objects, in about {{duration}}.",
@@ -5732,7 +5731,7 @@
       "recordsColumn": "Records",
       "jobsColumn": "Bulk API jobs",
       "restColumn": "By REST",
-      "titleSample": "Dry run of a sample of the whole org",
+      "titleSample": "Simulation of a sample of the whole org",
       "outsideFilter": "Left aside outside the filter",
       "outsideFilterRows_one": "{{formatted}} record of {{objects}}: a lookup it may not leave empty names a record outside its object’s filter, so the run does not write it",
       "outsideFilterRows_other": "{{formatted}} records of {{objects}}: a lookup they may not leave empty names a record outside its object’s filter, so the run does not write them",
@@ -6814,7 +6813,7 @@
         "alsoRefused": "Beside those fields, the replay would be refused for:",
         "loadConfig": "The checkpoint’s records leave required fields empty that the other org requires, and nothing was written: {{gaps}}. Untick their objects, or replay from the command line with a configuration that gives them a value (--replay-config).",
         "nonSandbox": "{{org}} is no sandbox, scratch org or Developer Edition org: a replay goes into those alone, and nothing was written. Pick one of those.",
-        "staging": "{{org}} is a sandbox marked Staging: it holds real data, and a replay never goes into one. Nothing was written. Pick another org.",
+        "staging": "{{org}} is a sandbox marked Staging, which may hold real data: a replay goes into it only once its name is typed under the simulation. Nothing was written. Type its name there, or pick another org.",
         "storage": "The checkpoint’s records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB: the replay would stop part way through, and nothing was written. Untick some objects, or free data storage in {{org}}.",
         "apiBudget": "The replay would take about {{estimate}} API requests of {{org}}, which has {{remaining}} of its {{max}} daily requests left: it would stop part way through, and nothing was written. Replay once the org has requests to spare, or into an org with more left today.",
         "emailsNotAccepted": "{{org}} delivers every email what still runs sends as the replay writes, or would not say whether it does, and nothing was written. Tick “Replay even though {{org}} delivers the emails”, tick Mute automation, or set the org’s deliverability to System email only.",
@@ -8079,7 +8078,7 @@
     },
     "wholeOrgRehearsal": {
       "explanation": "A clone of the whole org is not rehearsed: a rehearsal holds every row it prepares, which no memory takes for a whole org. Nothing was read or sent.",
-      "action": "Simulate it instead: its dry run stops at its gate and says what it would write, take and leave out, and Execute asks before it writes."
+      "action": "Simulate it instead: its simulation stops at its gate and says what it would write, take and leave out, and Execute asks before it writes."
     },
     "graphWithoutEdges": {
       "explanation": "This graph is the one the history keeps of a clone of the whole org, without the relations between its objects, which a run orders its writes and maps its lookups by. It cannot be run as it is. Nothing was read or written.",
@@ -8985,7 +8984,7 @@
         "noInventoryBefore": "No inventory of the jobs was kept before the refresh: there is nothing to compare against. Keep one now, for the next refresh."
       },
       "endpoints": {
-        "toDo": "Lists the Named Credentials, Remote Sites and fields that still name production, each with its Setup page: change them, then mark the step as done."
+        "toDo": "Lists the Named Credentials and Remote Sites that still name production, each with its Setup page: change them, then mark the step as done. Custom Metadata and Custom Settings fields are read by sandforge env audit, those sandforge.yaml names."
       },
       "handoff": {
         "toDo": "Writes a Markdown note of what each step did, the point the testers start from and what is left, and opens it in the editor.",
@@ -9589,7 +9588,7 @@
       "previewedLostTitle": "Not brought back, as the simulation said Undo could not"
     },
     "history": {
-      "title": "Emptyings of {{org}}",
+      "title": "Emptying history of {{org}}",
       "loading": "Reading the audit trail…",
       "none": "The audit trail of this machine holds no emptying of {{org}}.",
       "where": "From the audit trail of this machine: an emptying run from the command line or from another machine is not listed here.",

@@ -214,6 +214,15 @@ describe('a language names one thing with one word', () => {
     expect(offenders('fr', /\bmodèles?\b/i).length).toBeGreaterThan(5);
   });
 
+  /* A sandbox refreshed read "actualisée" in three refusals, where every other
+     value says "rafraîchie": "Actualiser" is the button that reads a view
+     again, never the refresh of a sandbox. */
+  it('French names the refresh of a sandbox "rafraîchissement", never "actualisation"', () => {
+    const refreshed = /\b[Aa]ctualisée?s?(?!\p{L})/u;
+    expect(offenders('fr', refreshed)).toEqual([]);
+    expect(offenders('fr', /\brafraîchie\b/i).length).toBeGreaterThan(2);
+  });
+
   /* Quick Sync's way back read "Retour au wizard complet", where every other
      value says "assistant". */
   it('French names a wizard "assistant"', () => {

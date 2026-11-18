@@ -328,7 +328,7 @@ describe('applyDryRun', () => {
     const steps = said(run);
     expect(steps['Differs'].status).toBe('completed');
     expect(steps['Go?'].text).toBe(
-      'Not asked in a dry run: the route goes on as if it were approved.',
+      'Not asked in a simulation: the route goes on as if it were approved.',
     );
     expect(steps['Copy'].text).toBe(
       'Would sync "Accounts to dev" into dev: 400 to create, 600 to update, 0 to delete, 0 ' +
@@ -354,11 +354,11 @@ describe('applyDryRun', () => {
         'the org has left today, about 30 s. Nothing was written.',
     );
     expect(steps['Snap'].text).toBe(
-      'Would take a snapshot of 2 objects of dev (Account, Contact): a dry run takes none.',
+      'Would take a snapshot of 2 objects of dev (Account, Contact): a simulation takes none.',
     );
-    expect(steps['Wait'].text).toBe('Would wait 1.0 h: a dry run does not wait.');
+    expect(steps['Wait'].text).toBe('Would wait 1.0 h: a simulation does not wait.');
     expect(steps['Tell'].text).toBe(
-      'Not shown in a dry run; the run would show in VS Code: "Done."',
+      'Not shown in a simulation; the run would show in VS Code: "Done."',
     );
     // Each result says it is a dry run's, but those that only read.
     expect(
@@ -689,7 +689,7 @@ describe('applyDryRun', () => {
       runId: 'r-1',
     });
 
-    expect(result.summary).toBe('Not printed in a dry run; the run would print: "Done."');
+    expect(result.summary).toBe('Not printed in a simulation; the run would print: "Done."');
     expect(flows.notify).not.toHaveBeenCalled();
   });
 
@@ -711,7 +711,7 @@ describe('applyDryRun', () => {
     );
 
     expect(sync.error).toBe(
-      'Sync step "Copy" cannot be dry-run here: nothing can read what it would do. Nothing was written.',
+      'Sync step "Copy" cannot be simulated here: nothing can read what it would do. Nothing was written.',
     );
     expect(mask.status).toBe('failed');
     expect(flows.runSync).not.toHaveBeenCalled();

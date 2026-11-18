@@ -6207,7 +6207,7 @@ for (const theme of SCANNED_THEMES) {
       const savedConfig = {
         id: 'cfg-saved',
         name: 'Nightly accounts 2',
-        description: 'Saved from the SandForge Migration page',
+        description: 'Saved from the SandForge SFDMU Import page',
         sourceOrgId: DEV_SANDBOX.id,
         targetOrgId: QA_SANDBOX.id,
         direction: 'source_to_target',
@@ -10021,7 +10021,7 @@ async function openSeedWizardRunning(
  * it asked to type "Cancel", the label of the button beside it that stops
  * nothing — and the focus on the button that keeps the run going.
  */
-async function expectPlainStopQuestion(page: Page, title = 'Cancel run'): Promise<void> {
+async function expectPlainStopQuestion(page: Page, title = 'Stop the run'): Promise<void> {
   const dialog = page.getByRole('dialog', { name: title });
   await dialog.waitFor({ state: 'visible', timeout: 10_000 });
   await expect(dialog.getByTestId('danger-input')).toHaveCount(0);

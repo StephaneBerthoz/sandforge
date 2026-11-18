@@ -126,6 +126,23 @@ describe('the run lock of a pipeline', () => {
     editor.lock.release();
   });
 
+  it('names a simulation holding the lock as the page names it, never a dry run', () => {
+    const root = pipelinesRoot();
+    const taken = acquirePipelineRunLock(root, PIPELINE, {
+      pipelineName: 'Nightly reset',
+      ranFrom: 'editor',
+      triggeredBy: 'manual',
+      dryRun: true,
+    });
+    if (!('lock' in taken)) throw new Error('the lock was not taken');
+    const holder = pipelineRunLockHolder(root, PIPELINE)!;
+
+    const refusal = pipelineRunningRefusal(holder, 'Nightly reset');
+    expect(refusal).toContain('already running on this machine: a simulation in VS Code started');
+    expect(refusal).not.toContain('dry run');
+    taken.lock.release();
+  });
+
   it('is let go by its release, once or twice, and its file is its owner’s alone', () => {
     const root = pipelinesRoot();
     const taken = acquirePipelineRunLock(root, PIPELINE, {

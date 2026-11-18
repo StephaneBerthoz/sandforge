@@ -25,6 +25,8 @@ export interface SyncSimulationResultsProps {
   simulation: SyncSimulationResult;
   /** The target org, as the user knows it. */
   targetOrg: string;
+  /** The two orgs simulated, by their ids: what Compare opens on from the write check. */
+  pair?: { sourceOrgId: string; targetOrgId: string };
   /** Run the sync for real, with the configuration just simulated. */
   onRun: () => void;
 }
@@ -51,6 +53,7 @@ function totalsOf(objects: readonly SyncObjectSimulation[]) {
 export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
   simulation,
   targetOrg,
+  pair,
   onRun,
 }) => {
   const { t } = useTranslation();
@@ -112,6 +115,7 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         check={simulation.writeCheck}
         unread={simulation.writeCheckUnread}
         order={simulation.writeOrder}
+        {...(pair ? { pair } : {})}
       />
       {/* Whether the target delivers the emails of what still runs, and who sends them. */}
       {emails && (

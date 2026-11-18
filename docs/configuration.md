@@ -29,16 +29,15 @@ Every SandForge setting lives under **SandForge** in the VS Code Settings UI. Th
 | `sandforge.safety.requireProdConfirmation` | No longer used: every write to a production org asks first                                                                                                    | `true`            |
 | `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                                             | `true`            |
 | `sandforge.safety.confirmAboveRecords`     | Ask before a Forge clone, an Autopilot run or a Sync writes more than this many records (0: never); one near the target org's data storage is asked about too | `2000`            |
-| `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential                          | `false`           |
+| `sandforge.grappe.enabled`                 | Show a large Seed, Sync or Autopilot run's progress in a Grappe panel of its run screen (Autopilot: start and end only); execution stays sequential           | `false`           |
 | `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                                              | `10000`           |
 | `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                                                  | `5000`            |
 
 ## Keyboard shortcuts
 
-| Shortcut       | Action                           |
-| -------------- | -------------------------------- |
-| `Ctrl+Shift+R` | Open Grappe (partition progress) |
-| `Ctrl+Shift+A` | Open Automation                  |
+| Shortcut       | Action          |
+| -------------- | --------------- |
+| `Ctrl+Shift+A` | Open Automation |
 
 In-app, press `Ctrl+K` for the command palette and `G` + a letter to jump between modules (see the Help page for the full map). On macOS, use `Cmd` instead of `Ctrl`.
 

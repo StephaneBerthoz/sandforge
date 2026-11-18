@@ -128,7 +128,7 @@ function refusalCode(err: unknown): string | undefined {
 /** What a dry run of a step that cannot read what it would do says: nothing is tried in its place. */
 function cannotPreview(who: string): Error {
   return new Error(
-    `${who} cannot be dry-run here: nothing can read what it would do. Nothing was written.`,
+    `${who} cannot be simulated here: nothing can read what it would do. Nothing was written.`,
   );
 }
 
@@ -205,7 +205,7 @@ function dryDelay(step: PipelineStep): Promise<PipelineStepResult> {
       step,
       startTime,
       { wouldWait: ms },
-      `Would wait ${waitWords(ms)}: a dry run does not wait.`,
+      `Would wait ${waitWords(ms)}: a simulation does not wait.`,
     ),
   );
 }
@@ -217,7 +217,7 @@ function dryApproval(step: PipelineStep): Promise<PipelineStepResult> {
       step,
       startTime,
       { asked: false },
-      'Not asked in a dry run: the route goes on as if it were approved.',
+      'Not asked in a simulation: the route goes on as if it were approved.',
     ),
   );
 }
@@ -228,8 +228,8 @@ function dryNotification(runners: PipelineStepRunners) {
     const message = text(step.config['message']) ?? '';
     const shown =
       runners.ranFrom === 'commandLine'
-        ? 'Not printed in a dry run; the run would print'
-        : 'Not shown in a dry run; the run would show in VS Code';
+        ? 'Not printed in a simulation; the run would print'
+        : 'Not shown in a simulation; the run would show in VS Code';
     return Promise.resolve(wouldDo(step, startTime, { message }, `${shown}: "${message}"`));
   };
 }
@@ -248,7 +248,7 @@ function dryBackup(runners: PipelineStepRunners) {
         startTime,
         { orgId, objects },
         `Would take a snapshot of ${counted(objects.length, 'object')} of ${org} ` +
-          `(${objects.join(', ')}): a dry run takes none.`,
+          `(${objects.join(', ')}): a simulation takes none.`,
       ),
     );
   };

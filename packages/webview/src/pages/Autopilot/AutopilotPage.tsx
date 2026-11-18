@@ -372,7 +372,7 @@ export const AutopilotPage: React.FC = () => {
         module="autopilot"
         title={t('autopilot.emptyState.title')}
         description={t('moduleSummary.autopilot')}
-        actionLabel={t('autopilot.emptyState.cta')}
+        actionLabel={orgs.length === 0 ? t('emptyState.connectOrg') : t('autopilot.emptyState.cta')}
         onAction={() => navigate('orgs')}
       />
     );

@@ -13,7 +13,7 @@ describe('RunStopControl', () => {
     fireEvent.click(screen.getByTestId('backup-stop'));
 
     expect(onStop).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('backup-stop').textContent).toBe(en.common.cancelRun);
+    expect(screen.getByTestId('backup-stop').textContent).toBe(en.common.stopRun);
   });
 
   it('is not offered twice once sent, and says what happens to what the run did', () => {

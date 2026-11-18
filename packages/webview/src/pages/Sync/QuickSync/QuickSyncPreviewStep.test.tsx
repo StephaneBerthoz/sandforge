@@ -358,7 +358,7 @@ describe('QuickSyncPreviewStep', () => {
     );
 
     expect(screen.getByTestId('sync-pause')).toBeDefined();
-    expect(screen.getByTestId('sync-cancel').textContent).toBe('Cancel run');
+    expect(screen.getByTestId('sync-cancel').textContent).toBe('Stop the run');
   });
 
   it('shows results after execution completes', () => {

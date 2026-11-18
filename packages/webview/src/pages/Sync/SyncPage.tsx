@@ -1213,6 +1213,7 @@ export const SyncPage: React.FC = () => {
                   <SyncSimulationResults
                     simulation={simulation}
                     targetOrg={targetOrgName}
+                    pair={{ sourceOrgId, targetOrgId }}
                     onRun={handleExecute}
                   />
                 ) : !result ? (

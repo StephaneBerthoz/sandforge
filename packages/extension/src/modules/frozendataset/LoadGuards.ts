@@ -50,6 +50,12 @@ export class LoadGuardError extends Error {
 /** Inputs of the entry-guard evaluation. */
 export interface LoadGuardInput {
   orgId: string;
+  /**
+   * The name the person knows the org by — its alias —, which the English of
+   * a refusal says; `orgId` when absent. The params keep `orgId`, which the
+   * panel names the org by in the interface language.
+   */
+  orgName?: string;
   /** Existing safety tier of the org (ProductionGuard classification). */
   orgTier: SafetyTier;
   dataset: FrozenDataset;
@@ -73,6 +79,11 @@ export function datasetRecordCount(dataset: FrozenDataset): number {
   return dataset.objects.reduce((sum, o) => sum + o.records.length, 0);
 }
 
+/** The org as a refusal's English says it: by its name when the caller gave one. */
+function named(input: Pick<LoadGuardInput, 'orgId' | 'orgName'>): string {
+  return input.orgName ?? input.orgId;
+}
+
 /**
  * Evaluate every entry guard. Throws {@link LoadGuardError} on the first
  * refusal; resolves when the load may proceed.
@@ -85,7 +96,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
   if (input.protectedOrgIds?.includes(input.orgId)) {
     throw new LoadGuardError(
       'protected-environment',
-      `Refusing frozen-dataset load on protected environment ${input.orgId}: it is listed ` +
+      `Refusing frozen-dataset load on protected environment ${named(input)}: it is listed ` +
         'in the protectedOrgIds configuration. Remediation: pick an unprotected sandbox, ' +
         'or review the protected-environment configuration if this org was retired.',
       { orgId: input.orgId },
@@ -96,7 +107,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
   if (input.manifest && input.manifest.source.orgId === input.orgId) {
     throw new LoadGuardError(
       'source-is-target',
-      `Refusing frozen-dataset load on ${input.orgId}: this org is the dataset SOURCE ` +
+      `Refusing frozen-dataset load on ${named(input)}: this org is the dataset SOURCE ` +
         '(manifest source.orgId). Loading would mix pseudonymized records with their ' +
         'origin. Remediation: target a fresh dev sandbox instead.',
       { orgId: input.orgId },
@@ -107,7 +118,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
   if (!(await input.mockDetector.areCalloutsMocked(input.orgId))) {
     throw new LoadGuardError(
       'unmocked-callouts',
-      `Refusing frozen-dataset load on ${input.orgId}: unmocked callouts detected. ` +
+      `Refusing frozen-dataset load on ${named(input)}: unmocked callouts detected. ` +
         'Records under load would trigger real external calls. Remediation: deploy the ' +
         'mock configuration to the TARGET org (e.g. the custom metadata flag read by ' +
         'CustomMetadataCalloutMockDetector), then retry — never edit data on the source org.',
@@ -136,7 +147,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
  * @throws {LoadGuardError} `non-sandbox`, of any other org.
  */
 export function assertLoadTier(
-  input: Pick<LoadGuardInput, 'orgId' | 'orgTier' | 'stagingReplay'>,
+  input: Pick<LoadGuardInput, 'orgId' | 'orgName' | 'orgTier' | 'stagingReplay'>,
 ): void {
   // A replay of a checkpoint goes into a sandbox marked Staging once the
   // person typed its name, as a rewind asks it: without it, a UAT or a Full
@@ -149,7 +160,7 @@ export function assertLoadTier(
   if (input.orgTier === 'staging') {
     throw new LoadGuardError(
       'non-sandbox',
-      `Refusing frozen-dataset load on ${input.orgId}: it is a sandbox marked Staging, which ` +
+      `Refusing frozen-dataset load on ${named(input)}: it is a sandbox marked Staging, which ` +
         'holds real data, and a load never goes into one. Remediation: pick another sandbox, ' +
         'or, if this one holds no real data, untick Staging in its Edit dialog on the ' +
         'Organizations page.',
@@ -159,7 +170,7 @@ export function assertLoadTier(
   if (input.orgTier !== 'development' && input.orgTier !== 'scratch') {
     throw new LoadGuardError(
       'non-sandbox',
-      `Refusing frozen-dataset load on ${input.orgTier} org ${input.orgId}: loads go into ` +
+      `Refusing frozen-dataset load on ${input.orgTier} org ${named(input)}: loads go into ` +
         'sandboxes and Developer Edition orgs only. Remediation: target a Developer/Scratch ' +
         'sandbox or a Developer Edition org — deploy the required configuration THERE; ' +
         'never run DML against a shared or source org.',

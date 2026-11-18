@@ -680,7 +680,7 @@ function notLoadableDetail(notLoaded: NotLoaded): string {
   if (notLoaded.notLoadable.length === 0) return '';
   const records = notLoaded.notLoadable.reduce((sum, o) => sum + o.records, 0);
   return (
-    `; ${records} record(s) not loadable, as the preview said — ` +
+    `; ${records} record(s) not loadable, as the simulation said — ` +
     notLoaded.notLoadable.map((o) => `${o.objectApiName} (${o.records})`).join(', ')
   );
 }

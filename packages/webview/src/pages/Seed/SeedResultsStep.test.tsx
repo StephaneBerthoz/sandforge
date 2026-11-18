@@ -479,6 +479,8 @@ describe('SeedResultsStep', () => {
       />,
     );
 
+    // Named as every export of a table is: Monitor's and Reports' read Export as CSV.
+    expect(screen.getByTestId('btn-export-csv').textContent).toBe('Export as CSV');
     fireEvent.click(screen.getByTestId('btn-export-csv'));
 
     expect(fileSaveMutate).toHaveBeenCalledTimes(1);

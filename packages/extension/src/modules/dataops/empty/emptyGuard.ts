@@ -415,7 +415,7 @@ export function peopleActiveRefusal(
   const count = others.length;
   const people = `${active.atLeast ? 'At least ' : ''}${count} ${count === 1 ? 'person' : 'people'}`;
   const last = lastChangeOf(active.who.filter((person) => others.includes(person.userId)));
-  const unnamed = covered.size > 0 ? ' the preview did not name' : '';
+  const unnamed = covered.size > 0 ? ' the simulation did not name' : '';
   const lift =
     options.voice === 'page'
       ? 'or tick the box that lets their work go, to empty all the same'

@@ -281,7 +281,7 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
       if (!noCreatedDate(err)) throw err;
       notes.push(
         `${table.objectApiName} has no CreatedDate: its records were read whole, those made ` +
-          'after the preview among them.',
+          'after the simulation among them.',
       );
       const read2 = await read(joined([table.filter, table.own]));
       return read2 ? { spool: read2, sinceRead: false } : undefined;
@@ -315,8 +315,8 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
           code: 'ORG_CHANGED',
           message:
             `${objectApiName} now holds ${count.toLocaleString('en-US')} records to delete, where ` +
-            `the preview counted ${counted.toLocaleString('en-US')}: the org changed beyond what ` +
-            'was confirmed, and the emptying stopped before deleting any of them. Preview it ' +
+            `the simulation counted ${counted.toLocaleString('en-US')}: the org changed beyond what ` +
+            'was confirmed, and the emptying stopped before deleting any of them. Simulate it ' +
             'again, then resume or undo it.',
         };
         internal.abort();
@@ -453,7 +453,7 @@ export async function emptyPasses(deps: EmptyRunDeps): Promise<EmptyRunOutcome> 
         if (answer.totalSize > 0) pass.madeSince = answer.totalSize;
       } catch (err: unknown) {
         notes.push(
-          `Whether ${pass.objectApiName} records were made after the preview could not be read: ` +
+          `Whether ${pass.objectApiName} records were made after the simulation could not be read: ` +
             extractErrorMessage(err),
         );
       }

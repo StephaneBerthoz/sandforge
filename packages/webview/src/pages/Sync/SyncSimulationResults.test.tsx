@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import type { RunDeliverability, SyncSimulationResult } from '@sandforge/shared';
 import { SyncSimulationResults } from './SyncSimulationResults';
+import { useAppStore } from '../../stores/useAppStore';
 
 function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulationResult {
   return {
@@ -161,6 +162,37 @@ describe('SyncSimulationResults', () => {
     expect(screen.getByTestId('sync-simulation-copied-Contact').textContent).toBe(
       '2 already copied by an earlier run of this configuration, left as they are.',
     );
+  });
+
+  it('opens Compare on the pair it simulated, for an object the target has not', () => {
+    useAppStore.setState({ currentRoute: 'sync', navigationIntent: null });
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        targetOrg="TGT-DEV"
+        pair={{ sourceOrgId: 'org-src', targetOrgId: 'org-tgt' }}
+        simulation={{
+          ...base,
+          writeCheck: {
+            objects: [],
+            total: 0,
+            alreadyCopied: 0,
+            storage: { verdict: 'fits', estimateMB: 0, maxMB: 5, remainingMB: 5 },
+            emails: [],
+            verdict: 'writes',
+            unwritable: [{ objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' }],
+          },
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('sync-write-check-open-compare'));
+
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'compare',
+      compareSourceOrgId: 'org-src',
+      compareTargetOrgId: 'org-tgt',
+    });
   });
 
   it('says linked, apart from what an earlier run copied, what it linked to records the target held', () => {

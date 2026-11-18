@@ -41,6 +41,8 @@ describe('EmptyHistory', () => {
     expect(screen.getByTestId('empty-history-none')).toHaveTextContent(
       'The audit trail of this machine holds no emptying of dev.',
     );
+    // A list of runs is a History, as on every page that keeps one.
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Emptying history of dev');
   });
 
   it('lists each emptying and undo, the latest first, Undo on the last emptying', () => {

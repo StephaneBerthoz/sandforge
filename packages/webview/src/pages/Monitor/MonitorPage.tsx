@@ -243,6 +243,23 @@ export const MonitorPage: React.FC = () => {
     { responseType: 'monitor:sandbox-refresh:response', skip: !selectedOrgId },
   );
   const recentRefresh = recentRefreshOf(sandboxRefreshQuery.data?.detected ?? []);
+  /*
+   * Where the recovery of the org shown stands, asked once a recent refresh
+   * leads, from what this machine keeps (the org is not read): one a person
+   * finished leads the dashboard no more, as it no longer leads Home or the
+   * launcher. Read as far as the band needs, an answer of another org none.
+   */
+  const recoveryQuery = useBridgeQuery<{ status?: { orgId?: unknown; finishedAt?: unknown } }>(
+    'recovery:status',
+    selectedOrgId ? { orgId: selectedOrgId } : undefined,
+    {
+      responseType: 'recovery:status:response',
+      skip: !selectedOrgId || recentRefresh === undefined,
+    },
+  );
+  const recoveryStatus = recoveryQuery.data?.status;
+  const recoveryFinished =
+    recoveryStatus?.orgId === selectedOrgId && typeof recoveryStatus?.finishedAt === 'string';
   const queriedLiveOps = liveOpsQuery.data;
   useEffect(() => {
     setPushedLiveOps(null);
@@ -517,7 +534,7 @@ export const MonitorPage: React.FC = () => {
       {/* A sandbox refreshed this week leads the dashboard with the way back
           into service: its data is gone, and every figure below is the new
           org's. */}
-      {currentOrg && recentRefresh && (
+      {currentOrg && recentRefresh && !recoveryFinished && (
         <AfterRefreshBanner alias={orgDisplayName(currentOrg)} refresh={recentRefresh} />
       )}
 

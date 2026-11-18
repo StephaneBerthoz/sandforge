@@ -243,13 +243,8 @@ test.describe('Module launcher', () => {
     expect(await entryRoutes(page, 'sidepanel-tools')).toEqual(['orgs', 'settings', 'help']);
   });
 
-  test('never lists Grappe, whose page is retired, whatever sandforge.grappe.enabled says', async ({
-    page,
-  }) => {
-    await sendExtensionMessage(page, {
-      type: 'settings:response',
-      payload: { settings: {}, grappeEnabled: true },
-    });
+  test('never lists Grappe, whose page is retired', async ({ page }) => {
+    // The extension says nothing of sandforge.grappe.enabled to the launcher since.
     await expect(page.getByTestId('sidepanel-nav-reports')).toBeVisible();
     await expect(page.getByTestId('sidepanel-nav-grappe')).toHaveCount(0);
   });

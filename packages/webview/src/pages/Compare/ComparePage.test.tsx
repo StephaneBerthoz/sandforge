@@ -219,6 +219,12 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('illustration-compare')).toBeDefined();
     expect(screen.getByText('Spot differences between two orgs')).toBeDefined();
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an org');
+    // It promised permissions and drift; the page has three tabs, said by name.
+    const said = screen.getByTestId('empty-state').textContent ?? '';
+    for (const tab of ['Differences', 'Deploy from Diff', 'Org overview']) {
+      expect(said).toContain(tab);
+    }
+    expect(said).not.toMatch(/drift/i);
   });
 
   it('should prompt for a second org in the empty state when exactly one org exists', () => {

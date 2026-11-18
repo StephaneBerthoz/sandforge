@@ -269,6 +269,8 @@ export interface FrozenDatasetLoaderDeps {
 /** Options of one load run. */
 export interface FrozenLoadOptions {
   orgId: string;
+  /** The org's alias, which the English of an entry guard's refusal says (`LoadGuardInput.orgName`). */
+  orgName?: string;
   /** Existing safety-tier classification (ProductionGuard). */
   orgTier: SafetyTier;
   /**
@@ -393,6 +395,7 @@ export type FrozenLoadPlanOptions = Omit<
 export type FrozenLoadGateOptions = Pick<
   FrozenLoadOptions,
   | 'orgId'
+  | 'orgName'
   | 'orgTier'
   | 'stagingReplay'
   | 'dataset'
@@ -1208,7 +1211,7 @@ const ENTRY_GUARDS_STARTED: FrozenLoadProgressEvent = {
   phase: 'guards',
   status: 'started',
   progress: 0,
-  message: 'Evaluating entry guards',
+  message: 'Running the safety checks',
 };
 
 /**
@@ -1459,7 +1462,7 @@ export class FrozenDatasetLoader {
     } catch (err: unknown) {
       // Said here, a load that passes its guards says them once, as it starts.
       options.onProgress?.(ENTRY_GUARDS_STARTED);
-      options.onProgress?.(endOfACheck('guards', 2, 'Entry guards not passed', err));
+      options.onProgress?.(endOfACheck('guards', 2, 'Safety checks not passed', err));
       throw err;
     }
     // What the dataset alone refuses, before the mute and the checkpoint are
@@ -1511,6 +1514,7 @@ export class FrozenDatasetLoader {
   private passEntryGuards(options: FrozenLoadGateOptions): Promise<void> {
     return assertLoadGuards({
       orgId: options.orgId,
+      ...(options.orgName !== undefined ? { orgName: options.orgName } : {}),
       orgTier: options.orgTier,
       ...(options.stagingReplay ? { stagingReplay: true } : {}),
       dataset: options.dataset,
@@ -1693,10 +1697,10 @@ export class FrozenDatasetLoader {
     try {
       await this.passEntryGuards(options);
     } catch (err: unknown) {
-      emit(endOfACheck('guards', 2, 'Entry guards not passed', err));
+      emit(endOfACheck('guards', 2, 'Safety checks not passed', err));
       throw err;
     }
-    emit({ phase: 'guards', status: 'done', progress: 2, message: 'Entry guards passed' });
+    emit({ phase: 'guards', status: 'done', progress: 2, message: 'Safety checks passed' });
 
     // What the loads before it wrote, as the sas's mapping records them — what
     // a reload purges — read on a line of its own, which a mapping the load

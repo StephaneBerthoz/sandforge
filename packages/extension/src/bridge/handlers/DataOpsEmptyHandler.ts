@@ -672,8 +672,8 @@ export class DataOpsEmptyHandler implements DomainHandler {
           throw new EmptyRefused({
             code: 'PREVIEW_GONE',
             message:
-              'The preview this emptying was confirmed on is no longer kept on this machine — a ' +
-              'preview is kept a day: preview it again, then empty. Nothing was read or deleted.',
+              'The simulation this emptying was confirmed on is no longer kept on this machine — a ' +
+              'simulation is kept a day: simulate again, then empty. Nothing was read or deleted.',
           });
         }
       }

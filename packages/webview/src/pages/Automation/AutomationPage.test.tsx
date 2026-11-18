@@ -730,6 +730,11 @@ describe('AutomationPage', () => {
 
     expect(screen.getByTestId('page-tab-marketplace').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('marketplace-content')).toBeDefined();
+    // With none read, the tab promised community templates, which do not
+    // exist: the templates are the ones SandForge comes with.
+    const empty = screen.getByTestId('marketplace-content').textContent ?? '';
+    expect(empty).toContain('come with SandForge');
+    expect(empty).not.toMatch(/community/i);
   });
 
   describe('a template another page asks for', () => {
@@ -1029,7 +1034,7 @@ describe('AutomationPage', () => {
               stepName: 'Wait',
               stepType: 'delay',
               status: 'completed',
-              summary: 'Would wait 5 seconds: a dry run does not wait.',
+              summary: 'Would wait 5 seconds: a simulation does not wait.',
             },
           ],
         },
@@ -1038,7 +1043,7 @@ describe('AutomationPage', () => {
 
       const result = screen.getByTestId('dry-run-result');
       expect(result.textContent).toContain('Simulation');
-      expect(result.textContent).toContain('Would wait 5 seconds: a dry run does not wait.');
+      expect(result.textContent).toContain('Would wait 5 seconds: a simulation does not wait.');
       // The pipeline stays on the canvas below it.
       expect(screen.getByTestId('pipeline-canvas')).toBeDefined();
 

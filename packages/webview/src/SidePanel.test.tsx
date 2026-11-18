@@ -327,9 +327,10 @@ describe('SidePanel', () => {
     }
   });
 
-  it('never lists Grappe, whose page is retired, whatever its setting says', () => {
+  it('never lists Grappe, whose page is retired', () => {
+    // The extension says nothing of the Grappe setting since: the launcher
+    // has no word of it to read.
     render(<SidePanel />);
-    fromExtension({ type: 'settings:response', payload: { settings: {}, grappeEnabled: true } });
     expect(screen.getByTestId('sidepanel-nav-reports')).toBeInTheDocument();
     expect(screen.queryByTestId('sidepanel-nav-grappe')).toBeNull();
   });

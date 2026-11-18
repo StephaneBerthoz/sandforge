@@ -1539,7 +1539,7 @@ describe('useAutomationPageData — a dry run', () => {
             stepName: 'Wait',
             stepType: 'delay',
             status: 'completed',
-            summary: 'Would wait 5 seconds: a dry run does not wait.',
+            summary: 'Would wait 5 seconds: a simulation does not wait.',
             output: { dryRun: true },
           },
         ],
@@ -1550,7 +1550,7 @@ describe('useAutomationPageData — a dry run', () => {
     const kept = result.current.dryRunResult;
     expect(kept?.dryRun).toBe(true);
     expect(kept?.status).toBe('completed');
-    expect(kept?.steps[0].summary).toBe('Would wait 5 seconds: a dry run does not wait.');
+    expect(kept?.steps[0].summary).toBe('Would wait 5 seconds: a simulation does not wait.');
     expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
     expect(messages('The simulation of “Nightly” ended: nothing was written.')).toHaveLength(1);
     expect(result.current.error).toBeNull();
@@ -1609,7 +1609,7 @@ describe('useAutomationPageData — a dry run', () => {
     const { result, rerender } = startDryRun();
     Object.assign(mutationFor('pipeline:execute'), {
       loading: false,
-      error: 'A dry run of a pipeline is not available here: nothing ran.',
+      error: 'A simulation of a pipeline is not available here: nothing ran.',
       errorCode: 'DRY_RUN_UNAVAILABLE',
     });
     rerender();

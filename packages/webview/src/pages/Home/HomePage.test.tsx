@@ -942,3 +942,18 @@ describe('Home and the side panel say one act in one set of words', () => {
     expect(catalogue.home.loginWeb).toBe(catalogue.sidePanel.firstOrg.loginWeb);
   });
 });
+
+/*
+ * Home's hero names the step a recovery is at from its own namespace, since
+ * Home loads no other page's words: the step the page lists, by the same
+ * name, in every language, so "Next step: …" points at a row the page has.
+ */
+describe('Home names the next step of Back into service as the page names it', () => {
+  const LOCALES = { en, fr, de, es, 'pt-BR': ptBR, ja } as const;
+
+  it.each(Object.entries(LOCALES))('in %s', (_locale, catalogue) => {
+    expect(catalogue.home.afterRefresh.step).toEqual(catalogue.recovery.step);
+    // Positive control: the ten steps are there to compare.
+    expect(Object.keys(catalogue.recovery.step)).toHaveLength(10);
+  });
+});

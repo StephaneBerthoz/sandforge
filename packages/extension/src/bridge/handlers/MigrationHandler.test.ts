@@ -588,6 +588,8 @@ describe('MigrationHandler', () => {
       });
       // Not the importer's placeholder id: a new configuration of its own.
       expect(saved[0].id).not.toBe('import-placeholder');
+      // Described by the page as it is now named.
+      expect(saved[0].description).toBe('Saved from the SandForge SFDMU Import page');
       // What a run of it, or a schedule, is checked with.
       expect(syncConfigPayloadSchema.safeParse(saved[0]).success).toBe(true);
 

@@ -261,7 +261,7 @@ for (const theme of THEMES) {
       });
 
       await expect(page.getByTestId('forge-whole-org-dry-run')).toContainText(
-        'Dry run of a sample of the whole org',
+        'Simulation of a sample of the whole org',
       );
       await expect(page.getByTestId('forge-whole-org-sample-kept')).toHaveText(
         '1,812 of 9,400 records of DevSandbox, from 3 objects: 0.41 % of the roots of each object, seed 1, spread over the org, with the records they reach.',

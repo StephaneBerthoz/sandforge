@@ -1058,7 +1058,7 @@ describe('the guards before the first delete', () => {
     });
 
     expect(!answer.ran && answer.refusal.code).toBe('PEOPLE_ACTIVE');
-    expect(!answer.ran && answer.refusal.message).toMatch(/^1 person the preview did not name/);
+    expect(!answer.ran && answer.refusal.message).toMatch(/^1 person the simulation did not name/);
     expect(org.sent).toEqual([]);
   });
 
@@ -1171,6 +1171,11 @@ describe('the guards before the first delete', () => {
 
     expect(!answer.ran && answer.refusal.code).toBe('ORG_CHANGED');
     expect(!answer.ran && answer.refusal.message).toContain('Task record(s) now go along');
+    // Said as the page says it: the full plan of an emptying is its
+    // simulation, and the refusal sends the person back to Simulate.
+    expect(!answer.ran && answer.refusal.message).toContain('changed since the simulation');
+    expect(!answer.ran && answer.refusal.message).toContain('Simulate the emptying again');
+    expect(!answer.ran && answer.refusal.message).not.toMatch(/preview/i);
     expect(org.sent).toEqual([]);
   });
 

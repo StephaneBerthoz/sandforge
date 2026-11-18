@@ -28,7 +28,7 @@ Under the templates, **Test data for an Agentforce agent** writes a business sce
 1. Navigate to **Seed** from the sidebar
 2. Pick a template from the gallery -- **CRM Starter**, marked _Start here_ and listed first, fits a Developer Edition's 5 MB -- check its record counts and the org, and press **Start seeding**; or pick one of the other ways under it: **Generate data**, **CSV Upload**, or **Copy records from another org**
 3. Follow the guided wizard of the way you chose
-4. View results with per-object record counts and error details: **Generate data**'s results add **Save as Template** and **Export CSV**, and **Copy records from another org**'s add **Export ID Mapping**
+4. View results with per-object record counts and error details: **Generate data**'s results add **Save as Template** and **Export as CSV**, and **Copy records from another org**'s add **Export ID Mapping**
 
 ## Seed Modes
 
@@ -189,7 +189,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 ### Templates and Export
 
 - **Save as template** on the results step stores the configuration the run just used -- its objects, record counts, field rules and relations -- under the objects and the date. It is added to the gallery, next to the pre-built templates, and never overwrites one already there. A save the host refuses shows its reason next to the button
-- **Export CSV** on the results step saves, per object, the records requested, created and failed, with the ids of the records created -- the first 1,000 of an object that created more, and a count of the ones not listed --, then, in a last column, the records linked to one the platform wrote itself rather than created: the contact roles linked to the one Salesforce writes with each opportunity that goes in with its contact
+- **Export as CSV** on the results step saves, per object, the records requested, created and failed, with the ids of the records created -- the first 1,000 of an object that created more, and a count of the ones not listed --, then, in a last column, the records linked to one the platform wrote itself rather than created: the contact roles linked to the one Salesforce writes with each opportunity that goes in with its contact
 - Template Engine supports JSON/CSV with variable interpolation
 
 ## Tips

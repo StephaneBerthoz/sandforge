@@ -670,7 +670,7 @@ describe('messageLines — a verification in the words of what ran', () => {
             passed: false,
             detail:
               '2 record(s) not loaded: 2 refused by the target org. Objects the load wrote none ' +
-              'of — Contact (2 not loaded); 1 record(s) not loadable, as the preview said — ' +
+              'of — Contact (2 not loaded); 1 record(s) not loadable, as the simulation said — ' +
               'Asset (1)',
           },
           { name: 'counts', passed: true, detail: 'All object counts match the counting contract' },
@@ -683,7 +683,7 @@ describe('messageLines — a verification in the words of what ran', () => {
     expect(messageLines(verdict)).toEqual([
       'verification: FAILED',
       '  FAIL load: 2 record(s) not loaded: 2 refused by the target org. Objects the load wrote ' +
-        'none of — Contact (2 not loaded); 1 record(s) not loadable, as the preview said — Asset (1)',
+        'none of — Contact (2 not loaded); 1 record(s) not loadable, as the simulation said — Asset (1)',
       '  ok   counts: All object counts match the counting contract',
     ]);
   });
@@ -696,7 +696,7 @@ describe('messageLines — a verification in the words of what ran', () => {
     expect(messageLines(verdict, {}, replay)).toEqual([
       'verification: FAILED',
       '  FAIL replay: 2 record(s) not replayed: 2 refused by the target org. Objects the replay ' +
-        'wrote none of — Contact (2 not replayed); 1 record(s) not replayable, as the preview ' +
+        'wrote none of — Contact (2 not replayed); 1 record(s) not replayable, as the simulation ' +
         'said — Asset (1)',
       '  ok   counts: All object counts match the counting contract',
     ]);

@@ -73,6 +73,23 @@ describe('assertLoadGuards', () => {
     expect((error as Error).message).not.toMatch(/sandboxes and Developer Edition orgs only/);
   });
 
+  it('names the org in its English by the name the caller gives, its id kept for the panel', async () => {
+    // A load refused into a sandbox marked Staging said the org's registered
+    // id, where the person reads its alias everywhere else.
+    for (const orgTier of ['staging', 'production'] as const) {
+      const error = await assertLoadGuards(makeInput({ orgTier, orgName: 'UATSandbox' })).catch(
+        (e: unknown) => e,
+      );
+      expect((error as Error).message).toContain('UATSandbox');
+      expect((error as Error).message).not.toContain('00D-target');
+      expect((error as LoadGuardError).params).toMatchObject({ orgId: '00D-target' });
+    }
+    const protectedOrg = await assertLoadGuards(
+      makeInput({ orgName: 'UATSandbox', protectedOrgIds: ['00D-target'] }),
+    ).catch((e: unknown) => e);
+    expect((protectedOrg as Error).message).toContain('protected environment UATSandbox');
+  });
+
   it('refuses a configured protected environment', async () => {
     const error = await assertLoadGuards(
       makeInput({ protectedOrgIds: ['00D-shared', '00D-target'] }),

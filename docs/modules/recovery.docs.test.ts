@@ -178,6 +178,18 @@ describe('docs/modules/recovery.md', () => {
     );
   });
 
+  it('names Help among the ways to the page, by its section and its button', () => {
+    // Help leads with After a sandbox refresh, whose button opens the page,
+    // and the list of the ways there left it out.
+    const help = source('packages/webview/src/pages/Help/HelpPage.tsx');
+    expect(help).toMatch(/id: 'recovery',\s+titleKey: 'help\.afterRefresh',/);
+    expect(help).toContain("t('help.openModule', { module: t(`nav.${page}`) })");
+    const button = label('help.openModule').replace('{{module}}', label('nav.recovery'));
+    expect(prose('When it opens')).toContain(
+      `on **${label('nav.help')}**, the section **${label('help.afterRefresh')}**, by **${button}**`,
+    );
+  });
+
   it('names the page, its title and its palette command as the extension does', () => {
     expect(DOC.startsWith(`# ${label('nav.recovery')}\n`)).toBe(true);
     expect(DOC).toContain(`**${asWritten(label('recovery.title'))}**`);

@@ -175,6 +175,28 @@ describe('SyncWriteCheckCard', () => {
     expect(useAppStore.getState().currentRoute).toBe('compare');
   });
 
+  it('opens Compare on the two orgs simulated, the source and the target picked there', () => {
+    // Compare opened empty: the person picked again the pair Sync had just simulated.
+    useAppStore.setState({ currentRoute: 'sync', navigationIntent: null });
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [{ objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' }],
+        }}
+        pair={{ sourceOrgId: 'org-source', targetOrgId: 'org-target' }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('sync-write-check-open-compare'));
+
+    expect(useAppStore.getState().currentRoute).toBe('compare');
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'compare',
+      compareSourceOrgId: 'org-source',
+      compareTargetOrgId: 'org-target',
+    });
+  });
+
   it('counts what a simulation found the run would write, and says what of the count it would not', () => {
     render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, total: 4, notWritten: 3 }} />);
 

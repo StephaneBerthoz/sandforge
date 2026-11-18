@@ -100,6 +100,16 @@ describe('SandboxRecovery', () => {
     expect(host.current?.lastPayload('recovery:ack')).toMatchObject({ mark: 'cleared' });
   });
 
+  it('says the endpoints step reads what it asks for, and where the fields are read', () => {
+    // It said it listed the fields that name production; the page asks the
+    // extension for Named Credentials and Remote Sites alone (`fields: []`).
+    open();
+    const step = screen.getByTestId('recovery-step-endpoints');
+    expect(step).toHaveTextContent('Lists the Named Credentials and Remote Sites that still');
+    expect(step).toHaveTextContent('sandforge env audit');
+    expect(step).not.toHaveTextContent('Remote Sites and fields');
+  });
+
   it('marks done by hand only the two steps a person checks in Setup', () => {
     open();
     expect(screen.getByTestId('recovery-step-deliverability-mark-done')).toBeInTheDocument();

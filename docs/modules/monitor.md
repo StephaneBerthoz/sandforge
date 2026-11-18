@@ -242,7 +242,7 @@ Post-Processing template, a pipeline that runs those steps after each refresh.
 An older refresh carries neither: the one after it replaced what it copied.
 While that newest refresh was noticed within the last 7 days, a band at the
 top of the dashboard says which sandbox was refreshed and when, with the same
-two buttons.
+two buttons, until its recovery is finished on the Back into service page.
 
 ### Org Health Check
 

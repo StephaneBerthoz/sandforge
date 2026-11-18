@@ -2,7 +2,6 @@
   "common": {
     "save": "Speichern",
     "cancel": "Abbrechen",
-    "cancelRun": "Lauf abbrechen",
     "stopRun": "Lauf stoppen",
     "keepRunning": "Weiterlaufen lassen",
     "confirm": "Bestätigen",
@@ -543,7 +542,7 @@
     "empty": "(leer)",
     "emptyState": {
       "title": "Erkennen Sie Unterschiede zwischen zwei Orgs",
-      "description": "Vergleichen Sie Metadaten, Berechtigungen und Drift zwischen Quell- und Ziel-Org — wissen Sie vor dem Deployment genau, was sich ändert.",
+      "description": "Drei Registerkarten: Unterschiede zwischen einer Quell- und einer Ziel-Org, Aus Diff bereitstellen, um bereitzustellen, was abweicht, und Org-Übersicht, um beide Orgs nebeneinander zu sehen.",
       "step2": "Quell- und Ziel-Org auswählen",
       "step3": "Zu vergleichende Metadatenkategorien auswählen",
       "step4": "Vergleich starten und Diffs prüfen"
@@ -806,7 +805,7 @@
     "stepExecute": "Optionen",
     "stepResults": "Ausführung",
     "advancedSettings": "Erweiterte Einstellungen",
-    "exportCsv": "CSV exportieren",
+    "exportCsv": "Als CSV exportieren",
     "seedAgain": "Seed wiederholen…",
     "templates": {
       "salesCloudStarter": {
@@ -2803,7 +2802,7 @@
     "installFailed": "Vorlage konnte nicht installiert werden",
     "marketplaceAuthor": "Autor",
     "noMarketplaceTemplates": "Keine Vorlagen verfügbar",
-    "noMarketplaceTemplatesDesc": "Community-Vorlagen erscheinen hier",
+    "noMarketplaceTemplatesDesc": "Hier stehen die Pipeline-Vorlagen, die mit SandForge geliefert werden: Keine konnte gelesen werden.",
     "installTemplate": "Installieren",
     "runFailed": "Die Pipeline-Ausführung ist fehlgeschlagen: {{reason}}",
     "runStopped": "Die Pipeline-Ausführung wurde angehalten: Die übrigen Schritte wurden nicht ausgeführt.",
@@ -6814,7 +6813,7 @@
         "alsoRefused": "Neben diesen Feldern würde die Wiedergabe auch aus diesen Gründen abgelehnt:",
         "loadConfig": "Die Datensätze des Prüfpunkts lassen Pflichtfelder der anderen Org leer, und nichts wurde geschrieben: {{gaps}}. Deaktivieren Sie ihre Objekte oder geben Sie über die Befehlszeile mit einer Konfiguration wieder, die ihnen einen Wert gibt (--replay-config).",
         "nonSandbox": "{{org}} ist weder Sandbox noch Scratch-Org noch Developer-Edition-Org: Eine Wiedergabe geht nur in diese, und nichts wurde geschrieben. Wählen Sie eine davon.",
-        "staging": "{{org}} ist eine als Staging markierte Sandbox: Sie enthält echte Daten, und eine Wiedergabe geht nie in eine solche. Nichts wurde geschrieben. Wählen Sie eine andere Org.",
+        "staging": "{{org}} ist eine als Staging markierte Sandbox, die echte Daten enthalten kann: Eine Wiedergabe geht erst hinein, wenn ihr Name unter der Simulation eingegeben ist. Nichts wurde geschrieben. Geben Sie dort ihren Namen ein oder wählen Sie eine andere Org.",
         "storage": "Die Datensätze des Prüfpunkts brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei: Die Wiedergabe würde mittendrin abbrechen, und nichts wurde geschrieben. Deaktivieren Sie einige Objekte oder geben Sie Datenspeicher in {{org}} frei.",
         "apiBudget": "Die Wiedergabe würde rund {{estimate}} API-Anfragen von {{org}} brauchen, der noch {{remaining}} von {{max}} täglichen Anfragen bleiben: Sie würde mittendrin abbrechen, und nichts wurde geschrieben. Geben Sie wieder, sobald die Org Anfragen übrig hat, oder in einer Org, der heute mehr bleiben.",
         "emailsNotAccepted": "{{org}} stellt jede E-Mail zu, die das noch Laufende beim Schreiben der Wiedergabe sendet, oder sagt nicht, ob sie sie zustellt, und nichts wurde geschrieben. Haken Sie „Wiedergeben, auch wenn {{org}} die E-Mails zustellt“ an, haken Sie das Stummschalten der Automatisierung an, oder stellen Sie die Zustellbarkeit der Org auf System email only.",
@@ -8985,7 +8984,7 @@
         "noInventoryBefore": "Vor der Aktualisierung wurde keine Bestandsaufnahme der Jobs gesichert: Es gibt nichts zu vergleichen. Sichern Sie jetzt eine für die nächste Aktualisierung."
       },
       "endpoints": {
-        "toDo": "Listet die Named Credentials, Remote Sites und Felder auf, die noch auf die Produktion verweisen, jeweils mit ihrer Setup-Seite: Ändern Sie sie und markieren Sie den Schritt dann als erledigt."
+        "toDo": "Listet die Named Credentials und Remote Sites auf, die noch auf die Produktion verweisen, jeweils mit ihrer Setup-Seite: Ändern Sie sie und markieren Sie den Schritt dann als erledigt. Felder von Custom Metadata und Custom Settings liest sandforge env audit, die in sandforge.yaml genannten."
       },
       "handoff": {
         "toDo": "Schreibt eine Markdown-Notiz darüber, was jeder Schritt getan hat, von welchem Stand die Tester ausgehen und was noch offen ist, und öffnet sie im Editor.",
@@ -9589,7 +9588,7 @@
       "previewedLostTitle": "Nicht zurückgeholt, wie die Simulation es angekündigt hat"
     },
     "history": {
-      "title": "Leerungen von {{org}}",
+      "title": "Verlauf der Leerungen von {{org}}",
       "loading": "Das Audit-Protokoll wird gelesen…",
       "none": "Das Audit-Protokoll dieses Rechners enthält kein Leeren von {{org}}.",
       "where": "Aus dem Audit-Protokoll dieses Rechners: Ein Leeren über die Befehlszeile oder von einem anderen Rechner ist hier nicht aufgeführt.",

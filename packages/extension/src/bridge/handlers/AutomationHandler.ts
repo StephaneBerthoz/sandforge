@@ -265,7 +265,7 @@ export type PipelineDryRunApplier = (
 
 /** Why a dry run is refused in a host that cannot make one: nothing is run for real in its place. */
 const DRY_RUN_UNAVAILABLE =
-  'A dry run of a pipeline is not available here: nothing ran. Run it, or try the dry run again ' +
+  'A simulation of a pipeline is not available here: nothing ran. Run it, or simulate it again ' +
   'once SandForge has finished starting.';
 
 /** A lock that holds nothing: a run of a pipeline with no id, or one whose lock file could not be made. */
@@ -1362,7 +1362,7 @@ export class AutomationHandler implements DomainHandler {
     );
 
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
-    const description = `${dryRun ? 'Pipeline dry run' : 'Pipeline'}: ${pipeline.name}`;
+    const description = `${dryRun ? 'Pipeline simulation' : 'Pipeline'}: ${pipeline.name}`;
     sendOperationStarted(this.deps, operationId, 'automation', description);
     // Listed in Live Operations as it starts; registered in the registry, where
     // its Cancel reaches it, below, before anything is awaited.

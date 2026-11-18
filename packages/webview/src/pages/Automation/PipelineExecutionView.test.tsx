@@ -227,7 +227,7 @@ describe('PipelineExecutionView', () => {
           stepName: 'Go?',
           stepType: 'approval',
           status: 'completed',
-          summary: 'Not asked in a dry run: the route goes on as if it were approved.',
+          summary: 'Not asked in a simulation: the route goes on as if it were approved.',
         },
         {
           stepId: 'seed',

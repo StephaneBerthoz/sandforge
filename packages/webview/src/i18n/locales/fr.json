@@ -2,7 +2,6 @@
   "common": {
     "save": "Enregistrer",
     "cancel": "Annuler",
-    "cancelRun": "Annuler l'exécution",
     "stopRun": "Arrêter l'exécution",
     "keepRunning": "Poursuivre l'exécution",
     "confirm": "Confirmer",
@@ -543,7 +542,7 @@
     "empty": "(vide)",
     "emptyState": {
       "title": "Repérez les différences entre deux orgs",
-      "description": "Comparez métadonnées, permissions et dérive entre une org source et une cible — sachez exactement ce qui change avant de déployer.",
+      "description": "Trois onglets : Différences entre une org source et une org cible, Déployer depuis le diff pour déployer ce qui diffère, et Aperçu des orgs pour voir les deux orgs côte à côte.",
       "step2": "Choisissez les orgs source et cible",
       "step3": "Sélectionnez les catégories de métadonnées à comparer",
       "step4": "Lancez la comparaison et passez les diffs en revue"
@@ -806,7 +805,7 @@
     "stepExecute": "Options",
     "stepResults": "Exécution",
     "advancedSettings": "Paramètres avancés",
-    "exportCsv": "Exporter CSV",
+    "exportCsv": "Exporter en CSV",
     "seedAgain": "Relancer le Seed…",
     "templates": {
       "salesCloudStarter": {
@@ -2803,7 +2802,7 @@
     "installFailed": "Impossible d'installer le modèle",
     "marketplaceAuthor": "Auteur",
     "noMarketplaceTemplates": "Aucun modèle disponible",
-    "noMarketplaceTemplatesDesc": "Les modèles communautaires apparaîtront ici",
+    "noMarketplaceTemplatesDesc": "Les modèles de pipeline livrés avec SandForge s'affichent ici : aucun n'a pu être lu.",
     "installTemplate": "Installer",
     "runFailed": "L'exécution du pipeline a échoué : {{reason}}",
     "runStopped": "L'exécution du pipeline a été arrêtée : les étapes restantes n'ont pas été lancées.",
@@ -6814,7 +6813,7 @@
         "alsoRefused": "En plus de ces champs, le rejeu serait refusé pour :",
         "loadConfig": "Les enregistrements du point de contrôle laissent vides des champs obligatoires de l'autre org, et rien n'a été écrit : {{gaps}}. Décochez leurs objets, ou rejouez depuis la ligne de commande avec une configuration qui leur donne une valeur (--replay-config).",
         "nonSandbox": "{{org}} n'est ni une sandbox, ni une scratch org, ni une org Developer Edition : un rejeu ne va que dans celles-ci, et rien n'a été écrit. Choisissez-en une.",
-        "staging": "{{org}} est une sandbox marquée Préproduction : elle contient des données réelles, et un rejeu n'y va jamais. Rien n'a été écrit. Choisissez une autre org.",
+        "staging": "{{org}} est une sandbox marquée Préproduction, qui peut contenir des données réelles : un rejeu n'y va qu'une fois son nom saisi sous la simulation. Rien n'a été écrit. Saisissez-y son nom, ou choisissez une autre org.",
         "storage": "Les enregistrements du point de contrôle prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}} : le rejeu s'arrêterait en cours de route, et rien n'a été écrit. Décochez des objets, ou libérez du stockage dans {{org}}.",
         "apiBudget": "Le rejeu prendrait environ {{estimate}} requêtes d'API de {{org}}, à qui il en reste {{remaining}} de ses {{max}} quotidiennes : il s'arrêterait en cours de route, et rien n'a été écrit. Rejouez quand l'org a des requêtes en réserve, ou dans une org à qui il en reste plus aujourd'hui.",
         "emailsNotAccepted": "{{org}} délivre tous les e-mails que ce qui tourne encore envoie quand le rejeu écrit, ou ne dit pas s'ils partent, et rien n'a été écrit. Cochez « Rejouer même si {{org}} délivre les e-mails », cochez la coupure de l'automatisation, ou passez la délivrabilité de l'org à System email only.",
@@ -7958,8 +7957,8 @@
       "action": "Déjà en cours de reprise : attendez la fin de cette exécution. Sinon, dans Exécutions récentes, supprimez les enregistrements créés par cette exécution, puis Réutiliser la configuration et relancez le clonage : relancé sans cette suppression, le clonage écrit ces enregistrements une seconde fois."
     },
     "resumeTargetChanged": {
-      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge, ou n'est plus celle qu'elle était — actualisée ou remplacée depuis. Rien n'a été écrit.",
-      "action": "Seulement retirée de SandForge : ajoutez de nouveau la même org depuis la page Organisations, puis reprenez — l'exécution vérifie que c'est bien l'org où elle a écrit. Actualisée ou remplacée, elle ne contient rien de ce que l'exécution a écrit : relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
+      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge, ou n'est plus celle qu'elle était — rafraîchie ou remplacée depuis. Rien n'a été écrit.",
+      "action": "Seulement retirée de SandForge : ajoutez de nouveau la même org depuis la page Organisations, puis reprenez — l'exécution vérifie que c'est bien l'org où elle a écrit. Rafraîchie ou remplacée, elle ne contient rien de ce que l'exécution a écrit : relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
     },
     "resumeChanged": {
       "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
@@ -7998,7 +7997,7 @@
     },
     "runOrgUnregistered": {
       "explanation": "L'org dans laquelle cette exécution a écrit n'est plus enregistrée dans SandForge. Rien n'a été lu.",
-      "action": "Ajoutez de nouveau la même org depuis la page Organisations, puis réessayez : elle est enregistrée sous le même identifiant. Une sandbox actualisée depuis est une autre org, et ne contient rien de ce que l'exécution a écrit."
+      "action": "Ajoutez de nouveau la même org depuis la page Organisations, puis réessayez : elle est enregistrée sous le même identifiant. Une sandbox rafraîchie depuis est une autre org, et ne contient rien de ce que l'exécution a écrit."
     },
     "filesNotAccepted": {
       "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
@@ -8985,7 +8984,7 @@
         "noInventoryBefore": "Aucun inventaire des jobs n'a été gardé avant le rafraîchissement : il n'y a rien à comparer. Gardez-en un maintenant, pour le prochain rafraîchissement."
       },
       "endpoints": {
-        "toDo": "Liste les Named Credentials, Remote Sites et champs qui nomment encore la production, chacun avec sa page du Setup : changez-les, puis marquez l'étape comme faite."
+        "toDo": "Liste les Named Credentials et Remote Sites qui nomment encore la production, chacun avec sa page du Setup : changez-les, puis marquez l'étape comme faite. Les champs de Custom Metadata et de Custom Settings se lisent par sandforge env audit, ceux que nomme sandforge.yaml."
       },
       "handoff": {
         "toDo": "Écrit une note Markdown de ce que chaque étape a fait, du point d'où partent les testeurs et de ce qui reste, et l'ouvre dans l'éditeur.",
@@ -9589,7 +9588,7 @@
       "previewedLostTitle": "Non rendus, comme la simulation l'annonçait"
     },
     "history": {
-      "title": "Vidages de {{org}}",
+      "title": "Historique des vidages de {{org}}",
       "loading": "Lecture du journal d'audit…",
       "none": "Le journal d'audit de cette machine ne contient aucun vidage de {{org}}.",
       "where": "D'après le journal d'audit de cette machine : un vidage lancé en ligne de commande ou depuis une autre machine n'est pas listé ici.",

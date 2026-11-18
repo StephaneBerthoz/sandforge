@@ -30,9 +30,10 @@ From then on, the way to the page is offered where you look:
 
 - the launcher's hero, **Bring \<alias\> back into service**, with when it was refreshed and how many of its steps are done, and the first tile of **Home**, with the step it is at, until every step is done or skipped, or the recovery is finished; the selected sandbox comes first, else the one refreshed last;
 - **Back into service** in the launcher's **Protect and restore** group, listed once a sandbox is registered;
-- on **Monitor**, open on the sandbox, **Bring back into service…** beside the newest refresh noticed, and in the band at the top of the dashboard while that refresh is less than 7 days old;
+- on **Monitor**, open on the sandbox, **Bring back into service…** beside the newest refresh noticed, and in the band at the top of the dashboard while that refresh is less than 7 days old and the recovery is not finished;
 - the warning VS Code shows when it notices the refresh, by its **Bring back into service** button;
 - the card of the sandbox on **Organizations**, by **Bring back into service**;
+- on **Help**, the section **After a sandbox refresh**, by **Open Back into service**, the second on the page after **Getting Started**;
 - **SandForge: Back into service** in the VS Code command palette.
 
 The page works on the org selected in the org picker: the launcher, Home, the warning and the card select the sandbox first. With no refresh noticed, it opens on a sandbox, a scratch org or a Developer Edition org all the same: the first step says SandForge noticed no refresh, the others stay usable, and **Before the next refresh** comes first. With no org connected, it offers **Connect an org**.

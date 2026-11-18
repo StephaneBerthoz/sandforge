@@ -743,7 +743,7 @@ describe('FrozenPage', () => {
       tab: 'load',
       status: statusFixture(),
       progress: [
-        { phase: 'guards', status: 'done', progress: 5, message: 'Entry guards passed' },
+        { phase: 'guards', status: 'done', progress: 5, message: 'Safety checks passed' },
         { phase: 'pass2', status: 'started', progress: 82, message: 'Patching cycle FKs' },
       ],
     });
@@ -752,7 +752,7 @@ describe('FrozenPage', () => {
 
     const badgeOf = (line: RegExp): string =>
       screen.getByText(line).closest('li')?.firstElementChild?.textContent ?? '';
-    expect(badgeOf(/Entry guards passed/)).toBe('Safety checks');
+    expect(badgeOf(/Safety checks passed/)).toBe('Safety checks');
     expect(badgeOf(/Patching cycle FKs/)).toBe('Second pass');
   });
 

@@ -2,7 +2,6 @@
   "common": {
     "save": "Guardar",
     "cancel": "Cancelar",
-    "cancelRun": "Cancelar ejecución",
     "stopRun": "Detener la ejecución",
     "keepRunning": "Seguir ejecutando",
     "confirm": "Confirmar",
@@ -543,7 +542,7 @@
     "empty": "(vacío)",
     "emptyState": {
       "title": "Detecte diferencias entre dos orgs",
-      "description": "Compare metadatos, permisos y deriva entre una org de origen y una de destino — sepa exactamente qué cambia antes de desplegar.",
+      "description": "Tres pestañas: Diferencias entre una org de origen y una de destino, Desplegar desde diff para desplegar lo que difiere, y Resumen de las orgs para ver ambas orgs lado a lado.",
       "step2": "Elija las orgs de origen y destino",
       "step3": "Seleccione las categorías de metadatos a comparar",
       "step4": "Ejecute la comparación y revise las diferencias"
@@ -806,7 +805,7 @@
     "stepExecute": "Opciones",
     "stepResults": "Ejecución",
     "advancedSettings": "Configuración avanzada",
-    "exportCsv": "Exportar CSV",
+    "exportCsv": "Exportar a CSV",
     "seedAgain": "Repetir Seed…",
     "templates": {
       "salesCloudStarter": {
@@ -2803,7 +2802,7 @@
     "installFailed": "No se pudo instalar la plantilla",
     "marketplaceAuthor": "Autor",
     "noMarketplaceTemplates": "No hay plantillas disponibles",
-    "noMarketplaceTemplatesDesc": "Las plantillas de la comunidad aparecerán aquí",
+    "noMarketplaceTemplatesDesc": "Aquí aparecen las plantillas de pipeline que trae SandForge: no se pudo leer ninguna.",
     "installTemplate": "Instalar",
     "runFailed": "La ejecución del pipeline falló: {{reason}}",
     "runStopped": "La ejecución del pipeline se detuvo: los pasos restantes no se ejecutaron.",
@@ -6814,7 +6813,7 @@
         "alsoRefused": "Además de esos campos, la reproducción sería rechazada por:",
         "loadConfig": "Los registros del punto de control dejan vacíos campos obligatorios de la otra org, y no se escribió nada: {{gaps}}. Desmarque sus objetos, o reproduzca desde la línea de comandos con una configuración que les dé un valor (--replay-config).",
         "nonSandbox": "{{org}} no es ni sandbox, ni scratch org, ni org Developer Edition: una reproducción solo va a esos, y no se escribió nada. Elija uno de ellos.",
-        "staging": "{{org}} es un sandbox marcado como Staging: contiene datos reales, y una reproducción nunca va a uno de ellos. No se escribió nada. Elija otra org.",
+        "staging": "{{org}} es un sandbox marcado como Staging, que puede contener datos reales: una reproducción solo entra en él una vez escrito su nombre bajo la simulación. No se escribió nada. Escriba allí su nombre o elija otra org.",
         "storage": "Los registros del punto de control ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB: la reproducción se detendría a mitad de camino, y no se escribió nada. Desmarque algunos objetos, o libere almacenamiento en {{org}}.",
         "apiBudget": "La reproducción tomaría unas {{estimate}} solicitudes de API de {{org}}, a la que le quedan {{remaining}} de sus {{max}} diarias: se detendría a mitad de camino, y no se escribió nada. Reproduzca cuando la org tenga solicitudes de sobra, o en una org a la que le queden más hoy.",
         "emailsNotAccepted": "{{org}} entrega todos los correos que envía lo que sigue en marcha cuando la reproducción escribe, o no dice si los entrega, y no se escribió nada. Marque «Reproducir aunque {{org}} entregue los correos», marque el silencio de la automatización, o ponga la entregabilidad de la org en System email only.",
@@ -8985,7 +8984,7 @@
         "noInventoryBefore": "No se conservó ningún inventario de los trabajos antes de la actualización: no hay nada con qué comparar. Conserve uno ahora, para la próxima actualización."
       },
       "endpoints": {
-        "toDo": "Lista las Named Credentials, Remote Sites y campos que aún apuntan a producción, cada uno con su página de Setup: cámbielos y luego marque el paso como hecho."
+        "toDo": "Lista las Named Credentials y Remote Sites que aún apuntan a producción, cada uno con su página de Setup: cámbielos y luego marque el paso como hecho. Los campos de Custom Metadata y Custom Settings los lee sandforge env audit, los que nombra sandforge.yaml."
       },
       "handoff": {
         "toDo": "Escribe una nota Markdown de lo que hizo cada paso, del punto del que parten los testers y de lo que queda, y la abre en el editor.",
@@ -9589,7 +9588,7 @@
       "previewedLostTitle": "No recuperados, como anunciaba la simulación"
     },
     "history": {
-      "title": "Vaciados de {{org}}",
+      "title": "Historial de vaciados de {{org}}",
       "loading": "Leyendo el registro de auditoría…",
       "none": "El registro de auditoría de este equipo no contiene ningún vaciado de {{org}}.",
       "where": "Según el registro de auditoría de este equipo: un vaciado lanzado desde la línea de comandos o desde otro equipo no aparece aquí.",

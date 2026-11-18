@@ -857,7 +857,7 @@ describe('PostLoadVerifier — what the load did not write', () => {
       passed: true,
       detail:
         'Every record the load had to write went in; 3 record(s) not loadable, as the ' +
-        'preview said — CaseHistory2 (2), SlaProcess (1)',
+        'simulation said — CaseHistory2 (2), SlaProcess (1)',
     });
   });
 
@@ -890,7 +890,7 @@ describe('PostLoadVerifier — what the load did not write', () => {
     expect(verdict.checks.find((c) => c.name === 'load')?.detail).toBe(
       '1 record(s) not loaded: 1 held back for a parent the target org refused. Objects the ' +
         'load wrote none of — Entitlement (1 not loaded); 1 record(s) not loadable, as the ' +
-        'preview said — SlaProcess (1)',
+        'simulation said — SlaProcess (1)',
     );
   });
 

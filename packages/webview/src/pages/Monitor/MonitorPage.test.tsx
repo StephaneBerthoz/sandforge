@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, cleanup } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
@@ -51,6 +51,10 @@ let mockOpenApexJobsState = {
 /** What `monitor:sandbox-refresh` answers in the current test. */
 let mockSandboxRefreshData: Record<string, unknown> | null = null;
 
+/** What `recovery:status` answers in the current test, and the requests made for it. */
+let mockRecoveryData: Record<string, unknown> | null = null;
+const recoveryQueries: { payload: unknown; skip: boolean }[] = [];
+
 /** `monitor:alerts` messages sent by mounted, non-skipped queries. */
 const alertQueries = vi.hoisted(() => ({ sent: 0 }));
 
@@ -63,13 +67,14 @@ let mockAlertsData: { alerts: AlertInstance[]; history: AlertInstance[] } = {
 vi.mock('../../hooks/useBridgeQuery', async () => {
   const { useEffect } = await import('react');
   return {
-    useBridgeQuery: (type: string, _payload?: unknown, options?: { skip?: boolean }) => {
+    useBridgeQuery: (type: string, payload?: unknown, options?: { skip?: boolean }) => {
       // The real hook sends its request from an effect, once per mounted query
       // that is not skipped; counting the same way counts the messages.
       const skip = options?.skip ?? false;
       useEffect(() => {
         if (type === 'monitor:alerts' && !skip) alertQueries.sent += 1;
       }, [type, skip]);
+      if (type === 'recovery:status') recoveryQueries.push({ payload, skip });
       return bridgeQueryAnswer(type);
     },
   };
@@ -84,6 +89,9 @@ function bridgeQueryAnswer(type: string) {
   }
   if (type === 'monitor:sandbox-refresh') {
     return { data: mockSandboxRefreshData, loading: false, error: null, refetch: vi.fn() };
+  }
+  if (type === 'recovery:status') {
+    return { data: mockRecoveryData, loading: false, error: null, refetch: vi.fn() };
   }
   // New panels — return empty data by default
   if (type === 'monitor:storage') {
@@ -211,6 +219,8 @@ describe('MonitorPage', () => {
     alertQueries.sent = 0;
     mockAlertsData = { alerts: [], history: [] };
     mockSandboxRefreshData = null;
+    mockRecoveryData = null;
+    recoveryQueries.length = 0;
     mockNavigate.mockClear();
   });
 
@@ -268,6 +278,39 @@ describe('MonitorPage', () => {
       expect(screen.queryByTestId('monitor-after-refresh')).toBeNull();
       // The panel still lists it, with the ways on.
       expect(screen.getByTestId('refresh-detected-bring-back')).toBeDefined();
+    });
+
+    it('asks where the recovery stands only once a recent refresh leads, and of the org shown', () => {
+      renderRefreshedSandbox(8 * 86_400_000);
+      expect(recoveryQueries.every((query) => query.skip)).toBe(true);
+      cleanup();
+      recoveryQueries.length = 0;
+
+      renderRefreshedSandbox(2 * 86_400_000);
+      expect(recoveryQueries.at(-1)).toEqual({ payload: { orgId: 'org-1' }, skip: false });
+    });
+
+    it('leads with nothing once a person finished bringing the sandbox back into service', () => {
+      // The band went on asking for the recovery a week long after Finish,
+      // where Home and the launcher stop as soon as it is finished.
+      mockRecoveryData = {
+        status: { orgId: 'org-1', finishedAt: new Date().toISOString() },
+      };
+      renderRefreshedSandbox(2 * 86_400_000);
+
+      expect(screen.queryByTestId('monitor-after-refresh')).toBeNull();
+      expect(screen.getByTestId('refresh-detected-bring-back')).toBeDefined();
+    });
+
+    it('keeps the band while the recovery is not finished, or the answer is of another org', () => {
+      mockRecoveryData = { status: { orgId: 'org-1' } };
+      renderRefreshedSandbox(2 * 86_400_000);
+      expect(screen.getByTestId('monitor-after-refresh')).toBeDefined();
+      cleanup();
+
+      mockRecoveryData = { status: { orgId: 'org-9', finishedAt: new Date().toISOString() } };
+      renderRefreshedSandbox(2 * 86_400_000);
+      expect(screen.getByTestId('monitor-after-refresh')).toBeDefined();
     });
   });
 

@@ -171,7 +171,7 @@ describe('docs/modules/sync.md', () => {
     expect(BULK_WRITER).toContain('await this.deps.pauseGate?.whilePaused(this.deps.signal);');
     expect(SYNC_HANDLER).toContain("case 'sync:pause':");
 
-    expect(DOC).toContain("Cancel means what Live Operations' Cancel means");
+    expect(DOC).toContain("Stop the run means what Live Operations' Cancel means");
     expect(DOC).toContain('Pause holds the run before its next object, or its next batch of');
     // And Live Operations pauses and resumes it as its page does: the panel
     // offers both on a run the extension marks pausable, and the page sends

@@ -272,8 +272,8 @@ describe('FrozenDatasetLoader — guards', () => {
 
     expect(error).toBeInstanceOf(LoadGuardError);
     expect(progress.map((e) => [e.phase, e.status, e.message])).toEqual([
-      ['guards', 'started', 'Evaluating entry guards'],
-      ['guards', 'error', `Entry guards not passed — ${(error as Error).message}`],
+      ['guards', 'started', 'Running the safety checks'],
+      ['guards', 'error', `Safety checks not passed — ${(error as Error).message}`],
     ]);
   });
 });
@@ -964,8 +964,8 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(error).toBeInstanceOf(SyntaxError);
     expect(calls).toEqual([]);
     expect(progress.map((e) => [e.phase, e.status, e.message])).toEqual([
-      ['guards', 'started', 'Evaluating entry guards'],
-      ['guards', 'done', 'Entry guards passed'],
+      ['guards', 'started', 'Running the safety checks'],
+      ['guards', 'done', 'Safety checks passed'],
       ['mapping', 'started', 'Reading the mapping of earlier loads'],
       ['mapping', 'error', `Mapping not read — ${(error as Error).message}`],
     ]);

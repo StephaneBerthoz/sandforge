@@ -352,7 +352,7 @@ describe('peopleActiveRefusal', () => {
     ).toBeUndefined();
     const refusal = peopleActiveRefusal('dev', ACTIVE, { accepted: ['005000000000002'] });
     expect(refusal?.code).toBe('PEOPLE_ACTIVE');
-    expect(refusal?.message).toMatch(/^1 person the preview did not name other than the user/);
+    expect(refusal?.message).toMatch(/^1 person the simulation did not name other than the user/);
     expect(refusal?.message).toContain('the last at 2026-11-12T09:30:00.000Z');
   });
 

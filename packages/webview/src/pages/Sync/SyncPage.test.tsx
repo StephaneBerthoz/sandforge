@@ -2346,7 +2346,7 @@ describe('SyncPage simulation, pause and cancel', () => {
 
     expect(screen.getByTestId('sync-run-controls')).toBeDefined();
     expect(screen.getByTestId('sync-pause')).toBeDefined();
-    expect(screen.getByTestId('sync-cancel').textContent).toBe('Cancel run');
+    expect(screen.getByTestId('sync-cancel').textContent).toBe('Stop the run');
     // No second run while this one goes.
     expect(screen.queryByTestId('sync-run')).toBeNull();
     expect(screen.queryByTestId('sync-simulate')).toBeNull();

@@ -632,7 +632,7 @@ describe('FrozenDatasetLoader.gateLoad', () => {
       ['guards', 'started'],
       ['guards', 'error'],
     ]);
-    expect(lines[1]?.message).toContain('Entry guards not passed');
+    expect(lines[1]?.message).toContain('Safety checks not passed');
   });
 
   it('says nothing of the guards when they pass: the load says them as it starts', async () => {
