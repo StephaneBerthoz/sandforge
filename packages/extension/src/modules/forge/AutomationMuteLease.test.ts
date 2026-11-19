@@ -917,8 +917,14 @@ describe('what a run says of a journal it cannot use', () => {
     // Process 200 ends, its lock with it.
     rmSync(`${muteJournalFileOf(dir, org.organizationId, org.userId)}.lock`, { force: true });
     await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
-    await vi.waitFor(() => expect(org.assignments()).toEqual([]));
-    expect(journalOf(org).leases).toEqual([]);
+    // The release journals what it did once the org has taken the sets back,
+    // so a process that dies between the two leaves a lease the next run
+    // releases: waited for together. Read just after the deletes, the journal
+    // of a Windows runner still named the lease, its rename not done.
+    await vi.waitFor(() => {
+      expect(org.assignments()).toEqual([]);
+      expect(journalOf(org).leases).toEqual([]);
+    });
   });
 
   // Read and written by its owner alone: a journal another user made is not
@@ -1413,8 +1419,11 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
         expect(org.assignments()).toHaveLength(2);
 
         await vi.advanceTimersByTimeAsync(RETRY_EVERY_MS);
-        await vi.waitFor(() => expect(org.assignments()).toEqual([]));
-        expect(journalOf(org).leases).toEqual([]);
+        // Journaled once the org has taken the sets back: waited for together.
+        await vi.waitFor(() => {
+          expect(org.assignments()).toEqual([]);
+          expect(journalOf(org).leases).toEqual([]);
+        });
       });
 
       /*
