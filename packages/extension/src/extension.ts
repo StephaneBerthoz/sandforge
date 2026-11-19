@@ -51,6 +51,7 @@ import {
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
+import { openOnStartup } from './composition/startupOpen';
 import { LANDING_COMMAND } from './composition/moduleCommands';
 import { panelTitleOf } from './composition/panelTitles';
 import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
@@ -767,6 +768,15 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => liveOperationTracker.dispose() },
     { dispose: () => performanceTracker.dispose() },
   );
+
+  // 14. The side panel and Home, shown as the window starts, once every
+  // command above is registered.
+  void openOnStartup({
+    wanted: () => services.getSandforgeSetting('openOnStartup', true),
+    isFirstLaunch: () => onboardingService.isFirstLaunch(),
+    executeCommand: (command) => vscode.commands.executeCommand(command),
+    log,
+  });
 }
 
 /**

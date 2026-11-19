@@ -582,6 +582,53 @@ describe('extension', () => {
     );
   });
 
+  it('shows the side panel, then opens Home, as a window starts after a version ran before', async () => {
+    const context = createContext();
+    await context.globalState.update('sandforge.lastVersion', '1.2.5');
+    activate(context);
+    const vscode = await import('vscode');
+
+    await vi.waitFor(() => {
+      expect(vscode.commands.executeCommand).toHaveBeenCalledWith('sandforge.openHome');
+    });
+    const ran = vi.mocked(vscode.commands.executeCommand).mock.calls.map(([command]) => command);
+    expect(ran.indexOf('workbench.view.extension.sandforge')).toBeGreaterThanOrEqual(0);
+    expect(ran.indexOf('workbench.view.extension.sandforge')).toBeLessThan(
+      ran.indexOf('sandforge.openHome'),
+    );
+    // Home opens through the command activation registered, not around it.
+    expect(registeredCommands.has('sandforge.openHome')).toBe(true);
+  });
+
+  it('opens nothing as a window starts when sandforge.openOnStartup is off', async () => {
+    const vscode = await import('vscode');
+    vi.mocked(vscode.workspace.getConfiguration).mockImplementation(
+      () =>
+        ({
+          get: vi.fn((key: string, fallback: unknown) =>
+            key === 'openOnStartup' ? false : fallback,
+          ),
+        }) as unknown as ReturnType<typeof vscode.workspace.getConfiguration>,
+    );
+    const context = createContext();
+    await context.globalState.update('sandforge.lastVersion', '1.2.5');
+    try {
+      activate(context);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const ran = vi.mocked(vscode.commands.executeCommand).mock.calls.map(([command]) => command);
+      expect(ran).not.toContain('workbench.view.extension.sandforge');
+      expect(ran).not.toContain('sandforge.openHome');
+    } finally {
+      vi.mocked(vscode.workspace.getConfiguration).mockImplementation(
+        () =>
+          ({
+            get: vi.fn((_key: string, fallback: unknown) => fallback),
+          }) as unknown as ReturnType<typeof vscode.workspace.getConfiguration>,
+      );
+    }
+  });
+
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {
     activate(createContext());
 

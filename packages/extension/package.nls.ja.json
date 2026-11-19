@@ -41,6 +41,7 @@
   "walkthrough.step.exploreSettings.description": "表示言語と AI アシスタントは SandForge の設定ページで、バッチサイズ、Production Guard の判定の監査ログ、Forge のグラフ表示は VS Code の設定で変更します。\n[設定を開く](command:sandforge.openSettings)\n[VS Code で SandForge の設定を開く](command:workbench.action.openSettings?%5B%22%40ext%3AStephaneBerthoz.sandforge%22%5D)",
   "config.title": "SandForge",
   "config.showWhatsNew.description": "更新後に SandForge パネルを初めて開いたとき、新しいマイナーバージョンの内容を表示します。パッチバージョンでは表示されません。",
+  "config.openOnStartup.description": "ウィンドウの起動時に SandForge のサイドパネルを表示し、ホームを開きます。インストール後の最初の起動ではサイドパネルのみを表示し、「Get Started」ウォークスルーを前面に残します。",
   "config.telemetry.description": "診断のため拡張機能のエラーをローカルに記録します。ネットワーク経由では何も送信されません。",
   "config.orgs.validateOnStartup.description": "SandForge がウィンドウで最初のビューを開いたときに登録済み組織を検証し、期限切れのセッションを sf CLI で自動的に更新する",
   "config.forge.graphView.description": "Forge の検出画面・確認画面・実行画面でグラフのオブジェクトをどう表示するかを指定します。`auto` は 25 オブジェクトまではグラフとして描き、それを超えるとテーブルに一覧表示します。幅 560 ピクセル未満のパネルでもテーブルに一覧表示します。`graph` と `table` は常にそのビューで表示します。いずれの画面でも、グラフビュー / テーブルビューの切り替えはパネルを閉じるまでこの設定より優先されます。",

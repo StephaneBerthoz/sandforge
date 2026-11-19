@@ -43,7 +43,7 @@ You should see at least one authenticated org in the output.
 
 ## First Launch
 
-After installation, you will see the SandForge flame in the VSCode Activity Bar (left edge). Click it to open the **launcher** — a narrow sidebar view, not a dashboard. Everything starts here, and each module you pick opens in its own editor tab.
+After installation, VS Code shows SandForge's **launcher** in the side bar — a narrow sidebar view, not a dashboard — beside the Get Started walkthrough. From then on, each window SandForge starts in shows the launcher and opens **Home** in an editor tab (the `sandforge.openOnStartup` setting turns that off). The SandForge flame in the VSCode Activity Bar (left edge) brings the launcher back. Everything starts here, and each module you pick opens in its own editor tab.
 
 Top to bottom, the launcher gives you:
 

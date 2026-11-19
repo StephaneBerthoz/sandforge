@@ -41,6 +41,7 @@
   "walkthrough.step.exploreSettings.description": "Language and the AI assistant on SandForge's Settings page; batch sizes, the audit trail of Production Guard's decisions and Forge's graph view in VS Code's Settings.\n[Open Settings](command:sandforge.openSettings)\n[Open SandForge settings in VS Code](command:workbench.action.openSettings?%5B%22%40ext%3AStephaneBerthoz.sandforge%22%5D)",
   "config.title": "SandForge",
   "config.showWhatsNew.description": "Show what a new minor version brings the first time a SandForge panel opens after an upgrade. A patch version never shows it.",
+  "config.openOnStartup.description": "Show the SandForge side panel and open Home when a window starts. The first start after install shows the side panel alone and leaves the Get Started walkthrough in front.",
   "config.telemetry.description": "Record extension errors locally for diagnosis. Nothing is sent over the network.",
   "config.orgs.validateOnStartup.description": "Validate registered orgs when SandForge first opens a view in a window, and auto-refresh expired sessions via the sf CLI",
   "config.forge.graphView.description": "How Forge shows a graph's objects on its discovery, Review and execution screens. `auto` draws them as a graph up to 25 objects and lists them in a table past that, or on a panel narrower than 560 pixels; `graph` and `table` always show that view. The Graph View / Table View switch on any of these screens overrides this setting until the panel is closed.",

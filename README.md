@@ -33,7 +33,7 @@ Website: [sandforge.fr](https://sandforge.fr/en/) · [en français](https://sand
 
 A Developer Edition, a Trailhead playground or a fresh scratch org is all you need: no second org, no AI key, no field rule to write.
 
-1. **Connect your org**: click the SandForge icon in the Activity Bar, then **Connect your first org**.
+1. **Connect your org**: in the SandForge launcher, which opens in the side bar on its own (or from the SandForge icon in the Activity Bar), pick **Connect your first org**.
 2. **Open Seed**: the launcher's **Fill \<alias\> with demo data** opens Seed's template gallery on that org.
 3. **Pick a template**: **CRM Starter**, marked _Start here_, writes about 300 linked accounts, contacts, products, opportunities and cases. Click **Use this**.
 4. Click **Start seeding**. A seed that would not fit the org's data storage, or the emails it has left today, is refused before its first record.
