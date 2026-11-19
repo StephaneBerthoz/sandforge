@@ -201,7 +201,7 @@ describe('the result of a rewind', () => {
     expectTypeOf<Exclude<RewindStatus, ForgeUndoStatus>>().toEqualTypeOf<'unstable'>();
   });
 
-  it('says why each record still differs, those it kept as it had to and those the org answered are no longer in the recycle bin among them, and the objects its last read could not read', () => {
+  it('says why each record still differs, those it kept as it had to, those the org answered are no longer in the recycle bin and the duplicate record sets an undo brought back without their items among them, and the objects its last read could not read', () => {
     expectTypeOf<RewindResidualReason>().toEqualTypeOf<
       | 'automation'
       | 'changedDuringRewind'
@@ -210,6 +210,7 @@ describe('the result of a rewind', () => {
       | 'notInBin'
       | 'goneForGood'
       | 'kept'
+      | 'notBack'
     >();
     expectTypeOf<RewindResult['unread']>().toEqualTypeOf<
       Array<{ objectApiName: string; reason: string }> | undefined
