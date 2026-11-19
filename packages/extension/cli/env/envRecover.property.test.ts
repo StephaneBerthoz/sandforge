@@ -146,6 +146,18 @@ const historyArb = fc
   .array(opArb, { minLength: 1, maxLength: 6 })
   .map((ops) => [{ op: 'apply' } as Op, ...ops]);
 
+/**
+ * Histories run before the random ones, whatever the seed: a destroy that
+ * leaves a contact a colleague changed since, and a replace that takes a run
+ * back. Left to the draw, a seed may give neither: under seed 7 no history
+ * ended on a destroy that left records, and the positive control failed on a
+ * property that held.
+ */
+const EXAMPLES: Op[][] = [
+  [{ op: 'apply' }, { op: 'touch', object: 'Contact', at: 0 }, { op: 'destroy' }],
+  [{ op: 'apply' }, { op: 'replace', resource: 'accounts' }],
+];
+
 let dir: string;
 let project: string;
 let journalDir: string;
@@ -333,17 +345,20 @@ describe('state recover, over random histories', () => {
             history,
           ).toContain(own);
         }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        {
+          numRuns: RUNS + EXAMPLES.length,
+          seed: SEED,
+          endOnFailure: true,
+          examples: EXAMPLES.map((ops): [Op[]] => [ops]),
+        },
       );
       rmSync(dir, { recursive: true, force: true });
       // Positive control: the histories left runs to take back, runs a
-      // removal took back, and a destroy that left records changed since.
-      // The four runs a Windows runner gives may draw none of them.
-      if (RUNS >= 10) {
-        expect(seen.live).toBeGreaterThan(0);
-        expect(seen.takenBack).toBeGreaterThan(0);
-        expect(seen.left).toBeGreaterThan(0);
-      }
+      // removal took back, and a destroy that left records changed since —
+      // the examples give each, on every runner and under every seed.
+      expect(seen.live).toBeGreaterThan(0);
+      expect(seen.takenBack).toBeGreaterThan(0);
+      expect(seen.left).toBeGreaterThan(0);
     },
     paced(120_000),
   );
