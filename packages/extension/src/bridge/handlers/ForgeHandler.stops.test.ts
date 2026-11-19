@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import type * as vscode from 'vscode';
-import { ForgeHandler } from './ForgeHandler.js';
+import { ForgeHandler, type ForgeJournalLocks } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
   BaseMessage,
@@ -31,6 +31,7 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -179,6 +180,9 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
     execute: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
   };
+  /** The journals' locks, in a folder of the test's own: a window's, as the editor holds them. */
+  let locks: WindowJournalLocks;
+  let windowLocks: ForgeJournalLocks;
 
   function panel(): FakePanel {
     const fake: FakePanel = { posted: [], sent: new Set() };
@@ -258,6 +262,9 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
       nextId: () => `ext-${++ids}`,
     };
     handler = new ForgeHandler(deps);
+    locks = windowJournalLocks();
+    windowLocks = locks.opened();
+    handler.setJournalLocks(windowLocks);
     orchestrator = {
       discover: vi.fn(
         (_config: ForgeConfig, options: DiscoveryOptions) =>
@@ -287,6 +294,7 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
   afterEach(() => {
     registry.dispose();
     broker.dispose();
+    locks.dispose();
   });
 
   describe('discoveries', () => {
@@ -851,10 +859,15 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
         config: CONFIG,
       });
       await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      // Its journal's lock is held while it writes, as a window holds it, in
+      // the test's own folder: never beside a storage path the disk has not.
+      const [journalPath = ''] = [...files.keys()];
+      expect(windowLocks.holder(journalPath)).toMatchObject({ ranFrom: 'editor' });
       await send(panelA, 'wv-stop-a', 'forge:abort', { requestId: 'wv-run-a' });
 
       await expect(run).resolves.toBe(true);
       expect(stop).toHaveBeenCalledWith(expect.any(String), 'cancelled', expect.any(String));
+      expect(windowLocks.holder(journalPath)).toBeUndefined();
 
       const next = send(panelA, 'wv-run-b', 'forge:execute', {
         graph: graphOf('Contact'),

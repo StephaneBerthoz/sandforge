@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForgeHandler } from './ForgeHandler.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ForgeHandler, type ForgeJournalLocks } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
   BaseMessage,
@@ -34,6 +34,7 @@ import { tmpdir } from 'node:os';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 import { discoveryRequestSent } from '../../modules/forge/discoveryRequests.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -210,6 +211,9 @@ describe('forge:execute, the gate before the first write', () => {
   /** What the target's `/limits` answer; an error refuses the request. */
   let limits: unknown;
   let settings: Record<string, unknown>;
+  /** The journals' locks, in a folder of the test's own: a window's, as the editor holds them. */
+  let locks: WindowJournalLocks;
+  let windowLocks: ForgeJournalLocks;
 
   function guardAnswering(): ProductionGuard {
     return new ProductionGuard({
@@ -269,7 +273,11 @@ describe('forge:execute, the gate before the first write', () => {
       } as never;
     });
     handler = new ForgeHandler(deps);
+    locks = windowJournalLocks();
+    windowLocks = locks.opened();
+    handler.setJournalLocks(windowLocks);
   });
+  afterEach(() => locks.dispose());
 
   /** An orchestrator whose run hands `boundary` to the gate before it "writes". */
   function orchestratorHanding(boundary?: ForgeWriteBoundary) {
@@ -1322,12 +1330,14 @@ describe('forge:execute, the gate before the first write', () => {
       const { journal, files } = journalOnMemory();
       const orchestrator = orchestratorHanding();
       let during: string[] = [];
+      let held: ReturnType<ForgeJournalLocks['holder']>;
       orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
         const runStore = options?.stream?.store;
         runStore?.beginPart(new Date());
         runStore?.setMapping('created', '003000000000001AAA', '003000000000901AAA', 'Contact');
         runStore?.flush();
         during = [...files.values()];
+        held = windowLocks.holder([...files.keys()][0] ?? '');
         return RESULT;
       });
       handler.setForgeOrchestrator(orchestrator, {
@@ -1338,6 +1348,9 @@ describe('forge:execute, the gate before the first write', () => {
       await runOfWholeTables();
 
       expect(during).toHaveLength(1);
+      // Its lock is held while it writes, as a window holds it, in the
+      // test's own folder: never beside a storage path the disk has not.
+      expect(held).toMatchObject({ ranFrom: 'editor', target: 'DEV' });
       const [head, part, created] = during[0].trim().split('\n');
       // The head says what the run was started with: what resuming it needs.
       expect(JSON.parse(head)).toMatchObject({

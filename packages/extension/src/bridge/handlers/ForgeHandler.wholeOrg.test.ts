@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForgeHandler } from './ForgeHandler.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ForgeHandler, type ForgeJournalLocks } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
   BaseMessage,
@@ -41,6 +41,7 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -283,6 +284,9 @@ describe('forge:execute of the whole org', () => {
   /** The options the executor was handed, run by run. */
   let handed: Array<ExecuteOptions | undefined>;
   let disk: ReturnType<typeof journalOnMemory>;
+  /** The journals' locks, in a folder of the test's own: a window's, as the editor holds them. */
+  let locks: WindowJournalLocks;
+  let windowLocks: ForgeJournalLocks;
 
   beforeEach(() => {
     mockGetConn.mockReset();
@@ -353,7 +357,11 @@ describe('forge:execute of the whole org', () => {
     });
     disk = journalOnMemory();
     handler = new ForgeHandler(deps);
+    locks = windowJournalLocks();
+    windowLocks = locks.opened();
+    handler.setJournalLocks(windowLocks);
   });
+  afterEach(() => locks.dispose());
 
   /**
    * The real orchestrator over a fake executor that hands `boundary` to the
@@ -445,10 +453,18 @@ describe('forge:execute of the whole org', () => {
   describe('a run', () => {
     it('is always asked, whatever the setting, with what else it takes and does', async () => {
       settings['safety.confirmAboveRecords'] = 0;
-      use(orchestratorHanding());
+      let held: ReturnType<ForgeJournalLocks['holder']>;
+      use(
+        orchestratorHanding(boundaryOf(), () => {
+          held = windowLocks.holder([...disk.files.keys()][0] ?? '');
+        }),
+      );
 
       await execute();
 
+      // Its journal's lock is held while it writes, as a window holds it, in
+      // the test's own folder: never beside a storage path the disk has not.
+      expect(held).toMatchObject({ ranFrom: 'editor', target: 'DEV' });
       expect(writeQuestions()).toHaveLength(1);
       const [question] = writeQuestions();
       expect(question).toMatchObject({ org: 'DEV', total: 12_830, counted: true });

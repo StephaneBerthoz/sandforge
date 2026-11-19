@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseMessage,
   ForgeExecutionResult,
@@ -8,7 +8,7 @@ import type {
 } from '@sandforge/shared';
 import { forgeRemovalPlanOf, forgeRunRecordsLeft } from '@sandforge/shared';
 
-import { ForgeHandler } from './ForgeHandler.js';
+import { ForgeHandler, type ForgeJournalLocks } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -22,6 +22,7 @@ import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { windowJournalLocks, type WindowJournalLocks } from '../../test/windowJournalLocks.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -247,6 +248,9 @@ describe('forge:undo', () => {
   let registry: BackgroundOperationRegistry;
   let tracker: LiveOperationTracker;
   let org: ReturnType<typeof targetOrg>;
+  /** The journals' locks, in a folder of the test's own: a window's, as the editor holds them. */
+  let locks: WindowJournalLocks;
+  let windowLocks: ForgeJournalLocks;
 
   /** Messages posted to the webview, of one type. */
   const posted = <T extends BaseMessage>(type: string): T[] =>
@@ -292,9 +296,13 @@ describe('forge:undo', () => {
     };
     handler = new ForgeHandler(deps);
     handler.setLiveOperationTracker(tracker);
+    locks = windowJournalLocks();
+    windowLocks = locks.opened();
+    handler.setJournalLocks(windowLocks);
     org = targetOrg();
     mockGetConn.mockResolvedValue(org.conn as never);
   });
+  afterEach(() => locks.dispose());
 
   it('removes what the run created, children first, and keeps the account it linked', async () => {
     await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
@@ -1723,6 +1731,8 @@ describe('forge:undo', () => {
           'forge',
         );
 
+        const take = vi.spyOn(windowLocks, 'take');
+
         await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
 
         expect(answer()).toMatchObject({ status: 'success' });
@@ -1730,6 +1740,14 @@ describe('forge:undo', () => {
           [OPPORTUNITY]: org.rows.get('Opportunity')?.[0].LastModifiedDate,
         });
         await killedRemovedFromItsPlan();
+        // The removal of the part that names the journal held its lock as a
+        // window holds it, in the test's own folder, and let it go: never
+        // beside a storage path the disk has not.
+        expect(take).toHaveBeenCalledWith(
+          runs.pathOf(journal),
+          expect.objectContaining({ journalId: journal, removes: true }),
+        );
+        expect(windowLocks.holder(runs.pathOf(journal))).toBeUndefined();
       });
     });
   });
