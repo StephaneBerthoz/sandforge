@@ -772,7 +772,7 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
           'under the same Code__c, which its refusal of the row names',
       );
       expect(lines.at(-1)).toMatch(
-        /^Simulated Order__c: 1 would be inserted, 1 linked to records already in the target, 1 linked to records the run created \(the target refused them as copies of those\), 0 failed/,
+        /^Simulated Order__c: 1 would be inserted, 1 linked to records already in the target, 1 linked to records the run would create \(the target would refuse them as copies of those\), 0 failed/,
       );
       // Its ids are the simulation's own, never given back.
       expect(summary.remapTable).toEqual({});

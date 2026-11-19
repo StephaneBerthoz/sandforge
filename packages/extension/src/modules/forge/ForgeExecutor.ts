@@ -4138,12 +4138,16 @@ function writtenBeforeNote(config: ForgeStageConfig, count: number): string {
  * contact the run inserted, and the relation of the who of its event, were
  * said so too.
  *
+ * A simulation creates nothing and the target refuses it nothing: what it
+ * links to a row it counted inserted is said in the conditional.
+ *
  * @param linked - The rows linked, of every kind.
  * @param toCreated - Of them, those linked to a record of the run's own.
  * @param byThePlatform - Of them, those the platform wrote with a record of
  *   the run's (`BatchWriteResult.writtenByThePlatformCount`), and their object.
  */
 function linkedNote(
+  config: Pick<ForgeStageConfig, 'dryRun'>,
   linked: number,
   toCreated: number,
   byThePlatform?: { objectApiName: string; rows: number },
@@ -4151,11 +4155,12 @@ function linkedNote(
   const own = Math.min(linked, Math.max(0, toCreated));
   const platform = Math.min(linked - own, Math.max(0, byThePlatform?.rows ?? 0));
   const held = linked - own - platform;
+  const ofTheRun = config.dryRun
+    ? 'the run would create (the target would refuse them as copies of those)'
+    : 'the run created (the target refused them as copies of those)';
   return (
     (held > 0 ? `, ${held} linked to records already in the target` : '') +
-    (own > 0
-      ? `, ${own} linked to records the run created (the target refused them as copies of those)`
-      : '') +
+    (own > 0 ? `, ${own} linked to records ${ofTheRun}` : '') +
     (byThePlatform && platform > 0
       ? `, ${platform} written by the platform with ${writtenWithWords(byThePlatform.objectApiName)}`
       : '')
@@ -4188,7 +4193,7 @@ function pagedCounts(
 ): string {
   const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
   const updated = carry.updated > 0 ? `, ${carry.updated} updated through their external id` : '';
-  const linked = linkedNote(carry.linked, carry.linkedToCreated, {
+  const linked = linkedNote(config, carry.linked, carry.linkedToCreated, {
     objectApiName,
     rows: carry.linkedByThePlatform,
   });
@@ -19875,7 +19880,7 @@ export class ForgeExecutor {
       // The rows the target already held are named apart: linked is neither
       // written nor failed, and a duplicate the run could not identify is a
       // failure whose children lose their lookup — worth saying on its own.
-      const linked = linkedNote(nodeLinked, writeResult.linkedToCreatedCount ?? 0, {
+      const linked = linkedNote(config, nodeLinked, writeResult.linkedToCreatedCount ?? 0, {
         objectApiName: node.objectApiName,
         rows: writeResult.writtenByThePlatformCount ?? 0,
       });

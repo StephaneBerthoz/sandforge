@@ -1031,9 +1031,11 @@ describe('a run of whole tables read page by page', () => {
       linkedToCreatedCount: 2,
       failedCount: 0,
     });
+    // In the conditional, as the simulation writes and the target refuses
+    // nothing: "the run created" on a Simulated line said it had.
     expect(events.filter((e) => e.objectName === 'Account').at(-1)?.message).toBe(
-      'Simulated Account: 3 would be inserted, 2 linked to records the run created (the target ' +
-        'refused them as copies of those), 0 failed',
+      'Simulated Account: 3 would be inserted, 2 linked to records the run would create (the ' +
+        'target would refuse them as copies of those), 0 failed',
     );
   });
 

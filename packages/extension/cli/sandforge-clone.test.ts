@@ -578,6 +578,30 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({ linkedCount: 2 }))).not.toHaveProperty('linkedToCreatedCount');
   });
 
+  it('says in the conditional, of a dry run, the records it would link to a record the run would create', () => {
+    // A dry run creates nothing and the target refuses it nothing: "to
+    // records the run created, the target refusing them" said both had.
+    const simulated = summary({
+      successCount: 0,
+      wouldInsertCount: 1,
+      linkedCount: 2,
+      linkedToCreatedCount: 1,
+      existingRecords: [
+        { objectApiName: 'Order__c', linked: 2, linkedToCreated: 1, unidentified: 0 },
+      ],
+    });
+
+    const lines = summaryLines(simulated, true);
+    expect(lines).toContain(
+      'linked:  2 (1 already in the target, not created; ' +
+        '1 to records the run would create: the target would refuse them as copies of those)',
+    );
+    expect(lines).toContain(
+      '  Order__c  1 linked, 1 linked to records the run would create (the target would refuse ' +
+        'them as copies of those)',
+    );
+  });
+
   it('counts the records an upsert matched by their external id as updated, not created', () => {
     const lines = summaryLines(summary({ successCount: 3, updatedCount: 2 }));
 

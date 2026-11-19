@@ -4336,10 +4336,12 @@ function truncatedObjectsOf(
  * refused as copies of it. All said "already in the target", the owner's
  * member and split of the run's opportunity read as records the target held
  * before the run, and so did ten accounts linked to the accounts the run had
- * just written, a value the target keeps unique repeated in the source.
+ * just written, a value the target keeps unique repeated in the source. A dry
+ * run's, which created nothing and was refused nothing, in the conditional.
  */
 function linkedLine(
   summary: Pick<ExecutionSummary, 'linkedCount' | 'writtenByThePlatform' | 'linkedToCreatedCount'>,
+  dryRun = false,
 ): string {
   const byWords = new Map<string, number>();
   for (const { objectApiName, rows } of summary.writtenByThePlatform ?? []) {
@@ -4355,7 +4357,11 @@ function linkedLine(
   const parts = [
     ...(held > 0 ? [`${held} already in the target, not created`] : []),
     ...(own > 0
-      ? [`${own} to records the run created, the target refusing them as copies of those`]
+      ? [
+          dryRun
+            ? `${own} to records the run would create: the target would refuse them as copies of those`
+            : `${own} to records the run created, the target refusing them as copies of those`,
+        ]
       : []),
     ...[...byWords].map(([words, rows]) => `${rows} written by the platform with ${words}`),
   ];
@@ -4496,7 +4502,7 @@ export function summaryLines(
     ...(summary.updatedCount > 0
       ? [`updated: ${summary.updatedCount} (matched by their external id, not created)`]
       : []),
-    linkedLine(summary),
+    linkedLine(summary, dryRun),
     // A read that failed is the object's failure, counted in no record: the
     // clone never learned how many of its rows it held.
     `failed:  ${summary.failedCount}` +
@@ -4516,7 +4522,11 @@ export function summaryLines(
       const parts = [
         ...(e.linked - own > 0 || own === 0 ? [`${e.linked - own} linked`] : []),
         ...(own > 0
-          ? [`${own} linked to records the run created (refused as copies of those)`]
+          ? [
+              dryRun
+                ? `${own} linked to records the run would create (the target would refuse them as copies of those)`
+                : `${own} linked to records the run created (refused as copies of those)`,
+            ]
           : []),
       ];
       if (e.unidentified > 0) {
