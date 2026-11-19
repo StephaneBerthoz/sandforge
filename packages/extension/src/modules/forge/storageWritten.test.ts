@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -148,6 +148,20 @@ describe('what runs from this machine wrote to an org that its /limits has not c
       .filter((line) => line !== '');
     expect(lines.length).toBeLessThan(300);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps its folder and each file its owner’s alone, a file rewritten as it grows among them',
+    () => {
+      const own = join(dir, 'storage-written');
+      noteStorageSaid(ORG, 5, { dir: own, now: at(0) });
+      const file = join(own, `${ORG.slice(0, 15)}.ndjson`);
+
+      expect(statSync(own).mode & 0o777).toBe(0o700);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      for (let n = 0; n < 300; n++) noteStorageSaid(OTHER, 5, { dir: own, now: at(n) });
+      expect(statSync(join(own, `${OTHER.slice(0, 15)}.ndjson`)).mode & 0o777).toBe(0o600);
+    },
+  );
 
   it('counts what a run created, upserted and deleted, per object, from its audit counts', () => {
     expect(

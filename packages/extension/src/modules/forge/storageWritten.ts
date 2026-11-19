@@ -37,6 +37,14 @@ const KEPT_MS = 24 * 60 * 60_000;
 /** Lines past which the file is rewritten with what is still kept. */
 const LINES_BEFORE_PRUNE = 200;
 
+/**
+ * What the folder and its files are made with: their owner's alone, as the
+ * checkpoints, locks and run histories beside them are. They say which orgs
+ * this user wrote to, when and how much.
+ */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
 const MINUTE_MS = 60_000;
 
 /** Where the notes are kept, and when now is: tests give both. */
@@ -118,8 +126,8 @@ function append(orgId: string, note: object, options: StorageWrittenOptions): vo
   if (!file) return;
   const now = (options.now ?? new Date()).getTime();
   try {
-    mkdirSync(options.dir ?? storageWrittenDirOf(), { recursive: true });
-    appendFileSync(file, `${JSON.stringify(note)}\n`, 'utf8');
+    mkdirSync(options.dir ?? storageWrittenDirOf(), { recursive: true, mode: DIR_MODE });
+    appendFileSync(file, `${JSON.stringify(note)}\n`, { encoding: 'utf8', mode: FILE_MODE });
     const notes = notesOf(file);
     if (notes.length <= LINES_BEFORE_PRUNE) return;
     const kept = notes
@@ -127,7 +135,10 @@ function append(orgId: string, note: object, options: StorageWrittenOptions): vo
       .slice(-LINES_BEFORE_PRUNE / 2)
       .map((kept) => JSON.stringify({ ...kept, at: new Date(kept.at).toISOString() }));
     const next = `${file}.${process.pid}.tmp`;
-    writeFileSync(next, kept.length > 0 ? `${kept.join('\n')}\n` : '', 'utf8');
+    writeFileSync(next, kept.length > 0 ? `${kept.join('\n')}\n` : '', {
+      encoding: 'utf8',
+      mode: FILE_MODE,
+    });
     renameSync(next, file);
   } catch {
     // Nothing to do: the gate reads what it can.
