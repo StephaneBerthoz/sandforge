@@ -1023,7 +1023,8 @@ export interface FrozenLoadPlanInfo {
  * as its gate measures them before the first write: the dataset's records at
  * the documented sizes, what the target's automation that still runs creates
  * under them, and on a reload what its purge frees first. With the refusal a
- * load would meet past it (`FROZEN_STORAGE_EXCEEDED`).
+ * load would meet past it (`FROZEN_STORAGE_EXCEEDED`). A pilot's are of its
+ * root folder alone.
  */
 export interface FrozenLoadStorageInfo {
   estimateMB: number;
@@ -1033,6 +1034,8 @@ export interface FrozenLoadStorageInfo {
   maxMB: number;
   /** MB a reload's purge frees first, counted with what is left; absent for a first load. */
   freedMB?: number;
+  /** Set when the figures are a pilot's, of its root folder alone: its refusal names no pilot. */
+  pilot?: true;
   refusal?: { code: string; message: string };
 }
 

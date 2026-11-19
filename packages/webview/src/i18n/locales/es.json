@@ -6738,7 +6738,9 @@
       "storageExceeded": {
         "explanation": "Los registros del conjunto de datos ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB: la carga se detendría a mitad de camino, y no se escribió nada.",
         "explanationReload": "Los registros del conjunto de datos ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB, más unos {{freed}} MB que la purga de la recarga libera antes: la carga se detendría a mitad de camino, y no se escribió nada.",
-        "action": "Cargue primero un piloto, una carpeta raíz del conjunto; o extraiga un conjunto de datos más pequeño: baje el presupuesto en la configuración y vuelva a ejecutar la selección y la extracción; o libere almacenamiento de datos en {{org}}."
+        "action": "Cargue primero un piloto, una carpeta raíz del conjunto; o extraiga un conjunto de datos más pequeño: baje el presupuesto en la configuración y vuelva a ejecutar la selección y la extracción; o libere almacenamiento de datos en {{org}}.",
+        "explanationPilot": "La carpeta raíz del piloto ocupa unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB: el piloto se detendría a mitad de camino, y no se escribió nada.",
+        "actionPilot": "Extraiga un conjunto de datos más pequeño: baje el presupuesto en la configuración y vuelva a ejecutar la selección y la extracción; o libere almacenamiento de datos en {{org}}."
       },
       "extractTimeout": {
         "explanation": "La extracción agotó sus {{minutes}} minutos y se detuvo, y no se escribió nada: lee todos los registros de las raíces que guardó la selección, así que relanzada igual se detendría de nuevo.",

@@ -1142,8 +1142,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     ` ${t('frozen.preview.storage.freed', {
                       freed: roundedUpMegabytes(plan.storage.freedMB),
                     })}`}
+                  {/* A pilot, held to its root folder, has no pilot for a way out. */}
                   {plan.storage.refusal &&
-                    ` ${t('frozen.refusal.storageExceeded.action', { org: planOrg })}`}
+                    ` ${t(
+                      plan.storage.pilot === true
+                        ? 'frozen.refusal.storageExceeded.actionPilot'
+                        : 'frozen.refusal.storageExceeded.action',
+                      { org: planOrg },
+                    )}`}
                 </p>
               )}
               {plan.mode.reload && !plan.mode.pilot && (

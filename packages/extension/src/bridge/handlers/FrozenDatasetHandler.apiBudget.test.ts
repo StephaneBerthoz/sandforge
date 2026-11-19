@@ -578,14 +578,66 @@ describe('frozen:load, the daily API requests its target has left', () => {
     });
   });
 
-  it('lets a pilot through its gate on the storage: one root folder is the way the refusal names', async () => {
+  it('holds a pilot to the data storage of its root folder, refused past it before its first write in a pilot’s words', async () => {
+    // Let through whatever it took, a pilot whose root folder was larger than
+    // what the target had left wrote until the target answered
+    // STORAGE_LIMIT_EXCEEDED, its children refused under parents that went in.
+    const port = checkpointsAnswering();
     targetWithStorage(0);
 
+    await load({ pilot: true, checkpointFirst: {} });
+
+    expect(port.take).not.toHaveBeenCalled();
+    expect(loaderLoad).not.toHaveBeenCalled();
+    const [error] = posted('frozen:load:error');
+    expect(error?.payload).toMatchObject({
+      code: 'FROZEN_STORAGE_EXCEEDED',
+      orgId: 'org-2',
+      written: 0,
+      // Its root folder alone: the first account, no contact under it, so
+      // no task the contact flow opens.
+      storage: { estimateMB: 2048 / (1024 * 1024), remainingMB: 0, maxMB: 5, pilot: true },
+    });
+    expect(error?.payload.storage).not.toHaveProperty('automationMB');
+    expect(String(error?.payload.message)).toBe(
+      'The pilot was refused before it wrote anything: the records of its root folder take ' +
+        'about 0.01 MB of data storage, and DEV has 0 MB left of 5 MB. Extract a smaller ' +
+        'dataset, with a lower budget in the configuration, a new selection and a new ' +
+        'extraction; or free data storage in DEV. Nothing was written.',
+    );
+  });
+
+  it('lets through a pilot whose root folder fits what the target has left, though the whole dataset would not', async () => {
+    // 600 contacts under the second account: the whole dataset and the tasks
+    // the flow opens under them take about 2.35 MB of the 1 MB left; the
+    // first account, the pilot's root folder, 0.01 MB.
+    const datasetDir = path.join(
+      String((store.get('frozen:config') as FrozenProjectConfig).sasDir),
+      'dataset',
+      'data',
+    );
+    fs.writeFileSync(
+      path.join(datasetDir, 'Contact.json'),
+      JSON.stringify({
+        objectApiName: 'Contact',
+        records: Array.from({ length: 600 }, (_, i) => ({
+          referenceId: `C${i + 1}`,
+          fields: { LastName: `C${i + 1}`, AccountId: 'A2' },
+        })),
+      }),
+    );
+    targetWithStorage(1);
+
+    await load();
+
+    expect(posted('frozen:load:error')[0]?.payload.code).toBe('FROZEN_STORAGE_EXCEEDED');
+    expect(loaderLoad).not.toHaveBeenCalled();
+
+    vi.mocked(deps.broker.postToWebview).mockClear();
     await load({ pilot: true });
 
-    expect(posted('frozen:load:error').map((e) => e.payload.code)).not.toContain(
-      'FROZEN_STORAGE_EXCEEDED',
-    );
+    expect(posted('frozen:load:error')).toEqual([]);
+    expect(loaderLoad).toHaveBeenCalledTimes(1);
   });
 
   it('loads a dataset that fits the storage the target has left', async () => {
@@ -717,7 +769,7 @@ describe('frozen:load, the daily API requests its target has left', () => {
     expect(org.writes).toEqual([]);
   });
 
-  it('says the storage of a load that fits, and nothing of it for a pilot, which its gate lets through', async () => {
+  it('says the storage of a load that fits, and of a pilot its root folder’s, as its gate measures it', async () => {
     loaderPlan.mockResolvedValue(PLAN);
     targetWithStorage(5);
 
@@ -733,7 +785,34 @@ describe('frozen:load, the daily API requests its target has left', () => {
       remainingMB: 5,
       maxMB: 5,
     });
-    expect(pilot).toBeUndefined();
+    expect(pilot).toEqual({
+      estimateMB: 2048 / (1024 * 1024),
+      remainingMB: 5,
+      maxMB: 5,
+      pilot: true,
+    });
+  });
+
+  it('says in the preview of a pilot the refusal its root folder would meet, as its run is refused', async () => {
+    // Said of no pilot, a dry run ended 0 where the run was then refused.
+    loaderPlan.mockResolvedValue({ ...PLAN, mode: { pilot: true, reload: false } });
+    targetWithStorage(0);
+
+    await send('frozen:load:preview', { pilot: true });
+    await load({ pilot: true });
+
+    const plan = posted('frozen:load:preview:response')[0]?.payload.plan as
+      { storage?: Record<string, unknown> } | undefined;
+    const [error] = posted('frozen:load:error');
+    expect(plan?.storage).toEqual({
+      estimateMB: 2048 / (1024 * 1024),
+      remainingMB: 0,
+      maxMB: 5,
+      pilot: true,
+      refusal: { code: 'FROZEN_STORAGE_EXCEEDED', message: String(error?.payload.message) },
+    });
+    expect(String(error?.payload.message)).toMatch(/^The pilot was refused before it wrote/);
+    expect(loaderLoad).not.toHaveBeenCalled();
   });
 
   it('says the storage refusal beside the fields its configuration leaves empty, which leave no plan', async () => {

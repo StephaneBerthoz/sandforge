@@ -6738,7 +6738,9 @@
       "storageExceeded": {
         "explanation": "Os registros do conjunto de dados ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}: a carga pararia no meio do caminho, e nada foi gravado.",
         "explanationReload": "Os registros do conjunto de dados ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}, mais cerca de {{freed}} MB que a limpeza da recarga libera antes: a carga pararia no meio do caminho, e nada foi gravado.",
-        "action": "Carregue primeiro um piloto, uma pasta raiz do conjunto; ou extraia um conjunto de dados menor: reduza o orçamento na configuração e execute de novo a seleção e a extração; ou libere armazenamento de dados em {{org}}."
+        "action": "Carregue primeiro um piloto, uma pasta raiz do conjunto; ou extraia um conjunto de dados menor: reduza o orçamento na configuração e execute de novo a seleção e a extração; ou libere armazenamento de dados em {{org}}.",
+        "explanationPilot": "A pasta raiz do piloto ocupa cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}: o piloto pararia no meio do caminho, e nada foi gravado.",
+        "actionPilot": "Extraia um conjunto de dados menor: reduza o orçamento na configuração e execute de novo a seleção e a extração; ou libere armazenamento de dados em {{org}}."
       },
       "extractTimeout": {
         "explanation": "A extração esgotou seus {{minutes}} minutos e parou, e nada foi gravado: ela lê todos os registros das raízes que a seleção manteve, então executada de novo pararia outra vez.",

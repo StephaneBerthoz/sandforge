@@ -485,6 +485,35 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says in the preview of a pilot the data storage of its root folder, and ways out that name no pilot', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            mode: { pilot: true, reload: false },
+            storage: {
+              estimateMB: 1.204,
+              remainingMB: 1,
+              maxMB: 5,
+              pilot: true,
+              refusal: {
+                code: 'FROZEN_STORAGE_EXCEEDED',
+                message: 'The pilot was refused before it wrote anything…',
+              },
+            },
+          },
+        },
+      };
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-storage').textContent).toBe(
+        'Data storage: about 1.21 MB, more than the 1 MB DEV-SANDBOX has left of its 5 MB: the ' +
+          'load would be refused. Extract a smaller dataset: lower the budget in the ' +
+          'configuration, then run the selection and the extraction again; or free data ' +
+          'storage in DEV-SANDBOX.',
+      );
+    });
+
     it('says in the preview the data storage a load that fits would take, and what a reload frees first', () => {
       answers['frozen:load:preview'] = {
         data: {

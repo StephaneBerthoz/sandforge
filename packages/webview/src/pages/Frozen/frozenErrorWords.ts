@@ -199,7 +199,8 @@ export function megabytes(value: number): number {
 /**
  * A load its gate refused for the data storage its records take past what
  * the target has left, nothing written, with the figures it measured and the
- * ways out of a dataset loaded whole: a pilot, a smaller dataset.
+ * ways out of a dataset loaded whole: a pilot, a smaller dataset. A pilot,
+ * held to its root folder (`storage.pilot`), has no pilot for a way out.
  */
 function storageWords(
   payload: FrozenErrorPayload,
@@ -224,6 +225,12 @@ function storageWords(
     remaining: storage.remainingMB,
     max: storage.maxMB,
   };
+  if (storage.pilot === true) {
+    return (
+      `${t('frozen.refusal.storageExceeded.explanationPilot', figures)} ` +
+      t('frozen.refusal.storageExceeded.actionPilot', { org })
+    );
+  }
   const explanation =
     typeof storage.freedMB === 'number'
       ? t('frozen.refusal.storageExceeded.explanationReload', {

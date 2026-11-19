@@ -6738,7 +6738,9 @@
       "storageExceeded": {
         "explanation": "Die Datensätze des Datasets brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei: Der Ladevorgang würde mittendrin abbrechen, und nichts wurde geschrieben.",
         "explanationReload": "Die Datensätze des Datasets brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei, dazu rund {{freed}} MB, die die Bereinigung des Neuladens zuerst freigibt: Der Ladevorgang würde mittendrin abbrechen, und nichts wurde geschrieben.",
-        "action": "Laden Sie zuerst einen Pilot, einen Stammordner davon; oder extrahieren Sie ein kleineres Dataset: Senken Sie das Budget in der Konfiguration und führen Sie Auswahl und Extraktion erneut aus; oder geben Sie Datenspeicher in {{org}} frei."
+        "action": "Laden Sie zuerst einen Pilot, einen Stammordner davon; oder extrahieren Sie ein kleineres Dataset: Senken Sie das Budget in der Konfiguration und führen Sie Auswahl und Extraktion erneut aus; oder geben Sie Datenspeicher in {{org}} frei.",
+        "explanationPilot": "Der Stammordner des Pilots braucht rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei: Der Pilot würde mittendrin abbrechen, und nichts wurde geschrieben.",
+        "actionPilot": "Extrahieren Sie ein kleineres Dataset: Senken Sie das Budget in der Konfiguration und führen Sie Auswahl und Extraktion erneut aus; oder geben Sie Datenspeicher in {{org}} frei."
       },
       "extractTimeout": {
         "explanation": "Die Extraktion hat ihre {{minutes}} Minuten aufgebraucht und wurde beendet, und nichts wurde geschrieben: Sie liest jeden Datensatz der Stammdatensätze, die die Auswahl behalten hat, und würde erneut gestartet wieder abbrechen.",

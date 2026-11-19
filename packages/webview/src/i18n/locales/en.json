@@ -6738,7 +6738,9 @@
       "storageExceeded": {
         "explanation": "The dataset's records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB: the load would stop part way through, and nothing was written.",
         "explanationReload": "The dataset's records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB, with about {{freed}} MB the reload's purge frees first: the load would stop part way through, and nothing was written.",
-        "action": "Load a pilot first, one root folder of it; or extract a smaller dataset: lower the budget in the configuration, then run the selection and the extraction again; or free data storage in {{org}}."
+        "action": "Load a pilot first, one root folder of it; or extract a smaller dataset: lower the budget in the configuration, then run the selection and the extraction again; or free data storage in {{org}}.",
+        "explanationPilot": "The pilot's root folder takes about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB: the pilot would stop part way through, and nothing was written.",
+        "actionPilot": "Extract a smaller dataset: lower the budget in the configuration, then run the selection and the extraction again; or free data storage in {{org}}."
       },
       "extractTimeout": {
         "explanation": "The extraction ran out of its {{minutes}} minutes and stopped, and nothing was written: it reads every record of the roots the selection kept, so run again it would stop again.",

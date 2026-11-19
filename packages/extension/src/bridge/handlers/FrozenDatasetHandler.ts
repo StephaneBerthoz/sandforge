@@ -473,6 +473,8 @@ interface FrozenLoadStorage {
   maxMB: number;
   /** MB a reload's purge frees first, counted with what is left; absent for a first load. */
   freedMB?: number;
+  /** Set when the figures are a pilot's, of its root folder alone. */
+  pilot?: true;
 }
 
 /**
@@ -522,8 +524,12 @@ function limitsReadOnce(conn: LimitsTransport): LimitsTransport {
  * documented sizes, with what the target's automation that still runs
  * creates under them ({@link loadAutomationBytes}), against what is left
  * and, on a reload, what its purge deletes first. A target that would not
- * say holds nothing back, nor does a pilot, which loads one root folder of
- * the dataset and is the way out the refusal names.
+ * say holds nothing back. A pilot, the way out the refusal names, is held to
+ * the records of its root folder (`dataset` is then that folder), as its gate
+ * on the API requests holds it: let through whatever it took, a folder larger
+ * than what the target has left would go on until the target answered
+ * STORAGE_LIMIT_EXCEEDED, as a whole load into a Developer Edition did before
+ * this gate, its children refused under parents that went in.
  */
 function loadStorageRefusal(input: {
   dataset: FrozenDataset;
@@ -536,6 +542,8 @@ function loadStorageRefusal(input: {
   target: string;
   /** Said of a replay of a checkpoint, whose way out is fewer objects: it has no pilot. */
   replay?: boolean;
+  /** Said of a pilot, whose `dataset` is its root folder: its way out is no pilot. */
+  pilot?: boolean;
 }): { message: string; storage: FrozenLoadStorage } | undefined {
   if ('unread' in input.storage) return undefined;
   const automationBytes = Math.max(0, input.automationBytes ?? 0);
@@ -552,6 +560,7 @@ function loadStorageRefusal(input: {
     remainingMB,
     maxMB,
     ...(freedBytes > 0 ? { freedMB: freedBytes / MB } : {}),
+    ...(input.pilot === true ? { pilot: true as const } : {}),
   };
   const freed =
     storage.freedMB !== undefined
@@ -573,6 +582,18 @@ function loadStorageRefusal(input: {
         'it, ' +
         `${COMMAND_LINE_REPLAY_WORDS.fewerObjects}; or free data storage in ${input.target}. ` +
         'Nothing was written.',
+    };
+  }
+  // A pilot purges nothing: what it takes is its root folder's, against what is left.
+  if (input.pilot === true) {
+    return {
+      storage,
+      message:
+        'The pilot was refused before it wrote anything: the records of its root folder take ' +
+        `about ${megabytesWords(storage.estimateMB)} MB of data storage${automation}, and ` +
+        `${input.target} has ${remainingMB} MB left of ${maxMB} MB. Extract a smaller dataset, ` +
+        'with a lower budget in the configuration, a new selection and a new extraction; or ' +
+        `free data storage in ${input.target}. Nothing was written.`,
     };
   }
   return {
@@ -673,6 +694,7 @@ function storageFiguresOf(storage: FrozenLoadStorageInfo): FrozenLoadStorage {
     remainingMB: storage.remainingMB,
     maxMB: storage.maxMB,
     ...(storage.freedMB !== undefined ? { freedMB: storage.freedMB } : {}),
+    ...(storage.pilot === true ? { pilot: true as const } : {}),
   };
 }
 
@@ -3169,6 +3191,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     automationBytes?: number;
     targetOrgId: string;
     replay?: boolean;
+    /** Said of a pilot, whose `dataset` is its root folder ({@link writtenOf}). */
+    pilot?: boolean;
   }): Promise<FrozenLoadStorageInfo | undefined> {
     const limits = await readDataStorage(input.conn).catch(() => undefined);
     if (limits === undefined) return undefined;
@@ -3181,6 +3205,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       automationBytes,
       target: this.orgNameOf(input.targetOrgId),
       ...(input.replay === true ? { replay: true } : {}),
+      ...(input.pilot === true ? { pilot: true } : {}),
     });
     const MB = 1024 * 1024;
     const estimateMB =
@@ -3192,6 +3217,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       remainingMB: limits.remainingMB,
       maxMB: limits.maxMB,
       ...(over?.storage.freedMB !== undefined ? { freedMB: over.storage.freedMB } : {}),
+      ...(input.pilot === true ? { pilot: true as const } : {}),
       ...(over ? { refusal: { code: FROZEN_STORAGE_EXCEEDED, message: over.message } } : {}),
     };
   }
@@ -4255,18 +4281,20 @@ export class FrozenDatasetHandler implements DomainHandler {
       const limits = await readDataStorage(limitsOnce).catch((err: unknown) => ({
         unread: extractErrorMessage(err),
       }));
-      const sent = parsed.pilot ? undefined : await this.loadSentOf(conn, dataset);
-      const overStorage = parsed.pilot
-        ? undefined
-        : loadStorageRefusal({
-            dataset,
-            storage: limits,
-            ...(sent ? { sent } : {}),
-            ...(purged ? { purged } : {}),
-            automationBytes: loadAutomationBytes(read, mute?.plan, dataset, loadWrites),
-            target: this.orgNameOf(parsed.targetOrgId),
-            ...(replay ? { replay: true } : {}),
-          });
+      // A pilot's, of its root folder, as its gate on the API requests counts
+      // it: let through, a folder larger than what is left would go on until
+      // the target refused it.
+      const sent = await this.loadSentOf(conn, pilotWritten);
+      const overStorage = loadStorageRefusal({
+        dataset: pilotWritten,
+        storage: limits,
+        ...(sent ? { sent } : {}),
+        ...(purged ? { purged } : {}),
+        automationBytes: loadAutomationBytes(read, mute?.plan, pilotWritten, loadWrites),
+        target: this.orgNameOf(parsed.targetOrgId),
+        ...(replay ? { replay: true } : {}),
+        ...(parsed.pilot === true ? { pilot: true } : {}),
+      });
       if (overStorage) {
         throw new LoadStorageStop(overStorage.message, overStorage.storage, parsed.targetOrgId);
       }
@@ -5051,8 +5079,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       // The data storage its records take, and what still runs creates under
       // them, with the refusal its load would meet, as the load's gate
-      // measures it: none of a pilot, which the gate lets through. A replay
-      // says it with what does not go across as it was.
+      // measures it: a pilot's, of its root folder. A replay says it with
+      // what does not go across as it was.
       const storage = await this.previewStorageOf({
         conn: limits,
         org: conn,
@@ -5150,7 +5178,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * The data storage a preview says its load would take, as the load's gate
    * measures it ({@link loadStorageOf}): on a reload, what its purge frees
-   * first counted; nothing of a pilot, which the gate lets through.
+   * first counted; of a pilot, its root folder's, as the gate holds a pilot
+   * to it.
    */
   private async previewStorageOf(input: {
     conn: LimitsTransport;
@@ -5168,18 +5197,22 @@ export class FrozenDatasetHandler implements DomainHandler {
     targetOrgId: string;
     replay: boolean;
   }): Promise<FrozenLoadStorageInfo | undefined> {
-    if (input.parsed.pilot === true) return undefined;
-    const sent = await this.loadSentOf(input.org, input.dataset);
+    const pilot = input.parsed.pilot === true;
+    // What the load writes, a pilot its root folder alone, as its gates count it.
+    const written = writtenOf(input.dataset, input.config, input.parsed.pilot);
+    const sent = await this.loadSentOf(input.org, written);
     return this.loadStorageOf({
       conn: input.conn,
-      dataset: input.dataset,
+      dataset: written,
       ...(sent ? { sent } : {}),
-      ...(input.parsed.reload === true
+      // A pilot purges nothing.
+      ...(input.parsed.reload === true && !pilot
         ? { purged: await this.purgedOf(input.store, input.config).catch(() => []) }
         : {}),
       ...(input.automationBytes !== undefined ? { automationBytes: input.automationBytes } : {}),
       targetOrgId: input.targetOrgId,
       replay: input.replay,
+      ...(pilot ? { pilot: true } : {}),
     });
   }
 
@@ -5287,7 +5320,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         ...(emails && saysSomething(emails.info) ? { emails: emails.info } : {}),
         ...(automation ? { automation } : {}),
         ...(apiRequests ? { apiRequests } : {}),
-        automationBytes: loadAutomationBytes(read, mute?.plan, input.dataset, writes),
+        // Under the records it writes: a pilot's root folder's alone.
+        automationBytes: loadAutomationBytes(read, mute?.plan, written, writes),
       };
     } catch (err: unknown) {
       logger.warn(

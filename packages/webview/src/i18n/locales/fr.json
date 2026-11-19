@@ -6738,7 +6738,9 @@
       "storageExceeded": {
         "explanation": "Les enregistrements du jeu de données prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}} : le chargement s'arrêterait en cours de route, et rien n'a été écrit.",
         "explanationReload": "Les enregistrements du jeu de données prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}, plus environ {{freed}} Mo que la purge du rechargement libère d'abord : le chargement s'arrêterait en cours de route, et rien n'a été écrit.",
-        "action": "Chargez d'abord un pilote, un dossier racine du jeu ; ou extrayez un jeu de données plus petit : baissez le budget dans la configuration, puis relancez la sélection et l'extraction ; ou libérez du stockage de données dans {{org}}."
+        "action": "Chargez d'abord un pilote, un dossier racine du jeu ; ou extrayez un jeu de données plus petit : baissez le budget dans la configuration, puis relancez la sélection et l'extraction ; ou libérez du stockage de données dans {{org}}.",
+        "explanationPilot": "Le dossier racine du pilote prend environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}} : le pilote s'arrêterait en cours de route, et rien n'a été écrit.",
+        "actionPilot": "Extrayez un jeu de données plus petit : baissez le budget dans la configuration, puis relancez la sélection et l'extraction ; ou libérez du stockage de données dans {{org}}."
       },
       "extractTimeout": {
         "explanation": "L'extraction a épuisé ses {{minutes}} minutes et s'est arrêtée, et rien n'a été écrit : elle lit tous les enregistrements des racines gardées par la sélection, donc relancée telle quelle elle s'arrêterait encore.",

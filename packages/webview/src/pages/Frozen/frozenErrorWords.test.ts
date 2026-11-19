@@ -155,6 +155,26 @@ describe('frozenErrorWords', () => {
     ).toBeUndefined();
   });
 
+  it('says a pilot refused for the data storage of its root folder, naming no pilot as the way out', () => {
+    // Held to its root folder, a pilot refused so was told to load a pilot first.
+    expect(
+      frozenErrorWords(
+        {
+          code: 'FROZEN_STORAGE_EXCEEDED',
+          orgId: 'org-uat',
+          storage: { estimateMB: 1.204, remainingMB: 1, maxMB: 5, pilot: true },
+        },
+        t,
+        aliasOf,
+      ),
+    ).toBe(
+      "The pilot's root folder takes about 1.21 MB of data storage, and UAT has 1 MB left of " +
+        '5 MB: the pilot would stop part way through, and nothing was written. Extract a ' +
+        'smaller dataset: lower the budget in the configuration, then run the selection and ' +
+        'the extraction again; or free data storage in UAT.',
+    );
+  });
+
   it('says every refusal of its own by its code, what to do among it', () => {
     const said = (code: string): string | undefined => frozenErrorWords({ code }, t, aliasOf);
 
