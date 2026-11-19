@@ -586,28 +586,28 @@ export class AutopilotOrchestrator {
   private relayWavesAsPartitions(executor: AutopilotExecutor, operationId: string): () => void {
     let waves = 0;
     let settled = 0;
-    const offs = [
-      executor.on('node-completed', (event) => {
-        settled += event.successCount + event.failureCount;
-      }),
-      executor.on('node-failed', (event) => {
-        settled += event.partialSuccessCount + event.failureCount;
-      }),
-      executor.on('wave-completed', () => {
-        waves++;
-        this.deps.onGrappeEvent?.({
-          type: 'grappe:partitionProgress',
-          payload: {
-            grappeId: `${operationId}-wave-${waves}`,
-            percentage: 100,
-            processedRecords: settled,
-          },
-        });
-        settled = 0;
-      }),
-    ];
+    const offCompleted = executor.on('node-completed', (event) => {
+      settled += event.successCount + event.failureCount;
+    });
+    const offFailed = executor.on('node-failed', (event) => {
+      settled += event.partialSuccessCount + event.failureCount;
+    });
+    const offWave = executor.on('wave-completed', () => {
+      waves++;
+      this.deps.onGrappeEvent?.({
+        type: 'grappe:partitionProgress',
+        payload: {
+          grappeId: `${operationId}-wave-${waves}`,
+          percentage: 100,
+          processedRecords: settled,
+        },
+      });
+      settled = 0;
+    });
     return () => {
-      for (const off of offs) off();
+      offCompleted();
+      offFailed();
+      offWave();
     };
   }
 
