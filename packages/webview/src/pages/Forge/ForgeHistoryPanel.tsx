@@ -37,6 +37,7 @@ import {
   ForgeRunRemovalResult,
   ForgeRunRemovalRunning,
   forgeRunCountsCreatedOf,
+  setsLeftOf,
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark, useRemovalSweep } from './ForgeRemovalSweep';
 import { percentOf, sampleNumber } from './sampleFigures';
@@ -370,6 +371,32 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         >
           {t('forge.history.removeOrgGone')}
         </p>
+      );
+    } else if (setsLeftOf(entry) && org) {
+      // None of its own records left, but what its last removal kept: the
+      // sets the target's duplicate rules made of them, which no plan lists,
+      // read again once the records changed since are included. Offered the
+      // sweep alone, the run left such a set in the org, empty. Its
+      // confirmation offers the sweep too.
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Trash2 size={11} />}
+          loading={mine && removal.loading}
+          disabled={removal.loading}
+          onClick={() => {
+            setIncludeChanged(false);
+            setSweep(false);
+            setMuteAutomation(false);
+            setAgainAfter(null);
+            setConfirming(entry);
+          }}
+          data-testid={`forge-history-remove-sets-${entry.forgeId}`}
+          className="self-start text-[11px]"
+        >
+          {t('forge.history.removeLeft')}
+        </Button>
       );
     } else if (entry.undo && entry.writtenBetween && org) {
       // Nothing of the run left to remove: what its target's automation

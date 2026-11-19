@@ -17,6 +17,7 @@ import {
   forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunLinkedKeptCount,
+  removalTookAll,
   sweepTakenObjects,
 } from '@sandforge/shared';
 import { cn } from '../../theme';
@@ -370,6 +371,7 @@ type RemovableRun = Pick<
       | 'idRemapByObject'
       | 'linkedExistingCount'
       | 'journalGone'
+      | 'runUserId'
     >
   >;
 
@@ -390,6 +392,25 @@ export function forgeRunCountsCreatedOf(
   if (!isKeptPlan(run)) return forgeRunCountsCreated(run);
   if (run.inJournal) return [];
   return run.objects.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
+}
+
+/**
+ * Whether what a run's last removal kept, none of the run's own records left,
+ * may be the sets the target's duplicate rules made of them, which no plan
+ * lists: the run kept the user it wrote as, and that removal kept or had
+ * refused records all the same. A removal with the records changed since
+ * reads those sets again and takes them (`forge:undo`). Offered nothing, the
+ * run left such a set in the org, empty. Never a run the history dropped,
+ * whose plan keeps no user.
+ */
+export function setsLeftOf(run: RemovableRun | ForgeRemovalPlan): boolean {
+  if (isKeptPlan(run)) return false;
+  return (
+    run.runUserId !== undefined &&
+    run.undo !== undefined &&
+    !removalTookAll(run.undo) &&
+    forgeRunCountsLeft(run).length === 0
+  );
 }
 
 /** Props for {@link ForgeRunRemovalConfirm}. */
@@ -452,6 +473,11 @@ export interface ForgeRunRemovalConfirmProps {
  * Asked to take every record the run created again — an undo of a rewind
  * brought back what its removal found gone — it lists them all, and says the
  * undo dated them as changed since the run: they stay unless included.
+ *
+ * Of a run none of whose own records is left, whose last removal kept the
+ * sets the target's duplicate rules made of them (`setsLeftOf`), it says so,
+ * and stays held until the records changed since are included, or the sweep
+ * ticked: without either the removal has nothing to take.
  */
 export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   run,
@@ -485,6 +511,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
   const sweepOffered =
     onSweepChange !== undefined && run !== null && !isKeptPlan(run) && run.forgeId !== undefined;
+  const setsAgain = run !== null && !again && setsLeftOf(run);
   // What the sweep's list says it deletes: what fires as those records go is
   // read with the run's, and the box that mutes it offered with them.
   const [sweepListing, setSweepListing] = useState<ForgeSweepListing | null>(null);
@@ -504,16 +531,22 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
       description={t('runRemoval.removeDescription', { org })}
       confirmText={org}
       confirmLabel={removalConfirmLabel(t, plan, sweepOffered && sweep)}
+      {...(setsAgain && !includeChanged && !(sweepOffered && sweep)
+        ? { held: t('runRemoval.removeSetsAgainHeld') }
+        : {})}
     >
       {again && (
         <p data-testid="forge-removal-again-note">
           {t('runRemoval.removeAgainNote', { date: againAfter })}
         </p>
       )}
+      {setsAgain && (
+        <p data-testid="forge-removal-sets-again">{t('runRemoval.removeSetsAgainNote', { org })}</p>
+      )}
       <ForgeRunRemovalPlan
         plan={plan}
         linked={linked}
-        {...(run?.undo && !again
+        {...(run?.undo && !again && !setsAgain
           ? {
               leftBy:
                 formatStoredDate(run.undo.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),

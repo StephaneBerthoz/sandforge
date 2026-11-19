@@ -7064,6 +7064,8 @@
     "removeIncludeChanged": "Also remove the records changed since the run, and what was added to them since",
     "removeSweep": "Sweep first: also delete the records the target's flows and triggers created for this run; otherwise they can keep the run's records from being removed",
     "removeAgainNote": "Every record this run created is read again, those its removal found gone among them. The undo of {{date}} brought them back and dated them as its user's change: they read as changed since the run, and stay unless you also remove the records changed since, below.",
+    "removeSetsAgainNote": "None of the records this run created is left in {{org}}. What the last removal kept are the duplicate record sets {{org}}'s duplicate rules made of them, which no list above names: with the records changed since included below, this removal reads them again and deletes them.",
+    "removeSetsAgainHeld": "Include the records changed since the run, below: without them, this removal has nothing to take.",
     "stopRefused": "Could not stop the removal",
     "stopRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
     "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",

@@ -824,6 +824,78 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  it('offers again a run whose records all went, its last removal keeping the duplicate record sets made of them, and reads them again once the records changed since are included', () => {
+    // Live, the removal took every record of the run and kept the set the
+    // target's Contact rule made of its contacts, as changed since the run;
+    // the panel offered the sweep alone, and the set stayed, empty.
+    const setKept: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      runUserId: rid('005', 7),
+      writtenBetween: { first: '2026-09-01T07:59:00.000Z', last: '2026-09-01T08:00:00.000Z' },
+      undo: {
+        removedAt: '2026-09-02T08:00:00.000Z',
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 1,
+        refused: 0,
+      },
+      removalLeft: [],
+    };
+    render(<ForgeHistoryPanel entries={[setKept]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-history-sweep-forge-removable')).toBeNull();
+    expect(screen.getByTestId('forge-history-remove-sets-forge-removable').textContent).toBe(
+      "Remove what is left of this run's records",
+    );
+    fireEvent.click(screen.getByTestId('forge-history-remove-sets-forge-removable'));
+    expect(screen.getByTestId('forge-removal-sets-again').textContent).toBe(
+      'None of the records this run created is left in DEV-SANDBOX. What the last removal kept ' +
+        "are the duplicate record sets DEV-SANDBOX's duplicate rules made of them, which no list " +
+        'above names: with the records changed since included below, this removal reads them ' +
+        'again and deletes them.',
+    );
+    // Held, the org's name typed, until the records changed since are included.
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    expect(screen.getByTestId('danger-confirm-btn').hasAttribute('disabled')).toBe(true);
+    fireEvent.click(screen.getByTestId('forge-removal-include-changed'));
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: true,
+    });
+  });
+
+  it('offers the sweep alone, as before, for a run whose last removal took all it set out to', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[
+          {
+            ...REMOVABLE_RUN,
+            runUserId: rid('005', 7),
+            writtenBetween: {
+              first: '2026-09-01T07:59:00.000Z',
+              last: '2026-09-01T08:00:00.000Z',
+            },
+            undo: {
+              removedAt: '2026-09-02T08:00:00.000Z',
+              deleted: 4,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+            },
+            removalLeft: [],
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-history-remove-sets-forge-removable')).toBeNull();
+    expect(screen.getByTestId('forge-history-sweep-forge-removable')).toBeDefined();
+  });
+
   it('asks for the records changed since the run too when the box is ticked', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
 

@@ -7,6 +7,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
   removalConfirmLabel,
+  setsLeftOf,
 } from './ForgeRunRemovalView';
 
 /** One object's outcome, nothing counted but what a test names. */
@@ -68,6 +69,35 @@ describe('removalConfirmLabel', () => {
 
   it('names no size it does not know, and no sweep that is not asked', () => {
     expect(removalConfirmLabel(t, [], false)).toBe('Confirm');
+  });
+});
+
+describe('setsLeftOf', () => {
+  /** A run whose removal took its one account and kept what no plan lists. */
+  const removed = {
+    forgeId: 'forge-1',
+    idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+    idRemapExisting: [],
+    idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+    runUserId: '005000000000007AAA',
+    undo: {
+      removedAt: '2026-11-13T21:00:00.000Z',
+      deleted: 1,
+      alreadyGone: 0,
+      kept: 1,
+      refused: 0,
+    },
+    removalLeft: [],
+  };
+
+  it('holds of a run that kept its user, none of whose records is left, whose last removal kept some', () => {
+    expect(setsLeftOf(removed)).toBe(true);
+  });
+
+  it('holds of none whose removal took all, kept no user, or still has records of its own left', () => {
+    expect(setsLeftOf({ ...removed, undo: { ...removed.undo, kept: 0 } })).toBe(false);
+    expect(setsLeftOf({ ...removed, runUserId: undefined })).toBe(false);
+    expect(setsLeftOf({ ...removed, removalLeft: ['001000000000001AAA'] })).toBe(false);
   });
 });
 

@@ -61,6 +61,7 @@ import {
   isRecordScoped,
   leftOutByTheUser,
   removalRisksOf,
+  removalTookAll,
   guardTierOf,
   stillRunningOf,
   wholeOrgConfigIssue,
@@ -262,6 +263,7 @@ import {
   type SweepTies,
 } from '../../modules/forge/ForgeRunSweep.js';
 import { readRunUser } from '../../modules/sync/runUser.js';
+import { DUPLICATE_SET_OBJECT } from '../../modules/forge/duplicateRecordSets.js';
 import {
   inSweepWindow,
   otherRunsInSweep,
@@ -278,6 +280,7 @@ import {
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
+  removalMarkSettled,
   removalStatus,
   removalStatusWithSweep,
   spansOf,
@@ -1402,6 +1405,17 @@ type RemovalState = Pick<
  * A run whose records a removal takes, from its history entry or from the
  * plan kept of it once the history dropped it.
  */
+/**
+ * Whether what a run's last removal kept or had refused may be the sets the
+ * target's duplicate rules made of its records, which no plan names: the run
+ * kept the user it wrote as, the sets' last modifier, and the removal left
+ * something. Asked with the records changed since, a removal of such a run
+ * with none of its own records left reads them again (`handleUndo`).
+ */
+function setsMayBeLeft(run: Pick<ForgeExecutionResult, 'runUserId' | 'undo'>): boolean {
+  return run.runUserId !== undefined && run.undo !== undefined && !removalTookAll(run.undo);
+}
+
 type RunToRemove = Pick<
   ForgeRemovalPlan,
   'forgeId' | 'targetOrgId' | 'timestamp' | 'duration' | 'writtenBetween'
@@ -6118,6 +6132,13 @@ export class ForgeHandler implements DomainHandler {
    * left, was refused as removed already. Each is read before it is deleted,
    * as ever, and the undo dated them anew: they are kept as changed since
    * the run unless `includeChanged`.
+   *
+   * Asked `includeChanged` of a run none of whose own records is left, that
+   * kept the user it wrote as and whose last removal kept or had refused
+   * records all the same, the removal reads again the sets the target's
+   * duplicate rules made of the run's records and takes them
+   * (`setsMayBeLeft`), as the command line's `--remove --include-changed`
+   * does: those are what no plan names.
    */
   private async handleUndo(msg: InboundRequest): Promise<void> {
     const held: { lock?: { release(): void } } = {};
@@ -6303,10 +6324,22 @@ export class ForgeHandler implements DomainHandler {
       const total = recordsIn(plan);
       // A sweep asked of a run whose records went already runs alone.
       const sweepAlone = sweep && run.undo !== undefined;
-      if (total === 0 && !sweepAlone) {
+      // What a removal kept that no plan names: the sets the target's
+      // duplicate rules made of the run's records, kept as changed since the
+      // run once its own records had all gone. Asked with the records changed
+      // since, they are read again and taken, as the command line's
+      // `--include-changed` reads them (`setsAgain`). Live, a set kept so
+      // stayed in the org, empty, and a second removal was refused as done.
+      const setsKept = total === 0 && setsMayBeLeft(run);
+      const setsAgain = setsKept && includeChanged;
+      if (total === 0 && !sweepAlone && !setsAgain) {
         if (run.undo) {
           refuse(
-            `The records this run created were already removed, on ${run.undo.removedAt}.`,
+            `The records this run created were already removed, on ${run.undo.removedAt}.` +
+              (setsKept
+                ? ' What that removal kept as changed since the run, the duplicate record sets ' +
+                  "the target's rules made of them, goes once the records changed since are included."
+                : ''),
             'ALREADY_REMOVED',
           );
         } else {
@@ -6336,6 +6369,7 @@ export class ForgeHandler implements DomainHandler {
             muteAutomation,
             sweepLate,
             sweepUntied,
+            ...(setsAgain ? { setsAgain: true as const } : {}),
             // The sweep of a clone of the whole org looks at 300 objects at
             // most, over a window as long as the run, hours of it: it goes
             // only when asked, and its removal says what it leaves when not.
@@ -7469,6 +7503,12 @@ export class ForgeHandler implements DomainHandler {
       sweepUntied?: boolean;
       /** Of a clone of the whole org removed without its sweep: its result says what that leaves. */
       wholeOrgNotSwept?: true;
+      /**
+       * Nothing of the run's own records left: the sets the target's
+       * duplicate rules made of them are read again, and taken changed since
+       * the run (see `handleUndo`).
+       */
+      setsAgain?: true;
     },
     sweepOf?: ForgeExecutionResult,
     pending?: PendingStart,
@@ -7476,6 +7516,8 @@ export class ForgeHandler implements DomainHandler {
     const { includeChanged, again } = asked;
     const { forgeId, targetOrgId } = entry;
     const total = recordsIn(plan);
+    /** Whether the removal reads and deletes anything of the run's: its records, or its sets read again. */
+    const takesRecords = total > 0 || asked.setsAgain === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     // Production Guard judges the delete before anything is read, as on every
@@ -7498,18 +7540,18 @@ export class ForgeHandler implements DomainHandler {
     // Edition org it may write to is one it may take its records back from.
     const orgTier = guardTierOf(targetOrg);
     // A sweep alone deletes none of the run's records: Production Guard
-    // judges its deletes once it has found them.
-    const { check, decision } =
-      total > 0
-        ? await consultProductionGuard(guard, {
-            orgId: targetOrgId,
-            orgTier,
-            operation: 'delete',
-            objectName: objectsIn(plan).join(', '),
-            recordCount: total,
-            module: 'forge',
-          })
-        : { check: undefined, decision: 'allowed' as const };
+    // judges its deletes once it has found them. The sets read again are
+    // judged before they are read, their number unknown.
+    const { check, decision } = takesRecords
+      ? await consultProductionGuard(guard, {
+          orgId: targetOrgId,
+          orgTier,
+          operation: 'delete',
+          objectName: total > 0 ? objectsIn(plan).join(', ') : DUPLICATE_SET_OBJECT,
+          recordCount: total > 0 ? total : 'unknown',
+          module: 'forge',
+        })
+      : { check: undefined, decision: 'allowed' as const };
     if (check && (decision === 'refused' || decision === 'declined')) {
       // No removal started, so no operation id was minted: the request's stands in.
       recordWriteRun(this.deps, {
@@ -7568,7 +7610,9 @@ export class ForgeHandler implements DomainHandler {
     const description =
       total > 0
         ? `Removing ${total} record(s) a Forge run created`
-        : 'Sweeping what the target’s automation created during a Forge run';
+        : asked.setsAgain
+          ? 'Removing the duplicate record sets a Forge run’s records went in'
+          : 'Sweeping what the target’s automation created during a Forge run';
     const stop = new AbortController();
     sendOperationStarted(this.deps, operationId, 'forge', description);
     const releaseRun = this.trackRun(operationId, description, stop);
@@ -7647,7 +7691,7 @@ export class ForgeHandler implements DomainHandler {
           guard,
           orgTier,
           operationId,
-          muted: () => (total === 0 ? mutedAutomation : undefined),
+          muted: () => (takesRecords ? undefined : mutedAutomation),
         });
       }
       const sweepParts = sweeping;
@@ -7663,11 +7707,13 @@ export class ForgeHandler implements DomainHandler {
       // nothing to do. A sweep that goes alone mutes too.
       const sweptObjects = sweepParts?.takes ?? [];
       const removalMute: RunMute | undefined =
-        asked.muteAutomation === true && (total > 0 || sweptObjects.length > 0)
+        asked.muteAutomation === true && (takesRecords || sweptObjects.length > 0)
           ? await this.removalMute(
               targetOrgId,
               objectsIn(plan),
-              sweptObjects,
+              // The sets read again, nothing else of the run's left, are
+              // what the removal deletes.
+              asked.setsAgain ? [...sweptObjects, DUPLICATE_SET_OBJECT] : sweptObjects,
               parts?.parts.flatMap((part) => part.objects) ?? [],
               // Nothing of the run left, the removal takes no set: the sets
               // a sweep that goes alone takes are among what it names.
@@ -7696,7 +7742,7 @@ export class ForgeHandler implements DomainHandler {
         return NOTHING_REMOVED;
       };
       const outcome: RunRemovalOutcome = await (
-        total === 0
+        !takesRecords
           ? sweepAlone()
           : removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
               ...(span
@@ -7771,7 +7817,7 @@ export class ForgeHandler implements DomainHandler {
       };
 
       // A sweep alone removed none of the run's records: its own entry says what it did.
-      if (total > 0) {
+      if (takesRecords) {
         recordWriteRun(this.deps, {
           action: 'cleanup_delete',
           module: 'forge',
@@ -7804,7 +7850,14 @@ export class ForgeHandler implements DomainHandler {
       // take — offered while there are any — with what it wrote to them and
       // when it ran, which the next one reads as its doing, not as changes
       // since the run.
-      const mark = removalMark(result, total, entry.undo, again);
+      // The sets read again and none left to take, the removal settles what
+      // the last one kept all the same: offered for them, the run would be
+      // offered the same removal for ever.
+      const mark =
+        removalMark(result, total, entry.undo, again) ??
+        (asked.setsAgain && entry.undo && result.status !== 'cancelled'
+          ? removalMarkSettled(result, entry.undo)
+          : undefined);
       const swept =
         sweepResult && sweepMarkOf(sweepResult, new Date().toISOString(), sweepOf?.sweep);
       const stamped = Object.keys(outcome.stamps).length > 0;
@@ -7884,7 +7937,7 @@ export class ForgeHandler implements DomainHandler {
       const failed =
         result.status === 'failure'
           ? 'No record this run created could be removed.'
-          : total === 0 && sweepResult && sweepResult.status !== 'success'
+          : !takesRecords && sweepResult && sweepResult.status !== 'success'
             ? (sweepResult.refusal ?? 'The sweep left records in the org.')
             : undefined;
       if (result.status === 'cancelled' || sweepResult?.status === 'cancelled') {
@@ -7892,7 +7945,7 @@ export class ForgeHandler implements DomainHandler {
         this.liveTracker?.cancel(operationId);
       } else {
         sendOperationCompleted(this.deps, operationId, {
-          status: failed && total === 0 ? 'failure' : result.status,
+          status: failed && !takesRecords ? 'failure' : result.status,
         });
         if (failed) {
           runError = new Error(failed);
@@ -9294,6 +9347,9 @@ export class ForgeHandler implements DomainHandler {
       const read = [
         ...new Set([
           ...objectsRemovedOf(objects, otherParts, { userKept: entry.runUserId !== undefined }),
+          // Nothing of the run's own records left, the sets its last removal
+          // kept are what a removal with the records changed since takes.
+          ...(objects.length === 0 && setsMayBeLeft(entry) ? [DUPLICATE_SET_OBJECT] : []),
           ...(parsed.sweptObjects ?? []),
         ]),
       ];

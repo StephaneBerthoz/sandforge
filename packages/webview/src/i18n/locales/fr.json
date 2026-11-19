@@ -7064,6 +7064,8 @@
     "removeIncludeChanged": "Supprimer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
     "removeSweep": "Balayer d'abord : supprimer aussi les enregistrements que les Flows et déclencheurs de la cible ont créés pour cette exécution ; sinon, ils peuvent empêcher le retrait de ses enregistrements",
     "removeAgainNote": "Chaque enregistrement créé par cette exécution est relu, y compris ceux que son retrait avait trouvés déjà supprimés. L’annulation du {{date}} les a ramenés et datés comme une modification de son utilisateur : ils se lisent comme modifiés depuis l’exécution, et restent sauf si vous retirez aussi, ci-dessous, les enregistrements modifiés depuis.",
+    "removeSetsAgainNote": "Il ne reste dans {{org}} aucun des enregistrements créés par cette exécution. Ce que le dernier retrait a gardé, ce sont les ensembles de doublons que les règles de doublons de {{org}} ont créés avec eux, qu’aucune liste ci-dessus ne nomme : avec les enregistrements modifiés depuis inclus ci-dessous, ce retrait les relit et les supprime.",
+    "removeSetsAgainHeld": "Incluez ci-dessous les enregistrements modifiés depuis l’exécution : sans eux, ce retrait n’a rien à prendre.",
     "stopRefused": "Impossible d'arrêter la suppression",
     "stopRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
     "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a répondu. Ce qu'elle a supprimé jusque-là est listé ; le reste demeure dans l'org, et une suppression le prendra plus tard.",

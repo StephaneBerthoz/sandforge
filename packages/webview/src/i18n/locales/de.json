@@ -7064,6 +7064,8 @@
     "removeIncludeChanged": "Auch die seit dem Durchlauf geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
     "removeSweep": "Zuerst aufräumen: auch die Datensätze löschen, die Flows und Trigger des Ziels für diesen Durchlauf erstellt haben; sonst können sie das Entfernen der Datensätze des Durchlaufs verhindern",
     "removeAgainNote": "Jeder Datensatz, den dieser Durchlauf erstellt hat, wird erneut gelesen, auch die, die sein Entfernen bereits gelöscht vorfand. Das Rückgängigmachen vom {{date}} hat sie zurückgebracht und als Änderung seines Benutzers datiert: Sie gelten als seit dem Durchlauf geändert und bleiben, sofern Sie unten nicht auch die seitdem geänderten Datensätze entfernen.",
+    "removeSetsAgainNote": "Von den Datensätzen, die dieser Durchlauf erstellt hat, ist in {{org}} keiner mehr übrig. Das letzte Entfernen hat die Gruppen doppelter Datensätze behalten, die die Duplikatsregeln von {{org}} aus ihnen erstellt haben und die keine Liste oben nennt: Mit den seitdem geänderten Datensätzen, unten eingeschlossen, liest dieses Entfernen sie erneut und löscht sie.",
+    "removeSetsAgainHeld": "Schließen Sie unten die seit dem Durchlauf geänderten Datensätze ein: Ohne sie hat dieses Entfernen nichts zu entfernen.",
     "stopRefused": "Entfernen konnte nicht gestoppt werden",
     "stopRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
     "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",

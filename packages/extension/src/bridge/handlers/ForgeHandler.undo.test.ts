@@ -1885,6 +1885,149 @@ describe('forge:undo', () => {
     expect(tracker.getAll()[0]).toMatchObject({ status: 'failed' });
   });
 
+  describe('the duplicate record set a removal kept, none of the run’s own records left', () => {
+    // Live, the first removal kept the set the target's Contact rule made of
+    // the run's contacts as changed since the run; every record of the run
+    // went. The command line reads the sets again with --include-changed;
+    // the panel refused a second removal as done already, and the set stayed
+    // in the org, empty.
+    const RUN_USER = id('005', 7);
+    const SET = id('0GK', 1);
+    const FIRST_REMOVAL = '2026-09-20T12:00:00.000Z';
+
+    /** The run, removed by a removal that took its records and kept its set; the set in the org. */
+    function keptTheSet(sets: Row[] = [setRow()]): void {
+      store.set(
+        'forge:history',
+        [
+          runEntry({
+            runUserId: RUN_USER,
+            writtenBetween: { first: '2026-09-20T10:00:00.000Z', last: RUN_ENDED },
+            undo: { removedAt: FIRST_REMOVAL, deleted: 3, alreadyGone: 0, kept: 1, refused: 0 },
+            removalLeft: [],
+          }),
+        ],
+        'forge',
+      );
+      for (const object of ['Account', 'Contact']) org.rows.set(object, []);
+      org.rows.set('DuplicateRecordSet', sets);
+      const answered = org.conn.query.getMockImplementation();
+      org.conn.query.mockImplementation(async (soql: string, options?: { scanAll?: boolean }) => {
+        if (
+          /^SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM DuplicateRecordSet /.test(
+            soql,
+          )
+        ) {
+          const records = org.rows.get('DuplicateRecordSet') ?? [];
+          return { totalSize: records.length, done: true, records };
+        }
+        if (!answered) throw new Error(`unexpected query: ${soql}`);
+        return answered(soql, options);
+      });
+    }
+
+    /** Made as the run wrote, its items gone with the run's records, restamped since. */
+    function setRow(): Row {
+      return {
+        Id: SET,
+        CreatedDate: DURING_RUN,
+        LastModifiedDate: AFTER_RUN,
+        LastModifiedById: RUN_USER,
+      };
+    }
+
+    it('reads the set again with the records changed since included, takes it, and offers the run no more', async () => {
+      keptTheSet();
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(errors()).toEqual([]);
+      expect(org.deletes).toEqual([{ object: 'DuplicateRecordSet', ids: [SET] }]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        leftBy: FIRST_REMOVAL,
+        objects: [{ objectApiName: 'DuplicateRecordSet', planned: 1, deleted: 1 }],
+      });
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'cleanup_delete',
+          outcome: 'success',
+          leftBy: FIRST_REMOVAL,
+          objects: [
+            { objectApiName: 'DuplicateRecordSet', created: 0, updated: 0, deleted: 1, failed: 0 },
+          ],
+        }),
+      ]);
+      expect(history()[0].undo).toEqual({
+        removedAt: answer()?.finishedAt,
+        deleted: 4,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+      expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('is refused as removed already without the records changed since, naming what takes the set, and reads nothing', async () => {
+      keptTheSet();
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(errors()).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            code: 'ALREADY_REMOVED',
+            message: expect.stringContaining('included'),
+          }),
+        }),
+      ]);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(org.rows.get('DuplicateRecordSet')).toHaveLength(1);
+    });
+
+    it('settles the run once the set is no longer there to read, offering it no more', async () => {
+      keptTheSet([]);
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({ status: 'success', objects: [] });
+      expect(history()[0].undo).toMatchObject({ deleted: 3, kept: 0, refused: 0 });
+    });
+
+    it('asks Production Guard first, and deletes nothing on a production org', async () => {
+      keptTheSet();
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Production',
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['GUARD_BLOCKED']);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(org.rows.get('DuplicateRecordSet')).toHaveLength(1);
+    });
+
+    it('reads nothing again of a run that kept no user, whose removal takes no set', async () => {
+      keptTheSet();
+      store.set(
+        'forge:history',
+        history().map(({ runUserId: _dropped, ...entry }) => entry),
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', includeChanged: true }));
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('again, once an undo brought back what a removal found gone', () => {
     const CREATED = [id('003', 2), id('003', 1), id('001', 1)];
     const answers = (): ForgeUndoResult[] =>
@@ -2191,6 +2334,29 @@ describe('forge:undo-automation', () => {
       ['Account', 'Contact', 'DuplicateRecordSet', 'Order'],
       // No user kept, its removal takes no set.
       ['Account', 'Contact', 'Order'],
+    ]);
+  });
+
+  it('reads what fires on the duplicate record sets alone of a run none of whose own records is left, whose last removal kept some', async () => {
+    // What a removal with the records changed since takes then: the sets
+    // read again. Read on nothing, its confirmation said nothing fired.
+    const entry = (store.get<ForgeExecutionResult[]>('forge:history') ?? [])[0];
+    const removed = {
+      ...entry,
+      runUserId: id('005', 7),
+      removalLeft: [],
+      undo: { removedAt: RUN_ENDED, deleted: 4, alreadyGone: 0, kept: 1, refused: 0 },
+    };
+    store.set('forge:history', [removed], 'forge');
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+    // A removal that took all it set out to leaves nothing, the sets with it.
+    store.set('forge:history', [{ ...removed, undo: { ...removed.undo, kept: 0 } }], 'forge');
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+
+    expect(reader.read.mock.calls.map(([, objects]) => [...objects])).toEqual([
+      ['DuplicateRecordSet'],
+      [],
     ]);
   });
 

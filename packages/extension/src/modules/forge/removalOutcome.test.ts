@@ -6,6 +6,7 @@ import {
   removalAuditObjects,
   removalAuditOutcome,
   removalMark,
+  removalMarkSettled,
   removalStatus,
   removalStatusWithSweep,
 } from './removalOutcome.js';
@@ -368,6 +369,43 @@ describe('removalMark', () => {
         ),
       ).toBeUndefined();
     });
+  });
+});
+
+describe('removalMarkSettled', () => {
+  // A removal that read again the duplicate record set the last one kept,
+  // the run's own records all gone, and found it no longer there: marked by
+  // nothing, the run stayed offered for it.
+  const earlier = {
+    removedAt: '2026-11-13T21:00:00.000Z',
+    deleted: 54,
+    alreadyGone: 0,
+    kept: 1,
+    refused: 0,
+  };
+
+  it('keeps what the removals before took, and replaces what the last one left by what this one left', () => {
+    expect(
+      removalMarkSettled({ finishedAt: '2026-11-14T09:00:00.000Z', objects: [] }, earlier),
+    ).toEqual({
+      removedAt: '2026-11-14T09:00:00.000Z',
+      deleted: 54,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+    });
+  });
+
+  it('says what it found and could not take, which leaves the run offered for it', () => {
+    expect(
+      removalMarkSettled(
+        {
+          finishedAt: '2026-11-14T09:00:00.000Z',
+          objects: [object({ objectApiName: 'DuplicateRecordSet', planned: 1, refused: 1 })],
+        },
+        earlier,
+      ),
+    ).toMatchObject({ deleted: 54, kept: 0, refused: 1 });
   });
 });
 

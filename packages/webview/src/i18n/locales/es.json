@@ -7064,6 +7064,8 @@
     "removeIncludeChanged": "Eliminar también los registros modificados desde la ejecución, y lo que se les añadió desde entonces",
     "removeSweep": "Barrer primero: eliminar también los registros que los Flows y desencadenadores del destino crearon para esta ejecución; si no, pueden impedir que se quiten sus registros",
     "removeAgainNote": "Se vuelve a leer cada registro que creó esta ejecución, también los que su eliminación encontró ya eliminados. El deshacer del {{date}} los trajo de vuelta y los fechó como un cambio de su usuario: se leen como modificados desde la ejecución y se quedan, salvo que abajo elimine también los registros modificados desde entonces.",
+    "removeSetsAgainNote": "No queda en {{org}} ninguno de los registros que creó esta ejecución. Lo que conservó la última eliminación son los conjuntos de registros duplicados que las reglas de duplicados de {{org}} crearon con ellos, que ninguna lista de arriba nombra: con los registros modificados desde entonces incluidos abajo, esta eliminación los vuelve a leer y los elimina.",
+    "removeSetsAgainHeld": "Incluya abajo los registros modificados desde la ejecución: sin ellos, esta eliminación no tiene nada que quitar.",
     "stopRefused": "No se pudo detener la eliminación",
     "stopRefusedDetail": "La eliminación ya no está en curso, o no se inició desde esta ventana.",
     "stopping": "Deteniendo: la eliminación termina en cuanto responde la llamada en curso. Lo que quitó hasta entonces se lista; el resto se queda en la org, y una eliminación posterior lo quita.",

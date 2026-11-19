@@ -157,6 +157,33 @@ export function removalMark(
   };
 }
 
+/**
+ * The mark of a removal that took nothing, though it ended having read all it
+ * set out to: what the removals before it took, with what this one left in
+ * the org in place of what the last one left. A removal that read again what
+ * the last one kept — the duplicate record sets of a run whose own records
+ * had all gone — and found none of it left otherwise left the run offered
+ * for it, the same removal for ever.
+ *
+ * @param earlier - The mark the removals before this one left on the run.
+ */
+export function removalMarkSettled(
+  result: Pick<ForgeUndoResult, 'objects' | 'finishedAt'>,
+  earlier: ForgeUndoMark,
+): ForgeUndoMark {
+  const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
+    result.objects.reduce((total, o) => total + count(o), 0);
+  const notVisible = sum((o) => o.notVisible ?? 0);
+  return {
+    removedAt: result.finishedAt,
+    deleted: earlier.deleted,
+    alreadyGone: earlier.alreadyGone,
+    kept: sum((o) => o.keptChanged + o.keptDependents),
+    refused: sum((o) => o.refused),
+    ...(notVisible > 0 ? { notVisible } : {}),
+  };
+}
+
 /** The removal spans of every list, each once, in the order they ran. */
 export function spansOf(
   ...lists: ReadonlyArray<readonly ForgeRemovalSpan[] | undefined>

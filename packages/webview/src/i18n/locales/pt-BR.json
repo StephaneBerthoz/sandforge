@@ -7064,6 +7064,8 @@
     "removeIncludeChanged": "Remover também os registros alterados desde a execução, e o que foi adicionado a eles desde então",
     "removeSweep": "Varrer primeiro: excluir também os registros que os Flows e gatilhos do destino criaram para esta execução; caso contrário, eles podem impedir a remoção dos registros dela",
     "removeAgainNote": "Cada registro que esta execução criou é lido de novo, inclusive os que sua remoção encontrou já excluídos. O desfazer de {{date}} os trouxe de volta e os datou como uma alteração do seu usuário: eles são lidos como alterados desde a execução e ficam, a menos que você remova também, abaixo, os registros alterados desde então.",
+    "removeSetsAgainNote": "Não resta em {{org}} nenhum dos registros que esta execução criou. O que a última remoção manteve são os conjuntos de registros duplicados que as regras de duplicidade de {{org}} criaram com eles, que nenhuma lista acima nomeia: com os registros alterados desde então incluídos abaixo, esta remoção os lê de novo e os exclui.",
+    "removeSetsAgainHeld": "Inclua abaixo os registros alterados desde a execução: sem eles, esta remoção não tem nada a remover.",
     "stopRefused": "Não foi possível parar a remoção",
     "stopRefusedDetail": "A remoção não está mais em andamento, ou não foi iniciada nesta janela.",
     "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até então é listado; o resto fica na org, e uma remoção posterior o remove.",
