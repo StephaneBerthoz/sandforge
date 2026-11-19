@@ -244,16 +244,19 @@ describe('SeedCsvHandler', () => {
 
       expect(writer.insert).not.toHaveBeenCalled();
       const [error] = posted(deps, 'seed:csv:error');
+      // The rows that fit are counted on what is left less the half MB
+      // `/limits` may round up: counted on the 5 MB it said, 2,560 rows of
+      // 2 KB, the first part of a file split by it could be refused again.
       expect(error.payload as unknown).toMatchObject({
         code: 'CSV_STORAGE_EXCEEDED',
         org: 'my-dev-org',
         rows: 3000,
-        fitting: 2560,
+        fitting: 2304,
         remainingMB: 5,
         maxMB: 5,
         message:
           'The import was refused before it wrote anything: its 3000 rows take about 5.86 MB of ' +
-          'data storage, and my-dev-org has 5 MB left of 5 MB, room for about 2560 of them: split ' +
+          'data storage, and my-dev-org has 5 MB left of 5 MB, room for about 2304 of them: split ' +
           'the file and import one part at a time, freeing data storage in between as needed. ' +
           'Nothing was written.',
       });

@@ -42,6 +42,7 @@ import {
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
 import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
+import { STORAGE_ROUNDING_MARGIN_MB } from '../../modules/forge/fitBudget.js';
 import { importRequestsEstimate, importRunReads } from '../../modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
@@ -103,11 +104,15 @@ function megabytesWords(mb: number): string {
 
 /**
  * How many of an import's rows the storage left holds, by the size its gate
- * gives them: what one part of a split file may hold.
+ * gives them: what one part of a split file may hold. Counted on what
+ * `/limits` says is left less the half MB its rounding may add
+ * (`STORAGE_ROUNDING_MARGIN_MB`), as a fit counts it: counted on the whole
+ * MB it says, a part of the size the refusal named could be refused again.
  */
 function rowsThatFit(objectApiName: string, rows: number, remainingMB: number): number {
   const perRow = rows > 0 ? countedStorageBytes(objectApiName, { rows }) / rows : 0;
-  return perRow > 0 ? Math.max(0, Math.floor((remainingMB * 1024 * 1024) / perRow)) : 0;
+  const room = Math.max(0, remainingMB - STORAGE_ROUNDING_MARGIN_MB);
+  return perRow > 0 ? Math.max(0, Math.floor((room * 1024 * 1024) / perRow)) : 0;
 }
 
 /** Shape of the `seed:csv:execute:response` payload (see useCsvImport.CsvExecutionResult). */
