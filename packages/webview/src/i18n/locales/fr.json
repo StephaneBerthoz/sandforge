@@ -9131,6 +9131,7 @@
       "chosen_one": "{{formatted}} utilisateur choisi.",
       "chosen_other": "{{formatted}} utilisateurs choisis.",
       "replaces": "L'exécution remplace l'exécution {{run}} : elle converge à partir de ce que celle-ci a mis en place.",
+      "replacesTakenBack": "L'exécution remplace l'exécution {{run}}, que son retrait a annulée : elle met les utilisateurs en place à partir de ce que {{alias}} contient maintenant.",
       "tooMany": "Une exécution remet {{most}} utilisateurs au plus : choisissez-en moins, et remettez les autres ensuite.",
       "simulate": "Simuler",
       "apply": "Appliquer",

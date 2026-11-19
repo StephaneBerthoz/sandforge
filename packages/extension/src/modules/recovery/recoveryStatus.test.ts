@@ -122,10 +122,13 @@ describe('recoveryStatusOf', () => {
       status: 'todo',
       reason: 'toDo',
     });
-    // The run is still what the page shows: the last one, and how it ended.
+    // The run is still what the page shows, the last one and how it ended,
+    // and taken back: the note said "last run 1, success" of a run whose
+    // removal had put the users back as they were.
     expect(
       recoveryStatusOf(facts({ lastUsersRun, lastUsersRunTakenBack: true })).lastUsersRun,
-    ).toEqual(lastUsersRun);
+    ).toEqual({ ...lastUsersRun, takenBack: true });
+    expect(recoveryStatusOf(facts({ lastUsersRun })).lastUsersRun).toEqual(lastUsersRun);
   });
 
   it('takes the users as not applicable when the list read found nobody to bring back', () => {

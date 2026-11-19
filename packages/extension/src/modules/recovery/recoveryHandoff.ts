@@ -175,7 +175,10 @@ function stepLine(step: RecoveryStep, index: number, status: RecoveryStatus): st
   if (step.status !== 'todo' && step.status !== 'skipped') parts.push(REASON_WORDS[step.reason]);
   if (step.at !== undefined) parts.push(secondOf(step.at));
   if (step.id === 'users' && status.lastUsersRun !== undefined) {
-    parts.push(`last run ${status.lastUsersRun.run}, ${status.lastUsersRun.status}`);
+    parts.push(
+      `last run ${status.lastUsersRun.run}, ${status.lastUsersRun.status}` +
+        (status.lastUsersRun.takenBack === true ? ', taken back by its removal' : ''),
+    );
   }
   if (step.id === 'replay' && status.checkpointBefore !== undefined) {
     parts.push(

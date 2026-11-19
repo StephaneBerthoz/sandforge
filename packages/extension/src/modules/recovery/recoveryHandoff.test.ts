@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { organizationKey } from '../checkpoint/OrgCheckpointStore.js';
-import { recoveryStatusOf } from './recoveryStatus.js';
+import { recoveryStatusOf, type RecoveryFacts } from './recoveryStatus.js';
 import {
   RECOVERY_HANDOFF_FOLDER,
   journalDirOf,
@@ -28,7 +28,7 @@ const ORG = {
   host: 'acme--uat.sandbox.my.salesforce.com',
 };
 
-function status() {
+function status(over: Partial<RecoveryFacts> = {}) {
   return recoveryStatusOf({
     orgId: 'entry-uat',
     alias: 'UAT',
@@ -51,6 +51,7 @@ function status() {
     },
     checkpointsNow: [{ takenAt: '2026-11-18T12:00:00.000Z', keptUntilDeleted: true }],
     lastUsersRun: { run: 2, at: '2026-11-18T09:00:00.000Z', status: 'success' },
+    ...over,
   });
 }
 
@@ -84,6 +85,17 @@ describe('the handoff note of Back into service', () => {
       '   - Not audited: step 9 of Back into service lists those that still name production.',
     );
     expect(note).toContain('## Not touched by SandForge');
+  });
+
+  it('says the last users run was taken back once its removal put the users back as they were', () => {
+    const note = recoveryHandoffNoteOf({
+      status: status({ lastUsersRunTakenBack: true }),
+      org: ORG,
+      at: '2026-11-18T16:00:00.000Z',
+    });
+    // It said "to do, last run 2, success." of a run its removal had undone.
+    expect(note).toContain('2. Users: to do, last run 2, success, taken back by its removal.');
+    expect(note).not.toContain('last run 2, success.');
   });
 
   it('says what the audits read, as the command line says it', () => {

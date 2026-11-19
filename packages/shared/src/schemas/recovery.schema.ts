@@ -318,6 +318,12 @@ export const recoveryStatusSchema = z
         run: z.number().int().positive().max(999_999),
         at: instantSchema,
         status: usersRunStatusSchema,
+        /**
+         * Set once a removal of the run put back what it set up (`sandforge
+         * users remove`): the users are no longer as it left them, whatever
+         * it ended on.
+         */
+        takenBack: z.literal(true).optional(),
       })
       .optional(),
     /** The ten steps, in {@link RECOVERY_STEP_IDS}'s order. */

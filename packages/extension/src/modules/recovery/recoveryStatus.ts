@@ -194,7 +194,15 @@ export function recoveryStatusOf(facts: RecoveryFacts): RecoveryStatus {
     // A note kept is opened again whether the step was skipped or not.
     ...(facts.handoffAt !== undefined ? { handoffNote: { writtenAt: facts.handoffAt } } : {}),
     ...(facts.acks.finishedAt !== undefined ? { finishedAt: facts.acks.finishedAt } : {}),
-    ...(facts.lastUsersRun !== undefined ? { lastUsersRun: facts.lastUsersRun } : {}),
+    // Taken back, said so: the note and the page named its success alone.
+    ...(facts.lastUsersRun !== undefined
+      ? {
+          lastUsersRun: {
+            ...facts.lastUsersRun,
+            ...(facts.lastUsersRunTakenBack === true ? { takenBack: true as const } : {}),
+          },
+        }
+      : {}),
     steps,
     beforeNextRefresh: preparationsOf(facts),
     done,

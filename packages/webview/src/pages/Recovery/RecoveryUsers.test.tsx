@@ -105,6 +105,19 @@ describe('RecoveryUsers', () => {
     });
   });
 
+  it('says the run before was taken back, and that the run sets the users up from where the org stands', () => {
+    // A run whose removal put the users back: "it converges from what that
+    // one set up" named a set-up the org no longer holds.
+    open({
+      lastRun: { run: 2, at: '2026-11-18T08:30:00.000Z', status: 'success', takenBack: true },
+    });
+    const chosen = screen.getByTestId('recovery-users-chosen');
+    expect(chosen).toHaveTextContent(
+      'The run replaces run 2, which its removal took back: it sets the users up from what UAT holds now.',
+    );
+    expect(chosen).not.toHaveTextContent('converges from what that one set up');
+  });
+
   it('keeps Apply closed until the person accepts, for this run, the emails the plan counts', () => {
     open();
     expect(screen.queryByTestId('recovery-users-plan')).toBeNull();

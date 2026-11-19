@@ -209,6 +209,23 @@ describe('recoveryStatusSchema', () => {
       refusalsOf(recoveryStatusSchema, { ...status(), handoffNote: { path: '/home/x/note.md' } }),
     ).not.toEqual([]);
   });
+
+  it('carries the last users run as taken back once a removal put back what it set up', () => {
+    const lastUsersRun = { run: 2, at: '2026-11-18T09:00:00.000Z', status: 'success' };
+    expect(refusalsOf(recoveryStatusSchema, { ...status(), lastUsersRun })).toEqual([]);
+    expect(
+      refusalsOf(recoveryStatusSchema, {
+        ...status(),
+        lastUsersRun: { ...lastUsersRun, takenBack: true },
+      }),
+    ).toEqual([]);
+    expect(
+      refusalsOf(recoveryStatusSchema, {
+        ...status(),
+        lastUsersRun: { ...lastUsersRun, takenBack: false },
+      }),
+    ).toHaveLength(1);
+  });
 });
 
 describe('the acknowledgements a person keeps', () => {

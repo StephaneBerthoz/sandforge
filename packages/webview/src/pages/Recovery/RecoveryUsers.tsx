@@ -516,7 +516,14 @@ export const RecoveryUsers: React.FC<RecoveryUsersProps> = ({
       )}
       <p className="text-xs text-text-primary" data-testid="recovery-users-chosen">
         {t('recovery.users.chosen', { count: chosen.size, formatted: formatNumber(chosen.size) })}
-        {lastRun && <> {t('recovery.users.replaces', { run: lastRun.run })}</>}
+        {lastRun && (
+          <>
+            {' '}
+            {lastRun.takenBack
+              ? t('recovery.users.replacesTakenBack', { run: lastRun.run, alias })
+              : t('recovery.users.replaces', { run: lastRun.run })}
+          </>
+        )}
       </p>
       {tooMany && (
         <p className="text-xs text-status-warning">

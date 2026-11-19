@@ -71,7 +71,7 @@ The page works on the org selected in the org picker: the launcher, Home, the wa
 - **Awaiting confirmation**: an address asked back stays under `.invalid` until its owner clicks the link Salesforce sent; the run's result and the list say _awaiting confirmation_.
 - **The list for the next refresh**: **Save the list for the next refresh** keeps the users chosen for the sandbox, filed by its My Domain host, which a refresh keeps: the next recovery opens with them chosen. **Export users.json** writes them in the format `sandforge users --config` reads, for a terminal or a CI job; **Import users.json** reads one, its users chosen and set up as it says, profiles, permission sets, groups and queues included.
 
-A run sets up 200 users at most. Its runs are kept where the command line keeps them, `~/.sandforge/users/`: `sandforge users remove --org <alias> --run <n>` takes one back, and the step is to do again.
+A run sets up 200 users at most. Its runs are kept where the command line keeps them, `~/.sandforge/users/`: `sandforge users remove --org <alias> --run <n>` takes one back, and the step is to do again: the page says the next run replaces one its removal took back, and sets the users up from what the sandbox holds now, and the handoff note names it taken back beside how it ended.
 
 ## Replay into a sandbox marked Staging
 

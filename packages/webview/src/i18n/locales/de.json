@@ -9131,6 +9131,7 @@
       "chosen_one": "{{formatted}} Benutzer ausgewählt.",
       "chosen_other": "{{formatted}} Benutzer ausgewählt.",
       "replaces": "Der Lauf ersetzt Lauf {{run}}: Er geht von dem aus, was jener eingerichtet hat.",
+      "replacesTakenBack": "Der Lauf ersetzt Lauf {{run}}, den seine Entfernung zurückgenommen hat: Er richtet die Benutzer ausgehend von dem ein, was {{alias}} jetzt enthält.",
       "tooMany": "Ein Lauf richtet höchstens {{most}} Benutzer ein: Wählen Sie weniger und richten Sie die anderen danach ein.",
       "simulate": "Simulieren",
       "apply": "Übernehmen",

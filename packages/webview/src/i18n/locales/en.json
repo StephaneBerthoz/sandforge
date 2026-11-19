@@ -9131,6 +9131,7 @@
       "chosen_one": "{{formatted}} user chosen.",
       "chosen_other": "{{formatted}} users chosen.",
       "replaces": "The run replaces run {{run}}: it converges from what that one set up.",
+      "replacesTakenBack": "The run replaces run {{run}}, which its removal took back: it sets the users up from what {{alias}} holds now.",
       "tooMany": "A run sets up {{most}} users at most: choose fewer, and run the others next.",
       "simulate": "Simulate",
       "apply": "Apply",
