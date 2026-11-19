@@ -22,6 +22,11 @@ const CONTACTS = [fakeId('003', 1), fakeId('003', 2)];
 class LockingOrg extends MemoryRemovalOrg {
   readonly locked = new Map<string, number>();
   readonly sent: string[][] = [];
+  /** What a locked record is refused with: the lock's own code unless told. */
+  lockError = {
+    statusCode: 'UNABLE_TO_LOCK_ROW',
+    message: 'unable to obtain exclusive access to this record',
+  };
 
   override async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     this.sent.push([...ids]);
@@ -36,17 +41,7 @@ class LockingOrg extends MemoryRemovalOrg {
     const answers =
       rest.length > 0 ? ((await super.destroy(objectApiName, rest)) as unknown[]) : [];
     return ids.map((id) =>
-      locked.has(id)
-        ? {
-            success: false,
-            errors: [
-              {
-                statusCode: 'UNABLE_TO_LOCK_ROW',
-                message: 'unable to obtain exclusive access to this record',
-              },
-            ],
-          }
-        : answers[rest.indexOf(id)],
+      locked.has(id) ? { success: false, errors: [this.lockError] } : answers[rest.indexOf(id)],
     );
   }
 }
@@ -88,6 +83,32 @@ afterEach(() => {
 describe('a removal the org could not lock a record for', () => {
   it('sends that record again on its own after a wait, deletes it, and says so', async () => {
     const org = target();
+    org.locked.set(CONTACTS[1], 1);
+
+    const outcome = await removed(org);
+
+    expect(org.sent).toEqual([CONTACTS, [CONTACTS[1]]]);
+    expect(outcome.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        deleted: 2,
+        refused: 0,
+        reasons: [
+          'The org could not lock 1 record(s) (UNABLE_TO_LOCK_ROW), each sent again up to 3 times, a wait before each: 1 deleted.',
+        ],
+      }),
+    ]);
+  });
+
+  it("sends again one a trigger's update could not lock a record for, as it does one the lock refused itself", async () => {
+    const org = target();
+    org.lockError = {
+      statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+      message:
+        'ContactRollup: execution of AfterDelete caused by: System.DmlException: Update failed. ' +
+        `First exception on row 0 with id ${fakeId('001', 9)}; first error: UNABLE_TO_LOCK_ROW, ` +
+        'unable to obtain exclusive access to this record: []',
+    };
     org.locked.set(CONTACTS[1], 1);
 
     const outcome = await removed(org);

@@ -40,6 +40,7 @@ import { BulkApiExecutor, type BulkApiConnection } from '../engine/BulkApiExecut
 import { BulkApiManager } from '../engine/BulkApiManager.js';
 import { BULK_RESULT_READS } from '../engine/bulkJobCost.js';
 import { jsforceBulk } from '../engine/jsforceBulk.js';
+import { refusedForALock } from '../engine/lockedRows.js';
 import { describedObjectSchema } from '../../modules/dataops/DataQualityScanner.js';
 import {
   orgSession,
@@ -82,7 +83,11 @@ const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
  * The code the org refuses a record with when it could not lock it, or a
  * record the delete needed, within the ten seconds the platform waits for a
  * lock: another transaction held it — a job deleting children of the same
- * parents, a colleague's save. Nothing of the record was deleted.
+ * parents, a colleague's save. Nothing of the record was deleted. A trigger
+ * whose own update met the lock refuses it under the trigger's code, the lock
+ * in its message (`CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY … first error:
+ * UNABLE_TO_LOCK_ROW`): read as the same lock, as the writes read it
+ * ({@link refusedForALock}).
  */
 const LOCK_REFUSAL = 'UNABLE_TO_LOCK_ROW';
 
@@ -346,6 +351,20 @@ function codeOf(error: WriteError): string | undefined {
   return typeof error === 'string' ? undefined : (error.statusCode ?? error.errorCode);
 }
 
+/**
+ * Whether every error the org refused a record with is its failure to lock a
+ * record, under the lock's own code or under a trigger's whose update met it:
+ * read by {@link refusedForALock}, as the writes of every module read it.
+ */
+function refusedForTheLock(
+  errors: ReadonlyArray<{ statusCode: string; message: string }>,
+): boolean {
+  return refusedForALock(
+    errors.map(({ statusCode, message }) => `${statusCode}: ${message}`),
+    errors,
+  );
+}
+
 /** One error of a write, as the org said it: `CODE: message`. */
 export function describeError(error: WriteError): string {
   if (typeof error === 'string') return error;
@@ -377,7 +396,10 @@ export type DeleteOutcome = (
       dependency: boolean;
       /** Refused for a limit of the target's automation, and why it was not sent again. */
       limit?: LimitNote;
-      /** Refused because the org could not lock it, or a record its delete needed. */
+      /**
+       * Refused because the org could not lock it, or a record its delete
+       * needed: under the lock's own code, or a trigger's whose update met it.
+       */
       locked?: true;
     }
 ) & { lockResends?: number };
@@ -470,7 +492,12 @@ async function deleteOnce(
     if (row.success && row.data.success) return { kind: 'deleted' };
     const errors = row.success ? (row.data.errors ?? []) : [];
     if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) return { kind: 'gone' };
-    const locked = errors.length > 0 && errors.every((error) => codeOf(error) === LOCK_REFUSAL);
+    const locked = refusedForTheLock(
+      errors.map((error) => ({
+        statusCode: codeOf(error) ?? '',
+        message: typeof error === 'string' ? error : (error.message ?? ''),
+      })),
+    );
     return {
       kind: 'refused',
       reason: errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.',
@@ -549,7 +576,9 @@ export async function deleteByJob(
             ? `${code}: ${message}`
             : row?.error || code || message || 'The org gave no reason.',
         dependency: code === DEPENDENCY_REFUSAL,
-        ...(code === LOCK_REFUSAL ? { locked: true as const } : {}),
+        ...(refusedForTheLock([{ statusCode: code ?? '', message }])
+          ? { locked: true as const }
+          : {}),
       };
     });
   };

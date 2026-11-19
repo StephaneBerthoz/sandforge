@@ -46,6 +46,19 @@ const LOCKED = {
 };
 
 /**
+ * The org's refusal of a delete whose trigger updated a record another
+ * transaction held: the lock under the trigger's code, its message naming it
+ * as the trigger's update met it.
+ */
+const LOCKED_UNDER_A_TRIGGER = {
+  statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+  message:
+    'ItemRollup: execution of AfterDelete caused by: System.DmlException: Update failed. ' +
+    `First exception on row 0 with id ${fakeId('001', 9)}; first error: UNABLE_TO_LOCK_ROW, ` +
+    'unable to obtain exclusive access to this record: []',
+};
+
+/**
  * An org of a few records: REST deletes and jobs kept apart, a record locked
  * for a number of tries, and the jobs it answers as told.
  */
@@ -55,6 +68,8 @@ class DeletesOrg implements DeletionOrg {
   readonly jobs: Array<{ operation: 'delete' | 'hardDelete'; ids: string[] }> = [];
   /** Tries a record is refused for a lock, by id. */
   readonly locked = new Map<string, number>();
+  /** What a record refused for a lock is refused with: the lock's own code unless told. */
+  lockRefusal: { statusCode: string; message: string } = LOCKED;
   /** Refusals other than a lock, by id: `CODE: message`. */
   readonly refusals = new Map<string, { statusCode: string; message: string }>();
   /** What the next jobs answer instead of deleting, in turn. */
@@ -80,7 +95,7 @@ class DeletesOrg implements DeletionOrg {
     const tries = this.locked.get(id) ?? 0;
     if (tries > 0) {
       this.locked.set(id, tries - 1);
-      return { success: false, error: LOCKED };
+      return { success: false, error: this.lockRefusal };
     }
     const refusal = this.refusals.get(id);
     if (refusal) return { success: false, error: refusal };
@@ -340,6 +355,53 @@ describe('deleteBatch, a record the org could not lock', () => {
     expect(outcome).toMatchObject({ kind: 'refused', locked: true });
     expect(org.rest).toHaveLength(1);
   });
+
+  it("sends again a record refused by a trigger whose update met the lock, as one refused under the lock's own code", async () => {
+    const org = new DeletesOrg(ids);
+    org.lockRefusal = LOCKED_UNDER_A_TRIGGER;
+    org.locked.set(ids[1], 1);
+
+    const outcomes = await deleteBatch(org, 'Contact', ids, noWait());
+
+    expect(outcomes).toEqual([
+      { kind: 'deleted' },
+      { kind: 'deleted', lockResends: 1 },
+      { kind: 'deleted' },
+    ]);
+    expect(org.rest).toEqual([ids, [ids[1]]]);
+  });
+
+  it(`leaves a record a trigger's lock still holds after ${LOCK_RESENDS} sends again refused for the lock, in the trigger's words`, async () => {
+    const org = new DeletesOrg(ids);
+    org.lockRefusal = LOCKED_UNDER_A_TRIGGER;
+    org.locked.set(ids[0], LOCK_RESENDS + 1);
+
+    const [outcome] = await deleteBatch(org, 'Contact', [ids[0]], noWait());
+
+    expect(outcome).toEqual({
+      kind: 'refused',
+      reason: `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: ${LOCKED_UNDER_A_TRIGGER.message}`,
+      dependency: false,
+      locked: true,
+      lockResends: LOCK_RESENDS,
+    });
+    expect(org.rest).toHaveLength(1 + LOCK_RESENDS);
+  });
+
+  it('never sends again a record a trigger refused for anything but a lock', async () => {
+    const org = new DeletesOrg(ids);
+    org.refusals.set(ids[0], {
+      statusCode: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY',
+      message:
+        'ItemRollup: execution of AfterDelete caused by: System.NullPointerException: ' +
+        'Attempt to de-reference a null object',
+    });
+
+    const [outcome] = await deleteBatch(org, 'Contact', [ids[0]], noWait());
+
+    expect(outcome).not.toHaveProperty('locked');
+    expect(org.rest).toHaveLength(1);
+  });
 });
 
 describe('deleteByJob', () => {
@@ -411,6 +473,20 @@ describe('deleteByJob', () => {
     expect(org.jobs).toEqual([
       { operation: 'hardDelete', ids },
       { operation: 'hardDelete', ids: [ids[0]] },
+    ]);
+  });
+
+  it("sends again by a job a record a job's trigger refused for the lock its update met", async () => {
+    const org = new DeletesOrg(ids);
+    org.lockRefusal = LOCKED_UNDER_A_TRIGGER;
+    org.locked.set(ids[1], 1);
+
+    const outcomes = await deleteByJob(org, 'Account', ids, 'recycle', noWait());
+
+    expect(outcomes).toEqual([{ kind: 'deleted' }, { kind: 'deleted', lockResends: 1 }]);
+    expect(org.jobs).toEqual([
+      { operation: 'delete', ids },
+      { operation: 'delete', ids: [ids[1]] },
     ]);
   });
 });
