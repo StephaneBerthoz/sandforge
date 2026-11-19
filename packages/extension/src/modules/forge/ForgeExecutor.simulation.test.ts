@@ -694,6 +694,117 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     expect(summary).toMatchObject({ linkedCount: 1 });
   });
 
+  describe('a unique value the source repeats', () => {
+    /** The orders of {@link SOURCE}, the second holding the code of the first. */
+    const REPEATED: Record<string, FakeRow[]> = {
+      ...SOURCE,
+      Order__c: SOURCE['Order__c'].map((row) =>
+        row['Id'] === id('a01', 2) ? { ...row, Code__c: 'C-1' } : row,
+      ),
+    };
+
+    /**
+     * The orgs of {@link fakeOrgs} over `source`, the target refusing, as a
+     * real one does, a row whose code it holds, naming its record: the one it
+     * held before the run, or the one the run has just written.
+     */
+    function repeatingTheCode(source: Record<string, FakeRow[]> = REPEATED) {
+      const orgs = fakeOrgs();
+      const reading = orgs.deps.queryRecords.getMockImplementation();
+      orgs.deps.queryRecords.mockImplementation(async (org, soql) =>
+        org === 'src' && soql.includes(' FROM Order__c')
+          ? selectRows(source, soql)
+          : ((await reading?.(org, soql)) ?? []),
+      );
+      const held = new Map<string, string>([['TAKEN', id('a01', 500)]]);
+      let created = 600;
+      const inserting = orgs.deps.insertRecords.getMockImplementation();
+      orgs.deps.insertRecords.mockImplementation(async (org, object, rows) => {
+        const answers = (await inserting?.(org, object, rows)) ?? [];
+        return answers.map((answer, at): InsertResult => {
+          const code = rows[at]?.['Code__c'];
+          if (object !== 'Order__c' || typeof code !== 'string') return answer;
+          const holder = held.get(code);
+          if (holder === undefined) {
+            // Under the order's own prefix, as the target names it.
+            const order = id('a01', ++created);
+            held.set(code, order);
+            return { ...answer, id: order };
+          }
+          return {
+            id: '',
+            success: false,
+            errors: [
+              `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${holder.slice(0, 15)}`,
+            ],
+          };
+        });
+      });
+      return orgs;
+    }
+
+    it('counts the copy linked to the record the run creates, as the run links it, and says so on its lines', async () => {
+      // Run on a whole org, the dry run counted 41 records to insert where
+      // the run created 28 and linked 13: the source repeated values the
+      // target keeps unique, which it refused each copy of after the first,
+      // naming the record the run had just written.
+      const { summary, events } = await run(repeatingTheCode().deps, {
+        ...OPTIONS,
+        dryRun: true,
+        decisions: REGION_GIVEN,
+      });
+      const { summary: written } = await run(repeatingTheCode().deps, {
+        ...OPTIONS,
+        decisions: REGION_GIVEN,
+      });
+
+      expect(written).toMatchObject({ successCount: 2, linkedCount: 2, linkedToCreatedCount: 1 });
+      expect(summary).toMatchObject({
+        wouldInsertCount: written.successCount,
+        linkedCount: written.linkedCount,
+        linkedToCreatedCount: written.linkedToCreatedCount,
+        failedCount: 0,
+      });
+      expect(summary.existingRecords).toEqual(written.existingRecords);
+      const lines = events.filter((e) => e.objectName === 'Order__c').map((e) => e.message);
+      expect(lines).toContain(
+        '[dry-run] Order__c: 1 fewer would be inserted, linked to the record the run creates ' +
+          'under the same Code__c, which its refusal of the row names',
+      );
+      expect(lines.at(-1)).toMatch(
+        /^Simulated Order__c: 1 would be inserted, 1 linked to records already in the target, 1 linked to records the run created \(the target refused them as copies of those\), 0 failed/,
+      );
+      // Its ids are the simulation's own, never given back.
+      expect(summary.remapTable).toEqual({});
+      expect(summary.existingSourceIds).toEqual([]);
+    });
+
+    it('counts the copy inserted when the row holding the value first goes no further', async () => {
+      // The first order of the code leaves the region the target requires
+      // empty, and is refused: the copy is then the first to hold the code.
+      const orgs = repeatingTheCode({
+        ...REPEATED,
+        Order__c: REPEATED['Order__c'].map((row) =>
+          row['Id'] === id('a01', 2) ? { ...row, Region__c: 'South' } : row,
+        ),
+      });
+      const regionRead = orgs.deps.describeFields.getMockImplementation();
+      orgs.deps.describeFields.mockImplementation(async (org, object) => {
+        const fields = (await regionRead?.(org, object)) ?? [];
+        return org === 'src' && object === 'Order__c'
+          ? [...fields, field('Region__c', { type: 'string', length: 40 })]
+          : fields;
+      });
+
+      const { summary } = await run(orgs.deps, { ...OPTIONS, dryRun: true });
+
+      // The first order and the third refused for the region; the second
+      // inserted, the code held by none before it.
+      expect(summary).toMatchObject({ wouldInsertCount: 2, linkedCount: 0, failedCount: 2 });
+      expect(summary.linkedToCreatedCount).toBeUndefined();
+    });
+  });
+
   it('says a currency the target does not hold active, read once, with the currency its rows go in and the amounts converted', async () => {
     const { deps, targetQueries } = fakeOrgs();
 

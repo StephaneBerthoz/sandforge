@@ -5186,6 +5186,12 @@ const USER_PREFIX = '005';
 class SimulatedIds {
   private readonly ids = new Set<string>();
   private issued = 0;
+  /**
+   * Per object and unique field of the target, the values the rows it would
+   * have inserted hold, as the target compares them (`uniqueValueKey`), and
+   * the id it gave the first of them: see `holderOf`.
+   */
+  private readonly uniqueValues = new Map<string, Map<string, string>>();
 
   /** A new id for a record of the object whose ids begin with `keyPrefix`. */
   idFor(keyPrefix: string | null | undefined): string {
@@ -5200,6 +5206,46 @@ class SimulatedIds {
   has(id: string): boolean {
     return this.ids.has(id);
   }
+
+  /**
+   * The id of the row it would have inserted first holding `key` in the
+   * unique `field` of `objectApiName`: the record the target names as it
+   * refuses a later row holding it, which the run links that row to.
+   */
+  holderOf(objectApiName: string, field: string, key: string): string | undefined {
+    return this.uniqueValues.get(`${objectApiName}.${field}`)?.get(key);
+  }
+
+  /** Remember that the row it gave `id` holds `key` in the unique `field` of `objectApiName`. */
+  hold(objectApiName: string, field: string, key: string, id: string): void {
+    const of = `${objectApiName}.${field}`;
+    const values = this.uniqueValues.get(of) ?? new Map<string, string>();
+    if (!values.has(key)) values.set(key, id);
+    this.uniqueValues.set(of, values);
+  }
+}
+
+/**
+ * The fields of the target a simulation holds the rows' values of against a
+ * value held already: those it keeps unique and lets the run set, but an
+ * external id an upsert matches rows by, which is no collision.
+ */
+function uniqueFieldsOf(
+  config: Pick<ForgeStageConfig, 'upsertMode'>,
+  targetFields: readonly FieldInfo[],
+): FieldInfo[] {
+  return targetFields.filter(
+    (f) =>
+      f.unique === true && f.createable && !(config.upsertMode === 'auto' && f.externalId === true),
+  );
+}
+
+/** A value of a unique field as a row holds it, written: none when empty, or one no query can ask. */
+function uniqueValueOf(row: Record<string, unknown>, field: string): string | undefined {
+  const value = row[field];
+  return typeof value === 'string' && value !== '' && !CONTROL_CHARACTER.test(value)
+    ? value
+    : undefined;
 }
 
 /**
@@ -11964,7 +12010,9 @@ export class ForgeExecutor {
       successCount: state.successCount,
       updatedCount: state.updatedCount,
       linkedCount: state.linkedCount,
-      ...(state.linkedToCreatedCount > 0 && !simulated
+      // A simulation's too: the rows repeating a unique value of a row it
+      // counted inserted, linked as the run links them (`simulateWrite`).
+      ...(state.linkedToCreatedCount > 0
         ? { linkedToCreatedCount: state.linkedToCreatedCount }
         : {}),
       wouldInsertCount: state.wouldInsertCount,
@@ -18207,7 +18255,14 @@ export class ForgeExecutor {
    * A row holding a unique value the target holds is counted linked, as the
    * write links it to the record the target's refusal names, given an id of
    * the simulation's own, its lookups owed to none: the write sends that
-   * record nothing.
+   * record nothing. So is a row holding a unique value a row the simulation
+   * counted inserted before it holds, in this round, another or a page
+   * before: the target refuses it as a copy of that row's record, which the
+   * write links it to, one of the run's own (`linkedToCreatedCount`). Counted
+   * inserted, a dry run said 41 records to insert of a run that created 28
+   * and linked 13, the source repeating values the target keeps unique. A
+   * row holding the value first that the simulation counts refused leaves it
+   * to the next, as the target does.
    *
    * @param targetFields - The target's describe of the object; none, and no
    *   row is held to it.
@@ -18231,6 +18286,11 @@ export class ForgeExecutor {
     /** The fields of the rows linked by their value in this round, each once, and how many. */
     const linkedUnder = new Set<string>();
     let linkedHere = 0;
+    /** The target's unique fields, whose values a row counted inserted holds against the rows after it. */
+    const unique = targetFields ? uniqueFieldsOf(state.config, targetFields) : [];
+    /** Of them, those the rows linked to a row counted inserted before them repeat, and how many. */
+    const repeatedUnder = new Set<string>();
+    let linkedToOwn = 0;
     onProgress({
       objectName: objectApiName,
       status: 'running',
@@ -18267,7 +18327,25 @@ export class ForgeExecutor {
         if (sourceId !== undefined) state.remapper.addExisting(sourceId, id, objectApiName);
         continue;
       }
+      const keys = unique.flatMap((field) => {
+        const value = uniqueValueOf(payload, field.name);
+        return value === undefined
+          ? []
+          : [{ field: field.name, key: uniqueValueKey(field, value) }];
+      });
+      const twin = keys
+        .map(({ field, key }) => ({ field, id: simulated.holderOf(objectApiName, field, key) }))
+        .find((held) => held.id !== undefined);
+      if (twin?.id !== undefined) {
+        tally.linkedExistingCount++;
+        tally.linkedToCreatedCount = (tally.linkedToCreatedCount ?? 0) + 1;
+        linkedToOwn++;
+        repeatedUnder.add(twin.field);
+        if (sourceId !== undefined) state.remapper.addExisting(sourceId, twin.id, objectApiName);
+        continue;
+      }
       tally.successCount++;
+      for (const { field, key } of keys) simulated.hold(objectApiName, field, key, id);
       // Created without a record type, as a real run would send it.
       if (createdWithoutType && !carriesRecordTypeId(round.records[index] ?? {})) {
         createdWithoutType(built);
@@ -18298,6 +18376,17 @@ export class ForgeExecutor {
           `[dry-run] ${objectApiName}: ${linkedHere} fewer would be inserted, linked to the ` +
           `record${linkedHere === 1 ? '' : 's'} the target holds under the same ` +
           `${[...linkedUnder].join(', ')}, which its refusal of the row names`,
+      });
+    }
+    if (linkedToOwn > 0) {
+      onProgress({
+        objectName: objectApiName,
+        status: 'running',
+        progress: 0,
+        message:
+          `[dry-run] ${objectApiName}: ${linkedToOwn} fewer would be inserted, linked to the ` +
+          `record${linkedToOwn === 1 ? '' : 's'} the run creates under the same ` +
+          `${[...repeatedUnder].join(', ')}, which its refusal of the row names`,
       });
     }
   }
@@ -18605,13 +18694,7 @@ export class ForgeExecutor {
     payloads: readonly Record<string, unknown>[],
   ): Promise<ReadonlyMap<Record<string, unknown>, string>> {
     const linked = new Map<Record<string, unknown>, string>();
-    const unique = targetFields.filter(
-      (f) =>
-        f.unique === true &&
-        f.createable &&
-        !(state.config.upsertMode === 'auto' && f.externalId === true),
-    );
-    for (const field of unique) {
+    for (const field of uniqueFieldsOf(state.config, targetFields)) {
       // By the value as the target compares it (`uniqueValueKey`): asked as
       // the first row holding it wrote it.
       const rowsByValue = new Map<string, { value: string; rows: number }>();

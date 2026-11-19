@@ -1003,6 +1003,40 @@ describe('a run of whole tables read page by page', () => {
     ).toHaveLength(3);
   });
 
+  it('counts linked, in a simulation, a row repeating a unique value a row of an earlier page holds, as the run that links it', async () => {
+    // The target refuses the copy of a value it keeps unique, naming the
+    // record the run wrote with it a page before, and the run links the copy
+    // there: counted inserted, the dry run said more than the run created.
+    const codes = ['A', 'B', 'A', 'C', 'B'];
+    const schema: Schema = {
+      Account: {
+        fields: [text('Name'), { ...text('Code__c'), unique: true }],
+        rows: codes.map((code, n) => ({
+          Id: sourceId('Account', n),
+          Name: `A${n}`,
+          Code__c: code,
+        })),
+      },
+    };
+    const graph = graphOf([node('Account', codes.length)], []);
+
+    const { summary, events } = await runOver(schema, graph, {
+      dryRun: true,
+      stream: { pageSize: 2 },
+    });
+
+    expect(summary).toMatchObject({
+      wouldInsertCount: 3,
+      linkedCount: 2,
+      linkedToCreatedCount: 2,
+      failedCount: 0,
+    });
+    expect(events.filter((e) => e.objectName === 'Account').at(-1)?.message).toBe(
+      'Simulated Account: 3 would be inserted, 2 linked to records the run created (the target ' +
+        'refused them as copies of those), 0 failed',
+    );
+  });
+
   it('tells each page written: where the object stands, and the records the page created', async () => {
     const { schema, graph } = selfLookups();
     const pages: ForgeStreamPage[] = [];
