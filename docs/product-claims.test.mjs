@@ -64,9 +64,10 @@
  * What does partition is Seed: `executeWithGrappe` asks the adapter to split the
  * template, then walks the chunks in a `for` loop, awaiting each and reporting
  * it before the next begins. Sync reports one partition per object from its own
- * awaited loop. So three anchors read the three paths — two for what happens,
- * one for what does not — and the surfaces are held to all of them: per
- * partition for Seed, per object for Sync, start and end only for Autopilot,
+ * awaited loop. Autopilot partitions nothing either: it reports each wave its
+ * executor ends as a partition done, one after another. So three anchors read
+ * the three paths, and the surfaces are held to all of them: per partition for
+ * Seed, per object for Sync, per wave for Autopilot,
  * and no sentence that reaches for the vocabulary of concurrency, or for the
  * ordinary phrases that say the same thing, to describe any of them. Words,
  * not the idea: the limit is spelt out below.
@@ -156,7 +157,7 @@
  *  - Both read `aiComposition.ts` by name. Move the composition root and they fail loudly on a missing construction rather than passing on an empty file, which is the failure mode worth having.
  *
  * What the Grappe rules do not see, one limit per line:
- *  - The Seed anchor reads `executeWithGrappe` in `SeedOrchestrator`, the Sync anchor reads `execute` in `SyncOrchestrator`, and the Autopilot anchor reads `executePlan`. A fourth path that emits `grappe:*` is read by none of them.
+ *  - The Seed anchor reads `executeWithGrappe` in `SeedOrchestrator`, the Sync anchor reads `execute` in `SyncOrchestrator`, and the Autopilot anchor reads `executePlan` and `relayWavesAsPartitions`. A fourth path that emits `grappe:*` is read by none of them.
  *  - The rules are VOCABULARIES, not a meaning: the words `paral*`, `concurren*`/`concorren*`, `gleichzeitig`/`nebenläufig`, `simult*`, 並列/並行/同時 anywhere Grappe is the subject, and the phrases "at once", "at the same time", "à la fois", "en même temps", "auf einmal", "zur gleichen Zeit", "zugleich", "de una vez", "a la vez", "al mismo tiempo", "ao mesmo tempo", "de uma vez", 一度に, 一斉に in a sentence that names Grappe or in a string whose key does. Any other paraphrase — "side by side", "in one go", "all together" — passes, and so does a phrase in a paragraph that names Grappe only in another sentence.
  *  - Concurrency reached without a word for it — an unawaited call inside the loop, a queue drained elsewhere — is invisible to the prose rules; the anchors' `Promise.all` checks are what watch the Seed and Sync paths for it.
  *  - A sentence that denies concurrency passes, and a sentence that denies one thing while asserting concurrency in the same breath passes with it: "not queued: run in parallel" reads as a denial. Widening the negation class to the elided and contracted forms the six languages actually write widened that hole with it — deliberately, since the other direction refuses true sentences. What stands behind it is the mined list of wordings this product published, which is refused whole, quotation included.
@@ -578,31 +579,37 @@ function assertSeedPartitionsAndReportsEachOne() {
 
 /**
  * What Autopilot's grappe mode does: nothing to the work. `executePlan` brackets
- * an unchanged executor with `grappe:started` and `grappe:completed` and never
- * calls `grappeAdapter.partition(...)`, so on that path there is no partition
- * and nothing to report per partition — which is why the surfaces name Seed and
- * Sync where they promise per-partition progress, and Autopilot only for the
- * start and the end.
+ * an unchanged executor with `grappe:started` and `grappe:completed`, never
+ * calls `grappeAdapter.partition(...)`, and hands the executor to
+ * `relayWavesAsPartitions`, which says each wave the executor ends as a
+ * partition done whole (`grappe:partitionProgress` at 100) — which is why the
+ * surfaces name Autopilot per wave where they promise partitioned progress.
  *
- * "Only bracketed" is the claim, so the events are what this reads: the set of
- * `grappe:*` literals `executePlan` writes has to be exactly the two, no more.
- * An earlier cut asserted the absence of one call — `grappeAdapter.partition(` —
- * and would have stayed green through an autopilot run that reported every wave
- * it walked, which is the thing six locales say it does not do.
+ * The events are what this reads: the set of `grappe:*` literals `executePlan`
+ * writes has to be exactly the two, and the relay's exactly the one, written
+ * when the executor says a wave ended. Bracketed only, the panel ended a run
+ * that had written every wave on "Partitions 0/N".
  *
  * The other half is the opposite error, shipped in the same table row: the run
  * IS bracketed, so "no operation activates it" is false too.
  */
-function assertAutopilotOnlyBracketsTheRun() {
-  const body = methodBody(parseFile(AUTOPILOT_ORCHESTRATOR_FILE), 'executePlan');
+function assertAutopilotReportsEachWave() {
+  const parsed = parseFile(AUTOPILOT_ORCHESTRATOR_FILE);
+  const body = methodBody(parsed, 'executePlan');
   assert.ok(
     body,
     `${AUTOPILOT_ORCHESTRATOR_FILE} no longer declares executePlan — the path that brackets an ` +
       'autopilot run moved, so this anchor is reading nothing; find it and re-point the scan',
   );
+  const relay = methodBody(parsed, 'relayWavesAsPartitions');
+  assert.ok(
+    relay,
+    `${AUTOPILOT_ORCHESTRATOR_FILE} no longer declares relayWavesAsPartitions — the path that ` +
+      'reports each wave of an autopilot run moved; find it and re-point the scan',
+  );
 
   // Positive control: the same walk reads three events out of the seed path,
-  // `grappe:partitionProgress` among them. So the two below are a fact about
+  // `grappe:partitionProgress` among them. So the sets below are a fact about
   // Autopilot, not a scan that cannot see a per-partition event anywhere.
   const seedBody = methodBody(parseFile(SEED_ORCHESTRATOR_FILE), 'executeWithGrappe');
   assert.ok(
@@ -614,25 +621,41 @@ function assertAutopilotOnlyBracketsTheRun() {
     grappeEventsIn(seedBody),
     ['grappe:completed', 'grappe:partitionProgress', 'grappe:started'],
     'the walk no longer reads three grappe events out of executeWithGrappe — it is not reading ' +
-      'event literals, so the set it reads out of executePlan below proves nothing',
+      'event literals, so the sets it reads out of the autopilot path below prove nothing',
   );
   assert.deepEqual(
     grappeEventsIn(body),
     ['grappe:completed', 'grappe:started'],
-    'executePlan no longer emits exactly grappe:started and grappe:completed. If it reports a ' +
-      'partition now, the surfaces that say an autopilot run reports only its start and its end ' +
-      'became false in six languages — re-read them before touching this test.',
+    'executePlan no longer emits exactly grappe:started and grappe:completed — re-read the ' +
+      'surfaces that say an autopilot run reports one partition per wave before touching this test.',
+  );
+  assert.deepEqual(
+    grappeEventsIn(relay),
+    ['grappe:partitionProgress'],
+    'relayWavesAsPartitions no longer emits exactly grappe:partitionProgress — the surfaces that ' +
+      'say an autopilot run reports one partition per wave became false in six languages',
   );
 
   assertOneRunIdBracketsTheRun(body, 'AutopilotOrchestrator.executePlan');
 
   const orchestrator = read(...AUTOPILOT_ORCHESTRATOR_FILE.split('/'));
+  assert.match(
+    orchestrator,
+    /this\.relayWavesAsPartitions\(\s*executor\s*,\s*operationId\s*\)/,
+    'executePlan no longer hands its executor and its run id to relayWavesAsPartitions — no wave ' +
+      'is reported, and the panel ends on "Partitions 0/N"',
+  );
+  assert.match(
+    orchestrator,
+    /executor\.on\('wave-completed'/,
+    'the relay no longer listens for the end of a wave — what it reports is not a wave',
+  );
   assert.doesNotMatch(
     orchestrator,
     /grappeAdapter\s*\.\s*partition\s*\(/,
     'AutopilotOrchestrator now calls grappeAdapter.partition() — an autopilot run may really be ' +
       'partitioned. Re-read every surface below before deleting this test: they are written to ' +
-      'say that path reports only its start and its end.',
+      'say that path reports one partition per wave.',
   );
   assert.match(
     orchestrator,
@@ -789,8 +812,8 @@ test('anchor: a sync past the threshold reports one partition per object, one af
   assertSyncReportsOnePartitionPerObject();
 });
 
-test('anchor: an autopilot run is only bracketed by two events', () => {
-  assertAutopilotOnlyBracketsTheRun();
+test('anchor: an autopilot run is bracketed by two events and reports each wave as it ends', () => {
+  assertAutopilotReportsEachWave();
 });
 
 /**
@@ -946,7 +969,7 @@ const grappeClaims = () => (grappeClaimsCache ??= GRAPPE_WORDINGS.map(mine));
 
 test('no user-facing surface republishes the withdrawn Grappe wording', () => {
   assertSeedPartitionsAndReportsEachOne();
-  assertAutopilotOnlyBracketsTheRun();
+  assertAutopilotReportsEachWave();
 
   const offenders = [];
   for (const { label, text } of userFacingProse()) {
@@ -957,7 +980,8 @@ test('no user-facing surface republishes the withdrawn Grappe wording', () => {
   assert.deepEqual(
     offenders,
     [],
-    'a seed walks its partitions one at a time and an autopilot run is not partitioned at all; ' +
+    'a seed walks its partitions one at a time and an autopilot run reports its waves one after ' +
+      'another; ' +
       'these surfaces put back wording the product withdrew. Rewrite the sentence; a note about ' +
       'the removal belongs in a changelog, which this gate does not read:\n  ' +
       offenders.join('\n  '),
@@ -967,7 +991,7 @@ test('no user-facing surface republishes the withdrawn Grappe wording', () => {
 test('no user-facing surface claims Grappe runs anything at once', () => {
   assertSeedPartitionsAndReportsEachOne();
   assertSyncReportsOnePartitionPerObject();
-  assertAutopilotOnlyBracketsTheRun();
+  assertAutopilotReportsEachWave();
 
   // Beyond the wordings that shipped, the claim itself: every grappe path is a
   // sequential `for await`, so no sentence about Grappe may assert concurrency
@@ -1142,7 +1166,7 @@ test('the Grappe rules refuse what shipped and leave an honest denial alone', ()
 test('no user-facing surface claims nothing activates Grappe', () => {
   // The opposite error, shipped in the same table row: Seed, Sync and Autopilot
   // all set `grappeActive`, so "no operation activates it" is equally false.
-  assertAutopilotOnlyBracketsTheRun();
+  assertAutopilotReportsEachWave();
 
   const offenders = [];
   for (const { label, text } of grappeUnits()) {
@@ -1159,26 +1183,30 @@ test('no user-facing surface claims nothing activates Grappe', () => {
 
 /**
  * A line that names Autopilot beside partitioned reporting has to say the
- * autopilot path reports only its start and its end, in the words each
- * language publishes. The Settings row for `sandforge.grappe.enabled` once
- * listed "Seed, Sync and Autopilot runs partition by partition" two rows below
- * a module row that said the opposite, and no rule read that cell.
+ * autopilot path reports one partition per wave, in the words each language
+ * publishes, and may no longer say it reports only its start and its end: it
+ * did, the panel then ending a run that had written every wave on
+ * "Partitions 0/N", and the six setting descriptions said so. The Settings row
+ * for `sandforge.grappe.enabled` once listed "Seed, Sync and Autopilot runs
+ * partition by partition" two rows below a module row that said the opposite,
+ * and no rule read that cell.
  */
 const AUTOPILOT_BRACKET_ONLY =
-  /only (?:its |the )?start and (?:its |the )?end|ne signale que (?:son|le) début|nur (?:seinen )?Beginn|開始と終了(?:の|だけ)|solo (?:informa )?(?:su |el )?inicio|apenas (?:seu |o )?início/iu;
+  /only (?:its |the )?start and (?:its |the )?end|start and end only|ne signale que (?:son|le) début|nur (?:seinen )?Beginn|開始と終了(?:の|だけ)|solo (?:informa )?(?:su |el )?inicio|apenas (?:seu |o )?início/iu;
+const AUTOPILOT_BY_WAVE = /\bwaves?\b|\bvagues?\b|\bWellen?\b|\bolas?\b|\bondas?\b|ウェーブ/iu;
 const NAMES_PARTITIONED_REPORTING = /partition|partici|partiç|パーティション/iu;
 
-const autopilotPartitionOverclaims = (units) =>
+const autopilotPartitionMisclaims = (units) =>
   units.filter(
     ({ text }) =>
       /autopilot/i.test(text) &&
       NAMES_PARTITIONED_REPORTING.test(text) &&
-      !AUTOPILOT_BRACKET_ONLY.test(text),
+      (AUTOPILOT_BRACKET_ONLY.test(text) || !AUTOPILOT_BY_WAVE.test(text)),
   );
 
-test('the autopilot rule refuses the settings row that shipped and leaves the qualified one alone', () => {
+test('the autopilot rule refuses the rows that shipped and leaves the one per wave alone', () => {
   assert.equal(
-    autopilotPartitionOverclaims([
+    autopilotPartitionMisclaims([
       {
         text: '| `sandforge.grappe.enabled` | Report large Seed, Sync and Autopilot runs partition by partition; execution stays sequential | `false` |',
       },
@@ -1186,28 +1214,38 @@ test('the autopilot rule refuses the settings row that shipped and leaves the qu
     1,
     'the rule lets through the row that published per-partition reporting for Autopilot',
   );
-  assert.deepEqual(
-    autopilotPartitionOverclaims([
+  assert.equal(
+    autopilotPartitionMisclaims([
       {
         text: '| `sandforge.grappe.enabled` | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false` |',
       },
+    ]).length,
+    1,
+    'the rule lets through the row that says an autopilot run reports only its start and end',
+  );
+  assert.deepEqual(
+    autopilotPartitionMisclaims([
+      {
+        text: '| `sandforge.grappe.enabled` | Report large Seed and Sync runs partition by partition, and Autopilot runs one partition per wave; execution stays sequential | `false` |',
+      },
     ]),
     [],
-    'the rule refuses the qualified row',
+    'the rule refuses the row that says one partition per wave',
   );
 });
 
-test('no user-facing surface says an autopilot run is reported partition by partition', () => {
-  assertAutopilotOnlyBracketsTheRun();
+test('no user-facing surface says an autopilot run is reported otherwise than wave by wave', () => {
+  assertAutopilotReportsEachWave();
 
-  const offenders = autopilotPartitionOverclaims(grappeUnits()).map(
+  const offenders = autopilotPartitionMisclaims(grappeUnits()).map(
     ({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`,
   );
   assert.deepEqual(
     offenders,
     [],
-    'an autopilot run reports only its start and its end, and these lines put it beside ' +
-      'per-partition reporting without saying so:\n  ' +
+    'an autopilot run reports one partition per wave, as each ends, and these lines put it ' +
+      'beside partitioned reporting without saying so, or say it reports only its start and its ' +
+      'end:\n  ' +
       offenders.join('\n  '),
   );
 });

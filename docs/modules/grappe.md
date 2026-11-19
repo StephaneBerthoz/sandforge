@@ -1,6 +1,6 @@
 # Grappe
 
-A setting, not an engine: with `sandforge.grappe.enabled` on (off by default), a large Seed, Sync or Autopilot run shows its progress in a Grappe panel of its own run screen, Seed and Sync partition by partition, Autopilot only its start and its end. Execution stays sequential: Grappe does not make a run faster.
+A setting, not an engine: with `sandforge.grappe.enabled` on (off by default), a large Seed, Sync or Autopilot run shows its progress in a Grappe panel of its own run screen, Seed and Sync partition by partition, Autopilot wave by wave. Execution stays sequential: Grappe does not make a run faster.
 
 ## Which runs, from which size
 
@@ -8,7 +8,7 @@ A run is reported once its records reach `sandforge.grappe.autoActivateThreshold
 
 - **Seed**, beside the run's progress by object, on Quick Seed's run screen and on the wizard's Execute step: the records the template plans. The run is cut into partitions of `sandforge.grappe.grappeSize` records, 5,000 by default, written one after another in insert order, and each is reported as it completes.
 - **Sync**, on the Execute step: the source records, counted with one `SELECT COUNT()` per object before the run, which [Sync](sync.md) counts whether the setting is on or off. Each object is a partition, reported as its write ends.
-- **Autopilot**, above the dependency graph and the control panel: the records of its plan. The run reports only its start and its end, its waves counted as its partitions; nothing is reported in between.
+- **Autopilot**, above the dependency graph and the control panel: the records of its plan. Each wave is a partition, reported as it ends, the lookups its second pass fills included; a wave a stop cut short is not reported.
 
 ## What the panel shows
 

@@ -90,14 +90,16 @@ describe('docs/modules/grappe.md', () => {
     expect(DOC).toMatch(/processed and failed/);
   });
 
-  it('says an Autopilot run is reported at its start and its end only', () => {
+  it('says an Autopilot run is reported wave by wave, each wave a partition done as it ends', () => {
     // executePlan brackets the run with grappe:started and grappe:completed,
-    // and reports no partition in between.
+    // and relays each wave the executor ends as a partition done whole.
     const autopilot = source('packages/extension/src/modules/autopilot/AutopilotOrchestrator.ts');
     expect(autopilot).toMatch(/type: 'grappe:started',/);
     expect(autopilot).toMatch(/type: 'grappe:completed',/);
-    expect(autopilot).not.toMatch(/type: 'grappe:partitionProgress',/);
-    expect(DOC).toMatch(/\*\*Autopilot\*\*[^\n]*only its start and its end/);
+    expect(autopilot).toMatch(/executor\.on\('wave-completed'/);
+    expect(autopilot).toMatch(/type: 'grappe:partitionProgress',[\s\S]*?percentage: 100,/);
+    expect(DOC).not.toMatch(/only its start and its end/);
+    expect(DOC).toMatch(/\*\*Autopilot\*\*[^\n]*Each wave is a partition, reported as it ends/);
   });
 
   it('says Grappe makes no run faster', () => {

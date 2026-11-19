@@ -139,6 +139,7 @@ interface ExecutorMock {
   pause: ReturnType<typeof vi.fn>;
   resume: ReturnType<typeof vi.fn>;
   skip: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
 }
 
 /** Helper: create mock deps. Each call to createExecutor produces a fresh tracked mock. */
@@ -198,6 +199,8 @@ function createMockDeps(): { deps: AutopilotOrchestratorDeps; executors: Executo
         pause: vi.fn(),
         resume: vi.fn(),
         skip: vi.fn(),
+        // Subscribed to, and never emitting: the run it stands for has no wave.
+        on: vi.fn(() => () => {}),
       };
       executors.push(executor);
       return executor;
@@ -837,5 +840,52 @@ describe('AutopilotOrchestrator grappe bracketing', () => {
     await orchestrator.executePlan(mockPlan(), mockGraph(), [], counts());
 
     expect(events).toEqual([]);
+  });
+
+  it('says each wave done as one of its partitions, with the records it settled', async () => {
+    // Only the opening and the closing were sent: the panel ended a run that
+    // had written every wave on "Partitions 0/2".
+    const { deps, created } = createRealExecutorDeps();
+    const events: AutopilotGrappeEvent[] = [];
+    deps.grappeConfig = { ...DEFAULT_GRAPPE_CONFIG, enabled: true, autoActivateThreshold: 3 };
+    deps.onGrappeEvent = (event) => events.push(event);
+    const orchestrator = new AutopilotOrchestrator(deps);
+
+    const run = orchestrator.executePlan(
+      twoWavePlan(),
+      mockGraph(),
+      [],
+      new Map([
+        ['Account', 2],
+        ['Contact', 1],
+      ]),
+    );
+    created[0].query.mockImplementation(async (objectApiName: string, afterId?: string) =>
+      afterId !== undefined
+        ? []
+        : objectApiName === 'Account'
+          ? [{ Id: 'a1' }, { Id: 'a2' }]
+          : [{ Id: 'c1' }],
+    );
+    await run;
+
+    expect(events.map((event) => event.type)).toEqual([
+      'grappe:started',
+      'grappe:partitionProgress',
+      'grappe:partitionProgress',
+      'grappe:completed',
+    ]);
+    const operationId = String(events[0].payload.operationId);
+    expect(events[0].payload).toMatchObject({ totalPartitions: 2 });
+    expect(events[1].payload).toEqual({
+      grappeId: `${operationId}-wave-1`,
+      percentage: 100,
+      processedRecords: 2,
+    });
+    expect(events[2].payload).toEqual({
+      grappeId: `${operationId}-wave-2`,
+      percentage: 100,
+      processedRecords: 1,
+    });
   });
 });

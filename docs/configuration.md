@@ -30,7 +30,7 @@ Every SandForge setting lives under **SandForge** in the VS Code Settings UI. Th
 | `sandforge.safety.requireProdConfirmation` | No longer used: every write to a production org asks first                                                                                                            | `true`            |
 | `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                                                     | `true`            |
 | `sandforge.safety.confirmAboveRecords`     | Ask before a Forge clone, an Autopilot run or a Sync writes more than this many records (0: never); one near the target org's data storage is asked about too         | `2000`            |
-| `sandforge.grappe.enabled`                 | Show a large Seed, Sync or Autopilot run's progress in a Grappe panel of its run screen (Autopilot: start and end only); execution stays sequential                   | `false`           |
+| `sandforge.grappe.enabled`                 | Show a large Seed, Sync or Autopilot run's progress in a Grappe panel of its run screen (Autopilot: one partition per wave); execution stays sequential               | `false`           |
 | `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                                                      | `10000`           |
 | `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                                                          | `5000`            |
 

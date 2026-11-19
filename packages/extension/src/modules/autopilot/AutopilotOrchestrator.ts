@@ -530,6 +530,13 @@ export class AutopilotOrchestrator {
       ? executor.on('node-completed', onNodeSettled)
       : noUnsubscribe;
     const offFailed = onNodeSettled ? executor.on('node-failed', onNodeSettled) : noUnsubscribe;
+    // Each wave is one of the run's partitions, said done as it ends with
+    // the records its objects settled: only the opening and the closing were
+    // sent, and the panel ended a run that had written every wave on
+    // "Partitions 0/N". A wave the stop cut short is not said done.
+    const offWaves = grappeActive
+      ? this.relayWavesAsPartitions(executor, operationId)
+      : noUnsubscribe;
     for (const skipped of this.pendingSkips) {
       executor.skip(skipped);
     }
@@ -550,6 +557,7 @@ export class AutopilotOrchestrator {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
       offCompleted();
       offFailed();
+      offWaves();
     }
     // Deliberately after the try, not inside it: a crashed execution rethrows,
     // and neither the completion event nor the grappe:completed below may fire
@@ -568,6 +576,39 @@ export class AutopilotOrchestrator {
     }
 
     return result;
+  }
+
+  /**
+   * Relay each wave the executor ends as a partition of the run's grappe,
+   * done whole, with the records its objects wrote or had refused; hands
+   * back what lets the executor go.
+   */
+  private relayWavesAsPartitions(executor: AutopilotExecutor, operationId: string): () => void {
+    let waves = 0;
+    let settled = 0;
+    const offs = [
+      executor.on('node-completed', (event) => {
+        settled += event.successCount + event.failureCount;
+      }),
+      executor.on('node-failed', (event) => {
+        settled += event.partialSuccessCount + event.failureCount;
+      }),
+      executor.on('wave-completed', () => {
+        waves++;
+        this.deps.onGrappeEvent?.({
+          type: 'grappe:partitionProgress',
+          payload: {
+            grappeId: `${operationId}-wave-${waves}`,
+            percentage: 100,
+            processedRecords: settled,
+          },
+        });
+        settled = 0;
+      }),
+    ];
+    return () => {
+      for (const off of offs) off();
+    };
   }
 
   /** Check whether grappe mode should activate based on record count and config. */
