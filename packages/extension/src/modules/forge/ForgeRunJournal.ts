@@ -434,7 +434,9 @@ function fileSegment(name: string): string {
  * A run that ends in success records what it created in the run history, and
  * its journal goes — unless it mapped more records than the history keeps
  * the ids of (`HISTORY_IDS_BOUND`): its journal stays, ended, and holds them
- * for as long as the history or a removal plan names it. One stopped by a
+ * for as long as the history or a removal plan names it. So does the journal
+ * of a sample's run that did not write every record of its plan, for the
+ * plan kept beside it, which a retry of the run writes again. One stopped by a
  * cancel or a failure is kept in the
  * history with its journal, which says where to resume it from, and how its
  * last part ended. One whose window closed under it — the extension host

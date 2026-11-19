@@ -3891,9 +3891,15 @@ export class ForgeHandler implements DomainHandler {
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
       const counted = withSampleWhy(withCallsBefore(executed, lookup.requests), sample);
-      // A run whose ids stayed in its journal names it, and keeps it.
+      // A run whose ids stayed in its journal names it, and keeps it. So does
+      // a sample's run that did not write every record of its plan, under the
+      // bound too: its plan goes with its journal, and a run that ended with
+      // records refused dropped it, its Retry drawing another sample in place
+      // of the plan it had written most of.
+      const keepsItsJournal =
+        counted.remapInJournal === true || (sample !== undefined && counted.status !== 'success');
       const inJournal =
-        counted.remapInJournal && store && journalId
+        keepsItsJournal && store && journalId
           ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
           : {};
       // The jobs still running as the mute was given back are named to the

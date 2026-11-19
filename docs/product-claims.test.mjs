@@ -5672,6 +5672,15 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
     /\*\*Retry\*\* writes the plan of the run it retries while that run's journal keeps it/,
   );
   assert.match(handler, /plan = await copySamplePlan\(retried, storagePath, run\.journalId\);/);
+  // A run that left records of its plan unwritten keeps the journal its plan goes with.
+  assert.match(
+    sample,
+    /one that did not, its records refused or stopped part way, keeps them for as long as the history keeps the run/,
+  );
+  assert.match(
+    handler,
+    /counted\.remapInJournal === true \|\| \(sample !== undefined && counted\.status !== 'success'\)/,
+  );
 
   // No file with a sample.
   assert.match(sample, /A sample copies no file[^.]*the extension refuses a sample with files/);

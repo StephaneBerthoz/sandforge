@@ -195,7 +195,11 @@ const QUIET: ForgeTargetAutomation = {
   bypassGrants: [],
 };
 
-/** A disk in memory under a real journal, the extension's storage named `storagePath`. */
+/**
+ * A disk in memory under a real journal, the extension's storage named
+ * `storagePath`; the plans of samples, kept on the real disk beside it, go
+ * with their journal as they do in the extension.
+ */
 function journalOnMemory(storagePath: string): ForgeRunJournal {
   const files = new Map<string, string>();
   const key = (filePath: string): string => path.normalize(filePath);
@@ -221,6 +225,7 @@ function journalOnMemory(storagePath: string): ForgeRunJournal {
         Buffer.from(files.get(key(filePath)) ?? '').subarray(offset, offset + length),
       close: () => {},
     }),
+    rmDir: async (dirPath) => rmSync(dirPath, { recursive: true, force: true }),
   });
 }
 
@@ -239,10 +244,13 @@ describe('forge:execute of a sample of the whole org', () => {
   let stopAfter: number | undefined;
   /** Whether the user declines the questions asked. */
   let declining: boolean;
+  /** The contacts the target refuses, the first ones it is sent. */
+  let contactsRefused: number;
 
   beforeEach(() => {
     stopAfter = undefined;
     declining = false;
+    contactsRefused = 0;
     mockGetConn.mockReset();
     questions = [];
     written = new Map();
@@ -344,6 +352,10 @@ describe('forge:execute of a sample of the whole org', () => {
       ),
       insertRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
         const answers = rows.map((row) => {
+          if (object === 'Contact' && contactsRefused > 0) {
+            contactsRefused--;
+            return { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION'] };
+          }
           written.set(object, [...(written.get(object) ?? []), row]);
           return { id: fakeId(PREFIX[object] ?? 'a00', 'T', ++created), success: true, errors: [] };
         });
@@ -859,8 +871,9 @@ describe('forge:execute of a sample of the whole org', () => {
         sample: { drawnBy: 'dryRun', ofTheRunRetried: true },
       });
       expect(rowsWritten()).toBe(planned);
-      // The run retried keeps its own beside its journal.
-      expect(runPlans()).toHaveLength(2);
+      // The run retried keeps its own beside its journal; the retry, which
+      // wrote every record of it, keeps none.
+      expect(runPlans()).toHaveLength(1);
     });
 
     it('is retried with a plan of its own, said, once the plan of the run it retries is gone', async () => {
@@ -892,6 +905,53 @@ describe('forge:execute of a sample of the whole org', () => {
         gate: { code: 'SAMPLE_PLAN_GONE' },
       });
       expect(rowsWritten()).toBe(before);
+    });
+  });
+
+  describe('a run that ended with records refused', () => {
+    /** A simulation, then its run, which the target refused two contacts of: the run's entry. */
+    async function runWithContactsRefused(): Promise<ForgeExecutionResult> {
+      await simulate();
+      contactsRefused = 2;
+      await execute();
+      contactsRefused = 0;
+      const { result } = lastAnswer();
+      expect(result.status).toBe('partial');
+      expect(result.remapInJournal).toBeUndefined();
+      return result;
+    }
+
+    it('is retried with the plan of the run it retries, drawing none, and says so', async () => {
+      const ended = await runWithContactsRefused();
+      const counted = draws();
+
+      await execute({ retryOf: ended.forgeId });
+
+      expect(draws()).toBe(counted);
+      const retried = writeQuestions().at(-1)?.wholeOrg?.sample;
+      expect(retried).toMatchObject({ ofTheRunRetried: true });
+      expect(retried).not.toHaveProperty('drawnAgain');
+      expect(lastAnswer().result).toMatchObject({
+        status: 'success',
+        retryOf: ended.forgeId,
+        sample: { drawnBy: 'dryRun', ofTheRunRetried: true },
+      });
+    });
+
+    it('keeps its plan, beside its journal, for as long as the history keeps the run', async () => {
+      const ended = await runWithContactsRefused();
+
+      expect(ended.journalId).toBeDefined();
+      expect(runPlans()).toHaveLength(1);
+    });
+
+    it('keeps no plan once every record of it is written', async () => {
+      await simulate();
+      await execute();
+
+      expect(lastAnswer().result).toMatchObject({ status: 'success' });
+      expect(lastAnswer().result.journalId).toBeUndefined();
+      expect(runPlans()).toHaveLength(0);
     });
   });
 
