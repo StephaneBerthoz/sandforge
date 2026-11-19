@@ -107,12 +107,14 @@ import {
 import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import {
   budgetRefusal,
+  dependentRelationshipsOf,
   fileStorageRefusal,
   readBudget,
   relationshipsOf,
   rewindEstimate,
   type ObjectRelationships,
 } from './rewindEstimate.js';
+import { ASKED_FIRST_PAST, keepPointing, pointingCount } from './dependentsPointing.js';
 import type { TakeOrg } from './takeCheckpoint.js';
 
 /** What a preview works with. */
@@ -487,17 +489,46 @@ export async function previewCheckpoint(
   // with a parent it deletes, as its own plan says: the diff counts what goes
   // with any, and a rewind of contacts alone, their accounts left, was
   // estimated 25 requests and sent 89.
+  const priced =
+    plan !== undefined && picked !== undefined
+      ? {
+          ...selected,
+          withParentDeleted: plan.acts.flatMap(({ objectApiName, withParent }) =>
+            (withParent ?? 0) > 0 ? [{ objectApiName, count: withParent ?? 0 }] : [],
+          ),
+        }
+      : selected;
+  // Of the objects it sends more than one read of records of on their own,
+  // the relationships something in the org points through, asked as its
+  // removal asks them first, and kept for the rewind's gate
+  // (`dependentsPointing.ts`).
+  const along = new Map(
+    (priced.withParentDeleted ?? []).map(({ objectApiName, count }) => [objectApiName, count]),
+  );
+  const pointing = new Map<string, number>();
+  for (const object of priced.objects) {
+    const alone =
+      object.toDelete.createdSince +
+      object.toDelete.broughtBackSince -
+      (along.get(object.objectApiName) ?? 0);
+    const body = kept.bodies.get(object.objectApiName);
+    const held = relationships.get(object.objectApiName);
+    if (alone <= ASKED_FIRST_PAST || body === undefined || held === undefined) continue;
+    const workedNow =
+      worked ?? new Set((await workedObjects({ describeGlobal: kept.describeGlobal })).keys());
+    const count = await pointingCount(
+      kept.reader,
+      dependentRelationshipsOf(body, workedNow),
+      signal,
+    );
+    pointing.set(object.objectApiName, count);
+    relationships.set(object.objectApiName, { ...held, pointing: count });
+  }
+  await keepPointing(previewDirOf(request.folder, previewId), pointing);
   const cost = rewindEstimate({
     objects: checkpoint.objects,
-    diff:
-      plan !== undefined && picked !== undefined
-        ? {
-            ...selected,
-            withParentDeleted: plan.acts.flatMap(({ objectApiName, withParent }) =>
-              (withParent ?? 0) > 0 ? [{ objectApiName, count: withParent ?? 0 }] : [],
-            ),
-          }
-        : selected,
+    diff: priced,
+    ...(picked !== undefined ? { readDiff: diff } : {}),
     automationRequests: automation?.requests ?? 0,
     ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
     ...(muteRequests > 0 ? { muteRequests } : {}),

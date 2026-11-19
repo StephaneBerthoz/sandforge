@@ -862,6 +862,12 @@ export interface ObjectRelationships {
    * objects those are, every one of them, the most it reads.
    */
   dependents: number;
+  /**
+   * Of {@link dependents}, those something in the org points through, as the
+   * removal asks each first, past one read of the object's records: those
+   * alone are read for each 200. Absent, every one is.
+   */
+  pointing?: number;
   /** Child relationships the org deletes along: the children that come back with a record. */
   cascades: number;
   /**
@@ -888,6 +894,7 @@ const childRelationshipsSchema = z
         z
           .object({
             childSObject: z.string().optional(),
+            field: z.string().optional(),
             cascadeDelete: z.boolean().optional(),
             restrictedDelete: z.boolean().optional(),
           })
@@ -952,6 +959,27 @@ export function relationshipsOf(describe: unknown, bounds?: CheckpointBounds): O
   return { ...relationships, outside: { all: outside.length, worked: worked.length } };
 }
 
+/**
+ * The relationships of an object the removal's check of dependents reads, as
+ * its describe lists them: those the org deletes along or restricts a delete
+ * by, to an object a person works in — every such one, not told which those
+ * are. What a preview asks the org of, as the removal asks it, whether
+ * anything points through each ({@link ObjectRelationships.pointing}).
+ */
+export function dependentRelationshipsOf(
+  describe: unknown,
+  worked: ReadonlySet<string> | undefined,
+): Array<{ childSObject: string; field: string }> {
+  return (childRelationshipsSchema.parse(describe).childRelationships ?? []).flatMap((r) =>
+    (r.cascadeDelete === true || r.restrictedDelete === true) &&
+    r.childSObject !== undefined &&
+    r.field !== undefined &&
+    (worked === undefined || worked.has(r.childSObject))
+      ? [{ childSObject: r.childSObject, field: r.field }]
+      : [],
+  );
+}
+
 /** The relationships of `objectApiName` given, or the most read for one object when none were. */
 function relationshipsFor(
   relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
@@ -1007,6 +1035,13 @@ function deletesCost(records: number, objectApiName: string | undefined): Cost {
  * gone: those it holds are checked again then, and what the removal leaves
  * is read back, a few requests per 200 records held that are not counted.
  *
+ * Told of an object the relationships something in the org points through
+ * (`pointing`), those alone are read per batch of a page of more than one:
+ * the others the removal asks once and reads no further. Not told, every
+ * one is, the most it reads: a rewind of 1,000 contacts of an org whose
+ * contacts held nothing but their account relations was estimated 173
+ * requests and sent 84, twenty relationships priced five reads each.
+ *
  * @param pageRecords - The records of an object the removal is handed a page
  *   at a time, and checks its dependents for a page at a time: a rewind's
  *   spooled plan comes in pages of 2,000 (`RUN_RECORDS_PAGE`), each of more
@@ -1014,25 +1049,32 @@ function deletesCost(records: number, objectApiName: string | undefined): Cost {
  *   through them. A plan held in memory is one page.
  */
 export function removalCost(
-  objects: ReadonlyArray<{ records: number; dependents: number; objectApiName?: string }>,
+  objects: ReadonlyArray<{
+    records: number;
+    dependents: number;
+    pointing?: number;
+    objectApiName?: string;
+  }>,
   pageRecords = Number.POSITIVE_INFINITY,
 ): Cost {
   const removed = objects.filter((object) => object.records > 0);
   if (removed.length === 0) return NOTHING;
   return sum(
     calls(REMOVAL_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    ...removed.map(({ records, dependents, objectApiName }) => {
+    ...removed.map(({ records, dependents, pointing, objectApiName }) => {
       const batchCount = batches(records);
-      let pagesOfMore = 0;
+      /** Per page: one of more than one batch asks each relationship first, and reads those that answer. */
+      let dependentReads = 0;
       for (let left = records; left > 0; left -= pageRecords) {
-        if (Math.min(left, pageRecords) > RECORDS_PER_CALL) pagesOfMore++;
+        const page = batches(Math.min(left, pageRecords));
+        dependentReads +=
+          page > 1 ? dependents + Math.min(pointing ?? dependents, dependents) * page : dependents;
       }
-      const anyPointing = pagesOfMore * dependents;
       return sum(
         calls(1, SECONDS_PER_SMALL_CALL),
         calls(batchCount, SECONDS_PER_READ),
-        calls(anyPointing + dependents * batchCount, SECONDS_PER_DEPENDENTS_READ),
-        toDraftCost(objectApiName, batchCount, anyPointing + dependents * batchCount),
+        calls(dependentReads, SECONDS_PER_DEPENDENTS_READ),
+        toDraftCost(objectApiName, batchCount, dependentReads),
         deletesCost(records, objectApiName),
       );
     }),
@@ -1483,7 +1525,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
  * are to delete, and the users who last changed them named.
  */
 function readAfterPassCost(
-  input: DiffEstimateInput,
+  input: DiffEstimateInput & Pick<RewindEstimateInput, 'readDiff'>,
   secondPassThrough: boolean,
   stampedAnew = false,
 ): Cost {
@@ -1495,10 +1537,15 @@ function readAfterPassCost(
   // What a pass made again in an object nothing moved in moved it: its
   // describe goes with the others', before the change reads.
   const described = input.diff.described;
+  // A rewind limited to some objects reads every object again, those it
+  // leaves found as before.
+  const acted = new Set(input.diff.objects.map((object) => object.objectApiName));
   return readCost(
     input.objects,
-    readsOf(input, (object, held) =>
-      readAfterPass(object, held, input.relationships, secondPassThrough),
+    readsOf({ ...input, diff: input.readDiff ?? input.diff }, (object, held) =>
+      acted.has(object.objectApiName)
+        ? readAfterPass(object, held, input.relationships, secondPassThrough)
+        : readOf(object, held, input.relationships),
     ),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     names ? 1 : 0,
@@ -1540,6 +1587,14 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    * them again, with their items, and deletes them first. Absent, none.
    */
   duplicateSets?: number;
+  /**
+   * Of a rewind limited to some objects, the diff of every object: it reads
+   * them all again, before its first pass and after each, the objects it
+   * leaves found as before. Absent, {@link diff} is every object read. Priced
+   * on the objects picked alone, a rewind of contacts whose accounts and
+   * account relations it left read 1,024 records more than its estimate said.
+   */
+  readDiff?: DiffEstimateInput['diff'];
   /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one: the objects it brings records back
@@ -1835,6 +1890,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
           objectApiName: object.objectApiName,
           records: sentFirst(object),
           dependents: relationships(object.objectApiName).dependents,
+          pointing: relationships(object.objectApiName).pointing,
         })),
         { objectApiName: DUPLICATE_SET_OBJECT, records: sets, dependents: 1 },
       ],
@@ -1864,6 +1920,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
               objectApiName: object.objectApiName,
               records: deletedNext(object),
               dependents: relationships(object.objectApiName).dependents,
+              pointing: relationships(object.objectApiName).pointing,
             })),
             RUN_RECORDS_PAGE,
           ),
@@ -1927,7 +1984,9 @@ export function rewindEstimate(
   const records = toDelete + toGiveBack + toBringBack + recreated;
   const reads = sum(
     calls(ACT_FIXED_REQUESTS + accessRequestsOf(input.diff), SECONDS_PER_SMALL_CALL),
-    input.reusesPreview === true ? NOTHING : diffEstimate(input),
+    input.reusesPreview === true
+      ? NOTHING
+      : diffEstimate({ ...input, diff: input.readDiff ?? input.diff }),
   );
   const files = input.diff.files;
   if (records === 0 && linksWritten(files) === 0) {

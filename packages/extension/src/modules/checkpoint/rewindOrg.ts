@@ -380,6 +380,7 @@ import {
 } from './rewindDuplicateSets.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
 import { settleNotInBin } from './undoRewind.js';
+import { keptPointing } from './dependentsPointing.js';
 
 // ─── Figures ─────────────────────────────────────────────────────────────────
 
@@ -2084,11 +2085,16 @@ class Rewind {
         inCheckpoint.add(held.toLowerCase());
       }
     }
+    // What its preview read of the relationships something points through,
+    // as its removal asks them first (`dependentsPointing.ts`).
+    const pointing = await keptPointing(previewDirOf(this.request.folder, this.request.previewId));
     const relationships = new Map<string, ObjectRelationships>();
     for (const [objectApiName, body] of this.kept.bodies) {
+      const read = relationshipsOf(body, { inCheckpoint, ...(worked ? { worked } : {}) });
+      const pointed = pointing.get(objectApiName);
       relationships.set(
         objectApiName,
-        relationshipsOf(body, { inCheckpoint, ...(worked ? { worked } : {}) }),
+        pointed !== undefined ? { ...read, pointing: pointed } : read,
       );
     }
     return relationships;
@@ -2238,6 +2244,7 @@ class Rewind {
               ),
             }
           : pickedDiff,
+      ...(this.picked !== undefined ? { readDiff: fresh.diff } : {}),
       automationRequests: 0,
       relationships: await this.relationships(),
       ...(this.confirmedSets.size > 0 ? { duplicateSets: this.confirmedSets.size } : {}),
