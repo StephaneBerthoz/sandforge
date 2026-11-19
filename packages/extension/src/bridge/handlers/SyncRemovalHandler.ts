@@ -406,8 +406,9 @@ export class SyncRemovalHandler implements DomainHandler {
    * takes them: what it brings back from the recycle bin, what it gives back
    * of what the backup store keeps, the activated orders it sets back to
    * Draft and what it deletes — files and records alike, every one it
-   * created, `again`, and the copies the platform made of its lines on an
-   * object it never wrote.
+   * created, `again`, the copies the platform made of its lines on an
+   * object it never wrote, and the duplicate record sets it takes with the
+   * records of a run that kept the user it wrote as.
    */
   private removalStepsOf(run: SyncRunKept, again = false): ForgeRemovalSteps {
     const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
@@ -418,7 +419,7 @@ export class SyncRemovalHandler implements DomainHandler {
       bringBack: names(syncUndeletePlan(run)),
       giveBack: names(this.keptBack(syncRestorePlan(run)).kept),
       setToDraft: setBackToDraftOf(deleted),
-      delete: objectsRemovedOf(deleted),
+      delete: objectsRemovedOf(deleted, [], { userKept: run.runUserId !== undefined }),
     };
   }
 

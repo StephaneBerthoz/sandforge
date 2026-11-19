@@ -1077,6 +1077,46 @@ describe('a sweep asked with the removal of a Seed run', () => {
       }
     });
 
+    it('plans the mute on the duplicate record sets its removal takes of a seed that kept the user it wrote as, and of that seed alone', async () => {
+      // The removal of such a seed deletes the sets the target's duplicate
+      // rules made of its records: read on the seed's objects alone, a
+      // trigger on the sets fired under the mute the removal was asked for.
+      const leases = mkdtempSync(join(tmpdir(), 'sandforge-seed-sets-leases-'));
+      try {
+        handler.setMuteLeases({ dir: leases, renewEveryMs: 0 });
+        const read = vi.fn(
+          async (_orgId: string, _objects: readonly string[]) =>
+            ({ objectsRead: [], objects: [], unread: [] }) as unknown as ForgeTargetAutomation,
+        );
+        handler.setTargetAutomation({ read });
+        const { conn } = leasedConnection(tied, USER);
+        vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+        await keep(
+          'op-user',
+          [
+            ['Account', [ACCOUNT]],
+            ['Contact', [CONTACT]],
+          ],
+          USER,
+        );
+
+        await handler.handle(buildMsg('seed:remove', { runId: 'op-user', muteAutomation: true }));
+
+        expect(errors()).toEqual([]);
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(read.mock.calls[0]?.[1]).toEqual(['Contact', 'Account', 'DuplicateRecordSet']);
+
+        // A seed kept before its file named its user: its removal takes no set.
+        await keep('op-unnamed', [['Contact', [id('003', 2)]]]);
+        await handler.handle(
+          buildMsg('seed:remove', { runId: 'op-unnamed', muteAutomation: true }),
+        );
+        expect(read.mock.calls[1]?.[1]).toEqual(['Contact']);
+      } finally {
+        rmSync(leases, { recursive: true, force: true });
+      }
+    });
+
     it('takes the user the seed’s file keeps, reading none of its records to tell it', async () => {
       await keep(
         'op-user',

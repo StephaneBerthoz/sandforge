@@ -937,6 +937,36 @@ describe('sandforge-sync --remove', () => {
       expect(org.deletes.filter((d) => d.objectApiName === 'DuplicateRecordSet')).toHaveLength(1);
     });
 
+    it('reads what fires on the set it takes, and deletes nothing when something does, without --accept-automation', async () => {
+      // Read on the run's objects alone, a trigger on the sets the removal
+      // deletes with the records went unsaid and unasked.
+      automationRead.mockResolvedValueOnce({
+        objectsRead: ['Contact', 'Account', 'DuplicateRecordSet'],
+        objects: [
+          {
+            objectApiName: 'DuplicateRecordSet',
+            flows: [],
+            triggers: [{ name: 'SetAudit', events: ['beforeDelete'] }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 3,
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(automationRead.mock.calls.at(-1)?.[1]).toEqual([
+        'Contact',
+        'Account',
+        'DuplicateRecordSet',
+      ]);
+      expect(exit.stderr()).toContain('DuplicateRecordSet: Apex trigger SetAudit (before delete)');
+      expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SET]);
+    });
+
     it('says the set on one line, without a line of it already gone', async () => {
       await main(argv('--remove', file, '--target', 'TGT'));
 

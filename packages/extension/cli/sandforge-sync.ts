@@ -4004,7 +4004,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       bringBack: names(bringBack),
       giveBack: names(kept.kept),
       setToDraft: setBackToDraftOf(names(plan)),
-      delete: objectsRemovedOf(names(plan)),
+      // With the duplicate record sets it takes with the records of a run
+      // that kept the user it wrote as.
+      delete: objectsRemovedOf(names(plan), [], { userKept: subject.runUserId !== undefined }),
     },
     parts?.takes ?? [],
   );

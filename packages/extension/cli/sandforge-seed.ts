@@ -3669,9 +3669,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // deleted without a word of it. A seed only creates, so nothing is brought
   // back from the recycle bin, and what runs on an undelete is not read. A stop
   // while the sweep read asks nothing: the removal stops at its next call.
+  // The duplicate record sets it takes with the records of a run that kept the
+  // user it wrote as are among its deletes, read and asked about with them.
   const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
   const steps: ForgeRemovalSteps = removalStepsWithSweep(
-    { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
+    {
+      setToDraft: setBackToDraftOf(removed),
+      delete: objectsRemovedOf(removed, [], { userKept: subject.runUserId !== undefined }),
+    },
     parts?.takes ?? [],
   );
   const deleted = steps.delete ?? [];
@@ -4050,7 +4055,10 @@ async function previewRemoval(
   // deletes, read and said as the removal says it before its first delete.
   const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
   const steps: ForgeRemovalSteps = removalStepsWithSweep(
-    { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
+    {
+      setToDraft: setBackToDraftOf(removed),
+      delete: objectsRemovedOf(removed, [], { userKept: subject.runUserId !== undefined }),
+    },
     sweepListing ? sweepTakenObjects(sweepListing, args) : [],
   );
   const automation = await targetAutomationReader(conn).read(args.target, steps.delete ?? []);

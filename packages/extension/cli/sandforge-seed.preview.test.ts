@@ -256,6 +256,25 @@ describe('sandforge-seed --remove --preview', () => {
     expect(automationRead).toHaveBeenCalledWith('TGT', ['Contact', 'Account']);
   });
 
+  it('reads what fires on the duplicate record sets a removal takes of a run whose summary keeps the user it wrote as', async () => {
+    const kept = summary();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...kept,
+        result: { ...(kept.result as Record<string, unknown>), runUserId: fakeId('005', 1) },
+      }),
+    );
+
+    await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+    expect(automationRead).toHaveBeenCalledWith('TGT', [
+      'Contact',
+      'Account',
+      'DuplicateRecordSet',
+    ]);
+  });
+
   it('lists with --sweep what the sweep would take, and reads what fires on its objects with the run’s', async () => {
     vi.stubEnv('SANDFORGE_JOURNAL_DIR', join(dir, 'journal'));
     vi.mocked(listSweep).mockResolvedValue({

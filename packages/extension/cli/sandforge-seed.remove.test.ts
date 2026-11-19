@@ -1288,6 +1288,45 @@ describe('sandforge-seed --remove', () => {
       expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
     });
 
+    it('reads what fires on the duplicate record sets it takes with the records of a run whose summary keeps the user it wrote as', async () => {
+      // Read on the run's objects alone, a trigger on the sets the removal
+      // deletes with the records went unsaid and unasked.
+      const kept = summary();
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...kept,
+          result: { ...(kept.result as Record<string, unknown>), runUserId: MEMORY_ORG_USER },
+        }),
+      );
+      automationRead.mockResolvedValueOnce({
+        objectsRead: ['Contact', 'Account', 'DuplicateRecordSet'],
+        objects: [
+          {
+            objectApiName: 'DuplicateRecordSet',
+            flows: [],
+            triggers: [{ name: 'SetAudit', events: ['beforeDelete'] }],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 3,
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(automationRead).toHaveBeenLastCalledWith('TGT', [
+        'Contact',
+        'Account',
+        'DuplicateRecordSet',
+      ]);
+      expect(stdout).toContain('  DuplicateRecordSet: before delete: Apex trigger SetAudit\n');
+      expect(exit.stderr()).toContain('DuplicateRecordSet: Apex trigger SetAudit (before delete)');
+      expect(org.deletes).toEqual([]);
+    });
+
     it('removes all the same with --accept-automation, having said what fires', async () => {
       automationRead.mockResolvedValueOnce(firing());
       let stderr = '';

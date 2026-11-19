@@ -237,6 +237,49 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     ]);
   });
 
+  it('names what fires on the duplicate record sets the removal takes with the records of a run that kept the user it wrote as', async () => {
+    // The removal of such a run deletes the sets the target's duplicate
+    // rules made of its records; read on its objects alone, a trigger on the
+    // sets fired unannounced, and the mute asked of the removal left it on.
+    const recorder = creations.recorder({
+      runId: 'run-user',
+      configId: 'cfg-3',
+      configName: 'Leads',
+      sourceOrgId: 'org-source',
+      targetOrgId: TARGET_ORG,
+      startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+    });
+    recorder.runUser?.(id('005', 1));
+    recorder.note('Lead', [id('00Q', 1)]);
+    await recorder.end({ status: 'success' });
+    const reader = new TargetAutomationReader({
+      query: async () => ({ records: [], requests: 1 }),
+      toolingQuery: async (_orgId, soql) => ({
+        records:
+          soql === TRIGGERS_SOQL
+            ? [triggerRow('DuplicateRecordSet', 'SetAudit', ['UsageBeforeDelete'])]
+            : [],
+        requests: 1,
+      }),
+    });
+    handler.setTargetAutomation(reader);
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-user' }));
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all' }));
+
+    expect(errors()).toEqual([]);
+    const [kept, unkept] = posted<BaseMessage & { payload: AutomationAnswer }>(
+      'sync:remove:automation:response',
+    ).map((m) => m.payload);
+    expect(kept?.steps.delete).toEqual(['Lead', 'DuplicateRecordSet']);
+    const fired = firedOnRemovalStepsOf(kept!.automation, kept!.steps);
+    expect(fired.map((f) => `${f.step} ${f.objectApiName} ${f.name} ${f.when}`)).toEqual([
+      'delete DuplicateRecordSet SetAudit before',
+    ]);
+    // A run kept before its file named its user: its removal takes no set.
+    expect(unkept?.steps.delete).not.toContain('DuplicateRecordSet');
+  });
+
   it('reads the objects of every step once, asking for the triggers of an undelete', async () => {
     const read = vi.fn(
       async (

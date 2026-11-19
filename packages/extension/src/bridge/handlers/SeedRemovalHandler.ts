@@ -969,12 +969,18 @@ export class SeedRemovalHandler implements DomainHandler {
       // deletes among them, plans the mute from it, and takes the lease before
       // its first delete; it is given back as the removal ends, whatever it
       // ended on. Refused, nothing goes. The confirmation reads none of this:
-      // what a mute silences is read here alone.
+      // what a mute silences is read here alone. Among its deletes, the
+      // duplicate record sets it takes with the records of a run that kept
+      // the user it wrote as: read on the run's objects alone, a trigger on
+      // the sets fired under the mute asked for.
       let removalMute: RunMute | undefined;
       if (asked.muteAutomation === true) {
         const removed = [...new Set(plan.map((object) => object.objectApiName))];
         const steps = removalStepsWithSweep(
-          { setToDraft: setBackToDraftOf(removed), delete: objectsRemovedOf(removed) },
+          {
+            setToDraft: setBackToDraftOf(removed),
+            delete: objectsRemovedOf(removed, [], { userKept: run.runUserId !== undefined }),
+          },
           sweepParts?.takes ?? [],
         );
         const objects = steps.delete ?? [];
