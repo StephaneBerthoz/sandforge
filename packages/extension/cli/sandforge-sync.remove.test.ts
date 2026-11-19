@@ -958,7 +958,7 @@ describe('sandforge-sync --remove', () => {
 
       await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
 
-      expect(automationRead.mock.calls.at(-1)?.[1]).toEqual([
+      expect((automationRead.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual([
         'Contact',
         'Account',
         'DuplicateRecordSet',
