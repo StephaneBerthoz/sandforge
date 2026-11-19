@@ -130,7 +130,8 @@ describe('nameDuplicateSets', () => {
     ]);
     expect(setsNamed(diff)).toBe(1);
     expect(await confirmedDuplicateSets(dir)).toEqual(new Set([set(1).slice(0, 15)]));
-    expect(statSync(join(dir, 'duplicate-record-sets.ids')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32')
+      expect(statSync(join(dir, 'duplicate-record-sets.ids')).mode & 0o777).toBe(0o600);
   });
 
   it('reads nothing of an org when nothing is to be deleted, or no item of a set hangs from it, and keeps no list', async () => {

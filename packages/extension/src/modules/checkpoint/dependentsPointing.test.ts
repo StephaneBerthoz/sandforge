@@ -56,7 +56,8 @@ describe('keepPointing and keptPointing', () => {
     await keepPointing(dir, new Map([['Contact', 1]]));
 
     expect(await keptPointing(dir)).toEqual(new Map([['Contact', 1]]));
-    expect(statSync(join(dir, 'dependents-pointing.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32')
+      expect(statSync(join(dir, 'dependents-pointing.json')).mode & 0o777).toBe(0o600);
   });
 
   it('keeps nothing when it read nothing', async () => {

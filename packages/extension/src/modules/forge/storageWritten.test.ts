@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   UNCOUNTED_WINDOW_MINUTES,
   noteStorageSaid,
@@ -231,7 +231,7 @@ describe('what runs from this machine wrote to an org that its /limits has not c
 
   it('lives in the folder the journals are kept in', () => {
     expect(storageWrittenDirOf({ SANDFORGE_JOURNAL_DIR: '/tmp/journals' })).toBe(
-      join('/tmp/journals', 'storage-written'),
+      join(resolve('/tmp/journals'), 'storage-written'),
     );
   });
 });

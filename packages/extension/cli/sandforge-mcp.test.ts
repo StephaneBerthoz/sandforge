@@ -3093,8 +3093,13 @@ describe('sandforge-mcp: the records a query chooses (clone_records)', () => {
     expect(text).toContain(
       '{"defaultValues":[{"object":"Account","field":"Region__c","value":"…"}]}',
     );
+    // cmd.exe reads a word whole in double quotes, a POSIX shell in single quotes.
+    const query =
+      process.platform === 'win32'
+        ? '"SELECT Id FROM Account LIMIT 3"'
+        : "'SELECT Id FROM Account LIMIT 3'";
     expect(text).toContain(
-      `${commandOf('clone')} --query 'SELECT Id FROM Account LIMIT 3' --max-roots 3 --source ` +
+      `${commandOf('clone')} --query ${query} --max-roots 3 --source ` +
         'SRC --target SB --dry-run --config <file.json>',
     );
     // A field a decision answers needs nothing.
