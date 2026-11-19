@@ -33,6 +33,7 @@ import {
   type RunRequestParts,
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import {
   fitBudgetOf,
   roomBytesOf,
@@ -681,7 +682,9 @@ export async function seedStorageGate(
   if (refusal) {
     return { check, api, refusal: `${refusal} Nothing was written.`, refusedFor: 'storage' };
   }
-  const overBudget = apiBudgetRefusal(api, target);
+  // The insert sends again the rows the target refuses for a lock, which no
+  // estimate made before the write counts: said, as Sync's gate says it.
+  const overBudget = apiBudgetRefusal(api, target, LOCK_RESENDS_NOT_COUNTED);
   return overBudget
     ? { check, api, refusal: overBudget, refusedFor: 'apiRequests' }
     : { check, api };

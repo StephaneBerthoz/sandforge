@@ -18,6 +18,7 @@ import { seedLeavesEmptyOf, seedRoomOf, seedWritesOf } from './seedFit.js';
 import { seedInsert, type SeedInsertConnection } from './seedInsert';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import type { BulkJobHandle } from '../../core/engine/BulkApiExecutor.js';
 
 const KB = 1024;
@@ -168,7 +169,8 @@ describe('seedStorageGate', () => {
       `The run takes about ${seedRequestsEstimate(CRM_STARTER)} API requests, and my-dev-org has ` +
         '3 of its 15000 daily requests left: it would stop part way through, its records ' +
         'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
-        'limit is counted over the last 24 hours — or write fewer records. Nothing was written.',
+        `limit is counted over the last 24 hours — or write fewer records. ${LOCK_RESENDS_NOT_COUNTED} ` +
+        'Nothing was written.',
     );
   });
 

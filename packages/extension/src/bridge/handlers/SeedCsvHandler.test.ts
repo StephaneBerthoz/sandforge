@@ -55,6 +55,7 @@ import {
   nodeSeedRunCreations,
   type SeedRunCreations,
 } from '../../modules/seed/SeedRunCreations.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -302,6 +303,11 @@ describe('SeedCsvHandler', () => {
       // automation just before, which says it sent one.
       expect(String((error.payload as { message?: string }).message)).toContain(
         `The run takes about ${96 + 5 + 1} API requests`,
+      );
+      // The writer sends again the rows the org refuses for a lock, which no
+      // estimate counts: the refusal says so, as Sync's does.
+      expect(String((error.payload as { message?: string }).message)).toContain(
+        `${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`,
       );
     });
 

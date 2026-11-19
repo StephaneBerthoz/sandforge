@@ -102,6 +102,7 @@ import {
   type ApiBudget,
   type DataStorage,
 } from '../../modules/forge/ForgeRunGate.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { cloneRequestsEstimate } from '../../modules/seed/seedStorage.js';
 import { duplicateRulesOf } from '../../modules/seed/seedDuplicateRules.js';
 import {
@@ -1219,7 +1220,9 @@ export class SeedCloneHandler implements DomainHandler {
             `could not be read (${api.unread})`,
         );
       }
-      const overBudget = apiBudgetRefusal(api, targetName);
+      // The writer sends again the rows the target refuses for a lock, which
+      // no estimate made before the write counts: said, as Sync's gate says it.
+      const overBudget = apiBudgetRefusal(api, targetName, LOCK_RESENDS_NOT_COUNTED);
       if (overBudget) {
         recordWriteRun(this.deps, {
           ...run,

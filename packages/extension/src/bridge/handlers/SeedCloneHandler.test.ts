@@ -75,6 +75,7 @@ import { rolesMadeAlikeWords } from '../../core/common/platformRecords.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
@@ -2447,6 +2448,11 @@ describe('SeedCloneHandler', () => {
             }),
           }),
         ]);
+        // The writer sends again the rows the target refuses for a lock,
+        // which no estimate counts: the refusal says so, as Sync's does.
+        expect(
+          String((posted(deps, 'operation:failed')[0]?.payload as { error?: string }).error),
+        ).toContain(`${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`);
       });
 
       it('counts again by REST the contacts a duplicate rule watching them may refuse in the job', async () => {
