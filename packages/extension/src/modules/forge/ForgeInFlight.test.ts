@@ -948,6 +948,32 @@ describe('a clone of the whole org killed once its Bulk API job of cases was clo
     expect((await reconcileInFlight(file, org)).calls).toBe(0);
   });
 
+  it('reads the same and keeps nothing asked to keep nothing, as a removal’s preview asks, and says what a removal would keep, uncounted', async () => {
+    const text = killedJournal(false);
+    const file = memoryRunFile(text);
+    const org = { ...targetHolding([]), readJob: vi.fn(async () => ended()) };
+
+    const outcome = await reconcileInFlight(file, org, undefined, { keep: false });
+
+    expect(outcome.unattributed).toEqual([{ objectApiName: 'Case', rows: 2520 }]);
+    expect(file.text()).toBe(text);
+    expect(inFlightLines(outcome, 'TGT', 'preview')).toEqual(
+      expect.arrayContaining([
+        '1 insert or upsert call(s) were under way when the run stopped, their answer never ' +
+          'kept: their rows were looked for in TGT, as a removal looks for them first',
+        '  written by a Bulk API job and matched to no row, which a removal keeps as written by ' +
+          'the run and removes with its records, not counted here: 2520 Case',
+      ]),
+    );
+    // Kept, it is what the removal says of them.
+    await reconcileInFlight(file, org);
+    expect(file.text()).not.toBe(text);
+    expect(inFlightLines(outcome, 'TGT', 'removal')).toContain(
+      '  written by a Bulk API job and matched to no row, kept as written by the run and ' +
+        'removed with its records: 2520 Case',
+    );
+  });
+
   it('links none of the rows of a journal that kept no key of them, their one fingerprint shared by all, and says so', async () => {
     // The journal 1.78.0 kept: the fingerprint alone, over the three fields
     // every case fills, the same on all of them.

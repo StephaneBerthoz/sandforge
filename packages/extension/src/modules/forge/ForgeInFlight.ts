@@ -398,8 +398,15 @@ export interface InFlightTarget {
 /**
  * The org a run wrote to, over its connection, as a reconciliation reads it:
  * its records a page at a time, the user the connection is of, its clock.
+ *
+ * @param options.leaveOpen - For a read that writes nothing, a removal's
+ *   preview: a job left open past its hour of grace is said open, and left
+ *   so, where a read of it aborts it otherwise (`readJobResults`).
  */
-export function inFlightTargetOf(conn: Connection): InFlightTarget {
+export function inFlightTargetOf(
+  conn: Connection,
+  options: { leaveOpen?: true } = {},
+): InFlightTarget {
   return {
     queryPages: (soql) =>
       cursorPages<Record<string, unknown>>(
@@ -413,7 +420,8 @@ export function inFlightTargetOf(conn: Connection): InFlightTarget {
     serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
     // Through the typed adapter, which holds what the org says of a job to an
     // ingest job's states: a state it does not name is not read as one.
-    readJob: (jobId) => readJobResults(jsforceBulk(conn), jobId),
+    readJob: (jobId) =>
+      readJobResults(jsforceBulk(conn), jobId, options.leaveOpen ? { leaveOpen: true } : {}),
   };
 }
 
@@ -890,6 +898,10 @@ export function callsInFlight(file: RunFile): number {
  * A journal kept before calls were journaled has none: nothing is read of
  * the target, and nothing written.
  *
+ * Asked to keep nothing (`keep: false`), it reads as it would and adds no
+ * line: what a removal's preview says it would find, the journal left as the
+ * removal will read it.
+ *
  * @param file - The journal, opened to add to.
  * @param target - The org the run wrote to.
  * @param now - This machine's clock, set against the org's.
@@ -898,6 +910,7 @@ export async function reconcileInFlight(
   file: RunFile,
   target: InFlightTarget,
   now: () => Date = () => new Date(),
+  options: { keep?: boolean } = {},
 ): Promise<InFlightReconciliation> {
   const outcome = noCallsInFlight();
   // The calls left open, the jobs they went as, and the journal's last time.
@@ -1177,34 +1190,40 @@ export async function reconcileInFlight(
       if (!doubtful.has(call.callId)) lines.push(JSON.stringify([ANSWERED_TAG, call.callId]));
     }
   }
-  if (lines.length > 0) file.append(`${lines.join('\n')}\n`);
+  if (lines.length > 0 && options.keep !== false) file.append(`${lines.join('\n')}\n`);
   return outcome;
 }
 
 /**
  * The lines a command or a log says of a reconciliation: the calls under way
  * when the run stopped, what of their rows the target holds, and what it may
- * hold — for a resume, what it writes; for a removal, what it takes back.
+ * hold — for a resume, what it writes; for a removal, what it takes back; for
+ * a removal's preview, which kept nothing of it (`keep: false`), what the
+ * removal would take back, which the preview's counts leave out.
  * None when no call was under way.
  */
 export function inFlightLines(
   reconciled: InFlightReconciliation,
   org: string,
-  before: 'resume' | 'removal' = 'resume',
+  before: 'resume' | 'removal' | 'preview' = 'resume',
 ): string[] {
   if (reconciled.calls === 0) return [];
   const each = (list: InFlightObjectRows[]): string =>
     list.map(({ objectApiName, rows }) => `${rows} ${objectApiName}`).join(', ');
+  /** What becomes of the records found, as each says it. */
+  const kept = {
+    resume: 'kept as written by the run and not written again',
+    removal: 'kept as written by the run and removed with its records',
+    preview:
+      'which a removal keeps as written by the run and removes with its records, not counted here',
+  }[before];
   const lines = [
     `${reconciled.calls} insert or upsert call(s) were under way when the run stopped, their answer ` +
-      `never kept: their rows were looked for in ${org}`,
+      `never kept: their rows were looked for in ${org}` +
+      (before === 'preview' ? ', as a removal looks for them first' : ''),
   ];
   if (reconciled.found.length > 0) {
-    lines.push(
-      before === 'resume'
-        ? `  found in ${org}, kept as written by the run and not written again: ${each(reconciled.found)}`
-        : `  found in ${org}, kept as written by the run and removed with its records: ${each(reconciled.found)}`,
-    );
+    lines.push(`  found in ${org}, ${kept}: ${each(reconciled.found)}`);
   }
   if (reconciled.notFound.length > 0) {
     lines.push(
@@ -1216,7 +1235,9 @@ export function inFlightLines(
   if (reconciled.uncertain.length > 0) {
     lines.push(`  may already be in ${org}: ${each(reconciled.uncertain)}`);
   }
-  for (const job of reconciled.underway ?? []) lines.push(`  ${underwayWords(job, before)}`);
+  for (const job of reconciled.underway ?? []) {
+    lines.push(`  ${underwayWords(job, before === 'resume' ? 'resume' : 'removal')}`);
+  }
   for (const { objectApiName, rows } of reconciled.untold ?? []) {
     lines.push(
       `  ${objectApiName}: ${rows} row(s) the journal cannot tell apart, several under one ` +
@@ -1226,8 +1247,8 @@ export function inFlightLines(
   }
   if ((reconciled.unattributed ?? []).length > 0) {
     lines.push(
-      `  written by a Bulk API job and matched to no row, kept as written by the run` +
-        `${before === 'resume' ? '' : ' and removed with its records'}: ` +
+      `  written by a Bulk API job and matched to no row, ` +
+        `${before === 'resume' ? 'kept as written by the run' : kept}: ` +
         each(reconciled.unattributed ?? []),
     );
   }
@@ -1246,8 +1267,9 @@ function minutesOf(ms: number): number {
  * What a job the run had under way and the org has not ended is, said with
  * its id, its state and what it processed: one still open was never closed
  * by its sender, and closed would write its rows, until its hour of grace
- * ends and a read of it aborts it; one closed goes on to its end on the
- * org's side, and is read once it has ended.
+ * ends and a read of it aborts it — an hour a preview, which aborts nothing,
+ * may find past; one closed goes on to its end on the org's side, and is
+ * read once it has ended.
  */
 function underwayWords(job: InFlightJobUnderway, before: 'resume' | 'removal'): string {
   const head =
@@ -1257,7 +1279,7 @@ function underwayWords(job: InFlightJobUnderway, before: 'resume' | 'removal'): 
     const from =
       job.openUntil !== undefined
         ? ` from ${job.openUntil}` +
-          (job.graceLeftMs !== undefined
+          (job.graceLeftMs !== undefined && job.graceLeftMs > 0
             ? `, in about ${minutesOf(job.graceLeftMs)} minute(s),`
             : '')
         : ' an hour after it was opened';

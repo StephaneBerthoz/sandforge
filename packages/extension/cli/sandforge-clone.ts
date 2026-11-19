@@ -7947,14 +7947,22 @@ export function removalPlan(summary: RunSummary): ForgeRunObjectRecords[] {
  * created itself, which go with that one, and the records --upsert wrote over.
  */
 function heldRecordsStayLine(summary: RunSummary): string {
-  const stay =
+  return (
+    `${heldRecordsStaying(summary)} record(s) the target already held, which the run linked ` +
+    'to or wrote over, stay'
+  );
+}
+
+/** The records {@link heldRecordsStayLine} says stay, counted. */
+function heldRecordsStaying(summary: RunSummary): number {
+  return (
     forgeRunLinkedKept({
       idRemapTable: summary.result.remapTable,
       idRemapExisting: summary.result.existingSourceIds,
       idRemapCreated: summary.result.createdByObject,
       idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
-    }).length + summary.result.updatedSourceIds.length;
-  return `${stay} record(s) the target already held, which the run linked to or wrote over, stay`;
+    }).length + summary.result.updatedSourceIds.length
+  );
 }
 
 /**
@@ -10661,7 +10669,14 @@ async function removeUnderItsLock(
 
 /** What `--remove --preview` says a removal of the run would do. */
 export interface CloneRemovalPreview {
-  /** The run's records a removal would set out to take. */
+  /**
+   * What a removal would set out to take, as `objects` counts it: the run's
+   * records, and what it reads with them as it begins and takes with them —
+   * the sets the target's duplicate rules made of them, the lines the
+   * platform copied under a quote the run synced. Counted from the run's
+   * records alone, it said 2 629 where its objects came to 2 631, as the
+   * removal then planned them.
+   */
   planned: number;
   /** Per object, in the order a removal would take them: children before their parents. */
   objects: RemovalPreviewObject[];
@@ -10669,6 +10684,12 @@ export interface CloneRemovalPreview {
   undeletable?: UndeletableObject[];
   /** The names of the users who changed records of the run since, by user Id. */
   userNames: Record<string, string>;
+  /**
+   * The records the target already held, which the run linked to or wrote
+   * over: a removal leaves them where they are. Said with a plan, as the
+   * line of `notes` that says they stay, which a pipeline read it out of.
+   */
+  alreadyHeld?: number;
 }
 
 /**
@@ -10820,17 +10841,61 @@ async function previewRemoval(
     );
     process.exit(2);
   }
+  /** The org, reached once: before the plan when the run's journal has calls to look for. */
+  let reached: { conn: Connection; org: TypedOrg } | undefined;
+  const reach = async (): Promise<{ conn: Connection; org: TypedOrg }> => {
+    if (reached) return reached;
+    const conn = makeConn(await loadOrg(args.target));
+    const org = await typeOrg(conn);
+    if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
+      const refused = {
+        code: OTHER_ORG,
+        message:
+          `${args.target} is not the org the run wrote to (${summary.targetOrgId}): its records ` +
+          'are read in that org only. Nothing of the run was read.',
+      };
+      process.stderr.write(`${refusedLine(refused)}\n`);
+      if (args.json) {
+        process.stdout.write(
+          refusedRemovalSummary(
+            {
+              tool: 'sandforge-clone',
+              action: 'remove-preview',
+              summary: args.summaryPath,
+              target: args.target,
+              elapsedMs: elapsedSince(t0),
+            },
+            refused,
+          ),
+        );
+      }
+      process.exit(1);
+    }
+    reached = { conn, org };
+    return reached;
+  };
+  // The calls the run had under way when it stopped, looked for in the target
+  // as the removal looks for them before it plans, and said as it says them:
+  // read only — the jobs left open too, which the removal aborts once their
+  // hour is past — and kept nowhere, so the removal finds the journal as it
+  // was. Live, a preview right after a run was killed as its Bulk API job
+  // opened said only that the journal named calls under way; the removal run
+  // next named the job, open, and when it would abort it. What the removal
+  // would keep of them as the run's is said, not counted: the counts below
+  // are of what the summary names.
   const journalOfRun = summary.journal;
   if (
     journalOfRun !== undefined &&
     existsSync(journalOfRun) &&
     nodeRunJournal(journalDirOf()).callsInFlightAt(journalOfRun) > 0
   ) {
-    notes.push(
-      "the run's journal names calls under way when it stopped: a removal looks for their rows " +
-        'in the target first and removes those it finds with the rest; this preview counts only ' +
-        'what the summary names',
+    const { conn } = await reach();
+    const reconciled = await nodeRunJournal(journalDirOf()).reconcileAt(
+      journalOfRun,
+      inFlightTargetOf(conn, { leaveOpen: true }),
+      { keep: false },
     );
+    notes.push(...inFlightLines(reconciled, args.target, 'preview'));
   }
   const unreachable = (summary.result.mayHaveBeenWritten ?? []).reduce(
     (sum, { sourceIds }) => sum + sourceIds.length,
@@ -10913,33 +10978,7 @@ async function previewRemoval(
     return;
   }
 
-  const session = await loadOrg(args.target);
-  const conn = makeConn(session);
-  const org = await typeOrg(conn);
-  if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
-    const refused = {
-      code: OTHER_ORG,
-      message:
-        `${args.target} is not the org the run wrote to (${summary.targetOrgId}): its records ` +
-        'are read in that org only. Nothing of the run was read.',
-    };
-    process.stderr.write(`${refusedLine(refused)}\n`);
-    if (args.json) {
-      process.stdout.write(
-        refusedRemovalSummary(
-          {
-            tool: 'sandforge-clone',
-            action: 'remove-preview',
-            summary: args.summaryPath,
-            target: args.target,
-            elapsedMs: elapsedSince(t0),
-          },
-          refused,
-        ),
-      );
-    }
-    process.exit(1);
-  }
+  const { conn, org } = await reach();
   const refusals: RunRefusal[] = [];
   const production = productionRefusal(args.target, org, 'remove');
   if (production) refusals.push({ code: 'PRODUCTION_TARGET', message: production });
@@ -11132,13 +11171,15 @@ async function previewRemoval(
   }
   // As the removal says it with its plan: run for real, the removal said
   // what stays, and the preview read first to know what it takes did not.
-  if (plan.length > 0 || leftByOtherParts.length > 0) notes.push(heldRecordsStayLine(summary));
+  const withPlan = plan.length > 0 || leftByOtherParts.length > 0;
+  if (withPlan) notes.push(heldRecordsStayLine(summary));
   answer(
     {
-      planned: count(plan) + leftByOtherParts.reduce((sum, left) => sum + count(left.plan), 0),
+      planned: preview.objects.reduce((sum, object) => sum + object.planned, 0),
       objects: preview.objects,
       ...(undeletable.length > 0 ? { undeletable } : {}),
       userNames: preview.userNames,
+      ...(withPlan ? { alreadyHeld: heldRecordsStaying(summary) } : {}),
     },
     refusals,
     org.id,

@@ -543,11 +543,18 @@ export class ForgeRunJournal {
     return this.reconcileAt(this.filePath(journalId), target);
   }
 
-  /** {@link reconcile}, of the journal at `filePath`. */
-  async reconcileAt(filePath: string, target: InFlightTarget): Promise<InFlightReconciliation> {
+  /**
+   * {@link reconcile}, of the journal at `filePath`; with `keep: false`, what
+   * it would find, kept nowhere: a removal's preview writes nothing.
+   */
+  async reconcileAt(
+    filePath: string,
+    target: InFlightTarget,
+    options: { keep?: boolean } = {},
+  ): Promise<InFlightReconciliation> {
     const file = this.deps.openRunFile(filePath);
     try {
-      return await reconcileInFlight(file, target);
+      return await reconcileInFlight(file, target, undefined, options);
     } finally {
       file.close();
     }

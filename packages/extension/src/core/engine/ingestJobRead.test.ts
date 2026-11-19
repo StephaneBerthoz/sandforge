@@ -152,6 +152,27 @@ describe('readJobResults', () => {
     expect(left.check).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves open, asked to write nothing, a job past its hour of grace, and says when that hour ended', async () => {
+    // A removal's preview: the removal that follows aborts the job.
+    const now = Date.parse('2026-10-22T12:00:00.000Z');
+    const left = orgWithJob({ state: 'Open', createdDate: '2026-10-22T10:30:00.000+0000' });
+
+    expect(await readJobResults(left.conn, JOB, { now: () => now, leaveOpen: true })).toEqual({
+      state: 'running',
+      info: { state: 'Open', createdDate: '2026-10-22T10:30:00.000+0000' },
+      openUntil: '2026-10-22T11:30:00.000Z',
+      graceLeftMs: 0,
+    });
+    // Nor one the org gives no opening date of.
+    const undated = orgWithJob({ state: 'Open' });
+    expect(await readJobResults(undated.conn, JOB, { leaveOpen: true })).toEqual({
+      state: 'running',
+      info: { state: 'Open' },
+    });
+    expect(left.abort).not.toHaveBeenCalled();
+    expect(undated.abort).not.toHaveBeenCalled();
+  });
+
   it('aborts at once an open job its caller sent and stopped uploading, when told no grace', async () => {
     const now = Date.parse('2026-10-22T12:00:00.000Z');
     const { conn, abort } = orgWithJob([

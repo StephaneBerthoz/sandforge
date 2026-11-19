@@ -137,6 +137,12 @@ interface ReadOptions {
    * uploading it passes 0: open, the job was never closed, and is aborted.
    */
   openGraceMs?: number;
+  /**
+   * A read that writes nothing — a removal's preview —: a job still open is
+   * said running, when its hour of grace ends with it, past or not, and never
+   * aborted. The removal that follows aborts it.
+   */
+  leaveOpen?: true;
 }
 
 /**
@@ -175,14 +181,15 @@ export async function readJobResults(
       const opened = Date.parse(info.createdDate ?? '');
       const grace = options.openGraceMs ?? OPEN_JOB_GRACE_MS;
       const left = grace - (now() - opened);
-      if (Number.isFinite(opened) && left > 0) {
+      if (Number.isFinite(opened) && (left > 0 || options.leaveOpen)) {
         return {
           state: 'running',
           info,
           openUntil: new Date(opened + grace).toISOString(),
-          graceLeftMs: left,
+          graceLeftMs: Math.max(0, left),
         };
       }
+      if (options.leaveOpen) return { state: 'running', info };
       // Never closed: the org never processes it, and nothing closes it now.
       const refused = await job.abort().then(
         () => false,

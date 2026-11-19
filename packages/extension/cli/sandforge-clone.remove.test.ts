@@ -1025,6 +1025,160 @@ describe('sandforge-clone --remove', () => {
       expect(printed.join('\n')).not.toContain('the journal names none of the');
     });
 
+    describe('in its preview, which writes nothing', () => {
+      /** What the preview of the removal answers once it has read the run's records. */
+      function previewing(): void {
+        vi.mocked(removeRunRecords).mockResolvedValue({
+          objects: [],
+          cancelled: false,
+          gone: [],
+          stamps: {},
+          left: noneLeft,
+          preview: { objects: [], userNames: {} },
+        });
+      }
+
+      /** A run killed as its job of two cases opened, the job read as `check` says it. */
+      function killedAsItsJobOpened(check: Record<string, unknown>, JOB: string) {
+        const cases = [SRC('500', 1), SRC('500', 2)];
+        const disk = memoryRunFile(
+          `${JSON.stringify({ run: { journalId: 'j', targetOrgId: TARGET_ORG, startedAt: '2026-11-13T17:54:27.000Z' } })}\n`,
+        );
+        const store = ForgeRunStore.open(disk);
+        store.beginPart(new Date('2026-11-13T17:54:27.000Z'));
+        store.setMapping('created', ACCOUNT, TGT('001', 1), 'Account');
+        const callId = insertCallsIn(store).sending(
+          'Case',
+          cases.map((sourceId, i) => ({ sourceId, payload: { Subject: `Case ${i + 1}` } })),
+          undefined,
+          true,
+        );
+        store.jobOpened(callId ?? '', JOB);
+        store.flush();
+        const journal = file(disk.text(), 'killed-as-its-job-opened.ndjson');
+        const job = {
+          check: vi.fn(async () => check),
+          getSuccessfulResults: vi.fn(async () => []),
+          getAllResults: vi.fn(async () => ({})),
+          abort: vi.fn(async () => undefined),
+        };
+        vi.mocked(makeConn).mockReturnValue({
+          ...targetConn,
+          bulk2: { job: vi.fn(() => job) },
+        } as unknown as Connection);
+        return { journal, job };
+      }
+
+      it('names the job a run left open within its hour, as the removal names it, aborting nothing and keeping nothing in the journal', async () => {
+        // Live, a preview right after the run was killed as its job opened
+        // said only that the journal named calls under way; the removal run
+        // next named the job, open, nothing processed, and when it would
+        // abort it.
+        const JOB = '750000000000002AAA';
+        const { journal, job } = killedAsItsJobOpened(
+          {
+            state: 'Open',
+            numberRecordsProcessed: 0,
+            createdDate: new Date(Date.now() - 2 * 60_000).toISOString(),
+          },
+          JOB,
+        );
+        const before = readFileSync(journal, 'utf8');
+        previewing();
+
+        expect(
+          await run(['--remove', journal, '--target', 'TGT', '--preview', '--json']),
+        ).toBeUndefined();
+
+        const { notes } = JSON.parse(stdout.join('')) as { notes: string[] };
+        expect(notes).toContainEqual(
+          expect.stringContaining(
+            `  Case: Bulk API job ${JOB} is Open, 0 row(s) processed: the run stopped before it ` +
+              'closed it, and closed, it would still write them; a removal from ',
+          ),
+        );
+        expect(notes.join('\n')).toMatch(
+          /, in about \d+ minute\(s\), aborts it if it is open still/,
+        );
+        expect(job.abort).not.toHaveBeenCalled();
+        expect(readFileSync(journal, 'utf8')).toBe(before);
+      });
+
+      it('leaves open a job past its hour, which the removal would abort, and says from when', async () => {
+        const JOB = '750000000000003AAA';
+        const opened = new Date(Date.now() - 2 * 60 * 60_000);
+        const { journal, job } = killedAsItsJobOpened(
+          { state: 'Open', numberRecordsProcessed: 0, createdDate: opened.toISOString() },
+          JOB,
+        );
+        const before = readFileSync(journal, 'utf8');
+        previewing();
+
+        expect(
+          await run(['--remove', journal, '--target', 'TGT', '--preview', '--json']),
+        ).toBeUndefined();
+
+        const { notes } = JSON.parse(stdout.join('')) as { notes: string[] };
+        expect(notes).toContain(
+          `  Case: Bulk API job ${JOB} is Open, 0 row(s) processed: the run stopped before it ` +
+            'closed it, and closed, it would still write them; a removal from ' +
+            `${new Date(opened.getTime() + 60 * 60_000).toISOString()} aborts it if it is open still`,
+        );
+        expect(job.abort).not.toHaveBeenCalled();
+        expect(readFileSync(journal, 'utf8')).toBe(before);
+      });
+
+      it('says what the removal would find of the call a killed run had under way, counts none of it and keeps nothing', async () => {
+        const sent = { LastName: 'Key', AccountId: TGT('001', 1) };
+        const fields = fingerprintFields([sent]);
+        const journal = file(
+          [
+            {
+              run: {
+                journalId: 'j',
+                targetOrgId: TARGET_ORG,
+                startedAt: '2026-10-01T10:00:00.000Z',
+              },
+            },
+            { part: { n: 0, startedAt: '2026-10-01T10:00:00.000Z' } },
+            ['c', ACCOUNT, TGT('001', 1), 'Account'],
+            [
+              'x',
+              '0.1',
+              'Contact',
+              '2026-10-01T10:00:03.000Z',
+              fields,
+              [[CONTACTS[0], rowFingerprint(sent, fields)]],
+            ],
+          ]
+            .map((line) => JSON.stringify(line))
+            .join('\n') + '\n',
+          'killed.ndjson',
+        );
+        createdByTheUser = [{ Id: TGT('003', 1), ...sent }];
+        const before = readFileSync(journal, 'utf8');
+        previewing();
+
+        expect(
+          await run(['--remove', journal, '--target', 'TGT', '--preview', '--json']),
+        ).toBeUndefined();
+
+        const { notes } = JSON.parse(stdout.join('')) as { notes: string[] };
+        expect(notes).toContain(
+          '1 insert or upsert call(s) were under way when the run stopped, their answer never ' +
+            'kept: their rows were looked for in TGT, as a removal looks for them first',
+        );
+        expect(notes).toContain(
+          '  found in TGT, which a removal keeps as written by the run and removes with its ' +
+            'records, not counted here: 1 Contact',
+        );
+        expect(vi.mocked(removeRunRecords).mock.calls[0]?.[1]).toEqual([
+          { objectApiName: 'Account', ids: [TGT('001', 1)] },
+        ]);
+        expect(readFileSync(journal, 'utf8')).toBe(before);
+      });
+    });
+
     it('says there is nothing to remove of a run that created nothing, without contacting the org', async () => {
       const path = file(runSummary({}, { createdByObject: [] }));
 

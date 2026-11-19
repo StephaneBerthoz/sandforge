@@ -285,7 +285,10 @@ describe('sandforge-clone --remove --preview', () => {
 
     await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
 
-    expect((JSON.parse(stdout) as { notes: string[] }).notes).toContain(stay);
+    const answer = JSON.parse(stdout) as { notes: string[]; preview: CloneRemovalPreview };
+    expect(answer.notes).toContain(stay);
+    // Counted in a field of its own: a pipeline read the count out of a sentence.
+    expect(answer.preview.alreadyHeld).toBe(2);
 
     const printed: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: string) => {
@@ -359,7 +362,39 @@ describe('sandforge-clone --remove --preview', () => {
     expect(answer.preview.objects).toEqual([
       expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, toDelete: 1 }),
     ]);
+    expect(answer.preview.planned).toBe(1);
     expect(org.all('DuplicateRecordSet')).toHaveLength(1);
+  });
+
+  it('plans the duplicate record sets its objects carry with the run’s records, as the removal plans them', async () => {
+    // Live, the preview planned 2 629 records, then 129, where its objects,
+    // the sets the target's duplicate rules made of the run's records among
+    // them, came to 2 631 and 131, as the removal then planned them.
+    const RUN_USER = fakeId('005', 3);
+    const kept = summary();
+    (kept['result'] as Record<string, unknown>)['runUserId'] = RUN_USER;
+    writeFileSync(file, JSON.stringify(kept));
+    const madeAt = orgStamp(Date.now() - 10 * 60_000 - 20_000);
+    const SET = fakeId('0GK', 1);
+    org.add('DuplicateRecordSet', { Id: SET, LastModifiedById: RUN_USER }, madeAt);
+    TGT_CONTACTS.forEach((id, n) =>
+      org.add(
+        'DuplicateRecordItem',
+        { Id: fakeId('0GL', n + 1), RecordId: id, DuplicateRecordSetId: SET },
+        madeAt,
+      ),
+    );
+
+    await main(argv('--remove', file, '--target', 'TGT', '--preview', '--json'));
+
+    const answer = JSON.parse(stdout) as { preview: CloneRemovalPreview };
+    expect(answer.preview.objects).toContainEqual(
+      expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, toDelete: 1 }),
+    );
+    expect(answer.preview.planned).toBe(4);
+    expect(answer.preview.planned).toBe(
+      answer.preview.objects.reduce((sum, object) => sum + object.planned, 0),
+    );
   });
 
   it('says the records gone already, the recycle bin’s among them', async () => {
