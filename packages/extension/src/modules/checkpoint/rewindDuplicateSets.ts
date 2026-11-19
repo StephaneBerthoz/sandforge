@@ -38,6 +38,7 @@ import {
   duplicateSetsRead,
   type DuplicateSetRead,
 } from '../forge/duplicateRecordSets.js';
+import { idLists } from '../dataops/RecordRemoval.js';
 import type { RunRecords } from '../forge/ForgeRunRemoval.js';
 import { CHECKPOINT_FILE_MODE, makePrivateDir } from './OrgCheckpointStore.js';
 import { spooledRows } from './orgStreams.js';
@@ -179,6 +180,41 @@ export async function confirmedDuplicateSets(previewDir: string): Promise<Readon
       .filter((line) => /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(line))
       .map(keyOf),
   );
+}
+
+/**
+ * Of the sets `keys` names, by their keys, those still in the org, and how
+ * many items each still holds: what a rewind that did not take them says of
+ * them. A read that fails finds none, said by its caller.
+ *
+ * @throws When the org would not read them.
+ */
+export async function setsLeftOf(
+  org: SetsOrg,
+  keys: readonly string[],
+): Promise<Array<{ id: string; items: number }>> {
+  const left = new Map<string, { id: string; items: number }>();
+  for (const list of idLists([...keys])) {
+    const { records } = await org.query(
+      `SELECT Id FROM ${DUPLICATE_SET_OBJECT} WHERE Id IN (${list})`,
+    );
+    for (const row of records as Array<{ Id?: unknown }>) {
+      if (typeof row.Id === 'string') left.set(keyOf(row.Id), { id: row.Id, items: 0 });
+    }
+  }
+  for (const list of idLists([...left.values()].map((set) => set.id))) {
+    const { records } = await org.query(
+      `SELECT DuplicateRecordSetId FROM ${ITEM_OBJECT} WHERE DuplicateRecordSetId IN (${list})`,
+    );
+    for (const row of records as Array<{ DuplicateRecordSetId?: unknown }>) {
+      const set =
+        typeof row.DuplicateRecordSetId === 'string'
+          ? left.get(keyOf(row.DuplicateRecordSetId))
+          : undefined;
+      if (set) set.items++;
+    }
+  }
+  return [...left.values()];
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   DUPLICATE_SET_OBJECT,
   nameDuplicateSets,
   rewindDuplicateSets,
+  setsLeftOf,
   setsNamed,
   withDuplicateSets,
 } from './rewindDuplicateSets.js';
@@ -151,6 +152,25 @@ describe('nameDuplicateSets', () => {
     expect(queries).toEqual([]);
     expect(setsNamed(none) + setsNamed(noItem)).toBe(0);
     expect(await confirmedDuplicateSets(dir)).toEqual(new Set());
+  });
+});
+
+describe('setsLeftOf', () => {
+  it('finds the sets still in the org by their keys, each with the items it still holds', async () => {
+    const org = new MemoryRemovalOrg();
+    const at = '2026-11-17T09:50:00.000Z';
+    setOf(org, 1, at, [contact(1), contact(2)]);
+    setOf(org, 2, at, []);
+
+    const left = await setsLeftOf(
+      org,
+      [set(1), set(2), set(3)].map((one) => one.slice(0, 15)),
+    );
+
+    expect(left.sort((a, b) => (a.id < b.id ? -1 : 1))).toEqual([
+      { id: set(1), items: 2 },
+      { id: set(2), items: 0 },
+    ]);
   });
 });
 

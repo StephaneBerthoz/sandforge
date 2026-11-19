@@ -3236,17 +3236,17 @@ function followingLines(
   const lines = result.residual.map(
     (r) => `  ${r.objectApiName} ${count(r.count)} — ${residualWords(act, r, names)}`,
   );
-  // A duplicate record set a rewind set out to take with the records it
-  // reports is no object of the checkpoint: no read again compares it, and
-  // what it left is said from what the removal answered.
+  // A duplicate record set its preview named among what goes along is no
+  // object of the checkpoint: no read again compares it, and what the rewind
+  // left of them is said from what it answered, each reason.
   if (act === 'rewind') {
     for (const object of result.deleted) {
       if (object.objectApiName !== DUPLICATE_SET_OBJECT) continue;
       const left = object.refused + object.keptChanged + object.keptDependents;
       if (left === 0) continue;
       lines.push(
-        `  left: ${count(left)} ${DUPLICATE_SET_OBJECT} it set out to delete with the records ` +
-          `reported in it${object.reasons[0] !== undefined ? ` — ${object.reasons[0]}` : ''}`,
+        `  left: ${count(left)} ${DUPLICATE_SET_OBJECT} its preview named among what goes along` +
+          (object.reasons.length > 0 ? ` — ${object.reasons.join('; ')}` : ''),
       );
     }
   }

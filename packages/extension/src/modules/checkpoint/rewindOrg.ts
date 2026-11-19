@@ -370,16 +370,12 @@ import {
   SnapshotIndex,
   type RecreatedPair,
 } from './snapshotIndex.js';
-import {
-  IdSpoolWriter,
-  RecordKeySet,
-  type IdSpool,
-  type SpooledRunRecords,
-} from './spooledRunRecords.js';
+import { IdSpoolWriter, RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 import {
   confirmedDuplicateSets,
   DUPLICATE_SET_OBJECT,
   rewindDuplicateSets,
+  setsLeftOf,
   withDuplicateSets,
 } from './rewindDuplicateSets.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
@@ -1945,6 +1941,8 @@ class Rewind {
    * no later pass's to read again.
    */
   private confirmedSets: ReadonlySet<string> = new Set();
+  /** Of those, by key, the sets a pass found that its user may not delete: left, and said. */
+  private readonly setsRefused = new Set<string>();
   /** The org's clock against this machine's, as the rewind last read it: for the ledger's line. */
   private readonly clock = new OrgClockWatch(() => this.now().getTime());
   /** What its user may read and write of each object, read once it reads the org. */
@@ -2357,13 +2355,22 @@ class Rewind {
     const residual = await this.residualOf(fresh, fresh, [first], new PassTally());
     const unread = this.pickedOnly(fresh.diff.unread);
     const scope = await this.scopeOf(fresh, fresh);
+    // The sets its preview named among what goes along stay with the records
+    // they report, which it keeps: said all the same.
+    const setsLeft = await this.setsLeft();
     this.ended = true;
     return {
       rewound: true,
       result: this.resultOf({
         rewindId: newFolderId('rw', this.now()),
         status: residual.length > 0 || unread.length > 0 ? 'partial' : 'success',
-        tally: { deleted: [], restored: [], undeleted: [], recreated: [], wentAlong: [] },
+        tally: {
+          deleted: setsLeft ? [setsLeft] : [],
+          restored: [],
+          undeleted: [],
+          recreated: [],
+          wentAlong: [],
+        },
         residual,
         unread,
         passes: 1,
@@ -2435,6 +2442,12 @@ class Rewind {
     if (this.stopped()) cancelled = true;
 
     const tally = await passesTally({ tally: one, plan: first.plan }, second);
+    const setsLeft = cancelled ? undefined : await this.setsLeft();
+    if (setsLeft) {
+      const into = tally.deleted.find((object) => object.objectApiName === DUPLICATE_SET_OBJECT);
+      if (into) addDeleted(into, setsLeft);
+      else tally.deleted.push(setsLeft);
+    }
     const residual =
       !cancelled && verify ? await this.residualOf(verify, fresh, made, one, second?.tally) : [];
     const unread = !cancelled && verify ? this.pickedOnly(verify.diff.unread) : [];
@@ -2953,7 +2966,7 @@ class Rewind {
         }
         if (pairs.length > 0) await journal.beforeParent(objectApiName, pairs);
       }
-      const deletes = await this.withSets(plan.deletes);
+      const deletes = await this.withSets(plan);
       await journal.deleting(deletes);
       const removalStamps = { ...this.stamps, ...plan.removal.removalStamps };
       const spans = [...this.spans, ...(plan.removal.removalSpans ?? [])].filter(
@@ -3058,19 +3071,28 @@ class Rewind {
 
   /**
    * `deletes` with the duplicate record sets its preview named that the org's
-   * rules made of them, read again now — still naming what this pass deletes,
-   * beside one other record at most —, before them (`rewindDuplicateSets.ts`).
-   * Nothing is read when the preview named none, or when an earlier pass
-   * handed its removal every one. Sets its user may not delete are left,
-   * said: handed to the removal, they would stop its deletes.
+   * rules made of what this pass deletes, read again now — still naming its
+   * records, those its removal is handed and those that go with a parent it
+   * deletes, beside one other record at most —, before them
+   * (`rewindDuplicateSets.ts`). Read by what the removal is handed alone, the
+   * set of contacts that went with the accounts a run had made them under
+   * stayed, empty, though the preview had named it. Nothing is read when the
+   * preview named none, or when an earlier pass handed its removal every one.
+   * Sets its user may not delete are left, and said once it is through:
+   * handed to the removal, they would stop its deletes.
    */
-  private async withSets(deletes: SpooledRunRecords): Promise<RunRecords> {
+  private async withSets(plan: RewindPlan): Promise<RunRecords> {
+    const deletes = plan.deletes;
     if (this.confirmedSets.size === 0) return deletes;
     const sets = (
-      await rewindDuplicateSets(this.org, deletes, {
-        takenAt: this.request.checkpoint.takenAt,
-        readAt: new Date(this.before + ORG_DATE_GRAIN_MS).toISOString(),
-      })
+      await rewindDuplicateSets(
+        this.org,
+        { has: (key) => deletes.has(key) || plan.goesAlong.has(key) },
+        {
+          takenAt: this.request.checkpoint.takenAt,
+          readAt: new Date(this.before + ORG_DATE_GRAIN_MS).toISOString(),
+        },
+      )
     ).filter((set) => this.confirmedSets.has(keyOf(set.id)));
     if (sets.length === 0) return deletes;
     const handed = new Set(sets.map((set) => keyOf(set.id)));
@@ -3084,17 +3106,65 @@ class Rewind {
       deletable = false;
     }
     if (!deletable) {
-      this.notes.push(
-        `${sets.length} ${DUPLICATE_SET_OBJECT} record(s) the duplicate rules of ` +
-          `${this.request.orgName} made since the checkpoint of records this rewind deletes stay: ` +
-          `${this.request.username} may not delete them.`,
-      );
+      for (const key of handed) this.setsRefused.add(key);
       return deletes;
     }
     return withDuplicateSets(
       deletes,
       sets.map((set) => set.id),
     );
+  }
+
+  /**
+   * The duplicate record sets its preview named that no pass took, as its end
+   * says them beside what it deleted: read again by id, those still in the
+   * org, each with why — its user may not delete them; the records they
+   * report alike are still there; or they report nothing any more, which no
+   * rewind takes. Nothing is read when every one was taken. A read that fails
+   * is said in its notes.
+   */
+  private async setsLeft(): Promise<ForgeUndoObjectResult | undefined> {
+    const keys = [...new Set([...this.confirmedSets, ...this.setsRefused])];
+    if (keys.length === 0) return undefined;
+    let left: Array<{ id: string; items: number }>;
+    try {
+      left = await setsLeftOf(this.org, keys);
+    } catch (err: unknown) {
+      this.notes.push(
+        `Whether the ${DUPLICATE_SET_OBJECT} records its preview named are still in ` +
+          `${this.request.orgName} could not be read (${extractErrorMessage(err)}).`,
+      );
+      return undefined;
+    }
+    if (left.length === 0) return undefined;
+    const refused = left.filter((set) => this.setsRefused.has(keyOf(set.id))).length;
+    const reporting = left.filter(
+      (set) => !this.setsRefused.has(keyOf(set.id)) && set.items >= 2,
+    ).length;
+    const empty = left.length - refused - reporting;
+    return {
+      objectApiName: DUPLICATE_SET_OBJECT,
+      planned: left.length,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: reporting + empty,
+      refused,
+      heldBy: [],
+      unchecked: [],
+      reasons: [
+        ...(refused > 0
+          ? [`${this.request.username} may not delete ${DUPLICATE_SET_OBJECT} records`]
+          : []),
+        ...(reporting > 0 ? ['they still report records alike that this rewind keeps'] : []),
+        ...(empty > 0
+          ? [
+              'they report nothing any more, and no rewind takes an empty set: delete them in ' +
+                `${this.request.orgName}, from the Duplicate Record Sets tab`,
+            ]
+          : []),
+      ],
+    };
   }
 
   /**

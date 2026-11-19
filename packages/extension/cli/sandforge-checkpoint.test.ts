@@ -2047,7 +2047,7 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
   });
 
-  it('names a duplicate record set it set out to delete and left, which no read again compares', () => {
+  it('names a duplicate record set its preview named and the rewind left, which no read again compares', () => {
     const lines = rewindLines(
       'DEV-SB',
       checkpoint,
@@ -2069,7 +2069,7 @@ describe('rewindLines, undoLines and resultJson', () => {
       }),
     );
     expect(lines).toContain(
-      '  left: 1 DuplicateRecordSet it set out to delete with the records reported in it — INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id',
+      '  left: 1 DuplicateRecordSet its preview named among what goes along — INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id',
     );
     expect(
       rewindLines(

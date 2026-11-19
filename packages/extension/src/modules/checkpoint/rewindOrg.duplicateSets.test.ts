@@ -65,15 +65,21 @@ function duplicateRuleOrg(): RewindTestOrg {
 }
 
 /**
- * What a run did since the checkpoint: two contacts under the first account,
- * which the rule found alike, a second on, and reported in a set of their
- * own, made by the org's Automated Process a second after; `alsoNamed`, the
- * records of the org the rule found them alike to, reported in the set too.
+ * What a run did since the checkpoint: two contacts under `under` — the
+ * first account, which the org held, unless told —, which the rule found
+ * alike, a second on, and reported in a set of their own, made by the org's
+ * Automated Process a second after; `alsoNamed`, the records of the org the
+ * rule found them alike to, reported in the set too.
  */
-function twinsSince(org: RewindTestOrg, alsoNamed: readonly string[] = [], reported = true): void {
+function twinsSince(
+  org: RewindTestOrg,
+  alsoNamed: readonly string[] = [],
+  reported = true,
+  under = account(1),
+): void {
   clock.now = SINCE;
-  org.add('Contact', { Id: contact(5), LastName: 'Twin', AccountId: account(1) });
-  org.add('Contact', { Id: contact(6), LastName: 'Twin', AccountId: account(1) });
+  org.add('Contact', { Id: contact(5), LastName: 'Twin', AccountId: under });
+  org.add('Contact', { Id: contact(6), LastName: 'Twin', AccountId: under });
   if (!reported) return;
   clock.now = SINCE + 1_000;
   org.add(SET, {
@@ -137,6 +143,32 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
     });
   });
 
+  it('takes the set of records that go with a parent created since as well, counted as its preview named it', async () => {
+    // Run for real, an Autopilot run made 24 accounts and 1,000 contacts
+    // under them: the rewind deleted the accounts, the contacts and their
+    // items went with them, and the set its preview named stayed, empty,
+    // which its end did not say.
+    const t: Taken = await taken(baseRecords, duplicateRuleOrg());
+    clock.now = SINCE - 1_000;
+    t.org.add('Account', { Id: account(9), Name: 'Made by the run' });
+    twinsSince(t.org, [], true, account(9));
+    const diff = await previewed(t);
+    const named = diff.objects
+      .find((object) => object.objectApiName === 'Contact')
+      ?.outside.find((outside) => outside.objectApiName === SET);
+    expect(named).toEqual({ objectApiName: SET, count: 1, parents: 2 });
+
+    const result = resultOf(await rewound(t, diff.previewId, { request: { acceptOutside: true } }));
+
+    expect(liveIds(t, 'Account')).not.toContain(account(9));
+    expect(liveIds(t, 'Contact')).not.toContain(contact(5));
+    expect(liveIds(t, SET)).toEqual([]);
+    expect(result.deleted.find((object) => object.objectApiName === SET)).toMatchObject({
+      planned: named?.count,
+      deleted: named?.count,
+    });
+  });
+
   it('takes a set that reports a record of the org beside them, which then reports it alone', async () => {
     // A contact of the run found alike to one the org held: once the run's
     // goes, the set names the held contact alone, beside nothing.
@@ -161,11 +193,18 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
   it('keeps the set with its records when what hangs from them outside the checkpoint was not accepted', async () => {
     const { t, diff } = await afterTheRun();
 
-    resultOf(await rewound(t, diff.previewId));
+    const result = resultOf(await rewound(t, diff.previewId));
 
     expect(liveIds(t, 'Contact')).toEqual(expect.arrayContaining([contact(5), contact(6)]));
     expect(liveIds(t, SET)).toEqual([set(1)]);
     expect(liveIds(t, ITEM)).toHaveLength(2);
+    // Named among what goes along, it is said left, with why.
+    expect(result.deleted.find((object) => object.objectApiName === SET)).toMatchObject({
+      planned: 1,
+      deleted: 0,
+      keptDependents: 1,
+      reasons: ['they still report records alike that this rewind keeps'],
+    });
   });
 
   it('takes no set its preview did not name', async () => {
@@ -216,13 +255,38 @@ describe('a rewind and the duplicate record sets made since its checkpoint', () 
 
     const outcome = await rewound(t, diff.previewId, { request: { acceptOutside: true } });
 
-    expect(resultOf(outcome).status).toBe('success');
+    const result = resultOf(outcome);
+    expect(result.status).toBe('success');
     expect(liveIds(t, 'Contact')).not.toContain(contact(5));
     expect(liveIds(t, SET)).toEqual([set(1)]);
-    expect(outcome.rewound ? outcome.notes : []).toContain(
-      '1 DuplicateRecordSet record(s) the duplicate rules of DEV-ED made since the checkpoint of ' +
-        'records this rewind deletes stay: tester@example.com may not delete them.',
-    );
+    expect(result.deleted.find((object) => object.objectApiName === SET)).toMatchObject({
+      planned: 1,
+      deleted: 0,
+      refused: 1,
+      reasons: ['tester@example.com may not delete DuplicateRecordSet records'],
+    });
+  });
+
+  it('says, once through, a set its preview named that no pass found to take and that reports nothing any more', async () => {
+    // Its items gone since the preview, the set names no record the rewind
+    // deletes: the rewind does not take it, and says it is left.
+    const { t, diff } = await afterTheRun();
+    clock.now = SINCE + 90_000;
+    t.org.trash(ITEM, item(1));
+    t.org.trash(ITEM, item(2));
+
+    const result = resultOf(await rewound(t, diff.previewId, { request: { acceptOutside: true } }));
+
+    expect(liveIds(t, SET)).toEqual([set(1)]);
+    expect(result.deleted.find((object) => object.objectApiName === SET)).toMatchObject({
+      planned: 1,
+      deleted: 0,
+      keptDependents: 1,
+      reasons: [
+        'they report nothing any more, and no rewind takes an empty set: delete them in DEV-ED, ' +
+          'from the Duplicate Record Sets tab',
+      ],
+    });
   });
 
   it('brings the set back with its items once the rewind is undone', async () => {
