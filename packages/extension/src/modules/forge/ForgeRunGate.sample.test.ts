@@ -178,6 +178,16 @@ describe('the gate of a sample of the whole org, against what the target has lef
         target: 'DEV',
       }),
     ).toBeUndefined();
+    // Records nobody asked — the command line's default, which bounds the
+    // cut — hold it to nothing.
+    expect(
+      sampleGateStopOf({
+        sample: bounded,
+        storage: { unread: 'INSUFFICIENT_ACCESS' },
+        target: 'DEV',
+        asked: {},
+      }),
+    ).toMatchObject({ code: SAMPLE_STORAGE_UNREAD });
   });
 
   it('holds a sample drawn against no storage to nothing of it, the records asked bounding it', () => {

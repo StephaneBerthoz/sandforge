@@ -1731,6 +1731,41 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(orgs.target.creates).toEqual([]);
   });
 
+  it('is refused SAMPLE_STORAGE_UNREAD, nothing written, when the target no longer says the storage its plan was drawn against and --max-total is left at its default', async () => {
+    withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+    expect(await run(argv('--fit', 'share', '--dry-run', '--json'))).toBeUndefined();
+    const dry = (JSON.parse(stdout.join('')) as DryRunJson).wholeOrg.sample;
+    expect(dry.budget.remainingMB).toBe(5);
+    // What the run reads of the target once its plan is drawn: no storage.
+    const unsaid = {
+      DailyApiRequests: LIMITS.DailyApiRequests,
+      DailyBulkApiBatches: LIMITS.DailyBulkApiBatches,
+    };
+
+    // Its dry run says the run would be refused for it.
+    stdout = [];
+    stderr = [];
+    withFakeOrgs({ target: { limits: unsaid } });
+    expect(
+      await run(argv('--fit', 'share', '--fit-plan', dry.plan.path, '--dry-run', '--json')),
+    ).toBe(1);
+    expect((JSON.parse(stdout.join('')) as DryRunJson).wouldBeRefusedCodes ?? []).toContain(
+      'SAMPLE_STORAGE_UNREAD',
+    );
+
+    // Its run is refused before its first write: the default bounds every
+    // run, but no sample was drawn against it, as the drawing says.
+    stdout = [];
+    stderr = [];
+    const orgs = withFakeOrgs({ target: { limits: unsaid } });
+    expect(await run(argv('--fit', 'share', '--fit-plan', dry.plan.path, '--yes', '--json'))).toBe(
+      1,
+    );
+    const answer = JSON.parse(stdout.join('')) as RefusedJson;
+    expect(answer.refused.code).toBe('SAMPLE_STORAGE_UNREAD');
+    expect(orgs.target.creates).toEqual([]);
+  });
+
   it('is refused SAMPLE_CANNOT_FIT, exit 1, naming the heaviest, when the roots each object keeps alone take more than it may', async () => {
     const orgs = withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
 

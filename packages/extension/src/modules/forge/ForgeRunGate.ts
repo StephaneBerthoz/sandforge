@@ -2030,6 +2030,8 @@ export const DELIVERABILITY_READ_MOST = 2;
  *   run's gate holds it, to what the target has left now
  *   ({@link sampleGateStopOf}) — refused in place of the data storage's own
  *   refusal, which says less.
+ * @param input.sampleAsked - The MB and the records asked of the sample,
+ *   when its budget holds a bound nobody asked (`sampleGateStopOf`'s `asked`).
  * @param input.automation - What the target's automation that still runs
  *   creates under one record of each object the run writes
  *   (`automationRoomOf`): counted with the records against the data storage
@@ -2047,6 +2049,7 @@ export async function wholeOrgDryRunOf(input: {
   deliverability?: number;
   sentBefore?: () => { target: number; source?: number };
   sample?: WholeOrgSample;
+  sampleAsked?: Pick<WholeOrgSampleBudget, 'withinMB' | 'maxTotal'>;
   automation?: readonly { objectApiName: string; bytes: number }[];
   target: { org: string; limits: LimitsTransport };
   source: { org: string; limits: LimitsTransport };
@@ -2063,7 +2066,12 @@ export async function wholeOrgDryRunOf(input: {
   const storage = storageCheckOf(plan, limits, automationBytesOf(plan, input.automation));
   const overStorage = storageRefusal(storage, input.target.org);
   const sampleStop = input.sample
-    ? sampleGateStopOf({ sample: input.sample, storage: limits, target: input.target.org })
+    ? sampleGateStopOf({
+        sample: input.sample,
+        storage: limits,
+        target: input.target.org,
+        ...(input.sampleAsked ? { asked: input.sampleAsked } : {}),
+      })
     : undefined;
   const files = wholeOrgFilesOf(input.measures.files, limits, input.target.org);
   const sent = input.sentBefore?.();
@@ -2259,15 +2267,21 @@ function sampleTargetMovedStopOf(input: {
  * @param input.storage - The target's limits as the gate read them, or why
  *   they could not be.
  * @param input.target - The org, as the refusal names it.
+ * @param input.asked - The MB and the records asked of the sample, when its
+ *   budget holds a bound nobody asked: the command line draws within the
+ *   records of `--max-total`'s default, and a sample held to them alone was
+ *   never drawn against them — its drawing refuses a target that would not
+ *   say its storage then. Absent, those of its budget.
  */
 export function sampleGateStopOf(input: {
   sample: Pick<WholeOrgSample, 'storageBytes'> & { budget: SampleBudgetTerms };
   storage: DataStorage | { unread: string };
   target: string;
+  asked?: Pick<WholeOrgSampleBudget, 'withinMB' | 'maxTotal'>;
 }): ForgeGateStop | undefined {
   const { sample, storage, target } = input;
   if ('unread' in storage) {
-    return sampleStorageUnreadStopOf({ storage, bounds: sample.budget, target });
+    return sampleStorageUnreadStopOf({ storage, bounds: input.asked ?? sample.budget, target });
   }
   return sampleTargetMovedStopOf({ sample, storage, target });
 }

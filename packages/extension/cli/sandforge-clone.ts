@@ -124,6 +124,7 @@ import type {
   ForgeRootsQuery,
   RecordTypeGiven,
   WholeOrgSample,
+  WholeOrgSampleBudget,
   WholeOrgSampleDropReason,
   WholeOrgSampleResult,
   WholeOrgSampleRoots,
@@ -5964,14 +5965,7 @@ export function sampleBudgetOf(input: {
   const { storage, sample, target } = input;
   const { withinMB } = sample.options;
   const maxTotal = sample.options.maxTotal ?? DEFAULT_MAX_TOTAL;
-  const unread = sampleStorageUnreadStopOf({
-    storage,
-    bounds: {
-      ...(withinMB !== undefined ? { withinMB } : {}),
-      ...(sample.maxTotalGiven ? { maxTotal } : {}),
-    },
-    target,
-  });
+  const unread = sampleStorageUnreadStopOf({ storage, bounds: sampleAskedOf(sample), target });
   if (unread) throw ForgeRunGateError.of(unread);
   const automation = input.automation ? { automation: input.automation } : {};
   const terms = sampleBudgetTermsOf({
@@ -5989,6 +5983,24 @@ export function sampleBudgetOf(input: {
     bytesLimit: 'within',
     roomBytes: maxTotal * DOCUMENTED_RECORD_BYTES,
     ...(room?.automationBytes ? { automationBytes: room.automationBytes } : {}),
+  };
+}
+
+/**
+ * The MB and the records asked of a sample (`--fit-within`, `--max-total`),
+ * never `--max-total`'s default: what holds a sample whose target would not
+ * say its storage, when it is drawn and at its gate alike. The gate read the
+ * default in the plan's budget, where it bounds the cut, and let through a
+ * run whose target no longer said its storage, which the drawing refuses.
+ * Exported so it can be tested.
+ */
+export function sampleAskedOf(
+  sample: CliSample,
+): Pick<WholeOrgSampleBudget, 'withinMB' | 'maxTotal'> {
+  const { withinMB } = sample.options;
+  return {
+    ...(withinMB !== undefined ? { withinMB } : {}),
+    ...(sample.maxTotalGiven ? { maxTotal: sample.options.maxTotal ?? DEFAULT_MAX_TOTAL } : {}),
   };
 }
 
@@ -13681,6 +13693,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         deliverability: emails?.ofRun.read?.requests ?? 0,
         sentBefore: sentBeforeTheGate,
         ...(sampled ? { sample: sampled } : {}),
+        ...(sampled && args.sample ? { sampleAsked: sampleAskedOf(args.sample) } : {}),
         automation,
         target: { org: args.target, limits: targetConn },
         source: { org: args.source, limits: connOf(conns, args.source) },
@@ -13701,7 +13714,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       // A sample is held to what the target has left now by the terms it was
       // fitted to: refused, never cut, when the target moved since its plan.
       const sampleStop = sampled
-        ? sampleGateStopOf({ sample: sampled, storage: limits, target: args.target })
+        ? sampleGateStopOf({
+            sample: sampled,
+            storage: limits,
+            target: args.target,
+            ...(args.sample ? { asked: sampleAskedOf(args.sample) } : {}),
+          })
         : undefined;
       const filesOf = wholeOrgFilesOf(measures.files, limits, args.target);
       files = filesOf.files;
