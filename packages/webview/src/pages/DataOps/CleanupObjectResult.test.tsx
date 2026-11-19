@@ -96,11 +96,28 @@ describe('CleanupObjectResult', () => {
     );
   });
 
+  it('ties each Delete it holds back to the reason, for a screen reader that lands on it', () => {
+    // The reason sat above, apart: on the greyed button a screen reader
+    // read "Delete… dimmed" and nothing of why.
+    result({ deletable: false });
+
+    const reason = screen.getByTestId('cleanup-not-deletable');
+    const held = screen.getAllByRole('button', { name: /^Delete…/ });
+    expect(held).toHaveLength(3);
+    for (const button of held) {
+      const describedBy = button.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy ?? '')).toBe(reason);
+    }
+  });
+
   it('offers Delete on an object the scan read no answer for, as before', () => {
     result();
 
     expect(screen.queryByTestId('cleanup-not-deletable')).toBeNull();
     expect(screen.getByTestId('cleanup-stale-delete')).toHaveProperty('disabled', false);
+    // Nothing held back, nothing to point at.
+    expect(screen.getByTestId('cleanup-stale-delete').getAttribute('aria-describedby')).toBeNull();
   });
 
   it('names each recommendation with its count, and the rule behind the orphans', () => {

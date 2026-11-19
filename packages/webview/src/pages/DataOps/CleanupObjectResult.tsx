@@ -49,6 +49,7 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
+  const notDeletableId = useId();
   const number = (n: number): string => formatNumber(n);
   const percent = (share: number): string => `${Math.round(share * 100)}%`;
 
@@ -92,6 +93,8 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
         onClick={() => onReview(recommendation)}
         disabled={busy || !deletable}
         aria-label={t('dataops.cleanupScan.deleteWhat', { what })}
+        // Greyed, it said nothing of why to a screen reader that landed on it.
+        aria-describedby={deletable ? undefined : notDeletableId}
         data-testid={`${testId}-delete`}
       >
         {t('dataops.cleanupScan.delete')}
@@ -130,7 +133,11 @@ export const CleanupObjectResult: React.FC<CleanupObjectResultProps> = ({
         </span>
       </div>
       {!deletable && (
-        <p className="text-xs text-text-secondary" data-testid="cleanup-not-deletable">
+        <p
+          id={notDeletableId}
+          className="text-xs text-text-secondary"
+          data-testid="cleanup-not-deletable"
+        >
           {t('dataops.cleanupScan.notDeletable', { object: result.label })}
         </p>
       )}
