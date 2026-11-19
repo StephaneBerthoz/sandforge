@@ -365,10 +365,12 @@ describe('sandforge-seed --remove', () => {
     await main(argv('--remove', file, '--target', 'TGT', '--json'));
 
     expect(org.all('DuplicateRecordSet')).toEqual([]);
+    // Its total is the sum of its lines, the set's among them: run for real,
+    // it said 2 planned beside lines that counted 3 deletes.
     expect(JSON.parse(stdout)).toMatchObject({
       result: {
         status: 'success',
-        planned: 4,
+        planned: 5,
         objects: expect.arrayContaining([
           expect.objectContaining({ objectApiName: 'DuplicateRecordSet', deleted: 1 }),
         ]),
@@ -425,7 +427,7 @@ describe('sandforge-seed --remove', () => {
       result: { status: string; planned: number; objects: Array<Record<string, unknown>> };
     };
     expect(result.status).toBe('success');
-    expect(result.planned).toBe(4);
+    expect(result.planned).toBe(5);
     expect(result.objects.filter((o) => o.objectApiName === 'DuplicateRecordSet')).toEqual([
       expect.objectContaining({ planned: 1, deleted: 1, alreadyGone: 0, platformCopies: 1 }),
     ]);

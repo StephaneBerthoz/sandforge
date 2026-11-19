@@ -3909,10 +3909,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       deleted: o.deleted,
     })),
   });
+  const objects = emptied.object
+    ? [...outcome.result.objects, emptied.object]
+    : outcome.result.objects;
+  // Its total is the sum of its lines, as the clone's removal counts it: the
+  // run's records alone, it said 2 planned beside lines that counted 3
+  // deletes, the duplicate record set the removal took among them.
   output(
     status,
-    emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,
-    outcome.planned,
+    objects,
+    objects.reduce((sum, o) => sum + o.planned, 0),
     sweep,
     mutedAutomation,
   );
@@ -4204,7 +4210,9 @@ async function previewRemoval(
   }
   answer(
     {
-      planned: read.planned,
+      // The sum of its lines, the duplicate record sets the removal takes
+      // among them, as the clone's preview counts it.
+      planned: preview.objects.reduce((sum, object) => sum + object.planned, 0),
       objects: preview.objects,
       ...(undeletable.length > 0 ? { undeletable } : {}),
       userNames: preview.userNames,

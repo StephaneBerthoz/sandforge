@@ -342,6 +342,9 @@ describe('sandforge-seed --remove --preview', () => {
 
       const answer = JSON.parse(stdout) as { preview: SeedRemovalPreview };
       expect(setOf(answer)).toMatchObject({ planned: 1, toDelete: 1 });
+      // Its total is the sum of its lines, the set's among them: run for
+      // real, it said 2 planned beside lines that counted 3 deletes.
+      expect(answer.preview.planned).toBe(5);
     });
 
     it('reads the user the run wrote as from the run file its summary names, when the summary says none', async () => {

@@ -4280,10 +4280,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const { readWhole, filesForgotten } = outcome.result;
   const sweep = parts?.result();
   const status = removalStatusWithSweep(outcome.result.status, sweep);
+  const objects = emptied.object
+    ? [...outcome.result.objects, emptied.object]
+    : outcome.result.objects;
+  // Its total is the sum of its lines, as the clone's removal counts it: the
+  // run's records alone, it left out the duplicate record sets it took.
   output(
     status,
-    emptied.object ? [...outcome.result.objects, emptied.object] : outcome.result.objects,
-    outcome.planned,
+    objects,
+    objects.reduce((sum, o) => sum + o.planned, 0),
     {
       ...(readWhole ? { readWhole } : {}),
       ...(filesForgotten !== undefined ? { filesForgotten } : {}),

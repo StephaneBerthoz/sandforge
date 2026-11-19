@@ -865,10 +865,11 @@ describe('sandforge-sync --remove', () => {
     await main(argv('--remove', file, '--target', 'TGT', '--json'));
 
     expect(org.all('DuplicateRecordSet').map((row) => row.Id)).toEqual([SHARED]);
+    // Its total is the sum of its lines, the set's among them.
     expect(JSON.parse(stdout)).toMatchObject({
       result: {
         status: 'success',
-        planned: 3,
+        planned: 4,
         objects: expect.arrayContaining([
           expect.objectContaining({ objectApiName: 'DuplicateRecordSet', planned: 1, deleted: 1 }),
         ]),
@@ -926,7 +927,7 @@ describe('sandforge-sync --remove', () => {
         result: { status: string; planned: number; objects: Array<Record<string, unknown>> };
       };
       expect(result.status).toBe('success');
-      expect(result.planned).toBe(3);
+      expect(result.planned).toBe(4);
       expect(result.objects.filter((o) => o.objectApiName === 'DuplicateRecordSet')).toEqual([
         expect.objectContaining({
           planned: 1,
