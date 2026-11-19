@@ -106,10 +106,13 @@ Options:
                          own (default: ~/.sandforge/compare, under the folder
                          SANDFORGE_JOURNAL_DIR names when it is set)
   --wait <seconds>       how long to keep waiting for an answer     (default: 300)
-  --fail-on-drift        exit 3 when a diff (execute) finds a component added,
-                         removed or modified                         (default: off)
+  --fail-on-drift        exit 3 when a diff (execute) finds a component in one
+                         org only, or modified                       (default: off)
   --json                 emit what the page would receive, every other line on
-                         stderr
+                         stderr. Its messages name a component only the source
+                         holds "removed" and one only the target holds "added";
+                         beside a diff's answer, "changes" lists them as
+                         onlyInSource, onlyInTarget and modified, as Type:Name
   --help                 this text
 
 A comparison writes nothing to either org. A validation deploys check-only:
@@ -224,7 +227,7 @@ interface CliArgs {
   storeDir: string;
   waitMs: number;
   json: boolean;
-  /** Exit 3 when a diff finds a component added, removed or modified. */
+  /** Exit 3 when a diff finds a component in one org only, or modified. */
   failOnDrift: boolean;
 }
 
@@ -502,14 +505,47 @@ export function describeDeployment(report: DeploymentReport): string[] {
  * read back when checking one.
  */
 export function modifiedByType(diffs: readonly CompareItem[]): Map<string, string[]> {
+  return byTypeOf(diffs, 'modified');
+}
+
+/** The components of one status, by type, in the order the diff lists them. */
+function byTypeOf(
+  diffs: readonly CompareItem[],
+  status: CompareItem['status'],
+): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const item of diffs) {
-    if (item.status !== 'modified') continue;
+    if (item.status !== status) continue;
     const names = out.get(item.componentType) ?? [];
     names.push(item.fullName);
     out.set(item.componentType, names);
   }
   return out;
+}
+
+/**
+ * The changes of a diff as the page reads them, each as `Type:Name`, the form
+ * --deploy takes: what only the source holds, which a deployment creates in
+ * the target; what only the target holds, which a deployment leaves; and
+ * what both hold differently.
+ *
+ * The page's messages name them by the diff engine's codes, `removed` for
+ * what only the source holds and `added` for what only the target holds, and
+ * the line printed them as such: a field only in the source read "-1
+ * removed", the one change a deployment from it would make.
+ */
+export function changesOf(result: Pick<CompareResult, 'diffs'>): {
+  onlyInSource: string[];
+  onlyInTarget: string[];
+  modified: string[];
+} {
+  const named = (status: CompareItem['status']): string[] =>
+    result.diffs.filter((d) => d.status === status).map((d) => `${d.componentType}:${d.fullName}`);
+  return {
+    onlyInSource: named('removed'),
+    onlyInTarget: named('added'),
+    modified: named('modified'),
+  };
 }
 
 /** What the content comparison covered, in one line. */
@@ -527,13 +563,19 @@ export function describeCoverage(result: Pick<CompareResult, 'summary' | 'conten
   );
 }
 
-/** Lines for one diff answer. */
+/**
+ * Lines for one diff answer, signed as the page signs them: + for what only
+ * the source holds (the code `removed`), which a deployment creates in the
+ * target; - for what only the target holds (`added`), which it leaves.
+ */
 function describeExecute(result: CompareResult): string[] {
   const { summary } = result;
   const lines = [
-    `  mode ${result.mode}, ${summary.totalItems} item(s): +${summary.added} added  ` +
-      `-${summary.removed} removed  ~${summary.modified} modified  =${summary.unchanged} unchanged  ` +
-      `?${summary.notCompared} not compared`,
+    `  mode ${result.mode}, ${summary.totalItems} item(s): +${summary.removed} only in the source  ` +
+      `-${summary.added} only in the target  ~${summary.modified} modified  ` +
+      `=${summary.unchanged} unchanged  ?${summary.notCompared} not compared`,
+    '  + a deployment creates it in the target, - a deployment leaves it there (SandForge ' +
+      'deploys no deletion), ~ a deployment replaces what the target holds',
   ];
   const byType = new Map<string, Record<string, number>>();
   for (const item of result.diffs) {
@@ -547,12 +589,19 @@ function describeExecute(result: CompareResult): string[] {
     const inTarget = (row.added ?? 0) + inBoth;
     lines.push(
       `    ${type.padEnd(26)} source ${String(inSource).padStart(5)}  target ${String(inTarget).padStart(5)}` +
-        `   +${row.added ?? 0} -${row.removed ?? 0} ~${row.modified ?? 0} =${row.unchanged ?? 0} ?${row.not_compared ?? 0}`,
+        `   +${row.removed ?? 0} -${row.added ?? 0} ~${row.modified ?? 0} =${row.unchanged ?? 0} ?${row.not_compared ?? 0}`,
     );
   }
   lines.push(describeCoverage(result));
-  for (const [type, names] of modifiedByType(result.diffs)) {
-    lines.push(`  modified ${type}: ${someOf(names)}`);
+  const named: ReadonlyArray<[CompareItem['status'], string]> = [
+    ['removed', 'only in the source'],
+    ['added', 'only in the target'],
+    ['modified', 'modified'],
+  ];
+  for (const [status, words] of named) {
+    for (const [type, names] of byTypeOf(result.diffs, status)) {
+      lines.push(`  ${words} ${type}: ${someOf(names)}`);
+    }
   }
   return lines;
 }
@@ -694,7 +743,7 @@ export function describeAnswer(
  * — it failed, was refused, or nothing came back in time —; 3 when a
  * validation or a deployment came back with no success, a component error or
  * a failed test, or, with `--fail-on-drift`, when a diff found a component
- * added, removed or modified; 0 otherwise. A diff is read, and said, whatever
+ * in one org only, or modified; 0 otherwise. A diff is read, and said, whatever
  * it found.
  *
  * The run exited 0 whatever it received: a check-only deployment that failed
@@ -837,7 +886,13 @@ export async function main(
     return;
   }
 
-  const results: Array<{ op: Operation; answer: PanelAnswer }> = [];
+  // A diff's answer carries `changes` beside it: the page's message names
+  // what only the source holds `removed`, and keeps that published word.
+  const results: Array<{
+    op: Operation;
+    answer: PanelAnswer;
+    changes?: ReturnType<typeof changesOf>;
+  }> = [];
   for (const op of args.operations) {
     const payload: Record<string, unknown> = { sourceOrgId: source.id, targetOrgId: target.id };
     if (op === 'execute') {
@@ -859,7 +914,15 @@ export async function main(
       ...(op === 'execute' ? { timeoutMs: PAGE_EXECUTE_TIMEOUT_MS } : {}),
       ...(op === 'validate-deployment' ? { timeoutMs: PAGE_VALIDATE_TIMEOUT_MS } : {}),
     });
-    results.push({ op, answer });
+    const diff =
+      op === 'execute' && answer.outcome === 'answered'
+        ? (answer.message?.payload as Partial<CompareResult> | undefined)
+        : undefined;
+    results.push({
+      op,
+      answer,
+      ...(Array.isArray(diff?.diffs) ? { changes: changesOf({ diffs: diff.diffs }) } : {}),
+    });
     for (const line of describeAnswer(op, answer)) log(line);
     if (op === 'validate-deployment' && validated(answer) !== undefined) {
       log(

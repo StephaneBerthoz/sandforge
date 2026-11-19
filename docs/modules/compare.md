@@ -167,6 +167,14 @@ two orgs, and a validation (`--validate <Type:Name>`), check-only. None of them
 writes to either org. [Command line & CI](../../ci-examples/README.md) lists
 its flags and its exit codes.
 
+The diff is signed as the page signs it: + for a component only the source
+holds, which a deployment creates in the target, - for one only the target
+holds, which it leaves there, ~ for one both hold differently, each named by
+type. With `--json`, the page's own message keeps its words, `removed` for
+what only the source holds and `added` for what only the target holds; beside
+it, `changes` lists them as `onlyInSource`, `onlyInTarget` and `modified`,
+each as `Type:Name`, the form `--deploy` takes.
+
 `--deploy <Type:Name>`, given once per component, deploys as **Deploy from
 Diff** does, through the same two requests: the components are validated in
 the target first, then the package the target validated is deployed, with the

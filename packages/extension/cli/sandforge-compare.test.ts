@@ -4,6 +4,7 @@ import { DEPLOYABLE_COMPONENT_TYPES } from '@sandforge/shared';
 import type { CompareItem, CompareResult, DeploymentReport } from '@sandforge/shared';
 import type { PanelAnswer } from './panelHost.js';
 import {
+  changesOf,
   compareExitCode,
   parseArgs,
   modifiedByType,
@@ -317,14 +318,64 @@ describe('describeAnswer', () => {
       late: false,
     });
 
+    // Tax is in the target alone (`added`): the page marks it -, as a
+    // deployment leaves it there.
     expect(lines).toContain(
-      '  mode metadata, 6 item(s): +1 added  -0 removed  ~2 modified  =1 unchanged  ?2 not compared',
+      '  mode metadata, 6 item(s): +0 only in the source  -1 only in the target  ~2 modified  ' +
+        '=1 unchanged  ?2 not compared',
     );
     // Three classes in the source, four in the target: the one it hides counts in both.
     expect(lines).toContain(
-      `    ${'ApexClass'.padEnd(26)} source     3  target     4   +1 -0 ~1 =1 ?1`,
+      `    ${'ApexClass'.padEnd(26)} source     3  target     4   +0 -1 ~1 =1 ?1`,
     );
+    expect(lines).toContain('  only in the target ApexClass: Tax');
     expect(lines).toContain('  modified ApexClass: Billing');
+  });
+
+  it('marks a component only the source holds +, as the page does, where it said "-1 removed"', () => {
+    const sourceOnly: CompareResult = {
+      ...RESULT,
+      summary: {
+        ...RESULT.summary,
+        totalItems: 2,
+        added: 0,
+        removed: 1,
+        modified: 0,
+        notCompared: 0,
+      },
+      diffs: [
+        item('CustomField', 'Account.Gate__c', 'removed'),
+        item('CustomField', 'Account.Region__c', 'unchanged'),
+      ],
+    };
+    const lines = describeAnswer('execute', {
+      outcome: 'answered',
+      message: { id: 'r', type: 'compare:execute:response', timestamp: 0, payload: sourceOnly },
+      elapsedMs: 1200,
+      late: false,
+    });
+
+    expect(lines).toContain(
+      '  mode metadata, 2 item(s): +1 only in the source  -0 only in the target  ~0 modified  ' +
+        '=1 unchanged  ?0 not compared',
+    );
+    expect(lines).toContain(
+      `    ${'CustomField'.padEnd(26)} source     2  target     1   +1 -0 ~0 =1 ?0`,
+    );
+    expect(lines).toContain('  only in the source CustomField: Account.Gate__c');
+    // What each sign means for a deployment, in the page's words.
+    expect(lines.join('\n')).toContain('+ a deployment creates it in the target');
+    expect(lines.join('\n')).not.toMatch(/\badded\b|\bremoved\b/);
+  });
+});
+
+describe('changesOf', () => {
+  it('names each change as the page reads it, in the Type:Name form --deploy takes', () => {
+    expect(changesOf(RESULT)).toEqual({
+      onlyInSource: [],
+      onlyInTarget: ['ApexClass:Tax'],
+      modified: ['ApexClass:Billing', 'Flow:Onboarding'],
+    });
   });
 });
 

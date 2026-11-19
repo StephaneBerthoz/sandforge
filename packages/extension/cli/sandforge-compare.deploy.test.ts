@@ -38,9 +38,17 @@ const TARGET_ID = '00D000000000002AAA';
 type TargetKind = 'sandbox' | 'developer' | 'production';
 
 /** The Metadata API of one org, answering each deployment with the next of `deployResults`. */
-function orgApi(deployResults: Array<Record<string, unknown>> = []) {
+function orgApi(deployResults: Array<Record<string, unknown>> = [], fields: string[] = []) {
   let deployments = 0;
   const metadata = {
+    // The custom fields the org lists, and nothing of any other type.
+    list: vi.fn((queries: Array<{ type: string }>) =>
+      Promise.resolve(
+        queries.some((q) => q.type === 'CustomField')
+          ? fields.map((fullName) => ({ fullName, type: 'CustomField' }))
+          : [],
+      ),
+    ),
     retrieve: vi.fn(() => Promise.resolve({ id: '09S000000000001' })),
     checkRetrieveStatus: vi.fn(() =>
       Promise.resolve({
@@ -155,12 +163,17 @@ afterEach(() => {
 });
 
 function harness(
-  options: { target?: TargetKind; targetDeploys?: Array<Record<string, unknown>> } = {},
+  options: {
+    target?: TargetKind;
+    targetDeploys?: Array<Record<string, unknown>>;
+    /** The custom fields each org lists. */
+    fields?: { source: string[]; target: string[] };
+  } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-compare-deploy-'));
   dirs.push(dir);
-  const source = orgApi();
-  const target = orgApi(options.targetDeploys);
+  const source = orgApi([], options.fields?.source);
+  const target = orgApi(options.targetDeploys, options.fields?.target);
   const connected: string[] = [];
   const sent: PanelRequest[] = [];
   vi.mocked(getJsforceConnection).mockImplementation((orgId: string) =>
@@ -469,6 +482,56 @@ describe('sandforge compare --deploy', () => {
       deploymentId: '0Af000000000002',
     });
     expect(stderr).toContain('deployment 0Af000000000002: Succeeded, success');
+  });
+});
+
+describe('sandforge compare, a diff', () => {
+  /** Two fields only the source holds, one only the target holds: the counts tell the signs apart. */
+  const fields = { source: ['Account.Gate__c', 'Account.Tier__c'], target: ['Account.Old__c'] };
+
+  it('marks the fields only the source holds +, to deploy, as the page does, where it printed "-1 removed"', async () => {
+    const h = harness({ fields });
+    const { code, stdout } = await h.run(noTerminal(), '--op', 'execute', '--type', 'CustomField');
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      '+2 only in the source  -1 only in the target  ~0 modified  =0 unchanged  ?0 not compared',
+    );
+    expect(stdout).toContain('  only in the source CustomField: Account.Gate__c, Account.Tier__c');
+    expect(stdout).toContain('  only in the target CustomField: Account.Old__c');
+  });
+
+  it('names the changes in --json beside the page’s answer, which keeps its published words', async () => {
+    const h = harness({ fields });
+    const { stdout } = await h.run(
+      noTerminal(),
+      '--op',
+      'execute',
+      '--type',
+      'CustomField',
+      '--json',
+    );
+
+    const answer = JSON.parse(stdout) as {
+      results: Array<{
+        op: string;
+        answer: { message: { payload: { diffs: Array<{ fullName: string; status: string }> } } };
+        changes?: Record<string, string[]>;
+      }>;
+    };
+    const [execute] = answer.results;
+    expect(execute?.changes).toEqual({
+      onlyInSource: ['CustomField:Account.Gate__c', 'CustomField:Account.Tier__c'],
+      onlyInTarget: ['CustomField:Account.Old__c'],
+      modified: [],
+    });
+    // The page's own message, unchanged: `removed` is only in the source.
+    expect(execute?.answer.message.payload.diffs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fullName: 'Account.Gate__c', status: 'removed' }),
+        expect.objectContaining({ fullName: 'Account.Old__c', status: 'added' }),
+      ]),
+    );
   });
 });
 
