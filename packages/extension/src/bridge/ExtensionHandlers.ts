@@ -997,6 +997,14 @@ export class ExtensionHandlers {
   }
 
   /**
+   * Remove the plans of samples and the roots Forge's simulations kept a day
+   * or more ago, as the panels open: they hold a production's ids.
+   */
+  sweepForgePlans(): Promise<void> {
+    return this.forgeHandler.sweepSimulationPlans();
+  }
+
+  /**
    * Inject the forge orchestrator and optional v2 services.
    *
    * @param orchestrator - The ForgeOrchestrator instance.

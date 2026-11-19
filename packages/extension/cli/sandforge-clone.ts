@@ -12033,6 +12033,7 @@ async function toolingAnswerOf(
  * exported so its flag checks can be tested.
  */
 export async function main(argv: string[] = process.argv): Promise<void> {
+  await sweepSamplePlansPastTheirDay();
   if (argv.slice(2).includes('--verify')) return verifyMain(argv);
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const interrupts: CloneInterrupts = {};
@@ -12043,6 +12044,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Ctrl-C goes with it, and so does the lock it held on its journal.
     interrupts.release?.();
     interrupts.journalLock?.release();
+  }
+}
+
+/**
+ * Remove the plans of samples that dry runs drew a day or more ago, in
+ * `forge-samples/` of the journal directory, as the clone starts, whatever
+ * it is asked: they hold a production's ids, which no run takes up past
+ * their day. Swept only as a sample was drawn, the plan of a dry run no run
+ * followed stayed on the machine for as long as no other sample was drawn.
+ * The plan a run keeps beside its journal goes with the journal. What
+ * cannot be removed is said, and the clone goes on.
+ */
+async function sweepSamplePlansPastTheirDay(): Promise<void> {
+  const storagePath = journalDirOf();
+  try {
+    await sweepSamplePlans(storagePath, new Date());
+  } catch (err: unknown) {
+    process.stderr.write(
+      'The plans of samples drawn a day ago or more could not all be removed from ' +
+        `${joinPath(storagePath, 'forge-samples')} (${extractErrorMessage(err)}).\n`,
+    );
   }
 }
 
@@ -12806,11 +12828,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     return process.exit(sampleRefusalExit(refused.code));
   };
   // A sample of the whole org (--fit share): its plans go under the journal
-  // directory, a dry run's in forge-samples/ for a day, a run's beside its
-  // journal. Each is the setup it is drawn for by a fingerprint of its own —
-  // the run's, the plan it replays aside —, the target typed for it by a dry
-  // run too: a dry run's plan is taken up only by the run of the same setup,
-  // into the same org.
+  // directory, a dry run's in forge-samples/ for a day, swept as the next
+  // clone starts, a run's beside its journal. Each is the setup it is drawn
+  // for by a fingerprint of its own — the run's, the plan it replays aside —,
+  // the target typed for it by a dry run too: a dry run's plan is taken up
+  // only by the run of the same setup, into the same org.
   const storagePath = journalDirOf();
   let drawFingerprint = '';
   /** The plan of a dry run the line replays (`--fit-plan`), opened and held to its setup. */
@@ -12819,9 +12841,6 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const sampleTarget = targetOrgId ?? (await typeOrg(conns.get(args.target)!)).id;
     const sampleSetup = { ...(sourceSalesforceId ? { sourceOrgId: sourceSalesforceId } : {}) };
     drawFingerprint = forgeRunFingerprint(graph, cliRunSetup(args, sampleTarget, sampleSetup));
-    // The plans of dry runs a day old or more hold a production's ids no run
-    // takes up any longer: they go first.
-    await sweepSamplePlans(storagePath, new Date()).catch(() => 0);
     const planDir = args.sample.options.plan;
     if (planDir !== undefined) {
       try {

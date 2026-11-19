@@ -2089,6 +2089,13 @@ export class ForgeHandler implements DomainHandler {
    * otherwise, or its plan is gone.
    */
   private readonly sampleSimulations = new Map<string, string>();
+  /**
+   * The setups whose simulation's plan a sweep removed, a day old or more,
+   * as the panels opened or a sample was drawn: a run of one finds no plan,
+   * and says it was a day old (`tooOld`) rather than nothing — in a window
+   * opened since, nothing else is known of that simulation.
+   */
+  private readonly samplePlansSwept = new Set<string>();
   /** The runs whose records are being verified, by `forgeId`: one verification at a time each. */
   private readonly verifying = new Set<string>();
 
@@ -5201,7 +5208,8 @@ export class ForgeHandler implements DomainHandler {
    * refused before an id is read. Both reads are of the run's requests.
    *
    * The dry runs' plans a day old or more go as a sample is simulated or
-   * run: they hold a production's ids.
+   * run, and as the panels open (`sweepSimulationPlans`): they hold a
+   * production's ids.
    *
    * @throws Error when the window keeps no storage: the plan has nowhere to
    *   be kept, and nothing is read or written.
@@ -5278,7 +5286,7 @@ export class ForgeHandler implements DomainHandler {
           plan = await adoptSamplePlan(last, storagePath, run.journalId).catch(unlessGone);
           if (plan) adoptedFrom = last.dir;
           else drawnAgain = 'planTaken';
-        } else if (last === 'tooOld') {
+        } else if (last === 'tooOld' || this.samplePlansSwept.has(fingerprint)) {
           drawnAgain = 'tooOld';
         } else {
           const simulated = this.sampleSimulations.get(run.volumeCase);
@@ -5288,11 +5296,7 @@ export class ForgeHandler implements DomainHandler {
         }
       }
     }
-    await sweepSamplePlans(storagePath, now).catch((err: unknown) => {
-      logger.warn(
-        `Forge sample: the plans of past simulations were not swept (${extractErrorMessage(err)})`,
-      );
-    });
+    await this.sweepSamplePlansOf(storagePath, now);
     // Drawn, the plan reads the roots' ids only within a tenth of what the
     // source has left; a source that would not say is not held to it.
     let sourceRequestsLeft: number | undefined;
@@ -5368,8 +5372,40 @@ export class ForgeHandler implements DomainHandler {
     });
   }
 
+  /**
+   * Remove the plans of samples and the roots that simulations kept a day or
+   * more before `now`, as the panels open: they hold a production's ids,
+   * kept no longer than a run may take them up. They went only as a sample
+   * or a clone from a query was simulated or run, and a simulation no run
+   * followed kept them on the machine for as long as none came. The plans
+   * runs keep beside their journals are not among them: they go with the
+   * journal. What cannot be removed is said in the log.
+   */
+  async sweepSimulationPlans(now: Date = new Date()): Promise<void> {
+    const storagePath = this.runJournal?.storagePath;
+    if (storagePath === undefined) return;
+    await this.sweepSamplePlansOf(storagePath, now);
+    await sweepRootPlans(storagePath, now).catch((err: unknown) => {
+      logger.warn(
+        `Forge roots: the roots of past simulations were not swept (${extractErrorMessage(err)})`,
+      );
+    });
+  }
+
+  /** Remove the simulations' plans of a sample a day old or more, each setup whose plan went noted. */
+  private async sweepSamplePlansOf(storagePath: string, now: Date): Promise<void> {
+    try {
+      for (const name of await sweepSamplePlans(storagePath, now)) this.samplePlansSwept.add(name);
+    } catch (err: unknown) {
+      logger.warn(
+        `Forge sample: the plans of past simulations were not swept (${extractErrorMessage(err)})`,
+      );
+    }
+  }
+
   /** The last simulation of the case `volumeCase` drew a sample for the setup `fingerprint`. */
   private noteSampleSimulation(volumeCase: string, fingerprint: string): void {
+    this.samplePlansSwept.delete(fingerprint);
     this.sampleSimulations.delete(volumeCase);
     this.sampleSimulations.set(volumeCase, fingerprint);
     for (const oldest of this.sampleSimulations.keys()) {

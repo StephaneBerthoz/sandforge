@@ -24,6 +24,7 @@ import {
 import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import { cursorPages } from '../../modules/forge/queryAllPages.js';
 import { SamplePlan } from '../../modules/forge/sample/samplePlanStore.js';
+import { dryRunRootPlanPathOf, keepRootPlan } from '../../modules/forge/roots/rootPlanStore.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { RunConfirmation, WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
@@ -240,6 +241,8 @@ describe('forge:execute of a sample of the whole org', () => {
   /** What the target holds, by object: each record with the source id it was written for. */
   let written: Map<string, Row[]>;
   let storage: string;
+  /** The runs' journals, kept across the windows a test opens over the same storage. */
+  let journal: ForgeRunJournal;
   /** Stop the run once the target has taken this many records; none when undefined. */
   let stopAfter: number | undefined;
   /** Whether the user declines the questions asked. */
@@ -313,14 +316,23 @@ describe('forge:execute of a sample of the whole org', () => {
     });
     source = sourceOrg();
     storage = mkdtempSync(path.join(tmpdir(), 'forge-sample-handler-'));
+    journal = journalOnMemory(storage);
+    openWindow();
+  });
+
+  /**
+   * A window over the storage, the journals and the history: a new one holds
+   * nothing in memory of what the one before it simulated.
+   */
+  function openWindow(): void {
     handler = new ForgeHandler(deps);
     handler.setForgeOrchestrator(orchestratorOver(source), {
       targetAutomation: {
         readForGraph: vi.fn(async () => QUIET),
       } as unknown as TargetAutomationReader,
-      runJournal: journalOnMemory(storage),
+      runJournal: journal,
     });
-  });
+  }
 
   afterEach(() => {
     vi.useRealTimers();
@@ -952,6 +964,83 @@ describe('forge:execute of a sample of the whole org', () => {
       expect(lastAnswer().result).toMatchObject({ status: 'success' });
       expect(lastAnswer().result.journalId).toBeUndefined();
       expect(runPlans()).toHaveLength(0);
+    });
+  });
+
+  describe('as the panels open', () => {
+    it('removes the plans of samples and the roots simulations kept a day or more before, and keeps the others', async () => {
+      const now = new Date('2026-11-15T08:30:00.000Z');
+      const oldRoots = dryRunRootPlanPathOf(storage, 'old-setup');
+      const newRoots = dryRunRootPlanPathOf(storage, 'new-setup');
+      const roots = (readAt: Date) => ({
+        sourceOrgId: 'src-org',
+        fingerprint: '',
+        objectApiName: 'Account',
+        from: 'records' as const,
+        readAt: readAt.toISOString(),
+        ids: [fakeId('001', 'S', 1)],
+      });
+      await keepRootPlan(oldRoots, roots(new Date('2026-11-14T08:00:00.000Z')));
+      await keepRootPlan(newRoots, roots(new Date('2026-11-15T08:00:00.000Z')));
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+      await simulate();
+      const old = lastAnswer().wholeOrgDryRun?.sample?.plan.path ?? '';
+      vi.setSystemTime(new Date('2026-11-15T08:00:00.000Z'));
+      await simulate({ ...SAMPLE, sample: { seed: 2 } });
+      const recent = lastAnswer().wholeOrgDryRun?.sample?.plan.path ?? '';
+      vi.setSystemTime(now);
+
+      openWindow();
+      await handler.sweepSimulationPlans();
+
+      expect(existsSync(old)).toBe(false);
+      expect(existsSync(recent)).toBe(true);
+      expect(existsSync(oldRoots)).toBe(false);
+      expect(existsSync(newRoots)).toBe(true);
+    });
+
+    it('has the run of a setup whose plan went say the plan was a day old, in a window that never simulated it', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+      await simulate();
+      vi.setSystemTime(new Date('2026-11-15T08:30:00.000Z'));
+      openWindow();
+      await handler.sweepSimulationPlans();
+
+      await execute();
+
+      expect(writeQuestions()[0].wholeOrg?.sample).toMatchObject({
+        drawnBy: 'run',
+        drawnAgain: 'tooOld',
+      });
+      expect(lastAnswer().result.sample).toMatchObject({ drawnBy: 'run', drawnAgain: 'tooOld' });
+    });
+
+    it('keeps the plan of a run that ended with records refused, days after it, for its Retry to write', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+      await simulate();
+      contactsRefused = 2;
+      await execute();
+      contactsRefused = 0;
+      const ended = lastAnswer().result;
+      expect(ended.status).toBe('partial');
+      const counted = draws();
+      vi.setSystemTime(new Date('2026-11-17T08:00:00.000Z'));
+      openWindow();
+      await handler.sweepSimulationPlans();
+
+      expect(runPlans()).toHaveLength(1);
+      await execute({ retryOf: ended.forgeId });
+
+      expect(draws()).toBe(counted);
+      expect(writeQuestions().at(-1)?.wholeOrg?.sample).toMatchObject({ ofTheRunRetried: true });
+      expect(lastAnswer().result).toMatchObject({
+        status: 'success',
+        retryOf: ended.forgeId,
+        sample: { ofTheRunRetried: true },
+      });
     });
   });
 

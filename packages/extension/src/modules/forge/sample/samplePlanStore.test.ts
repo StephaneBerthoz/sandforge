@@ -571,9 +571,21 @@ describe('the plan a run takes up', () => {
     const dayAgo = new Date(now.getTime() - SAMPLE_PLAN_MAX_AGE_MS - 1_000);
     await utimes(half, dayAgo, dayAgo);
 
-    expect(await sweepSamplePlans(storage, now)).toBe(2);
+    expect((await sweepSamplePlans(storage, now)).sort()).toEqual(['new.1234-abcd.tmp', 'old']);
     expect(await readdir(samplesDirOf(storage))).toEqual(['new']);
-    expect(await sweepSamplePlans(join(storage, 'nowhere'), now)).toBe(0);
+    expect(await sweepSamplePlans(join(storage, 'nowhere'), now)).toEqual([]);
+  });
+
+  it('leaves the plan a run keeps beside its journal, whatever its age: its Retry and its resume read it', async () => {
+    const now = new Date('2026-11-14T15:00:00.000Z');
+    const run = runPlanDirOf(storage, 'fr-1');
+    await keepSamplePlan(
+      run,
+      planOf({ drawnAt: new Date(now.getTime() - 3 * SAMPLE_PLAN_MAX_AGE_MS), drawnBy: 'run' }),
+    );
+
+    expect(await sweepSamplePlans(storage, now)).toEqual([]);
+    expect((await SamplePlan.open(run)).manifest.drawnBy).toBe('run');
   });
 });
 

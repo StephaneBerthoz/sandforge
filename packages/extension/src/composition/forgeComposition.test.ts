@@ -168,10 +168,17 @@ type DetectPII = (
 async function compose(
   detectPII: DetectPII = () => ({ piiFields: [] }),
   extra: Partial<ForgeCompositionDeps> = {},
-): Promise<{ orchestrator: ForgeOrchestrator; services: ForgeServices }> {
+): Promise<{
+  orchestrator: ForgeOrchestrator;
+  services: ForgeServices;
+  /** The sweep of the plans simulations kept, and when the handlers were handed the module. */
+  sweepForgePlans: ReturnType<typeof vi.fn>;
+  handedAt: number;
+}> {
   const setForgeOrchestrator = vi.fn();
+  const sweepForgePlans = vi.fn(async () => undefined);
   const deps = {
-    handlers: { setForgeOrchestrator },
+    handlers: { setForgeOrchestrator, sweepForgePlans },
     orgRegistry: {},
     orgManager: {},
     piiDetector: { detectPII },
@@ -184,7 +191,8 @@ async function compose(
     ForgeOrchestrator,
     ForgeServices,
   ];
-  return { orchestrator, services };
+  const [handedAt] = setForgeOrchestrator.mock.invocationCallOrder;
+  return { orchestrator, services, sweepForgePlans, handedAt };
 }
 
 const SOQL_CONFIG: ForgeConfig = {
@@ -406,6 +414,16 @@ describe('initForgeComposition', () => {
 
     const none = await compose();
     expect(none.services.removalPlans).toBeUndefined();
+  });
+
+  it('has the handlers sweep the plans simulations kept a day or more as it hands them the extension storage, and nothing without one', async () => {
+    const kept = await compose(undefined, { storagePath: '/extension-storage' });
+    expect(kept.sweepForgePlans).toHaveBeenCalledTimes(1);
+    // Once the handlers hold the journal, whose storage the plans are kept in.
+    expect(kept.sweepForgePlans.mock.invocationCallOrder[0]).toBeGreaterThan(kept.handedAt);
+
+    const none = await compose();
+    expect(none.sweepForgePlans).not.toHaveBeenCalled();
   });
 
   it('hands the handlers the count a run’s calls are read by, so its progress can say them as it goes', async () => {

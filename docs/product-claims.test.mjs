@@ -5717,6 +5717,32 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
     /export const SAMPLE_PLAN_MAX_AGE_MS = 24 \* 60 \* 60_000;/,
     'a dry run’s plan is no longer kept a day — re-point this gate',
   );
+  // Past its day, it goes as the first view of a window opens, or as a
+  // sample is drawn: a simulation no run followed kept it otherwise.
+  assert.match(
+    sample,
+    /past it, the plan goes as the first SandForge view of a window opens, or as a sample is simulated or run/,
+  );
+  const opened = read(...EXT, 'src', 'extension.ts');
+  assert.match(
+    opened.slice(opened.indexOf('eventBroker.onFirstWebview(() => {')),
+    /^eventBroker\.onFirstWebview\(\(\) => \{[\s\S]*?initForgeComposition\(\{[\s\S]*?storagePath: context\.globalStorageUri\.fsPath,/,
+    'the Forge module is no longer wired as the first view opens — re-point this gate',
+  );
+  assert.match(
+    read(...EXT, 'src', 'composition', 'forgeComposition.ts'),
+    /if \(runJournal\) void handlers\.sweepForgePlans\(\);/,
+  );
+  const handlerSweep = read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts');
+  assert.match(
+    handlerSweep,
+    /async sweepSimulationPlans\(now: Date = new Date\(\)\): Promise<void> \{[\s\S]*?await this\.sweepSamplePlansOf\(storagePath, now\);\s*await sweepRootPlans\(storagePath, now\)/,
+  );
+  // Gone so, its run says it was a day old, as of one found too old.
+  assert.match(
+    handlerSweep,
+    /last === 'tooOld' \|\| this\.samplePlansSwept\.has\(fingerprint\)\) \{\s*drawnAgain = 'tooOld';/,
+  );
   // Why a run draws its own, as the handler tells it.
   assert.match(
     sample,
@@ -5848,7 +5874,12 @@ test('the Forge reference and the exit codes say every --fit flag, the JSON and 
   assert.match(clone, /const maxTotal = sample\.options\.maxTotal \?\? DEFAULT_MAX_TOTAL;/);
   assert.match(
     line,
-    /A dry run keeps its plan in `forge-samples\/` under the journal directory for a day/,
+    /A dry run keeps its plan in `forge-samples\/` under the journal directory for a day, removed past it as the next clone starts, whatever it is asked/,
+  );
+  assert.match(
+    clone,
+    /export async function main\(argv: string\[\] = process\.argv\): Promise<void> \{\s*await sweepSamplePlansPastTheirDay\(\);\s*if \(argv\.slice\(2\)\.includes\('--verify'\)\)/,
+    'the clone no longer sweeps the plans past their day before anything else — re-point this gate',
   );
   assert.match(read(...SAMPLE_SRC, 'samplePlanStore.ts'), /const SAMPLES_DIR = 'forge-samples';/);
 

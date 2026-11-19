@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1647,6 +1649,59 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(stderr.join('')).not.toContain('sampling:');
     expect(dryRunPlans()).toEqual([dry.plan.path]);
   });
+
+  it('removes as it starts the plans its dry runs drew a day or more before, whatever it is asked, and keeps the newer', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-14T08:00:00.000Z'));
+      withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+      expect(
+        await run(argv('--fit', 'share', '--max-total', '60', '--dry-run', '--json')),
+      ).toBeUndefined();
+      const [old] = dryRunPlans();
+      vi.setSystemTime(new Date('2026-11-15T07:00:00.000Z'));
+      withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+      expect(
+        await run(
+          argv('--fit', 'share', '--fit-seed', '2', '--max-total', '60', '--dry-run', '--json'),
+        ),
+      ).toBeUndefined();
+      const recent = dryRunPlans().filter((dir) => dir !== old);
+      expect(recent).toHaveLength(1);
+      vi.setSystemTime(new Date('2026-11-15T08:30:00.000Z'));
+
+      // A clone of every record, which draws no sample.
+      withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+      expect(dryRunPlans()).toEqual(recent);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'says the plans past their day it could not remove as it starts, and goes on',
+    async () => {
+      // A folder a keep left half written two days ago, in a folder this user may not write.
+      const samples = join(journalDir, 'forge-samples');
+      mkdirSync(join(samples, 'past'), { recursive: true });
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60_000);
+      utimesSync(join(samples, 'past'), twoDaysAgo, twoDaysAgo);
+      chmodSync(samples, 0o500);
+      try {
+        withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
+        expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+      } finally {
+        chmodSync(samples, 0o700);
+      }
+
+      expect(stderr.join('')).toContain(
+        `The plans of samples drawn a day ago or more could not all be removed from ${samples} (`,
+      );
+      expect(existsSync(join(samples, 'past'))).toBe(true);
+    },
+  );
 
   it('is refused SAMPLE_PLAN_GONE, exit 2, when the plan of the run it takes up is gone, and SAMPLE_PLAN_MISMATCH without --fit share', async () => {
     withFakeOrgs({ target: { limits: DEVELOPER_EDITION, interruptOn: 'Contact' } });

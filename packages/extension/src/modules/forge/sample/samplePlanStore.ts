@@ -746,20 +746,22 @@ export async function removeSamplePlan(dir: string): Promise<void> {
 /**
  * Remove the dry runs' plans drawn a day or more before `now`, and the
  * folders a keep left half written as long ago: their ids are a
- * production's, kept no longer than a run may take them up.
+ * production's, kept no longer than a run may take them up. The plan a run
+ * keeps beside its journal is not one of them: it goes with the journal.
  *
- * @returns How many folders were removed.
+ * @returns The names of the folders removed: of a plan, the fingerprint of
+ *   the setup it was drawn for.
  */
-export async function sweepSamplePlans(storagePath: string, now: Date): Promise<number> {
+export async function sweepSamplePlans(storagePath: string, now: Date): Promise<string[]> {
   const root = samplesDirOf(storagePath);
   let names: string[];
   try {
     names = await readdir(root);
   } catch (error: unknown) {
-    if (isMissing(error)) return 0;
+    if (isMissing(error)) return [];
     throw error;
   }
-  let removed = 0;
+  const removed: string[] = [];
   for (const name of names) {
     const dir = join(root, name);
     let drawnAt: number;
@@ -774,7 +776,7 @@ export async function sweepSamplePlans(storagePath: string, now: Date): Promise<
     }
     if (now.getTime() - drawnAt < SAMPLE_PLAN_MAX_AGE_MS) continue;
     await rm(dir, { recursive: true, force: true });
-    removed++;
+    removed.push(name);
   }
   return removed;
 }

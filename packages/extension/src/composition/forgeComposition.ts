@@ -958,6 +958,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           requestsSent: () => executorRequests,
           lostBulkJobs: lostJobs,
         });
+        // The plans of samples and the roots that simulations kept a day or
+        // more ago go as the panels open: they hold a production's ids, and
+        // went only as a sample or a clone from a query was simulated or run,
+        // so a simulation no run followed kept them past their day.
+        if (runJournal) void handlers.sweepForgePlans();
         log('Forge v2 module initialized.');
       },
     )
