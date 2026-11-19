@@ -156,6 +156,7 @@ function mockOrgs(
   remainingMB = 4,
   emails = 15,
   level: DeliverabilityLevel = 'withheld',
+  described: Record<string, unknown[]> = FIELDS,
 ) {
   const deliverabilityAsked: string[] = [];
   const targetStatements: string[] = [];
@@ -180,7 +181,7 @@ function mockOrgs(
           return { done: true, records: [] };
         }),
         queryMore: vi.fn(),
-        describe: vi.fn(async (name: string) => ({ name, fields: FIELDS[name] ?? [] })),
+        describe: vi.fn(async (name: string) => ({ name, fields: described[name] ?? [] })),
         sobject: vi.fn(() => ({ create, upsert: vi.fn(), update: vi.fn(), destroy: vi.fn() })),
         // Unless told, an org that delivers none of the emails of its
         // automation, as a sandbox refreshed on System email only.
@@ -407,6 +408,30 @@ describe('a Sync run held to what the target has left, before its first write', 
       // The count, then the read the run compares with: its describe and a page.
       expect(oneWay).toEqual(expect.any(Number));
       expect(bothWays).toBe((oneWay ?? 0) + 1 + 1 + 1);
+    });
+
+    it('prices the whole read of an object too wide for one statement in its column groups, from the describe the run holds', async () => {
+      // 600 custom fields: the read names them in three groups, the first
+      // under the filter, each other read by the ids it returned.
+      const wide = {
+        ...FIELDS,
+        Contact: [
+          ...FIELDS.Contact,
+          ...Array.from({ length: 600 }, (_, n) => ({
+            name: `Custom_Field_${String(n).padStart(3, '0')}__c`,
+            type: 'string',
+            createable: true,
+            updateable: true,
+          })),
+        ],
+      };
+      mockOrgs(30, 4, 15, 'withheld', wide);
+      const oneWay = await estimateOf('source_to_target', 'sim-wide-one-way');
+      const bothWays = await estimateOf('bidirectional', 'sim-wide-both-ways');
+
+      // The count, then the read: its describe, a page of the first group,
+      // and a statement of each other group for the 30 contacts it returns.
+      expect(bothWays).toBe((oneWay ?? 0) + 1 + 1 + 1 + 2);
     });
 
     it('prices the read of a production org page by page, as a sandbox’s, as far as the bound of the setting', async () => {

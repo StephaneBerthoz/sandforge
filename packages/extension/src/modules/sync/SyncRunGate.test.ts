@@ -19,10 +19,12 @@ import {
   syncWriteGate,
   syncWritePlan,
   wholeTargetCount,
+  wholeTargetReadGroups,
   wholeTargetReadRequests,
   type SyncCountedWrite,
   type SyncWriteMeasures,
 } from './SyncRunGate.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 
 /** A Developer Edition's contact flow, which sends two emails for each contact created. */
 const WELCOME_FLOW: ForgeTargetAutomation = {
@@ -556,6 +558,44 @@ describe('what a run sends its target from its gate on, beside its writes', () =
     );
   });
 
+  it('prices the updates that set the lookups a write left out once its rows are in, each call read first', () => {
+    // 150 accounts inserted 50 a call. Each naming its parent among them, an
+    // update of them sets it once they are in, in calls of 50, each read
+    // first in a statement, once more without the stamps, and whether the
+    // run's user reads encrypted fields.
+    const inserted = {
+      objectApiName: 'Account',
+      operation: 'insert' as const,
+      rows: 150,
+      batchSize: 50,
+    };
+    expect(syncRequestsPastTheGate({ objects: [inserted] }, {})).toBe(SENT_AGAIN);
+    expect(
+      syncRequestsPastTheGate({ objects: [{ ...inserted, lookupPasses: { within: 150 } }] }, {}),
+    ).toBe(SENT_AGAIN + 3 + (3 + 1) + 1);
+    // Each naming a contact written after them, in a cycle: set once the
+    // contacts are in, those at a contact the run has no copy of in a send
+    // of their own, a call at the least.
+    expect(
+      syncRequestsPastTheGate({ objects: [{ ...inserted, lookupPasses: { cycle: 150 } }] }, {}),
+    ).toBe(SENT_AGAIN + 4 + (4 + 1) + 1);
+    // Both: two passes, each read first.
+    expect(
+      syncRequestsPastTheGate(
+        { objects: [{ ...inserted, lookupPasses: { within: 150, cycle: 150 } }] },
+        {},
+      ),
+    ).toBe(SENT_AGAIN + 3 + (3 + 1) + 4 + (4 + 1) + 1);
+    // 600 past the Bulk API threshold: a job, and what a duplicate rule may
+    // have refused in it sent again in three calls of 200, each read first.
+    expect(
+      syncRequestsPastTheGate(
+        { objects: [{ ...inserted, rows: 600, lookupPasses: { within: 600 } }] },
+        {},
+      ),
+    ).toBe(SENT_AGAIN + 4 + (4 + 3 * 2 + 1) + 1);
+  });
+
   it('prices a describe of each object whose record types it reads again, once the mute assigns a permission set', async () => {
     const typed = { ...counted([{ objectApiName: 'Contact', operation: 'insert', rows: 150 }]) };
     const again = { ...typed, describedAgain: 2 };
@@ -606,6 +646,64 @@ describe('of a run both ways, the whole read of the target it compares with', ()
     const oneSent = await measureSyncWrite(write, measures({ sentBefore: () => 20 }));
     const bothSent = await measureSyncWrite(write, measures({ sentBefore: () => 22, countTarget }));
     expect(bothSent.api.estimate).toBe(oneSent.api.estimate + 2 + (1 + 3) + (1 + 1));
+  });
+
+  /** An account of 600 custom fields: too wide for one statement to name them. */
+  const WIDE = [
+    'Id',
+    'Name',
+    ...Array.from({ length: 600 }, (_, n) => `Custom_Field_${String(n).padStart(3, '0')}__c`),
+  ];
+
+  it('prices the read of an object too wide for one statement in its column groups, as the read sends them', async () => {
+    const groups = wholeTargetReadGroups('Account', WIDE);
+    expect(groups.length).toBeGreaterThan(1);
+    // What the read sends of 5,000 records: its describe, the first group's
+    // pages of 1,000 under the filter, then each other group by the ids it
+    // returned, a statement each as many ids as the group leaves room for.
+    const held = Array.from({ length: 5_000 }, (_, n) => ({
+      Id: `001${String(n + 1).padStart(12, '0')}AAA`,
+    }));
+    let sent = 1;
+    await readColumnsApart(`SELECT ${WIDE.join(', ')} FROM Account`, async (statement) => {
+      if (/ WHERE Id IN \(/.test(statement)) {
+        sent += 1;
+        return [];
+      }
+      sent += Math.ceil(held.length / 1_000);
+      return held;
+    });
+    // Priced as one statement, it was 6 where it sent 36.
+    expect(wholeTargetReadRequests(5_000)).toBe(1 + 5);
+    expect(sent).toBe(1 + 5 + 19 + 11);
+    expect(wholeTargetReadRequests(5_000, groups)).toBe(sent);
+    // Nothing read, nothing read by id.
+    expect(wholeTargetReadRequests(0, groups)).toBe(1 + 1);
+    // An object whose fields one statement names is read in one.
+    expect(wholeTargetReadGroups('Account', ['Id', 'Name'])).toEqual([]);
+  });
+
+  it('prices the read of a wide object from the fields the read names, and as one statement where they could not be read', async () => {
+    const countTarget = vi.fn(async () => 5_000);
+    const accounts = counted([{ objectApiName: 'Account', operation: 'update', rows: 10 }]);
+    const narrow = await measureSyncWrite(accounts, measures({ countTarget }));
+    const targetFields = vi.fn(async () => WIDE);
+
+    const wide = await measureSyncWrite(accounts, measures({ countTarget, targetFields }));
+
+    expect(targetFields.mock.calls).toEqual([['Account']]);
+    const byId = wholeTargetReadGroups('Account', WIDE).reduce(
+      (sum, ids) => sum + Math.ceil(5_000 / ids),
+      0,
+    );
+    expect(byId).toBeGreaterThan(0);
+    expect(wide.api.estimate).toBe(narrow.api.estimate + byId);
+
+    const unread = await measureSyncWrite(
+      accounts,
+      measures({ countTarget, targetFields: async () => Promise.reject(new Error('INVALID_TYPE')) }),
+    );
+    expect(unread.api.estimate).toBe(narrow.api.estimate);
   });
 
   it('prices the read at its bound when the target would not count it, and counts nothing of a run that writes nothing', async () => {

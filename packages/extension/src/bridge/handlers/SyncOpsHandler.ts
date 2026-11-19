@@ -582,12 +582,13 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private writeGateFor(
     config: SyncConfig,
-    targetConn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    readers: Pick<SyncReaders, 'targetConn' | 'describeTargetFields'>,
     policy: SyncGatePolicy,
     readAutomation?: SyncWriteMeasures['readAutomation'],
     checkpointFirst?: SyncCheckpointFirst,
     mutePlan?: SyncWriteMeasures['mutePlan'],
   ): SyncWriteGate {
+    const { targetConn } = readers;
     const target = this.deps.orgManager.getOrg(config.targetOrgId);
     const reader = this.targetAutomation;
     const guard = this.deps.infraServices?.productionGuard;
@@ -637,6 +638,13 @@ export class SyncOpsHandler implements DomainHandler {
         ...(checkpointFirst ? { checkpointFirst } : {}),
         ...(mutePlan ? { mutePlan } : {}),
         ...(countTarget ? { countTarget } : {}),
+        // The fields that read names, every one the describe the run holds
+        // lists, as the read names them: an object too wide for one
+        // statement is read in column groups.
+        targetFields: async (objectApiName) =>
+          ((await readers.describeTargetFields(objectApiName)).fields ?? []).map(
+            (field) => field.name,
+          ),
       },
       {
         policy,
@@ -1620,7 +1628,7 @@ export class SyncOpsHandler implements DomainHandler {
         countPersonAccounts: readers.countPersonAccounts,
         writeGate: this.writeGateFor(
           config,
-          readers.targetConn,
+          readers,
           'ask',
           undefined,
           checkpoint?.gate,
@@ -2825,7 +2833,7 @@ export class SyncOpsHandler implements DomainHandler {
             triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask';
           if (!muteAutomation) {
             return emailsKeptBy(
-              this.writeGateFor(config, targetConn, policy, undefined, checkpoint?.gate),
+              this.writeGateFor(config, readers, policy, undefined, checkpoint?.gate),
             );
           }
           // Asked to mute, the gate plans the mute from what the target runs
@@ -2838,7 +2846,7 @@ export class SyncOpsHandler implements DomainHandler {
             );
           muting = mutingSyncWriteGate(
             (read, mutePlan) =>
-              this.writeGateFor(config, targetConn, policy, read, checkpoint?.gate, mutePlan),
+              this.writeGateFor(config, readers, policy, read, checkpoint?.gate, mutePlan),
             readAutomation,
             (read) =>
               muteForRun(async () => muteOrgOf(targetConn), read, {

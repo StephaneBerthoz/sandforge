@@ -907,6 +907,34 @@ function createsRecords(operation: SyncObjectConfig['operation']): boolean {
 }
 
 /**
+ * The rows of an object a run may write again to set the lookups it left out
+ * of their first write (`SyncCountedObject.lookupPasses`), at most every row
+ * it creates, as `prepareSyncRows` leaves them out: a lookup at a row of the
+ * same write, which its write carries where a lookup names its own object;
+ * and one at a record of an object its cycle writes after it, counted
+ * whether or not the target requires it, which then goes with the row.
+ * Undefined for a write that creates none, or carries no such lookup.
+ *
+ * @param lookups - The lookups the object's write carries (`lookupsOf`).
+ * @param later - The objects of its cycle the run writes after it (`laterInCycles`).
+ */
+function lookupPassesOf(
+  objectConfig: Pick<SyncObjectConfig, 'objectApiName' | 'operation'>,
+  rows: number,
+  lookups: readonly WriteLookup[] = [],
+  later: ReadonlySet<string> = new Set(),
+): SyncCountedObject['lookupPasses'] {
+  if (rows <= 0 || !createsRecords(objectConfig.operation)) return undefined;
+  const self = objectConfig.objectApiName.toLowerCase();
+  const after = new Set([...later].map((name) => name.toLowerCase()));
+  const named = lookups.flatMap(({ referenceTo }) => referenceTo.map((name) => name.toLowerCase()));
+  const within = named.includes(self);
+  const cycle = named.some((name) => after.has(name));
+  if (!within && !cycle) return undefined;
+  return { ...(within ? { within: rows } : {}), ...(cycle ? { cycle: rows } : {}) };
+}
+
+/**
  * What the run writes, as its gate measures it: each object's records as
  * counted, less those an earlier run copied, which an insert leaves as they
  * are, and less those it holds back for a record of an object left out.
@@ -921,8 +949,11 @@ function createsRecords(operation: SyncObjectConfig['operation']): boolean {
  *   written nor refused, they are counted in no object.
  * @param past - What the run reads from its gate on, beside its writes:
  *   what the keeper of what it writes over names each object's records by
- *   (`keys`), and the objects whose record types it reads again once the
- *   mute's lease assigned a permission set (`typed`).
+ *   (`keys`), the objects whose record types it reads again once the
+ *   mute's lease assigned a permission set (`typed`), and the lookups each
+ *   write carries (`lookups`) with the objects of its cycle written after
+ *   it (`later`), which tell the rows it updates to set them once they are
+ *   in ({@link lookupPassesOf}).
  */
 function countedWriteOf(
   objects: readonly SyncObjectConfig[],
@@ -934,7 +965,12 @@ function countedWriteOf(
   matched: ReadonlyMap<string, number> = new Map(),
   linked: ReadonlySet<string> = new Set(),
   rolesLinked?: number,
-  past: { keys?: ReadonlyMap<string, OverwriteKeyShape>; typed?: ReadonlySet<string> } = {},
+  past: {
+    keys?: ReadonlyMap<string, OverwriteKeyShape>;
+    typed?: ReadonlySet<string>;
+    lookups?: ReadonlyMap<string, readonly WriteLookup[]>;
+    later?: ReadonlyMap<string, ReadonlySet<string>>;
+  } = {},
 ): GateInput {
   let alreadyCopied = 0;
   let alreadyLinked = 0;
@@ -951,13 +987,21 @@ function countedWriteOf(
     const held = refused.has(name) ? 0 : (heldBack.get(name)?.rows ?? 0);
     const apart = held + (matched.get(name) ?? 0);
     const key = past.keys?.get(name);
+    const rows = Math.max(0, count.rows - left - apart);
+    const passes = lookupPassesOf(
+      objectConfig,
+      rows,
+      past.lookups?.get(name),
+      past.later?.get(name),
+    );
     return {
       objectApiName: name,
       operation: objectConfig.operation,
-      rows: Math.max(0, count.rows - left - apart),
+      rows,
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
       batchSize: objectConfig.batchSize,
       ...(key ? { overwriteKey: key } : {}),
+      ...(passes ? { lookupPasses: passes } : {}),
     };
   });
   // An object the target will take no record of is counted apart: its rows
@@ -1338,7 +1382,7 @@ export class SyncOrchestrator {
           earlier.links,
           gateReads,
         ),
-        { keys, ...(this.deps.describeTargetFieldsAgain ? { typed } : {}) },
+        { keys, ...(this.deps.describeTargetFieldsAgain ? { typed } : {}), lookups, later },
       );
       const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
@@ -2780,8 +2824,9 @@ export class SyncOrchestrator {
             ),
             // What the run would send past its gate, which a dry run prices
             // as the run: the describes read again under a lease are its
-            // own, whether or not the simulation was given a way to.
-            { keys, typed },
+            // own, whether or not the simulation was given a way to; and the
+            // updates that set the lookups its rows wait for.
+            { keys, typed, lookups, later: laterInCycles(writeOrder) },
           ),
         );
       } catch (err: unknown) {

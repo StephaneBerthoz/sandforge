@@ -104,6 +104,13 @@ interface TargetShape {
   refusesFirst?: boolean;
   /** The accounts the target holds, which a whole read of them takes 1,000 a page, as the org answered. */
   held?: number;
+  /**
+   * Custom fields of the account beside its name, in both orgs: past some
+   * 250, a read names them in column groups, the others by id.
+   */
+  wide?: number;
+  /** Each account of the source names the one before it as its parent account. */
+  parents?: boolean;
 }
 
 /**
@@ -118,21 +125,24 @@ function orgs(shape: TargetShape = {}): { targetRequests: string[]; targetStatem
   const targetRequests: string[] = [];
   const targetStatements: string[] = [];
   const page = (records: unknown[]) => ({ records, totalSize: records.length, done: true });
-  const described = shape.refusesFirst
-    ? {
-        ...DESCRIBED,
-        fields: [
-          ...DESCRIBED.fields,
-          field(KEY_CONTACT, 'reference', { referenceTo: ['Contact'] }),
-        ],
-      }
-    : DESCRIBED;
-  const sourceAccounts = shape.refusesFirst
-    ? ACCOUNTS.map((account, i) => ({
-        ...account,
-        [KEY_CONTACT]: `003${String(i + 1).padStart(12, '0')}AAA`,
-      }))
-    : ACCOUNTS;
+  const described = {
+    ...DESCRIBED,
+    fields: [
+      ...DESCRIBED.fields,
+      ...(shape.refusesFirst
+        ? [field(KEY_CONTACT, 'reference', { referenceTo: ['Contact'] })]
+        : []),
+      ...(shape.parents ? [field('ParentId', 'reference', { referenceTo: ['Account'] })] : []),
+      ...Array.from({ length: shape.wide ?? 0 }, (_, n) =>
+        field(`Custom_Field_${String(n).padStart(3, '0')}__c`, 'string'),
+      ),
+    ],
+  };
+  const sourceAccounts = ACCOUNTS.map((account, i) => ({
+    ...account,
+    ...(shape.refusesFirst ? { [KEY_CONTACT]: `003${String(i + 1).padStart(12, '0')}AAA` } : {}),
+    ...(shape.parents && i > 0 ? { ParentId: ACCOUNTS[i - 1].Id } : {}),
+  }));
   const held = Array.from({ length: shape.held ?? 0 }, (_, i) => ({
     Id: `001${String(i + 5_000).padStart(12, '0')}AAA`,
     Name: `Held ${i + 1}`,
@@ -145,6 +155,8 @@ function orgs(shape: TargetShape = {}): { targetRequests: string[]; targetStatem
     ...(from + 1_000 < held.length ? { nextRecordsUrl: `/query/next-${from + 1_000}` } : {}),
   });
   let creates = 0;
+  /** The accounts the target created, each under an id of its own. */
+  let created = 0;
   const conn = (side: 'source' | 'target') => {
     const self: Record<string, unknown> = { version: '66.0' };
     const send = (url: string): Promise<unknown> =>
@@ -207,8 +219,8 @@ function orgs(shape: TargetShape = {}): { targetRequests: string[]; targetStatem
             ],
           }));
         }
-        return records.map((_, i) => ({
-          id: `001${String(i + 900).padStart(12, '0')}AAA`,
+        return records.map(() => ({
+          id: `001${String(900 + created++).padStart(12, '0')}AAA`,
           success: true,
           errors: [],
         }));
@@ -396,6 +408,39 @@ describe('sandforge-sync --json, its API requests', () => {
       expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
       expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
     });
+
+    it('prices the whole read of an object too wide for one statement in its column groups: never fewer than it sends', async () => {
+      const real = orgs({ held: 5_000, wide: 600 });
+      out.length = 0;
+      await main([...bothWays(), '--json']);
+      const ran = JSON.parse(out.join('')) as {
+        apiRequests: { estimate?: number; sent: number };
+      };
+
+      // Read whole, its first group of columns page by page under the
+      // filter, then each other group by the ids it returned: a statement
+      // of the read was priced, and some thirty went.
+      const byId = real.targetStatements.filter(
+        (soql) => / FROM Account WHERE Id IN \(/.test(soql) && !/LastModifiedDate/.test(soql),
+      );
+      expect(byId.length).toBeGreaterThan(20);
+      expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
+      expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
+    });
+  });
+
+  it('prices the updates that give each account its parent once both are in: never fewer than it sends', async () => {
+    const real = orgs({ parents: true });
+    const ran = await summaryOf(argv('--batch-size', '10', '--json'));
+
+    // Fifteen calls of ten accounts, without their parent, then fifteen
+    // updates that give 149 of them the copy of theirs, priced nowhere.
+    expect(real.targetRequests.filter((url) => url === '/composite/sobjects')).toHaveLength(15);
+    expect(
+      real.targetRequests.filter((url) => url === '/composite/sobjects/update'),
+    ).toHaveLength(15);
+    expect(ran.apiRequests.sent).toBe(real.targetRequests.length);
+    expect(ran.apiRequests.estimate).toBeGreaterThanOrEqual(ran.apiRequests.sent);
   });
 
   it('says what it sent when its gate never priced the run', () => {

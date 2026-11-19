@@ -6,8 +6,9 @@
  * contact, and are given its copy once the contacts are written.
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, SyncWriteCheck } from '@sandforge/shared';
 import { SyncOrchestrator, laterInCycles } from './SyncOrchestrator.js';
+import type { SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { DataSync, type OperationOutcome } from './DataSync.js';
 import { FieldMappingService } from './FieldMapping.js';
 import { TransformPipeline } from './TransformPipeline.js';
@@ -323,6 +324,62 @@ describe('SyncOrchestrator — objects whose lookups name each other', () => {
     expect(result.objectResults[0].lookupsLeftOut).toEqual([
       { records: 2, fields: ['Primary_Contact__c'], reason: 'notReached' },
     ]);
+  });
+
+  it('tells its gate the rows it may write again to set their lookups: at an account of the same write, at the contacts written after', async () => {
+    const seen: SyncCountedWrite[] = [];
+    const check: SyncWriteCheck = {
+      objects: [],
+      total: 0,
+      alreadyCopied: 0,
+      storage: { verdict: 'fits', estimateMB: 0 },
+      emails: [],
+      verdict: 'writes',
+    };
+    const writeGate: SyncWriteGate = {
+      measure: async (counted) => {
+        seen.push(counted);
+        return check;
+      },
+      hold: async (counted) => {
+        seen.push(counted);
+        return { check, answer: { go: true, asked: false } };
+      },
+    };
+    const gated = { writeGate, countSource: async () => 2 };
+    const target = targetOrg();
+
+    await orchestrator(target, sourceOrg(), gated).execute(config());
+
+    // The accounts carry their parent account and their primary contact,
+    // written after them in the cycle: both set by an update once the
+    // records they name are in, every account at most. The contacts name
+    // the accounts written before them: nothing to set again.
+    const [accounts, contacts] = seen[0]?.objects ?? [];
+    expect(accounts).toMatchObject({
+      objectApiName: 'Account',
+      rows: 2,
+      lookupPasses: { within: 2, cycle: 2 },
+    });
+    expect(contacts).toMatchObject({ objectApiName: 'Contact', rows: 2 });
+    expect(contacts).not.toHaveProperty('lookupPasses');
+    // The cycle's pass sent them, priced as one at least.
+    expect(target.update).toHaveBeenCalledTimes(1);
+
+    // A simulation prices the run as the run is priced.
+    await orchestrator(targetOrg(), sourceOrg(), {
+      ...gated,
+      findInTarget: async () => new Map<string, number>(),
+    }).simulate(config());
+    expect(seen[1]?.objects[0]).toMatchObject({ lookupPasses: { within: 2, cycle: 2 } });
+
+    // An update creates nothing: its rows go with every lookup they hold.
+    const updates = {
+      ...config(),
+      objects: config().objects.map((object) => ({ ...object, operation: 'update' as const })),
+    };
+    await orchestrator(targetOrg(), sourceOrg(), gated).execute(updates);
+    expect(seen[2]?.objects.some((object) => 'lookupPasses' in object)).toBe(false);
   });
 
   it('simulates the accounts as the run writes them, the lookup left for later', async () => {

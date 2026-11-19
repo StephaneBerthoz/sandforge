@@ -92,6 +92,7 @@ import {
 import { SNAPSHOT_PAGE_ROWS } from '../checkpoint/rewindEstimate.js';
 import { FORGE_QUERY_MAX_RECORDS } from '../forge/queryAllPages.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
 import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
 import { sourceReadWhere } from './SyncDelta.js';
 import type { SyncHeldBackObject } from './syncHeldBack.js';
@@ -124,6 +125,16 @@ export interface SyncCountedObject {
    * of a quarter of the records.
    */
   overwriteKey?: OverwriteKeyShape;
+  /**
+   * The rows the run may write again once they are in, by an update, to set
+   * the lookups it left out of their first write (`DataSync.setLookups`), at
+   * most every row it creates: `within`, of an object whose write carries a
+   * lookup at its own object — an account's parent account —, set once the
+   * object's write is through; `cycle`, of an object a cycle of lookups ties
+   * to objects the run writes after it, set once the cycle's last object is
+   * written (`settleCycle`). Absent when its write carries no such lookup.
+   */
+  lookupPasses?: { within?: number; cycle?: number };
 }
 
 /** An object of a run the target will take no record of as the run writes it, and why. */
@@ -291,6 +302,13 @@ const SENT_AGAIN_PASSES = 2;
 const SENT_AGAIN_FLOOR: readonly number[] = Array.from({ length: SENT_AGAIN_PASSES }, () => 1);
 
 /**
+ * What the keeper of what the run writes over names the records of a call
+ * setting lookups by: their id, in a statement of few columns, the lookups
+ * alone being written.
+ */
+const LOOKUPS_KEY: OverwriteKeyShape = { characters: ID_KEY_CHARACTERS, wide: false };
+
+/**
  * Requests the read of an object a bidirectional run reads whole of the
  * target sends beside its pages: its describe, for the fields it names
  * (`queryTarget`).
@@ -304,11 +322,36 @@ const WHOLE_READ_DESCRIBE = 1;
  * the `held` records the target holds under its filter, as far as the read's
  * bound ({@link FORGE_QUERY_MAX_RECORDS}). The read names every field the
  * describe lists, and the org answered a read of 49 columns of contacts
- * 1,000 a page where 2,000 were asked ({@link SNAPSHOT_PAGE_ROWS}).
+ * 1,000 a page where 2,000 were asked ({@link SNAPSHOT_PAGE_ROWS}). An object
+ * too wide for one statement to name them is read in column groups
+ * (`readColumnsApart`): the first page by page under the filter, then each
+ * other group by the ids it returned, a statement each as many ids as the
+ * group leaves room for ({@link wholeTargetReadGroups}). Priced as one
+ * statement, the read of 5,000 records of an object of 600 fields sent 34
+ * requests where 6 were counted.
+ *
+ * @param otherGroups - For each column group after the first, the ids one
+ *   statement reading it names: none for an object one statement reads.
  */
-export function wholeTargetReadRequests(held: number): number {
+export function wholeTargetReadRequests(held: number, otherGroups: readonly number[] = []): number {
   const rows = Math.min(Math.max(0, held), FORGE_QUERY_MAX_RECORDS);
-  return WHOLE_READ_DESCRIBE + Math.max(1, Math.ceil(rows / SNAPSHOT_PAGE_ROWS));
+  const byId = otherGroups.reduce((sum, ids) => sum + Math.ceil(rows / Math.max(1, ids)), 0);
+  return WHOLE_READ_DESCRIBE + Math.max(1, Math.ceil(rows / SNAPSHOT_PAGE_ROWS)) + byId;
+}
+
+/**
+ * For each column group after the first of the whole read of an object of
+ * the target, the ids one statement reading it by id names, as the read
+ * writes them (`readColumnsApart`: the id alone carried in every group, no
+ * filter beside the ids), as a checkpoint counts its own
+ * (`snapshotGroupReads`). None for an object whose fields one statement
+ * names.
+ *
+ * @param fields - The fields the read names, as the panel or the command line names them.
+ */
+export function wholeTargetReadGroups(objectApiName: string, fields: readonly string[]): number[] {
+  const [, ...others] = columnGroups(fields.length > 0 ? fields : ['Id']);
+  return others.map((group) => idsPerStatement(objectApiName, group));
 }
 
 /** The records of each call of `rows`, `size` at a time. */
@@ -348,7 +391,8 @@ function writeCallsOf(
  * and the read-backs of the record types given, at most but where said:
  * - of a bidirectional run, the read of each object it updates or upserts,
  *   whole, from the target ({@link wholeTargetReadRequests}), of the records
- *   the gate counted there (`targetHeld`);
+ *   the gate counted there (`targetHeld`), in the column groups its fields
+ *   are read in (`targetGroups`);
  * - before each call of an update or an upsert, the keeper's reads of what it
  *   writes over (`overwriteReadsOf`), each key at its length escaped
  *   (`textKeyCharacters`), and once a run whether its user reads encrypted
@@ -357,6 +401,10 @@ function writeCallsOf(
  *   refused for a lookup or for fields a rule named, sent again, each call
  *   of an update or an upsert read first: counted at their floor, a call a
  *   pass ({@link SENT_AGAIN_FLOOR}), which more refusals exceed;
+ * - of each object whose rows wait for lookups their first write left out
+ *   (`lookupPasses`), the updates that set them, each call read first as
+ *   any update; those of a cycle at records the run has no copy of go as
+ *   read, in a send of their own, counted at a call, which more exceed;
  * - of the contact roles it creates with opportunities it creates with a
  *   contact, the roles the platform wrote with them, read 200 opportunities a
  *   statement, and updated with the fields the run's rows hold, calls of the
@@ -367,11 +415,15 @@ function writeCallsOf(
  * Counted nowhere, they were sent past the price the run was held to: a
  * run updating 600 accounts priced at its three calls sent four reads more;
  * a bidirectional run read from the target the whole of each object it
- * updated, and the rows a run sent again once refused were priced at nothing.
+ * updated, and the rows a run sent again once refused were priced at nothing,
+ * as were the updates that give accounts their parent account once in.
  *
  * @param path.leaseAssigns - Whether the run's mute assigns a permission set.
  * @param path.targetHeld - Of a bidirectional run, the records the target
  *   holds of each object it reads whole there, as counted at the gate.
+ * @param path.targetGroups - Of those, for an object too wide for one
+ *   statement, the ids each statement of its other column groups names
+ *   ({@link wholeTargetReadGroups}).
  */
 export function syncRequestsPastTheGate(
   counted: Pick<SyncCountedWrite, 'objects' | 'describedAgain' | 'rolesLinked'>,
@@ -380,15 +432,31 @@ export function syncRequestsPastTheGate(
     duplicateRules?: ReadonlyMap<string, boolean>;
     leaseAssigns?: boolean;
     targetHeld?: ReadonlyMap<string, number>;
+    targetGroups?: ReadonlyMap<string, readonly number[]>;
   },
 ): number {
   let requests = 0;
   let overwritten = false;
-  for (const held of path.targetHeld?.values() ?? []) requests += wholeTargetReadRequests(held);
+  for (const [objectApiName, held] of path.targetHeld ?? []) {
+    requests += wholeTargetReadRequests(held, path.targetGroups?.get(objectApiName));
+  }
   for (const object of counted.objects) {
     if (object.rows <= 0 || object.operation === 'delete') continue;
     // The rows refused sent again, a call a pass at the least.
     requests += SENT_AGAIN_FLOOR.length;
+    // The lookups set once the rows are in, by updates of the rows that
+    // hold them through the same writer: those within the write, then those
+    // of the cycle, whose lookups at records as read go apart.
+    const { within = 0, cycle = 0 } = object.lookupPasses ?? {};
+    for (const [rows, asRead] of [
+      [within, []],
+      [cycle, [1]],
+    ] as const) {
+      if (rows <= 0) continue;
+      const calls = [...writeCallsOf({ ...object, rows }, path), ...asRead];
+      overwritten = true;
+      requests += calls.length + overwriteReadsOf(calls, LOOKUPS_KEY);
+    }
     if (object.operation !== 'update' && object.operation !== 'upsert') continue;
     overwritten = true;
     requests += overwriteReadsOf(
@@ -465,6 +533,15 @@ export interface SyncWriteMeasures {
    * ({@link wholeTargetReadRequests}). Absent for a run in one direction.
    */
   countTarget?: (objectApiName: string) => Promise<number>;
+  /**
+   * Of a bidirectional run, the fields the whole read of an object of the
+   * target names, as the panel or the command line names them, from the
+   * target's describe the run holds: an object too wide for one statement is
+   * read in column groups, and its requests are priced by them
+   * ({@link wholeTargetReadGroups}). Absent, or unread, the read is priced
+   * as one statement.
+   */
+  targetFields?: (objectApiName: string) => Promise<readonly string[]>;
   /**
    * The mute the run holds the lease of while it writes, as planned once
    * the gate read the target's automation (`mutingSyncWriteGate`): the
@@ -606,25 +683,32 @@ export function wholeTargetCount(
  * Of the objects a bidirectional run updates or upserts, the records the
  * target holds of each, counted once: those it writes rows of, and those
  * whose rows it holds back, read all the same. A count the target refuses
- * is taken at the read's bound, the most it reads.
+ * is taken at the read's bound, the most it reads. With them, of an object
+ * too wide for one statement, the column groups its read names its fields
+ * in (`groups`), from the fields the read names.
  */
 async function targetHeldOf(
   counted: Pick<SyncCountedWrite, 'objects' | 'heldBack'>,
   count: (objectApiName: string) => Promise<number>,
-): Promise<Map<string, number>> {
+  fields?: (objectApiName: string) => Promise<readonly string[]>,
+): Promise<{ held: Map<string, number>; groups: Map<string, readonly number[]> }> {
   const heldBack = new Set(
     (counted.heldBack ?? [])
       .filter(({ rows }) => rows > 0)
       .map(({ objectApiName }) => objectApiName),
   );
   const held = new Map<string, number>();
+  const groups = new Map<string, readonly number[]>();
   for (const { objectApiName, operation, rows } of counted.objects) {
     if (!writesOver(operation) || held.has(objectApiName)) continue;
     if (rows <= 0 && !heldBack.has(objectApiName)) continue;
     const n = await count(objectApiName).catch(() => FORGE_QUERY_MAX_RECORDS);
     held.set(objectApiName, Number.isFinite(n) && n >= 0 ? n : FORGE_QUERY_MAX_RECORDS);
+    const named = await fields?.(objectApiName).catch(() => undefined);
+    const others = named ? wholeTargetReadGroups(objectApiName, named) : [];
+    if (others.length > 0) groups.set(objectApiName, others);
   }
-  return held;
+  return { held, groups };
 }
 
 /**
@@ -723,10 +807,11 @@ export async function measureSyncWrite(
   }
   // Of a bidirectional run, what the target holds of each object it reads
   // whole there, counted under its filter before the command line's count
-  // is read, which then holds these counts too.
-  const targetHeld =
+  // is read, which then holds these counts too, and the column groups the
+  // read of an object too wide for one statement names its fields in.
+  const target =
     total > 0 && measures.countTarget
-      ? await targetHeldOf(counted, measures.countTarget)
+      ? await targetHeldOf(counted, measures.countTarget, measures.targetFields)
       : undefined;
   // The checkpoint's reads, the lease of the mute, the read-backs of the
   // record types given and the read of the deliverability are the target's,
@@ -744,11 +829,12 @@ export async function measureSyncWrite(
       : sentBefore !== undefined
         ? Math.max(0, sentBefore - (deliverability.deliverability ?? 0))
         : importRunReads(0, read !== undefined ? automationReadRequests(read) : 0) +
-          (targetHeld?.size ?? 0);
+          (target?.held.size ?? 0);
   // And what it sends from its gate on beside its writes: the whole reads of
   // the target, the reads of what it writes over, the rows refused sent
-  // again, the roles the platform wrote, and the describes read again under
-  // the mute's lease. The command line's count stops at the gate.
+  // again, the lookups set once their records are in, the roles the platform
+  // wrote, and the describes read again under the mute's lease. The command
+  // line's count stops at the gate.
   const duplicateRules = read !== undefined ? duplicateRulesOf(read) : undefined;
   const pastTheGate =
     total === 0
@@ -757,7 +843,7 @@ export async function measureSyncWrite(
           bulkThreshold: measures.bulkThreshold,
           duplicateRules,
           leaseAssigns: (measures.mutePlan?.()?.assign.length ?? 0) > 0,
-          ...(targetHeld ? { targetHeld } : {}),
+          ...(target ? { targetHeld: target.held, targetGroups: target.groups } : {}),
         });
   const api: ApiBudgetCheck = apiBudgetCheckOf(
     {

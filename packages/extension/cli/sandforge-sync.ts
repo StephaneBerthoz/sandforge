@@ -1054,6 +1054,18 @@ export function cliAllowsDeletes(org: TypedTarget): boolean {
 }
 
 /**
+ * The fields the read of an object names, of those its describe lists: every
+ * one but an address or a location, compounds whose parts it names. What the
+ * gate of a run both ways prices the target's read by (`targetFields`): an
+ * object too wide for one statement is read in column groups.
+ */
+function wholeReadFieldsOf(
+  fields: ReadonlyArray<{ name: string; type?: string }>,
+): string[] {
+  return fields.filter((f) => f.type !== 'address' && f.type !== 'location').map((f) => f.name);
+}
+
+/**
  * Read every row of an object, following the cursor.
  *
  * Its fields named from the describe, as the panel names them: `FIELDS(ALL)`,
@@ -1091,9 +1103,7 @@ export function buildQueryFn(
       queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
     };
     const described = await conn.sobject(object).describe();
-    const fields = described.fields
-      .filter((f) => f.type !== 'address' && f.type !== 'location')
-      .map((f) => f.name);
+    const fields = wholeReadFieldsOf(described.fields);
     let truncated = false;
     // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
     // a time: every page is read, as the panel reads them.
@@ -2335,6 +2345,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // which a dry run, keeping no file, does not read, and says it would.
     sentBefore: () => requestsSent() + (args.dryRun ? RUN_USER_REQUESTS : 0),
     ...(countTarget ? { countTarget } : {}),
+    // The fields that read names, from the describe the run holds: an
+    // object too wide for one statement is read in column groups.
+    targetFields: async (objectApiName) =>
+      wholeReadFieldsOf((await describeTargetFields(objectApiName)).fields ?? []),
     ...(checkpoints
       ? {
           checkpointFirst: {
