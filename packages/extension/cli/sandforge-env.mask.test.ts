@@ -434,17 +434,65 @@ describe('a mask resource', () => {
     );
   });
 
-  it('says drift for a masking with a condition, which a count does not tell apart from what came after it', async () => {
+  it('keeps a masking with a condition beside the records the resources applied after it created that its condition selects, counted in the org by their ids, and says drift for a contact come from elsewhere', async () => {
     writeFile(file({}, { resources: maskedThenSeeded("LastName = 'Copied'") }));
     expect((await apply()).code).toBe(0);
+    const seeded = world
+      .records('Contact')
+      .filter((row) => row['LastName'] === 'Copied' && !copied.includes(String(row['Id'])))
+      .map((row) => String(row['Id']));
+    expect(seeded).toHaveLength(2);
+    const asked: string[] = [];
+    const query = world.org.query.bind(world.org);
+    vi.spyOn(world.org, 'query').mockImplementation((soql, options) => {
+      asked.push(soql);
+      return query(soql, options);
+    });
+
+    const kept = await plan('--fail-on-drift');
+    expect(kept.code, kept.said).toBe(0);
+    expect(kept.plan.actions.find((action) => action.resource === 'customers')).toMatchObject({
+      action: 'keep',
+      objects: [{ object: 'Contact', present: 2 }],
+      why:
+        'applied, and its condition selects the 2 record(s) it masked, with the same rules, ' +
+        'beside 2 the resources applied after it created since: masked again they would only ' +
+        'be masked twice',
+    });
+    // Counted by the ids the seed's run names, under the masking's own condition.
+    expect(asked).toContainEqual(
+      `SELECT COUNT() FROM Contact WHERE (LastName = 'Copied') AND Id IN ` +
+        `(${seeded.map((id) => `'${id}'`).join(', ')})`,
+    );
+
+    // Negative control: one more under its condition, copied in from
+    // elsewhere, is drift: its id is no run's.
+    world.copyIn('Contact', [{ LastName: 'Copied', Email: 'late@example.com' }]);
+    const drifted = await plan('--fail-on-drift');
+    expect(drifted.code).toBe(3);
+    expect(drifted.plan.actions.find((action) => action.resource === 'customers')?.why).toBe(
+      'its condition selects other records than it masked: Contact 5 under its condition, 2 ' +
+        'masked, 2 created since by the resources applied after it: 1 more, which hold their ' +
+        'original values. Left as they are: --replace customers or --replace-drifted masks ' +
+        'them all again',
+    );
+  });
+
+  it('says drift for a masking with a condition beside records whose run no longer names them, which a count under its condition does not tell apart', async () => {
+    writeFile(file({}, { resources: maskedThenSeeded("LastName = 'Copied'") }));
+    expect((await apply()).code).toBe(0);
+    // The seed's run file and its summary gone: its ids are no longer known.
+    const seedRun = (await stateOf()).state?.resources['demo-contacts']?.runs.at(-1);
+    rmSync(join(journalDir, 'seed-runs'), { recursive: true, force: true });
+    rmSync((await stateOf()).store.fileOf(ORG_ID, ENV, seedRun?.summary ?? ''), { force: true });
 
     const drifted = await plan('--fail-on-drift');
     expect(drifted.code).toBe(3);
     expect(drifted.plan.actions.find((action) => action.resource === 'customers')?.why).toBe(
       'its condition selects other records than it masked: Contact 4 under its condition, 2 ' +
         'masked: 2 more, which hold their original values, unless they are among the 2 the ' +
-        'resources applied after it created since, which a count under its condition does not ' +
-        'tell apart. Left as they are: --replace customers or --replace-drifted masks them all ' +
+        'resources applied after it created since, whose ids could not be counted under its ' +
+        'condition. Left as they are: --replace customers or --replace-drifted masks them all ' +
         'again',
     );
   });

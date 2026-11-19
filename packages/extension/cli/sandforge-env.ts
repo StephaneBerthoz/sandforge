@@ -135,7 +135,7 @@ import {
   replacesInOneRun,
   type EnvKindRun,
 } from './env/envKinds.js';
-import { createdByResource, drawnOf, type EnvDrawn } from './env/envReferences.js';
+import { createdByResource, createdByRun, drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
 import { refusalOfDryRun } from './runRefused.js';
 import {
@@ -146,7 +146,11 @@ import {
 } from './env/kinds/forge.js';
 import { sweepRootPlans } from '../src/modules/forge/roots/rootPlanStore.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
-import { maskStoreOf } from './env/kinds/mask.js';
+import {
+  createdAfterMaskingCounted,
+  maskStoreOf,
+  type MaskCreatedAfter,
+} from './env/kinds/mask.js';
 import { readReplayCheckpoint, type EnvReplayCheckpointRead } from './env/kinds/replay.js';
 import {
   envTargetOf,
@@ -1674,6 +1678,7 @@ async function planOf(
     args.acceptAutomation,
     args.acceptUserEmails,
   );
+  const maskCreatedAfter = await maskCreatedAfterOf(prepared, drafts, dryRuns);
   const budget = await readBudget(prepared.reached.conn);
   const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
   return {
@@ -1682,6 +1687,7 @@ async function planOf(
       previews,
       dryRuns,
       budget,
+      ...(Object.keys(maskCreatedAfter).length > 0 ? { maskCreatedAfter } : {}),
       ...(drift ? { drift } : {}),
       ...(checkpointEstimate ? { checkpointEstimate } : {}),
       draws: Object.fromEntries(
@@ -1693,6 +1699,47 @@ async function planOf(
     }),
     dryRuns,
   };
+}
+
+/**
+ * Of each mask resource kept whose condition selects its records, and whose
+ * dry run read the org: what the resources applied after it created since,
+ * told apart by their ids — read back from their runs as `output` reads them,
+ * and counted under its condition in the org. A replay after the masking is
+ * no drift of it, and a record copied in since still is.
+ */
+async function maskCreatedAfterOf(
+  prepared: Prepared,
+  drafts: readonly EnvActionDraft[],
+  dryRuns: Readonly<Record<string, EnvDryRun>>,
+): Promise<Record<string, MaskCreatedAfter>> {
+  const { resolved, state, target, store, journalDir, reached } = prepared;
+  const order = resolved.resources.map((resource) => resource.name);
+  const where = {
+    organizationId: target.organizationId,
+    env: resolved.checked.file.name,
+    target: target.alias,
+  };
+  const out: Record<string, MaskCreatedAfter> = {};
+  for (const resource of resolved.resources) {
+    if (resource.kind !== 'mask') continue;
+    const { object, where: condition } = resource.run;
+    if (object === undefined || condition === undefined) continue;
+    const kept = drafts.find((draft) => draft.resource === resource.name)?.action === 'keep';
+    const dry = dryRuns[resource.name];
+    if (!kept || dry === undefined || 'failed' in dry) continue;
+    out[resource.name] = await createdAfterMaskingCounted(
+      resource.name,
+      state,
+      order,
+      { object, where: condition },
+      {
+        createdBy: (run) => createdByRun(run, where, { store, journalDir }),
+        count: async (soql) => (await reached.conn.query(soql)).totalSize,
+      },
+    );
+  }
+  return out;
 }
 
 /**

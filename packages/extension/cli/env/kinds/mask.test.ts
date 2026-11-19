@@ -6,6 +6,7 @@ import type { EnvMaskResource, EnvResourceState, EnvState } from '@sandforge/sha
 import { missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import {
   createdAfterMasking,
+  createdAfterMaskingCounted,
   forgetMaskStore,
   maskApplyLine,
   maskDeleteWhy,
@@ -605,7 +606,166 @@ describe('what the org holds of a masking, beside what the resources after it cr
       drift:
         'Contact 1206 under its condition, 1204 masked: 2 more, which hold their original ' +
         'values, unless they are among the 218 the resources applied after it created since, ' +
-        'which a count under its condition does not tell apart',
+        'whose ids could not be counted under its condition',
+    });
+  });
+
+  describe('counted under its condition by their ids', () => {
+    const contacts = (from: number, n: number) =>
+      Array.from({ length: n }, (_, k) => `003${String(from + k).padStart(12, '0')}AAA`);
+    /** What the runs name, by the rank of their run, and what the org counts. */
+    const reads = (
+      named: Record<string, Map<string, string[]> | string>,
+      selects: (ids: string[]) => number,
+    ) => {
+      const asked: string[] = [];
+      const read: string[] = [];
+      return {
+        asked,
+        read,
+        reads: {
+          createdBy: async (run: EnvResourceState['runs'][number]) => {
+            read.push(`${run.script}#${run.n}`);
+            const said = named[`${run.script}#${run.n}`];
+            return said === undefined || typeof said === 'string'
+              ? { refusal: said ?? 'its run keeps no record of what it created' }
+              : { created: said };
+          },
+          count: async (soql: string) => {
+            asked.push(soql);
+            return selects([...soql.matchAll(/'(003\w+)'/g)].map((m) => m[1] ?? ''));
+          },
+        },
+      };
+    };
+    const condition = { object: 'Contact', where: "LastName = 'Copied'" };
+
+    it('takes for theirs the records the runs name that its condition selects, counted in the org, and asks nothing of another object', async () => {
+      const replayed = contacts(1, 212);
+      const seeded = contacts(500, 6);
+      const read = reads(
+        {
+          'sandforge-checkpoint#1': new Map([
+            ['Account', ['001000000000001AAA']],
+            ['Contact', replayed],
+          ]),
+          'sandforge-seed#1': new Map([
+            ['Contact', seeded],
+            ['Case', []],
+          ]),
+        },
+        // Its condition selects 30 of the replay's contacts and none of the seed's.
+        (ids) => ids.filter((id) => replayed.slice(0, 30).includes(id)).length,
+      );
+
+      const told = await createdAfterMaskingCounted(
+        'customers',
+        state,
+        order,
+        condition,
+        read.reads,
+      );
+
+      expect(Object.fromEntries(told.theirs)).toEqual({ Contact: 30 });
+      // Never under its condition, which filters contacts: said as before.
+      expect(Object.fromEntries(told.unsure)).toEqual({ Account: 40, Case: 12 });
+      // The ids in lists of 200, under its own condition in parentheses.
+      expect(read.asked).toHaveLength(2);
+      expect(read.asked[0]).toMatch(
+        /^SELECT COUNT\(\) FROM Contact WHERE \(LastName = 'Copied'\) AND Id IN \('003/,
+      );
+      expect(read.asked.join(' ').match(/'003/g)).toHaveLength(218);
+      // Kept beside its 1204, the 30 are theirs; a contact copied in is drift.
+      expect(maskHeldOf(masking, counted(1204 + 30), told).drift).toBeUndefined();
+      expect(maskHeldOf(masking, counted(1204 + 31), told).drift).toBe(
+        'Contact 1235 under its condition, 1204 masked, 30 created since by the resources ' +
+          'applied after it: 1 more, which hold their original values',
+      );
+    });
+
+    it('says those of a run whose records cannot be read, or whose count the org refused, as ones it may select or not', async () => {
+      const read = reads(
+        {
+          'sandforge-checkpoint#1': new Map([['Contact', contacts(1, 212)]]),
+          'sandforge-seed#1': 'its run keeps no record of what it created',
+        },
+        () => 0,
+      );
+
+      const told = await createdAfterMaskingCounted(
+        'customers',
+        state,
+        order,
+        condition,
+        read.reads,
+      );
+
+      expect(Object.fromEntries(told.theirs)).toEqual({ Contact: 0 });
+      expect(told.unsure.get('Contact')).toBe(6);
+
+      const refused = await createdAfterMaskingCounted('customers', state, order, condition, {
+        ...read.reads,
+        count: async () => {
+          throw new Error('MALFORMED_QUERY');
+        },
+      });
+      expect(refused.theirs.size).toBe(0);
+      expect(refused.unsure.get('Contact')).toBe(212 + 6);
+
+      // A run whose files do not read stops nothing: its records are not known.
+      const broken = await createdAfterMaskingCounted('customers', state, order, condition, {
+        ...read.reads,
+        createdBy: async (run) => {
+          if (run.script === 'sandforge-seed') throw new SyntaxError('Unexpected end of JSON');
+          return read.reads.createdBy(run);
+        },
+      });
+      expect(Object.fromEntries(broken.theirs)).toEqual({ Contact: 0 });
+      expect(broken.unsure.get('Contact')).toBe(6);
+    });
+
+    it('reads a replay’s last run alone, whose mapping names its records: a run before it a purge left in place is one it may select or not', async () => {
+      const twice: Pick<EnvState, 'resources'> = {
+        resources: {
+          customers: masking,
+          'test-data': applied('replay', [
+            runAt(1, 'sandforge-checkpoint', 5, { Contact: 7 }),
+            runAt(2, 'sandforge-checkpoint', 6, { Contact: 9 }),
+          ]),
+        },
+      };
+      const read = reads(
+        { 'sandforge-checkpoint#2': new Map([['Contact', contacts(1, 9)]]) },
+        (ids) => ids.length,
+      );
+
+      const told = await createdAfterMaskingCounted(
+        'customers',
+        twice,
+        ['customers', 'test-data'],
+        condition,
+        read.reads,
+      );
+
+      expect(read.read).toEqual(['sandforge-checkpoint#2']);
+      expect(Object.fromEntries(told.theirs)).toEqual({ Contact: 9 });
+      expect(Object.fromEntries(told.unsure)).toEqual({ Contact: 7 });
+    });
+
+    it('asks nothing of a masking without a condition: every record they created is theirs', async () => {
+      const read = reads({}, () => 0);
+
+      const told = await createdAfterMaskingCounted(
+        'customers',
+        state,
+        order,
+        undefined,
+        read.reads,
+      );
+
+      expect(told).toEqual(after());
+      expect(read.read).toEqual([]);
+      expect(read.asked).toEqual([]);
     });
   });
 

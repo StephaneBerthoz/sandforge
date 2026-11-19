@@ -108,6 +108,7 @@ import {
   maskHeldOf,
   maskKeptWhy,
   maskReplaceWords,
+  type MaskCreatedAfter,
   type MaskPlace,
 } from './kinds/mask.js';
 import {
@@ -195,6 +196,13 @@ export interface EnvPlanInput {
   usersUnknown?: Readonly<Record<string, string>>;
   /** The state of the org before its refresh, kept under its former Id: said where the state is. */
   refreshed?: EnvPlan['state']['refreshed'];
+  /**
+   * Of each mask resource kept whose condition selects its records: what
+   * the resources applied after it created since, counted under its
+   * condition by their ids (`createdAfterMaskingCounted`). Absent, they
+   * are read in their runs, and a condition may select them or not.
+   */
+  maskCreatedAfter?: Readonly<Record<string, MaskCreatedAfter>>;
 }
 
 /** The code of emails to people the line did not accept: only the line accepts them, never the file. */
@@ -700,7 +708,10 @@ function maskDraft(
   name: string,
   kept: EnvResourceState,
   reasons: readonly string[],
-  input: Pick<EnvPlanInput, 'dryRuns' | 'replaceDrifted' | 'resolved' | 'state'>,
+  input: Pick<
+    EnvPlanInput,
+    'dryRuns' | 'replaceDrifted' | 'resolved' | 'state' | 'maskCreatedAfter'
+  >,
   quick: boolean,
 ): EnvActionDraft {
   const draft = (
@@ -747,7 +758,7 @@ function maskDraft(
   const held = maskHeldOf(
     kept,
     dry.answer,
-    createdAfterMasking(name, input.state, order, condition),
+    input.maskCreatedAfter?.[name] ?? createdAfterMasking(name, input.state, order, condition),
   );
   if (held.unread !== undefined) {
     return draft(

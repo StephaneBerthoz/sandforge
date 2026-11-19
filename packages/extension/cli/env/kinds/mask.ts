@@ -57,10 +57,13 @@ import {
   type EnvMaskingSet,
   type EnvPlanObject,
   type EnvResourceState,
+  type EnvRun,
   type EnvState,
 } from '@sandforge/shared';
 import { anonymizationTemplateSavePayloadSchema } from '../../../src/bridge/validatePayload.js';
 import { ANONYMIZATION_TEMPLATES } from '../../../src/bridge/templates/anonymizationTemplates.js';
+import { assertSoqlIdentifier, assertSoqlWhere } from '../../../src/core/common/soqlValidator.js';
+import { idLists } from '../../../src/modules/dataops/RecordRemoval.js';
 import { fileConfigStore } from '../../fileConfigStore.js';
 import { masksObject, missingFieldLine, notWritableLine } from '../../sandforge-dataops.js';
 import type { RunnableScript } from '../../scriptRunner.js';
@@ -675,24 +678,72 @@ export function maskRunCount(answer: MaskRunAnswer): MaskRunCount {
 export interface MaskCreatedAfter {
   /**
    * Records its condition selects, which are theirs and no drift: a masking
-   * with no condition selects every record of its object, theirs among them.
+   * with no condition selects every record of its object, theirs among them;
+   * one with a condition, those its runs name that it selects, counted in
+   * the org by their ids.
    */
   theirs: Map<string, number>;
   /**
-   * Records a masking with a condition may select or not: its dry run counts
-   * what its condition selects, and names no record, so a count does not
-   * tell them apart from records copied in since.
+   * Records a masking with a condition may select or not: those of runs
+   * whose ids are not known, or were not counted under its condition. Its
+   * dry run counts what its condition selects, and names no record, so a
+   * count does not tell them apart from records copied in since.
    */
   unsure: Map<string, number>;
 }
 
+/** A run of a resource applied after a masking, which created records since its last run. */
+interface RunAfterMasking {
+  run: EnvRun;
+  /**
+   * Whether its records can be read by their ids: a frozen or a replay
+   * resource keeps them in a mapping that names its last run's alone, so a
+   * run before it, which a purge left in place, is read by none.
+   */
+  named: boolean;
+}
+
+/** The kinds whose runs name their records in a mapping that keeps the last run's alone. */
+const MAPPED_KINDS: ReadonlySet<string> = new Set(['frozen', 'replay']);
+
+/**
+ * The runs of the resources applied after a masking that created since its
+ * last run: of each, the runs not taken back that started once the
+ * masking's last run had — a frozen resource's last alone, whose reload took
+ * the loads before it —; none of a resource destroyed, nor of one applied
+ * before it, whose records were there to mask.
+ */
+function runsAfterMasking(
+  name: string,
+  state: Pick<EnvState, 'resources'> | undefined,
+  order: readonly string[],
+): RunAfterMasking[] {
+  const since = state?.resources[name]?.runs.at(-1)?.startedAt;
+  const at = order.indexOf(name);
+  if (state === undefined || since === undefined || at < 0) return [];
+  const runs: RunAfterMasking[] = [];
+  for (const following of order.slice(at + 1)) {
+    const resource = state.resources[following];
+    if (resource === undefined || resource.status === 'destroyed') continue;
+    const live = resource.runs.filter((run) => run.takenBack !== true);
+    for (const run of resource.kind === 'frozen' ? live.slice(-1) : live) {
+      if (Date.parse(run.startedAt) < Date.parse(since)) continue;
+      runs.push({ run, named: !MAPPED_KINDS.has(resource.kind) || run === live.at(-1) });
+    }
+  }
+  return runs;
+}
+
+/** Add `n` to an object's count. */
+function addTo(counts: Map<string, number>, object: string, n: number): void {
+  counts.set(object, (counts.get(object) ?? 0) + n);
+}
+
 /**
  * What the resources applied after a masking created since its last run,
- * per object, read in their own runs: of each, the runs not taken back that
- * started once the masking's last run had — a frozen resource's last alone,
- * whose reload took the loads before it —; none of a resource destroyed, nor
- * of one applied before it, whose records were there to mask. Theirs where
- * the masking has no condition; otherwise ones it may select or not.
+ * per object, read in their own runs (see {@link runsAfterMasking}). Theirs
+ * where the masking has no condition; otherwise ones it may select or not,
+ * until {@link createdAfterMaskingCounted} counts them under it by their ids.
  *
  * @param order - The resources of the file in the order apply runs them.
  * @param condition - The masking's own condition (`where`), if it has one.
@@ -704,28 +755,90 @@ export function createdAfterMasking(
   condition: string | undefined,
 ): MaskCreatedAfter {
   const created = new Map<string, number>();
-  const since = state?.resources[name]?.runs.at(-1)?.startedAt;
-  const at = order.indexOf(name);
-  if (state !== undefined && since !== undefined && at >= 0) {
-    for (const following of order.slice(at + 1)) {
-      const resource = state.resources[following];
-      if (resource === undefined || resource.status === 'destroyed') continue;
-      const live = resource.runs.filter((run) => run.takenBack !== true);
-      for (const run of resource.kind === 'frozen' ? live.slice(-1) : live) {
-        if (Date.parse(run.startedAt) < Date.parse(since)) continue;
-        for (const object of run.objects) {
-          if (object.created <= 0) continue;
-          created.set(
-            object.objectApiName,
-            (created.get(object.objectApiName) ?? 0) + object.created,
-          );
-        }
-      }
+  for (const { run } of runsAfterMasking(name, state, order)) {
+    for (const object of run.objects) {
+      if (object.created > 0) addTo(created, object.objectApiName, object.created);
     }
   }
   return condition === undefined
     ? { theirs: created, unsure: new Map() }
     : { theirs: new Map(), unsure: created };
+}
+
+/** What counting the records created after a masking reads, beside the state. */
+export interface MaskCreatedAfterReads {
+  /**
+   * The records a run created, per object, as `output` reads them back from
+   * what the run keeps (`createdByRun`); or why they cannot be told.
+   */
+  createdBy(
+    run: EnvRun,
+  ): Promise<{ created: ReadonlyMap<string, readonly string[]> } | { refusal: string }>;
+  /** The count a `SELECT COUNT()` of the org gives. */
+  count(soql: string): Promise<number>;
+}
+
+/** A record by its first fifteen characters: the same record, whichever length its id was written in. */
+function recordKey(id: string): string {
+  return id.slice(0, 15);
+}
+
+/**
+ * What the resources applied after a masking with a condition created since
+ * its last run, told apart by their ids: of the records of its object their
+ * runs name, those its condition selects in the org now, counted there by
+ * id under it — theirs, and no drift —; and those of the runs whose records
+ * cannot be read, or whose count the org refused, which it may select or
+ * not. Records of another object are never under its condition: they stay
+ * as {@link createdAfterMasking} says them. Without a condition, every
+ * record they created is theirs, read in their runs, and nothing is asked.
+ *
+ * A count under the condition alone does not tell what a replay after the
+ * masking created from a contact copied in since: the masking was said
+ * drifted at every plan, and `--replace-drifted` masked again for nothing.
+ * Counted by their ids, the records its runs name are told from the others.
+ */
+export async function createdAfterMaskingCounted(
+  name: string,
+  state: Pick<EnvState, 'resources'> | undefined,
+  order: readonly string[],
+  masking: { object: string; where: string } | undefined,
+  reads: MaskCreatedAfterReads,
+): Promise<MaskCreatedAfter> {
+  if (masking === undefined) return createdAfterMasking(name, state, order, undefined);
+  const own = (object: string) => object.toLowerCase() === masking.object.toLowerCase();
+  const unsure = new Map<string, number>();
+  const ids = new Map<string, string>();
+  for (const { run, named } of runsAfterMasking(name, state, order)) {
+    // A run whose files do not read is one whose records are not known.
+    const read = named ? await reads.createdBy(run).catch(() => undefined) : undefined;
+    const created = read !== undefined && 'created' in read ? read.created : undefined;
+    for (const object of run.objects) {
+      if (object.created <= 0 || (created !== undefined && own(object.objectApiName))) continue;
+      addTo(unsure, object.objectApiName, object.created);
+    }
+    for (const [object, list] of created ?? []) {
+      if (!own(object)) continue;
+      for (const id of list) ids.set(recordKey(id), id);
+    }
+  }
+  const theirs = new Map<string, number>();
+  if (ids.size === 0) return { theirs, unsure };
+  try {
+    const object = assertSoqlIdentifier(masking.object);
+    const where = assertSoqlWhere(masking.where);
+    let selected = 0;
+    for (const list of idLists([...ids.values()])) {
+      selected += await reads.count(
+        `SELECT COUNT() FROM ${object} WHERE (${where}) AND Id IN (${list})`,
+      );
+    }
+    theirs.set(masking.object, selected);
+  } catch {
+    // Not counted: those records are among those it may select or not.
+    addTo(unsure, masking.object, ids.size);
+  }
+  return { theirs, unsure };
 }
 
 /**
@@ -737,7 +850,8 @@ export function createdAfterMasking(
  *
  * Of the records more than it masked, as many as the resources applied
  * after it in the same environment created since and its condition selects
- * (`createdAfter.theirs`, from {@link createdAfterMasking}) are theirs, and
+ * (`createdAfter.theirs`, from {@link createdAfterMasking}, or counted by
+ * their ids by {@link createdAfterMaskingCounted}) are theirs, and
  * no drift: a replay after a masking would otherwise put the masking in
  * drift at every plan, and `--replace-drifted` mask again for nothing. Those
  * a condition may select or not are never taken for theirs, which would
@@ -777,7 +891,7 @@ export function maskHeldOf(
       const maybe =
         unsure > 0
           ? `, unless they are among the ${unsure} the resources applied after it created ` +
-            'since, which a count under its condition does not tell apart'
+            'since, whose ids could not be counted under its condition'
           : '';
       drift.push(
         `${object} ${now} under its condition, ${before} masked${since}: ` +
