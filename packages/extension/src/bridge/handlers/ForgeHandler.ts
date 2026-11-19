@@ -843,14 +843,33 @@ const previewRootsPayloadSchema = z.object({
 
 /**
  * How the page says the ways out of a draw refused (`SAMPLE_DRAW_INVALID`,
- * `SAMPLE_DRAW_EMPTY`): the drawing words them in the command line's flags,
- * which the page has none of. It chooses the roots under Which roots, on
- * Review, leaves an object out there and filters its records in Review →
- * Controls; what the source or the options said is kept as it was written.
- * Each pattern is one the drawing writes (`sampleDrawOptions.ts`,
- * `sampleReader.ts`, `sampleDrawing.ts`).
+ * `SAMPLE_DRAW_EMPTY`), and of a sample whose target would not say its
+ * storage (`SAMPLE_STORAGE_UNREAD`) or whose drawing read more records than
+ * it holds (`SAMPLE_TOO_LARGE`): the drawing words them in the command
+ * line's flags, which the page has none of. It sets the MB a sample may take
+ * under Sample settings and chooses the roots under Which roots, on Review,
+ * leaves an object out there and filters its records in Review → Controls;
+ * what the source or the options said is kept as it was written. Each
+ * pattern is one the drawing writes (`sampleDrawOptions.ts`,
+ * `sampleReader.ts`, `sampleDrawing.ts`, `sampleClosure.ts`, the gate's
+ * `sampleStorageUnreadStopOf`, the executor's `SampleTooLargeError`), the
+ * whole sentences first.
  */
 const PAGE_DRAW_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
+  [
+    /Give the most it may take \(--fit-within <MB>\) or the most records \(--max-total <n>\)/g,
+    'Set the MB it may take under Sample settings, on Review,',
+  ],
+  [
+    /Lower the bound \(--fit-within or --max-total\), or leave objects out \(--exclude-object\) or narrow them \(--filter\)\./g,
+    'Let it take fewer MB under Sample settings, or leave objects out on Review or narrow ' +
+      'them by their filter in Review → Controls.',
+  ],
+  [
+    / Or draw among fewer roots: a window of dates \(--fit-window\) or a filter on the roots of the large objects \(--fit-where\)\./g,
+    ' Or draw among fewer roots, under Which roots: a window of dates, or a filter on the ' +
+      'roots of the large objects.',
+  ],
   // The condition offered on the object above, its object named before it.
   [/ instead: --fit-where "[^"=]+=([^"]*)"/g, ' instead, under Which roots: $1'],
   [/ \(--fit-(?:window|where|strata)\b[^)]*\)/g, ' (under Which roots)'],
@@ -882,9 +901,23 @@ const DRAW_REFUSAL_CODES: ReadonlySet<string> = new Set([
 ] as const satisfies ReadonlyArray<ForgeRunGateCode>);
 
 /**
- * `refusal` as the page is told it: of a draw refused, its message with its
- * ways out where the page sets them (`PAGE_DRAW_WORDS`), its stop the same;
- * any other as it is.
+ * The codes whose words the page is told with their ways out where it sets
+ * them (`PAGE_DRAW_WORDS`): a draw refused, and a sample its target's storage
+ * or its size stopped before anything was written.
+ */
+const PAGE_WORDED_CODES: ReadonlySet<string> = new Set([
+  ...DRAW_REFUSAL_CODES,
+  ...([
+    'SAMPLE_STORAGE_UNREAD',
+    'SAMPLE_TOO_LARGE',
+  ] as const satisfies ReadonlyArray<ForgeRunGateCode>),
+]);
+
+/**
+ * `refusal` as the page is told it: of a draw refused, or of a sample its
+ * target's storage or its size stopped, its message with its ways out where
+ * the page sets them (`PAGE_DRAW_WORDS`), its stop the same; any other as it
+ * is.
  */
 function drawRefusalForThePage(refusal: ForgeRunGateError): ForgeRunGateError {
   if (refusal.code === 'ROOTS_EXCEEDED') {
@@ -896,7 +929,7 @@ function drawRefusalForThePage(refusal: ForgeRunGateError): ForgeRunGateError {
       ),
     );
   }
-  if (!DRAW_REFUSAL_CODES.has(refusal.code)) return refusal;
+  if (!PAGE_WORDED_CODES.has(refusal.code)) return refusal;
   const message = PAGE_DRAW_WORDS.reduce(
     (text, [pattern, words]) => text.replace(pattern, words),
     refusal.message,

@@ -339,8 +339,12 @@ describe('forge:execute of a sample of the whole org', () => {
     rmSync(storage, { recursive: true, force: true });
   });
 
-  /** The real orchestrator and executor, reading `org` as the source and writing to a target in memory. */
-  function orchestratorOver(org: SampleSourceOrg): ForgeOrchestrator {
+  /**
+   * The real orchestrator and executor, reading `org` as the source and
+   * writing to a target in memory; its drawing holding `maxRows` records at
+   * once, when given, in place of a million.
+   */
+  function orchestratorOver(org: SampleSourceOrg, maxRows?: number): ForgeOrchestrator {
     let created = 0;
     const holder: { executor?: ForgeExecutor } = {};
     const gather = async (soql: string): Promise<Row[]> => {
@@ -382,6 +386,21 @@ describe('forge:execute of a sample of the whole org', () => {
       duplicateRuleObjects: async () => new Set<string>(),
     } satisfies ForgeExecutorDeps;
     holder.executor = new ForgeExecutor(executorDeps);
+    if (maxRows !== undefined) {
+      const execute = holder.executor.execute.bind(holder.executor);
+      holder.executor.execute = (graph, sourceOrgId, targetOrgId, onProgress, options) => {
+        const sample = options?.stream?.sample;
+        return execute(
+          graph,
+          sourceOrgId,
+          targetOrgId,
+          onProgress,
+          sample
+            ? { ...options, stream: { ...options.stream, sample: { ...sample, maxRows } } }
+            : options,
+        );
+      };
+    }
     return new ForgeOrchestrator({
       discoveryService: {
         personalFields: () => [],
@@ -538,11 +557,44 @@ describe('forge:execute of a sample of the whole org', () => {
 
       await simulate();
 
-      expect(lastError()).toMatchObject({
+      const error = lastError();
+      expect(error).toMatchObject({
         code: 'SAMPLE_STORAGE_UNREAD',
         gate: { code: 'SAMPLE_STORAGE_UNREAD' },
       });
+      // The page has no flag to set: it sets the MB under Sample settings.
+      const message = String(error.message);
+      expect(message).toMatch(/INSUFFICIENT_ACCESS: no limits/);
+      expect(message).not.toMatch(/--[a-z]/);
+      expect(message).toContain('Set the MB it may take under Sample settings, on Review,');
       expect(posted('forge:execute:response')).toEqual([]);
+    });
+
+    it('refuses a sample whose drawing reads more records than it holds at once, saying how many, naming no flag of the command line', async () => {
+      handler.setForgeOrchestrator(orchestratorOver(source, 50), {
+        targetAutomation: {
+          readForGraph: vi.fn(async () => QUIET),
+        } as unknown as TargetAutomationReader,
+        runJournal: journal,
+      });
+
+      await simulate();
+
+      const error = lastError();
+      expect(error).toMatchObject({
+        code: 'SAMPLE_TOO_LARGE',
+        gate: { code: 'SAMPLE_TOO_LARGE', sample: { rows: expect.any(Number), most: 50 } },
+      });
+      const message = String(error.message);
+      expect(message).toMatch(/^Drawing the sample read \d+ records, more than the 50 /);
+      // The page sets the MB, leaves objects out and filters them on Review,
+      // and chooses the roots under Which roots.
+      expect(message).not.toMatch(/--[a-z]/);
+      expect(message).toContain('under Sample settings');
+      expect(message).toContain('Review → Controls');
+      expect(message).toContain('under Which roots');
+      expect(posted('forge:execute:response')).toEqual([]);
+      expect(rowsWritten()).toBe(0);
     });
 
     it('refuses a sample that cannot fit, naming the heaviest, under its code', async () => {
