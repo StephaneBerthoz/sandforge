@@ -1216,6 +1216,42 @@ describe('ForgeReview', () => {
         expect(screen.queryByTestId('forge-mute-execute-hint')).toBeNull();
       });
 
+      describe('after a run cancelled at the question of what the target runs', () => {
+        const notice = (): string => screen.getByTestId('forge-run-gate-notice').textContent ?? '';
+        const TICK = "tick “Mute the target's automation for this run” on Review";
+
+        beforeEach(() => {
+          act(() => useForgeRunGateStore.getState().setStop({ code: 'AUTOMATION_DECLINED' }));
+        });
+        afterEach(() => {
+          act(() => useForgeRunGateStore.getState().clear());
+        });
+
+        it('says to tick the box once Review offers it, and the admin’s way before', () => {
+          render(<ForgeReview />);
+          // No read yet: nothing to tick, the admin's way and the bypass alone.
+          expect(notice()).toContain("have the target's admin turn those flows and triggers off");
+          expect(notice()).not.toContain(TICK);
+
+          sendFromExtension('forge:automation:response', { automation: mutable });
+
+          expect(notice()).toContain(TICK);
+        });
+
+        it('says no box to tick once it is ticked, nor where the read finds nothing it silences', () => {
+          mockMuteAutomation = true;
+          const ticked = render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation: mutable });
+          expect(notice()).not.toContain(TICK);
+          ticked.unmount();
+
+          mockMuteAutomation = false;
+          render(<ForgeReview />);
+          sendFromExtension('forge:automation:response', { automation });
+          expect(notice()).not.toContain(TICK);
+        });
+      });
+
       describe('a validation rule its set lifts beside', () => {
         // On the trap org's shape: the set assigned for the flow grants the
         // permission a rule of Contact tests as well. Ticked, the Gaps tab
