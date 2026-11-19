@@ -234,6 +234,8 @@ import {
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import {
   isMuteRefusedError,
+  muteLeaseRequests,
+  mutePartOf,
   planMute,
   type HeldMute,
   type RunMute,
@@ -2141,7 +2143,10 @@ class Rewind {
         : undefined;
     // What it sent so far, its reads and the automation's, and what its
     // writes and the reads after them take; the read of the deliverability
-    // named apart.
+    // and the lease of its mute named apart. The lease goes through a
+    // connection of its own as the rewind writes: counted nowhere, a mute
+    // that assigns one set sent seven requests past its gate, two of them
+    // writes, and a lease another run left was taken back past it too.
     const rest = rewindWritesCost({
       objects: checkpoint.objects,
       diff: diffOfPicked(fresh.diff, this.picked),
@@ -2155,13 +2160,17 @@ class Rewind {
       {
         run: this.count.used() - (deliverability.deliverability ?? 0) + rest.apiRequests,
         ...deliverability,
+        ...mutePartOf(plan),
       },
       budget,
       orgName,
     );
     if (writing && overBudget) refusals.push(overBudget);
     this.splitting = limitSplitting(
-      splitAllowanceOf(budget.remaining, this.count.used() + rest.apiRequests),
+      splitAllowanceOf(
+        budget.remaining,
+        this.count.used() + rest.apiRequests + muteLeaseRequests(plan),
+      ),
     );
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal. Those of what

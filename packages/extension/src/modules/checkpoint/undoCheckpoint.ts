@@ -63,7 +63,7 @@ import {
   type RewindResult,
   type RewindStatus,
 } from '@sandforge/shared';
-import { isMuteRefusedError } from '../forge/AutomationMuteLease.js';
+import { isMuteRefusedError, mutePartOf } from '../forge/AutomationMuteLease.js';
 import { deliverabilityPartOf, type DeliverabilityGate } from '../forge/ForgeRunGate.js';
 import { readEmailDeliverability } from '../forge/targetDeliverability.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -574,13 +574,16 @@ export async function undoCheckpoint(
       along,
       automationRequests: 0,
     });
-    // The read of the deliverability named apart from the undo's own requests.
+    // The read of the deliverability and the lease of its mute named apart
+    // from the undo's own requests: the lease, sent through a connection of
+    // its own as the undo writes, was counted nowhere.
     const deliverability = deliverabilityPartOf(emails?.ofRun);
     const overBudget = budgetRefusal(
       'undo',
       {
         run: count.used() - (deliverability.deliverability ?? 0) + cost.apiRequests,
         ...deliverability,
+        ...mutePartOf(plan),
       },
       budget,
       orgName,

@@ -1526,6 +1526,13 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    */
   deliverabilityRequests?: number;
   /**
+   * Requests the lease of the mute the rewind holds while it writes sends,
+   * from its take to its release, the leases other runs left past their end
+   * released as it is taken (`muteLeaseRequests`). Absent when it mutes
+   * nothing.
+   */
+  muteRequests?: number;
+  /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one: the objects it brings records back
    * to are then described as it brings them back.
@@ -1919,6 +1926,7 @@ export function rewindEstimate(
     reads,
     calls(input.automationRequests, SECONDS_PER_READ),
     calls(input.deliverabilityRequests ?? 0, SECONDS_PER_SMALL_CALL),
+    calls(input.muteRequests ?? 0, SECONDS_PER_SMALL_CALL),
     rewindWritesCost(input),
   );
   return {
@@ -2231,12 +2239,15 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
 
 /**
  * What the parts of an act's requests beside its own are for, as its refusal
- * names them: a rewind's and an undo's read of whether the org delivers the
- * emails its automation sends is the one a checkpoint's acts make.
+ * names them: a rewind's and an undo's lease of the mute they hold while they
+ * write, and their read of whether the org delivers the emails its
+ * automation sends.
  */
 const ACT_PART_WORDS: Readonly<
   Partial<Record<Exclude<keyof RunRequestParts, 'run'>, (orgName: string) => string>>
 > = {
+  mute: (orgName) =>
+    `to assign and take back the permission sets that mute ${orgName}'s automation`,
   deliverability: (orgName) => `to read whether ${orgName} delivers its emails`,
 };
 

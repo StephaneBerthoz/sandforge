@@ -75,7 +75,7 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
-import { planMute } from '../forge/AutomationMuteLease.js';
+import { muteLeaseRequests, planMute } from '../forge/AutomationMuteLease.js';
 import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
 import {
   FILE_LINK_OBJECT,
@@ -433,6 +433,16 @@ export async function previewCheckpoint(
       ? await muteOfSteps(deps.mute, automation, steps)
       : undefined;
   const muteRefusal = asked && 'refusal' in asked ? asked.refusal : undefined;
+  // What the lease of that mute sends from its take to its release: the plan
+  // asked of the org counts too the leases other runs left past their end,
+  // which its take releases first; one planned from the read alone, its own.
+  const muteRequests = muteLeaseRequests(
+    asked === undefined
+      ? muted?.plan
+      : 'refusal' in asked
+        ? asked.plan
+        : (asked.mute?.plan ?? muted?.plan),
+  );
   if (automation) {
     const emails = await actDeliverability({
       act: 'rewind',
@@ -473,6 +483,7 @@ export async function previewCheckpoint(
     diff: selected,
     automationRequests: automation?.requests ?? 0,
     ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
+    ...(muteRequests > 0 ? { muteRequests } : {}),
     relationships,
     ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });
@@ -520,8 +531,9 @@ export async function previewCheckpoint(
           budgetRefusal(
             'rewind',
             {
-              run: cost.apiRequests - deliverabilityRequests,
+              run: cost.apiRequests - deliverabilityRequests - muteRequests,
               deliverability: deliverabilityRequests,
+              mute: muteRequests,
             },
             budget,
             orgName,

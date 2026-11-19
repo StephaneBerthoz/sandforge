@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   firedOnRemovalStepsOf,
   type ForgeRemovalSteps,
@@ -12,8 +12,29 @@ import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../../test/memoryPermissionOrg.js';
-import { mutedOfError, muteForRun, muteOrgOf } from '../forge/AutomationMuteLease.js';
+import {
+  automationOf,
+  changedSince,
+  removeTaken,
+  request,
+  resultOf,
+  rewound,
+  taken,
+  type Taken,
+} from '../../test/rewindTestOrg.js';
+import {
+  muteJournalFileOf,
+  mutedOfError,
+  muteForRun,
+  muteOrgOf,
+} from '../forge/AutomationMuteLease.js';
+import { previewCheckpoint } from './previewCheckpoint.js';
 import { heldWhile, muteOfSteps, type MuteOfWrites } from './rewindOrg.js';
+import { undoCheckpoint } from './undoCheckpoint.js';
+
+vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+  getJsforceConnection: vi.fn(),
+}));
 
 /** An org whose case flow runs before a delete, unless its user holds `Case_Bypass`. */
 const AUTOMATION: ForgeTargetAutomation = {
@@ -194,5 +215,204 @@ describe('heldWhile', () => {
     ).toBe('done');
     expect(muted?.state).toBe('nothing');
     expect(org.writes).toEqual([]);
+  });
+});
+
+/** An account flow that runs as an account is updated, kept quiet by the set the org grants its bypass in; it sends nothing. */
+const ACCOUNT_GUARD: Partial<ForgeTargetAutomation> = {
+  objectsRead: ['Account'],
+  objects: [
+    {
+      objectApiName: 'Account',
+      flows: [
+        {
+          apiName: 'Account_guard',
+          label: 'Account guard',
+          timing: 'beforeSave',
+          startsOn: 'update',
+          condition: 'read',
+          permissions: [{ name: 'Skip_Account', bypass: true, held: false }],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Skip_Account',
+      permissionSets: [{ name: 'PS_Account', label: 'Account', grants: 1 }],
+    },
+  ],
+};
+
+/** The set the org grants the account flow's bypass in. */
+const PS_ACCOUNT = '0PSxx0000000003AAA';
+
+/**
+ * A mute planned as a rewind's is, of an org holding {@link PS_ACCOUNT}, its
+ * journal in the test's folder; with `left`, a lease another run left there
+ * past its end, holding the set assigned, which the take releases first.
+ */
+function accountMute(left = false): MuteOfWrites {
+  const org = memoryPermissionOrg({ sets: [{ id: PS_ACCOUNT, name: 'PS_Account' }] });
+  if (left) {
+    const assignment = org.assign(PS_ACCOUNT);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      muteJournalFileOf(dir, org.organizationId, org.userId),
+      JSON.stringify({
+        version: 1,
+        organizationId: org.organizationId,
+        userId: org.userId,
+        leases: [
+          {
+            runId: 'killed',
+            host: 'this-machine',
+            pid: 300,
+            hostStartedAt: '2026-10-30T08:00:00.000Z',
+            acquiredAt: '2026-10-30T08:01:00.000Z',
+            endsAt: '2026-10-30T08:30:00.000Z',
+            needs: [PS_ACCOUNT],
+            assigning: [],
+            created: [{ id: assignment, permissionSetId: PS_ACCOUNT, permissionSet: 'PS_Account' }],
+          },
+        ],
+      }),
+    );
+  }
+  return (automation, writes) =>
+    muteForRun(async () => muteOrgOf(org.connection), automation, {
+      dir,
+      renewEveryMs: 0,
+      writes,
+    });
+}
+
+/** A checkpoint, and what a colleague did since, which the preview read. */
+async function changedAndPreviewed(): Promise<{ t: Taken; previewId: string }> {
+  const t = await taken();
+  changedSince(t.org);
+  const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
+  if (!preview.previewed) throw new Error(preview.refusal.message);
+  return { t, previewId: preview.diff.previewId };
+}
+
+/** What a refusal for the day's requests names its mute's lease by, of `DEV-ED`. */
+const LEASE_PART = "to assign and take back the permission sets that mute DEV-ED's automation";
+
+describe("the lease of a checkpoint act's mute, among the requests the day has left", () => {
+  afterEach(() => {
+    removeTaken();
+  });
+
+  it('refuses a rewind whose lease takes it past what the day has left, the lease named', async () => {
+    // Its lease assigns one set: seven requests, two of them writes, that
+    // the rewind's gate held it to nowhere.
+    const priced = await changedAndPreviewed();
+    priced.t.org.limits = { Max: 15_000, Remaining: 1 };
+    const unmuted = await rewound(priced.t, priced.previewId, {
+      deps: { readAutomation: automationOf(ACCOUNT_GUARD) },
+      request: { acceptAutomation: true },
+    });
+    const alone = /takes about (\d+) API requests/.exec(
+      unmuted.rewound ? '' : unmuted.refusal.message,
+    );
+    if (!alone) throw new Error('the rewind was not refused for the day');
+    removeTaken();
+
+    const { t, previewId } = await changedAndPreviewed();
+    t.org.limits = { Max: 15_000, Remaining: Number(alone[1]) + 6 };
+    const outcome = await rewound(t, previewId, {
+      deps: { readAutomation: automationOf(ACCOUNT_GUARD), mute: accountMute() },
+      request: { acceptAutomation: true },
+    });
+
+    expect(outcome).toMatchObject({
+      rewound: false,
+      refusal: {
+        code: 'API_BUDGET',
+        message: expect.stringContaining(
+          `takes about ${Number(alone[1]) + 7} API requests (7 of them ${LEASE_PART})`,
+        ) as unknown,
+      },
+    });
+  });
+
+  it('lets a rewind whose lease fits go, its mute held while it writes', async () => {
+    const { t, previewId } = await changedAndPreviewed();
+    const outcome = await rewound(t, previewId, {
+      deps: { readAutomation: automationOf(ACCOUNT_GUARD), mute: accountMute() },
+      request: { acceptAutomation: true },
+    });
+
+    expect(resultOf(outcome)).toMatchObject({
+      status: 'success',
+      mutedAutomation: { state: 'muted', assigned: ['PS_Account'], released: true },
+    });
+  });
+
+  it('refuses an undo whose lease takes it past what the day has left, the lease named', async () => {
+    const { t, previewId } = await changedAndPreviewed();
+    const rewind = resultOf(await rewound(t, previewId));
+    const read = await t.store.read(t.checkpoint.checkpointId);
+    if (!read?.checkpoint) throw new Error('the checkpoint is gone');
+    t.org.limits = { Max: 15_000, Remaining: 8 };
+
+    const outcome = await undoCheckpoint(
+      {
+        org: t.org,
+        undelete: (ids) => t.org.undelete(ids),
+        store: t.store,
+        readAutomation: automationOf(ACCOUNT_GUARD),
+        mute: accountMute(),
+      },
+      {
+        ...request(t),
+        checkpoint: read.checkpoint,
+        rewindId: rewind.rewindId,
+        acceptAutomation: true,
+      },
+    );
+
+    expect(outcome).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'API_BUDGET',
+        message: expect.stringMatching(
+          new RegExp(`^This undo takes about \\d+ API requests \\(7 of them ${LEASE_PART}\\)`),
+        ) as unknown,
+      },
+    });
+  });
+
+  it("prices a preview's rewind with its lease and the leases other runs left, which its take releases first", async () => {
+    // One lease left past its end, holding its set assigned: the take deletes
+    // the assignment first, an eighth request.
+    const { t } = await changedAndPreviewed();
+    const ask = (muteAutomation: boolean) =>
+      previewCheckpoint(
+        {
+          org: t.org,
+          store: t.store,
+          readAutomation: automationOf(ACCOUNT_GUARD),
+          mute: accountMute(true),
+        },
+        { ...request(t), muteAutomation },
+      );
+    const unmuted = await ask(false);
+    const muted = await ask(true);
+    if (!unmuted.previewed || !muted.previewed) throw new Error('not previewed');
+
+    expect(muted.estimate.apiRequests - unmuted.estimate.apiRequests).toBe(8);
+
+    t.org.limits = { Max: 15_000, Remaining: muted.estimate.apiRequests - 1 };
+    const refused = await ask(true);
+    expect(refused).toMatchObject({
+      previewed: true,
+      refusal: {
+        code: 'API_BUDGET',
+        message: expect.stringContaining(`(8 of them ${LEASE_PART})`) as unknown,
+      },
+    });
   });
 });
