@@ -194,7 +194,7 @@ import {
   type EnvDryRun,
   type EnvRunPreview,
 } from './env/envPlan.js';
-import { outputLines, outputOf, outputStateOf } from './env/envOutput.js';
+import { outputLines, outputOf, outputSetAsideLine, outputStateOf } from './env/envOutput.js';
 import { envRunsKept, recoverEnvState, recoverLines } from './env/envRecover.js';
 import {
   previewEnvRewind,
@@ -2100,6 +2100,9 @@ async function output(
   for (const expired of await opened.store.sweep()) say(expiredLine(expired));
   const found = outputStateOf(await opened.store.list(), read.checked.file.name, args.org ?? '');
   if ('refusal' in found) throw stopWith(found.refusal);
+  for (const before of found.setAside ?? []) {
+    say(outputSetAsideLine(args.org ?? '', before, found.state));
+  }
   const { output: answer, whole } = await outputOf(found.state, {
     store: opened.store,
     journalDir,

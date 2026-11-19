@@ -28,7 +28,10 @@
  * The state is found by the org the line names, as `state` finds it: by the
  * alias an apply wrote it under, or by its Organization Id. Two states of the
  * environment under one alias — a CI alias reused for a new scratch org — are
- * refused, both named: only an Organization Id says which is meant.
+ * refused, both named: only an Organization Id says which is meant. A
+ * sandbox refreshed since is the exception: the state kept of it before, on
+ * the same host under its former Id, is set aside and said, as the plan
+ * sets it aside, and the newer one is read.
  */
 
 import { readFileSync } from 'node:fs';
@@ -45,7 +48,7 @@ import { readUsersApply, usersSetUpOf } from './kinds/users.js';
 import { dependencyOrder } from './envPlan.js';
 import { createdByRun, type EnvReferenceDeps } from './envReferences.js';
 import type { EnvStateListing } from './envState.js';
-import { sandboxMyDomainOf } from './envTargetHost.js';
+import { refreshedSince, sandboxMyDomainOf } from './envTargetHost.js';
 
 /** What a resource a destroy took back says. */
 export const OUTPUT_DESTROYED_WHY = "taken back by a destroy: none of the org's records is its";
@@ -104,21 +107,71 @@ function notWholeWhy(status: EnvResourceStatus): string {
 }
 
 /**
+ * Of the states of one environment the line's alias names, the one of the
+ * sandbox as it is now, when every other is of that sandbox before a
+ * refresh — the same host, another Organization Id, written before it
+ * ({@link refreshedSince}) —, with those it sets aside, as plan and apply set
+ * them aside; or undefined, when nothing proves it.
+ */
+function afterRefresh(
+  named: readonly EnvStateListing[],
+): { current: EnvStateListing & { state: EnvState }; before: EnvStateListing[] } | undefined {
+  const read = named.filter(
+    (listing): listing is EnvStateListing & { state: EnvState } => listing.state !== undefined,
+  );
+  if (read.length !== named.length) return undefined;
+  const written = (listing: { state: EnvState }) => Date.parse(listing.state.updatedAt);
+  const [current, ...before] = [...read].sort((a, b) => written(b) - written(a));
+  if (current === undefined) return undefined;
+  const refreshed = before.every(
+    (listing) =>
+      written(listing) < written(current) && refreshedSince(listing.state.org, current.state.org),
+  );
+  return refreshed ? { current, before } : undefined;
+}
+
+/**
+ * What `output` says of a state of the sandbox before its refresh it set
+ * aside, as the plan says it: where it is kept, and the one it reads.
+ */
+export function outputSetAsideLine(
+  org: string,
+  before: EnvStateListing,
+  current: Pick<EnvState, 'org'>,
+): string {
+  const said =
+    before.state !== undefined
+      ? ` (serial ${before.state.serial}, written ${before.state.updatedAt})`
+      : '';
+  return (
+    `${org}: the state of ${before.env} kept under ${before.organizationId}${said} is of this ` +
+    `sandbox before its refresh, set aside: output reads the one kept under ` +
+    current.org.organizationId
+  );
+}
+
+/**
  * The state of `env` the line's `--org` names, among those this machine
  * keeps: by the alias an apply wrote it under, or by its Organization Id —
- * or why there is none to read, or two.
+ * or why there is none to read, or two. Of two under one alias, the one of
+ * a sandbox refreshed since the other was written is read, the other set
+ * aside (`setAside`), as plan and apply set it aside.
  */
 export function outputStateOf(
   listings: readonly EnvStateListing[],
   env: string,
   org: string,
-): { state: EnvState } | { refusal: EnvRefusal } {
+): { state: EnvState; setAside?: EnvStateListing[] } | { refusal: EnvRefusal } {
   const named = listings.filter(
     (listing) =>
       listing.env === env &&
       (listing.state?.org.alias === org ||
         listing.organizationId.slice(0, 15) === org.slice(0, 15)),
   );
+  const refreshed = named.length > 1 ? afterRefresh(named) : undefined;
+  if (refreshed !== undefined) {
+    return { state: refreshed.current.state, setAside: refreshed.before };
+  }
   if (named.length > 1) {
     const each = named
       .map((listing) => `${listing.organizationId}, written ${listing.state?.updatedAt ?? '?'}`)

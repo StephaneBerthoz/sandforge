@@ -14,6 +14,7 @@ import {
   OUTPUT_MASK_DESTROYED_WHY,
   OUTPUT_MASK_WHY,
   outputLines,
+  outputSetAsideLine,
   outputOf,
   outputStateOf,
 } from './envOutput.js';
@@ -400,6 +401,38 @@ describe('the state the line names', () => {
       ),
     ).toEqual({
       refusal: { code: 'STATE_DAMAGED', message: 'It does not parse. Nothing was read.', exit: 1 },
+    });
+  });
+
+  it('reads the state of a sandbox as it is now, and sets aside, saying so, the one kept of it before its refresh, as plan does', () => {
+    const host = 'acme--uat.sandbox.my.salesforce.com';
+    const sandbox = (org: string, updatedAt: string, on = host): EnvState => {
+      const state = stateOf({}, 'uat', org);
+      return { ...state, updatedAt, org: { ...state.org, kind: 'sandbox', host: on } };
+    };
+    const before = sandbox(OTHER_ORG, '2026-10-25T09:03:00.000Z');
+    const now = sandbox(ORG_ID, '2026-10-26T21:06:00.000Z');
+
+    const read = outputStateOf([listing(before), listing(now)], ENV, 'uat');
+    expect(read).toEqual({ state: now, setAside: [listing(before)] });
+    expect(outputSetAsideLine('uat', listing(before), now)).toBe(
+      `uat: the state of ${ENV} kept under ${OTHER_ORG} (serial 4, written ` +
+        `2026-10-25T09:03:00.000Z) is of this sandbox before its refresh, set aside: output ` +
+        `reads the one kept under ${ORG_ID}`,
+    );
+    // Its Organization Id names either, as before.
+    expect(outputStateOf([listing(before), listing(now)], ENV, OTHER_ORG)).toEqual({
+      state: before,
+    });
+    // Another sandbox under the alias, or a scratch org: nothing proves a
+    // refresh, and the two are refused, as before.
+    const elsewhere = sandbox(OTHER_ORG, before.updatedAt, 'acme--qa.sandbox.my.salesforce.com');
+    expect(outputStateOf([listing(elsewhere), listing(now)], ENV, 'uat')).toMatchObject({
+      refusal: { code: 'TWO_STATES' },
+    });
+    const scratch = stateOf({}, 'uat', OTHER_ORG);
+    expect(outputStateOf([listing(scratch), listing(now)], ENV, 'uat')).toMatchObject({
+      refusal: { code: 'TWO_STATES' },
     });
   });
 });
