@@ -1993,6 +1993,31 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
   });
 
+  it('names the store of its undo line quoted as the shell of its system reads it back whole', () => {
+    const undo = { until: '2026-11-06T17:00:00.000Z', cannot: [] };
+    const undoLineOn = (platform: NodeJS.Platform, store: string): string | undefined => {
+      const real = process.platform;
+      Object.defineProperty(process, 'platform', { value: platform });
+      try {
+        return rewindLines('DEV-SB', checkpoint, resultOf({ ...DID, undo }), {}, store).find(
+          (line) => line.includes(' undo --org '),
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: real });
+      }
+    };
+
+    expect(undoLineOn('win32', 'C:\\Users\\dev one\\checkpoints')).toMatch(
+      / --store "C:\\Users\\dev one\\checkpoints"$/,
+    );
+    expect(undoLineOn('linux', '/home/dev one/checkpoints')).toMatch(
+      / --store '\/home\/dev one\/checkpoints'$/,
+    );
+    expect(undoLineOn('linux', '/home/dev/checkpoints')).toMatch(
+      / --store \/home\/dev\/checkpoints$/,
+    );
+  });
+
   it('counts deleted what went to the recycle bin with the record it hangs from, and says how many went so', () => {
     const removed = (objectApiName: string, deleted: number) => ({
       objectApiName,

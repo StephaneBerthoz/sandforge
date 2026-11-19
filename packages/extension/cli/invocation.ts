@@ -39,3 +39,27 @@ export function commandOf(tool: Tool): string {
 export function nameOf(script: string): string {
   return script.replace(/^sandforge-(?=[a-z]+$)/, 'sandforge ');
 }
+
+/**
+ * A word of a line, as the shell the line is typed in reads it back whole:
+ * as it is when no shell acts on any of its characters; on Windows, in
+ * double quotes, which cmd.exe, PowerShell and Git Bash all read — cmd.exe
+ * keeps single quotes in the word, and a path printed `'C:\…'` named no file
+ * there; elsewhere, in single quotes, each one inside closed, escaped and
+ * opened again.
+ *
+ * In double quotes, a quote inside is doubled and the backslashes before a
+ * quote — the closing one after a folder's last backslash too — are doubled,
+ * as the C runtime that splits a Windows program's line reads them back. A
+ * `%` or a `!` for cmd.exe, a `$` or a backtick for PowerShell, stays as it
+ * is: no quoting keeps one from all three shells, and none is common in a
+ * Windows path.
+ *
+ * @param platform - The system the line is printed on: the shell it is typed in runs there.
+ */
+export function typedWord(word: string, platform: NodeJS.Platform = process.platform): string {
+  if (/^[\w.@:+/=,-]+$/.test(word)) return word;
+  if (platform !== 'win32') return `'${word.replace(/'/g, `'\\''`)}'`;
+  const inside = word.replace(/(\\*)"/g, '$1$1""').replace(/(\\+)$/, '$1$1');
+  return `"${inside}"`;
+}

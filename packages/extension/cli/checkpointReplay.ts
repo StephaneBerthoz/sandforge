@@ -74,7 +74,7 @@ import {
 } from '../src/modules/checkpoint/replay/replayStore.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 import { CHECKPOINT_FIRST_FLAGS, checkpointFirstArgs } from './beforeRunCheckpoint.js';
-import { commandOf } from './invocation.js';
+import { commandOf, typedWord } from './invocation.js';
 import { hidden } from './prompt.js';
 import type { RunRefusal } from './runRefused.js';
 import { SWEEP_CLASS_FLAGS, sweepClassArgsOf } from './sandforge-clone.js';
@@ -528,17 +528,12 @@ function receivedStoreOf(storeRoot: string, locksDir?: string): OrgCheckpointSto
   return 'store' in opened ? opened.store : undefined;
 }
 
-/** A path as a line gives it to be typed again: quoted when a shell would split it. */
-export function typedPath(path: string): string {
-  return /^[\w./:@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
  * The command that replays a `.sfcheckpoint` file into an org, as a line
  * gives it to be run: what a file of another org is imported as nowhere else.
  */
 export function replayFileCommandOf(file: string, target: string): string {
-  return `${commandOf('checkpoint')} replay --file ${typedPath(file)} --target ${target}`;
+  return `${commandOf('checkpoint')} replay --file ${typedWord(file)} --target ${target}`;
 }
 
 /**
@@ -549,7 +544,7 @@ export function replayFileCommandOf(file: string, target: string): string {
 export function replayCommandOf(checkpointId: string, target: string, store?: string): string {
   return (
     `${commandOf('checkpoint')} replay --checkpoint ${checkpointId} --target ${target}` +
-    (store !== undefined ? ` --store ${typedPath(store)}` : '')
+    (store !== undefined ? ` --store ${typedWord(store)}` : '')
   );
 }
 
@@ -1354,13 +1349,13 @@ export function replayFlagsOf(asked: ReplayAsked): string {
     choices.objects.length > 0 ? ` --objects ${choices.objects.join(',')}` : '',
     ...choices.excluded.map((name) => ` --exclude-object ${name}`),
     choices.owners !== 'same' ? ` --owners ${choices.owners}` : '',
-    asked.ownerMapFile !== undefined ? ` --owner-map ${typedPath(asked.ownerMapFile)}` : '',
+    asked.ownerMapFile !== undefined ? ` --owner-map ${typedWord(asked.ownerMapFile)}` : '',
     ...choices.link.map((link) => ` --link ${link.objectApiName}=${link.fields.join(',')}`),
     choices.customSettings ? ' --custom-settings' : '',
     choices.mask ? ' --mask' : '',
     choices.contactPoints === 'kept' ? ' --keep-contact-points' : '',
     choices.noRealData ? ' --no-real-data' : '',
-    asked.configFile !== undefined ? ` --replay-config ${typedPath(asked.configFile)}` : '',
+    asked.configFile !== undefined ? ` --replay-config ${typedWord(asked.configFile)}` : '',
     asked.again ? ' --again' : '',
     asked.muteAutomation ? ' --mute-automation' : '',
     asked.acceptAutomation ? ' --accept-automation' : '',

@@ -56,7 +56,13 @@ import { AuditTrailStore } from '../src/modules/audit/auditTrail.js';
 import { archiveKeyText } from '../src/modules/checkpoint/checkpointArchive.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { main, parseArgs } from './sandforge-checkpoint.js';
-import { REPLAY_AUDIT_FILE, replayFlagsOf, replayWords, typedPath } from './checkpointReplay.js';
+import {
+  REPLAY_AUDIT_FILE,
+  replayFileCommandOf,
+  replayFlagsOf,
+  replayWords,
+} from './checkpointReplay.js';
+import { commandOf, typedWord } from './invocation.js';
 import { loadRecordsRefusal } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import {
   REPLAYING_USER,
@@ -86,12 +92,26 @@ import {
 const argv = (...args: string[]): string[] => ['node', 'sandforge-checkpoint.ts', ...args];
 
 /**
- * The words of a line as a shell reads them, PowerShell as a POSIX shell: a
- * word in single quotes kept whole, without them. A path of Windows comes
- * quoted, for its backslashes.
+ * The words of a line as a shell reads them: a word in single quotes, as a
+ * POSIX shell gives it, or in double quotes, as a line printed on Windows
+ * gives it, kept whole, without them. A path of Windows comes quoted, for its
+ * backslashes.
  */
 const wordsOf = (line: string): string[] =>
-  [...line.matchAll(/'([^']*)'|(\S+)/g)].map((word) => word[1] ?? word[2] ?? '');
+  [...line.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(
+    (word) => word[1] ?? word[2] ?? word[3] ?? '',
+  );
+
+/** Run `check` as if on `platform`, the one a printed line is quoted for. */
+function onPlatform(platform: NodeJS.Platform, check: () => void): void {
+  const real = process.platform;
+  Object.defineProperty(process, 'platform', { value: platform });
+  try {
+    check();
+  } finally {
+    Object.defineProperty(process, 'platform', { value: real });
+  }
+}
 
 /** What the other org runs as records are written: nothing. */
 const NOTHING_RUNS: ForgeTargetAutomation = {
@@ -728,7 +748,7 @@ describe('sandforge checkpoint replay', () => {
     expect(replayFiles(world)).toEqual([]);
     const removeWith =
       'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts replay --checkpoint ' +
-      `${world.checkpoint.checkpointId} --target DEV2 --store ${typedPath(store)} --remove`;
+      `${world.checkpoint.checkpointId} --target DEV2 --store ${typedWord(store)} --remove`;
     expect(JSON.parse(stdout)).toMatchObject({ removeWith });
 
     expect(await run(world, 'replays', '--store', store, '--json')).toBe(0);
@@ -889,13 +909,20 @@ describe('sandforge checkpoint replay --dry-run, every refusal and the line it h
     expect({ ...typed.replay, action: 'dryRun' }).toEqual(dry.replay);
   });
 
-  it('gives a path of Windows quoted, which a shell reads back whole, its backslashes and spaces kept', () => {
+  it('gives a path of Windows in double quotes on Windows, which cmd.exe reads whole as PowerShell does, and in single quotes elsewhere, its backslashes and spaces kept', () => {
+    const file = 'C:\\Users\\dev one\\Downloads\\before uat.sfcheckpoint';
+    onPlatform('win32', () => {
+      expect(replayFileCommandOf(file, 'DEV2')).toBe(
+        `${commandOf('checkpoint')} replay --file "${file}" --target DEV2`,
+      );
+    });
     for (const path of [
       'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\owners.json',
       'C:\\Users\\dev one\\replay-config.json',
     ]) {
-      expect(typedPath(path)).toBe(`'${path}'`);
-      expect(wordsOf(`--owner-map ${typedPath(path)} --again`)).toEqual([
+      onPlatform('win32', () => expect(typedWord(path)).toBe(`"${path}"`));
+      onPlatform('linux', () => expect(typedWord(path)).toBe(`'${path}'`));
+      expect(wordsOf(`--owner-map ${typedWord(path)} --again`)).toEqual([
         '--owner-map',
         path,
         '--again',

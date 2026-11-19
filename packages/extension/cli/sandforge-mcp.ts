@@ -74,7 +74,7 @@ import {
 } from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { holdOutputWhole } from './wholeOutput.js';
-import { commandOf, nameOf } from './invocation.js';
+import { commandOf, nameOf, typedWord } from './invocation.js';
 import { journalDirOf } from './journalDir.js';
 import { CLONE_ORG_PLAN_RELAY, CLONE_ORG_RELAY } from './relayWords.js';
 import {
@@ -842,7 +842,7 @@ export function pipelinePlanLine(args: PipelinePlanArgs): string[] {
 function pipelineRunWords(file: string): string {
   return (
     "No tool runs a pipeline: its run is the person's, on a terminal, " +
-    `${commandOf('pipeline')} run --file ${shellWord(file)} --dry-run first, then without ` +
+    `${commandOf('pipeline')} run --file ${typedWord(file)} --dry-run first, then without ` +
     '--dry-run. This plan had no terminal: an Approval step it says has no one to ask ' +
     '(APPROVAL_NO_TERMINAL) is asked there, or answered ahead by approve.'
   );
@@ -1183,7 +1183,7 @@ export function replayConfigWords(args: ReplayArgs, said: string): string | unde
     'it names are the person’s to declare' +
     (Object.keys(declared).length > 0 ? `, in a file such as ${JSON.stringify(declared)}` : '') +
     ', and the replay goes from a terminal, its dry run first: ' +
-    `${commandOf('checkpoint')} ${line.map(shellWord).join(' ')} --replay-config <file.json>`
+    `${commandOf('checkpoint')} ${line.map((word) => typedWord(word)).join(' ')} --replay-config <file.json>`
   );
 }
 
@@ -1393,7 +1393,7 @@ export function requiredFieldWords(args: CloneRecordsArgs, answer: unknown): str
     ),
     `The person using you gives ${unanswered.length === 1 ? 'it' : 'them'} in a Forge ` +
       `configuration file, ${JSON.stringify({ defaultValues })}, and clones from a terminal, its ` +
-      `dry run first: ${commandOf('clone')} ${line.map(shellWord).join(' ')} --config <file.json>`,
+      `dry run first: ${commandOf('clone')} ${line.map((word) => typedWord(word)).join(' ')} --config <file.json>`,
   ];
 }
 
@@ -4320,14 +4320,9 @@ const NO_TERMINAL = 'no terminal to answer';
 const names = (text: string, flag: string): boolean =>
   new RegExp(`(?<![\\w-])${flag}(?![\\w-])`).test(text);
 
-/** A word of a line as a shell reads it: as it is, or quoted. */
-function shellWord(arg: string): string {
-  return /^[\w.@:+/=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
 /** A script's line as a person would type it. */
 export function commandText(script: Script, args: readonly string[]): string {
-  const quoted = args.map(shellWord);
+  const quoted = args.map((word) => typedWord(word));
   return ['pnpm exec tsx', `packages/extension/cli/${script}.ts`, ...quoted].join(' ');
 }
 

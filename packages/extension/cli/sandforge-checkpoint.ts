@@ -146,7 +146,7 @@ import { refusedLine } from './runRefused.js';
 import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 import { SfSessionError } from './sfFailure.js';
-import { commandOf } from './invocation.js';
+import { commandOf, typedWord } from './invocation.js';
 import { CHECKPOINT_FIRST_FLAGS } from './beforeRunCheckpoint.js';
 import {
   ReplayStop,
@@ -3080,7 +3080,7 @@ export function rewindLines(
     lines.push(
       `  undo it until ${when(result.undo.until)}, sooner if the recycle bin fills: ` +
         `${commandOf('checkpoint')} undo --org ${orgName} --checkpoint ${checkpoint.checkpointId}` +
-        (store !== undefined ? ` --store ${store}` : ''),
+        (store !== undefined ? ` --store ${typedWord(store)}` : ''),
     );
     for (const { words, of } of undoCannotByReason(result.undo.cannot)) {
       lines.push(

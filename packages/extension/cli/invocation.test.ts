@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { commandOf, nameOf } from './invocation.js';
+import { commandOf, nameOf, typedWord } from './invocation.js';
 import { TOOLS, type Tool } from './sandforge.js';
 
 const here = __dirname;
@@ -145,5 +145,142 @@ describe('the command a line tells its reader to run', () => {
         .map((match) => match[0]),
     );
     expect(flagged).toEqual(['sandforge-checkpoint', 'sandforge-env', 'sandforge-seed']);
+  });
+});
+
+/**
+ * The words of a Windows command line as the C runtime splits it, which
+ * node.exe reads its arguments by once cmd.exe or PowerShell hands it the
+ * line: spaces outside double quotes end a word, a quote opens or closes,
+ * two inside are one, and backslashes count only before a quote — 2n of them
+ * are n and the quote acts, 2n + 1 are n and a quote kept.
+ */
+function windowsWordsOf(line: string): string[] {
+  const words: string[] = [];
+  let word: string | undefined;
+  let quoted = false;
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at];
+    if (char === '\\') {
+      let slashes = 0;
+      while (line[at] === '\\') {
+        slashes++;
+        at++;
+      }
+      if (line[at] === '"') {
+        word = (word ?? '') + '\\'.repeat(slashes >> 1);
+        if (slashes % 2 === 1) word += '"';
+        else at--;
+      } else {
+        word = (word ?? '') + '\\'.repeat(slashes);
+        at--;
+      }
+    } else if (char === '"') {
+      if (quoted && line[at + 1] === '"') {
+        word = (word ?? '') + '"';
+        at++;
+      } else {
+        quoted = !quoted;
+        word ??= '';
+      }
+    } else if (!quoted && (char === ' ' || char === '\t')) {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else {
+      word = (word ?? '') + char;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
+/** The words of a line as a POSIX shell splits it: single quotes, and a backslash outside them. */
+function posixWordsOf(line: string): string[] {
+  const words: string[] = [];
+  let word: string | undefined;
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at];
+    if (char === "'") {
+      const end = line.indexOf("'", at + 1);
+      word = (word ?? '') + line.slice(at + 1, end);
+      at = end;
+    } else if (char === '\\') {
+      at++;
+      word = (word ?? '') + line[at];
+    } else if (char === ' ') {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else {
+      word = (word ?? '') + char;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
+/** What cmd.exe acts on outside double quotes: a word that holds one unquoted runs something else. */
+const CMD_ACTS_ON = /[&|<>^()]/;
+
+describe('a word of a line, as its shell reads it back', () => {
+  const WORDS = [
+    'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\owners.json',
+    'C:\\Users\\dev one\\Downloads\\before uat.sfcheckpoint',
+    'C:\\R&D (2026)\\store',
+    "C:\\Users\\o'neil\\replay-config.json",
+    'C:\\data\\',
+    'C:\\data\\with space\\',
+    'env=uat 2',
+    'Name = \'Acme "North"\'',
+    'a\\"b',
+    '',
+  ];
+
+  it('leaves as it is a word no shell acts on, whatever the system', () => {
+    for (const platform of ['win32', 'linux', 'darwin'] as const) {
+      for (const word of [
+        'DEV-SB',
+        'ci+dev@example.com',
+        '--var=env=uat',
+        'Account,Contact',
+        '/home/dev/checkpoints',
+      ]) {
+        expect(typedWord(word, platform)).toBe(word);
+      }
+    }
+  });
+
+  it('gives cmd.exe and the runtime under it each word whole on Windows, in double quotes, nothing cmd.exe acts on outside them', () => {
+    for (const word of WORDS) {
+      const typed = typedWord(word, 'win32');
+      expect(typed.startsWith('"') && typed.endsWith('"'), typed).toBe(true);
+      expect(windowsWordsOf(`--file ${typed} --target DEV`), typed).toEqual([
+        '--file',
+        word,
+        '--target',
+        'DEV',
+      ]);
+      const outside = typed
+        .split('"')
+        .filter((_, at) => at % 2 === 0)
+        .join('');
+      expect(outside, typed).not.toMatch(CMD_ACTS_ON);
+    }
+    expect(typedWord('C:\\Users\\dev one\\x.json', 'win32')).toBe('"C:\\Users\\dev one\\x.json"');
+    expect(typedWord('C:\\data\\', 'win32')).toBe('"C:\\data\\\\"');
+  });
+
+  it('gives a POSIX shell each word whole elsewhere, in single quotes', () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      for (const word of WORDS) {
+        const typed = typedWord(word, platform);
+        expect(posixWordsOf(`--file ${typed} --target DEV`), typed).toEqual([
+          '--file',
+          word,
+          '--target',
+          'DEV',
+        ]);
+      }
+    }
+    expect(typedWord("it's", 'linux')).toBe("'it'\\''s'");
   });
 });

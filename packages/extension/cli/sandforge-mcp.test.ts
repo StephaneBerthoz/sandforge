@@ -32,6 +32,7 @@ import {
   TOOLS,
   claimStdout,
   cloneOrgPlanLine,
+  commandText,
   exitWords,
   planLines,
   planSummaryOf,
@@ -2331,6 +2332,35 @@ describe('claimStdout', () => {
 
     expect(String(stdout.read())).toBe('{"jsonrpc":"2.0","id":1,"result":{}}\n');
     expect(String(stderr.read())).toBe('a stray line\n');
+  });
+});
+
+describe('commandText', () => {
+  const file = 'C:\\Users\\dev one\\nightly.sandforge-pipeline.json';
+
+  /** The line of a pipeline's run, as if on `platform`. */
+  function lineOn(platform: NodeJS.Platform): string {
+    const real = process.platform;
+    Object.defineProperty(process, 'platform', { value: platform });
+    try {
+      return commandText('sandforge-pipeline', ['run', '--file', file, '--var', 'env=uat 2']);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: real });
+    }
+  }
+
+  it('quotes a word in double quotes on Windows, which cmd.exe reads whole where it keeps single quotes in the word', () => {
+    expect(lineOn('win32')).toBe(
+      'pnpm exec tsx packages/extension/cli/sandforge-pipeline.ts run --file ' +
+        `"${file}" --var "env=uat 2"`,
+    );
+  });
+
+  it('quotes a word in single quotes elsewhere, as a POSIX shell reads it', () => {
+    expect(lineOn('linux')).toBe(
+      'pnpm exec tsx packages/extension/cli/sandforge-pipeline.ts run --file ' +
+        `'${file}' --var 'env=uat 2'`,
+    );
   });
 });
 
