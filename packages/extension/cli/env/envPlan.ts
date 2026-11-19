@@ -894,6 +894,47 @@ export function readBefore(
   return out;
 }
 
+/**
+ * The replay resources `name` runs after, in the order apply runs them: those
+ * it depends on, by `dependsOn` or by a relation's parents, and those what it
+ * depends on runs after, at any remove.
+ */
+function replaysBefore(resolved: EnvFileResolved, name: string): string[] {
+  const byName = new Map(resolved.resources.map((resource) => [resource.name, resource]));
+  const seen = new Set<string>();
+  const next = [...(byName.get(name)?.dependsOn ?? [])];
+  while (next.length > 0) {
+    const dep = next.pop() ?? '';
+    if (seen.has(dep) || dep === name) continue;
+    seen.add(dep);
+    next.push(...(byName.get(dep)?.dependsOn ?? []));
+  }
+  return resolved.resources
+    .filter((resource) => resource.kind === 'replay' && seen.has(resource.name))
+    .map((resource) => resource.name);
+}
+
+/**
+ * What the plan says of a seed that runs after a replay: its records are
+ * written beside those the replay puts back from the checkpoint, never in
+ * their place. Said, never refused: a seed after the replay may be wanted,
+ * and the recipe after a refresh runs one. Nothing for another kind, nor for
+ * a seed no replay runs before.
+ */
+function seedAfterReplayNotes(resolved: EnvFileResolved, resource: EnvFileResource): string[] {
+  if (resource.kind !== 'seed') return [];
+  const replays = replaysBefore(resolved, resource.name);
+  if (replays.length === 0) return [];
+  const one = replays.length === 1;
+  return [
+    `it runs after the ${one ? 'replay' : 'replays'} ${replays.join(', ')}: what it writes is ` +
+      `added to the records the ${one ? 'replay puts' : 'replays put'} back from ` +
+      `${one ? 'the checkpoint' : 'their checkpoints'}, never in their place; leave it out of ` +
+      `the file if the ${one ? 'checkpoint already holds' : 'checkpoints already hold'} the ` +
+      'data it would seed',
+  ];
+}
+
 /** Add the counts of a dry run to an action's objects, by object. */
 function withWouldCreate(objects: EnvPlanObject[], count: EnvDryRunCount): EnvPlanObject[] {
   const merged = objects.map((object) => ({ ...object }));
@@ -1190,7 +1231,10 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     const resource = input.resolved.resources.find((each) => each.name === draft.resource);
     const notes =
       resource !== undefined && RUNS.has(draft.action)
-        ? notesOf(resource, maskPlaceOf(input, draft.resource))
+        ? [
+            ...notesOf(resource, maskPlaceOf(input, draft.resource)),
+            ...seedAfterReplayNotes(input.resolved, resource),
+          ]
         : [];
     return {
       resource: draft.resource,

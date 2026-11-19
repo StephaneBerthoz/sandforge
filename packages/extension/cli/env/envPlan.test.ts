@@ -1485,3 +1485,96 @@ describe('the plan of a resource drawing its parents from another', () => {
     expect(plan.refusal).toContain('contacts (the relation on Contact.AccountId');
   });
 });
+
+describe('the plan of a seed after a replay', () => {
+  /** A seed of one object, its field given, run after what `dependsOn` names. */
+  const seed = (object: string, field: string, dependsOn?: string[]) => ({
+    kind: 'seed',
+    ...(dependsOn !== undefined ? { dependsOn } : {}),
+    objects: [
+      {
+        object,
+        count: 2,
+        fields: [{ fieldApiName: field, ruleType: 'static', config: { staticValue: 'SFENV' } }],
+      },
+    ],
+  });
+  /**
+   * The recipe after a refresh: the testers' records replayed, a seed after
+   * the replay, another after that seed, and one that waits for neither.
+   */
+  const recipe = {
+    version: 1,
+    name: 'uat-after-refresh',
+    resources: {
+      'test-data': { kind: 'replay', checkpoint: { id: 'ck-20261114-174750-5e38' } },
+      'demo-accounts': seed('Account', 'Name', ['test-data']),
+      'demo-contacts': seed('Contact', 'LastName', ['demo-accounts']),
+      'own-cases': seed('Case', 'Subject'),
+    },
+  };
+  /** The file read as a plan reads it: each replay's checkpoint resolved to one this machine keeps. */
+  const resolvedWith = (doc: { resources: Record<string, { kind: string }> }) => {
+    const replays = Object.entries(doc.resources).filter(([, each]) => each.kind === 'replay');
+    const read = readEnvFile(
+      doc,
+      fileFolder,
+      {},
+      {
+        checkpoints: Object.fromEntries(
+          replays.map(([name], at) => [
+            name,
+            {
+              checkpointId: `ck-20261114-17475${at}-5e38`,
+              organizationId: '00D000000000008AAA',
+            },
+          ]),
+        ),
+      },
+    );
+    if ('refusals' in read) throw new Error(JSON.stringify(read.refusals));
+    return read.resolved;
+  };
+  const NOTE =
+    'it runs after the replay test-data: what it writes is added to the records the replay ' +
+    'puts back from the checkpoint, never in their place; leave it out of the file if the ' +
+    'checkpoint already holds the data it would seed';
+
+  it('says of a seed that runs after a replay, directly or through what it depends on, that it writes beside what the replay puts back, and refuses nothing', () => {
+    const plan = envPlan({ resolved: resolvedWith(recipe), org: ORG, state: undefined });
+    const of = (name: string) => plan.actions.find((action) => action.resource === name);
+
+    expect(of('demo-accounts')).toMatchObject({ action: 'create', notes: [NOTE] });
+    expect(of('demo-contacts')).toMatchObject({ action: 'create', notes: [NOTE] });
+    expect(of('own-cases')?.notes).toBeUndefined();
+    expect(of('test-data')?.notes).toBeUndefined();
+    expect(plan.actions.every((action) => action.refusal === undefined)).toBe(true);
+    expect(plan.refusal).toBeUndefined();
+    // On a terminal, under its action, as every note.
+    const lines = planLines(plan);
+    const at = lines.findIndex((line) => line.startsWith('  create   demo-accounts'));
+    expect(at).toBeGreaterThan(-1);
+    expect(lines.slice(at, at + 4)).toContain(`           ${NOTE}`);
+  });
+
+  it('names every replay it runs after, and says nothing of a seed with no replay before it', () => {
+    const twice = {
+      ...recipe,
+      resources: {
+        ...recipe.resources,
+        archive: { kind: 'replay', checkpoint: { id: 'ck-20261020-101500-a1b2' } },
+        'demo-accounts': seed('Account', 'Name', ['test-data', 'archive']),
+      },
+    };
+    const plan = envPlan({ resolved: resolvedWith(twice), org: ORG, state: undefined });
+    expect(plan.actions.find((action) => action.resource === 'demo-accounts')?.notes).toEqual([
+      'it runs after the replays test-data, archive: what it writes is added to the records ' +
+        'the replays put back from their checkpoints, never in their place; leave it out of ' +
+        'the file if the checkpoints already hold the data it would seed',
+    ]);
+
+    const alone = { ...recipe, resources: { 'demo-accounts': seed('Account', 'Name') } };
+    const without = envPlan({ resolved: resolvedWith(alone), org: ORG, state: undefined });
+    expect(without.actions[0]?.notes).toBeUndefined();
+  });
+});

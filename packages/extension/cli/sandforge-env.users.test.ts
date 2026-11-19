@@ -1034,6 +1034,54 @@ describe('a replay resource', () => {
     );
     expect((await stateOf()).state?.resources['test-data']?.status).toBe('partial');
   });
+
+  it('notes on a seed after it, with --json, that it writes beside what the replay puts back, and refuses nothing: the apply writes both', async () => {
+    await kept();
+    writeFile({
+      ...replayFile({ id: CHECKPOINT }),
+      resources: {
+        'test-data': { kind: 'replay', checkpoint: { id: CHECKPOINT } },
+        'demo-accounts': {
+          kind: 'seed',
+          dependsOn: ['test-data'],
+          objects: [
+            {
+              object: 'Account',
+              count: 2,
+              fields: [
+                { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Demo' } },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const planned = await plan('--fail-on-drift');
+
+    expect(planned.code, planned.said).toBe(0);
+    expect(planned.plan.refusal).toBeUndefined();
+    expect(planned.plan.actions.find((a) => a.resource === 'demo-accounts')).toMatchObject({
+      action: 'create',
+      notes: [
+        'it runs after the replay test-data: what it writes is added to the records the ' +
+          'replay puts back from the checkpoint, never in their place; leave it out of the ' +
+          'file if the checkpoint already holds the data it would seed',
+      ],
+    });
+    expect(planned.plan.actions.find((a) => a.resource === 'test-data')?.notes).toBeUndefined();
+
+    const applied = await apply();
+    expect(applied.code, applied.said).toBe(0);
+    expect(world.records('Account').filter((row) => row['Name'] === 'Demo')).toHaveLength(2);
+    // Kept, it writes nothing: nothing to say of it.
+    const again = await plan('--fail-on-drift');
+    expect(again.code, again.said).toBe(0);
+    expect(again.plan.actions.find((a) => a.resource === 'demo-accounts')).toMatchObject({
+      action: 'keep',
+    });
+    expect(again.plan.actions.find((a) => a.resource === 'demo-accounts')?.notes).toBeUndefined();
+  });
 });
 
 // ─── The audits and the handoff note ─────────────────────────────────────────
