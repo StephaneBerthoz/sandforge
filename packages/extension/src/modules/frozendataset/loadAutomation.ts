@@ -34,6 +34,7 @@ import {
   bypassesToAssign,
   runBypassesOf,
 } from '../forge/ForgeRunGate.js';
+import { NO_ASSIGN_RIGHT } from '../forge/AutomationMuteLease.js';
 
 /** The code a load is refused under while what the target runs as it writes is not accepted. */
 export const AUTOMATION_NOT_ACCEPTED = 'AUTOMATION_NOT_ACCEPTED' as const;
@@ -180,9 +181,12 @@ export function loadAutomationOf(input: LoadAutomationInput): LoadAutomation {
       ...bypassAssistantSentences(assign, target, 'the load'),
       ...(input.mayMute && sets.length > 0
         ? [
-            `With --mute-automation, the load assigns ${sets.join(', ')} to the user it writes ` +
-              `as for the load alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
-              'quiet does not fire.',
+            // Refused to a user the read found unable to assign the sets.
+            read.cannotAssign === true
+              ? `--mute-automation would be refused: ${NO_ASSIGN_RIGHT}.`
+              : `With --mute-automation, the load assigns ${sets.join(', ')} to the user it writes ` +
+                `as for the load alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
+                'quiet does not fire.',
           ]
         : []),
     ];

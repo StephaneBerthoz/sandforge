@@ -66,6 +66,7 @@ import {
   type RunEmails,
 } from '../forge/targetDeliverability.js';
 import {
+  NO_ASSIGN_RIGHT,
   isMuteRefusedError,
   muteForRun,
   muteLines,
@@ -411,7 +412,7 @@ export function dataOpsAutomationLines(
  * @param options.mayMute - Whether the act can mute them itself and was not asked to.
  */
 export function dataOpsAutomationRefusal(
-  running: Pick<ForgeTargetAutomation, 'objects' | 'unread'> | { unread: string },
+  running: Pick<ForgeTargetAutomation, 'objects' | 'unread' | 'cannotAssign'> | { unread: string },
   target: string,
   options: {
     act: DataOpsAct;
@@ -430,7 +431,7 @@ export function dataOpsAutomationRefusal(
       `(${running.unread}), so what fires is not known. ${lifted}`
     );
   }
-  const automation = running as Pick<ForgeTargetAutomation, 'objects' | 'unread'>;
+  const automation = running as Pick<ForgeTargetAutomation, 'objects' | 'unread' | 'cannotAssign'>;
   const fired = firedOnRemovalStepsOf(automation, options.steps);
   const unread = automationUnreadOf(automation);
   if (fired.length === 0 && unread.length === 0) return undefined;
@@ -453,10 +454,13 @@ export function dataOpsAutomationRefusal(
   parts.push(...bypassAssistantSentences(assign, target, words.the));
   const sets = [...new Set(assign.flatMap((entry) => entry.permissionSet ?? []))];
   if (options.mayMute === true && sets.length > 0) {
+    // Refused to a user the read found unable to assign the sets.
     parts.push(
-      `With --mute-automation, ${words.the} assigns ${sets.join(', ')} to the user it writes ` +
-        `as for ${words.the} alone, under a lease, and what ` +
-        `${sets.length === 1 ? 'it keeps' : 'they keep'} quiet does not fire.`,
+      automation.cannotAssign === true
+        ? `--mute-automation would be refused: ${NO_ASSIGN_RIGHT}.`
+        : `With --mute-automation, ${words.the} assigns ${sets.join(', ')} to the user it writes ` +
+            `as for ${words.the} alone, under a lease, and what ` +
+            `${sets.length === 1 ? 'it keeps' : 'they keep'} quiet does not fire.`,
     );
   }
   parts.push(lifted);
@@ -765,11 +769,12 @@ export async function readDataOpsAct(input: DataOpsActInput): Promise<DataOpsAct
       emails = checkpointEmails(written, running, limits);
       if (emails.some((check) => check.verdict === 'exceeds')) {
         // Counted again as what still runs once the mute's plan holds, read
-        // only: the mute is offered only where it brings them within what is left.
+        // only: the mute is offered only where it brings them within what is
+        // left, and to a user who may assign its sets.
         const planned = !mute && mayMute && known ? planMute(known, writes) : undefined;
         emailsMute = mute
           ? { kind: 'muting' }
-          : planned && planned.plan.assign.length > 0
+          : planned && planned.plan.assign.length > 0 && planned.plan.cannotAssign !== true
             ? checkpointEmails(written, planned.automation, limits).some(
                 (check) => check.verdict === 'exceeds',
               )

@@ -747,31 +747,39 @@ export interface MutePrepared {
   acquire(runId: string): Promise<HeldMute>;
 }
 
+/**
+ * What the user a connection is may do of assigning permission sets: one row,
+ * that user's. Asked as a lease is prepared, and by the read of the target's
+ * automation once a set is there to assign (`TargetAutomationReader`), so no
+ * page or dry run offers a mute that would be refused.
+ */
+export const ASSIGN_RIGHT_SOQL =
+  'SELECT PermissionsAssignPermissionSets, PermissionsManageUsers FROM UserPermissionAccess';
+
+/** Why a mute is refused to a user who may assign no permission set, in words. */
+export const NO_ASSIGN_RIGHT =
+  'the user the run writes as cannot assign permission sets (neither Assign Permission Sets ' +
+  'nor Manage Users)';
+
+/** Whether the row {@link ASSIGN_RIGHT_SOQL} answered lets its user assign permission sets. */
+export function mayAssignPermissionSets(row: Record<string, unknown> | undefined): boolean {
+  return (
+    row?.['PermissionsAssignPermissionSets'] === true || row?.['PermissionsManageUsers'] === true
+  );
+}
+
 /** Why the user cannot assign permission sets, or nothing when they can. */
 async function assignRightRefusal(org: MuteOrg): Promise<string | undefined> {
   let row: Record<string, unknown> | undefined;
   try {
-    row = (
-      await org.query(
-        'SELECT PermissionsAssignPermissionSets, PermissionsManageUsers FROM UserPermissionAccess',
-      )
-    ).records[0];
+    row = (await org.query(ASSIGN_RIGHT_SOQL)).records[0];
   } catch (err: unknown) {
     return (
       'the org would not say whether the user the run writes as may assign permission sets ' +
       `(${extractErrorMessage(err)})`
     );
   }
-  if (
-    row?.['PermissionsAssignPermissionSets'] === true ||
-    row?.['PermissionsManageUsers'] === true
-  ) {
-    return undefined;
-  }
-  return (
-    'the user the run writes as cannot assign permission sets (neither Assign Permission Sets ' +
-    'nor Manage Users)'
-  );
+  return mayAssignPermissionSets(row) ? undefined : NO_ASSIGN_RIGHT;
 }
 
 /** A permission set's API name, split into its namespace and its own name. */

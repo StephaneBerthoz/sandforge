@@ -115,6 +115,13 @@ export interface MutePlan {
   alsoLifts?: MutedAutomationAlsoLifted[];
   /** What could not be read of what they lift; absent when everything was. */
   liftsUnread?: MuteLiftsUnread[];
+  /**
+   * Set when the user the run writes as cannot assign permission sets, as
+   * the read found it (`ForgeTargetAutomation.cannotAssign`): a run that
+   * mutes would be refused, nothing written, so no page or line offers it.
+   * Absent when the plan assigns nothing.
+   */
+  cannotAssign?: true;
 }
 
 /**
@@ -236,7 +243,9 @@ function bypassesNotHeld(flow: ForgeTargetFlow | undefined): string[] {
  *   updates and deletes.
  */
 export function mutePlanOf(
-  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'> & LiftsRead,
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'> &
+    LiftsRead &
+    Partial<Pick<ForgeTargetAutomation, 'cannotAssign'>>,
   writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean = () => true,
 ): MutePlan {
   const seen = new Set<string>();
@@ -301,6 +310,9 @@ export function mutePlanOf(
     stillRuns,
     ...(alsoLifts.length > 0 ? { alsoLifts } : {}),
     ...(liftsUnread.length > 0 ? { liftsUnread } : {}),
+    ...(assign.length > 0 && automation.cannotAssign === true
+      ? { cannotAssign: true as const }
+      : {}),
   };
 }
 

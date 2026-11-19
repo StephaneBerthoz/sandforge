@@ -276,8 +276,9 @@ export async function deliverabilityOfRun(input: {
  * Those of the senders that still run without the mute that a mute would
  * keep quiet: what the refusal of a run that does not mute names
  * `--mute-automation` for. Empty when the mute quiets none of them — no
- * bypass in their condition, a package's, or no permission set holds it —,
- * and the refusal then does not suggest it.
+ * bypass in their condition, a package's, or no permission set holds it, or
+ * the read found the user the run writes as unable to assign the sets, to
+ * whom the mute is refused —, and the refusal then does not suggest it.
  */
 export function sendersTheMuteQuiets(
   automation: ForgeTargetAutomation,
@@ -286,6 +287,7 @@ export function sendersTheMuteQuiets(
     writes?: (objectApiName: string, write: ForgeAutomationWrite) => boolean;
   } = {},
 ): EmailSender[] {
+  if (automation.cannotAssign === true) return [];
   const key = (sender: EmailSender): string =>
     `${sender.objectApiName}\u0000${sender.kind}\u0000${sender.name}`;
   const unmuted = emailSendersOf(stillRunningOf(automation, undefined, options.writes), options);

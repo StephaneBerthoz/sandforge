@@ -320,6 +320,32 @@ describe('AutomationMuteBox', () => {
     expect(screen.queryByTestId('mute')).not.toBeNull();
   });
 
+  it('offers no box to a user who cannot assign permission sets, says why, and unticks one that was', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <AutomationMuteBox offer={PLAN} checked onChange={onChange} org="dev" testId="mute" />,
+    );
+
+    rerender(
+      <AutomationMuteBox
+        offer={{ ...PLAN, cannotAssign: true }}
+        checked
+        onChange={onChange}
+        org="dev"
+        testId="mute"
+      />,
+    );
+
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByTestId('mute-toggle')).toBeNull();
+    expect(screen.getByTestId('mute-no-right').textContent).toBe(
+      "Muting isn't offered: the user the run writes as in dev can't assign permission sets " +
+        '(that takes Assign Permission Sets or Manage Users), so a run that mutes would be ' +
+        'refused. An admin can give that user Assign Permission Sets.',
+    );
+    expect(onChange).toHaveBeenCalledWith(false);
+  });
+
   it('unticks a box no longer offered: a read again found nothing to silence', () => {
     const onChange = vi.fn();
     const { rerender } = render(

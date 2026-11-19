@@ -101,6 +101,7 @@ import {
 } from './ForgeBatchStrategy.js';
 import { RUN_CANCELLED } from './forgeAudit.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
+import { NO_ASSIGN_RIGHT } from './AutomationMuteLease.js';
 import { AUTOMATION_READ_MOST, objectsTheRunWrites } from './TargetAutomationReader.js';
 import type { SampleRefusalCode } from './sample/sampleDrawing.js';
 
@@ -4181,10 +4182,18 @@ export function bypassAssistantSentences(
  * session's run held one.
  *
  * @param run - What the command does: "clone", "removal".
+ * @param cannotAssign - The read found the user unable to assign the sets:
+ *   the flag is refused them, and the refusal says why rather than offer it.
  */
-function muteSentences(assign: readonly BypassToAssign[], run: string, mayMute: boolean): string[] {
+function muteSentences(
+  assign: readonly BypassToAssign[],
+  run: string,
+  mayMute: boolean,
+  cannotAssign: boolean,
+): string[] {
   const sets = [...new Set(assign.flatMap((entry) => entry.permissionSet ?? []))];
   if (!mayMute || sets.length === 0) return [];
+  if (cannotAssign) return [`--mute-automation would be refused: ${NO_ASSIGN_RIGHT}.`];
   return [
     `With --mute-automation, the ${run} assigns ${sets.join(', ')} to the user it writes as ` +
       `for the ${run} alone, under a lease, and what ${sets.length === 1 ? 'it keeps' : 'they keep'} ` +
@@ -4205,7 +4214,7 @@ function muteSentences(assign: readonly BypassToAssign[], run: string, mayMute: 
  *   mute them itself (`--mute-automation`, not asked yet).
  */
 export function automationRefusal(
-  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread' | 'cannotAssign'>,
   target: string,
   options: {
     updated?: readonly UpdatedAfterInsert[];
@@ -4244,7 +4253,14 @@ export function automationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the clone'));
-  parts.push(...muteSentences(options.assign ?? [], 'clone', options.mayMute === true));
+  parts.push(
+    ...muteSentences(
+      options.assign ?? [],
+      'clone',
+      options.mayMute === true,
+      automation.cannotAssign === true,
+    ),
+  );
   parts.push(
     `Nothing was written. Add --accept-automation to clone all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -4264,7 +4280,7 @@ export function automationRefusal(
  *   them itself (`--mute-automation`, not asked yet).
  */
 export function removalAutomationRefusal(
-  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread' | 'cannotAssign'>,
   target: string,
   options: {
     drafted?: readonly string[];
@@ -4299,7 +4315,14 @@ export function removalAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
-  parts.push(...muteSentences(options.assign ?? [], 'removal', options.mayMute === true));
+  parts.push(
+    ...muteSentences(
+      options.assign ?? [],
+      'removal',
+      options.mayMute === true,
+      automation.cannotAssign === true,
+    ),
+  );
   parts.push(
     `Nothing was deleted. Add --accept-automation to remove all the same, or turn that ` +
       `automation off in ${target} first.`,
@@ -4429,7 +4452,7 @@ const REMOVAL_STEPS_HEADINGS: Readonly<Record<RemovalStepsSubject, (target: stri
  *   writes them: a removal, or the purge a reload runs before it loads.
  */
 export function removalStepsAutomationRefusal(
-  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread' | 'cannotAssign'>,
   target: string,
   options: {
     steps: ForgeRemovalSteps;
@@ -4494,7 +4517,14 @@ export function removalStepsAutomationRefusal(
     );
   }
   parts.push(...bypassAssistantSentences(options.assign ?? [], target, words.who));
-  parts.push(...muteSentences(options.assign ?? [], words.run, options.mayMute === true));
+  parts.push(
+    ...muteSentences(
+      options.assign ?? [],
+      words.run,
+      options.mayMute === true,
+      automation.cannotAssign === true,
+    ),
+  );
   parts.push(
     `Nothing was written or deleted. Add --accept-automation to ${words.verb} all the same, or ` +
       `turn that automation off in ${target} first.`,

@@ -11,7 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { listWords } from '../../utils/listWords';
-import { muteOffered, type MuteOffer } from '../../utils/muteOffer';
+import { muteOffered, muteRefusedForRight, type MuteOffer } from '../../utils/muteOffer';
 
 /**
  * What fires, by its kind, in the words the automation the pages list says
@@ -143,7 +143,8 @@ export interface AutomationMuteBoxProps {
  * silences — the permission sets it would assign to the user the run writes
  * as, for the run alone, what they silence, and what still runs and why. On a
  * page that reads none, the run's gate reads it as the run starts, and the
- * box says so.
+ * box says so. To a user the read found unable to assign those sets, no box:
+ * a line says why, and who can give the right.
  *
  * A box no longer offered — read again, the org found nothing to silence — is
  * unticked: a run sent from a page that showed no box mutes nothing. A
@@ -169,6 +170,18 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   useEffect(() => {
     if (!readOnly && !offered && checked) onChange(false);
   }, [readOnly, offered, checked, onChange]);
+  // No box for a user the read found unable to assign the sets: the run it
+  // started was refused, nothing written. Said in its place, with the way on.
+  if (muteRefusedForRight(offer)) {
+    return (
+      <p
+        data-testid={`${testId}-no-right`}
+        className={`text-[11px] text-text-secondary ${className ?? ''}`}
+      >
+        {t('automationMute.box.noRight', { org })}
+      </p>
+    );
+  }
   if (!offered || offer == null) return null;
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   const sets = offer === 'atStart' ? [] : offer.assign.map((set) => set.permissionSet);

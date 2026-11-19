@@ -31,7 +31,7 @@ import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { RewindBeforeRun } from '../../components/ui/RewindBeforeRun';
 import { RewoundMark } from '../../components/ui/RewoundMark';
 import { useRewoundMarks } from '../../hooks/useRewoundMarks';
-import { muteOffered } from '../../utils/muteOffer';
+import { muteOffered, muteRefusedForRight } from '../../utils/muteOffer';
 import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
@@ -279,8 +279,10 @@ export const FrozenRemovalAutomation: React.FC<FrozenRemovalAutomationProps> = (
   // A reload's box is the one beside Load, whose mute the load plans as it
   // starts, from its inserts and its purge: offered whatever this read of the
   // purge finds. Offered nothing while the read was on its way, it unticked
-  // the box beside Load, and the reload ran unmuted.
-  const offer = reload && !muteOffered(planned) ? 'atStart' : planned;
+  // the box beside Load, and the reload ran unmuted. Not to a user the read
+  // found unable to assign the sets: the load's mute is refused them too.
+  const offer =
+    reload && !muteOffered(planned) && !muteRefusedForRight(planned) ? 'atStart' : planned;
   // By value: what the read shown covers, told up as it changes. A failed
   // read is said by the section, and covers nothing.
   const covered = read.error

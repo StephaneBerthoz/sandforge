@@ -10,6 +10,7 @@ import type {
 } from '@sandforge/shared';
 import { emailsPerInsertOf, mutePlanOf } from '@sandforge/shared';
 import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { ASSIGN_RIGHT_SOQL } from './AutomationMuteLease.js';
 import { emailsUncountedOf, insertsOf, writePlanOf } from './ForgeRunGate.js';
 
 /** The memory org's connection, as a read reaches its queries. */
@@ -828,6 +829,8 @@ type Refusals = {
   duplicateRules?: Error;
   userPermissions?: Error;
   permissionSets?: Error;
+  /** Whether the user may assign permission sets. */
+  assignRight?: Error;
   /** The query of what the permission sets grant, alone. */
   granted?: Error;
   /** The list of the validation rules. */
@@ -935,6 +938,7 @@ function fakeTarget({
   assignmentRules = [],
   duplicateRules = [],
   userPermissions = [],
+  assignRight = [{ PermissionsAssignPermissionSets: true, PermissionsManageUsers: false }],
   customPermissions = [],
   holdings = [],
   sizes = {},
@@ -955,6 +959,8 @@ function fakeTarget({
   assignmentRules?: Array<Record<string, unknown>>;
   duplicateRules?: Array<Record<string, unknown>>;
   userPermissions?: Array<Record<string, unknown>>;
+  /** What `UserPermissionAccess` says the user may do: assign permission sets, unless told. */
+  assignRight?: Array<Record<string, unknown>>;
   /** The custom permissions of the org, as `CustomPermission` gives them. */
   customPermissions?: Array<Record<string, unknown>>;
   /** The permission sets that include them, as `SetupEntityAccess` gives them. */
@@ -1018,6 +1024,9 @@ function fakeTarget({
       }
       if (soql === USER_PERMISSIONS_SOQL) {
         return answering(part(refuse.userPermissions, userPermissions));
+      }
+      if (soql.includes(' FROM UserPermissionAccess')) {
+        return answering(part(refuse.assignRight, assignRight));
       }
       if (soql.includes(' FROM CustomPermission ')) {
         return answering(part(refuse.permissionSets, customPermissions));
@@ -2149,6 +2158,66 @@ describe('TargetAutomationReader', () => {
       expect(target.tooling.some((soql) => soql.includes('FROM ValidationRule'))).toBe(false);
     });
 
+    /*
+     * The right to assign was read only as a run asked to mute took its
+     * lease: every page and dry run offered the mute to a user who held
+     * neither right, and the run it started was refused, nothing written.
+     */
+    it('reads, once a set is there to assign, whether the user the run writes as may assign it, and says they may not', async () => {
+      const target = fakeTarget({
+        ...TRAP_SHAPE,
+        assignRight: [{ PermissionsAssignPermissionSets: false, PermissionsManageUsers: false }],
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.cannotAssign).toBe(true);
+      // The lease's own question, asked once, and counted.
+      expect(target.regular.filter((soql) => soql === ASSIGN_RIGHT_SOQL)).toHaveLength(1);
+      expect(automation.requests).toBe(target.asked.length);
+      expect(mutePlanOf(automation).cannotAssign).toBe(true);
+    });
+
+    it('takes a user with Assign Permission Sets or Manage Users as one who may assign', async () => {
+      for (const right of [
+        { PermissionsAssignPermissionSets: true, PermissionsManageUsers: false },
+        { PermissionsAssignPermissionSets: false, PermissionsManageUsers: true },
+      ]) {
+        const target = fakeTarget({ ...TRAP_SHAPE, assignRight: [right] });
+
+        const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+        expect(automation.cannotAssign).toBeUndefined();
+        expect(target.regular).toContain(ASSIGN_RIGHT_SOQL);
+      }
+    });
+
+    it('says nothing of the right where the org would not say it: the mute asks again as the run starts', async () => {
+      const target = fakeTarget({
+        ...TRAP_SHAPE,
+        refuse: { assignRight: refusal('INVALID_TYPE', 'sObject type is not supported') },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.cannotAssign).toBeUndefined();
+      expect(automation.unread).toEqual([]);
+      expect(automation.requests).toBe(target.asked.length);
+    });
+
+    it('asks nothing of the right to assign where no set holds a bypass: nothing would be assigned', async () => {
+      const target = fakeTarget({
+        ...TRAP_SHAPE,
+        holdings: [],
+        assignRight: [{ PermissionsAssignPermissionSets: false, PermissionsManageUsers: false }],
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.cannotAssign).toBeUndefined();
+      expect(target.asked.some((soql) => soql.includes('FROM UserPermissionAccess'))).toBe(false);
+    });
+
     it('says what the sets grant could not be read, and keeps every set it found', async () => {
       const target = fakeTarget({
         ...TRAP_SHAPE,
@@ -3114,6 +3183,23 @@ describe('automationLines', () => {
     );
     expect(lines).toContain(
       '    Skip_All: no permission set of TGT holds it: an admin creates one that includes it',
+    );
+  });
+
+  it('does not offer --mute-automation to a user who cannot assign permission sets, and says why', () => {
+    const bypassLine = (lines: string[]): string | undefined =>
+      lines.find((line) => line.startsWith('  bypass:'));
+    const refused = { ...automation, cannotAssign: true as const };
+
+    expect(bypassLine(automationLines(refused, 'TGT'))).toBe(
+      '  bypass: assign Case_BypassFlow to the user the run writes as, and the flows whose start ' +
+        'condition excludes them stay quiet; --mute-automation would be refused: the user the ' +
+        'run writes as cannot assign permission sets (neither Assign Permission Sets nor Manage Users)',
+    );
+    // Relayed by what takes no such flag, the line names none.
+    expect(bypassLine(automationLines(refused, 'TGT', { mayMute: false }))).toBe(
+      '  bypass: assign Case_BypassFlow to the user the run writes as, and the flows whose start ' +
+        'condition excludes them stay quiet',
     );
   });
 

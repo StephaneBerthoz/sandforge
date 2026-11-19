@@ -174,6 +174,23 @@ describe('mutePlanOf', () => {
       mutePlanOf(read, (_object, write) => write === 'undelete').stillRuns.map((e) => e.name),
     ).toEqual(['Undeleted']);
   });
+
+  it('says the user the run writes as cannot assign the sets it plans, as the read found it', () => {
+    const read: ForgeTargetAutomation = {
+      ...automation(
+        [object({ flows: [bypassed('Account_BypassFlow')] })],
+        [{ permission: 'Account_BypassFlow', permissionSets: [set('PS_Small')] }],
+      ),
+      cannotAssign: true,
+    };
+    const plan = mutePlanOf(read);
+    expect(plan.assign.map((a) => a.permissionSet)).toEqual(['PS_Small']);
+    expect(plan.cannotAssign).toBe(true);
+    // Nothing to assign, nothing a right would refuse.
+    expect(mutePlanOf(read, () => false).cannotAssign).toBeUndefined();
+    // Control: the same read of a user who may assign.
+    expect(mutePlanOf({ ...read, cannotAssign: undefined }).cannotAssign).toBeUndefined();
+  });
 });
 
 describe('what a mute lifts beside what it is assigned for', () => {

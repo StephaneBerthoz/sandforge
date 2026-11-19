@@ -12,7 +12,22 @@ import type { MutePlan } from '@sandforge/shared';
  */
 export type MuteOffer = MutePlan | 'atStart';
 
-/** Whether `offer` says anything a box can offer: something the bypass silences, or a read at the run's start. */
+/**
+ * Whether `offer` says anything a box can offer: something the bypass
+ * silences, for a user the read did not find unable to assign its sets — a
+ * run that mutes is refused for them, nothing written —, or a read at the
+ * run's start.
+ */
 export function muteOffered(offer: MuteOffer | null | undefined): boolean {
-  return offer === 'atStart' || (offer != null && offer.silenced.length > 0);
+  return (
+    offer === 'atStart' ||
+    (offer != null && offer.silenced.length > 0 && offer.cannotAssign !== true)
+  );
+}
+
+/** Whether `offer` would silence something, were the user the run writes as able to assign its sets. */
+export function muteRefusedForRight(offer: MuteOffer | null | undefined): boolean {
+  return (
+    offer != null && offer !== 'atStart' && offer.silenced.length > 0 && offer.cannotAssign === true
+  );
 }

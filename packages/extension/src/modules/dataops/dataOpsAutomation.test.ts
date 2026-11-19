@@ -258,6 +258,19 @@ describe('the refusal of what fires, not accepted', () => {
     expect(refusal).toMatch(
       /Nothing was written\. Add --accept-automation to mask all the same, or turn that automation off in TGT first\.$/,
     );
+
+    // To a user the read found unable to assign the set, the mute is refused: not offered.
+    const refused = dataOpsAutomationRefusal({ ...automation, cannotAssign: true }, 'TGT', {
+      act: 'masking',
+      steps: dataOpsStepsOf('masking', ['Contact']),
+      assign: [{ permission: 'Skip_Flows', permissionSet: 'Flow_Bypass', others: [] }],
+      mayMute: true,
+    });
+    expect(refused).not.toContain('With --mute-automation');
+    expect(refused).toContain(
+      '--mute-automation would be refused: the user the run writes as cannot assign permission ' +
+        'sets (neither Assign Permission Sets nor Manage Users).',
+    );
   });
 
   it('refuses on what could not be read as on what fires, and says nothing when nothing fires', () => {
@@ -513,6 +526,15 @@ describe('readDataOpsAct', () => {
           'Flow_Bypass for the masking alone, and what still sends then fits what is left today), ' +
           'or mask fewer records.',
       );
+    });
+
+    it('names no mute to a user the read found unable to assign the set: it is refused them', async () => {
+      const said = await exceeded(
+        { ...sendingTwice('first'), cannotAssign: true },
+        { remaining: 50 },
+      );
+      expect(said).not.toContain('--mute-automation');
+      expect(said).toContain('Turn off what sends them, or mask fewer records.');
     });
 
     it('says the mute would not keep enough of them quiet when what still sends under it is past what is left', async () => {

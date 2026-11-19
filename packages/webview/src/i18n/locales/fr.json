@@ -9280,6 +9280,7 @@
       "stillRuns": "S'exécutent quand même :",
       "atStart": "Ce qu'elle rend muet est lu dans {{org}} au démarrage de l'exécution : les ensembles d'autorisations qui portent les contournements testés par ses Flows, processus et règles de workflow sont attribués à l'utilisateur sous lequel l'exécution écrit, pour cette exécution seulement, et retirés à sa fin. L'exécution ne demande alors que ce qui s'exécute quand même, et son résultat dit ce qui a été rendu muet.",
       "never": "Rien n'est désactivé et aucun autre utilisateur n'est touché. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien.",
+      "noRight": "Rendre muettes les automatisations n'est pas proposé : l'utilisateur sous lequel l'exécution écrit dans {{org}} ne peut pas attribuer d'ensembles d'autorisations (il faut Attribuer des ensembles d'autorisations ou Gérer les utilisateurs), et une exécution qui les rendrait muettes serait refusée. Un administrateur peut donner à cet utilisateur Attribuer des ensembles d'autorisations.",
       "alsoLifts": "Lève aussi, par ce que ces ensembles accordent d'autre :"
     },
     "bypass": "contournement {{permission}}",

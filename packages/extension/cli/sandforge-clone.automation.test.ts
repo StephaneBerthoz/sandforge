@@ -1657,6 +1657,26 @@ describe('sandforge-clone target automation', () => {
       expect(perms.writes).toEqual([]);
     });
 
+    it('offers no mute, in its lines nor in its refusal, to a user who cannot assign permission sets, and says why', async () => {
+      // The right was read only as a lease was taken: the refusal of a clone
+      // without the flag said "With --mute-automation, the clone assigns
+      // Data_Load", and the clone run with it was refused, nothing written.
+      const { target, perms } = mutableTarget({ canAssign: false, canManageUsers: false });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight'))).toBe(1);
+
+      expect(stderr).not.toContain('With --mute-automation');
+      expect(stderr).toContain(
+        '--mute-automation would be refused: the user the run writes as cannot assign ' +
+          'permission sets (neither Assign Permission Sets nor Manage Users).',
+      );
+      const lines = printed.join('\n');
+      expect(lines).not.toContain('--mute-automation assigns them');
+      expect(lines).toContain('--mute-automation would be refused');
+      expect(perms.writes).toEqual([]);
+    });
+
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
       const { target, perms, events } = mutableTarget({ canAssign: false });
       withOrgs(target);

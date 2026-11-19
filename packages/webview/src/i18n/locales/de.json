@@ -9280,6 +9280,7 @@
       "stillRuns": "Läuft trotzdem:",
       "atStart": "Was stummgeschaltet wird, wird beim Start des Durchlaufs aus {{org}} gelesen: Die Berechtigungssätze mit den Bypässen, die ihre Flows, Prozesse und Workflow-Regeln prüfen, werden dem Benutzer zugewiesen, als der der Durchlauf schreibt, nur für diesen Durchlauf, und an seinem Ende wieder entzogen. Der Durchlauf fragt dann nur nach dem, was trotzdem läuft, und sein Ergebnis sagt, was stummgeschaltet wurde.",
       "never": "Nichts wird deaktiviert, und kein anderer Benutzer wird berührt. Abgelehnt in einer Produktions-Org und für einen Benutzer, der keine Berechtigungssätze zuweisen darf: Der Durchlauf schreibt dann nichts.",
+      "noRight": "Stummschalten wird nicht angeboten: Der Benutzer, als der der Durchlauf in {{org}} schreibt, darf keine Berechtigungssätze zuweisen (dafür braucht es „Berechtigungssätze zuweisen“ oder „Benutzer verwalten“), daher würde ein stummgeschalteter Durchlauf abgelehnt. Ein Administrator kann diesem Benutzer „Berechtigungssätze zuweisen“ geben.",
       "alsoLifts": "Hebt außerdem auf, durch das, was diese Sätze sonst gewähren:"
     },
     "bypass": "Bypass {{permission}}",

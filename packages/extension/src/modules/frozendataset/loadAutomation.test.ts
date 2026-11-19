@@ -163,6 +163,16 @@ describe('loadAutomationOf', () => {
     expect(ask(PRODUCTS([deletingFlow({ bypass: true })]), { mute: true })).toEqual({});
   });
 
+  it('offers no mute to a user the read found unable to assign the set, and says why', () => {
+    const asked = ask({ ...PRODUCTS([deletingFlow({ bypass: true })]), cannotAssign: true });
+
+    expect(asked.stop?.message).not.toContain('With --mute-automation');
+    expect(asked.stop?.message).toContain(
+      '--mute-automation would be refused: the user the run writes as cannot assign permission ' +
+        'sets (neither Assign Permission Sets nor Manage Users).',
+    );
+  });
+
   it('refuses a load whose target would not say what it runs, as one where something runs', () => {
     const { info, stop } = ask({ unread: 'INSUFFICIENT_ACCESS: Tooling API' });
 

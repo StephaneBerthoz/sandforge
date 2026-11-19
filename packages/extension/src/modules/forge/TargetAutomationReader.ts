@@ -57,7 +57,10 @@
  *   of the set, then `CustomPermission` by id), and the validation rules of
  *   the objects whose formula a custom permission keeps quiet, read as the
  *   gap reader reads them (`readValidationRuleBypasses`): what a run's mute,
- *   assigning a set for one bypass, lifts with it.
+ *   assigning a set for one bypass, lifts with it;
+ * - with such a set, whether that user may assign it, from
+ *   `UserPermissionAccess`, as the mute's lease asks it: a mute is not
+ *   offered to a user who may not.
  *
  * A part the org refuses — no access, an API turned off — is said, and the
  * others are read all the same: the read never stops a run.
@@ -102,6 +105,11 @@ import type { Connection } from 'jsforce';
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { networkFailureOf } from '../../core/common/isNetworkError.js';
+import {
+  ASSIGN_RIGHT_SOQL,
+  NO_ASSIGN_RIGHT,
+  mayAssignPermissionSets,
+} from './AutomationMuteLease.js';
 import { recordCreatesOf } from './flowRecordCreates.js';
 import { queryAllPages, type PagedQuerySource } from './queryAllPages.js';
 import { resolveStageConfig } from './stages/ForgeStageConfig.js';
@@ -2173,6 +2181,24 @@ export class TargetAutomationReader {
       }
     }
 
+    // Whether that user may assign such a set at all: one request, sent only
+    // when a set is there to assign. Read only as a run asked to mute took
+    // its lease, the right was missing from every page and dry run that
+    // offered the mute, and the run they started was refused, nothing
+    // written. What the org will not say is left to the lease, which asks
+    // again and says why it refuses.
+    let cannotAssign = false;
+    if (bypassGrants?.some((grant) => grant.permissionSets.length > 0)) {
+      try {
+        const answer = await this.deps.query(targetOrgId, ASSIGN_RIGHT_SOQL);
+        requests += answer.requests;
+        const [row] = answer.records;
+        cannotAssign = row !== undefined && !mayAssignPermissionSets(row);
+      } catch {
+        requests++;
+      }
+    }
+
     const assignmentRules = (object: string): ForgeTargetAssignmentRule[] =>
       assignmentRows
         .filter((row) => text(row.SobjectType).toLowerCase() === object.toLowerCase())
@@ -2239,6 +2265,7 @@ export class TargetAutomationReader {
       definitionsNotRead: definitionsToRead.length - definitionsReading.length,
       definitionsBound,
       ...(bypassGrants ? { bypassGrants } : {}),
+      ...(cannotAssign ? { cannotAssign: true as const } : {}),
       ...lifts,
       requests,
     };
@@ -2531,8 +2558,10 @@ function firedNotes(fired: ForgeAutomationFired, write: ForgeRunWrite): string[]
  * per object, what each write fires — the inserts of the records it creates,
  * the updates of those it writes again, the deletes of a removal of the run —
  * with what of it sends messages or runs after commit, and the assignment and
- * duplicate rules; the custom permissions that keep a flow quiet; what the
- * read could not read or left unread, and what it cost.
+ * duplicate rules; the custom permissions that keep a flow quiet, and
+ * `--mute-automation` offered for them unless the user the run writes as
+ * cannot assign permission sets, which is said instead; what the read could
+ * not read or left unread, and what it cost.
  *
  * @param target - The alias of the target, as the command names it.
  * @param options - Whether the run applies the target's assignment rules,
@@ -2591,9 +2620,11 @@ export function automationLines(
     lines.push(
       `  bypass: assign ${toAssign.join(', ')} to the user the run writes as, and the flows ` +
         'whose start condition excludes them stay quiet' +
-        (options.mayMute !== false
-          ? '; --mute-automation assigns them for the run alone, and takes them back as it ends'
-          : ''),
+        (options.mayMute === false
+          ? ''
+          : automation.cannotAssign === true
+            ? `; --mute-automation would be refused: ${NO_ASSIGN_RIGHT}`
+            : '; --mute-automation assigns them for the run alone, and takes them back as it ends'),
     );
     // What would assign each, as the read found it: shown, never run.
     for (const { permission, permissionSet, others } of bypassAssignmentsOf(automation, toAssign)) {

@@ -1546,6 +1546,38 @@ describe('FrozenLoadTab', () => {
         },
       );
 
+      it('offers no mute to a user the read found unable to assign the sets, says why, and sends the load unmuted', () => {
+        // Offered as read at the start whatever the purge's read said, the
+        // box was ticked for a user who cannot assign, and the load was refused.
+        useFrozenStore.setState({
+          status: { ...STATUS, loadRecords: [loadInto('org-dev', LOADED_AT, 5)] },
+        });
+        answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-1' };
+        answers['frozen:remove:automation'] = {
+          data: {
+            loadedAt: LOADED_AT,
+            automation: { ...AUTOMATION, cannotAssign: true },
+            steps: { setToDraft: [], delete: ['Account'] },
+          },
+        };
+        render(tab());
+        fireEvent.click(screen.getByTestId('frozen-load-mute-toggle'));
+        fireEvent.click(screen.getByTestId('frozen-load-reload'));
+        fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+        const dialog = within(screen.getByRole('dialog'));
+        expect(dialog.queryByTestId('frozen-removal-automation-mute-toggle')).toBeNull();
+        expect(dialog.getByTestId('frozen-removal-automation-mute-no-right').textContent).toMatch(
+          /^Muting isn't offered: the user the run writes as in DEV-SANDBOX can't assign/,
+        );
+        fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+        fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+        expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+          ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
+        ]);
+      });
+
       describe('and as a sweep ticked with it deletes what the automation made for the loads it replaces', () => {
         /** What the sweep would take for the load replaced: the task a flow opened on its contact. */
         const LISTED = {

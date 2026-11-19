@@ -393,6 +393,13 @@ describe('sendersTheMuteQuiets', () => {
       sendersTheMuteQuiets(automation(read.objects, { bypassGrants: [] }), { writes: inserts }),
     ).toEqual([]);
   });
+
+  it('names none for a user the read found unable to assign the sets: the mute is refused them', () => {
+    const read = automation(TRAP.objects, { bypassGrants: TRAP.bypassGrants });
+    expect(sendersTheMuteQuiets(read, { writes: inserts })).not.toEqual([]);
+
+    expect(sendersTheMuteQuiets({ ...read, cannotAssign: true }, { writes: inserts })).toEqual([]);
+  });
 });
 
 describe('the deliverability read on a run’s write path', () => {

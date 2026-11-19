@@ -9280,6 +9280,7 @@
       "stillRuns": "Se ejecutan igualmente:",
       "atStart": "Lo que silencia se lee de {{org}} cuando empieza la ejecución: los conjuntos de permisos que contienen los bypass que prueban sus flujos, procesos y reglas de flujo de trabajo se asignan al usuario con el que la ejecución escribe, solo para esta ejecución, y se retiran al terminar. La ejecución pregunta entonces solo por lo que se ejecuta igualmente, y su resultado dice qué se silenció.",
       "never": "No se desactiva nada ni se toca a ningún otro usuario. Se rechaza en una org de producción y para un usuario que no puede asignar conjuntos de permisos: la ejecución no escribe nada entonces.",
+      "noRight": "No se ofrece silenciar: el usuario con el que la ejecución escribe en {{org}} no puede asignar conjuntos de permisos (hace falta Asignar conjuntos de permisos o Gestionar usuarios), así que una ejecución que silencie se rechazaría. Un administrador puede dar a ese usuario Asignar conjuntos de permisos.",
       "alsoLifts": "También levanta, por lo demás que conceden estos conjuntos:"
     },
     "bypass": "por el bypass {{permission}}",

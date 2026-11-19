@@ -9280,6 +9280,7 @@
       "stillRuns": "Still runs:",
       "atStart": "What it silences is read from {{org}} as the run starts: the permission sets holding the bypasses its flows, processes and workflow rules test are assigned to the user the run writes as, for this run alone, and taken back as it ends. The run then asks only about what still runs, and its result says what was muted.",
       "never": "Nothing is deactivated and no other user is touched. Refused on a production org and for a user who can't assign permission sets: the run then writes nothing.",
+      "noRight": "Muting isn't offered: the user the run writes as in {{org}} can't assign permission sets (that takes Assign Permission Sets or Manage Users), so a run that mutes would be refused. An admin can give that user Assign Permission Sets.",
       "alsoLifts": "Also lifts, by what else these sets grant:"
     },
     "bypass": "bypass {{permission}}",

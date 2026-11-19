@@ -3538,6 +3538,14 @@ export interface ForgeTargetAutomation {
    */
   bypassGrants?: ForgeBypassGrant[];
   /**
+   * Set when the org answered that the user the run writes as holds neither
+   * Assign Permission Sets nor Manage Users: a mute, which assigns the sets
+   * of `bypassGrants` to that user, would be refused, and is not offered.
+   * Read only when a set is there to assign; absent when the user may, and
+   * when the org would not say, which the mute asks again as its run starts.
+   */
+  cannotAssign?: true;
+  /**
    * The validation rules of the objects read that a custom permission keeps
    * quiet, and those permissions: read when a permission set holds a bypass
    * the user lacks, as what assigning it may lift beside what it is assigned
