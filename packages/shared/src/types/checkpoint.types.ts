@@ -1726,6 +1726,15 @@ export interface RewindResult {
    * when there is none.
    */
   wentAlong?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * An undo's alone: of what it brought back from the recycle bin, per
+   * object, the records that came back with a record it brought back, as
+   * they had gone to the bin with it in the rewind — counted in `undeleted`,
+   * never brought back on their own: a contact created since with the
+   * account created since it hangs from. Absent when there is none, and from
+   * the undo of a rewind whose journal did not name them.
+   */
+  cameBackAlong?: Array<{ objectApiName: string; count: number }>;
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
   /**

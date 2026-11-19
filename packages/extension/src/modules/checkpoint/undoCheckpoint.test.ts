@@ -420,10 +420,14 @@ describe('undoCheckpoint, on the memory org', () => {
     expect(result.undo).toBeUndefined();
     // What the rewind deleted comes back parents first: the contact created
     // since under an account created since went with the account, and comes
-    // back with it.
+    // back with it, counted brought back after it.
     expect(
       result.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]),
-    ).toEqual([['Account', 1]]);
+    ).toEqual([
+      ['Account', 1],
+      ['Contact', 1],
+    ]);
+    expect(result.cameBackAlong).toEqual([{ objectApiName: 'Contact', count: 1 }]);
     expect(result.apiRequests.used).toBe(spent(r.org) - asked);
     expect(result.apiRequests.leftToday).toBe(14_000 - result.apiRequests.used);
     const last = await lastRewindOf(r);

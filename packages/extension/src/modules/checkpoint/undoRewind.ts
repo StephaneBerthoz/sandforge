@@ -217,6 +217,14 @@ export interface UndoRewindOutcome {
    * none.
    */
   wentAlong?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Of what it brought back from the recycle bin, per object, the records
+   * that came back with a record it brought back, as they had gone to the
+   * bin with it: counted in {@link undeleted}, never brought back on their
+   * own. Absent when there is none, and from a journal that did not name
+   * them.
+   */
+  cameBackAlong?: Array<{ objectApiName: string; count: number }>;
   /** What it gave back its values from before the rewind, per object. */
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
@@ -801,6 +809,10 @@ async function undoFrom(
   let restored: SyncRestoreOutcome | undefined;
   /** What the bring-back left, per object: what the settling of what it refused reads. */
   const undeleteLeft = new Map<string, string[]>();
+  // The records of the bring-back that what went with them hangs from, and
+  // of them those it sent: brought back unless it left them.
+  const carriesAlong = await parentsOf(plans.comesWithParent);
+  const carrierSent = new RecordKeySet();
   /**
    * Bring back the records of `objects`, in their order, a page at a time:
    * whether it went through. Once stopped, what it did not reach is left.
@@ -809,6 +821,9 @@ async function undoFrom(
     for (const objectApiName of objects) {
       for await (const page of plans.bringBack.pages(objectApiName)) {
         const stopped = (undeleted?.cancelled ?? false) || signal?.aborted === true;
+        if (!stopped && carriesAlong.size > 0) {
+          for (const id of page) if (carriesAlong.has(id)) carrierSent.add(id);
+        }
         const outcome = stopped
           ? {
               objects: [
@@ -1174,6 +1189,7 @@ async function undoFrom(
     });
   }
   const removed = [...wentAlong, ...outcome.objects];
+  const cameBackAlong = await cameBackWith(plans.comesWithParent, carrierSent, undeleted);
   let status = withUndelete(
     withRestore(removalStatus(removed, outcome.cancelled), removed, restored),
     removed,
@@ -1236,12 +1252,75 @@ async function undoFrom(
           })),
         }
       : {}),
+    ...(cameBackAlong.length > 0 ? { cameBackAlong } : {}),
     restored: restored?.objects ?? [],
-    undeleted: undeleted?.objects ?? [],
+    undeleted: withCameBack(undeleted?.objects ?? [], cameBackAlong),
     ...(files ? { files } : {}),
     residual,
     planned,
     notes,
     finishedAt,
   };
+}
+
+/** The keys of the records what went with them hangs from, as `along` names them. */
+async function parentsOf(along: SpooledUndoPlans['comesWithParent']): Promise<RecordKeySet> {
+  const parents = new RecordKeySet();
+  for (const { objectApiName } of along.objects) {
+    for await (const page of along.pages(objectApiName)) {
+      for (const { parent } of page) parents.add(parent);
+    }
+  }
+  return parents;
+}
+
+/**
+ * Of what went with a record of the bring-back (`along`), per object, the
+ * records whose record it sent and did not leave: back with it. What went
+ * with one it left — refused, gone for good, not reached — stays in the bin
+ * with that record.
+ */
+async function cameBackWith(
+  along: SpooledUndoPlans['comesWithParent'],
+  sent: RecordKeySet,
+  undeleted: SyncUndeleteOutcome | undefined,
+): Promise<Array<{ objectApiName: string; count: number }>> {
+  if (undeleted === undefined || sent.size === 0) return [];
+  const left = new RecordKeySet();
+  for (const id of undeleted.left) left.add(id);
+  const came: Array<{ objectApiName: string; count: number }> = [];
+  for (const { objectApiName } of along.objects) {
+    let count = 0;
+    for await (const page of along.pages(objectApiName)) {
+      for (const { parent } of page) if (sent.has(parent) && !left.has(parent)) count++;
+    }
+    if (count > 0) came.push({ objectApiName, count });
+  }
+  return came;
+}
+
+/**
+ * What it brought back, per object, parents first, and after it what came
+ * back with a record of it: brought back too, and counted so.
+ */
+function withCameBack(
+  undeleted: readonly SyncUndeleteObjectResult[],
+  came: ReadonlyArray<{ objectApiName: string; count: number }>,
+): SyncUndeleteObjectResult[] {
+  const objects = undeleted.map((object) => ({ ...object, reasons: [...object.reasons] }));
+  for (const { objectApiName, count } of came) {
+    const brought = {
+      objectApiName,
+      planned: count,
+      undeleted: count,
+      alreadyBack: 0,
+      goneForGood: 0,
+      refused: 0,
+      reasons: [],
+    };
+    const same = objects.find((object) => object.objectApiName === objectApiName);
+    if (same) mergedUndeleteObject(same, brought);
+    else objects.push(brought);
+  }
+  return objects;
 }

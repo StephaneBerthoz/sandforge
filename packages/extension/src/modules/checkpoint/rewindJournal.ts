@@ -266,6 +266,24 @@ const beforeParentLineSchema = z.object({
   at: instantSchema,
 });
 
+/**
+ * Records of one object that go to the recycle bin with a record the
+ * removal of `step` is handed, and are never sent: `parents[i]` names the
+ * record `ids[i]` goes with, as deep as it hangs. Named before the removal
+ * goes; what it left of those records keeps what hangs from them. Their undo
+ * counts them brought back with that record. A journal written before it
+ * named them has none: its undo brings them back all the same, with their
+ * record, and counts that record alone.
+ */
+const goingAlongLineSchema = z.object({
+  kind: z.literal('goingAlong'),
+  step: stepSchema,
+  objectApiName: objectSchema,
+  ids: idsSchema,
+  parents: idsSchema,
+  at: instantSchema,
+});
+
 /** A removal answered: what it left of the step is named before this line. */
 const deletedLineSchema = z.object({
   kind: z.literal('deleted'),
@@ -365,6 +383,7 @@ const lineSchema = z.discriminatedUnion('kind', [
   recreatingLineSchema,
   recreatedLineSchema,
   stepIdsLineSchema,
+  goingAlongLineSchema,
   deletedLineSchema,
   removalLineSchema,
   unlinkingLineSchema,
@@ -395,6 +414,7 @@ const WRITE_LINES: ReadonlySet<Line['kind']> = new Set([
   'recreating',
   'recreated',
   'deleting',
+  'goingAlong',
   'deleteLeft',
   'deleted',
   'removal',
@@ -588,6 +608,15 @@ export interface RewindJournal {
   ): Promise<void>;
   /** Name what a removal sets out to delete, before it is handed the plan. */
   deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void>;
+  /**
+   * Records of one object that go with a record the removal of the last
+   * {@link deleting} is handed, each beside that record, named before it
+   * goes: its undo counts them brought back with that record.
+   */
+  goingAlong(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ id: string; parent: string }>,
+  ): Promise<void>;
   /** The removal of the last {@link deleting} answered: name what it left. */
   deleted(outcome: Pick<RunRemovalOutcome, 'left'>): Promise<void>;
   /** What a removal left on records, and when it ran: `removalStamps`, `removalSpans`. */
@@ -950,6 +979,24 @@ class JournalFile implements RewindJournal {
     }
   }
 
+  async goingAlong(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ id: string; parent: string }>,
+  ): Promise<void> {
+    const step = this.openStep;
+    if (step === undefined) throw new Error('No removal was named to the journal before it.');
+    for (let at = 0; at < pairs.length; at += IDS_PER_LINE) {
+      const chunk = pairs.slice(at, at + IDS_PER_LINE);
+      await this.append({
+        kind: 'goingAlong',
+        step,
+        objectApiName,
+        ids: chunk.map(({ id }) => id),
+        parents: chunk.map(({ parent }) => parent),
+      });
+    }
+  }
+
   async deleted(outcome: Pick<RunRemovalOutcome, 'left'>): Promise<void> {
     const step = this.openStep;
     if (step === undefined) throw new Error('No removal was named to the journal before it.');
@@ -1137,6 +1184,12 @@ function pairedOrDamaged(line: Line): void {
     throw new CheckpointStoreError(
       'damaged',
       'The rewind’s journal names records made again without the Ids they had.',
+    );
+  }
+  if (line.kind === 'goingAlong' && line.parents.length !== line.ids.length) {
+    throw new CheckpointStoreError(
+      'damaged',
+      'The rewind’s journal names records that went with a parent without it.',
     );
   }
   if (line.kind === 'beforeParent' && line.parents.length !== line.ids.length) {
@@ -1873,6 +1926,13 @@ export interface SpooledUndoPlans {
    */
   goesWithParent: ParentedSpool;
   /**
+   * What went to the recycle bin with a record of {@link bringBack}, never
+   * sent on its own, each beside that record: it comes back with it, never
+   * brought back on its own. None from a journal written before it named
+   * them, nor of a record an undo before brought back.
+   */
+  comesWithParent: ParentedSpool;
+  /**
    * Of {@link remove}, the records the rewind made again with new Ids, by
    * key, and per object how many: deleted again, never brought back.
    */
@@ -2069,7 +2129,10 @@ function readingOrder(
  * - `goesWithParent`: of what came back with a record of `remove`, as the
  *   journal names it beside that record, what goes back to the bin with it,
  *   left out of `remove`: deleted on its own first, Salesforce would keep it
- *   in the bin for good once that record went after it.
+ *   in the bin for good once that record went after it;
+ * - `comesWithParent`: what went to the bin with a record of `bringBack`, as
+ *   the journal names it beside that record, never sent: what a removal left
+ *   of those records kept it, and it comes back with the record.
  *
  * What came back with a carrier — a record the rewind brought back for a
  * moment and deleted again — is named beside the record it hangs from
@@ -2198,6 +2261,25 @@ export async function spoolUndoPlans(
         else if (undeleteLeft(key)) await back.add(line.objectApiName, id);
       }
     });
+    // What went with a record a removal deleted, and that comes back with it:
+    // each beside the record it went with, by the first line that names it —
+    // in the step that took it, its record not left. One brought back on its
+    // own as well is that record's own count.
+    const goneWith = new RecordKeySet();
+    const comesWithParent = await ParentedSpool.written(
+      join(dir, 'comesWithParent'),
+      async (add) => {
+        await eachLine(journalFile, async (line) => {
+          if (line.kind !== 'goingAlong') return;
+          const left = answered.has(line.step) ? leftByStep.get(line.step) : undefined;
+          for (const [at, id] of line.ids.entries()) {
+            const parent = line.parents[at];
+            if (left?.has(parent) === true || back.keys.has(id) || !goneWith.add(id)) continue;
+            if (back.keys.has(parent)) await add(line.objectApiName, { id, parent });
+          }
+        });
+      },
+    );
     // What came back with a carrier deleted again, and that the rewind did
     // not move off it, went back to the bin with it: as far down as it hangs.
     const compensated = new RecordKeySet();
@@ -2301,6 +2383,7 @@ export async function spoolUndoPlans(
         })),
       },
       goesWithParent,
+      comesWithParent,
       remade: {
         keys: remade,
         objects: [...remadeCounts].map(([objectApiName, count]) => ({ objectApiName, count })),

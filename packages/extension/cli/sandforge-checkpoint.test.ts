@@ -2216,6 +2216,50 @@ describe('rewindLines, undoLines and resultJson', () => {
     );
   });
 
+  it('says how many of what an undo brought back came back with the record they hang from', () => {
+    const back = (objectApiName: string, undeleted: number) => ({
+      objectApiName,
+      planned: undeleted,
+      undeleted,
+      alreadyBack: 0,
+      goneForGood: 0,
+      refused: 0,
+      reasons: [],
+    });
+    const result = resultOf({
+      undeleted: [back('Account', 1), back('Contact', 3)],
+      cameBackAlong: [{ objectApiName: 'Contact', count: 3 }],
+    });
+
+    expect(undoLines('DEV-SB', checkpoint, result)).toContain(
+      '  brought back 4 record(s) the rewind deleted, 3 of them with the record they hang from',
+    );
+    expect(resultJson('undo', 'DEV-SB', checkpoint, result).broughtBack).toEqual({
+      planned: 4,
+      done: 4,
+      left: 0,
+    });
+    expect(
+      undoLines('DEV-SB', checkpoint, resultOf({ undeleted: [back('Account', 1)] })),
+    ).toContain('  brought back 1 record(s) the rewind deleted');
+  });
+
+  it('says, before an undo asks, that what went with a record it brings back comes back with it', () => {
+    const counts = { bringBack: 1, giveBack: 0, remove: 0, along: 0, remade: 0, drafted: 0 };
+
+    expect(
+      undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', {
+        ...counts,
+        bringBackAlong: 5,
+      }),
+    ).toContain(
+      'it brings back 1 record(s) the rewind deleted, with the 5 that went with them, gives 0',
+    );
+    expect(undoLine('DEV-SB', checkpoint, 'rw-1', '2026-11-06T17:00:00.000Z', counts)).toContain(
+      'it brings back 1 record(s) the rewind deleted, gives 0',
+    );
+  });
+
   it('says the items of a duplicate record set an undo brought back without them, never the org back as it was', () => {
     const lines = undoLines(
       'DEV-SB',

@@ -2980,6 +2980,21 @@ class Rewind {
       }
       const deletes = await this.withSets(plan);
       await journal.deleting(deletes);
+      // What goes with a record the removal is handed, named beside it before
+      // the removal goes: its undo counts it brought back with that record.
+      // Unnamed, an undo of a rewind that sent one account of six said it
+      // brought back one record.
+      for (const { objectApiName, file } of plan.along) {
+        const pairs: Array<{ id: string; parent: string }> = [];
+        for await (const row of rowsOf(file)) {
+          if (typeof row.Id === 'string' && typeof row.parent === 'string') {
+            pairs.push({ id: row.Id, parent: row.parent });
+          }
+          if (pairs.length >= IDS_PER_LINE)
+            await journal.goingAlong(objectApiName, pairs.splice(0));
+        }
+        if (pairs.length > 0) await journal.goingAlong(objectApiName, pairs);
+      }
       const removalStamps = { ...this.stamps, ...plan.removal.removalStamps };
       const spans = [...this.spans, ...(plan.removal.removalSpans ?? [])].filter(
         (span, at, all) =>

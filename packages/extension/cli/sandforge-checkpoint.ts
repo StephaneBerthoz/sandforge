@@ -3180,7 +3180,13 @@ export function undoLines(
     );
   }
   if (tallies.broughtBack.done > 0) {
-    lines.push(`  brought back ${count(tallies.broughtBack.done)} record(s) the rewind deleted`);
+    // What went with a record it brought back came back with it, never sent:
+    // a rewind that sent one account of six said the undo brought back one.
+    const cameBack = sumOf(result.cameBackAlong ?? [], (o) => o.count);
+    lines.push(
+      `  brought back ${count(tallies.broughtBack.done)} record(s) the rewind deleted` +
+        (cameBack > 0 ? `, ${count(cameBack)} of them with the record they hang from` : ''),
+    );
   }
   if (tallies.givenBack.done > 0) {
     lines.push(
@@ -4470,6 +4476,8 @@ export interface UndoCounts {
   remove: number;
   /** What goes back to the bin with a record of {@link remove}. */
   along: number;
+  /** What comes back with a record of {@link bringBack}; absent, none the journal names. */
+  bringBackAlong?: number;
   remade: number;
   /**
    * Of what it made again, the orders: set back to Draft first when past it,
@@ -4493,7 +4501,11 @@ export function undoLine(
     `undo the rewind ${rewindId} of ${orgName} to '${checkpoint.name}' (open until ` +
     `${when(until)}, sooner if the recycle bin fills)` +
     (counts
-      ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
+      ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted` +
+        ((counts.bringBackAlong ?? 0) > 0
+          ? `, with the ${count(counts.bringBackAlong ?? 0)} that went with them`
+          : '') +
+        ', gives ' +
         `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
         `${count(counts.remove - counts.remade)} record(s) it brought back to the recycle bin` +
         (counts.along > 0 ? ', with what came back with them' : '') +
@@ -4528,6 +4540,7 @@ async function undoCounts(
     try {
       return {
         bringBack: plans.bringBack.count,
+        bringBackAlong: plans.comesWithParent.count,
         giveBack: plans.giveBack.count,
         // What came back with a parent goes back to the bin with it, never
         // sent on its own: not counted among what it sends.

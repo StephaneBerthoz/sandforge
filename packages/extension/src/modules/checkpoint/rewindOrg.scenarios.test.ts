@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,6 +50,7 @@ import { rewindStepsOf } from './rewindBounds.js';
 import { readRewindJournal, undoPlansOf } from './rewindJournal.js';
 import { NOT_REMADE_WORDS, type RewindDeps } from './rewindOrg.js';
 import { undoCheckpoint } from './undoCheckpoint.js';
+import { undoRewind } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -2649,5 +2650,119 @@ describe('what goes with a record the rewind deletes, in what it says it deleted
     expect(result.wentAlong).toEqual(
       expect.arrayContaining([{ objectApiName: 'Contact', count: 3 }]),
     );
+  });
+
+  /** Per object, what an undo set out to bring back and brought back. */
+  const undeletedOf = (undo: Awaited<ReturnType<typeof undone>>) =>
+    undo.undeleted.map(({ objectApiName, planned, undeleted }) => ({
+      objectApiName,
+      planned,
+      undeleted,
+    }));
+
+  /** The lines of a rewind's journal, as it keeps them. */
+  const journalFileOf = (t: Taken, rewindId: string): string =>
+    join(rewindDirOf(t.folder, rewindId), 'journal.ndjson');
+
+  it('counts brought back, in its undo, what came back with the account it brought back, as it had gone with it, parents first', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    const beforeRewind = stateOf(t.org);
+    const diff = await previewed(t);
+    const rewind = resultOf(await rewound(t, diff.previewId));
+    const undelete = vi.spyOn(t.org, 'undelete');
+
+    const undo = await undone(t, rewind.rewindId);
+
+    expect(undo.status).toBe('success');
+    expect(stateOf(t.org)).toEqual(beforeRewind);
+    // One undelete, of the account: what went with it comes back with it.
+    expect(undelete.mock.calls.flatMap(([ids]) => ids)).toEqual([account(7)]);
+    const undeleted = undeletedOf(undo);
+    expect(undeleted).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Account', planned: 1, undeleted: 1 },
+        { objectApiName: 'Contact', planned: 3, undeleted: 3 },
+        { objectApiName: 'Opportunity', planned: 1, undeleted: 1 },
+        { objectApiName: 'OpportunityLineItem', planned: 1, undeleted: 1 },
+      ]),
+    );
+    expect(undeleted).toHaveLength(4);
+    const at = (name: string): number => undeleted.findIndex((row) => row.objectApiName === name);
+    expect(at('Account')).toBeLessThan(at('Contact'));
+    expect(at('Account')).toBeLessThan(at('OpportunityLineItem'));
+    expect(undo.cameBackAlong).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Contact', count: 3 },
+        { objectApiName: 'Opportunity', count: 1 },
+        { objectApiName: 'OpportunityLineItem', count: 1 },
+      ]),
+    );
+    expect(undo.cameBackAlong).toHaveLength(3);
+  });
+
+  it('counts nothing brought back of what went with an account the org refused to bring back: it stays in the bin with it', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    const diff = await previewed(t);
+    const rewind = resultOf(await rewound(t, diff.previewId));
+    const held = t.store.lock(t.checkpoint.org.organizationId, 'undo');
+    if (!('lock' in held)) throw new Error('the org’s lock is held');
+
+    let undo: Awaited<ReturnType<typeof undoRewind>>;
+    try {
+      undo = await undoRewind({
+        folder: t.folder,
+        rewindId: rewind.rewindId,
+        lock: held.lock,
+        objects: t.checkpoint.objects,
+        org: t.org,
+        undelete: (ids) =>
+          Promise.resolve(
+            ids.map((id) => ({
+              id,
+              success: false,
+              errors: [{ statusCode: 'UNDELETE_FAILED', message: 'locked by a colleague' }],
+            })),
+          ),
+      });
+    } finally {
+      held.lock.release();
+    }
+
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([
+      contact(7),
+      contact(8),
+      contact(9),
+    ]);
+    expect(undo.undeleted.reduce((sum, object) => sum + object.undeleted, 0)).toBe(0);
+    expect(undo.undeleted.find((row) => row.objectApiName === 'Account')).toMatchObject({
+      planned: 1,
+      refused: 1,
+    });
+    expect(undo.undeleted.some((row) => row.objectApiName === 'Contact')).toBe(false);
+    expect(undo.cameBackAlong).toBeUndefined();
+  });
+
+  it('counts, in the undo of a rewind whose journal names nothing that went along, what it brought back alone, as before, and brings it all back', async () => {
+    const t = await madeUnderAnAccountMadeToo();
+    const beforeRewind = stateOf(t.org);
+    const diff = await previewed(t);
+    const rewind = resultOf(await rewound(t, diff.previewId));
+    // A journal written before it named them, as one of 1.83.0 is.
+    const file = journalFileOf(t, rewind.rewindId);
+    const lines = readFileSync(file, 'utf8')
+      .split('\n')
+      .filter((line) => line !== '');
+    const kept = lines.filter(
+      (line) => (JSON.parse(line) as { kind: string }).kind !== 'goingAlong',
+    );
+    expect(kept.length).toBeLessThan(lines.length);
+    writeFileSync(file, `${kept.join('\n')}\n`);
+
+    const undo = await undone(t, rewind.rewindId);
+
+    expect(undo.status).toBe('success');
+    expect(stateOf(t.org)).toEqual(beforeRewind);
+    expect(undeletedOf(undo)).toEqual([{ objectApiName: 'Account', planned: 1, undeleted: 1 }]);
+    expect(undo.cameBackAlong).toBeUndefined();
   });
 });
