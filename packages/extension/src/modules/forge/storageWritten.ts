@@ -195,9 +195,21 @@ export function writtenOfCounts(
 /**
  * What runs from this machine wrote to an org in the last
  * {@link UNCOUNTED_WINDOW_MINUTES} minutes that `/limits`, saying
- * `remainingMB` now, has not counted yet: what they wrote, sized by
- * `bytesOf`, less the drop since the last thing it said before the first of
- * them ended. Nothing when it has counted it all, or nothing was written.
+ * `remainingMB` now, has not counted yet, sized by `bytesOf`: the runs that
+ * came after the ones the change in what it says accounts for. Nothing when
+ * it has counted them all, when what is left to count frees more than it
+ * takes, or nothing was written.
+ *
+ * Salesforce counts the runs in the order they ended, each a while after it:
+ * the change since the last thing it said before the first of them is what
+ * the first few of them came to, signed — a removal it counted raises what
+ * it says. The few are those whose sum is closest to that change, which
+ * `/limits` says to the MB: a drop of 1 for 1.05 MB written counts the run
+ * whole. Read so, a removal counted before a run of the same records ran
+ * again no longer cancels that run, and a run counted leaves no remnant
+ * under the MB said not counted yet. Nothing said before them, none is
+ * counted. Run for real on a scratch org of 500 MB: an insert was counted
+ * 15 to 22 s after it ended, a removal 24 to 28 s after.
  */
 export function uncountedWritesOf(
   orgId: string,
@@ -220,19 +232,41 @@ export function uncountedWritesOf(
     ),
   }));
   if (writes.length === 0) return undefined;
-  const first = Math.min(...writes.map((write) => write.at));
   // What it said last before the first of them, in the order noted: a gate's
   // read and the end of the run it let through can fall in one millisecond.
   const before = notes
     .slice(0, notes.findIndex(recent))
     .filter((note): note is { at: number; saidMB: number } => 'saidMB' in note)
     .at(-1);
-  const counted = before ? Math.max(0, before.saidMB - remainingMB) * BYTES_PER_MB : 0;
-  const left = writes.reduce((sum, write) => sum + write.bytes, 0) - counted;
-  if (left <= 0) return undefined;
+  const counted = before ? countedRunsOf(writes, (before.saidMB - remainingMB) * BYTES_PER_MB) : 0;
+  const left = writes.slice(counted);
+  const bytes = left.reduce((sum, write) => sum + write.bytes, 0);
+  if (bytes <= 0) return undefined;
+  const first = left[0]?.at ?? now;
   return {
-    mb: left / BYTES_PER_MB,
-    runs: writes.filter((write) => write.bytes > 0).length,
+    mb: bytes / BYTES_PER_MB,
+    runs: left.filter((write) => write.bytes > 0).length,
     minutes: Math.max(1, Math.ceil((now - first) / MINUTE_MS)),
   };
+}
+
+/**
+ * How many of `writes`, in the order they ended, the change `taken` in what
+ * `/limits` says came to, in bytes, signed: the first few whose sum is the
+ * closest to it. Of two as close, the fewer: a run is not taken for counted
+ * on a figure that cannot tell which.
+ */
+function countedRunsOf(writes: ReadonlyArray<{ bytes: number }>, taken: number): number {
+  let counted = 0;
+  let closest = Math.abs(taken);
+  let sum = 0;
+  writes.forEach((write, index) => {
+    sum += write.bytes;
+    const off = Math.abs(taken - sum);
+    if (off < closest) {
+      closest = off;
+      counted = index + 1;
+    }
+  });
+  return counted;
 }
