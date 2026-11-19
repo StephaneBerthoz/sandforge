@@ -56,7 +56,9 @@
   --sf-bg-toolbar-hover: var(--vscode-toolbar-hoverBackground, #2a2d2e);
 
   --sf-text-primary: var(--vscode-editor-foreground, #d4d4d4);
-  --sf-text-secondary: var(--vscode-descriptionForeground, #868686);
+  /* Dark Modern's description colour: #868686 read 4.21:1 on the #252526 of
+     a header with no host theme, under the 4.5:1 a small text needs. */
+  --sf-text-secondary: var(--vscode-descriptionForeground, #9d9d9d);
   --sf-text-muted: var(--vscode-disabledForeground, #6b6b6b);
   --sf-text-link: var(--vscode-textLink-foreground, #3794ff);
   --sf-text-input: var(--vscode-input-foreground, var(--sf-text-primary));

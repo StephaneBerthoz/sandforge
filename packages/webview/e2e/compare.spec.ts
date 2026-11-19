@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from '@playwright/test';
 
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
@@ -512,6 +513,36 @@ test.describe('Compare panel — running a comparison', () => {
     await expect(page.getByTestId('diff-source-value')).toContainText('public class OldHelper { }');
     await page.getByTestId('close-diff-modal').click();
     await expect(page.getByTestId('diff-detail-modal')).toHaveCount(0);
+  });
+
+  /**
+   * No host theme here: the page paints the fallbacks of its own tokens, as
+   * any host that sends no `--vscode-*` colour shows it. The count of a group
+   * read #868686 on the #252526 of its header, 4.21:1. The scans per theme
+   * pass, VS Code sending its own description colour.
+   */
+  test('reads the count of each group of changes at 4.5:1 at least, with no host theme', async ({
+    page,
+  }) => {
+    await completeComparison(page);
+    const count = page.getByTestId('diff-group-Apex Code').getByText('3 changes');
+    await expect(count).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue(
+          '--vscode-descriptionForeground',
+        ),
+      ),
+    ).toBe('');
+
+    const results = await new AxeBuilder({ page })
+      .include('[data-testid="diff-groups"]')
+      .withRules(['color-contrast'])
+      .analyze();
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    // Positive control: axe measured the count rather than skipping it.
+    const measured = results.passes.flatMap((rule) => rule.nodes.map((node) => node.html));
+    expect(measured.some((html) => html.includes('3 changes'))).toBe(true);
   });
 
   test('leaves managed package components out when the box is unticked, and says how many', async ({
