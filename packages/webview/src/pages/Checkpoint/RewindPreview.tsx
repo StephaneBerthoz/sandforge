@@ -53,6 +53,7 @@ import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
 import { CheckpointsLink } from './CheckpointsLink';
 import { RewindDeliverability, rewindEmailsAskOf } from './RewindDeliverability';
 import {
+  DUPLICATE_SET_OBJECT,
   FILE_LINK_OBJECT,
   FILE_OBJECT,
   REWIND_UNDO_DAYS,
@@ -2086,7 +2087,8 @@ const OutsideBox: React.FC<OutsideBoxProps> = ({ lines, picked, checked, onChang
             >
               {/* A file to delete attached outside the checkpoint too leaves
                   it as well: its links there are what goes along, said as
-                  the file's, not as records created under it. */}
+                  the file's, not as records created under it. Nor is a
+                  duplicate record set created under what it reports. */}
               {isFileShared(line)
                 ? t('checkpoint.preview.outside.files', {
                     count: line.parents,
@@ -2096,12 +2098,18 @@ const OutsideBox: React.FC<OutsideBoxProps> = ({ lines, picked, checked, onChang
                       formatted: formatNumber(line.count),
                     }),
                   })
-                : t('checkpoint.preview.outside.line', {
-                    count: line.count,
-                    formatted: formatNumber(line.count),
-                    outside: line.outside,
-                    parents,
-                  })}
+                : line.outside === DUPLICATE_SET_OBJECT
+                  ? t('checkpoint.preview.outside.duplicateSets', {
+                      count: line.count,
+                      formatted: formatNumber(line.count),
+                      parents,
+                    })
+                  : t('checkpoint.preview.outside.line', {
+                      count: line.count,
+                      formatted: formatNumber(line.count),
+                      outside: line.outside,
+                      parents,
+                    })}
             </li>
           );
         })}

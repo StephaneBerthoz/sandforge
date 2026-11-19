@@ -8385,6 +8385,8 @@
         "title": "También se eliminan con ellos, fuera del punto de control",
         "line_one": "{{formatted}} registro de {{outside}} creado bajo {{parents}}",
         "line_other": "{{formatted}} registros de {{outside}} creados bajo {{parents}}",
+        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados creado desde el punto de control, en el que una regla de duplicados señaló {{parents}}",
+        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados creados desde el punto de control, en los que reglas de duplicados señalaron {{parents}}",
         "parents_one": "{{formatted}} registro de {{object}} que el retroceso elimina",
         "parents_other": "{{formatted}} registros de {{object}} que el retroceso elimina",
         "everything": "Se van con los registros de los que dependen.",

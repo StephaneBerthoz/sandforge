@@ -248,6 +248,7 @@ import {
   removalOrg,
   removeRunRecords,
   type RemovalOrg,
+  type RunRecords,
   type RunRemovalOptions,
   type RunRemovalOutcome,
 } from '../forge/ForgeRunRemoval.js';
@@ -369,7 +370,18 @@ import {
   SnapshotIndex,
   type RecreatedPair,
 } from './snapshotIndex.js';
-import { IdSpoolWriter, RecordKeySet, type IdSpool } from './spooledRunRecords.js';
+import {
+  IdSpoolWriter,
+  RecordKeySet,
+  type IdSpool,
+  type SpooledRunRecords,
+} from './spooledRunRecords.js';
+import {
+  confirmedDuplicateSets,
+  DUPLICATE_SET_OBJECT,
+  rewindDuplicateSets,
+  withDuplicateSets,
+} from './rewindDuplicateSets.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
 import { settleNotInBin } from './undoRewind.js';
 
@@ -1870,6 +1882,13 @@ class Rewind {
   private readonly comesBack = new RecordKeySet();
   /** Tr, in milliseconds, less the second the org dates to: what it dates no later was made before Tr. */
   private before = Number.NaN;
+  /**
+   * The duplicate record sets its preview named, by key: those the org's
+   * rules made since the checkpoint of the records it deletes, the only ones
+   * it takes (`rewindDuplicateSets.ts`). Those a pass hands its removal are
+   * no later pass's to read again.
+   */
+  private confirmedSets: ReadonlySet<string> = new Set();
   /** The org's clock against this machine's, as the rewind last read it: for the ledger's line. */
   private readonly clock = new OrgClockWatch(() => this.now().getTime());
   /** What its user may read and write of each object, read once it reads the org. */
@@ -2051,6 +2070,9 @@ class Rewind {
         ? { diff: reused, dir: previewDirOf(folder, this.request.previewId) }
         : await this.diff(tr);
       first = await this.plan(1, previewDirOf(folder, this.request.previewId), fresh, tr);
+      this.confirmedSets = await confirmedDuplicateSets(
+        previewDirOf(folder, this.request.previewId),
+      );
     } catch (err: unknown) {
       if (err instanceof OrgReadStopped || this.stopped()) throw new RewindStopped();
       throw err;
@@ -2152,6 +2174,7 @@ class Rewind {
       diff: diffOfPicked(fresh.diff, this.picked),
       automationRequests: 0,
       relationships: await this.relationships(),
+      ...(this.confirmedSets.size > 0 ? { duplicateSets: this.confirmedSets.size } : {}),
       ...(reused ? { reusesPreview: true } : {}),
     });
     const deliverability = deliverabilityPartOf(emails?.ofRun);
@@ -2873,7 +2896,8 @@ class Rewind {
         }
         if (pairs.length > 0) await journal.beforeParent(objectApiName, pairs);
       }
-      await journal.deleting(plan.deletes);
+      const deletes = await this.withSets(plan.deletes);
+      await journal.deleting(deletes);
       const removalStamps = { ...this.stamps, ...plan.removal.removalStamps };
       const spans = [...this.spans, ...(plan.removal.removalSpans ?? [])].filter(
         (span, at, all) =>
@@ -2891,7 +2915,7 @@ class Rewind {
         const modified = dateMs(row.LastModifiedDate ?? row.SystemModstamp);
         return modified <= runEnd || modified <= (this.stampOf.get(keyOf(row.Id)) ?? Number.NaN);
       };
-      outcome = await removeRunRecords(this.org, plan.deletes, {
+      outcome = await removeRunRecords(this.org, deletes, {
         splitting: this.splitting,
         runStartedAt: plan.removal.runStartedAt,
         runEndedAt: plan.removal.runEndedAt,
@@ -2968,6 +2992,47 @@ class Rewind {
       removalSpans: outcome?.span ? [outcome.span] : [],
     });
     return tally;
+  }
+
+  /**
+   * `deletes` with the duplicate record sets its preview named that the org's
+   * rules made of them, read again now — still naming what this pass deletes,
+   * beside one other record at most —, before them (`rewindDuplicateSets.ts`).
+   * Nothing is read when the preview named none, or when an earlier pass
+   * handed its removal every one. Sets its user may not delete are left,
+   * said: handed to the removal, they would stop its deletes.
+   */
+  private async withSets(deletes: SpooledRunRecords): Promise<RunRecords> {
+    if (this.confirmedSets.size === 0) return deletes;
+    const sets = (
+      await rewindDuplicateSets(this.org, deletes, {
+        takenAt: this.request.checkpoint.takenAt,
+        readAt: new Date(this.before + ORG_DATE_GRAIN_MS).toISOString(),
+      })
+    ).filter((set) => this.confirmedSets.has(keyOf(set.id)));
+    if (sets.length === 0) return deletes;
+    const handed = new Set(sets.map((set) => keyOf(set.id)));
+    this.confirmedSets = new Set([...this.confirmedSets].filter((key) => !handed.has(key)));
+    let deletable: boolean;
+    try {
+      const described = (await this.org.describe(DUPLICATE_SET_OBJECT)) as
+        { deletable?: unknown } | undefined;
+      deletable = described?.deletable !== false;
+    } catch {
+      deletable = false;
+    }
+    if (!deletable) {
+      this.notes.push(
+        `${sets.length} ${DUPLICATE_SET_OBJECT} record(s) the duplicate rules of ` +
+          `${this.request.orgName} made since the checkpoint of records this rewind deletes stay: ` +
+          `${this.request.username} may not delete them.`,
+      );
+      return deletes;
+    }
+    return withDuplicateSets(
+      deletes,
+      sets.map((set) => set.id),
+    );
   }
 
   /**

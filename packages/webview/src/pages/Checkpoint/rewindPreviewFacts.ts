@@ -124,6 +124,13 @@ export const FILE_OBJECT = 'ContentDocument';
 export const FILE_LINK_OBJECT = 'ContentDocumentLink';
 
 /**
+ * The set in which the org's duplicate rules report records alike: one made
+ * since the checkpoint of the records a rewind deletes goes with them, though
+ * it was not created under them.
+ */
+export const DUPLICATE_SET_OBJECT = 'DuplicateRecordSet';
+
+/**
  * The files a rewind brings back from the recycle bin, which take file
  * storage again once back: the records of {@link FILE_OBJECT} it brings back.
  */

@@ -1993,6 +1993,54 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
   });
 
+  it('names a duplicate record set it set out to delete and left, which no read again compares', () => {
+    const lines = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        deleted: [
+          {
+            objectApiName: 'DuplicateRecordSet',
+            planned: 2,
+            deleted: 1,
+            alreadyGone: 0,
+            keptChanged: 0,
+            keptDependents: 0,
+            refused: 1,
+            heldBy: [],
+            unchecked: [],
+            reasons: ['INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id'],
+          },
+        ],
+      }),
+    );
+    expect(lines).toContain(
+      '  left: 1 DuplicateRecordSet it set out to delete with the records reported in it — INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id',
+    );
+    expect(
+      rewindLines(
+        'DEV-SB',
+        checkpoint,
+        resultOf({
+          deleted: [
+            {
+              objectApiName: 'DuplicateRecordSet',
+              planned: 1,
+              deleted: 1,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        }),
+      ).filter((line) => line.includes('left:')),
+    ).toEqual([]);
+  });
+
   it('names each journal of an earlier rewind the rewind deleted once it ended, before what it sent, and keeps them in its JSON', () => {
     const removedJournals = [
       {
@@ -2534,6 +2582,27 @@ describe('files', () => {
       '  also attached outside the checkpoint: 2 file(s) it deletes, by 3 link(s) to a library, a group or a record of another object — deleting them removes them from there as well',
     );
     expect(lines.filter((line) => line.includes('ContentDocumentLink created under'))).toEqual([]);
+  });
+
+  it('says the duplicate record sets the rules made of the records it deletes as theirs, never as records created under them', () => {
+    const diff = diffOf([
+      object({
+        objectApiName: 'Contact',
+        toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+        outside: [
+          { objectApiName: 'DuplicateRecordItem', count: 2, parents: 2 },
+          { objectApiName: 'DuplicateRecordSet', count: 1, parents: 2 },
+        ],
+      }),
+    ]);
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate });
+    expect(lines).toContain(
+      '  also deleted with them, outside the checkpoint: 2 DuplicateRecordItem created under 2 Contact',
+    );
+    expect(lines).toContain(
+      "  also deleted with them, outside the checkpoint: 1 DuplicateRecordSet in which DEV-SB's duplicate rules reported 2 Contact since the checkpoint",
+    );
+    expect(lines.filter((line) => line.includes('DuplicateRecordSet created under'))).toEqual([]);
   });
 
   it('says nothing of files for a checkpoint taken before they were held', () => {

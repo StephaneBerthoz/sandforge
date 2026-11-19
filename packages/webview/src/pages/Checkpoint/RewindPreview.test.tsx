@@ -1115,6 +1115,31 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('says a duplicate record set the rules made of the records it deletes as theirs, never as records created under them', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Contact', {
+            toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+            outside: [
+              { objectApiName: 'DuplicateRecordItem', count: 2, parents: 2 },
+              { objectApiName: 'DuplicateRecordSet', count: 1, parents: 2 },
+            ],
+          }),
+        ],
+      }),
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-outside-Contact-DuplicateRecordSet').textContent,
+    ).toBe(
+      '1 duplicate record set made since the checkpoint, in which a duplicate rule reported 2 Contact records the rewind deletes',
+    );
+    expect(
+      screen.getByTestId('checkpoint-preview-outside-Contact-DuplicateRecordItem').textContent,
+    ).toBe('2 DuplicateRecordItem records created under 2 Contact records the rewind deletes');
+  });
+
   it('in a checkpoint of everything, says what goes along outside it, with no box', () => {
     const { onRewind } = renderPreview();
     answerPreview({

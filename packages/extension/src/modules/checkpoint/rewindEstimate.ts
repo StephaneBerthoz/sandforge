@@ -65,6 +65,7 @@ import {
   bulkJobStateReads,
 } from '../../core/engine/bulkJobCost.js';
 import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { DUPLICATE_SET_OBJECT } from '../forge/duplicateRecordSets.js';
 import { BULK_DELETE_JOB_RECORDS, BULK_DELETE_THRESHOLD } from '../forge/ForgeRunRemoval.js';
 import {
   apiBudgetCheckOf,
@@ -1533,6 +1534,13 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    */
   muteRequests?: number;
   /**
+   * The duplicate record sets the preview named, which the org's rules made
+   * since the checkpoint of the records the rewind deletes
+   * (`rewindDuplicateSets.ts`): the pass that deletes those records reads
+   * them again, with their items, and deletes them first. Absent, none.
+   */
+  duplicateSets?: number;
+  /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one: the objects it brings records back
    * to are then described as it brings them back.
@@ -1770,6 +1778,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       );
     });
   const topBatches = objects.reduce((total, object) => total + batches(sentBack(object)), 0);
+  const sets = input.duplicateSets ?? 0;
   // The org's objects, described once a record with children to read comes
   // back — which of them the org does not query — unless the read the rewind
   // acts on described them, for records to delete with children outside it.
@@ -1816,12 +1825,19 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
         records: toRecreate(object),
       })),
     ),
+    // The sets read again before the deletes, then their items, 200 sets a
+    // read, their object described — whether its user may delete them —, and
+    // deleted in the same removal, their items hanging from them.
+    calls(sets > 0 ? 2 + callsFor(sets, RECORDS_PER_CALL) : 0, SECONDS_PER_READ),
     removalCost(
-      objects.map((object) => ({
-        objectApiName: object.objectApiName,
-        records: sentFirst(object),
-        dependents: relationships(object.objectApiName).dependents,
-      })),
+      [
+        ...objects.map((object) => ({
+          objectApiName: object.objectApiName,
+          records: sentFirst(object),
+          dependents: relationships(object.objectApiName).dependents,
+        })),
+        { objectApiName: DUPLICATE_SET_OBJECT, records: sets, dependents: 1 },
+      ],
       RUN_RECORDS_PAGE,
     ),
   );

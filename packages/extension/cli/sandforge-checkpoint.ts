@@ -125,6 +125,7 @@ import {
   actSendersOf,
   emailsOfLimit,
 } from '../src/modules/checkpoint/rewindEmails.js';
+import { DUPLICATE_SET_OBJECT } from '../src/modules/checkpoint/rewindDuplicateSets.js';
 import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { REWIND_AUTOMATION_LIFTED_BY } from '../src/modules/checkpoint/rewindOrg.js';
@@ -2317,13 +2318,18 @@ export function previewLines(
   for (const object of diff.objects) {
     for (const outside of object.outside) {
       // A file to delete attached outside the checkpoint too leaves it as
-      // well: said as files, not as records created under them.
+      // well: said as files, not as records created under them. Nor is a
+      // duplicate record set created under the records it reports.
       lines.push(
         object.objectApiName === FILE_OBJECT && outside.objectApiName === FILE_LINK_OBJECT
           ? `  also attached outside the checkpoint: ${count(outside.parents)} file(s) it deletes, ` +
               `by ${count(outside.count)} link(s) to a library, a group or a record of another ` +
               'object — deleting them removes them from there as well'
-          : `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
+          : outside.objectApiName === DUPLICATE_SET_OBJECT
+            ? `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
+              `${DUPLICATE_SET_OBJECT} in which ${orgName}'s duplicate rules reported ` +
+              `${count(outside.parents)} ${object.objectApiName} since the checkpoint`
+            : `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
               `${outside.objectApiName} created under ${count(outside.parents)} ${object.objectApiName}`,
       );
     }
@@ -3226,6 +3232,20 @@ function followingLines(
   const lines = result.residual.map(
     (r) => `  ${r.objectApiName} ${count(r.count)} — ${residualWords(act, r, names)}`,
   );
+  // A duplicate record set a rewind set out to take with the records it
+  // reports is no object of the checkpoint: no read again compares it, and
+  // what it left is said from what the removal answered.
+  if (act === 'rewind') {
+    for (const object of result.deleted) {
+      if (object.objectApiName !== DUPLICATE_SET_OBJECT) continue;
+      const left = object.refused + object.keptChanged + object.keptDependents;
+      if (left === 0) continue;
+      lines.push(
+        `  left: ${count(left)} ${DUPLICATE_SET_OBJECT} it set out to delete with the records ` +
+          `reported in it${object.reasons[0] !== undefined ? ` — ${object.reasons[0]}` : ''}`,
+      );
+    }
+  }
   // An undo names no residual for what the org refused it: its bricks say why.
   if (act === 'undo') {
     for (const object of [...result.deleted, ...result.restored, ...result.undeleted]) {

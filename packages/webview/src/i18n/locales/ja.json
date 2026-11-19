@@ -7860,6 +7860,7 @@
       "outside": {
         "title": "チェックポイントの外で一緒に削除されるもの",
         "line_other": "{{parents}} の下に作成された {{outside}} の {{formatted}} 件のレコード",
+        "duplicateSets_other": "チェックポイント以降に作成され、重複ルールが {{parents}} を報告した重複レコードセット {{formatted}} 件",
         "parents_other": "巻き戻しで削除する {{object}} の {{formatted}} 件のレコード",
         "everything": "依存先のレコードと一緒に削除されます。",
         "accept": "チェックポイント外のオブジェクトの子レコードにも及ぶ削除を許可する",

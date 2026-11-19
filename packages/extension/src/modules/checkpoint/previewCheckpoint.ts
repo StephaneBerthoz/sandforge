@@ -94,6 +94,7 @@ import {
 import { actAccessOf } from './rewindAccess.js';
 import { objectsWrittenBy, rewindStepsOf, selectionDiff } from './rewindBounds.js';
 import { rewindDiff } from './rewindDiff.js';
+import { nameDuplicateSets, setsNamed } from './rewindDuplicateSets.js';
 import { diffOfPicked, planSelection, snapshotRowsOf } from './rewindPlan.js';
 import { muteOfSteps, type MuteOfWrites } from './rewindOrg.js';
 import {
@@ -377,6 +378,10 @@ export async function previewCheckpoint(
   if (diff.files !== undefined && storage !== undefined) {
     diff.files.storage.remaining = storage.remaining * BYTES_PER_MB;
   }
+  // The duplicate record sets the org's rules made since the checkpoint of
+  // the records the rewind deletes: named beside what its deletions take
+  // along outside it, and kept for the rewind, which takes no other.
+  await nameDuplicateSets(org, diff, previewDirOf(request.folder, previewId), checkpoint.takenAt);
 
   // Of a rewind limited to some objects, what it writes, as its own plan says.
   const picked = request.objects !== undefined ? new Set(request.objects) : undefined;
@@ -484,6 +489,7 @@ export async function previewCheckpoint(
     automationRequests: automation?.requests ?? 0,
     ...(deliverabilityRequests > 0 ? { deliverabilityRequests } : {}),
     ...(muteRequests > 0 ? { muteRequests } : {}),
+    ...(setsNamed(selected) > 0 ? { duplicateSets: setsNamed(selected) } : {}),
     relationships,
     ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });

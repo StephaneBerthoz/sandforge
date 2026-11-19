@@ -8385,6 +8385,8 @@
         "title": "Também excluídos com eles, fora do ponto de verificação",
         "line_one": "{{formatted}} registro de {{outside}} criado sob {{parents}}",
         "line_other": "{{formatted}} registros de {{outside}} criados sob {{parents}}",
+        "duplicateSets_one": "{{formatted}} conjunto de registros duplicados criado desde o ponto de verificação, no qual uma regra de duplicidade sinalizou {{parents}}",
+        "duplicateSets_other": "{{formatted}} conjuntos de registros duplicados criados desde o ponto de verificação, nos quais regras de duplicidade sinalizaram {{parents}}",
         "parents_one": "{{formatted}} registro de {{object}} que o retrocesso exclui",
         "parents_other": "{{formatted}} registros de {{object}} que o retrocesso exclui",
         "everything": "Eles saem com os registros de que dependem.",

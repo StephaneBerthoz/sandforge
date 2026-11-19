@@ -8385,6 +8385,8 @@
         "title": "Also deleted with them, outside the checkpoint",
         "line_one": "{{formatted}} {{outside}} record created under {{parents}}",
         "line_other": "{{formatted}} {{outside}} records created under {{parents}}",
+        "duplicateSets_one": "{{formatted}} duplicate record set made since the checkpoint, in which a duplicate rule reported {{parents}}",
+        "duplicateSets_other": "{{formatted}} duplicate record sets made since the checkpoint, in which duplicate rules reported {{parents}}",
         "parents_one": "{{formatted}} {{object}} record the rewind deletes",
         "parents_other": "{{formatted}} {{object}} records the rewind deletes",
         "everything": "They go with the records they hang from.",

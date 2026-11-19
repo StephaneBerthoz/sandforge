@@ -80,9 +80,18 @@ export interface DuplicateSetsRun {
   end: number;
   /**
    * The user the run wrote as, by id: the last modifier of a set the run's
-   * records went in or out of, never its creator.
+   * records went in or out of, never its creator. Not told — a rewind, whose
+   * records to delete are anyone's —, no set that holds no item any more is
+   * the run's.
    */
-  user: string;
+  user?: string;
+  /**
+   * The earliest a set of the run may have been made, by the org's clock:
+   * {@link TIE_LEAD_MS} before {@link start} unless told. A rewind's is the
+   * second after its checkpoint's end: a set made before may have been in the
+   * org at the checkpoint, which never holds one.
+   */
+  madeFrom?: number;
 }
 
 /** A set of the run, as read: when it was made and last modified, and by whom. */
@@ -122,14 +131,19 @@ export async function duplicateSetsRead(
   org: { query(soql: string): Promise<{ records: unknown[] }> },
   run: DuplicateSetsRun,
 ): Promise<DuplicateSetRead[]> {
-  if (!Number.isFinite(run.start) || !Number.isFinite(run.end) || !SF_ID_RE.test(run.user)) {
+  const madeFrom = run.madeFrom ?? run.start - TIE_LEAD_MS;
+  if (
+    !Number.isFinite(madeFrom) ||
+    !Number.isFinite(run.end) ||
+    (run.user !== undefined && !SF_ID_RE.test(run.user))
+  ) {
     return [];
   }
   let sets: Array<Record<string, unknown>>;
   try {
     const answer = await org.query(
       `SELECT Id, CreatedDate, LastModifiedDate, LastModifiedById FROM ${DUPLICATE_SET_OBJECT} ` +
-        `WHERE CreatedDate >= ${soqlDate(run.start - TIE_LEAD_MS)} ` +
+        `WHERE CreatedDate >= ${soqlDate(madeFrom)} ` +
         `AND CreatedDate <= ${soqlDate(run.end + MADE_WITHIN_MS)} LIMIT ${READ_LIMIT}`,
     );
     if (answer.records.length >= READ_LIMIT) return [];
@@ -179,7 +193,7 @@ export async function duplicateSetsRead(
   } catch {
     return [];
   }
-  const user = recordKey(run.user);
+  const user = run.user !== undefined ? recordKey(run.user) : undefined;
   /**
    * Whether a set is the run's: it names records of the run and one record
    * the org held at most, or it names none at all any more and the run's
@@ -189,7 +203,10 @@ export async function duplicateSetsRead(
     const notTheRuns = others.get(key)?.size ?? 0;
     if (names.has(key)) return notTheRuns <= 1;
     return (
-      notTheRuns === 0 && typeof lastModifiedBy === 'string' && recordKey(lastModifiedBy) === user
+      user !== undefined &&
+      notTheRuns === 0 &&
+      typeof lastModifiedBy === 'string' &&
+      recordKey(lastModifiedBy) === user
     );
   };
   return sets.flatMap((row) =>
@@ -238,7 +255,11 @@ export function modifiedOf(
   run: Pick<DuplicateSetsRun, 'end' | 'user'>,
 ): number {
   const by = set.modifiedBy !== undefined ? recordKey(set.modifiedBy) : '';
-  if (by === recordKey(run.user) && set.modified <= run.end + MADE_WITHIN_MS) {
+  if (
+    run.user !== undefined &&
+    by === recordKey(run.user) &&
+    set.modified <= run.end + MADE_WITHIN_MS
+  ) {
     return Math.min(set.modified, run.end);
   }
   // The sets read name records of the run, and one the org held at most

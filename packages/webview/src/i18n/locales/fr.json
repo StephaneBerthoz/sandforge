@@ -8385,6 +8385,8 @@
         "title": "Supprimés aussi avec eux, hors du point de contrôle",
         "line_one": "{{formatted}} enregistrement {{outside}} créé sous {{parents}}",
         "line_other": "{{formatted}} enregistrements {{outside}} créés sous {{parents}}",
+        "duplicateSets_one": "{{formatted}} ensemble d'enregistrements en double créé depuis le point de contrôle, où une règle de doublons a signalé {{parents}}",
+        "duplicateSets_other": "{{formatted}} ensembles d'enregistrements en double créés depuis le point de contrôle, où des règles de doublons ont signalé {{parents}}",
         "parents_one": "{{formatted}} enregistrement {{object}} que le retour arrière supprime",
         "parents_other": "{{formatted}} enregistrements {{object}} que le retour arrière supprime",
         "everything": "Ils partent avec les enregistrements dont ils dépendent.",
