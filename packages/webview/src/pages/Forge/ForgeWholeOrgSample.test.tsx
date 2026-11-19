@@ -165,7 +165,7 @@ describe('ForgeWholeOrgSample', () => {
 
     expect(line('requests')).toBe('Drawing it sent 61 API requests to prod.');
     expect(line('plan')).toBe(
-      'The plan is kept on this machine for a day: /storage/forge-samples/3f9a/plan (SHA-256 9f86d081884c…). Execute Forge takes it up while the run is set up the same; otherwise the run draws again, and says why.',
+      'The plan is kept on this machine for a day: /storage/forge-samples/3f9a/plan (SHA-256 9f86d081884c…). Copy the sample takes it up while the run is set up the same; otherwise the run draws again, and says why.',
     );
   });
 

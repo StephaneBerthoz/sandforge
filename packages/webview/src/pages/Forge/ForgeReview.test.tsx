@@ -77,6 +77,8 @@ interface MockConfig {
   inputMode?: 'record' | 'org';
   depth?: 'all';
   recordId?: string;
+  /** A sample of the whole org rather than every record. */
+  sample?: Record<string, unknown>;
 }
 
 const defaultConfig: MockConfig = {
@@ -1634,6 +1636,22 @@ describe('ForgeReview', () => {
       render(<ForgeReview />);
 
       expect(screen.getByTestId('review-sentence').textContent).toContain('Copy the whole of');
+    });
+
+    // The question Execute opens says "Copy the sample" of a sample: the
+    // button said "Execute Forge" all the same.
+    it('names Execute by the sample once one is chosen, and says nothing is written before it', () => {
+      const every = render(<ForgeReview />);
+      expect(screen.getByTestId('execute-button').textContent).toBe('Execute Forge');
+      every.unmount();
+
+      mockConfig = { ...defaultConfig, anonymizePII: false, inputMode: 'org', sample: {} };
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('execute-button').textContent).toBe('Copy the sample');
+      expect(screen.getByTestId('review-left').textContent).toContain(
+        'Nothing is written until you press Copy the sample.',
+      );
     });
   });
 });

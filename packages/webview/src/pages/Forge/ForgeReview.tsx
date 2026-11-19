@@ -192,6 +192,15 @@ export const ForgeReview: React.FC = () => {
    * its gate, its graph large, and what it copies as it is said before Execute.
    */
   const wholeOrg = clonesWholeOrg(config);
+  /**
+   * Execute as it is named, and as Review says nothing is written before it:
+   * of a sample of the whole org, what the question it opens confirms, Copy
+   * the sample.
+   */
+  const executeLabel =
+    wholeOrg && config?.sample !== undefined
+      ? t('forgeRun.executeSample')
+      : t('forgeRun.executeForge', 'Execute Forge');
   const objectCount = graph?.nodes.length ?? 0;
   /**
    * The graph or its table, as on the discovery and execution screens around
@@ -558,7 +567,7 @@ export const ForgeReview: React.FC = () => {
             reading: gapsReading,
             readFailed: gapsReadFailed,
           })}{' '}
-          {t('forgeRun.review.nothingWritten', { action: t('forgeRun.executeForge') })}
+          {t('forgeRun.review.nothingWritten', { action: executeLabel })}
         </p>
         {/* What discovery cost each org, a step of its own no gate counts. */}
         {graph && <ReviewDiscoveryCost graph={graph} source={sourceName} target={targetName} />}
@@ -892,7 +901,7 @@ export const ForgeReview: React.FC = () => {
               }
               className="w-full px-6 py-2.5 text-sm font-semibold bg-hue-forge text-(--sf-bg-primary) rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {t('forgeRun.executeForge', 'Execute Forge')}
+              {executeLabel}
             </button>
             {filesBlocked && (
               <p
