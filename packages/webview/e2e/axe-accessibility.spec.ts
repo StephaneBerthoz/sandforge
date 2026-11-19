@@ -982,6 +982,8 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       reused: 0,
       skippedDuplicates: [],
       failed: [],
+      // Refused once for a record lock, and written when sent again.
+      sentAgainForALock: { rows: 1, written: 1, stillLocked: 0 },
     },
     {
       objectApiName: 'Contact',
@@ -14475,6 +14477,10 @@ for (const theme of STATE_THEMES) {
       await expect(
         page.getByTestId('frozen-report-written-without-fields').locator('tbody tr'),
       ).toHaveCount(2, { timeout: 10_000 });
+      // The records sent again for a record lock, per object.
+      await expect(page.getByTestId('frozen-report-sentAgainForALock-Opportunity')).toBeVisible({
+        timeout: 10_000,
+      });
       // The report closes on a checkpoint of the org the load filled.
       await expect(page.getByTestId('frozen-report-checkpoint-now')).toContainText(
         `keep ${QA_SANDBOX.alias} as it is now`,
