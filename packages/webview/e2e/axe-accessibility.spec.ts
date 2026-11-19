@@ -8485,6 +8485,56 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Frozen load removal confirmation saying why no mute is offered to a user who cannot assign permission sets', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await bridge.waitForMessage('frozen:remove:automation', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:automation', 'frozen:remove:automation:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        steps: { setToDraft: [], delete: ['Contact'] },
+        automation: {
+          objectsRead: ['Contact'],
+          objects: [
+            {
+              objectApiName: 'Contact',
+              flows: [
+                {
+                  apiName: 'Contact_Gone',
+                  label: 'Contact gone',
+                  timing: 'beforeSave',
+                  startsOn: 'delete',
+                  condition: 'read',
+                  permissions: [{ name: 'Skip_Delete', bypass: true, held: false }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          bypassGrants: [
+            {
+              permission: 'Skip_Delete',
+              permissionSets: [{ name: 'Delete_Bypass', label: 'Delete bypass', grants: 1 }],
+            },
+          ],
+          cannotAssign: true,
+        },
+      });
+      await dialog
+        .getByTestId('frozen-removal-automation-mute-no-right')
+        .waitFor({ timeout: 10_000 });
+      await expect(dialog.getByTestId('frozen-removal-automation-mute-toggle')).toHaveCount(0);
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen load removal confirmation with a sweep ticked, listing what it would take', async ({
       page,
     }) => {
