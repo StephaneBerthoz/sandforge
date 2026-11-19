@@ -182,6 +182,15 @@ describe('docs/modules/compare.md', () => {
     expect(DOC).toMatch(/\*\*Org overview\*\* needs no comparison/);
   });
 
+  it('says Org overview leaves the categories to the other tabs, as the page draws it', () => {
+    // Before a first run the categories stayed open above the tab, and what it
+    // read began about a thousand pixels down.
+    expect(COMPARE_PAGE).toMatch(/\{!onOverview && \(\s*<>\s*<CategorySelector/);
+    expect(sectionBody(DOC, english('compare.overview')).replace(/\s+/g, ' ')).toMatch(
+      /none of the categories, which only a comparison reads: they wait on the other tabs, as picked/,
+    );
+  });
+
   it('documents no Schema Advice, whose button is gone', () => {
     // It described four fixed objects of the source org in English sentences
     // and compared nothing: the button, its request and its rules went, and

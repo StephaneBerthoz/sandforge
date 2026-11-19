@@ -115,8 +115,10 @@ offers nothing to pick, test or validate.
 ### Org overview
 
 The two orgs side by side, read each time the tab opens, with no comparison to
-run: it needs the two orgs alone, and none of the categories. Until a source
-and a different target org are picked, it says so and reads nothing. Each
+run: it needs the two orgs alone, and none of the categories, which only a
+comparison reads: they wait on the other tabs, as picked, and the tab starts
+right under the two orgs. Until a source and a different target org are picked,
+it says so and reads nothing. Each
 section says when it read the two orgs, as a date and a time in the panel's
 language. A section whose answer carries nothing to show says so, rather than
 showing two orgs that match.
