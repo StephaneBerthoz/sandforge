@@ -704,7 +704,7 @@ export class AutopilotHandler implements DomainHandler {
     const api = await autopilotApiCheck(
       writePlan,
       storage,
-      () => this.readTargetApiBudget(targetOrgId),
+      () => this.readApiBudgetOf(targetOrgId),
       checkpoint,
     );
     return planWriteGateOf(writePlan, storageCheckOf(writePlan, storage), api);
@@ -790,11 +790,17 @@ export class AutopilotHandler implements DomainHandler {
       const budget = fitBudgetOf({
         storage,
         ...(parsed.mode.withinMB !== undefined ? { withinMB: parsed.mode.withinMB } : {}),
-        ...('unread' in storage
-          ? {}
-          : {
-              api: storage.dailyApiRequests ?? { unread: "the target's /limits did not list them" },
-            }),
+        // A target that would not say its storage — a Standard User's
+        // `/limits` leave it out — still has its daily requests read on
+        // their own, as the run's gate and the command line read them:
+        // fitted to the MB asked alone, a plan kept past them was refused
+        // at Run for its requests.
+        api:
+          'unread' in storage
+            ? await this.readApiBudgetOf(targetOrgId).catch((err: unknown) => ({
+                unread: extractErrorMessage(err),
+              }))
+            : (storage.dailyApiRequests ?? { unread: "the target's /limits did not list them" }),
         otherRequests: checkpointPartOf(
           scoped && 'estimate' in scoped ? scoped.estimate : undefined,
         ),
@@ -1177,6 +1183,10 @@ export class AutopilotHandler implements DomainHandler {
     // writes as, only when something may send one, and never with Apex in a
     // production org. The question's answer is the accord.
     const orgName = orgDisplayName(targetOrg, operation.targetOrgId);
+    const sourceName = orgDisplayName(
+      this.deps.orgManager.getOrg(operation.sourceOrgId),
+      operation.sourceOrgId,
+    );
     const runEmails: RunEmails | undefined = read
       ? await runEmailsOf({
           read,
@@ -1201,7 +1211,7 @@ export class AutopilotHandler implements DomainHandler {
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
-      readApiBudget: () => this.readTargetApiBudget(operation.targetOrgId),
+      readApiBudget: () => this.readApiBudgetOf(operation.targetOrgId),
       confirmAboveRecords: this.confirmAboveRecords(),
       emails: emails.checks,
       ...(emails.unread !== undefined ? { emailsUncounted: emails.unread } : {}),
@@ -1215,6 +1225,9 @@ export class AutopilotHandler implements DomainHandler {
       // a run that muted the target sent seven requests or more past its price.
       mute: muteLeaseRequests(mute?.plan),
       ...(runEmails ? { runEmails } : {}),
+      // Its reads of the source, against what the source has left today:
+      // only the target's requests were judged.
+      source: { org: sourceName, readApiBudget: () => this.readApiBudgetOf(operation.sourceOrgId) },
     });
     if (!gate.go) {
       recordWriteRun(this.deps, {
@@ -1229,9 +1242,14 @@ export class AutopilotHandler implements DomainHandler {
         details: runEmailsDetailsOf(gate.emails),
       });
       const stop = new Error(gate.message);
+      // Refused for its reads of the source, it says the source's figures,
+      // and offers no fit to the target, which would leave them where they were.
+      const source = 'source' in gate ? gate.source : undefined;
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
         code: AUTOPILOT_GATE_CODES[gate.code],
-        ...(await this.fitOffer(operation, gate, writePlan, checkpointFirst)),
+        ...(source
+          ? { extraPayload: { source: { org: sourceName, ...source } } }
+          : await this.fitOffer(operation, gate, writePlan, checkpointFirst)),
       });
       settle(stop);
       return;
@@ -1879,13 +1897,12 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  /** The daily API requests the target has, read when its storage could not be. */
-  private async readTargetApiBudget(targetOrgId: string): Promise<ApiBudget> {
-    const conn = await getJsforceConnection(
-      targetOrgId,
-      this.deps.orgRegistry,
-      this.deps.orgManager,
-    );
+  /**
+   * The daily API requests an org has: the target's, read when its storage
+   * could not be, and the source's, which the run's reads draw on.
+   */
+  private async readApiBudgetOf(orgId: string): Promise<ApiBudget> {
+    const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
     return new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('autopilot:limits', () =>
       readApiBudget(conn),
     );

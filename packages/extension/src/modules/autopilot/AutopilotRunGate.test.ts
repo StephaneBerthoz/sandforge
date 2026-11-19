@@ -2,8 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { DATA_STORAGE_NOT_TOLD, type ApiName, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard';
 import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows';
 import {
   autopilotEmails,
+  autopilotSourceReads,
   autopilotWritePlan,
   gateAutopilotWrite,
   objectsThePlanWrites,
@@ -15,6 +17,23 @@ function planOf(...objects: string[]) {
     waves: objects.map((name, order) => ({ order, objects: [name as ApiName], dependsOn: [] })),
   };
 }
+
+describe('autopilotSourceReads', () => {
+  it('counts a read of the source for every 200 records of each object the plan writes', () => {
+    // A `FIELDS(ALL)` page holds 200 rows at most, and a parent read by id
+    // asks for as many a call: 1 000 leads in 5 reads, 201 contacts in 2.
+    const plan = autopilotWritePlan(
+      planOf('Lead', 'Contact', 'Empty__c'),
+      new Map([
+        ['Lead', 1_000],
+        ['Contact', 201],
+        ['Empty__c', 0],
+      ]),
+    );
+
+    expect(autopilotSourceReads(plan)).toBe(7);
+  });
+});
 
 describe('autopilotWritePlan', () => {
   it("counts the plan's records per object, the most first, and the storage they take", () => {
@@ -172,6 +191,91 @@ describe('gateAutopilotWrite', () => {
       'The run takes about 5 API requests, and TARGET has 4 of its 15000 daily requests left',
     );
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('says, when it refuses a plan past the API requests, that the records sent again for a lock are not counted', async () => {
+    // An Autopilot run sends again the records the target refuses for a
+    // record lock, its inserts and its updates: requests the estimate cannot
+    // count, which Sync's refusal said and Autopilot's kept quiet.
+    const outcome = await gateAutopilotWrite({
+      plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 1_000]])),
+      storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 4 } },
+      readApiBudget: requestsReadApart,
+      confirmAboveRecords: 2_000,
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm: vi.fn(),
+    });
+
+    expect(outcome.go === false && outcome.message).toContain(
+      `${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`,
+    );
+  });
+
+  it('refuses a plan whose reads take more of the source’s API requests than it has left, asking nothing', async () => {
+    // Autopilot reads every record it writes from the source, a page of 200
+    // at a time, and only the target's requests were judged: a source whose
+    // integrations had used the day's requests would have stopped part way.
+    const confirm = vi.fn();
+    const readSource = vi.fn(async () => ({ max: 15_000, remaining: 5 }));
+    const outcome = await gateAutopilotWrite({
+      plan: autopilotWritePlan(
+        planOf('Lead', 'Contact'),
+        new Map([
+          ['Lead', 1_000],
+          ['Contact', 201],
+        ]),
+      ),
+      storage: roomy,
+      readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
+      confirmAboveRecords: 2_000,
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+      source: { org: 'SOURCE', readApiBudget: readSource },
+    });
+
+    expect(outcome).toMatchObject({
+      go: false,
+      code: 'API_BUDGET_EXCEEDED',
+      source: { estimate: 7, remaining: 5, max: 15_000 },
+    });
+    expect(outcome.go === false && outcome.message).toBe(
+      'The run reads the source records in about 7 API requests, and SOURCE has 5 of its 15000 ' +
+        "daily requests left: the reads would stop part way through, and the org's own " +
+        'integrations with them. Run it once the org has requests to spare — the limit is ' +
+        'counted over the last 24 hours — or leave objects out. Nothing was written.',
+    );
+    expect(readSource).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('lets through a plan whose reads the source has the requests for, or would not say it has', async () => {
+    for (const readSource of [
+      async () => ({ max: 15_000, remaining: 7 }),
+      async (): Promise<never> => {
+        throw new Error('INSUFFICIENT_ACCESS');
+      },
+    ]) {
+      const outcome = await gateAutopilotWrite({
+        plan: autopilotWritePlan(
+          planOf('Lead', 'Contact'),
+          new Map([
+            ['Lead', 1_000],
+            ['Contact', 201],
+          ]),
+        ),
+        storage: roomy,
+        readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
+        confirmAboveRecords: 2_000,
+        org: 'TARGET',
+        orgTier: 'development',
+        confirm: vi.fn(),
+        source: { org: 'SOURCE', readApiBudget: readSource },
+      });
+
+      expect(outcome).toMatchObject({ go: true });
+    }
   });
 
   it("refuses a plan past the API requests a Standard User's limits tell, though they leave out the storage", async () => {

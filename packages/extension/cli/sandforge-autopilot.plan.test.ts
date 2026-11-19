@@ -16,6 +16,7 @@ import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { autopilotInterruptedLine, main, parseArgs } from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
+import { LOCK_RESENDS_NOT_COUNTED } from '../src/core/engine/lockedRows';
 
 /** What the target runs on the objects a plan writes. */
 function automationOf(objects: ForgeTargetAutomation['objects']): ForgeTargetAutomation {
@@ -242,6 +243,9 @@ describe('sandforge-autopilot — what a plan copies', () => {
       (err: unknown) => String(err),
     );
     expect(message.match(/Nothing was written\./g)).toHaveLength(1);
+    // The records the target refuses for a lock go again past the estimate:
+    // said, with their bound, as the Sync command says them.
+    expect(message).toContain(`${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`);
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -257,6 +261,31 @@ describe('sandforge-autopilot — what a plan copies', () => {
     };
     expect(printed.writeGate.apiRequests).toMatchObject({ verdict: 'exceeds', remaining: 0 });
     expect(printed.writeGate.refusals.some((r) => r.includes('REQUEST_LIMIT_EXCEEDED'))).toBe(true);
+  });
+
+  it('refuses a run whose reads take more of the source’s daily API requests than it has left, and says them with --plan-only', async () => {
+    // Autopilot reads every record it writes from the source, and only the
+    // target's requests were judged: a source whose integrations had used
+    // the day's requests would have seen the reads stop part way.
+    const { source, create } = orgs(150);
+    vi.spyOn(source.conn, 'request').mockResolvedValue({
+      DailyApiRequests: { Max: 15_000, Remaining: 0 },
+    } as never);
+
+    await expect(main(argv('--object', 'Lead'))).rejects.toThrow(
+      /^refused \(API_BUDGET_EXCEEDED\): The run reads the source records in about 1 API requests, and SRC has 0 of its 15000 daily requests left/,
+    );
+    expect(create).not.toHaveBeenCalled();
+
+    out.length = 0;
+    await main(argv('--object', 'Lead', '--plan-only'));
+    expect(out.join('')).toContain(
+      '  API requests read from the source: about 1, of the 0 SRC has left of its 15000 a day: ' +
+        'more than it has left',
+    );
+    expect(out.join('')).toContain(
+      'a real run would be refused (API_BUDGET_EXCEEDED): The run reads the source records',
+    );
   });
 
   it('refuses a run past --max-total under its code, and says what a plan-only run would meet', async () => {

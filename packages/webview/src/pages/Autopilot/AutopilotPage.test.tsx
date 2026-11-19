@@ -425,6 +425,30 @@ describe('AutopilotPage', () => {
       expect(addError()).toHaveBeenLastCalledWith(words);
     });
 
+    it('says a run refused for its reads of the source in the source’s figures, not the target’s', () => {
+      // Both orgs' requests are refused under API_BUDGET_EXCEEDED: worded by
+      // the code alone, the page said the target had run short.
+      mockAutopilotState = { ...defaultAutopilotState() };
+      const { rerender } = render(<AutopilotPage />);
+      act(() =>
+        listenerOf('autopilot:error')({
+          correlationId: null,
+          timestamp: Date.now(),
+          payload: { source: { org: 'SRC', estimate: 1500, remaining: 40, max: 15000 } },
+        }),
+      );
+      executeEnded = { error: 'The English the host logs', errorCode: 'API_BUDGET_EXCEEDED' };
+      rerender(<AutopilotPage />);
+      expect(addError()).toHaveBeenCalledTimes(1);
+      expect(addError()).toHaveBeenLastCalledWith(
+        'The run was refused before it wrote anything: it reads about 1,500 API requests of SRC, ' +
+          'its source, which has 40 of its 15,000 daily requests left, and its reads would have ' +
+          "stopped part way through, the org's own integrations with them. Run it once the source " +
+          'has requests to spare — the daily limit is counted over the last 24 hours — or copy ' +
+          'fewer records.',
+      );
+    });
+
     it('keeps the host’s words for a code it has none of its own for', () => {
       executeEnded = { error: 'Past the data storage', errorCode: 'AUTOPILOT_STORAGE_EXCEEDED' };
       render(<AutopilotPage />);

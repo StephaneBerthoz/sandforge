@@ -503,6 +503,24 @@ describe('autopilot:fit-plan, the panel fitting a plan to its target', () => {
     expect(calls.slice(planning)).not.toContain('source read');
   });
 
+  it("bounds the run's requests by the daily API requests the target lists, when it would not say its storage", async () => {
+    // A Standard User's `/limits` list the daily requests and not the
+    // storage: fitted to the MB asked alone, the panel kept a plan the gate
+    // then refused for its requests, where the command line bounded them.
+    const { targetConn } = orgs();
+    await planned();
+    targetConn.request.mockImplementation(async () => {
+      calls.push('limits');
+      return { DailyApiRequests: { Max: 15_000, Remaining: 1_500 } } as never;
+    });
+
+    await send('fit-1', 'autopilot:fit-plan', { mode: { share: true, withinMB: 0.1 } });
+
+    expect(planReadyOf('fit-1')?.fitNotApplied?.cannotFit).toMatchObject({
+      over: { bound: 'apiRequests', allowed: 0 },
+    });
+  });
+
   it('refuses to fit while a run writes to the target', async () => {
     orgs();
     await planned();

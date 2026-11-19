@@ -6094,6 +6094,7 @@
       "checkpointRefused": "The run was refused before it wrote anything: the checkpoint it was to take first of the objects it writes was refused, or could not be taken, which the SandForge output says. Nothing was written. Untick Checkpoint first to run without it, or fix what refuses it.",
       "apiBudgetExceeded": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or copy fewer records.",
       "apiBudgetExceededWithCheckpoint": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, the checkpoint it was to take first among them, and would have stopped part way through. Run it once the org has requests to spare — the daily limit is counted over the last 24 hours —, copy fewer records, or untick Checkpoint first.",
+      "sourceApiBudgetExceeded": "The run was refused before it wrote anything: it reads about {{estimate}} API requests of {{org}}, its source, which has {{remaining}} of its {{max}} daily requests left, and its reads would have stopped part way through, the org's own integrations with them. Run it once the source has requests to spare — the daily limit is counted over the last 24 hours — or copy fewer records.",
       "runCancelled": "The run was stopped while it took the checkpoint first: nothing of it was kept, and nothing was written."
     },
     "fit": {

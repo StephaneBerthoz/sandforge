@@ -87,13 +87,14 @@ import { currencyFieldsOf, describeCurrencyReplaced } from '../src/core/common/r
 import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
 import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
-import { lockedRowsLine } from '../src/core/engine/lockedRows.js';
+import { LOCK_RESENDS_NOT_COUNTED, lockedRowsLine } from '../src/core/engine/lockedRows.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js';
 import {
   autopilotApiCheck,
   autopilotEmails,
   autopilotReadBackOf,
+  autopilotSourceApiCheck,
   autopilotWritePlan,
   objectsThePlanWrites,
   AUTOPILOT_FIT_CODES,
@@ -112,11 +113,13 @@ import {
   readApiBudget,
   readDataStorage,
   readEmailLimits,
+  sourceApiBudgetRefusal,
   storageCheckOf,
   storageRefusal,
   takeCheckpointFirst,
   writePlanLines,
   type ApiBudget,
+  type ApiBudgetCheck,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { beforeRunFailedWords } from '../src/modules/checkpoint/beforeRunCheckpoint.js';
@@ -986,6 +989,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     });
     log(apiRequestsLine(api, args.target));
   }
+  // The plan's reads of the source against what the source has left today,
+  // as the panel's run is held to them: only the target's requests were
+  // judged. A source that would not say is said so, and not judged.
+  const sourceApi =
+    writePlan.totalRows > 0
+      ? await autopilotSourceApiCheck(writePlan, () => readApiBudget(sourceConn))
+      : undefined;
+  if (sourceApi) log(sourceReadsLine(sourceApi, args.source));
   /** Each reason a real run is refused for, under its code, in the order the lines say them. */
   const coded = (code: string, message: string | undefined): RunRefusal | undefined =>
     message === undefined ? undefined : { code, message };
@@ -1006,10 +1017,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         : undefined,
     ),
     coded(AUTOPILOT_GATE_CODES.STORAGE_EXCEEDED, storageRefusal(check, args.target)),
-    // Its own refusal closes on the sentence the summary adds once.
+    // Its own refusal closes on the sentence the summary adds once. The
+    // records a lock refuses go again past what was counted: said, with
+    // their bound, as the panel's gate says them.
     coded(
       AUTOPILOT_GATE_CODES.API_BUDGET_EXCEEDED,
-      apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
+      apiBudgetRefusal(api, args.target, LOCK_RESENDS_NOT_COUNTED)?.replace(
+        / Nothing was written\.$/,
+        '',
+      ),
+    ),
+    coded(
+      AUTOPILOT_GATE_CODES.API_BUDGET_EXCEEDED,
+      sourceApi &&
+        sourceApiBudgetRefusal(sourceApi, args.source)?.replace(/ Nothing was written\.$/, ''),
     ),
     coded(AUTOPILOT_EMAILS_EXCEEDED, emailRefusal(emails.checks, args.target)),
     // Its own refusal says nothing was written before what lifts it: the
@@ -1062,6 +1083,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               records: writePlan.totalRows,
               storage: check,
               apiRequests: api,
+              // The plan's reads of the source, against what it has left today.
+              ...(sourceApi ? { sourceApiRequests: sourceApi } : {}),
               personAccounts: Object.fromEntries(scan.personAccounts),
               emails: emails.checks,
               ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
@@ -1530,6 +1553,17 @@ export function anonymizationLines(plan: ExecutionPlan): string[] {
     );
   }
   return lines;
+}
+
+/**
+ * What a plan's reads of its source come to against the daily API requests
+ * the source has left, worded as the target's line words its own.
+ */
+export function sourceReadsLine(api: ApiBudgetCheck, source: string): string {
+  return apiRequestsLine(api, source).replace(
+    /^ {2}API requests:/,
+    '  API requests read from the source:',
+  );
 }
 
 /**

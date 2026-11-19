@@ -44,6 +44,7 @@ import {
   runRequestsEstimate,
   type RunRequestParts,
   storageCheckOf,
+  sourceApiBudgetRefusal,
   storageRefusal,
   takeCheckpointFirst,
   writePlanOf,
@@ -59,6 +60,8 @@ import {
   EMAILS_NOT_ACCEPTED,
 } from '../forge/ForgeRunGate.js';
 import { runEmailsSaidOf, type RunEmailsSaid } from '../forge/runEmailsSaid.js';
+import { LOCK_RESENDS_NOT_COUNTED } from '../../core/engine/lockedRows.js';
+import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RunEmails } from '../forge/targetDeliverability.js';
 
 /**
@@ -231,6 +234,47 @@ export async function autopilotApiCheck(
   );
 }
 
+/**
+ * The API requests a run takes of its source: a read of every 200 records of
+ * each object the plan writes — a `SELECT FIELDS(ALL)` page holds no more
+ * (`pageSoql`), and a parent read by id asks for as many a call
+ * ({@link IDS_PER_READ}). The scan's reads are behind it.
+ *
+ * Autopilot reads every record it writes from its source, and only the
+ * target's requests were judged: a plan of 300 000 records reads some 1 500
+ * pages of a source that is often a production org, whose integrations draw
+ * on the same daily requests.
+ */
+export function autopilotSourceReads(plan: Pick<WritePlan, 'objects'>): number {
+  return plan.objects.reduce(
+    (sum, { rows }) => sum + Math.ceil(Math.max(0, rows) / IDS_PER_READ),
+    0,
+  );
+}
+
+/** The source a plan reads, as its gate holds it: see {@link AutopilotGateInput.source}. */
+export interface AutopilotSource {
+  /** Its name, as the refusal says it. */
+  org: string;
+  /** Its daily API requests, as its `/limits` say them. */
+  readApiBudget: () => Promise<ApiBudget>;
+}
+
+/**
+ * The plan's reads ({@link autopilotSourceReads}) against the daily API
+ * requests its source has left; unread, with why, when the source would not
+ * say.
+ */
+export async function autopilotSourceApiCheck(
+  plan: Pick<WritePlan, 'objects'>,
+  readApiBudget: () => Promise<ApiBudget>,
+): Promise<ApiBudgetCheck> {
+  const budget = await readApiBudget().catch((err: unknown) => ({
+    unread: err instanceof Error ? err.message : String(err),
+  }));
+  return apiBudgetCheckOf(autopilotSourceReads(plan), budget);
+}
+
 /** Why a run's gate stopped it: Forge's codes for the same stops. */
 export type AutopilotGateCode =
   'STORAGE_EXCEEDED' | 'API_BUDGET_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
@@ -262,6 +306,12 @@ export type AutopilotGateOutcome =
       message: string;
       check: StorageCheck;
       emails?: RunEmailsSaid;
+      /**
+       * Of a plan refused for the API requests its reads take of the source,
+       * what they come to against what it has left: absent when the target's
+       * requests, or anything else, refused it.
+       */
+      source?: { estimate: number; remaining: number; max: number };
     };
 
 /**
@@ -326,6 +376,12 @@ export interface AutopilotGateInput {
    * was read.
    */
   runEmails?: RunEmails;
+  /**
+   * The source the run reads its records from: a plan whose reads take more
+   * of its daily API requests than it has left is refused. Absent, the
+   * source is not judged.
+   */
+  source?: AutopilotSource;
 }
 
 /**
@@ -390,8 +446,26 @@ export async function gateAutopilotWrite(
     ...(input.mute !== undefined ? { mute: input.mute } : {}),
     ...deliverabilityPartOf(input.runEmails?.ofRun),
   });
-  const overBudget = apiBudgetRefusal(api, input.org);
+  // The records a lock refuses go again past what was counted, inserts and
+  // updates alike: said, with their bound, as Sync's gate says them.
+  const overBudget = apiBudgetRefusal(api, input.org, LOCK_RESENDS_NOT_COUNTED);
   if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };
+  // And past those its source has left: the run reads every record it
+  // writes from it, and stopped part way, it would take the source's own
+  // integrations down with it. A source that would not say is not judged.
+  if (input.source) {
+    const reads = await autopilotSourceApiCheck(plan, input.source.readApiBudget);
+    const overSource = sourceApiBudgetRefusal(reads, input.source.org);
+    if (overSource !== undefined && reads.verdict === 'exceeds') {
+      return {
+        go: false,
+        code: 'API_BUDGET_EXCEEDED',
+        message: overSource,
+        check,
+        source: { estimate: reads.estimate, remaining: reads.remaining, max: reads.max },
+      };
+    }
+  }
   const threshold = input.confirmAboveRecords;
   const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
   const overEmails = overEmailsOf(input.emails ?? []);

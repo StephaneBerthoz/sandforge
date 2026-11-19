@@ -1688,6 +1688,8 @@ describe('AutopilotHandler', () => {
       conn?: Record<string, unknown>;
       /** What the target's `/limits` answer, in place of its storage and single emails. */
       limits?: Record<string, unknown>;
+      /** What the source's `/limits` answer; the source answers as the target, unless told. */
+      sourceLimits?: Record<string, unknown>;
     }) {
       const read = vi.fn(async (_org: string, objects: readonly string[]) => {
         if (options.automationFails !== undefined) throw new Error(options.automationFails);
@@ -1720,7 +1722,7 @@ describe('AutopilotHandler', () => {
         generatePlan: vi.fn().mockReturnValue(options.scanned?.plan ?? PLAN),
       });
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({
+      const target = {
         ...options.conn,
         // An org that delivers none of the emails of its automation: its
         // read asks nothing.
@@ -1735,7 +1737,14 @@ describe('AutopilotHandler', () => {
               },
           ).request,
         ),
-      } as never);
+      };
+      const { sourceLimits } = options;
+      mockGetConn.mockImplementation(
+        async (orgId: string) =>
+          (orgId === 'src' && sourceLimits
+            ? { ...target, request: vi.fn(async () => sourceLimits) }
+            : target) as never,
+      );
       await handler.handle(scanMsg('scan-gate'));
       await handler.handle(
         inboundRequest({
@@ -1916,6 +1925,29 @@ describe('AutopilotHandler', () => {
       expect(asked).not.toHaveBeenCalled();
       expect(errors.map((e) => e.payload.code)).toEqual(['API_BUDGET_EXCEEDED']);
       expect(errors[0].payload.message).toContain('TGT has 4 of its 15000 daily requests left');
+    });
+
+    it('refuses a plan whose reads take more of the source’s API requests than it has left, with its figures', async () => {
+      // 3 000 leads are read in 15 pages of the source, which has 10 left.
+      const { orchestrator, asked, errors } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        sourceLimits: { DailyApiRequests: { Max: 15_000, Remaining: 10 } },
+      });
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['API_BUDGET_EXCEEDED']);
+      expect(errors[0].payload.message).toContain(
+        'The run reads the source records in about 15 API requests, and TGT has 10 of its ' +
+          '15000 daily requests left',
+      );
+      // Said in the source's figures, and with no offer to fit the plan to
+      // the target, which would leave the source's reads where they were.
+      expect(errors[0].payload).toMatchObject({
+        source: { org: 'TGT', estimate: 15, remaining: 10, max: 15_000 },
+      });
+      expect(errors[0].payload).not.toHaveProperty('writeGate');
     });
 
     it("refuses a plan past the target's data storage before anything is written", async () => {

@@ -35,6 +35,7 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
 import { withEnglish } from '../../i18n/englishNamespaces';
 import { runCheckpointOf } from '../../utils/runCheckpoint';
 import { isAutopilotPlanWriteGate } from './AutopilotWizard/AutopilotFitPanel';
+import { formatNumber } from '../../utils/formatters';
 
 /**
  * The run's graph, in a chunk of its own fetched once the run starts: React
@@ -66,12 +67,19 @@ const AutopilotGrappePanel: React.FC = () => {
  * @param code - The code of the run's error.
  * @param checkpointAsked - Whether the run was to take a checkpoint first: a
  *   run past the day's API requests counts one among them only then.
+ * @param atSource - Whether the requests it was refused for are its reads of
+ *   the source: the same code as the target's.
  */
-function refusalKeyOf(code: string | null, checkpointAsked: boolean): string | undefined {
+function refusalKeyOf(
+  code: string | null,
+  checkpointAsked: boolean,
+  atSource: boolean,
+): string | undefined {
   switch (code) {
     case 'CHECKPOINT_REFUSED':
       return 'autopilot.refusal.checkpointRefused';
     case 'API_BUDGET_EXCEEDED':
+      if (atSource) return 'autopilot.refusal.sourceApiBudgetExceeded';
       return checkpointAsked
         ? 'autopilot.refusal.apiBudgetExceededWithCheckpoint'
         : 'autopilot.refusal.apiBudgetExceeded';
@@ -80,6 +88,26 @@ function refusalKeyOf(code: string | null, checkpointAsked: boolean): string | u
     default:
       return undefined;
   }
+}
+
+/** What a run refused for its reads of the source says of them: the host's `source`. */
+interface SourceRefusal {
+  org: string;
+  estimate: number;
+  remaining: number;
+  max: number;
+}
+
+/** The figures of a refusal at the source, when the error carries them whole. */
+function sourceRefusalOf(value: unknown): SourceRefusal | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { org, estimate, remaining, max } = value as Record<string, unknown>;
+  return typeof org === 'string' &&
+    typeof estimate === 'number' &&
+    typeof remaining === 'number' &&
+    typeof max === 'number'
+    ? { org, estimate, remaining, max }
+    : undefined;
 }
 
 /** The steps the wizard shows; the others are the running view's. */
@@ -108,6 +136,8 @@ export const AutopilotPage: React.FC = () => {
   const [lookupsNotFilled, setLookupsNotFilled] = useState<AutopilotLookupsNotFilled[]>([]);
   /** Per object, the records the run wrote that stay drafts, once it ended. */
   const [statusesNotApplied, setStatusesNotApplied] = useState<AutopilotStatusesNotApplied[]>([]);
+  /** Of a run refused for its reads of the source, their figures, said in its refusal. */
+  const [refusedAtSource, setRefusedAtSource] = useState<SourceRefusal | undefined>(undefined);
   /** When the run was sent: an error carries no time of its own for it. */
   const runSentAt = useRef(0);
   /** Whether the review's option asked for a checkpoint: said of the run it sent. */
@@ -275,6 +305,7 @@ export const AutopilotPage: React.FC = () => {
     setRunStatus(undefined);
     setLookupsNotFilled([]);
     setStatusesNotApplied([]);
+    setRefusedAtSource(undefined);
     runSentAt.current = Date.now();
     const store = useAutopilotStore.getState();
     const plan = store.plan;
@@ -306,27 +337,30 @@ export const AutopilotPage: React.FC = () => {
   // beside its error: deleted, as it wrote nothing — its mute refused —, or
   // kept for what it wrote, the one way back of a run with no removal. The
   // mutation keeps the words and the code alone; the review says it.
-  useMessageListener<BaseMessage & { payload: { checkpoint?: unknown; writeGate?: unknown } }>(
-    'autopilot:error',
-    (msg) => {
-      if (msg.correlationId !== executeMutation.requestId) return;
-      // A run refused for what its target has left says it in figures, read
-      // again as it was refused: the review shows them, and Fit to storage.
-      if (isAutopilotPlanWriteGate(msg.payload.writeGate)) {
-        useAutopilotStore.getState().setWriteGate(msg.payload.writeGate);
-      }
-      const checkpoint = runCheckpointOf(msg.payload.checkpoint);
-      const ended = useAutopilotStore.getState();
-      if (!checkpoint || !ended.targetOrgId) return;
-      ended.setRunEnd({
-        orgId: ended.targetOrgId,
-        startedAt: new Date(runSentAt.current).toISOString(),
-        endedAt: new Date(msg.timestamp).toISOString(),
-        objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
-        checkpoint,
-      });
-    },
-  );
+  useMessageListener<
+    BaseMessage & { payload: { checkpoint?: unknown; writeGate?: unknown; source?: unknown } }
+  >('autopilot:error', (msg) => {
+    if (msg.correlationId !== executeMutation.requestId) return;
+    // A run refused for its reads of the source: its refusal says the
+    // source's figures. Set before the error's code is read, which this
+    // listener, subscribed first, is handed before the run's own.
+    setRefusedAtSource(sourceRefusalOf(msg.payload.source));
+    // A run refused for what its target has left says it in figures, read
+    // again as it was refused: the review shows them, and Fit to storage.
+    if (isAutopilotPlanWriteGate(msg.payload.writeGate)) {
+      useAutopilotStore.getState().setWriteGate(msg.payload.writeGate);
+    }
+    const checkpoint = runCheckpointOf(msg.payload.checkpoint);
+    const ended = useAutopilotStore.getState();
+    if (!checkpoint || !ended.targetOrgId) return;
+    ended.setRunEnd({
+      orgId: ended.targetOrgId,
+      startedAt: new Date(runSentAt.current).toISOString(),
+      endedAt: new Date(msg.timestamp).toISOString(),
+      objects: ended.plan?.waves.flatMap((wave) => wave.objects.map(String)) ?? [],
+      checkpoint,
+    });
+  });
 
   // Execute rejected (validation, production guard declined, execution crash):
   // surface the error back on the review step — the store keeps the wizard state.
@@ -336,12 +370,24 @@ export const AutopilotPage: React.FC = () => {
   // A wait that ended before the run did is not a failed run: the page stays
   // on the run, which may still be writing, and says where to follow it.
   const outlivedWait = executeMutation.errorCode === RUN_OUTLIVED_WAIT;
-  const refusal = refusalKeyOf(executeMutation.errorCode, askedCheckpoint);
+  const refusal = refusalKeyOf(
+    executeMutation.errorCode,
+    askedCheckpoint,
+    refusedAtSource !== undefined,
+  );
   const executeError =
     executeMutation.errorCode === 'NOT_INITIALIZED'
       ? t('common.refusal.guardMissing')
       : refusal !== undefined
-        ? t(refusal)
+        ? t(
+            refusal,
+            refusedAtSource && {
+              org: refusedAtSource.org,
+              estimate: formatNumber(refusedAtSource.estimate),
+              remaining: formatNumber(refusedAtSource.remaining),
+              max: formatNumber(refusedAtSource.max),
+            },
+          )
         : outlivedWait
           ? null
           : executeMutation.error;
