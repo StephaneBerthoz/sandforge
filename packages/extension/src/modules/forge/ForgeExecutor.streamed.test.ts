@@ -2794,14 +2794,18 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
     const columnsOf = (columns: readonly string[] | null, row: Row): Row =>
       Object.fromEntries((columns ?? []).map((c) => [c, row[c] ?? null]));
     const select = (soql: string, all: boolean): Row[] => {
-      // The rows whose lookup names no record of its object the source holds.
+      // The rows whose lookup names no record of its object the source holds,
+      // or none under the object's filter.
       const orphans =
-        /^SELECT Id FROM (\w+) WHERE (\w+) != null AND (\w+) NOT IN \(SELECT Id FROM (\w+)\)$/.exec(
+        /^SELECT Id FROM (\w+) WHERE (\w+) != null AND (\w+) NOT IN \(SELECT Id FROM (\w+)(?: WHERE (.+))?\)$/.exec(
           soql,
         );
       if (orphans) {
-        const [, object, field, , parent] = orphans;
-        const held = new Set(visible(parent, false).map((row) => String(row['Id']).slice(0, 15)));
+        const [, object, field, , parent, under] = orphans;
+        const parents = under
+          ? select(`SELECT Id FROM ${parent} WHERE ${under}`, false)
+          : visible(parent, false);
+        const held = new Set(parents.map((row) => String(row['Id']).slice(0, 15)));
         return visible(object, all)
           .filter(
             (row) => typeof row[field] === 'string' && !held.has(String(row[field]).slice(0, 15)),
@@ -3173,6 +3177,117 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       expect(asked.sort()).toEqual([region(8), region(9)].sort());
     });
 
+    /**
+     * The orgs of {@link orphans}, the regions read through a filter that
+     * keeps the north alone: the second policy names the south, which the
+     * source holds and the run does not copy, and an invoice hangs from it.
+     */
+    function underAFilter(): { schema: Schema; graph: ForgeGraph; options: ExecuteOptions } {
+      const { schema, graph } = orphans();
+      schema['Invoice__c'].rows.push({ Id: invoice(3), Name: 'I3', Policy__c: policy(2) });
+      return { schema, graph, options: { objectSoqlFilters: { Region__c: "Name = 'North'" } } };
+    }
+
+    /** Why a policy naming the south is left aside, as its line and its report say it. */
+    const OUTSIDE_THE_FILTER =
+      'Region__c may not be left empty, and names a Region__c record outside the Region__c filter';
+
+    it('leaves aside, in its gate as in its run, the rows naming a record outside its object’s filter, and what hangs from them, failing none', async () => {
+      // Read with the filter of the regions left out of the gate's anti-join,
+      // the policy of the south was counted to write, then held back as
+      // failed at the run, which found its region in the source and not
+      // written: the gate said 3 records, the run ended partial.
+      const { schema, graph, options } = underAFilter();
+      const run = await cloneTold(schema, graph, {}, true, options);
+
+      const plan = writePlanOf(run.boundaries[0]?.objects ?? []);
+      expect(
+        Object.fromEntries(plan.objects.map(({ objectApiName, rows }) => [objectApiName, rows])),
+      ).toEqual({ Region__c: 1, Policy__c: 1, Invoice__c: 1 });
+      expect(plan.leftOut?.noParentInSource).toEqual([
+        { objectApiName: 'Policy__c', rows: 3 },
+        { objectApiName: 'Invoice__c', rows: 1 },
+      ]);
+      expect(plan.leftOut?.outsideFilter).toEqual([
+        { objectApiName: 'Policy__c', rows: 1 },
+        { objectApiName: 'Invoice__c', rows: 1 },
+      ]);
+      // The run writes what the gate counted, sends nothing it leaves aside,
+      // and fails nothing.
+      expect(run.refusedMissing).toEqual([]);
+      expect(run.written('Region__c')).toEqual(['North']);
+      expect(run.written('Policy__c')).toEqual(['P1']);
+      expect(run.written('Invoice__c')).toEqual(['I1']);
+      expect(run.summary.successCount).toBe(plan.totalRows);
+      expect(run.summary.failedCount).toBe(0);
+      expect(run.events.filter((e) => e.objectName === 'Policy__c').at(-1)).toMatchObject({
+        status: 'done',
+        message:
+          `Completed Policy__c: 1 succeeded, 0 failed, 1 left aside: ${OUTSIDE_THE_FILTER}, ` +
+          '3 left aside: Region__c may not be left empty, and names a Region__c record the ' +
+          'source does not hold',
+      });
+      expect(run.summary.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            objectApiName: 'Policy__c',
+            stage: 'scope',
+            failedCount: 0,
+            samples: expect.arrayContaining([
+              {
+                recordSummary: 'Region__c → Region__c (1 record)',
+                messages: [`Left aside, not written: ${OUTSIDE_THE_FILTER}`],
+              },
+            ]),
+          }),
+          expect.objectContaining({
+            objectApiName: 'Invoice__c',
+            failedCount: 0,
+            samples: [
+              expect.objectContaining({
+                recordSummary: 'Policy__c → Policy__c (2 records)',
+                messages: [
+                  'Left aside, not written: Policy__c may not be left empty, and names a ' +
+                    'Policy__c record left aside',
+                ],
+              }),
+            ],
+          }),
+        ]),
+      );
+      // Told apart by an anti-join of the records under the filter, beside
+      // the one of the records the source holds.
+      expect(run.queries).toContain(
+        'SELECT Id FROM Policy__c WHERE Region__c != null AND Region__c NOT IN ' +
+          "(SELECT Id FROM Region__c WHERE (Name = 'North'))",
+      );
+    });
+
+    it('leaves them aside as it writes when no gate counted them, reading by id which records are under the filter', async () => {
+      const { schema, graph, options } = underAFilter();
+      const run = await cloneTold(schema, graph, {}, false, options);
+
+      expect(run.refusedMissing).toEqual([]);
+      expect(run.written('Policy__c')).toEqual(['P1']);
+      expect(run.written('Invoice__c')).toEqual(['I1']);
+      expect(run.summary.failedCount).toBe(0);
+      expect(run.events.filter((e) => e.objectName === 'Policy__c').at(-1)?.message).toContain(
+        `, 1 left aside: ${OUTSIDE_THE_FILTER}`,
+      );
+      // Asked under the filter first, then, of those not under it, whether
+      // the source holds them at all.
+      const asked = (prefix: string): string[] =>
+        run.queries
+          .filter((soql) => soql.startsWith(prefix))
+          .flatMap((soql) => [...soql.matchAll(/'(\w{15,18})'/g)].map(([, id]) => id));
+      expect(asked("SELECT Id FROM Region__c WHERE (Name = 'North') AND Id IN").sort()).toEqual(
+        [region(2), region(8), region(9)].sort(),
+      );
+      expect(asked('SELECT Id FROM Region__c WHERE Id IN').sort()).toEqual(
+        [region(2), region(8), region(9)].sort(),
+      );
+    });
+
     it('holds back the rows of a record type closed to the user alone, with what hangs from them, and writes the rest', async () => {
       const { schema, graph } = orphans();
       const open = recordType(1, true);
@@ -3525,6 +3640,90 @@ describe('a clone of the whole org, read page by page whatever it holds', () => 
       orgs.inserts.filter((c) => c.object === 'AccountContactRelation').flatMap((c) => c.rows),
     ).toHaveLength(1);
     expect(summary.successCount + summary.failedCount).toBe(plan.totalRows);
+    expect(summary.failedCount).toBe(0);
+  });
+
+  it('takes the relations it leaves aside under a contact outside its filter off those the platform writes, counting the one it sends', async () => {
+    // Taken off them, the relation of the contact left out by the filter
+    // made the platform's one more, and the relation the run sends one fewer:
+    // its gate counted none of the one the run sent.
+    const account = (n: number): string => sourceId('Account', n);
+    const contact = (n: number): string => sourceId('Contact', n);
+    const relation = (n: number): string =>
+      canonicalRecordId(`07kS${String(n).padStart(11, '0')}`) ?? '';
+    const schema: Schema = {
+      Account: {
+        fields: [text('Name')],
+        rows: [
+          { Id: account(1), Name: 'Acme' },
+          { Id: account(2), Name: 'Globex' },
+        ],
+      },
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', true)],
+        rows: [
+          { Id: contact(1), LastName: 'Kept', AccountId: account(1) },
+          { Id: contact(2), LastName: 'Filtered out', AccountId: account(1) },
+        ],
+      },
+      AccountContactRelation: {
+        fields: [
+          lookup('AccountId', 'Account', false),
+          lookup('ContactId', 'Contact', false),
+          { ...text('IsDirect', 'boolean'), createable: false },
+        ],
+        rows: [
+          { Id: relation(1), AccountId: account(1), ContactId: contact(1), IsDirect: true },
+          { Id: relation(2), AccountId: account(1), ContactId: contact(2), IsDirect: true },
+          { Id: relation(99), AccountId: account(2), ContactId: contact(1), IsDirect: false },
+        ],
+      },
+    };
+    const graph = graphOf(
+      [node('Account', 2), node('Contact', 2), node('AccountContactRelation', 3)],
+      [
+        edge('Account', 'Contact', false),
+        edge('Account', 'AccountContactRelation', true),
+        edge('Contact', 'AccountContactRelation', true),
+      ],
+    );
+    const orgs = wholeOrg(schema, { cursorPage: 50 });
+    const insert = orgs.deps.insertRecords;
+    orgs.deps.insertRecords = vi.fn(async (org: string, object: string, rows: Row[]) => {
+      const answers = await insert(org, object, rows);
+      if (object === 'Contact') {
+        const relations = orgs.target.get('AccountContactRelation') ?? new Map<string, Row>();
+        answers.forEach((answer, at) => {
+          const accountId = rows[at]?.['AccountId'];
+          if (!answer.success || typeof accountId !== 'string') return;
+          relations.set(
+            canonicalRecordId(`07kP${String(relations.size + 1).padStart(11, '0')}`) ?? '',
+            { AccountId: accountId, ContactId: answer.id, IsDirect: true },
+          );
+        });
+        orgs.target.set('AccountContactRelation', relations);
+      }
+      return answers;
+    });
+    const boundaries: ForgeWriteBoundary[] = [];
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+      stream: { everything: true },
+      objectSoqlFilters: { Contact: "LastName = 'Kept'" },
+      beforeWrite: async (b: ForgeWriteBoundary) => void boundaries.push(b),
+    });
+
+    const plan = writePlanOf(boundaries[0]?.objects ?? []);
+    expect(plan.objects.find((o) => o.objectApiName === 'AccountContactRelation')?.rows).toBe(1);
+    expect(plan.leftOut?.byThePlatform).toEqual([
+      { objectApiName: 'AccountContactRelation', rows: 1 },
+    ]);
+    expect(plan.leftOut?.outsideFilter).toEqual([
+      { objectApiName: 'AccountContactRelation', rows: 1 },
+    ]);
+    expect(
+      orgs.inserts.filter((c) => c.object === 'AccountContactRelation').flatMap((c) => c.rows),
+    ).toHaveLength(1);
+    expect(summary.successCount).toBe(plan.totalRows);
     expect(summary.failedCount).toBe(0);
   });
 

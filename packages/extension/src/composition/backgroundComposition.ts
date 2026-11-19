@@ -1594,6 +1594,15 @@ function writeQuestion(question: WriteConfirmation, now = new Date()): string[] 
       ),
     );
   }
+  for (const { objectApiName, rows } of leftOut?.outsideFilter ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records left aside: a lookup they may not leave empty names a record outside the filter of its object, which the run does not copy.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
   // What the platform writes itself with a record the run creates: linked
   // to, never sent, as the line of each object says once written. An
   // email's task is counted, the run sending it for an email refused.

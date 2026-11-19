@@ -294,6 +294,7 @@ export interface WriteConfirmation {
     linkedByValue?: Array<{ objectApiName: string; rows: number; fields: readonly string[] }>;
     withoutParent?: Array<{ objectApiName: string; rows: number }>;
     noParentInSource?: Array<{ objectApiName: string; rows: number }>;
+    outsideFilter?: Array<{ objectApiName: string; rows: number }>;
     linkedToTarget?: Array<{ objectApiName: string; rows: number }>;
     currencyReplaced?: Array<{ objectApiName: string; rows: number }>;
   };

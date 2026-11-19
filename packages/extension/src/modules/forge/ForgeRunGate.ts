@@ -292,9 +292,9 @@ export interface WritePlanLeftOut {
    */
   noParentInSource?: Array<{ objectApiName: string; rows: number }>;
   /**
-   * Of a sample of the whole org, per object, the rows its plan left aside:
-   * a lookup they may not leave empty names a record outside its object's
-   * filter, which the run does not copy. Absent when none.
+   * Of a clone of the whole org, or a sample of it, per object, the rows left
+   * aside: a lookup they may not leave empty names a record outside its
+   * object's filter, which the run does not copy. Absent when none.
    */
   outsideFilter?: Array<{ objectApiName: string; rows: number }>;
   /**

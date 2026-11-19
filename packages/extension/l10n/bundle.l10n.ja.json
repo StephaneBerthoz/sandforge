@@ -113,6 +113,7 @@
   "Not counted: {0}, {1} records, held back for a record type the target has none of, which it would refuse.": "カウント対象外: {0} の {1} 件のレコード。ターゲットにないレコードタイプのため保留されます。送信してもターゲットが拒否します。",
   "Not counted: {0}, {1} records held back with a record they cannot be written without, held back itself.": "カウント対象外: {0} の {1} 件のレコード。書き込みに必要なレコード自体が保留されているため、一緒に保留されます。",
   "Not counted: {0}, {1} records left aside: a lookup they may not leave empty names a record the source does not hold, which no copy can write.": "カウント対象外: {0} の {1} 件のレコードは除外されます。空にできない参照項目が、ソースに存在しないレコードを指しており、どのコピーでも書き込めません。",
+  "Not counted: {0}, {1} records left aside: a lookup they may not leave empty names a record outside the filter of its object, which the run does not copy.": "カウント対象外: {0} の {1} 件のレコードは除外されます。空にできない参照項目が、オブジェクトのフィルター外のレコードを指しており、実行ではコピーされません。",
   "Not counted: {0}, {1} records written by the platform with their opportunity, for its owner, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが商談とともにその所有者のために書き込むため、実行はそれらにリンクし、送信しません。",
   "Not counted: {0}, {1} records written by the platform with their person account, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが個人取引先とともに書き込むため、実行はそれらにリンクし、送信しません。",
   "Not counted: {0}, {1} records written by the platform with their opportunity, for its contact, which the run links to and does not send.": "カウント対象外: {0} の {1} 件のレコード。プラットフォームが商談とともにその取引先責任者のために書き込むため、実行はそれらにリンクし、送信しません。",

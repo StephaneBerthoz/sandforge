@@ -1127,8 +1127,10 @@ export interface WholeOrgBoundary extends WholeOrgMeasures {
    * tasks are written, and, of a run that copies files, a page per 2 000
    * files of each kind, a read of the links of each 200 Salesforce Files,
    * and a read of each file's content. At least: an object too wide for one
-   * statement is read a statement per group of columns, and a page naming
-   * more than 200 records the run did not write a read more per 200.
+   * statement is read a statement per group of columns, a page naming
+   * more than 200 records the run did not write a read more per 200, and,
+   * of an object read through a filter, a page naming records of it outside
+   * the filter that the gate did not tell a read more.
    */
   sourceReads: number;
   /**
@@ -1253,9 +1255,9 @@ export interface ForgeRowsLeftOut {
    */
   noParentInSource?: number;
   /**
-   * Of a sample of the whole org, rows its plan left aside, which no copy of
-   * it writes: a lookup they may not leave empty names a record outside its
-   * object's filter, or one so left aside.
+   * Of a clone of the whole org, or a sample of it, rows left aside, which no
+   * copy of it writes: a lookup they may not leave empty names a record
+   * outside the filter its object is read through, or one so left aside.
    */
   outsideFilter?: number;
   /**
@@ -2392,9 +2394,12 @@ interface ExecutionState {
    * writes as, or one under a record the run did not write — counted as
    * failed; or, left aside and not counted as failed, why a row cannot go
    * in at all: a lookup it may not leave empty names a record the source
-   * does not hold, or it hangs from one so left aside. What hangs from a row
-   * held back is held back with it (`rowsHeldInTheWholeOrg`). Seeded by the
-   * gate, which counts them (`heldAtTheGate`), and added to as the run writes.
+   * does not hold, or one outside the filter its object is read through, or
+   * it hangs from one so left aside. What hangs from a row held back is held
+   * back with it (`rowsHeldInTheWholeOrg`). Seeded by the gate, which counts
+   * them (`heldAtTheGate`), and added to as the run writes; with them, the
+   * ids of such records the run read as it wrote (`NOT_IN_THE_SOURCE`,
+   * `OUTSIDE_THE_FILTER`).
    */
   readonly heldInTheOrg: Map<string, 'held' | ParentNotWritten>;
   /**
@@ -3540,6 +3545,22 @@ const NOT_IN_THE_SOURCE: ParentNotWritten = {
 /** Why a row whose `field` names a record the source does not hold is left aside. */
 function notInTheSource(field: string, parent: string): string {
   return `${field} may not be left empty, and names a ${parent} record the source does not hold`;
+}
+
+/**
+ * What `heldInTheOrg` holds of an id the source holds outside the filter its
+ * object is read through, which the run does not copy: rows naming it are
+ * left aside (`rowsHeldInTheWholeOrg`).
+ */
+const OUTSIDE_THE_FILTER: ParentNotWritten = {
+  field: '',
+  parentObject: '',
+  reason: "the source holds it outside its object's filter",
+};
+
+/** Why a row whose `field` names a record outside the filter of its object `parent` is left aside. */
+function outsideTheFilter(field: string, parent: string): string {
+  return `${field} may not be left empty, and names a ${parent} record outside the ${parent} filter`;
 }
 
 /** Why a row of a sample whose `field` names a record outside its plan is held back. */
@@ -8448,20 +8469,26 @@ export class ForgeExecutor {
    * those of a record type the target has none of
    * (`leftOut.recordTypeNotInTarget`); those whose lookup they may not leave
    * empty names a record the source does not hold
-   * (`leftOut.noParentInSource`); and what hangs from either through such a
-   * lookup, held back with them (`leftOut.withoutParent`) or left aside with
-   * them. Run for real, a dry run counted 157 records, the run wrote 106: 34
-   * orphan prices sent and refused, and the lines and quotes under an
+   * (`leftOut.noParentInSource`), or one it holds outside the filter its
+   * object is read through, which the run does not copy
+   * (`leftOut.outsideFilter`); and what hangs from any of them through such
+   * a lookup, held back with them (`leftOut.withoutParent`) or left aside
+   * with them. Run for real, a dry run counted 157 records, the run wrote
+   * 106: 34 orphan prices sent and refused, and the lines and quotes under an
    * opportunity of a closed type. Another counted an opportunity of a record
    * type the target lacked, which the run sent with the source's id, and the
-   * target refused.
+   * target refused. Counted to write, the children of a parent outside its
+   * filter were held back by the run, as failed, which ended partial.
    *
    * The rows of the closed types and those of the types the target lacks
-   * are read apart, each said with its own reason.
+   * are read apart, each said with its own reason; so are the orphans and
+   * the rows outside a filter, and what hangs from each.
    *
    * Read by id from the source, parents first, as the run will meet them:
    * the rows of the closed types (`RecordTypeId IN …`), the orphans (`Field
-   * NOT IN (SELECT Id FROM Parent)`), then the rows under each (`Field IN
+   * NOT IN (SELECT Id FROM Parent)`), those outside the parent's filter
+   * (`Field NOT IN (SELECT Id FROM Parent WHERE (filter))`, less the
+   * orphans), then the rows under each (`Field IN
    * …`), {@link HELD_AT_THE_GATE_MOST} ids at most — past them the rows under
    * are counted in, said too many rather than too few. A read the source
    * refuses counts nothing out: the run finds those rows as it writes. The
@@ -8500,12 +8527,16 @@ export class ForgeExecutor {
     let left = HELD_AT_THE_GATE_MOST;
     /** Per object, the lookups written empty for a record told, and their rows. */
     const leftEmpty = new Map<string, ForgeLookupLeftEmpty[]>();
-    const tell = (object: string, id: string, why: 'held' | ParentNotWritten): void => {
+    /** The ids told left aside for a record outside its object's filter, or under one so left aside. */
+    const outside = new Set<string>();
+    /** Tell `id` held back or left aside, unless told already or past the most ids: whether it was. */
+    const tell = (object: string, id: string, why: 'held' | ParentNotWritten): boolean => {
       const ids = told.get(object) ?? new Map<string, 'held' | ParentNotWritten>();
-      if (ids.has(id) || left <= 0) return;
+      if (ids.has(id) || left <= 0) return false;
       ids.set(id, why);
       told.set(object, ids);
       left--;
+      return true;
     };
     const reads: HeldAtTheGateReads = { requests: 0, lookups: new Map() };
     /** The ids `idsUnder` reads, its pages counted among the gate's requests. */
@@ -8561,9 +8592,10 @@ export class ForgeExecutor {
         // Past the most ids it reads, the run finds the rest as it writes.
         if (left <= 0) continue;
         const field = assertSoqlIdentifier(f.name);
+        const parentObject = assertSoqlIdentifier(parent);
         const orphans = await idsUnder(
           object,
-          `${field} != null AND ${field} NOT IN (SELECT Id FROM ${assertSoqlIdentifier(parent)})`,
+          `${field} != null AND ${field} NOT IN (SELECT Id FROM ${parentObject})`,
         );
         for (const id of orphans ?? []) {
           tell(object, id, {
@@ -8572,21 +8604,46 @@ export class ForgeExecutor {
             reason: notInTheSource(f.name, parent),
           });
         }
+        // A parent read through a filter: the run writes the records under
+        // it alone, and a row naming another is left aside as no copy of the
+        // run writes it. Read after the orphans, which it finds too, so that
+        // each is said with its own reason; not when they could not be read.
+        const filter = config.objectSoqlFilters?.[parent];
+        if (filter && orphans !== undefined) {
+          const outsideIt = await idsUnder(
+            object,
+            `${field} != null AND ${field} NOT IN (SELECT Id FROM ${parentObject} WHERE (${filter}))`,
+          );
+          for (const id of outsideIt ?? []) {
+            const why = {
+              field: f.name,
+              parentObject: parent,
+              reason: outsideTheFilter(f.name, parent),
+            };
+            if (tell(object, id, why)) outside.add(id);
+          }
+        }
         const above = told.get(parent);
         if (!above || above.size === 0) continue;
         const heldAbove = [...above].filter(([, why]) => why === 'held').map(([id]) => id);
-        const asideAbove = [...above].filter(([, why]) => why !== 'held').map(([id]) => id);
-        for (const [ids, why] of [
-          [heldAbove, 'held'],
-          [
-            asideAbove,
-            { field: f.name, parentObject: parent, reason: leftAsideUnder(f.name, parent) },
-          ],
+        const asideAbove = [...above]
+          .filter(([id, why]) => why !== 'held' && !outside.has(id))
+          .map(([id]) => id);
+        const outsideAbove = [...above].filter(([id]) => outside.has(id)).map(([id]) => id);
+        const under = {
+          field: f.name,
+          parentObject: parent,
+          reason: leftAsideUnder(f.name, parent),
+        };
+        for (const [ids, why, ofTheFilter] of [
+          [heldAbove, 'held', false],
+          [asideAbove, under, false],
+          [outsideAbove, under, true],
         ] as const) {
           for (const list of idLists(ids)) {
             if (left <= 0) break;
             for (const id of (await idsUnder(object, `${field} IN (${list})`)) ?? []) {
-              tell(object, id, why);
+              if (tell(object, id, why) && ofTheFilter) outside.add(id);
             }
           }
         }
@@ -8633,7 +8690,8 @@ export class ForgeExecutor {
       const types = ofTypes.get(entry.objectApiName) ?? 0;
       const lacking = ofLacking.get(entry.objectApiName) ?? 0;
       const held = [...ids.values()].filter((why) => why === 'held').length;
-      const aside = ids.size - held;
+      const ofTheFilter = [...ids.keys()].filter((id) => outside.has(id)).length;
+      const aside = ids.size - held - ofTheFilter;
       const rows = Math.max(0, entry.counted.rows - ids.size);
       const persons = entry.counted.personAccounts;
       entry.counted = {
@@ -8650,6 +8708,7 @@ export class ForgeExecutor {
           : {}),
         ...(held - types - lacking > 0 ? { withoutParent: held - types - lacking } : {}),
         ...(aside > 0 ? { noParentInSource: aside } : {}),
+        ...(ofTheFilter > 0 ? { outsideFilter: ofTheFilter } : {}),
       };
     }
     for (const ids of told.values()) {
@@ -8803,7 +8862,8 @@ export class ForgeExecutor {
     const heldAlready =
       (leftOut?.writtenBefore ?? 0) +
       (leftOut?.withoutParent ?? 0) +
-      (leftOut?.noParentInSource ?? 0);
+      (leftOut?.noParentInSource ?? 0) +
+      (leftOut?.outsideFilter ?? 0);
     const taken = Math.max(0, Math.min(direct - heldAlready, relations.counted.rows));
     if (taken === 0) return 1;
     relations.counted = { ...relations.counted, rows: relations.counted.rows - taken };
@@ -9683,16 +9743,19 @@ export class ForgeExecutor {
    * names was held back by the run (`heldInTheOrg`), or is in the source and
    * did not go in — counted as failed, as the rows held back for want of
    * their parent are; and those left `aside`, whose record the source does
-   * not hold, or hangs from one so left aside, which no copy can write.
+   * not hold, or holds outside the filter its object is read through, or
+   * hangs from one so left aside, which no copy of the run writes.
    *
    * Run for real on a whole org, 34 prices of the sample catalog, which named
    * a price book and a product the source did not hold even among its deleted
    * records, were counted by the dry run, sent and refused, `REQUIRED_FIELD_
    * MISSING: Required fields are missing: [Pricebook2Id, Product2Id]`. Which
    * of the ids the run has no record for are in the source is read by id,
-   * once a run each (`SELECT Id … WHERE Id IN …`); a read the source refuses
-   * leaves them held back, as rows whose parent did not go in. A row the
-   * gate found left aside (`heldAtTheGate`) is left aside as the gate said.
+   * once a run each (`SELECT Id … WHERE Id IN …`) — under its object's
+   * filter first, when it has one, then, of those not under it, whether the
+   * source holds them at all —; a read the source refuses leaves them held
+   * back, as rows whose parent did not go in. A row the gate found left aside
+   * (`heldAtTheGate`) is left aside as the gate said.
    *
    * @param carried - Whether the insert sends a lookup: what is asked about.
    */
@@ -9761,7 +9824,9 @@ export class ForgeExecutor {
           const reason =
             known === NOT_IN_THE_SOURCE
               ? notInTheSource(field, parent)
-              : leftAsideUnder(field, parent);
+              : known === OUTSIDE_THE_FILTER
+                ? outsideTheFilter(field, parent)
+                : leftAsideUnder(field, parent);
           aside.set(index, { field, parentObject: parent, reason });
           return;
         }
@@ -9772,18 +9837,39 @@ export class ForgeExecutor {
       }
     });
     for (const [parent, ids] of unknown) {
-      const inSource = await this.idsInTheSource(state, parent, [...ids.keys()]);
+      // Of a parent read through a filter, the run wrote the records under it
+      // alone: those it holds outside it are read apart from those it does
+      // not hold, each said with its own reason. Read the filter's way only,
+      // a row naming the south of regions filtered on the north was held
+      // back as failed, its parent in the source and never written.
+      const named = [...ids.keys()];
+      const filter = state.config.objectSoqlFilters?.[parent];
+      const under =
+        filter === undefined ? undefined : await this.idsInTheSource(state, parent, named, filter);
+      const rest = under ? named.filter((id) => !under.has(id.slice(0, 15))) : named;
+      const inSource =
+        rest.length > 0 ? await this.idsInTheSource(state, parent, rest) : new Set<string>();
+      /** Why the rows naming `id` are left aside: none when they are held back. */
+      const asideFor = (id: string): ParentNotWritten | undefined => {
+        const key = id.slice(0, 15);
+        if (under?.has(key) === true || inSource === undefined) return undefined;
+        if (!inSource.has(key)) return NOT_IN_THE_SOURCE;
+        return under ? OUTSIDE_THE_FILTER : undefined;
+      };
       for (const [id, rows] of ids) {
-        const there = inSource === undefined || inSource.has(id.slice(0, 15));
-        if (!there) state.heldInTheOrg.set(id, NOT_IN_THE_SOURCE);
+        const why = asideFor(id);
+        if (why) state.heldInTheOrg.set(id, why);
         for (const { index, field } of rows) {
           if (held.has(index) || aside.has(index)) continue;
-          if (there) held.set(index, { field, parentObject: parent });
+          if (!why) held.set(index, { field, parentObject: parent });
           else
             aside.set(index, {
               field,
               parentObject: parent,
-              reason: notInTheSource(field, parent),
+              reason:
+                why === NOT_IN_THE_SOURCE
+                  ? notInTheSource(field, parent)
+                  : outsideTheFilter(field, parent),
             });
         }
       }
@@ -9797,20 +9883,23 @@ export class ForgeExecutor {
   }
 
   /**
-   * The ids of `objectApiName` among `ids` that the source holds, read by id
-   * under their fifteen characters; undefined when the source would not say.
+   * The ids of `objectApiName` among `ids` that the source holds — under
+   * `filter`, when one is given — read by id under their fifteen characters;
+   * undefined when the source would not say.
    */
   private async idsInTheSource(
     state: ExecutionState,
     objectApiName: string,
     ids: readonly string[],
+    filter?: string,
   ): Promise<Set<string> | undefined> {
     const found = new Set<string>();
+    const under = filter === undefined ? '' : `(${filter}) AND `;
     try {
       for (const list of idLists(ids)) {
         const rows = await this.deps.queryRecords(
           state.sourceOrgId,
-          `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id IN (${list})`,
+          `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${under}Id IN (${list})`,
         );
         for (const row of rows) found.add(String(row['Id']).slice(0, 15));
       }
