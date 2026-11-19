@@ -5588,6 +5588,19 @@ test('the Forge reference says what a sample keeps, how it is drawn and what it 
     /export const STORAGE_ROUNDING_MARGIN_MB = 0\.5;/,
   );
   assert.match(read(...SAMPLE_SRC, 'sampleBudget.ts'), /share: STORAGE_NEAR_SHARE,/);
+  // Its writes held to the target's requests and batches, a tenth of the day kept.
+  assert.match(
+    sample,
+    /held besides to the target's daily API requests and Bulk API batches, priced as its gate prices them, what each leaves once a tenth of the day is kept/,
+  );
+  assert.match(
+    read(...SAMPLE_SRC, 'sampleBudget.ts'),
+    /allowance\.remaining - API_BUDGET_NEAR_SHARE \* allowance\.max - taken/,
+  );
+  assert.match(
+    read(...SAMPLE_SRC, 'sampleBudget.ts'),
+    /Math\.max\(0, allowances\.sentBefore \?\? 0\) \+ DELIVERABILITY_READ_MOST/,
+  );
 
   // The draw: a seeded hash spread over the org, or the newest by creation date.
   assert.match(

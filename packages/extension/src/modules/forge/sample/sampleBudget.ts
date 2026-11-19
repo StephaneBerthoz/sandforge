@@ -8,7 +8,9 @@
  * left past which a run's gate asks, once the margin for its rounding is off,
  * or the MB asked when lower. What the target's automation still creates
  * under the records kept is taken off as they are chosen, per record
- * (`automationBytes`), never guessed whole before the draw.
+ * (`automationBytes`), never guessed whole before the draw. The records a
+ * run writes are held to the target's daily API requests and Bulk API
+ * batches as the gate prices them (`sampleRequestsBoundOf`).
  */
 
 import {
@@ -23,15 +25,19 @@ import {
 import { SECONDS_PER_PAGE } from '../../checkpoint/rewindEstimate.js';
 import {
   API_BUDGET_NEAR_SHARE,
+  DELIVERABILITY_READ_MOST,
   STORAGE_NEAR_SHARE,
   apiBudgetCheckOf,
   countedStorageBytes,
+  forgeRequestPartsOf,
   storageCheckOf,
+  wholeOrgCostOf,
   type ApiBudget,
   type DataStorage,
 } from '../ForgeRunGate.js';
 import { STORAGE_ROUNDING_MARGIN_MB, fitBudgetOf, type RoomPerRecord } from '../fitBudget.js';
 import type { SampleBudgetTerms } from './sampleDrawing.js';
+import type { SampleBounds } from './sampleFit.js';
 import { sampleLinksOf, type SampleObjectInput } from './sampleLinks.js';
 import { rootScanRequestsOf } from './sampleReader.js';
 import { rootsTheBudgetHolds } from './sampleRank.js';
@@ -40,11 +46,91 @@ import { rootsTheBudgetHolds } from './sampleRank.js';
 const REFERENCE_DATA = new Set(['BusinessHours', 'OperatingHours']);
 
 /**
+ * What a sample's writes are held to beside the storage, as the target says
+ * it as the sample is drawn: its daily API requests and Bulk API batches,
+ * each read from the answer that gives its storage, or the requests on their
+ * own when the storage could not be, or why they could not be; what was
+ * sent the target before the run's gate prices it, which the gate counts
+ * with the run's writes (`forgeRequestPartsOf`'s `sentBefore`); and the
+ * objects whose records its second pass writes again, which it prices twice.
+ */
+export interface SampleAllowances {
+  requests?: ApiBudget | { unread: string };
+  bulkBatches?: ApiBudget | { unread: string };
+  sentBefore?: number;
+  updatedAfterInsert?: readonly string[];
+}
+
+/** What `allowance` leaves a run once a tenth of the day is kept and `taken` is off; undefined unread. */
+function allowanceLeft(
+  allowance: ApiBudget | { unread: string } | undefined,
+  taken: number,
+): number | undefined {
+  if (!allowance || 'unread' in allowance) return undefined;
+  return Math.floor(allowance.remaining - API_BUDGET_NEAR_SHARE * allowance.max - taken);
+}
+
+/**
+ * The bounds on requests a sample is cut to (`SampleBounds.requests`): per
+ * object, the records the run writes, priced as the gate of a clone of the
+ * whole org prices them — its jobs and REST calls as the Bulk API sends them
+ * and what it reads of the target for each object it writes
+ * (`forgeRequestPartsOf`), the Bulk API batches its jobs take
+ * (`wholeOrgCostOf`), the updates of its second pass among them — against
+ * what each allowance leaves once a tenth of
+ * the day is kept, as a fit's run requests are (`fitBudgetOf`): the requests
+ * less what was sent the target before and the read of whether it delivers
+ * its emails, at most (`DELIVERABILITY_READ_MOST`). Which objects a duplicate
+ * rule of the target watches is not asked before the run: they go by REST,
+ * as the writer takes those of the standard rules when the target will not
+ * say, which prices them higher, never lower. Undefined when the target said
+ * neither allowance: the gate says what it could not read.
+ *
+ * No producer gave these bounds: a sample was cut to the storage alone, and
+ * a simulation offered one — every record of the org, said to fit — that its
+ * gate then refused for the target's requests.
+ */
+export function sampleRequestsBoundOf(
+  allowances: SampleAllowances,
+): SampleBounds['requests'] | undefined {
+  const requestsLeft = allowanceLeft(
+    allowances.requests,
+    Math.max(0, allowances.sentBefore ?? 0) + DELIVERABILITY_READ_MOST,
+  );
+  const batchesLeft = allowanceLeft(allowances.bulkBatches, 0);
+  if (requestsLeft === undefined && batchesLeft === undefined) return undefined;
+  const updated = allowances.updatedAfterInsert
+    ? { updatedAfterInsert: allowances.updatedAfterInsert }
+    : {};
+  return (written) => {
+    const objects = [...written].map(([objectApiName, rows]) => ({
+      objectApiName,
+      rows,
+      storageBytes: 0,
+    }));
+    if (
+      requestsLeft !== undefined &&
+      forgeRequestPartsOf({ plan: { objects }, ...updated, bulk: {} }).run > requestsLeft
+    ) {
+      return 'targetRequests';
+    }
+    if (
+      batchesLeft !== undefined &&
+      wholeOrgCostOf({ plan: { objects }, ...updated, measures: {} }).bulkBatches > batchesLeft
+    ) {
+      return 'bulkBatches';
+    }
+    return undefined;
+  };
+}
+
+/**
  * The terms a sample is drawn against: the bytes it may take and what gives
  * them — what the target has left (`storage`), or the MB asked (`within`) —,
  * the target's room before the MB asked, which the objects copied whole and
- * the roots set aside are chosen against, and what the target's automation
- * that still runs creates under each record of an object the run writes.
+ * the roots set aside are chosen against, what the target's automation
+ * that still runs creates under each record of an object the run writes,
+ * and the bounds of its requests ({@link sampleRequestsBoundOf}).
  *
  * Undefined when the target would not say its data storage and no MB is
  * asked: nothing bounds the sample (`SAMPLE_STORAGE_UNREAD`).
@@ -52,21 +138,27 @@ const REFERENCE_DATA = new Set(['BusinessHours', 'OperatingHours']);
  * @param input.automation - What still runs creates under one record of each
  *   object, per act (`automationRoomOf`): an update of the second pass is of
  *   a record the run inserted, so both count under it.
+ * @param input.allowances - The target's daily requests and Bulk API
+ *   batches, and what was sent it before; none, the requests bound nothing.
  */
 export function sampleBudgetTermsOf(input: {
   storage: Pick<DataStorage, 'maxMB' | 'remainingMB'> | { unread: string };
   withinMB?: number;
   automation?: readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
+  allowances?: SampleAllowances;
 }): SampleBudgetTerms | undefined {
   const { storage, withinMB } = input;
   const perRecord = new Map<string, number>();
   for (const room of input.automation ?? []) {
     perRecord.set(room.objectApiName, (perRecord.get(room.objectApiName) ?? 0) + room.bytes);
   }
-  const automation =
-    perRecord.size > 0
+  const bound = input.allowances ? sampleRequestsBoundOf(input.allowances) : undefined;
+  const perRecordAndRequests = {
+    ...(perRecord.size > 0
       ? { automationBytes: (objectApiName: string) => perRecord.get(objectApiName) ?? 0 }
-      : {};
+      : {}),
+    ...(bound ? { requests: bound } : {}),
+  };
   if ('unread' in storage) {
     if (withinMB === undefined) return undefined;
     const bytes = Math.floor(Math.max(0, withinMB) * BYTES_PER_MB);
@@ -74,7 +166,7 @@ export function sampleBudgetTermsOf(input: {
       budget: { bytes, withinMB, limitedBy: 'within' },
       bytesLimit: 'within',
       roomBytes: bytes,
-      ...automation,
+      ...perRecordAndRequests,
     };
   }
   const fit = fitBudgetOf({ storage, ...(withinMB !== undefined ? { withinMB } : {}) });
@@ -100,7 +192,7 @@ export function sampleBudgetTermsOf(input: {
     bytesLimit,
     roomBytes: storageBytes,
     storageBytes,
-    ...automation,
+    ...perRecordAndRequests,
   };
 }
 

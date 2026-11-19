@@ -120,9 +120,9 @@ function node(objectApiName: string, recordCount: number): ForgeGraphNode {
   };
 }
 
-function wholeOrgGraph(): ForgeGraph {
+function wholeOrgGraph(records = RECORDS): ForgeGraph {
   return {
-    nodes: [node('Account', RECORDS), node('Contact', RECORDS)],
+    nodes: [node('Account', records), node('Contact', records)],
     edges: [
       {
         sourceObject: 'Account',
@@ -138,7 +138,7 @@ function wholeOrgGraph(): ForgeGraph {
         type: 'lookup',
       },
     ],
-    totalRecords: 2 * RECORDS,
+    totalRecords: 2 * records,
     estimatedSizeMB: 1,
     estimatedDurationSeconds: 4,
   };
@@ -157,15 +157,15 @@ const EVERY_RECORD: ForgeConfig = {
 const SAMPLE: ForgeConfig = { ...EVERY_RECORD, sample: {} };
 
 /**
- * A source of `RECORDS` accounts, each with one contact, made a minute apart
+ * A source of `records` accounts, each with one contact, made a minute apart
  * over the hours before the test: a window of the last days holds them all.
  */
-function sourceOrg(): SampleSourceOrg {
+function sourceOrg(records = RECORDS): SampleSourceOrg {
   const org = new SampleSourceOrg();
   const madeAt = (n: number): string => new Date(Date.now() - n * 60_000).toISOString();
   org.columns.set('Account', ['Id', 'Name', 'ParentId', 'CreatedDate', 'IsDeleted']);
   org.columns.set('Contact', ['Id', 'LastName', 'AccountId', 'CreatedDate', 'IsDeleted']);
-  for (let n = 1; n <= RECORDS; n++) {
+  for (let n = 1; n <= records; n++) {
     org.add('Account', {
       Id: fakeId('001', 'S', n),
       Name: `A${n}`,
@@ -952,6 +952,56 @@ describe('forge:execute of a sample of the whole org', () => {
       expect(lastAnswer().result).toMatchObject({ status: 'success' });
       expect(lastAnswer().result.journalId).toBeUndefined();
       expect(runPlans()).toHaveLength(0);
+    });
+  });
+
+  describe('a sample the target’s daily API requests hold', () => {
+    /** 1 000 accounts and their contacts, room to spare for them, and `remaining` of 20 daily API requests. */
+    function requestsLeft(remaining: number): void {
+      limits['tgt-org'] = {
+        ...(limits['tgt-org'] as object),
+        DataStorageMB: { Max: 200, Remaining: 100 },
+        DailyApiRequests: { Max: 20, Remaining: remaining },
+      };
+      source = sourceOrg(1_000);
+      handler.setForgeOrchestrator(orchestratorOver(source), {
+        targetAutomation: {
+          readForGraph: vi.fn(async () => QUIET),
+        } as unknown as TargetAutomationReader,
+        runJournal: journalOnMemory(storage),
+      });
+    }
+
+    // Every record fits the storage, not the 22 requests the target has
+    // left: 23 to write them, the parents of the accounts filled in by a
+    // second pass, and to read the target, and 2 to read whether it delivers
+    // its emails. Drawn against the storage alone, the simulation said every
+    // record fits, and the gate it said it would meet refused it for the
+    // requests.
+    it('is cut to what the requests leave, and says so, its gate letting it through', async () => {
+      requestsLeft(22);
+
+      await execute({ graph: wholeOrgGraph(1_000), config: { ...SAMPLE, dryRun: true } });
+
+      const dry = (
+        lastAnswer() as ReturnType<typeof lastAnswer> & {
+          wholeOrgDryRun?: {
+            sample?: WholeOrgSample;
+            targetRequests: { estimate: number };
+            wouldBeRefused: Array<{ code: string }>;
+          };
+        }
+      ).wholeOrgDryRun;
+      expect(dry?.sample?.budget.limitedBy).toBe('targetRequests');
+      expect(dry?.sample?.rows).toBeGreaterThan(0);
+      expect(dry?.sample?.rows).toBeLessThan(2_000);
+      expect(dry?.targetRequests.estimate).toBeLessThanOrEqual(22);
+      expect(dry?.wouldBeRefused).toEqual([]);
+
+      await execute({ graph: wholeOrgGraph(1_000) });
+
+      expect(lastAnswer().result).toMatchObject({ status: 'success' });
+      expect(rowsWritten()).toBe(dry?.sample?.rows);
     });
   });
 

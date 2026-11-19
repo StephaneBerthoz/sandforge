@@ -123,6 +123,82 @@ describe('sampleBudgetTermsOf', () => {
     expect(terms?.automationBytes?.('Account')).toBe(8192);
     expect(terms?.automationBytes?.('Case')).toBe(0);
   });
+
+  // Drawn against the storage alone, a sample the target's requests could
+  // not hold was offered, "every record fits" among them, and its gate then
+  // refused it for the requests.
+  it('holds the writes to the daily API requests a tenth of the day leaves, what was sent before and the read of the deliverability off, as the gate prices them', () => {
+    const terms = sampleBudgetTermsOf({
+      storage: { maxMB: 500, remainingMB: 400 },
+      allowances: { requests: { max: 1_000, remaining: 132 }, sentBefore: 10 },
+    });
+    const requests = terms?.requests;
+
+    // 132 left, 100 kept for the day, 10 sent before, 2 for the deliverability: 20.
+    // Accounts and contacts go by REST, the standard duplicate rules watching
+    // them, a call per 200 records, and the run reads the target 4 times an
+    // object it writes.
+    expect(
+      requests?.(
+        new Map([
+          ['Account', 2_000],
+          ['Contact', 400],
+        ]),
+      ),
+    ).toBeUndefined();
+    expect(
+      requests?.(
+        new Map([
+          ['Account', 2_200],
+          ['Contact', 400],
+        ]),
+      ),
+    ).toBe('targetRequests');
+  });
+
+  it('holds the jobs to the Bulk API batches a tenth of the day leaves', () => {
+    const terms = sampleBudgetTermsOf({
+      storage: { maxMB: 500, remainingMB: 400 },
+      allowances: {
+        requests: { max: 100_000, remaining: 90_000 },
+        bulkBatches: { max: 100, remaining: 12 },
+      },
+    });
+
+    // A job per 10 000 cases, a batch each: 2 left past the 10 kept.
+    expect(terms?.requests?.(new Map([['Case', 20_000]]))).toBeUndefined();
+    expect(terms?.requests?.(new Map([['Case', 25_000]]))).toBe('bulkBatches');
+  });
+
+  it('holds the writes to the requests of a target that would not say its storage, the MB asked holding the rest', () => {
+    const terms = sampleBudgetTermsOf({
+      storage: { unread: 'INSUFFICIENT_ACCESS: limits' },
+      withinMB: 2,
+      allowances: { requests: { max: 1_000, remaining: 112 } },
+    });
+
+    expect(terms?.requests?.(new Map([['Account', 400]]))).toBeUndefined();
+    expect(
+      terms?.requests?.(
+        new Map([
+          ['Account', 400],
+          ['Contact', 400],
+        ]),
+      ),
+    ).toBe('targetRequests');
+  });
+
+  it('holds nothing to the allowances the target would not say', () => {
+    expect(
+      sampleBudgetTermsOf({ storage: { maxMB: 5, remainingMB: 4.5 } })?.requests,
+    ).toBeUndefined();
+    expect(
+      sampleBudgetTermsOf({
+        storage: { maxMB: 5, remainingMB: 4.5 },
+        allowances: { requests: { unread: 'HTTP 500' }, bulkBatches: { unread: 'HTTP 500' } },
+      })?.requests,
+    ).toBeUndefined();
+  });
 });
 
 describe('sampleBudgetPreviewOf', () => {

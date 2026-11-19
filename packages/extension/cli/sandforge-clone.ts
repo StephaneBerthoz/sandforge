@@ -248,7 +248,10 @@ import {
 } from '../src/modules/forge/sample/samplePlanStore.js';
 import type { SampleBudgetTerms } from '../src/modules/forge/sample/sampleDrawing.js';
 import { automationRoomOf, type RoomPerRecord } from '../src/modules/forge/fitBudget.js';
-import { sampleBudgetTermsOf } from '../src/modules/forge/sample/sampleBudget.js';
+import {
+  sampleBudgetTermsOf,
+  type SampleAllowances,
+} from '../src/modules/forge/sample/sampleBudget.js';
 import {
   RecordTypeMapper,
   namespaceMismatchWarning,
@@ -5943,9 +5946,11 @@ const DOCUMENTED_RECORD_BYTES = 2 * 1024;
  * (`--fit-within`) and 80 % of what the target says it has left once half a
  * MB is off for its rounding, the target's room before the MB asked, which
  * the objects copied whole and the roots set aside are weighed against, and
- * what the target's automation that still runs creates under each record —
- * and the records asked (`--max-total`, its default too), the command
- * line's own bound. Exported so it can be tested.
+ * what the target's automation that still runs creates under each record —,
+ * the records asked (`--max-total`, its default too), the command line's own
+ * bound, and the target's daily API requests and Bulk API batches as the
+ * gate prices the records written (`sampleRequestsBoundOf`). Exported so it
+ * can be tested.
  *
  * A target that would not say its storage is drawn against the MB asked, or
  * the records asked alone — given, never a default nobody asked for: with
@@ -5953,6 +5958,9 @@ const DOCUMENTED_RECORD_BYTES = 2 * 1024;
  *
  * @param input.automation - What still runs creates under one record of
  *   each object the run writes (`automationRoomOf`).
+ * @param input.allowances - The target's daily requests, read with its
+ *   storage or on their own, its Bulk API batches, what the command has sent
+ *   it so far and the objects its second pass writes again.
  * @throws {ForgeRunGateError} `SAMPLE_STORAGE_UNREAD`, the storage unread and
  *   neither `--fit-within` nor `--max-total` given.
  */
@@ -5961,6 +5969,7 @@ export function sampleBudgetOf(input: {
   sample: CliSample;
   target: string;
   automation?: readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
+  allowances?: SampleAllowances;
 }): SampleBudgetTerms {
   const { storage, sample, target } = input;
   const { withinMB } = sample.options;
@@ -5968,21 +5977,29 @@ export function sampleBudgetOf(input: {
   const unread = sampleStorageUnreadStopOf({ storage, bounds: sampleAskedOf(sample), target });
   if (unread) throw ForgeRunGateError.of(unread);
   const automation = input.automation ? { automation: input.automation } : {};
+  const allowances = input.allowances ? { allowances: input.allowances } : {};
   const terms = sampleBudgetTermsOf({
     storage,
     ...(withinMB !== undefined ? { withinMB } : {}),
     ...automation,
+    ...allowances,
   });
   if (terms) return { ...terms, budget: { ...terms.budget, maxTotal } };
   // The storage unread and no MB asked: held to the records asked alone, no
   // byte bound ever holds it, and its room is those records at the size most
-  // records take; what the automation creates under each is kept as ever.
-  const room = sampleBudgetTermsOf({ storage: { maxMB: 0, remainingMB: 0 }, ...automation });
+  // records take; what the automation creates under each is kept as ever, and
+  // so are the target's requests.
+  const room = sampleBudgetTermsOf({
+    storage: { maxMB: 0, remainingMB: 0 },
+    ...automation,
+    ...allowances,
+  });
   return {
     budget: { bytes: Number.MAX_SAFE_INTEGER, maxTotal, limitedBy: 'maxTotal' },
     bytesLimit: 'within',
     roomBytes: maxTotal * DOCUMENTED_RECORD_BYTES,
     ...(room?.automationBytes ? { automationBytes: room.automationBytes } : {}),
+    ...(room?.requests ? { requests: room.requests } : {}),
   };
 }
 
@@ -14514,13 +14531,30 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         : await readApiBudget(connOf(conns, args.source)).catch(unreadOf);
     sampleStream = {
       options: sampleOptionsOfTheLine(sample),
-      budget: async () =>
-        sampleBudgetOf({
-          storage: await readDataStorage(targetConn).catch(unreadOf),
+      budget: async () => {
+        const storage = await readDataStorage(targetConn).catch(unreadOf);
+        // The target's daily requests and Bulk API batches hold the records
+        // the sample writes as its gate holds them: read with the storage,
+        // or the requests on their own when it could not be, as the gate
+        // reads them.
+        const requests =
+          'unread' in storage
+            ? await readApiBudget(targetConn).catch(unreadOf)
+            : storage.dailyApiRequests;
+        const bulkBatches = 'unread' in storage ? undefined : storage.dailyBulkApiBatches;
+        return sampleBudgetOf({
+          storage,
           sample,
           target: args.target,
           automation: room,
-        }),
+          allowances: {
+            ...(requests ? { requests } : {}),
+            ...(bulkBatches ? { bulkBatches } : {}),
+            sentBefore: sentBeforeTheGate().target,
+            updatedAfterInsert: [...updatedNames],
+          },
+        });
+      },
       keepAt:
         args.dryRun || journalId === undefined
           ? dryRunPlanDirOf(storagePath, drawFingerprint)

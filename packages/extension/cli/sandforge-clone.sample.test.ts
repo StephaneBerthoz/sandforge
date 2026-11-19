@@ -1766,6 +1766,41 @@ describe('sandforge-clone --depth all --fit share, run whole', () => {
     expect(orgs.target.creates).toEqual([]);
   });
 
+  // Every record fits the storage, not the 24 requests the target has left:
+  // 23 to write them and read the target, the parents of the accounts filled
+  // in by a second pass among them, and what the command sent it before.
+  // Drawn against the storage alone, the dry run said every record fits, and
+  // that its run would be refused for the requests.
+  it('is cut to what the daily API requests of the target leave, and says so, its run let through', async () => {
+    const tight = {
+      ...LIMITS,
+      DataStorageMB: { Max: 200, Remaining: 100 },
+      DailyApiRequests: { Max: 20, Remaining: 24 },
+    };
+    withFakeOrgs({ source: sourceOf(1_000, 50), target: { limits: tight } });
+
+    expect(await run(argv('--fit', 'share', '--dry-run', '--json'))).toBeUndefined();
+
+    const dry = JSON.parse(stdout.join('')) as DryRunJson & {
+      wholeOrg: { requests: { target: { verdict: string; estimate: number } } };
+    };
+    const { sample } = dry.wholeOrg;
+    expect(sample.budget.limitedBy).toBe('targetRequests');
+    expect(sample.rows).toBeGreaterThan(0);
+    expect(sample.rows).toBeLessThan(2_050);
+    expect(dry.wholeOrg.requests.target.estimate).toBeLessThanOrEqual(24);
+    expect(dry.wouldBeRefusedCodes ?? []).toEqual([]);
+    expect(stderr.join('')).toContain('limited by the daily API requests TGT has left');
+
+    stdout = [];
+    stderr = [];
+    const orgs = withFakeOrgs({ source: sourceOf(1_000, 50), target: { limits: tight } });
+    expect(
+      await run(argv('--fit', 'share', '--fit-plan', sample.plan.path, '--yes', '--json')),
+    ).toBeUndefined();
+    expect(orgs.target.creates.reduce((sum, { rows }) => sum + rows.length, 0)).toBe(sample.rows);
+  });
+
   it('is refused SAMPLE_CANNOT_FIT, exit 1, naming the heaviest, when the roots each object keeps alone take more than it may', async () => {
     const orgs = withFakeOrgs({ target: { limits: DEVELOPER_EDITION } });
 

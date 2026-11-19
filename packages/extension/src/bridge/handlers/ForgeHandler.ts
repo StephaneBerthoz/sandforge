@@ -3677,6 +3677,11 @@ export class ForgeHandler implements DomainHandler {
           target: targetName,
           lookup,
           room: () => automationRoomOf(running, writes).perRecord,
+          // What its gate prices as sent before the run, which the cut leaves
+          // room for beside the records it writes.
+          sentBefore: () =>
+            automationSent + (this.discoverySent.get(discoveryKey(config, graph))?.target ?? 0),
+          updatedAfterInsert: [...updatedNames],
           onProgress: throttledSampling,
         });
       }
@@ -5203,6 +5208,10 @@ export class ForgeHandler implements DomainHandler {
     lookup: { requests: number };
     /** What the target's automation that still runs creates under each record the run writes. */
     room: () => readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
+    /** What was sent the target before the run's gate, as the gate counts it. */
+    sentBefore?: () => number;
+    /** The objects whose records the run's second pass writes again. */
+    updatedAfterInsert?: readonly string[];
     onProgress: (progress: ForgeSamplingProgress) => void;
   }): Promise<SampleOfTheRun> {
     const { config } = run;
@@ -5287,10 +5296,28 @@ export class ForgeHandler implements DomainHandler {
           target: run.target,
         });
         if (unread) throw ForgeRunGateError.of(unread);
+        // The target's daily requests and Bulk API batches hold the records
+        // the sample writes as its gate holds them: read with the storage, or
+        // the requests on their own when it could not be, as the gate reads
+        // them.
+        let requests: ApiBudget | { unread: string } | undefined;
+        if ('unread' in storage) {
+          run.lookup.requests++;
+          requests = await this.readTargetApiBudget(config.targetOrgId);
+        } else {
+          requests = storage.dailyApiRequests;
+        }
+        const bulkBatches = 'unread' in storage ? undefined : storage.dailyBulkApiBatches;
         const terms = sampleBudgetTermsOf({
           storage,
           ...(withinMB !== undefined ? { withinMB } : {}),
           automation: run.room(),
+          allowances: {
+            ...(requests ? { requests } : {}),
+            ...(bulkBatches ? { bulkBatches } : {}),
+            ...(run.sentBefore ? { sentBefore: run.sentBefore() } : {}),
+            ...(run.updatedAfterInsert ? { updatedAfterInsert: run.updatedAfterInsert } : {}),
+          },
         });
         if (!terms) throw new Error('No budget of the sample could be read. Nothing was written.');
         return terms;
