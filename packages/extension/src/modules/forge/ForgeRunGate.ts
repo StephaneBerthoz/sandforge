@@ -1186,9 +1186,11 @@ export const WHOLE_ORG_SOURCE_READS_PER_OBJECT = 3;
  *   reads of the target as it writes each object
  *   ({@link WHOLE_ORG_TARGET_READS_PER_OBJECT}); a call per file it copies
  *   (`files`); and what was sent the target before the gate (`sentBefore`):
- *   from the command line, all it sent, as counted; from the panel, what the
- *   discovery of the run's graph and the read of the target's automation
- *   sent;
+ *   from the command line, all it sent, as counted; from the panel, the same
+ *   told by what sent it — the discovery of the run's graph, the read of the
+ *   target's automation, its record types and limits read for the run, and
+ *   what the run's executor sent it, its describes and the records it looked
+ *   for there among them;
  * - `checkpoint`: the take of the checkpoint it takes first, as its scope
  *   estimates it;
  * - `mute`: the lease of the mute it holds while it writes, from its take
@@ -1219,9 +1221,10 @@ export function forgeRequestPartsOf(input: {
    * The requests the command line sent the target before the gate priced
    * the run, counted as they went (`countRequests`), the read of the
    * deliverability apart: priced as sent, so that the price is of the whole
-   * run, as the summary's `sent` counts it. The panel tells what the
-   * discovery of the run's graph and the read of the target's automation
-   * sent, which the run's own count leaves out. Absent, none.
+   * run, as the summary's `sent` counts it. The panel tells the same of its
+   * target: what the discovery of the run's graph and the read of its
+   * automation sent it, which the run's own count leaves out, and of that
+   * count what went to the target. Absent, none.
    */
   sentBefore?: number;
 }): RunRequestParts {
@@ -2157,8 +2160,8 @@ export const DELIVERABILITY_READ_MOST = 2;
  * @param input.sentBefore - What the command line has sent each org, as
  *   counted, the read of the deliverability apart: read once the dry run has
  *   read the limits, and priced as sent. The panel tells the target's alone,
- *   what the discovery of the org sent it; the source is then priced as
- *   without it.
+ *   what the discovery of the org, the read of its automation and the run
+ *   sent it; the source is then priced as without it.
  * @param input.sample - Of a sample of the whole org, what its plan drew:
  *   said first, its counts those `objects` hands over, and held, as its
  *   run's gate holds it, to what the target has left now

@@ -365,13 +365,14 @@ describe('forge:execute of the whole org', () => {
 
   /**
    * The real orchestrator over a fake executor that hands `boundary` to the
-   * gate, then "writes" — `whileWriting` stands for what it does then — and
-   * gives the lease the gate took back once its last write is through, as
-   * the executor does.
+   * gate — `beforeTheGate` stands for what it reads before —, then "writes"
+   * — `whileWriting` stands for what it does then — and gives the lease the
+   * gate took back once its last write is through, as the executor does.
    */
   function orchestratorHanding(
     boundary: ForgeWriteBoundary = boundaryOf(),
     whileWriting?: () => void,
+    beforeTheGate?: () => void,
   ): ForgeOrchestrator {
     const executor = {
       execute: vi.fn(
@@ -383,6 +384,7 @@ describe('forge:execute of the whole org', () => {
           options?: ExecuteOptions,
         ): Promise<ExecutionSummary> => {
           handed.push(options);
+          beforeTheGate?.();
           const answer = await options?.beforeWrite?.({
             ...boundary,
             dryRun: options.dryRun === true,
@@ -994,6 +996,32 @@ describe('forge:execute of the whole org', () => {
 
       expect(discovered.targetRequests.estimate).toBe(alone.targetRequests.estimate + 40);
       expect(discovered.sourceRequests.estimate).toBe(alone.sourceRequests.estimate);
+    });
+
+    it('prices too what its executor sent the target before its gate, as its run’s gate does, never what it read of the source', async () => {
+      const dryRunOf = async (sent: { source: number; target: number }) => {
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        const counted = new Map<string, number>();
+        use(
+          orchestratorHanding(boundaryOf(), undefined, () => {
+            counted.set('src-org', sent.source);
+            counted.set('tgt-org', sent.target);
+          }),
+          {
+            requestsSent: () => [...counted.values()].reduce((sum, n) => sum + n, 0),
+            requestsSentTo: (orgId) => counted.get(orgId) ?? 0,
+          },
+        );
+        await simulate();
+        const [response] = posted('forge:execute:response');
+        return response.payload.wholeOrgDryRun as WholeOrgDryRun;
+      };
+
+      const alone = await dryRunOf({ source: 0, target: 0 });
+      const read = await dryRunOf({ source: 60, target: 9 });
+
+      expect(read.targetRequests.estimate).toBe(alone.targetRequests.estimate + 9);
+      expect(read.sourceRequests.estimate).toBe(alone.sourceRequests.estimate);
     });
 
     it('ends as a failure when its run would be refused, naming every refusal', async () => {

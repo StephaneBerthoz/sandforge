@@ -440,6 +440,28 @@ describe('initForgeComposition', () => {
     expect((services.requestsSent?.() ?? 0) - (before ?? 0)).toBe(result.apiCalls);
   });
 
+  it('hands the handlers too what the executor sent each org, which a run’s gate prices what it sent its target by', async () => {
+    // One count of both orgs: the source's reads, priced against the
+    // target's requests, would refuse runs that fit.
+    const { orchestrator, services } = await compose();
+    const { executor } = (orchestrator as unknown as { deps: { executor: ForgeExecutor } }).deps;
+    const deps = (executor as unknown as { deps: ForgeExecutorDeps }).deps;
+    const before = {
+      all: services.requestsSent?.() ?? 0,
+      source: services.requestsSentTo?.('src') ?? 0,
+      target: services.requestsSentTo?.('tgt') ?? 0,
+    };
+
+    await deps.countRecords?.('src', 'SELECT COUNT() FROM Account');
+    await deps.queryRecords('src', 'SELECT Id FROM Account');
+    await deps.describeObject?.('tgt', 'Contact');
+    await deps.insertRecords('tgt', 'Account', [{ Name: 'Acme' }]);
+
+    expect((services.requestsSentTo?.('src') ?? 0) - before.source).toBe(2);
+    expect((services.requestsSentTo?.('tgt') ?? 0) - before.target).toBe(2);
+    expect((services.requestsSent?.() ?? 0) - before.all).toBe(4);
+  });
+
   it('links the children of an Account the target refused as a duplicate to the record it named', async () => {
     // The target already holds both Accounts: its unique index refuses each,
     // naming the record, the way sObject Collections answers.

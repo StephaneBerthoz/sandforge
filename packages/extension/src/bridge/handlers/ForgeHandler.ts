@@ -1081,6 +1081,23 @@ function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/**
+ * The requests sent for a run besides its executor's, both orgs alike, as its
+ * result counts them (`requests`), and of them those its target was sent
+ * (`target`): what its write gate prices with its writes. Without `target`,
+ * none is told apart.
+ */
+interface RunLookups {
+  requests: number;
+  target?: number;
+}
+
+/** Count `requests` sent the target of a run for it, besides its executor's. */
+function sentTheTarget(lookup: RunLookups, requests = 1): void {
+  lookup.requests += requests;
+  if (lookup.target !== undefined) lookup.target += requests;
+}
+
 /** Optional v2 services injected alongside the ForgeOrchestrator. */
 export interface ForgeServices {
   /** Optional plan generator for wave-based planning. */
@@ -1116,6 +1133,12 @@ export interface ForgeServices {
    * it the progress says none, as the result does.
    */
   requestsSent?: () => number;
+  /**
+   * Of those requests, how many went to `orgId`: what a run's write gate
+   * prices of what the executor sent its target before it, the source's
+   * reads apart. Without it the gate prices none of them.
+   */
+  requestsSentTo?: (orgId: string) => number;
   /**
    * What a run that mutes the target's automation reads and assigns in the
    * target (`AutomationMuteLease`): the org's connection, unless told.
@@ -2018,6 +2041,8 @@ export class ForgeHandler implements DomainHandler {
   private targetGaps?: TargetGapReader;
   /** The requests the executor's deps have sent so far, when they count them. */
   private requestsSent?: () => number;
+  /** Of those, the ones sent one org, when they count them by org. */
+  private requestsSentTo?: (orgId: string) => number;
   /** What a run that mutes reads and assigns in its target, when not the org's connection. */
   private muteOrgOf?: (orgId: string) => Promise<MuteOrg>;
   /** Where and how the mute leases are kept, when not the home directory's. */
@@ -2212,6 +2237,7 @@ export class ForgeHandler implements DomainHandler {
       this.removalPlans = services.removalPlans;
       this.runJournal = services.runJournal;
       this.requestsSent = services.requestsSent;
+      this.requestsSentTo = services.requestsSentTo;
       this.muteOrgOf = services.muteOrg;
       this.muteLeases = services.muteLeases;
       this.lostBulkJobs = services.lostBulkJobs;
@@ -3225,10 +3251,16 @@ export class ForgeHandler implements DomainHandler {
       journalLock?.release();
       journalLock = undefined;
     };
-    /** The requests sent for the run before the executor had it: both orgs' record types. */
-    const lookup = { requests: 0 };
+    /**
+     * The requests sent for the run besides the executor's, both orgs' record
+     * types and the reads of the target's limits among them, and of them those
+     * its target was sent (`target`).
+     */
+    const lookup: RunLookups = { requests: 0, target: 0 };
     /** What the executor's deps had sent when it was handed the run; unknown before, or uncounted. */
     let requestsAtStart: number | undefined;
+    /** Of it, what they had sent the target; unknown when they count no org apart. */
+    let targetRequestsAtStart: number | undefined;
     /**
      * The calls the run has made so far, counted as its result counts them
      * once it ends: the record types read for it, and what the executor's deps
@@ -3253,6 +3285,28 @@ export class ForgeHandler implements DomainHandler {
     let targetAutomation: TargetAutomationRead | undefined;
     /** What that read sent the target, Review's own when the run took it (`automationReadRequests`). */
     let automationSent = 0;
+    /**
+     * What was sent the target to prepare the run by the time its write gate
+     * prices it, which the price counts with its writes, as the command line
+     * counts all it sent the target before its gate: the discovery of its
+     * graph, the read of its automation, its record types and its limits read
+     * for the run, and what the executor has sent it since it had the run —
+     * its describes and the records it looked for there among them. The read
+     * of whether it delivers its emails is priced on its own. Priced without
+     * what the run itself sent, the gate let a run through on less than it
+     * took of the day.
+     */
+    const sentTheTargetBefore = (): number => {
+      const now = this.requestsSentTo?.(config.targetOrgId);
+      const executor =
+        now === undefined || targetRequestsAtStart === undefined ? 0 : now - targetRequestsAtStart;
+      return (
+        automationSent +
+        (this.discoverySent.get(discoveryKey(config, graph))?.target ?? 0) +
+        (lookup.target ?? 0) +
+        executor
+      );
+    };
     /** Of a simulation, what it would write, kept for the run of its case that follows once it ends. */
     let simulatedPlan: WritePlan | undefined;
     /** The mute the run asked for, held while it writes; undefined when it asked none, or nothing can be muted. */
@@ -3438,6 +3492,8 @@ export class ForgeHandler implements DomainHandler {
           run: 'clone',
           keepsAddresses: config.keepContactPoints === true,
         });
+        // Priced on its own at the gate (`deliverability`), not among what
+        // was sent the target before it.
         lookup.requests += emails.ofRun.read?.requests ?? 0;
         if (runController.signal.aborted) {
           stoppedBeforeStart = true;
@@ -3550,6 +3606,7 @@ export class ForgeHandler implements DomainHandler {
       runUserId = await runUserRead;
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
+      targetRequestsAtStart = this.requestsSentTo?.(config.targetOrgId);
       lostJobsAtStart = this.lostBulkJobs?.count;
       // What a run writes is kept on disk as it goes, so a window closed under
       // the run leaves its records removable, and a run that stops can be
@@ -3702,8 +3759,7 @@ export class ForgeHandler implements DomainHandler {
           room: () => automationRoomOf(running, writes).perRecord,
           // What its gate prices as sent before the run, which the cut leaves
           // room for beside the records it writes.
-          sentBefore: () =>
-            automationSent + (this.discoverySent.get(discoveryKey(config, graph))?.target ?? 0),
+          sentBefore: sentTheTargetBefore,
           updatedAfterInsert: [...updatedNames],
           onProgress: throttledSampling,
         });
@@ -3745,13 +3801,11 @@ export class ForgeHandler implements DomainHandler {
         emailsPerInsert,
         ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
         ...deliverabilityPartOf(emails?.ofRun),
-        // What was sent the target to prepare the run, which the run's own
-        // count leaves out: the discovery of its graph and the read of its
-        // automation, priced as the command line prices what it sent before
-        // its gate. Priced without them, a run of a graph whose discovery
-        // read the target was let through on its writes alone.
-        sentBefore:
-          automationSent + (this.discoverySent.get(discoveryKey(config, graph))?.target ?? 0),
+        // What was sent the target to prepare the run, read as the gate
+        // prices it, as the command line prices what it sent before its
+        // gate. Priced without it, a run of a graph whose discovery read the
+        // target was let through on its writes alone.
+        sentBefore: sentTheTargetBefore,
         // The lease its mute holds while it writes, from the plan the run took
         // it from, or the one a simulation planned.
         mute: muteLeaseRequests(mute?.plan ?? simulatedMute),
@@ -5117,14 +5171,14 @@ export class ForgeHandler implements DomainHandler {
   /**
    * How a dry run of a clone of the whole org reads an org's `/limits`: the
    * org's connection, opened as the read is sent, each read bounded as the
-   * gate's are and counted with the requests made for the run. A connection
-   * that cannot be opened fails the read, which the dry run says it could not
-   * make.
+   * gate's are and counted with the requests made for the run (`sent`). A
+   * connection that cannot be opened fails the read, which the dry run says
+   * it could not make.
    */
-  private limitsTransportOf(orgId: string, lookup: { requests: number }): LimitsTransport {
+  private limitsTransportOf(orgId: string, sent: () => void): LimitsTransport {
     return {
       request: async (request) => {
-        lookup.requests++;
+        sent();
         const conn: LimitsTransport = await getJsforceConnection(
           orgId,
           this.deps.orgRegistry,
@@ -5155,7 +5209,7 @@ export class ForgeHandler implements DomainHandler {
   private async jobsStillRunning(
     targetOrgId: string,
     mark: number | undefined,
-    lookup: { requests: number },
+    lookup: RunLookups,
   ): Promise<ForgeBulkJobPastMute[]> {
     const lost = this.lostBulkJobs;
     if (!lost || mark === undefined) return [];
@@ -5166,7 +5220,7 @@ export class ForgeHandler implements DomainHandler {
       { jobs: jobs.map((job) => `${job.objectApiName} ${job.jobId ?? '(no id)'}`) },
     );
     const running = await lost.stillRunning(jobs, () => {
-      lookup.requests++;
+      sentTheTarget(lookup);
     });
     if (running.length > 0) {
       logger.warn(
@@ -5229,7 +5283,7 @@ export class ForgeHandler implements DomainHandler {
     volumeCase: string;
     /** The target, as the user knows it. */
     target: string;
-    lookup: { requests: number };
+    lookup: RunLookups;
     /** What the target's automation that still runs creates under each record the run writes. */
     room: () => readonly Pick<RoomPerRecord, 'objectApiName' | 'bytes'>[];
     /** What was sent the target before the run's gate, as the gate counts it. */
@@ -5308,7 +5362,7 @@ export class ForgeHandler implements DomainHandler {
     const stream: ForgeSampleStream = {
       options: config.sample ?? {},
       budget: async () => {
-        run.lookup.requests++;
+        sentTheTarget(run.lookup);
         const storage = await this.readTargetDataStorage(config.targetOrgId);
         const unread = sampleStorageUnreadStopOf({
           storage,
@@ -5322,7 +5376,7 @@ export class ForgeHandler implements DomainHandler {
         // them.
         let requests: ApiBudget | { unread: string } | undefined;
         if ('unread' in storage) {
-          run.lookup.requests++;
+          sentTheTarget(run.lookup);
           requests = await this.readTargetApiBudget(config.targetOrgId);
         } else {
           requests = storage.dailyApiRequests;
@@ -5466,7 +5520,7 @@ export class ForgeHandler implements DomainHandler {
     /** The source, as the user knows it: named by the question of a clone from records. */
     source: string;
     orgTier: SafetyTier;
-    lookup: { requests: number };
+    lookup: RunLookups;
     /** The emails the target's flows send per record inserted, from the automation read before the run. */
     emailsPerInsert: readonly ForgeEmailsPerInsert[];
     /**
@@ -5498,10 +5552,11 @@ export class ForgeHandler implements DomainHandler {
     /** What the lease of the mute the run holds while it writes sends (`muteLeaseRequests`). */
     mute?: number;
     /**
-     * What was sent the target before the gate to prepare the run, which the
-     * run's own count leaves out: priced with its writes (`forgeRequestPartsOf`).
+     * What was sent the target to prepare the run, read as the gate prices it
+     * — the reads of its limits by the gate among it: priced with its writes
+     * (`forgeRequestPartsOf`).
      */
-    sentBefore?: number;
+    sentBefore?: () => number;
     /** Of a clone of the whole org, what it brings its gate besides; absent for any other run. */
     wholeOrg?: WholeOrgRun;
     /**
@@ -5556,6 +5611,7 @@ export class ForgeHandler implements DomainHandler {
       // the counts, only what they cannot tell is read, nothing asked or
       // written.
       if (boundary.dryRun && whole && measures) {
+        const { sentBefore } = run;
         const simulated = wholeOrgWritePlanOf(boundary.objects, measures);
         run.onSimulated?.(simulated);
         const ask = askOf(simulated);
@@ -5583,19 +5639,19 @@ export class ForgeHandler implements DomainHandler {
           ...(run.mute !== undefined ? { mute: run.mute } : {}),
           ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
           // What was sent the target before, as its run's gate prices it.
-          ...(run.sentBefore !== undefined
-            ? { sentBefore: () => ({ target: run.sentBefore ?? 0 }) }
-            : {}),
+          ...(sentBefore ? { sentBefore: () => ({ target: sentBefore() }) } : {}),
           target: {
             org: run.org,
             limits: limitsOfOrg(
-              this.limitsTransportOf(run.targetOrgId, run.lookup),
+              this.limitsTransportOf(run.targetOrgId, () => sentTheTarget(run.lookup)),
               run.targetOrgId,
             ),
           },
           source: {
             org: whole.source,
-            limits: this.limitsTransportOf(whole.sourceOrgId, run.lookup),
+            limits: this.limitsTransportOf(whole.sourceOrgId, () => {
+              run.lookup.requests++;
+            }),
           },
           ...(sample ? { sample } : {}),
           ...(run.automationRoom ? { automation: run.automationRoom() } : {}),
@@ -5643,7 +5699,7 @@ export class ForgeHandler implements DomainHandler {
         ? wholeOrgWritePlanOf(boundary.objects, measures)
         : writePlanOf(boundary.objects);
       if (plan.totalRows === 0) return {};
-      run.lookup.requests++;
+      sentTheTarget(run.lookup);
       const limits = await this.readTargetDataStorage(run.targetOrgId);
       // What the target's automation that still runs creates under them,
       // counted with them, whatever the run clones: a clone from records
@@ -5718,7 +5774,7 @@ export class ForgeHandler implements DomainHandler {
       // question, nothing taken.
       let budget: ApiBudget | { unread: string } | undefined;
       if ('unread' in limits) {
-        run.lookup.requests++;
+        sentTheTarget(run.lookup);
         budget = await this.readTargetApiBudget(run.targetOrgId);
       } else {
         budget = limits.dailyApiRequests;
@@ -5750,7 +5806,7 @@ export class ForgeHandler implements DomainHandler {
         ...(estimate ? { checkpoint: estimate } : {}),
         ...(run.mute !== undefined ? { mute: run.mute } : {}),
         ...(run.deliverability !== undefined ? { deliverability: run.deliverability } : {}),
-        ...(run.sentBefore !== undefined ? { sentBefore: run.sentBefore } : {}),
+        ...(run.sentBefore ? { sentBefore: run.sentBefore() } : {}),
         budget,
         target: run.org,
         ...(whole && measures
@@ -5832,7 +5888,7 @@ export class ForgeHandler implements DomainHandler {
       // records whose flows fail past it were refused one by one.
       const unreadEmails: NonNullable<WriteConfirmation['emailsUnread']> = [];
       if (run.emailsPerInsert.length > 0) {
-        run.lookup.requests++;
+        sentTheTarget(run.lookup);
         for (const check of countedEmailChecksOf(
           plan,
           run.emailsPerInsert,
@@ -5971,7 +6027,7 @@ export class ForgeHandler implements DomainHandler {
   private async loadRecordTypeMappings(
     config: ForgeConfig,
     signal: AbortSignal,
-    sent: { requests: number },
+    sent: RunLookups,
   ): Promise<RecordTypeMapping[] | undefined> {
     let onAbort: () => void = () => {};
     const aborted = new Promise<undefined>((resolve) => {
@@ -5995,22 +6051,26 @@ export class ForgeHandler implements DomainHandler {
     }
   }
 
-  /** Both orgs' record types, matched, each request sent counted in `sent`. */
+  /** Both orgs' record types, matched, each request sent counted in `sent`, the target's apart. */
   private async readRecordTypeMappings(
     config: ForgeConfig,
-    sent: { requests: number },
+    sent: RunLookups,
   ): Promise<RecordTypeMapping[]> {
     const [sourceTypes, targetTypes] = await Promise.all(
       [config.sourceOrgId, config.targetOrgId].map(async (orgId) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const count = (): void => {
+          if (orgId === config.targetOrgId) sentTheTarget(sent);
+          else sent.requests++;
+        };
         const { records } = await queryAllPages<Record<string, unknown>>(
           {
             query: async (q) => {
-              sent.requests++;
+              count();
               return conn.query<Record<string, unknown>>(q);
             },
             queryMore: async (url) => {
-              sent.requests++;
+              count();
               return conn.queryMore<Record<string, unknown>>(url);
             },
           },

@@ -281,13 +281,18 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
 
         /**
          * The requests the executor's deps have sent, which a run counts its
-         * calls by (`requestsSent`). Discovery and the drift check describe
-         * through the same cache and add nothing here: a describe the run
-         * found held, or already under way, is not one it sent.
+         * calls by (`requestsSent`), and of them those each org was sent, by
+         * its id (`requestsSentTo`): what a run's write gate prices of what it
+         * sent its target before it, the source's reads apart. Discovery and
+         * the drift check describe through the same cache and add nothing
+         * here: a describe the run found held, or already under way, is not
+         * one it sent.
          */
         let executorRequests = 0;
-        const countExecutorRequest = (): void => {
-          executorRequests++;
+        const executorRequestsTo = new Map<string, number>();
+        const countExecutorRequest = (orgId: string, requests = 1): void => {
+          executorRequests += requests;
+          executorRequestsTo.set(orgId, (executorRequestsTo.get(orgId) ?? 0) + requests);
         };
 
         /**
@@ -486,11 +491,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
               {
                 // jsforce hands back a thenable `Query`, not a Promise.
                 query: async (q) => {
-                  countExecutorRequest();
+                  countExecutorRequest(orgId);
                   return conn.query<Record<string, unknown>>(q);
                 },
                 queryMore: async (url) => {
-                  countExecutorRequest();
+                  countExecutorRequest(orgId);
                   return conn.queryMore<Record<string, unknown>>(url);
                 },
               },
@@ -525,15 +530,15 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
               yield* cursorPages<Record<string, unknown>>(
                 {
                   query: async (q) => {
-                    countExecutorRequest();
+                    countExecutorRequest(orgId);
                     return conn.query<Record<string, unknown>>(q);
                   },
                   queryAll: async (q) => {
-                    countExecutorRequest();
+                    countExecutorRequest(orgId);
                     return conn.query<Record<string, unknown>>(q, { scanAll: true });
                   },
                   queryMore: async (url) => {
-                    countExecutorRequest();
+                    countExecutorRequest(orgId);
                     return conn.queryMore<Record<string, unknown>>(url);
                   },
                 },
@@ -543,14 +548,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             })(),
           countRecords: async (orgId, soql, options) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return (await conn.query(soql, options?.all ? { scanAll: true } : undefined)).totalSize;
           },
           // The org's currency settings, one row: whether advanced currency
           // management is on, which the user's access cannot always tell.
           queryTooling: async (orgId, soql) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return (await conn.tooling.query<Record<string, unknown>>(soql)).records;
           },
           // `allowRecursive` is what makes jsforce split an oversized array
@@ -562,7 +567,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // found: any future writer through these deps is bounded by default.
           insertRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
+            countExecutorRequest(orgId, Math.ceil(records.length / RECORDS_PER_WRITE_CALL));
             /*
              * A clone is a deliberate duplicate. The target sandbox is a copy
              * of the org the records come from, so a duplicate rule fires on
@@ -587,7 +592,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           },
           updateRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
+            countExecutorRequest(orgId, Math.ceil(records.length / RECORDS_PER_WRITE_CALL));
             const results = await conn
               .sobject(objectName)
               .update(records as unknown as { Id: string }[], {
@@ -606,7 +611,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           },
           upsertRecords: async (orgId, objectName, externalIdField, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            executorRequests += Math.ceil(records.length / RECORDS_PER_WRITE_CALL);
+            countExecutorRequest(orgId, Math.ceil(records.length / RECORDS_PER_WRITE_CALL));
             const results = await conn
               .sobject(objectName)
               .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
@@ -616,7 +621,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             return toSaveOutcomes(results, objectName);
           },
           describeFields: async (orgId, objectName) => {
-            const described = await describeOnce(orgId, objectName, [], countExecutorRequest);
+            const described = await describeOnce(orgId, objectName, [], () =>
+              countExecutorRequest(orgId),
+            );
             return described.fields.map((f) => ({
               name: f.name,
               type: f.type,
@@ -639,11 +646,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>
-            (await describeOnce(orgId, objectName, [], countExecutorRequest)).createable,
+            (await describeOnce(orgId, objectName, [], () => countExecutorRequest(orgId)))
+              .createable,
           // The describe the field sets were read from: a run asks it for the
           // key prefix and record types without a request of its own.
           describeObject: async (orgId, objectName) => {
-            const described = await describeOnce(orgId, objectName, [], countExecutorRequest);
+            const described = await describeOnce(orgId, objectName, [], () =>
+              countExecutorRequest(orgId),
+            );
             // A record type closed to the running user is what the run tells
             // the user to change in the target. Kept for five minutes, the
             // answer would hold the object back again on the retry that
@@ -660,7 +670,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // from before it says the types as they were.
           describeObjectAgain: async (orgId, objectName) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             const described = toForgeObjectDescribe(await conn.describe(objectName));
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
           },
@@ -668,7 +678,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // request per object and record type, which the run keeps.
           recordTypePicklists: async (orgId, objectName, recordTypeId) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return readRecordTypePicklists(conn, objectName, recordTypeId);
           },
           batchStrategy: batchStrategyService,
@@ -676,17 +686,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // request each way, and the target's file storage before any.
           readFileBody: async (orgId, objectApiName, id) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return fileTransfer.readFileBody(conn, objectApiName, id);
           },
           insertFile: async (orgId, objectApiName, record) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return fileTransfer.insertFile(conn, objectApiName, record);
           },
           remainingFileStorageMB: async (orgId) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return fileTransfer.remainingFileStorageMB(conn);
           },
           requestsSent: () => executorRequests,
@@ -701,7 +711,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // does not hold: the API says it of an org that holds no other.
           orgCurrency: async (orgId) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return orgCurrencyOf(await conn.soap.getUserInfo());
           },
           // A write sent as a Bulk API job, on the run's own job limiter; each
@@ -726,7 +736,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             }
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const tracked = trackedBulkConnection(jsforceBulk(conn), (requests) => {
-              executorRequests += requests;
+              countExecutorRequest(orgId, requests);
             });
             try {
               return await forgeBulkWrite(
@@ -757,7 +767,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // carries no header that waives one.
           duplicateRuleObjects: async (orgId) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            countExecutorRequest();
+            countExecutorRequest(orgId);
             return objectsUnderDuplicateRules(conn);
           },
           // No `anonymize`: what a run anonymizes comes with the run — the
@@ -956,6 +966,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.
           requestsSent: () => executorRequests,
+          // And what of it each org was sent: a run's gate prices what it
+          // sent its target before it, as the command line prices all it sent.
+          requestsSentTo: (orgId) => executorRequestsTo.get(orgId) ?? 0,
           lostBulkJobs: lostJobs,
         });
         // The plans of samples and the roots that simulations kept a day or

@@ -633,7 +633,8 @@ describe('forge:execute, the checkpoint taken first', () => {
   describe("the target's daily API requests", () => {
     it('refuses rows whose requests, the checkpoint among them, pass what the target has left, naming its part', async () => {
       // The rows take 2 requests, the read of the target's automation before
-      // them 3, the checkpoint 68: 73 against 50 left.
+      // them 3, its record types and its limits read for the run 2, the
+      // checkpoint 68: 75 against 50 left.
       limits = {
         DataStorageMB: { Max: 200, Remaining: 150 },
         DailyApiRequests: { Max: 15_000, Remaining: 50 },
@@ -652,7 +653,7 @@ describe('forge:execute, the checkpoint taken first', () => {
         gate: { code: 'API_BUDGET_EXCEEDED' },
       });
       expect(String(error?.payload.message)).toContain(
-        'The run takes about 73 API requests (68 of them for the checkpoint taken first), and DEV has 50 of its 15000 daily requests left',
+        'The run takes about 75 API requests (68 of them for the checkpoint taken first), and DEV has 50 of its 15000 daily requests left',
       );
     });
 
@@ -705,12 +706,13 @@ describe('forge:execute, the checkpoint taken first', () => {
 
       await execute({ checkpointFirst: {} });
 
-      // The run's own: its rows, and the read of the target's automation before them.
+      // The run's own: its rows, and what was sent the target before them —
+      // the read of its automation, its record types and its limits.
       expect(questions[1]?.stage === 'write' && questions[1].apiRequests).toEqual({
-        estimate: 73,
+        estimate: 75,
         remaining: 1_000,
         max: 15_000,
-        parts: { run: 5, checkpoint: 68 },
+        parts: { run: 7, checkpoint: 68 },
       });
     });
   });

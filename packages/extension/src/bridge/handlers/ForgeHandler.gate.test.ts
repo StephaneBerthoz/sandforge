@@ -2269,7 +2269,8 @@ describe('forge:execute, the gate before the first write', () => {
      * The command line prices with the run's writes what it sent the target
      * before its gate, discovery and the read of the target's automation
      * among it; the panel priced the writes alone. An account and a contact
-     * take two calls, and the target's automation is read in three.
+     * take two calls, the target's automation is read in three, and its
+     * record types and its limits in one each.
      */
 
     /** The target's limits, `remaining` of its daily requests left. */
@@ -2320,7 +2321,7 @@ describe('forge:execute, the gate before the first write', () => {
 
       await execute();
 
-      expect(refusal()).toContain('The run takes about 5 API requests');
+      expect(refusal()).toContain('The run takes about 7 API requests');
       // The rows the target refuses for a record lock go again, which no
       // estimate made before the write counts: said, as a sync's refusal is.
       expect(refusal()).toContain(`${LOCK_RESENDS_NOT_COUNTED} Nothing was written.`);
@@ -2334,7 +2335,40 @@ describe('forge:execute, the gate before the first write', () => {
       await discover();
       await execute();
 
-      expect(refusal()).toContain('The run takes about 9 API requests');
+      expect(refusal()).toContain('The run takes about 11 API requests');
+      expect(calls).not.toContain('written');
+    });
+
+    it('prices too what the run sent the target before its gate, never what it read of the source', async () => {
+      // What the executor sent the target once it had the run — its
+      // describes, the records it looked for there — beside the record types
+      // and limits read of it for the run: the command line prices all it
+      // sent the target before its gate, and the panel's gate, priced on the
+      // rest alone, let a run through below what it took of the day.
+      limits = leaving(10);
+      const sent = new Map<string, number>();
+      const send = (orgId: string, requests: number): void => {
+        sent.set(orgId, (sent.get(orgId) ?? 0) + requests);
+      };
+      const orchestrator = orchestratorHanding();
+      orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+        send('src-org', 30);
+        send('tgt-org', 4);
+        await options?.beforeWrite?.(boundaryOf(1));
+        calls.push('written');
+        return RESULT;
+      });
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        requestsSent: () => [...sent.values()].reduce((sum, n) => sum + n, 0),
+        requestsSentTo: (orgId) => sent.get(orgId) ?? 0,
+      });
+
+      await execute();
+
+      // Its 2 writes, the automation's 3, the record types' and the limits'
+      // 2, and the executor's 4 of the target; the source's 30 apart.
+      expect(refusal()).toContain('The run takes about 11 API requests');
       expect(calls).not.toContain('written');
     });
 
