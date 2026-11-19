@@ -37,9 +37,11 @@ import { MOCK_ORGS } from './fixtures';
  * suite had ever opened that page.
  *
  * The key rule is kept anyway, and costs nothing: built from the catalogue's
- * own top-level sections, it matches none of the 1755 strings English defines,
- * provided a match may not start after a dot — the only near-misses are help
- * texts quoting a setting id (`sandforge.grappe.enabled`).
+ * own top-level sections, it matches one of the 7851 strings English defines,
+ * as written, in capitals or in lower case — the host name
+ * `status.salesforce.com` in an error hint no first screen shows — provided a
+ * match may not start after a dot. The other near-misses are help texts quoting
+ * a setting id (`sandforge.grappe.enabled`).
  *
  * `innerText`, not `textContent`: it is what a person can read.
  */
@@ -88,10 +90,16 @@ const ROUTES: readonly string[] = [
  *
  * Built from the catalogue's own top-level sections. The lookbehind is what
  * keeps a quoted setting id (`sandforge.seed.defaultBatchSize`) out of it.
+ *
+ * In any case, because `innerText` applies `text-transform`: a key under a
+ * heading styled in capitals renders as `SIDEPANEL.GROUP.FILL`. Reading
+ * `textContent` instead would undo the styling but join the text of adjacent
+ * blocks with nothing between them, so a key opening a block would follow the
+ * last letter of the one before it, and the lookbehind would drop it.
  */
 const RAW_KEY = new RegExp(
   `(?<![A-Za-z0-9_.])(${Object.keys(EN_BUNDLE).sort().join('|')})\\.[A-Za-z0-9_]+`,
-  'g',
+  'gi',
 );
 
 /**
@@ -171,6 +179,26 @@ test.describe('every page reads as text, not as keys', () => {
     expect(table, 'panelComponents is not where this expects it').not.toBeNull();
     const mounted = [...(table?.[1] ?? '').matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]).sort();
     expect(mounted).toEqual([...ROUTES].sort());
+  });
+
+  test('the key rule sees a key the stylesheet sets in capitals or in lower case', async ({
+    page,
+  }) => {
+    // `innerText` is the text as styled. The side panel's group headings are
+    // set in capitals by their class, so a key rendered there reads
+    // `SIDEPANEL.GROUP.FILL`, and a rule matching the catalogue's own spelling
+    // let it through.
+    const key = 'sidePanel.group.fill';
+    await page.setContent(
+      `<div data-testid="panel-app">
+        <p style="text-transform: uppercase">${key}</p>
+        <p style="text-transform: lowercase">${key}</p>
+        <p>${key}</p>
+      </div>`,
+    );
+    const visible = await page.getByTestId('panel-app').innerText();
+    expect(visible).toContain(key.toUpperCase());
+    expect(visible.match(RAW_KEY)).toHaveLength(3);
   });
 
   for (const id of ROUTES) {
