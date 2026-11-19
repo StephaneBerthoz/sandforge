@@ -64,6 +64,13 @@ export interface SampleRow {
   /** The run links it to the target's own record, and never writes it: the standard price book. */
   matched?: boolean;
   /**
+   * The run writes another record in its place, one `also` names, and never
+   * this one: a price in a currency the target does not hold, written as the
+   * source's own price of its book and product in the currency it goes in.
+   * It weighs nothing, and is not sent.
+   */
+  replaced?: boolean;
+  /**
    * The records it cannot be written without that none of its lookups names:
    * a custom price's standard price, of its product, currency and selling
    * model. Null where the source holds none: the record cannot be written.

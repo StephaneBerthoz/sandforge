@@ -449,6 +449,123 @@ describe('drawing a sample of the whole org', () => {
 });
 
 /*
+ * A sample whose records name prices in a currency the target does not
+ * hold: the run writes in place of each the source's own price of its book
+ * and product in the currency it goes in, which the plan takes in with it.
+ */
+describe('a sample that draws the prices its lines name', () => {
+  const PRODUCTS = 10;
+  const STD = fakeId('01s', 1);
+  const PARTNERS = fakeId('01s', 2);
+  /** A price of product `n`, in the standard book or the partners', in USD or in GBP. */
+  const priceId = (n: number, book: 'std' | 'partners', currency: 'USD' | 'GBP'): string =>
+    fakeId('01u', (book === 'std' ? 1_000 : 2_000) + (currency === 'USD' ? 0 : 500) + n);
+
+  /** Each product priced in both books in USD and in GBP, and a line naming its partners' price in `named`. */
+  function catalogOf(named: 'USD' | 'GBP'): SampleSourceOrg {
+    const org = new SampleSourceOrg();
+    for (const [object, columns] of Object.entries(DESCRIBED)) org.columns.set(object, columns);
+    org.columns.set('Line__c', ['Id', 'Name', 'Price__c', 'CreatedDate', 'IsDeleted']);
+    org.add(
+      'Pricebook2',
+      { Id: STD, Name: 'Standard', IsStandard: true, IsDeleted: false },
+      { Id: PARTNERS, Name: 'Partners', IsStandard: false, IsDeleted: false },
+    );
+    for (let n = 1; n <= PRODUCTS; n++) {
+      org.add('Product2', {
+        Id: fakeId('01t', n),
+        Name: `P${n}`,
+        IsActive: true,
+        IsDeleted: false,
+      });
+      for (const book of ['std', 'partners'] as const) {
+        for (const currency of ['USD', 'GBP'] as const) {
+          org.add('PricebookEntry', {
+            Id: priceId(n, book, currency),
+            Pricebook2Id: book === 'std' ? STD : PARTNERS,
+            Product2Id: fakeId('01t', n),
+            CurrencyIsoCode: currency,
+            UnitPrice: n,
+            IsActive: true,
+            IsDeleted: false,
+          });
+        }
+      }
+      org.add('Line__c', {
+        Id: fakeId('a0L', n),
+        Name: `L${n}`,
+        Price__c: priceId(n, 'partners', named),
+        IsDeleted: false,
+      });
+    }
+    return org;
+  }
+
+  /** The whole catalog drawn, every line a root; the room too small for the catalog to go whole. */
+  function draw(org: SampleSourceOrg) {
+    return drawSampleOfTheOrg({
+      source: org.source(),
+      objects: [
+        { objectApiName: 'Pricebook2', rows: 2, keyPrefix: '01s', fields: [] },
+        { objectApiName: 'Product2', rows: PRODUCTS, keyPrefix: '01t', fields: [] },
+        {
+          objectApiName: 'PricebookEntry',
+          rows: PRODUCTS * 4,
+          keyPrefix: '01u',
+          fields: [
+            lookup('Pricebook2Id', 'Pricebook2', false),
+            lookup('Product2Id', 'Product2', false),
+          ],
+        },
+        {
+          objectApiName: 'Line__c',
+          rows: PRODUCTS,
+          keyPrefix: 'a0L',
+          fields: [lookup('Price__c', 'PricebookEntry', false)],
+        },
+      ],
+      order: ['Pricebook2', 'Product2', 'PricebookEntry', 'Line__c'],
+      fieldsOf: (object) => org.columns.get(object)?.map((name) => ({ name })),
+      options: { seed: 1, draw: 'uniform', parents: 'all', children: 100, floor: 1 },
+      budget: {
+        budget: { bytes: 10_000 * 1024, limitedBy: 'storage' },
+        bytesLimit: 'storage',
+        roomBytes: 200 * 1024,
+      },
+      // The target holds USD alone: a GBP price goes in USD.
+      priceCurrencyWrittenIn: (code) => (code === 'USD' ? undefined : 'USD'),
+    });
+  }
+
+  it('weighs a price the run writes another in place of at nothing, the one written in its place once', async () => {
+    const asHeld = await draw(catalogOf('USD'));
+    const replaced = await draw(catalogOf('GBP'));
+
+    if (asHeld.cut.kind !== 'sample' || replaced.cut.kind !== 'sample') {
+      throw new Error('no sample');
+    }
+    // The GBP prices the lines name, and the standard GBP prices those
+    // cannot be written without, are in the plan beside the USD prices
+    // written in their place.
+    const prices = replaced.cut.ids.get('PricebookEntry') ?? [];
+    for (let n = 1; n <= PRODUCTS; n++) {
+      expect(prices).toEqual(
+        expect.arrayContaining([
+          priceId(n, 'partners', 'GBP'),
+          priceId(n, 'std', 'GBP'),
+          priceId(n, 'partners', 'USD'),
+          priceId(n, 'std', 'USD'),
+        ]),
+      );
+    }
+    // The run sends the USD prices alone: the sample takes what the lines
+    // naming the USD prices take, no price more.
+    expect(replaced.cut.written).toBe(asHeld.cut.written);
+    expect(replaced.cut.storageBytes).toBe(asHeld.cut.storageBytes);
+  });
+});
+
+/*
  * The roots a draw takes, chosen by a window of dates, a filter on the roots
  * of an object and strata: chosen among the roots alone, the records under
  * them and above them coming whatever their date or their values.

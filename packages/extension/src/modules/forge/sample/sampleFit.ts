@@ -16,7 +16,9 @@
  * one record for each the platform writes with a record of the sample — the
  * direct relation of a contact written with its account, the role of an
  * opportunity written with its contact — once, whether the plan holds it or
- * not.
+ * not. A price the run writes another of the plan in place of
+ * (`SampleRow.replaced`) weighs nothing, as the standard price book it links
+ * to does.
  *
  * A root that would bring in more than a tenth of the room by itself — the
  * records whose threshold is its own — is set aside, named by its id and by
@@ -278,7 +280,8 @@ interface Weighed {
 /** What a record of the closure counts for: the records the run sends of it. */
 function recordsOf(closure: SampleClosure, row: number): number {
   const read = closure.rows[row];
-  if (read.matched) return 0;
+  // Linked to the target's own, or written as another of the plan: never sent.
+  if (read.matched || read.replaced) return 0;
   // The platform writes a person account's contact with its account.
   return closure.objectOf[row] === CONTACT && read.personAccount === true ? 0 : 1;
 }
@@ -371,7 +374,10 @@ function weigh(
     const objectApiName = closure.objectOf[row];
     const read = closure.rows[row];
     const records = platformRows.has(row) ? 0 : recordsOf(closure, row);
-    const own = read.matched || platformRows.has(row) ? 0 : measure.bytes(objectApiName, read);
+    const own =
+      read.matched || read.replaced || platformRows.has(row)
+        ? 0
+        : measure.bytes(objectApiName, read);
     const bytes = own + records * (measure.roomBytes?.(objectApiName) ?? 0);
     rowBytes[row] = bytes;
     const threshold = thresholds.threshold[row];

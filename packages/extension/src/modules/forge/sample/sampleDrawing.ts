@@ -421,10 +421,12 @@ export class SourceSampleReader implements SampleReader {
       }
       // In a currency the target does not hold, it goes as the source's own
       // price of its book and product in the currency it is written in: the
-      // run writes that one in its place, which the plan holds with it.
+      // run writes that one in its place, which the plan holds with it, and
+      // never sends this one, which weighs nothing.
       const instead = asWritten.get(sampleRow.id);
       if (instead !== undefined) also.push({ objectApiName: PRICEBOOK_ENTRY_OBJECT, id: instead });
-      return also.length > 0 ? { ...sampleRow, also } : sampleRow;
+      if (also.length === 0) return sampleRow;
+      return { ...sampleRow, also, ...(instead !== undefined ? { replaced: true } : {}) };
     });
   }
 
