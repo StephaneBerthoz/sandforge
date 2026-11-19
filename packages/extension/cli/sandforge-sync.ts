@@ -211,7 +211,10 @@ import {
   toolingQueriesOver,
   toolingValidationRules,
 } from '../src/modules/forge/TargetGapReader.js';
-import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
+import {
+  automationLines,
+  toolingRetrievesOver,
+} from '../src/modules/forge/TargetAutomationReader.js';
 import {
   API_BUDGET_EXCEEDED,
   CHECKPOINT_REFUSED,
@@ -1059,9 +1062,7 @@ export function cliAllowsDeletes(org: TypedTarget): boolean {
  * gate of a run both ways prices the target's read by (`targetFields`): an
  * object too wide for one statement is read in column groups.
  */
-function wholeReadFieldsOf(
-  fields: ReadonlyArray<{ name: string; type?: string }>,
-): string[] {
+function wholeReadFieldsOf(fields: ReadonlyArray<{ name: string; type?: string }>): string[] {
   return fields.filter((f) => f.type !== 'address' && f.type !== 'location').map((f) => f.name);
 }
 
@@ -2313,6 +2314,40 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     config,
     async (soql) => (await targetConn.query(soql)).totalSize,
   );
+  // What the target runs on the objects the run writes, said once, as its
+  // gate first reads it, before anything is written — on a dry run too, as a
+  // clone and a seed say it. A dry run into a sandbox whose Apex trigger on
+  // the records it inserted touched every parent account said nothing of it.
+  let automationRead: ForgeTargetAutomation | undefined;
+  let automationSaid = false;
+  const sayAutomation = (lines: readonly string[]): void => {
+    if (automationSaid) return;
+    automationSaid = true;
+    log('');
+    for (const line of lines) log(line);
+  };
+  const readTargetAutomation = async (
+    objects: readonly string[],
+  ): Promise<ForgeTargetAutomation> => {
+    try {
+      const read = await targetAutomationReader(targetConn).read(args.target, objects);
+      automationRead ??= read;
+      sayAutomation(
+        automationLines(read, args.target, {
+          mayMute: relayTakes('--mute-automation'),
+          // Sync's writes send Sforce-Auto-Assign: FALSE, and it takes no flag that applies them.
+          mayApplyAssignmentRules: false,
+        }),
+      );
+      return read;
+    } catch (err: unknown) {
+      sayAutomation([
+        `target automation: what ${args.target} runs on the objects the run writes could not ` +
+          `be read (${err instanceof Error ? err.message : String(err)})`,
+      ]);
+      throw err;
+    }
+  };
   // Held, before its first write, to what the target has left of its data
   // storage and of its daily emails, as a clone is: refused past either, with
   // nothing written. Sync wrote until the target refused its records one by
@@ -2320,7 +2355,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const measures: SyncWriteMeasures = {
     readStorage: () => readDataStorage(targetConn),
     readApiBudget: () => readApiBudget(targetConn),
-    readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
+    readAutomation: readTargetAutomation,
     readLimits: () => readEmailLimits(targetConn),
     // As the user the run writes as, once something that still runs may send
     // an email: one line of anonymous Apex that sends nothing, never in a
@@ -2757,7 +2792,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     endWith(runExitCode(statusWithReadCuts('success', [...readCuts.values()]), args.failOnPartial));
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...readCutJson(), ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...(automationRead ? { targetAutomation: automationRead } : {}), ...readCutJson(), ...dryRunMuteOf(planned), ...(checkpointPlanned ? { checkpoint: checkpointPlanned } : {}), apiRequests: syncApiRequestsJson(simulation.writeCheck?.apiRequests, requestsSent()), ...wouldBeRefusedJson(wouldBeRefused), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }

@@ -414,6 +414,14 @@ Before execution, the Review step shows:
   meet, nothing taken; and beside each object, the record type the target would
   give the records created without one, whose read-backs count among the run's
   API requests.
+- On the command line, a dry run and a run alike say first what the target
+  runs on the objects the run writes, from the read its gate makes, as
+  `sandforge clone` says it: per object, what each write fires -- flows, Apex
+  triggers, processes and workflow rules, with what of them sends messages or
+  runs after commit --, its assignment and duplicate rules, the permissions
+  that keep a flow quiet and what could not be read; or that the read
+  failed, and why. With `--json`, a dry run gives it under
+  `targetAutomation`, in the shape of a clone's.
 - It writes nothing to the target, to the audit trail or to the sync history.
   Like a run it is listed in Live Operations, and its Cancel -- or the page's
   -- stops it before its next object. Each lookup is an API request: about one

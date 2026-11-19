@@ -586,3 +586,102 @@ describe('sandforge-sync --accept-emails', () => {
     );
   });
 });
+
+describe('sandforge-sync, what the target runs on the objects it writes', () => {
+  let out: string[];
+  let err: string[];
+
+  beforeEach(() => {
+    out = [];
+    err = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Exited(code);
+    }) as never);
+    readAutomation.mockReset();
+    // An Apex trigger that touches each account's parent as it goes in, and
+    // nothing that sends an email.
+    readAutomation.mockResolvedValue({
+      ...automationOf([]),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'TouchParent', events: ['afterInsert'] }],
+        },
+      ],
+    } satisfies ForgeTargetAutomation);
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+  });
+
+  const exitOf = async (line: string[]): Promise<number | undefined> => {
+    try {
+      await main(line);
+      return process.exitCode === undefined ? 0 : Number(process.exitCode);
+    } catch (thrown: unknown) {
+      if (thrown instanceof Exited) return thrown.code;
+      throw thrown;
+    }
+  };
+
+  it('names in a dry run the Apex trigger each write fires, as a clone and a seed name it', async () => {
+    // A dry run into a sandbox whose trigger on the records it inserted
+    // touched every parent account said nothing of it.
+    orgs([], 'withheld');
+
+    expect(await exitOf(argv('--dry-run'))).toBe(0);
+
+    const said = out.join('');
+    expect(said).toContain('target automation: what TGT runs on the 1 object(s) the run writes');
+    expect(said).toMatch(/\n {2}Account\n {4}on insert: Apex trigger TouchParent \(/);
+    // Said once, before the simulation's lines.
+    expect(said.split('target automation:')).toHaveLength(2);
+    expect(said.indexOf('target automation:')).toBeLessThan(said.indexOf('simulation:'));
+  });
+
+  it('says it before a real run writes, and gives it in a dry run’s --json summary', async () => {
+    const events: string[] = [];
+    orgs(events, 'withheld');
+
+    expect(await exitOf(argv())).toBe(0);
+    const said = out.join('');
+    expect(said).toContain('target automation: what TGT runs on the 1 object(s) the run writes');
+    expect(said.indexOf('target automation:')).toBeLessThan(said.indexOf('write gate:'));
+    expect(events).toEqual(['write']);
+
+    out.length = 0;
+    expect(await exitOf(argv('--dry-run', '--json'))).toBe(0);
+    const printed = JSON.parse(out.join('')) as { targetAutomation?: ForgeTargetAutomation };
+    expect(printed.targetAutomation?.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Account',
+        triggers: [{ name: 'TouchParent', events: ['afterInsert'] }],
+      }),
+    ]);
+    // stdout carries the summary alone, and stderr does not repeat it.
+    expect(err.join('')).not.toContain('target automation:');
+  });
+
+  it('says in a dry run that it could not be read, and why', async () => {
+    orgs([], 'withheld');
+    readAutomation.mockRejectedValue(new Error('INSUFFICIENT_ACCESS: no Tooling API'));
+
+    expect(await exitOf(argv('--dry-run'))).toBe(0);
+
+    expect(out.join('')).toContain(
+      'target automation: what TGT runs on the objects the run writes could not be read ' +
+        '(INSUFFICIENT_ACCESS: no Tooling API)',
+    );
+  });
+});
